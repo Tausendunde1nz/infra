@@ -20,7 +20,6 @@ echo "[t1nz-golden] Copying critical system files..."
 COPY_LIST=(
   "/etc"
   "/opt/tu1nz_repos"
-  "/opt/tu1nz_services"
   "/opt/n8n"
   "/var/spool/cron"
 )
