@@ -108,3 +108,16 @@ unter `/opt/tu1nz_repos/infra`.
 
 - Noch KEINE Änderungen, Löschungen oder Commits.
 - Grundlage für das geplante „Clean Infra Commit“ im Rahmen von v7.1 / v7.2.
+
+---
+
+## E-Set Entscheidung v7.2 (2025-11-16)
+
+- **api_patch.js**
+  - Status: Legacy-Patch, wird aktuell nicht produktiv verwendet.
+  - Klassifikation: **D – Archiv / Snapshots / Baselines**
+  - Begründung: Aktive Patch-Logik liegt in `trendwatch_api_patch.js` (A-Set).
+- Weitere Patch-/Helper-Skripte:
+  - Aktuell **keine** weiteren Dateien im E-Set.
+
+Damit ist das E-Set zum Stand v7.2 leer; alle Dateien sind A–D eindeutig zugeordnet.
