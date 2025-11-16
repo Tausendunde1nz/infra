@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  trendwatch-bot:
+    image: tu1nz/bot-template:latest
+    container_name: trendwatch-bot
+    env_file:
+      - /opt/tu1nz_repos/infra/trendwatch.env
+    ports:
+      - "3011:3000"            # Nginx zeigt auf 127.0.0.1:3011 → Container-Port 3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD","curl","-fsS","http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

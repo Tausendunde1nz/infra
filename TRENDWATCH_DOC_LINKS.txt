@@ -1,0 +1,6 @@
+=== Trendwatch v6 – Blueprint Referenz ===
+Datum: 2025-11-16
+Die vollständige Implementierungsbeschreibung befindet sich in:
+  /opt/tu1nz_repos/infra/trendwatch-src/README_TRENDWATCH_v6.md
+
+Dieses Dokument gehört offiziell zur TU1NZ Systemarchitektur.

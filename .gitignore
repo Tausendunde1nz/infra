@@ -1,0 +1,29 @@
+# --- TU1NZ infra .gitignore v7.1 ---
+
+# Node / Dependencies
+node_modules/
+*/node_modules/
+
+# Test-Blueprints (lokal, nicht im Repo)
+bot-factory/test_blueprint_bot_min/
+bot-factory/test_blueprint_run/
+
+# Secrets & sensitive config (niemals in Git)
+*.env
+trendwatch.env
+notify.conf
+*.secret
+*.key
+*.pem
+
+# Backups, Snapshots, Baselines (lokal)
+snapshots/
+control_backup_v*/
+*_baseline*
+*_backup*
+*.tar.gz
+*.bak*
+
+# Lokale Logs & OS-Müll
+*.log
+.DS_Store
