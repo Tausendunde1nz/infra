@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    container_name: blueprint_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+
+    ports:
+      - "3011:3000"
