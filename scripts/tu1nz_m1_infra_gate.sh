@@ -6,7 +6,7 @@ SYSTEMD_DIR="${CONTROL_DIR}/systemd"
 CRONTAB_FILE="${CONTROL_DIR}/docs/post-migration-chatops.crontab"
 
 usage() {
-  printf 'Usage: %s {syntax|verify|units|reload|health|git|gitlog|timers|backup|backuptimer|crontab|status}\n' "$0" >&2
+  printf 'Usage: %s {syntax|verify|units|reload|health|git|gitlog|timers|backup|restore|backuptimer|crontab|status}\n' "$0" >&2
   exit 64
 }
 
@@ -79,6 +79,33 @@ case "${1:-}" in
     require_root
     systemctl start tu1nz_encrypted_backup.service
     systemctl --no-pager --full status tu1nz_encrypted_backup.service
+    ;;
+  restore)
+    require_root
+    run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+    run_dir="/opt/tu1nz_repos/backups/restore-tests/${run_id}"
+    extract_dir="${run_dir}/extracted"
+    remote_root="gcrypt01:backups"
+    latest="$(rclone lsf "${remote_root}" --files-only --include 'tu1nz_system_backup_*.tar.gz' | sort | tail -n 1)"
+    [[ -n "${latest}" ]] || {
+      printf 'ERROR: no encrypted system backup found\n' >&2
+      exit 1
+    }
+    mkdir -p "${extract_dir}"
+    downloaded="${run_dir}/${latest}"
+    local_archive="/opt/tu1nz_repos/backups/encrypted-system/${latest}"
+    rclone copyto "${remote_root}/${latest}" "${downloaded}"
+    [[ -f "${local_archive}" ]]
+    cmp --silent "${local_archive}" "${downloaded}"
+    tar -tzf "${downloaded}" >/dev/null
+    tar -xzf "${downloaded}" -C "${extract_dir}"
+    for repo in control adult-publishing-core; do
+      [[ -d "${extract_dir}/${repo}/.git" ]]
+      git -C "${extract_dir}/${repo}" fsck --full
+      [[ -z "$(git -C "${extract_dir}/${repo}" status --porcelain)" ]]
+    done
+    printf 'RESTORE_VERIFY=PASS remote=%s local=%s extracted=%s\n' \
+      "${remote_root}/${latest}" "${downloaded}" "${extract_dir}"
     ;;
   backuptimer)
     require_root

@@ -52,11 +52,13 @@ It has no reference or write path to
 3. Install scripts under `/usr/local/bin` and units under
    `/etc/systemd/system` with root ownership and fixed modes.
 4. Run each oneshot service manually and inspect its journal.
-5. Enable and start each replacement timer.
-6. Install the comment-only `chatops` crontab only after both replacement
-   services pass.
-7. Run the encrypted backup and prove that its remote archive contains the M1
-   repository through an isolated restore test.
+5. Run the encrypted backup and prove that its remote archive contains the M1
+   repository through an isolated restore test under
+   `/opt/tu1nz_repos/backups/restore-tests`.
+6. Enable and start each replacement timer only after the service and restore
+   gates pass.
+7. Install the comment-only `chatops` crontab only after both replacement
+   services pass and their timers are active.
 
 ## Risks
 
