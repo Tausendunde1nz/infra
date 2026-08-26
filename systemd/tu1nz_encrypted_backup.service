@@ -1,0 +1,8 @@
+[Unit]
+Description=TU1NZ Encrypted Drive Backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/tu1nz_encrypted_backup.sh

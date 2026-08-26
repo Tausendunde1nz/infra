@@ -1,0 +1,14 @@
+*
+!.gitignore
+!README.md
+!docs/
+!docs/**
+!nginx/
+!nginx/current/
+!nginx/current/**
+!scripts/
+!scripts/restore_test.sh
+!scripts/tu1nz_encrypted_backup.sh
+!systemd/
+!systemd/restore-test.service
+!systemd/tu1nz_encrypted_backup.service

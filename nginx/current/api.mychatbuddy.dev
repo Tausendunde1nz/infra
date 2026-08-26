@@ -1,0 +1,130 @@
+server {
+    listen 80;
+    server_name api.mychatbuddy.dev;
+    include /etc/nginx/snippets/security_headers.conf;
+
+    ################################################################
+    # TLS / HTTPS
+    ################################################################
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    ssl_certificate     /etc/letsencrypt/live/api.mychatbuddy.dev/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.mychatbuddy.dev/privkey.pem;
+
+    ################################################################
+    # Logging (optional)
+    ################################################################
+    access_log /var/log/nginx/spicy_access.log;
+    error_log  /var/log/nginx/error.log;
+
+    ################################################################
+    # SPICY MILA (läuft lokal auf :8080)
+    ################################################################
+
+    # Healthcheck
+    location = /spicy/health {
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://127.0.0.1:8090/health;
+    }
+
+    # Telegram Webhook (Secret wird durchgereicht)
+    location = /spicy/webhook {
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Telegram-Bot-Api-Secret-Token $http_x_telegram_bot_api_secret_token;
+        proxy_pass http://127.0.0.1:8090/webhook;
+    }
+
+    ################################################################
+    # MOMMY RAMONA (läuft lokal auf :8081)
+    ################################################################
+
+    # Healthcheck
+    location = /mommyramona/health {
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://127.0.0.1:8081/health;
+    }
+
+    # Telegram Webhook (Secret wird durchgereicht)
+    location = /mommyramona/webhook {
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Telegram-Bot-Api-Secret-Token $http_x_telegram_bot_api_secret_token;
+        include /etc/nginx/snippets/limit_webhook.conf;
+        proxy_pass http://127.0.0.1:8081/webhook;
+    }
+
+    ################################################################
+    # Fallback: alles andere 404
+    ################################################################
+    # =====================
+    # SPICY MILA
+    # =====================
+
+
+    ################################################################
+    # SPICY MILA
+    ################################################################
+
+    # Healthcheck (Container-Port 8090 -> intern /health)
+
+    # Telegram Webhook (Secret wird durchgereicht)
+
+    ############################################
+    # SPICY MILA
+    ############################################
+
+
+    # ==========================
+    # SPICY MILA
+    # ==========================
+    location = /spicymila/health {
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://127.0.0.1:8090/health;
+    }
+
+    location = /spicymila/webhook {
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Telegram-Bot-Api-Secret-Token $http_x_telegram_bot_api_secret_token;
+        include /etc/nginx/snippets/limit_webhook.conf;
+        proxy_pass http://127.0.0.1:8090/webhook;
+    }
+##################################################################
+    # TRENDWATCH BOT (läuft lokal auf Port 8095)
+    ##################################################################
+    location /trendwatch/ {
+        rewrite ^/trendwatch(/.*)?$ $1 break;
+        proxy_pass http://127.0.0.1:3011/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / { return 404; }
+}
+
+##################################################################

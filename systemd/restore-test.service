@@ -1,0 +1,8 @@
+[Unit]
+Description=Monatlicher Restore-Test (rclone decrypt + Smoke-Test)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/restore_test.sh
+User=root
+Group=root
