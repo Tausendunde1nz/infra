@@ -16,5 +16,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths=/opt/spicymila_bot /opt/telegram_chatbot /opt/trendwatch_bot /var/log/tausendunde1nz
+ReadWritePaths=-/opt/spicymila_bot -/opt/telegram_chatbot -/opt/trendwatch_bot /var/log/tausendunde1nz
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

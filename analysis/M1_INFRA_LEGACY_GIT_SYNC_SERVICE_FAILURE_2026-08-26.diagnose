@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 Scope: M1 preflight infrastructure unblocker
-Status: activation stopped; diagnosis pending
+Status: cause established; documented repair pending validation
 
 ## Passed gates before the failure
 
@@ -24,13 +24,34 @@ control process exited with a non-zero status.
 - The `chatops` crontab has not been changed.
 - M1 application implementation remains untouched.
 
-## Cause
+## Evidence and cause
 
-Not yet established. No corrective change is authorized until the service
-status and journal have been read and the exact failure has been identified.
+The service journal reports `status=226/NAMESPACE` and:
 
-## Next diagnostic action
+`Failed to set up mount namespacing: /opt/trendwatch_bot: No such file or directory`
 
-Use the versioned gate's read-only `gitlog` action to capture the full service
-status and the latest 120 journal lines. Based on that evidence, document a
-specific repair and rollback plan before retrying the service.
+The service's `ReadWritePaths=` treated every legacy repository path as
+mandatory. `/opt/trendwatch_bot` is currently absent, so systemd rejected the
+mount namespace before the synchronization script could run. The script itself
+already treats a missing repository as a successful, logged skip.
+
+## Documented repair
+
+Prefix the three legacy repository entries in `ReadWritePaths=` with `-` so
+systemd treats those paths as optional while preserving the strict filesystem
+sandbox. Keep `/var/log/tausendunde1nz` mandatory.
+
+Validation sequence:
+
+1. Commit and push the unit change in Control.
+2. Pull Control as `chatops`.
+3. Run `systemd-analyze verify` through the versioned gate.
+4. Install the exact committed units and run `daemon-reload`.
+5. Retry only the manual Git-sync service.
+6. Enable timers only after the retry completes successfully.
+
+## Rollback
+
+Restore `tu1nz-legacy-git-sync.service` from Control commit `c5fd268`, reinstall
+it in `/etc/systemd/system`, and run `systemctl daemon-reload`. No timer is
+currently enabled, so rollback does not require stopping a scheduled run.
