@@ -8,6 +8,7 @@
 !nginx/current/**
 !scripts/
 !scripts/restore_test.sh
+!scripts/tu1nz_m1_infra_gate.sh
 !scripts/tu1nz_encrypted_backup.sh
 !scripts/tu1nz_mommyramona_healthcheck.sh
 !scripts/tausendunde1nz-git-sync.sh
