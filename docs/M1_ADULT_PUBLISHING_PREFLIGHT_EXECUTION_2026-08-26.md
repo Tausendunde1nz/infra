@@ -2,11 +2,13 @@
 
 - Date: 2026-08-26
 - Host: `ubuntu-8gb-nbg1-2`
-- Tailscale SSH endpoint: `100.121.130.51:2222`
-- Scope: repository/bootstrap, path and writer isolation, backup and rollback verification
-- Explicitly excluded: M1 implementation, Telegram bot, AVS, X, payment, systemd integration and deployment
-- Formal result: **NO-GO for starting M1 implementation**
-- Repository readiness result: **PASS**
+- Tailscale address: `100.121.130.51`
+- Scope: repository/bootstrap, path and writer isolation, scheduler migration,
+  recurring encrypted backup and rollback verification
+- M1 application implementation: not started and unchanged
+- Formal result: **GO for the isolated M1 core implementation**
+- Repository readiness: **PASS**
+- Infrastructure/rollback readiness: **PASS**
 
 ## 1. Binding repository and path
 
@@ -16,14 +18,15 @@
 | Visibility | private |
 | Canonical server path | `/opt/tu1nz_repos/adult-publishing-core` |
 | Owner and mode | `chatops:chatops`, `2770` |
+| `chatops` write test | passed |
 | Default/local branch | `main` |
-| Initial commit | `5572ea165c11fa9d409d1e76ddf08243ae657ea0` |
+| Initial/current commit | `5572ea165c11fa9d409d1e76ddf08243ae657ea0` |
 | Working tree | clean, tracking `origin/main` |
 | Remote | `git@github.com:Tausendunde1nz/adult-publishing-core.git` |
-| Recommended future M1 branch | `feat/m1-core-state-machine` |
+| Recommended M1 branch | `feat/m1-core-state-machine` |
 
-The future M1 branch was not created during this preflight. No application code,
-migration, state machine, policy invariant or test was added.
+The future M1 branch was not created during this preflight. No application
+code, migration, state machine, policy invariant or test was added.
 
 ## 2. Dedicated repository access
 
@@ -41,113 +44,137 @@ The server uses a repository-specific Ed25519 deploy key.
 | GitHub scope | this repository only |
 | GitHub access | read/write |
 
-GitHub authentication identified the key as
-`Tausendunde1nz/adult-publishing-core`. A push dry-run from clean `main`
-returned `Everything up-to-date`. Private-key material was never copied to
-GitHub or included in this document.
+GitHub authentication and a push dry-run passed. Private-key material was not
+copied to GitHub, logs or documentation.
 
 ## 3. Writer and path-isolation audit
 
-### Positive findings
+Final read-only checks established:
 
-- No exact reference to `/opt/tu1nz_repos/adult-publishing-core` was found in
-  active systemd unit files, `/usr/local/bin`, system cron directories or
-  container configuration.
-- No running container mounts the repository or its canonical path.
-- No open file handle was found below the repository path.
-- `tu1nz_agentmode.service` synchronizes only the explicitly configured `docs`
-  and `control` repositories.
-- `agentmodus_tu1nz.service` writes only its own agent log.
-- `tu1nz-guard.service` discovers all repositories below
-  `/opt/tu1nz_repos/*`, but only reads Git status and reports drift; it does not
-  modify the M1 repository.
-- `t1nz-golden-snapshot.service` writes to its snapshot/log destinations and
-  performs Git changes only in the explicitly configured `docs` repository.
-- The broad inventory script under `/usr/local/bin` lists repository scripts
-  but does not execute the ownership commands it prints.
+- no running container mounts the canonical M1 repository;
+- no open file handle exists below the repository path;
+- no active `chatops` cron entry remains;
+- the only exact path references below the audited system locations are:
+  - `/usr/local/bin/tu1nz_encrypted_backup.sh`, which reads the repository into
+    the encrypted backup; and
+  - `/usr/local/bin/tu1nz_m1_infra_gate.sh`, whose preflight action is read-only;
+- the legacy Git-sync service is sandboxed to the three legacy bot paths and
+  has no reference or write path to the M1 repository.
 
-### Blocking finding: active cron entries
+No service, timer or container was found that automatically pulls, commits,
+pushes or writes application content in the M1 repository.
 
-The active `chatops` crontab still contains two live entries:
+## 4. Cron-to-systemd migration
 
-```text
-*/2 * * * * curl -fsS https://api.mychatbuddy.dev/mommyramona/health ...
-*/30 * * * * /usr/local/bin/tausendunde1nz-git-sync.sh ...
-```
+The two previously active `chatops` cron entries were migrated only after
+manual service validation. The installed `chatops` crontab is now
+comment-only, and the final active-entry count is `0`.
 
-The Git-sync script is limited to these legacy paths and does not touch M1:
+| Timer | Final state | Function |
+|---|---|---|
+| `tu1nz-mommyramona-health.timer` | enabled, active | state-aware HTTP health check every two minutes |
+| `tu1nz-legacy-git-sync.timer` | enabled, active | legacy bot repository sync every 30 minutes |
+| `tu1nz_encrypted_backup.timer` | enabled, active | daily encrypted system backup |
 
-- `/opt/spicymila_bot`
-- `/opt/telegram_chatbot`
-- `/opt/trendwatch_bot`
+Manual validation results:
 
-This proves path isolation, but the live cron entries still violate the binding
-TU1NZ rule that cronjobs are prohibited and only systemd timers may schedule
-work. The server cron spool contained an active `chatops` crontab and one dated
-backup; no active root crontab was present.
+- the health-check service completed successfully;
+- the Git-sync service completed successfully after optional legacy paths were
+  represented correctly in its systemd namespace; and
+- the encrypted-backup service completed successfully.
 
-## 4. Encrypted snapshot and restore proof
+`cron.service` remains active for system/package and broader legacy schedules.
+No remaining cron location references the M1 repository. Disabling the system
+cron service is not part of this scoped M1 preflight because doing so without a
+separate inventory and replacement of every system task would create an
+unrelated platform risk.
 
-The clean initial repository was archived, uploaded through the encrypted
-`gcrypt01` remote, downloaded again and restored into an isolated directory.
+## 5. Encrypted backup and restore proof
+
+### Pre-change rollback artifact
 
 | Item | Verified value |
 |---|---|
-| Snapshot timestamp | `20260826T112914Z` |
-| Local snapshot root | `/opt/tu1nz_repos/backups/m1-adult-publishing-core-20260826T112914Z` |
-| Encrypted remote object | `gcrypt01:backups/m1-adult-publishing-core/20260826T112914Z/adult-publishing-core-20260826T112914Z.tar.gz` |
-| Archive size | `12379` bytes |
-| Source SHA-256 | `c879cf6d2820f7c4a4ae2a4b9bbed04d3f1308eaee3496a80a168ae4b276af85` |
-| Downloaded SHA-256 | `c879cf6d2820f7c4a4ae2a4b9bbed04d3f1308eaee3496a80a168ae4b276af85` |
-| Restored commit | `5572ea165c11fa9d409d1e76ddf08243ae657ea0` |
-| Restored branch/status | `main`, clean |
-| Git object validation | `git fsck --no-dangling` passed |
-| Restore test | **PASS** |
+| Timestamp | `20260826T113904Z` |
+| Local root | `/opt/tu1nz_repos/backups/m1-infra-unblock-20260826T113904Z` |
+| Encrypted remote | `gcrypt01:backups/m1-infra-unblock/20260826T113904Z/m1-infra-unblock-20260826T113904Z.tar.gz` |
+| SHA-256 | `b049407786cfacc102afc75de0c2d347e827356cca62a1f6306cc6223f71939b` |
+| Downloaded SHA-256 | identical |
+| Isolated extraction | passed |
 
-Nothing was deleted after the test. The source archive, downloaded archive and
-isolated restore tree remain available for audit and rollback.
+### Recurring M1-aware backup proof
 
-The currently scheduled encrypted backup script still archives only legacy bot
-and nginx paths. Therefore the verified one-off M1 snapshot is the current
-encrypted rollback artifact; recurring M1 coverage must be decided and
-documented before M1 contains non-trivial work.
+| Item | Verified value |
+|---|---|
+| Local archive | `/opt/tu1nz_repos/backups/encrypted-system/tu1nz_system_backup_20260826T12-08-48Z.tar.gz` |
+| Encrypted remote | `gcrypt01:backups/tu1nz_system_backup_20260826T12-08-48Z.tar.gz` |
+| SHA-256 | `b74631cf6cb73c3649f730f6205ba1447ca500535ab6e264f4ee0817aa481a8a` |
+| Isolated restore root | `/opt/tu1nz_repos/backups/restore-tests/20260826T120910Z/extracted` |
+| Restored Control commit | `bd1c396f617eed95306fb112e4530b677bb0cf56` |
+| Restored M1 commit | `5572ea165c11fa9d409d1e76ddf08243ae657ea0` |
+| Local/remote byte comparison | passed |
+| Archive integrity | passed |
+| Both Git object checks | passed |
+| Both restored worktrees | clean |
+| Final restore marker | `RESTORE_VERIFY=PASS` |
 
-## 5. Risks and decision
+Nothing was removed after the restore tests. The artifacts and isolated restore
+trees remain available for audit and rollback.
 
-### Accepted residual risk
+## 6. Incidents handled during execution
 
-The user explicitly chose GitHub Free and accepted its remaining protection
-limitations. This is recorded as an accepted residual risk and is not the reason
-for the NO-GO result.
+The following stops were documented under `analysis/` before recovery:
 
-### Open risks
+1. systemd verification initially ran before the ExecStart scripts existed;
+2. a Control pull was attempted in the root SSH context instead of `chatops`;
+3. the first Git-sync service start failed because a missing optional legacy
+   path was treated as mandatory by systemd; and
+4. the first restore gate exposed pre-existing ignored analysis material after
+   an overly broad `.gitignore` exception.
 
-1. Two active cron entries conflict with the binding system policy.
-2. The scheduled encrypted backup does not yet include the M1 repository.
-3. A deploy key with write access is intentionally stored on the server. Its
-   blast radius is limited to this one repository; server compromise would still
-   permit writes to that repository until the key is revoked.
+Each issue was contained before timer activation, documented with evidence and
+rollback, corrected in Control, committed and pushed, and then revalidated.
 
-### Formal decision
+## 7. Residual risks
 
-**NO-GO for starting M1 implementation.**
+### Explicitly accepted
 
-The repository, key, canonical path, Git baseline, writer isolation and tested
-rollback artifact are ready. Formal GO is withheld because the active cron state
-contradicts the binding TU1NZ policy and recurring encrypted coverage for the new
-repository has not yet been established or explicitly waived.
+- GitHub Free protection limitations were explicitly accepted by the user.
 
-## 6. Exact next steps
+### Non-blocking, separately tracked
 
-1. Open a separate, SSOT-first infrastructure maintenance step for the two
-   active `chatops` cron entries.
-2. Document equivalent state-aware systemd services/timers, rollback and backup
-   before activation; do not place this infrastructure work in the M1 repository.
-3. Disable the cron entries only after the replacement timers pass their health
-   checks, then verify that `crontab -l` contains no active jobs.
-4. Extend or explicitly waive recurring encrypted backup coverage for
-   `/opt/tu1nz_repos/adult-publishing-core`; retain the proven one-off snapshot.
-5. Re-run the read-only writer, cron, container, Git and backup checks.
-6. Only after a clean GO, create `feat/m1-core-state-machine` from commit
-   `5572ea165c11fa9d409d1e76ddf08243ae657ea0` and begin the strictly isolated M1
-   core scope.
+1. The repository-scoped deploy key intentionally permits writes. A server
+   compromise could write to this repository until the key is revoked.
+2. The legacy SpicyMila Git remote reports an existing authentication warning
+   during pull. That service does not reference or write the M1 repository.
+3. `cron.service` remains active for platform tasks outside the M1 path. A
+   complete platform-wide cron retirement requires its own inventory, backup,
+   rollback and maintenance approval.
+
+These risks do not invalidate the verified M1 path isolation or rollback
+capability and therefore do not block the scoped M1 core implementation.
+
+## 8. Formal decision and exact next steps
+
+**GO for the isolated M1 core implementation.**
+
+The GO is limited to the following future work in
+`/opt/tu1nz_repos/adult-publishing-core`:
+
+- core data model;
+- migrations;
+- submission state machine;
+- policy invariants; and
+- automated tests.
+
+Exact next steps:
+
+1. Confirm the repository still resolves to clean `main` at
+   `5572ea165c11fa9d409d1e76ddf08243ae657ea0`.
+2. Create `feat/m1-core-state-machine` from that commit.
+3. Implement only the approved M1 core scope and its tests.
+4. Do not add Telegram, AVS, X, payment, systemd, token, deployment or live
+   publishing integration in M1.
+5. Keep the legacy Git authentication warning and platform-wide cron inventory
+   in separate infrastructure/security work; neither belongs in the M1
+   application branch.

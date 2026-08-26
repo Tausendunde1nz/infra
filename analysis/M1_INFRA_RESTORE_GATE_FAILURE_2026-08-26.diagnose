@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 Scope: encrypted recurring backup validation
-Status: cause established; fresh backup and rerun required
+Status: resolved and validated
 
 ## Observed result
 
@@ -60,3 +60,11 @@ The diagnostic output change can be restored from Control commit `b46fad6`.
 The broad ignore exception can be restored from commit `5a85c14`, although that
 would intentionally expose the legacy untracked paths again. No active timer or
 production content is affected.
+
+## Validation result
+
+After restoring the narrow ignore policy, the live Control worktree was clean.
+A fresh encrypted archive was uploaded, downloaded into a new isolated restore
+directory, compared byte-for-byte, extracted and checked. Both restored Git
+repositories passed object-integrity and clean-worktree checks. The gate ended
+with `RESTORE_VERIFY=PASS`.

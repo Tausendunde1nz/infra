@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 Scope: M1 preflight infrastructure unblocker
-Status: cause established; documented repair pending validation
+Status: resolved and validated
 
 ## Passed gates before the failure
 
@@ -55,3 +55,9 @@ Validation sequence:
 Restore `tu1nz-legacy-git-sync.service` from Control commit `c5fd268`, reinstall
 it in `/etc/systemd/system`, and run `systemctl daemon-reload`. No timer is
 currently enabled, so rollback does not require stopping a scheduled run.
+
+## Validation result
+
+The corrected unit passed `systemd-analyze verify`, was reinstalled and
+reloaded, and the manual oneshot service completed successfully. The timer was
+enabled only after that successful retry.

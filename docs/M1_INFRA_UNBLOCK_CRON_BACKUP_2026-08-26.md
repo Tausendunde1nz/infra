@@ -2,7 +2,7 @@
 
 - Date: 2026-08-26
 - Host: `ubuntu-8gb-nbg1-2`
-- Status: approved implementation plan, activation pending validation
+- Status: completed and validated
 - M1 application code: out of scope and unchanged
 
 ## Objective
@@ -79,3 +79,16 @@ It has no reference or write path to
 4. Run `systemctl daemon-reload`, restore the previous enablement state and
    validate the original schedules.
 5. Revoke no GitHub key: this change does not alter repository credentials.
+
+## Execution result
+
+- All planned scripts and units passed shell/systemd verification.
+- Manual health, legacy Git-sync and encrypted-backup services completed.
+- All three replacement timers are enabled and active.
+- The `chatops` crontab contains no active entry.
+- The newest local and encrypted remote archives are byte-identical.
+- The isolated restore at
+  `/opt/tu1nz_repos/backups/restore-tests/20260826T120910Z/extracted`
+  passed archive integrity, Git object integrity and clean-worktree checks for
+  both `control` and `adult-publishing-core`.
+- Final marker: `RESTORE_VERIFY=PASS`.
