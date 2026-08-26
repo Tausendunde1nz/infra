@@ -1,0 +1,33 @@
+timestamp: 2026-08-26T13:14:00+02:00
+operation: connect canonical server path to private M1 GitHub repository
+result: stopped before clone
+
+error:
+  GitHub returned "Repository not found" during the read-only ls-remote
+  validation for Tausendunde1nz/adult-publishing-core.
+
+cause:
+  The existing chatops SSH identities are repository-scoped deploy keys. The
+  github.com-infra alias authenticates as Tausendunde1nz/infra and the default
+  github.com identity authenticates as Tausendunde1nz/docs. Neither key has
+  access to the newly created private repository.
+
+impact:
+  The private GitHub repository exists with an initial main commit. No local
+  /opt/tu1nz_repos/adult-publishing-core path was created and no existing SSH
+  key, config, service or repository was changed by the failed validation.
+
+required resolution:
+  Create a dedicated Ed25519 deploy key for adult-publishing-core, store the
+  private key only under the allowed /etc/tu1nz security path, grant that public
+  key read/write access only to Tausendunde1nz/adult-publishing-core, and bind
+  the cloned repository to that identity through its local Git configuration.
+
+security gate:
+  Key generation and the GitHub deploy-key grant create persistent repository
+  access. They require an explicit action-time approval before execution.
+
+rollback:
+  Remove the dedicated deploy key from the GitHub repository, remove only its
+  dedicated private/public key files, and remove the repository-local SSH
+  command. Existing Infra and Docs identities remain untouched.
