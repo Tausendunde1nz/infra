@@ -1,0 +1,45 @@
+# M1 Infrastructure Restore Gate — Incomplete Result
+
+Date: 2026-08-26
+Scope: encrypted recurring backup validation
+Status: stopped; explicit rerun pending
+
+## Observed result
+
+The isolated restore gate downloaded and extracted the newest encrypted system
+backup and reached `git fsck --full` for both restored repositories. Both fsck
+runs printed completion output. The expected final `RESTORE_VERIFY=PASS` marker
+was not printed, so the gate is not accepted as successful.
+
+## Containment
+
+- Replacement timers remain disabled.
+- The `chatops` crontab remains unchanged.
+- The first restore directory is retained as evidence.
+- No production path was restored over or deleted.
+
+## Possible cause
+
+One of the previously silent assertions after download or repository checking
+returned non-zero. The existing output does not identify which assertion, so no
+corrective assumption is made.
+
+## Diagnostic repair
+
+Replace silent assertions with explicit errors for:
+
+- missing local source archive;
+- local/remote archive mismatch;
+- archive integrity failure;
+- missing restored Git repository;
+- Git object-integrity failure; and
+- non-clean restored worktree.
+
+The rerun must use a new timestamped directory beneath
+`/opt/tu1nz_repos/backups/restore-tests`. Existing evidence is not removed.
+
+## Rollback
+
+The diagnostic change affects only the versioned gate output. Restore the gate
+from Control commit `b46fad6` if rollback is required. No active timer or
+production content is affected.

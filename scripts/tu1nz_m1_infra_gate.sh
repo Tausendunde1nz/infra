@@ -95,14 +95,38 @@ case "${1:-}" in
     downloaded="${run_dir}/${latest}"
     local_archive="/opt/tu1nz_repos/backups/encrypted-system/${latest}"
     rclone copyto "${remote_root}/${latest}" "${downloaded}"
-    [[ -f "${local_archive}" ]]
-    cmp --silent "${local_archive}" "${downloaded}"
-    tar -tzf "${downloaded}" >/dev/null
+    if [[ ! -f "${local_archive}" ]]; then
+      printf 'ERROR: local source archive missing: %s\n' "${local_archive}" >&2
+      exit 1
+    fi
+    if ! cmp --silent "${local_archive}" "${downloaded}"; then
+      printf 'ERROR: remote download differs from local source archive\n' >&2
+      exit 1
+    fi
+    printf 'RESTORE_ARCHIVE_COMPARE=PASS sha256=%s\n' \
+      "$(sha256sum "${downloaded}" | awk '{print $1}')"
+    if ! tar -tzf "${downloaded}" >/dev/null; then
+      printf 'ERROR: downloaded archive integrity check failed\n' >&2
+      exit 1
+    fi
     tar -xzf "${downloaded}" -C "${extract_dir}"
     for repo in control adult-publishing-core; do
-      [[ -d "${extract_dir}/${repo}/.git" ]]
-      git -C "${extract_dir}/${repo}" fsck --full
-      [[ -z "$(git -C "${extract_dir}/${repo}" status --porcelain)" ]]
+      if [[ ! -d "${extract_dir}/${repo}/.git" ]]; then
+        printf 'ERROR: restored Git repository missing: %s\n' "${repo}" >&2
+        exit 1
+      fi
+      if ! git -C "${extract_dir}/${repo}" fsck --full; then
+        printf 'ERROR: git fsck failed: %s\n' "${repo}" >&2
+        exit 1
+      fi
+      repo_status="$(git -C "${extract_dir}/${repo}" status --porcelain)"
+      if [[ -n "${repo_status}" ]]; then
+        printf 'ERROR: restored Git repository is not clean: %s\n%s\n' \
+          "${repo}" "${repo_status}" >&2
+        exit 1
+      fi
+      printf 'RESTORE_REPOSITORY=PASS repo=%s head=%s\n' \
+        "${repo}" "$(git -C "${extract_dir}/${repo}" rev-parse HEAD)"
     done
     printf 'RESTORE_VERIFY=PASS remote=%s local=%s extracted=%s\n' \
       "${remote_root}/${latest}" "${downloaded}" "${extract_dir}"
