@@ -18,6 +18,15 @@ server {
     error_log  /var/log/nginx/error.log;
 
     ################################################################
+    # ACME HTTP-01 challenge (Certbot webroot)
+    ################################################################
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    ################################################################
     # SPICY MILA (läuft lokal auf :8080)
     ################################################################
 
