@@ -1,0 +1,25 @@
+timestamp: 2026-08-26T12:49:00+02:00
+operation: publish M1 repository SSOT branch
+result: stopped before remote push
+
+error:
+  The ancestry validation returned exit status 1.
+
+cause:
+  The server-local control-main reference still pointed to the original
+  Control baseline although origin/control-main had already been fast-forwarded
+  with the validated R28, TLS and cron-evidence commits. The temporary bootstrap
+  clone therefore used the stale local reference as its parent.
+
+impact:
+  No GitHub push or control-main update occurred during the failed operation.
+  The SSOT commit existed only on the server-local bootstrap branch.
+
+resolution:
+  The server-local control-main reference was fast-forwarded to
+  origin/control-main. The temporary bootstrap branch was then rebased onto that
+  exact commit. A new ancestry check is required before publication.
+
+rollback:
+  Delete only the unpublished local bootstrap branch if validation fails again.
+  The existing control-main and active working branch remain unchanged.
