@@ -6,7 +6,7 @@ SYSTEMD_DIR="${CONTROL_DIR}/systemd"
 CRONTAB_FILE="${CONTROL_DIR}/docs/post-migration-chatops.crontab"
 
 usage() {
-  printf 'Usage: %s {syntax|verify|units|reload|health|git|gitlog|timers|backup|restore|backuptimer|crontab|status}\n' "$0" >&2
+  printf 'Usage: %s {syntax|verify|units|reload|health|git|gitlog|timers|backup|restore|backuptimer|crontab|status|preflight}\n' "$0" >&2
   exit 64
 }
 
@@ -146,6 +146,73 @@ case "${1:-}" in
       tu1nz-mommyramona-health.timer \
       tu1nz-legacy-git-sync.timer \
       tu1nz_encrypted_backup.timer
+    ;;
+  preflight)
+    repo="/opt/tu1nz_repos/adult-publishing-core"
+    printf 'PREFLIGHT_HOST=%s\n' "$(hostname)"
+    stat -c 'PREFLIGHT_PATH owner=%U group=%G mode=%a path=%n' "${repo}"
+    if runuser -u chatops -- test -w "${repo}"; then
+      printf 'PREFLIGHT_CHATOPS_WRITE=PASS\n'
+    else
+      printf 'PREFLIGHT_CHATOPS_WRITE=FAIL\n'
+    fi
+    git -C "${repo}" status --short --branch
+    printf 'PREFLIGHT_GIT_HEAD=%s\n' "$(git -C "${repo}" rev-parse HEAD)"
+    git -C "${repo}" remote -v
+    stat -c 'PREFLIGHT_DEPLOY_KEY owner=%U group=%G mode=%a path=%n' \
+      /etc/tu1nz/ssh/adult_publishing_core_ed25519
+
+    for timer in \
+      tu1nz-mommyramona-health.timer \
+      tu1nz-legacy-git-sync.timer \
+      tu1nz_encrypted_backup.timer
+    do
+      printf 'PREFLIGHT_TIMER name=%s enabled=%s active=%s\n' \
+        "${timer}" "$(systemctl is-enabled "${timer}")" "$(systemctl is-active "${timer}")"
+    done
+
+    active_cron="$(crontab -u chatops -l 2>/dev/null | awk 'NF && $1 !~ /^#/ {print}')"
+    if [[ -z "${active_cron}" ]]; then
+      printf 'PREFLIGHT_CHATOPS_ACTIVE_CRON=0\n'
+    else
+      printf 'PREFLIGHT_CHATOPS_ACTIVE_CRON=FAIL\n%s\n' "${active_cron}"
+    fi
+    printf 'PREFLIGHT_SYSTEM_CRON=%s\n' "$(systemctl is-active cron.service || true)"
+
+    path_refs="$(grep -RFl -- "${repo}" /etc/systemd/system /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly /usr/local/bin 2>/dev/null || true)"
+    if [[ -z "${path_refs}" ]]; then
+      printf 'PREFLIGHT_PATH_REFERENCES=0\n'
+    else
+      printf 'PREFLIGHT_PATH_REFERENCES_BEGIN\n%s\nPREFLIGHT_PATH_REFERENCES_END\n' "${path_refs}"
+    fi
+
+    docker_refs=""
+    if command -v docker >/dev/null 2>&1; then
+      docker_refs="$(docker ps -q | xargs -r docker inspect --format '{{.Name}} {{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' | grep -F -- "${repo}" || true)"
+    fi
+    if [[ -z "${docker_refs}" ]]; then
+      printf 'PREFLIGHT_DOCKER_MOUNTS=0\n'
+    else
+      printf 'PREFLIGHT_DOCKER_MOUNTS=FAIL\n%s\n' "${docker_refs}"
+    fi
+
+    if command -v lsof >/dev/null 2>&1; then
+      open_files="$(lsof +D "${repo}" 2>/dev/null || true)"
+      if [[ -z "${open_files}" ]]; then
+        printf 'PREFLIGHT_OPEN_FILES=0\n'
+      else
+        printf 'PREFLIGHT_OPEN_FILES=FAIL\n%s\n' "${open_files}"
+      fi
+    else
+      printf 'PREFLIGHT_OPEN_FILES=UNAVAILABLE\n'
+    fi
+
+    printf 'PREFLIGHT_LOCAL_BACKUP=%s\n' \
+      "$(find /opt/tu1nz_repos/backups/encrypted-system -maxdepth 1 -type f -name 'tu1nz_system_backup_*.tar.gz' -printf '%f\n' | sort | tail -n 1)"
+    printf 'PREFLIGHT_REMOTE_BACKUP=%s\n' \
+      "$(rclone lsf gcrypt01:backups --files-only --include 'tu1nz_system_backup_*.tar.gz' | sort | tail -n 1)"
+    printf 'PREFLIGHT_LATEST_RESTORE=%s\n' \
+      "$(find /opt/tu1nz_repos/backups/restore-tests -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | tail -n 1)"
     ;;
   *)
     usage
