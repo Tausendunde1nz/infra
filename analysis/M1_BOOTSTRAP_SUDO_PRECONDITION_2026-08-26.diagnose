@@ -1,0 +1,52 @@
+# M1 Bootstrap – sudo precondition stop
+
+- Date: 2026-08-26
+- Scope: Dedicated GitHub deploy key for `Tausendunde1nz/adult-publishing-core`
+- Intended private-key path: `/etc/tu1nz/ssh/adult_publishing_core_ed25519`
+- Intended repository path: `/opt/tu1nz_repos/adult-publishing-core`
+- Result: STOPPED BEFORE CHANGE
+
+## Error
+
+The read/write bootstrap attempt was executed through the existing Tailscale SSH
+connection with non-interactive sudo validation. The server returned:
+
+```text
+sudo: a password is required
+```
+
+## Verified impact
+
+- No deploy key was generated.
+- No directory or file was created below `/etc/tu1nz/ssh/` by this attempt.
+- The target repository path was not created.
+- No GitHub deploy-key setting was changed.
+- No service, timer, container, token, or deployment state was changed.
+
+## Cause
+
+The non-interactive SSH session has no active sudo credential. This is an
+authentication precondition, not a repository or GitHub failure.
+
+## Controlled continuation
+
+1. Open an authenticated root shell in the already established Hetzner console.
+2. Enter the sudo password only in that console; never transmit it through chat.
+3. Generate the repository-specific Ed25519 key in `/etc/tu1nz/ssh/` with strict
+   ownership and permissions.
+4. Add only the public key to the private GitHub repository with the explicitly
+   approved write permission.
+5. Verify the key identity before cloning the repository.
+
+## Rollback
+
+No rollback is required for the stopped attempt because no change occurred. A
+later successful key creation can be rolled back by removing the matching GitHub
+deploy key first and then removing exactly the two repository-specific key files
+after verifying their paths and fingerprints.
+
+## Authorization
+
+The user explicitly approved creation and release of the dedicated deploy key.
+The approval does not authorize disclosure of credentials or private-key
+material.
