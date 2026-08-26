@@ -1,0 +1,34 @@
+# M1 infrastructure unblock – systemd verify precondition stop
+
+- Date: 2026-08-26
+- Host: `ubuntu-8gb-nbg1-2`
+- Result: stopped before deployment or activation
+
+## Observation
+
+The Control scripts passed `bash -n`. `systemd-analyze verify` then reported:
+
+```text
+tu1nz-mommyramona-health.service: Command /usr/local/bin/tu1nz_mommyramona_healthcheck.sh is not executable: No such file or directory
+tu1nz_encrypted_backup.service: Command /usr/local/bin/tu1nz_encrypted_backup.sh is not executable: No such file or directory
+```
+
+This is a deployment-order precondition. The new scripts were intentionally not
+installed before the Control SSOT commit and push. No service, timer, crontab or
+active backup path was changed by the failed verification.
+
+## Controlled continuation
+
+1. Install only the already committed scripts from Control into
+   `/usr/local/bin` with root ownership and mode `0755`.
+2. Keep all new/revised timers disabled during this staging step.
+3. Re-run `bash -n` against the installed files.
+4. Re-run `systemd-analyze verify` against the committed unit definitions now
+   that every referenced executable exists.
+5. Install and activate unit files only after the verification passes.
+
+## Rollback
+
+Before activation, rollback is limited to restoring/removing the exact staged
+script targets from the verified pre-change archive. Existing systemd units,
+timers and the user crontab remain unchanged until the validation gate passes.
