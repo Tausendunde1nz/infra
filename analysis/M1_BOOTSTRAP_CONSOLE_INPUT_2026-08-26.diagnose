@@ -1,0 +1,63 @@
+# M1 Bootstrap – Hetzner console input discrepancy
+
+- Date: 2026-08-26
+- Scope: Preparation of `/etc/tu1nz/ssh` for the approved repository-specific deploy key
+- Result: STOPPED BEFORE KEY CREATION
+
+## Observed error
+
+The authenticated Hetzner console returned the following while the intended
+command was `mkdir /etc/tu1nz/ssh`:
+
+```text
+mkdir: cannot create directory '/etc/tu1nz/ssh': No such file or directory
+```
+
+Earlier console input also visibly translated an intended option hyphen into a
+slash (`sudo -s` appeared as `sudo /s`). The console is therefore not considered
+reliable for long commands or option-bearing command lines.
+
+## Independent verification
+
+An immediate read-only verification through the established Tailscale SSH path
+proved that `/etc/tu1nz` does exist:
+
+```text
+path=/etc/tu1nz mode=drwxr-x--- owner=root:chatops
+birth=2025-11-01 09:50:27 +0000
+```
+
+The following targets remained absent:
+
+- `/etc/tu1nz/ssh`
+- `/etc/tu1nz/ssh/adult_publishing_core_ed25519`
+- `/etc/tu1nz/ssh/adult_publishing_core_ed25519.pub`
+- `/opt/tu1nz_repos/adult-publishing-core`
+
+No deploy key was generated and no GitHub setting was changed.
+
+## Controlled continuation
+
+1. Keep the already authenticated root console open.
+2. Use only short, option-free, relative commands in that console:
+   change to `/etc/tu1nz`, create `ssh`, assign temporary ownership to `chatops`,
+   and set directory mode `0700`.
+3. Verify the exact absolute path, owner and mode independently over Tailscale
+   SSH before generating key material.
+4. Generate the key as `chatops` through the reliable SSH command channel.
+5. Return `/etc/tu1nz/ssh` to `root:chatops` with mode `0750`, keep the private
+   key `chatops:chatops` mode `0600`, and verify the public fingerprint.
+
+## Risk and rollback
+
+The planned change creates one dedicated directory and two repository-specific
+key files. No existing credential or service is modified. Before the public key
+is registered at GitHub, rollback is limited to removing the verified empty or
+repository-specific targets. After registration, rollback order is: revoke the
+matching GitHub deploy key first, verify the fingerprint, then remove exactly the
+matching local key files.
+
+## Authorization
+
+The user explicitly approved creation and release of the dedicated deploy key.
+Private-key material and authentication passwords must not be disclosed.
