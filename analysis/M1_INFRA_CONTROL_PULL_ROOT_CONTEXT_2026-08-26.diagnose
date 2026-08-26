@@ -1,0 +1,40 @@
+# M1 Infrastructure Control Pull — Root Context Failure
+
+Date: 2026-08-26
+Scope: M1 preflight infrastructure unblocker
+Status: stopped before activation
+
+## Error
+
+The command `git pull` was invoked from the authenticated root console while the
+Control checkout is owned and operated by `chatops`. Git refused the operation
+because `/root/.ssh/config` does not satisfy SSH ownership and permission checks.
+
+Observed message:
+
+`Bad owner or permissions on /root/.ssh/config`
+
+## Impact
+
+- No repository files changed.
+- No systemd unit was installed or activated.
+- No timer or crontab changed.
+- The previously staged `/usr/local/bin` scripts remain byte-identical to the
+  committed Control sources verified before this event.
+
+## Cause
+
+The pull used the root SSH context instead of the repository's intended
+`chatops` deploy-key context.
+
+## Approved recovery sequence
+
+1. Enter a `chatops` shell from the already authenticated root console.
+2. Pull `origin/control-main` from `/opt/tu1nz_repos/control`.
+3. Return to the root shell.
+4. Copy the versioned gate helper to `/usr/local/bin`.
+5. Run the gate's `syntax` and `verify` actions before unit deployment.
+
+## Rollback
+
+No rollback action is required because the failed pull did not mutate state.
