@@ -2,7 +2,7 @@
 
 Date: 2026-08-26
 Scope: encrypted recurring backup validation
-Status: stopped; explicit rerun pending
+Status: cause established; fresh backup and rerun required
 
 ## Observed result
 
@@ -18,11 +18,16 @@ was not printed, so the gate is not accepted as successful.
 - The first restore directory is retained as evidence.
 - No production path was restored over or deleted.
 
-## Possible cause
+## Established cause
 
-One of the previously silent assertions after download or repository checking
-returned non-zero. The existing output does not identify which assertion, so no
-corrective assumption is made.
+The explicit rerun passed the local/remote archive byte comparison and Git
+object-integrity check, then reported the restored `control` worktree as dirty.
+Three pre-existing untracked diagnostic/security paths were visible.
+
+The cause was the broad `.gitignore` exception `!analysis/**` introduced while
+adding the first new diagnosis. It exposed legacy untracked analysis material
+that had previously remained ignored. Nothing in those paths was deleted or
+modified.
 
 ## Diagnostic repair
 
@@ -38,8 +43,20 @@ Replace silent assertions with explicit errors for:
 The rerun must use a new timestamped directory beneath
 `/opt/tu1nz_repos/backups/restore-tests`. Existing evidence is not removed.
 
+## Corrective sequence
+
+1. Remove the broad `analysis/**` exception. Already tracked diagnosis files
+   remain tracked without the exception.
+2. Pull the corrected Control revision as `chatops` and confirm a clean
+   worktree.
+3. Create and upload a fresh encrypted system backup.
+4. Run the isolated restore gate against the new archive.
+5. Require clean restored `control` and `adult-publishing-core` worktrees plus
+   the final `RESTORE_VERIFY=PASS` marker.
+
 ## Rollback
 
-The diagnostic change affects only the versioned gate output. Restore the gate
-from Control commit `b46fad6` if rollback is required. No active timer or
+The diagnostic output change can be restored from Control commit `b46fad6`.
+The broad ignore exception can be restored from commit `5a85c14`, although that
+would intentionally expose the legacy untracked paths again. No active timer or
 production content is affected.
