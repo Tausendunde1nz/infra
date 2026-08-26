@@ -1,0 +1,6 @@
+*/2 * * * * curl -fsS https://api.mychatbuddy.dev/mommyramona/health >/dev/null || echo "$(date) mommyramona DOWN" >> /var/log/mommyramona.watch
+*/30 * * * * /usr/local/bin/tausendunde1nz-git-sync.sh >> /var/log/tausendunde1nz/git_sync.log 2>&1
+# PAUSED SECURITY S3 2026-08-25: */10 * * * * /usr/local/bin/tausendunde1nz-errorwatch.sh >> /var/log/tausendunde1nz/errorwatch.log 2>&1
+# DISABLED by TU1NZ: 15 * * * * /usr/local/bin/tausendunde1nz-cronhealth.sh >> /var/log/tausendunde1nz/cronhealth.log 2>&1
+# PAUSED SECURITY S3 2026-08-25: 0 */6 * * * /usr/local/bin/tu1nz_git_behind_check.sh
+# PAUSED SECURITY S3 2026-08-25: 5 */6 * * * /usr/local/bin/tu1nz_git_freshness_check.sh
