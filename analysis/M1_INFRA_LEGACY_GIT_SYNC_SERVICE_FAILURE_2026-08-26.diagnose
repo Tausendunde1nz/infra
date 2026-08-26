@@ -1,0 +1,36 @@
+# M1 Infrastructure Legacy Git Sync — Manual Service Failure
+
+Date: 2026-08-26
+Scope: M1 preflight infrastructure unblocker
+Status: activation stopped; diagnosis pending
+
+## Passed gates before the failure
+
+- Installed scripts matched the committed Control-source SHA-256 values.
+- Installed scripts are owned by `root:root` with mode `0755`.
+- Shell syntax check passed.
+- `systemd-analyze verify` passed for all six planned units.
+- The manual MommyRamona HTTP health-check service completed successfully.
+
+## Error
+
+The first manual start of `tu1nz-legacy-git-sync.service` failed because its
+control process exited with a non-zero status.
+
+## Impact and containment
+
+- The new health and Git-sync timers remain disabled.
+- The recurring encrypted-backup timer has not been enabled.
+- The `chatops` crontab has not been changed.
+- M1 application implementation remains untouched.
+
+## Cause
+
+Not yet established. No corrective change is authorized until the service
+status and journal have been read and the exact failure has been identified.
+
+## Next diagnostic action
+
+Use the versioned gate's read-only `gitlog` action to capture the full service
+status and the latest 120 journal lines. Based on that evidence, document a
+specific repair and rollback plan before retrying the service.

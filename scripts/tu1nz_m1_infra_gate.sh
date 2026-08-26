@@ -6,7 +6,7 @@ SYSTEMD_DIR="${CONTROL_DIR}/systemd"
 CRONTAB_FILE="${CONTROL_DIR}/docs/post-migration-chatops.crontab"
 
 usage() {
-  printf 'Usage: %s {syntax|verify|units|reload|health|git|timers|backup|backuptimer|crontab|status}\n' "$0" >&2
+  printf 'Usage: %s {syntax|verify|units|reload|health|git|gitlog|timers|backup|backuptimer|crontab|status}\n' "$0" >&2
   exit 64
 }
 
@@ -61,6 +61,10 @@ case "${1:-}" in
     require_root
     systemctl start tu1nz-legacy-git-sync.service
     systemctl --no-pager --full status tu1nz-legacy-git-sync.service
+    ;;
+  gitlog)
+    systemctl --no-pager --full status tu1nz-legacy-git-sync.service || true
+    journalctl --no-pager -u tu1nz-legacy-git-sync.service -n 120
     ;;
   timers)
     require_root
