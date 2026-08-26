@@ -1,0 +1,11 @@
+[Unit]
+Description=TU1NZ encrypted system backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=2min
+Unit=tu1nz_encrypted_backup.service
+
+[Install]
+WantedBy=timers.target

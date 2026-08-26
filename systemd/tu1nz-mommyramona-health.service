@@ -1,0 +1,18 @@
+[Unit]
+Description=TU1NZ MommyRamona HTTP health check
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+ExecStart=/usr/local/bin/tu1nz_mommyramona_healthcheck.sh
+UMask=0027
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/tausendunde1nz
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

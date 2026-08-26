@@ -6,3 +6,13 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/tu1nz_encrypted_backup.sh
+User=root
+Group=root
+UMask=0027
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=full

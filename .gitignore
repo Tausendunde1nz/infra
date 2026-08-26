@@ -9,6 +9,13 @@
 !scripts/
 !scripts/restore_test.sh
 !scripts/tu1nz_encrypted_backup.sh
+!scripts/tu1nz_mommyramona_healthcheck.sh
+!scripts/tausendunde1nz-git-sync.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
+!systemd/tu1nz_encrypted_backup.timer
+!systemd/tu1nz-mommyramona-health.service
+!systemd/tu1nz-mommyramona-health.timer
+!systemd/tu1nz-legacy-git-sync.service
+!systemd/tu1nz-legacy-git-sync.timer

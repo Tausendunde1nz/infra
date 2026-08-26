@@ -1,0 +1,12 @@
+[Unit]
+Description=TU1NZ MommyRamona HTTP health check every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+AccuracySec=10s
+RandomizedDelaySec=5s
+Unit=tu1nz-mommyramona-health.service
+
+[Install]
+WantedBy=timers.target

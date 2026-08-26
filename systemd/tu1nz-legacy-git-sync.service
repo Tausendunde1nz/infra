@@ -1,0 +1,20 @@
+[Unit]
+Description=TU1NZ legacy bot repository synchronization
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+Environment=HOME=/home/chatops
+RuntimeDirectory=tu1nz-legacy-git-sync
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/flock --nonblock /run/tu1nz-legacy-git-sync/lock /usr/local/bin/tausendunde1nz-git-sync.sh
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/opt/spicymila_bot /opt/telegram_chatbot /opt/trendwatch_bot /var/log/tausendunde1nz
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
