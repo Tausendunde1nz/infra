@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+MODE="${1:-verify}"
+RUNTIME_USER="tu1nz-adult-s1"
+PATHS=(
+  /opt/tu1nz_repos
+  /opt/tu1nz_repos/releases
+  /opt/tu1nz_repos/releases/adult-publishing
+)
+EXPECTED=(
+  2770:chatops:chatops
+  2750:root:chatops
+  2750:root:chatops
+)
+
+[[ "$MODE" == apply || "$MODE" == verify ]] || {
+  echo "usage: $0 [apply|verify]" >&2
+  exit 2
+}
+
+id "$RUNTIME_USER" >/dev/null
+command -v getfacl >/dev/null
+command -v setfacl >/dev/null
+
+for index in "${!PATHS[@]}"; do
+  path="${PATHS[$index]}"
+  [[ -d "$path" && ! -L "$path" ]]
+  [[ "$(stat -c '%a:%U:%G' "$path")" == "${EXPECTED[$index]}" ]]
+  if [[ "$MODE" == apply ]]; then
+    setfacl -m "user:${RUNTIME_USER}:--x" -- "$path"
+  fi
+  getfacl -cp -- "$path" | grep -Fx "user:${RUNTIME_USER}:--x" >/dev/null
+  runuser -u "$RUNTIME_USER" -- test -x "$path"
+done
+
+echo "S1_PATH_ACCESS_OK mode=$MODE"
