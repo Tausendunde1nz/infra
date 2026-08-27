@@ -1,0 +1,25 @@
+# M3.5.1 Control CI diagnosis
+
+Date: 2026-08-27
+Run: `33089488278`
+Status: resolved in feature branch; exact-head rerun required
+
+## Failure
+
+The first Control workflow run failed only in its final static cron check. The
+check scanned every historical file below `scripts/` and therefore found
+`scripts/tu1nz_m1_infra_gate.sh`, which contains the previously documented
+legacy Cron-to-systemd migration command. All restore verifier tests, Python
+compile, shell syntax and manifest JSON validation had already passed.
+
+## Cause
+
+The new check was broader than the M3.5.1 change and incorrectly treated a
+pre-existing migration artifact as a new restore implementation defect.
+
+## Correction and rollback
+
+The workflow now scans only the three new restore runtime artifacts for cron
+behavior. It does not modify or excuse the historical migration file. Rollback
+is revert of the exact workflow correction commit; no server or runtime state
+was changed.

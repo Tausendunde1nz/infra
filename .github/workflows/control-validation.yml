@@ -23,5 +23,9 @@ jobs:
         run: python3 -m unittest -v tests.test_adult_restore_verify
       - name: Validate release schema JSON
         run: python3 -m json.tool manifests/adult-publishing-staging-release.schema.json >/dev/null
-      - name: Reject cron artifacts in active paths
-        run: test -z "$(find systemd scripts -type f -exec grep -IlE '(^|[[:space:]])crontab([[:space:]]|$)' {} +)"
+      - name: Reject cron behavior in M3.5.1 artifacts
+        run: >-
+          ! git grep -nE '(^|[[:space:]])crontab([[:space:]]|$)' --
+          scripts/tu1nz_adult_restore_verify.py
+          scripts/tu1nz_adult_restore_verify.sh
+          systemd/tu1nz-adult-restore-verify.service
