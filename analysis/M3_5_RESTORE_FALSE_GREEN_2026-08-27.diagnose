@@ -1,0 +1,85 @@
+# M3.5 Restore Service — False-Green and SSOT Drift
+
+Date: 2026-08-27
+Host: `ubuntu-8gb-nbg1-2`
+Scope: read-only restore evidence audit
+Status: open; runtime remediation not authorized
+
+## Observed result
+
+The monthly `restore-test.service` reports systemd `Result=success` and
+`ExecMainStatus=0`. Its August journal nevertheless contains multiple `FAIL`
+records for Docker Compose files whose referenced environment file is missing.
+The run ends with a generic `Restore-Test done` marker rather than a successful
+all-assertions marker.
+
+This service result must not be treated as a successful restore proof.
+
+## Established drift
+
+The systemd unit executes `/usr/local/bin/restore_test.sh`.
+
+| Copy | SHA-256 | Owner/mode | Timestamp |
+|---|---|---|---|
+| Installed | `45f7d7f2c5d9d7cc680b45c941fdcf0c67ab37352832649ed82e70a2855c1702` | `root:root`, `0755` | 2025-10-18 08:08 UTC |
+| Control SSOT | `dc86808cbd644a840f8cf62db29d3cfd270c99c980d5364cffb5ef578da1c4e8` | `chatops:chatops`, `0755` | 2026-08-26 07:14 UTC |
+
+The files are not bit-identical. By contrast, the installed encrypted-backup
+script and the Control SSOT backup script both hash to
+`11252a9438e4ba6d4580ee284c8ef663bbf5a7518c780f158f56f92c8179763f`.
+
+The immediate cause of the false-green evidence is therefore established as an
+installed restore implementation that has drifted from the versioned Control
+implementation and does not propagate the observed assertion failures to a
+non-zero unit result. No claim is made yet about how that old copy was installed
+or why it was not subsequently reconciled.
+
+## Additional evidence gaps
+
+- The weekly restore smoke test selects
+  `/backups/snapshots/t1nz_smoke_docs_20251105T161403Z.tar.gz`, not the current
+  encrypted Adult Publishing archive.
+- The current encrypted archive contains application commit `5572ea165...`,
+  while remote application `main` is `069dc964...`.
+- The prior accepted M1 restore evidence also ends at `5572ea165...`.
+- Hetzner reports no snapshot or server backup.
+
+## Containment
+
+- STAGING-S0 deployment remains `NO-GO`.
+- No script, unit, timer, archive, restore directory or production path was
+  changed.
+- The monthly restore timer was neither started nor stopped.
+- Existing logs and artifacts were retained.
+- Secret values and restored file contents were not inspected.
+
+## Required remediation design
+
+Before any runtime action, Control SSOT must specify and review:
+
+1. the exact installed destination and hash for the restore script;
+2. an installation transaction and rollback artifact;
+3. explicit non-zero exit on download, extraction, manifest, compose, Git,
+   database, media or permission failure;
+4. an unambiguous final `RESTORE_VERIFY=PASS` marker emitted only after every
+   required assertion passes;
+5. exact archive selection limited to the Adult Publishing system-backup class;
+6. an isolated restore of the exact reviewed application SHA;
+7. database/object coverage and deletion/quarantine preservation when those
+   components exist;
+8. RPO/RTO measurement and retained evidence; and
+9. verification that systemd reports failure whenever a required assertion is
+   intentionally broken in a synthetic test.
+
+## Rollback
+
+This diagnosis is documentation only. Before merge it can be abandoned with
+the documentation branch. After merge it can be reverted as one exact commit.
+No runtime rollback applies because no active artifact was modified.
+
+## Exit condition
+
+The issue may be marked resolved only after the installed script is bit-exact
+with an approved Control revision, a deliberate negative test makes the unit
+fail, and a fresh isolated current-SHA restore ends with
+`RESTORE_VERIFY=PASS` and systemd exit status `0`.
