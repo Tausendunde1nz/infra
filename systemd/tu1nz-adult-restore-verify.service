@@ -1,0 +1,33 @@
+[Unit]
+Description=TU1NZ Adult Publishing isolated STAGING-S0 restore verification
+Documentation=file:/opt/tu1nz_repos/control/docs/M3_5_RESTORE_REMEDIATION_DESIGN_2026-08-27.md
+ConditionPathExists=/etc/tu1nz/adult-publishing-staging-release.json
+ConditionPathExists=/usr/local/libexec/tu1nz/tu1nz_adult_restore_verify.sh
+ConditionPathExists=/usr/local/libexec/tu1nz/tu1nz_adult_component_verify
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/local/libexec/tu1nz/tu1nz_adult_restore_verify.sh --manifest /etc/tu1nz/adult-publishing-staging-release.json --remote gcrypt01:backups --rclone-bin /usr/bin/rclone --work-root /opt/tu1nz_repos/backups/restore-tests --source-archive /opt/tu1nz_repos/backups/latest/tu1nz_system_backup_latest.tar.gz --component-verifier /usr/local/libexec/tu1nz/tu1nz_adult_component_verify --notification-hook /usr/local/bin/notify_telegram.sh
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadOnlyPaths=/etc/tu1nz /root/.config/rclone /usr/local/libexec/tu1nz /usr/local/bin/notify_telegram.sh /opt/tu1nz_repos/backups/latest
+ReadWritePaths=/opt/tu1nz_repos/backups/restore-tests
+TimeoutStartSec=45min
+MemoryMax=2G
+TasksMax=128
+
+# Versioned design artifact only. Installation or enablement is not authorized.

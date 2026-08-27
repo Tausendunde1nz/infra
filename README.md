@@ -25,3 +25,6 @@ Current Adult Publishing infrastructure decisions:
 - `docs/M3_5_RESTORE_REMEDIATION_DESIGN_2026-08-27.md` defines the reviewed
   design, fault matrix and rollback gates for a future repair; it authorizes no
   runtime action.
+- `docs/M3_5_1_RESTORE_ARTIFACTS_IMPLEMENTATION_2026-08-27.md` records the
+  local/versioned restore verifier, manifest schema, N01-N18 contract suite and
+  uninstalled oneshot design. Server execution remains prohibited.
