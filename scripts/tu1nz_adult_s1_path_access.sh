@@ -7,6 +7,8 @@ PATHS=(
   /opt/tu1nz_repos
   /opt/tu1nz_repos/releases
   /opt/tu1nz_repos/releases/adult-publishing
+  /opt/tu1nz_repos/backups
+  /opt/tu1nz_repos/backups/encrypted-system
   /etc/tu1nz
   /var/lib/tausendunde1nz/adult-publishing
 )
@@ -14,12 +16,16 @@ EXPECTED=(
   2770:chatops:chatops
   2750:root:chatops
   2750:root:chatops
+  2770:chatops:chatops
+  2750:root:chatops
   750:root:chatops
   2750:root:chatops
 )
 MASKS=(
   rwx
   r-x
+  r-x
+  rwx
   r-x
   r-x
   r-x

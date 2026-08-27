@@ -62,6 +62,8 @@ class PersistentS1RuntimeTest(unittest.TestCase):
             "/opt/tu1nz_repos",
             "/opt/tu1nz_repos/releases",
             "/opt/tu1nz_repos/releases/adult-publishing",
+            "/opt/tu1nz_repos/backups",
+            "/opt/tu1nz_repos/backups/encrypted-system",
             "/etc/tu1nz",
             "/var/lib/tausendunde1nz/adult-publishing",
         ):
