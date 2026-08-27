@@ -16,6 +16,7 @@
     "backup_completed_at",
     "rpo_target_seconds",
     "rto_target_seconds",
+    "retention_days",
     "local_source_required",
     "approved_utc"
   ],
@@ -42,6 +43,7 @@
     "backup_completed_at": { "type": "string", "format": "date-time" },
     "rpo_target_seconds": { "type": "integer", "minimum": 1 },
     "rto_target_seconds": { "type": "integer", "minimum": 1 },
+    "retention_days": { "type": "integer", "minimum": 1 },
     "local_source_required": { "type": "boolean" },
     "approved_utc": { "type": "string", "format": "date-time" }
   }

@@ -1,0 +1,33 @@
+[Unit]
+Description=TU1NZ Adult Publishing STAGING-S0 immutable release verification
+Documentation=file:/opt/tu1nz_repos/control/docs/M3_5_2_S0_DEPLOYMENT_READINESS_2026-08-27.md
+ConditionPathExists=/etc/tu1nz/adult-publishing/staging-s0/release-manifest.json
+
+[Service]
+Type=oneshot
+User=chatops
+Group=tu1nz-adult-s0
+ExecStart=/usr/local/libexec/tu1nz/tu1nz_adult_s0_release_gate.py --manifest /etc/tu1nz/adult-publishing/staging-s0/release-manifest.json --application-repository /opt/tu1nz_repos/releases/adult-publishing/application-current --control-repository /opt/tu1nz_repos/releases/adult-publishing/control-current --application-release-root /opt/tu1nz_repos/releases/adult-publishing/application --control-release-root /opt/tu1nz_repos/releases/adult-publishing/control --application-active-link /opt/tu1nz_repos/releases/adult-publishing/application-current --control-active-link /opt/tu1nz_repos/releases/adult-publishing/control-current --configuration /etc/tu1nz/adult-publishing/staging-s0/config.json --state-root /var/lib/tausendunde1nz/adult-publishing/staging-s0 --runtime-user tu1nz-adult-s0 --runtime-group tu1nz-adult-s0 --release-user root --release-group tu1nz-adult-s0 --configuration-user root --require-active
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0027
+
+[Install]
+# Deliberately no WantedBy and no timer: manual readiness check only.

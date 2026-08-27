@@ -44,6 +44,7 @@ class Manifest:
     dependency_lock_sha256: str
     rpo_target_seconds: int
     rto_target_seconds: int
+    retention_days: int
     local_source_required: bool
 
 
@@ -117,6 +118,7 @@ def load_manifest(path: Path) -> Manifest:
         dependency_lock_sha256,
         _positive_int(payload.get("rpo_target_seconds"), "rpo_target_seconds"),
         _positive_int(payload.get("rto_target_seconds"), "rto_target_seconds"),
+        _positive_int(payload.get("retention_days"), "retention_days"),
         payload["local_source_required"],
     )
 

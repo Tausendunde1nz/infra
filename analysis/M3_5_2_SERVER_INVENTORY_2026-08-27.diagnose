@@ -1,0 +1,32 @@
+# M3.5.2 server inventory diagnostic — 2026-08-27
+
+## Trigger
+
+The first strictly read-only inventory command assumed `rg` was installed on
+`ubuntu-8gb-nbg1-2`. The server returned `rg: command not found`. No write or
+runtime action had occurred.
+
+## Cause and controlled fallback
+
+The workstation has ripgrep; the server image does not. The inventory was
+stopped at that command and repeated with read-only `grep` and `find`. Future
+server preflight scripts must use POSIX tools or explicitly test optional tool
+availability before use.
+
+## Result
+
+- Tailscale-only SSH to `chatops@100.121.130.51` passed.
+- Control is clean at `30d5e139ec50b2332cf5aea3bfc5ad4c4c95fcfa`.
+- Adult Core is clean but stale at `5572ea165c11fa9d409d1e76ddf08243ae657ea0`;
+  remote `main` is `dddb94e8ac3d79f6ccd7d696d2fa92da1583850b`.
+- No Docker mount or inspected service write path targets the planned immutable
+  release root.
+- `lsof +D` showed no application-path handles, but unprivileged Docker
+  overlay/netns warnings prevent treating that particular check as complete.
+  This item remains HOLD until a privileged, approved activation preflight.
+- No files, services, timers, containers, credentials, or network rules were
+  changed.
+
+## Decision
+
+Read-only planning may continue. Server activation remains prohibited.

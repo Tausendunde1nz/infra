@@ -1,0 +1,15 @@
+# M3.5.2 rollback fixture diagnostic — 2026-08-27
+
+## Failure
+
+The first positive local rollback-layout test created two byte- and
+metadata-identical Git fixtures quickly enough to produce the same commit SHA.
+The SHA-named destination correctly already existed, so the fixture rename was
+refused before the release gate ran.
+
+## Cause and correction
+
+This demonstrates the intentional content-addressed path behavior, not a gate
+failure. The prior-release fixture now receives an explicit tracked commit so it
+has a distinct immutable SHA path. No server or live path was involved. The
+complete suite must pass after this fixture-only correction.

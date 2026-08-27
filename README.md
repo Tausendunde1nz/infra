@@ -26,5 +26,10 @@ Current Adult Publishing infrastructure decisions:
   design, fault matrix and rollback gates for a future repair; it authorizes no
   runtime action.
 - `docs/M3_5_1_RESTORE_ARTIFACTS_IMPLEMENTATION_2026-08-27.md` records the
-  local/versioned restore verifier, manifest schema, N01-N18 contract suite and
+  local/versioned restore verifier, manifest schema, negative contract suite and
   uninstalled oneshot design. Server execution remains prohibited.
+- `docs/M3_5_2_S0_DEPLOYMENT_READINESS_2026-08-27.md` freezes the synthetic S0
+  host/path/identity/isolation contract and records its activation blockers.
+- `scripts/tu1nz_adult_staging_manifest.py` and
+  `scripts/tu1nz_adult_s0_release_gate.py` create and verify exact immutable S0
+  release evidence. They contain no deploy or activation behavior.

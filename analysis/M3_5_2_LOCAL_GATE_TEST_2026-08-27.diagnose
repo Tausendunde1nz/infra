@@ -1,0 +1,18 @@
+# M3.5.2 local release-gate test diagnostic — 2026-08-27
+
+## Failure
+
+The first complete local M3.5.2 test run passed 14 of 15 cases. The positive
+gate case stopped with `TypeError` because `pathlib.Path.stat()` on the active
+local Python version does not accept `follow_symlinks=False`.
+
+## Cause and correction
+
+The gate intended to read metadata without following symlinks. `Path.lstat()`
+provides the exact portable operation. The implementation was changed only at
+that metadata read. No server or runtime action occurred.
+
+## Required validation
+
+The complete M3.5.2 suite and the existing Control restore suite must both pass
+after the correction. A partial rerun is not sufficient.

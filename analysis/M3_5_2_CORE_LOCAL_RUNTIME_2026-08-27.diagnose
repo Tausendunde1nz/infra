@@ -1,0 +1,22 @@
+# M3.5.2 Core local runtime diagnostic — 2026-08-27
+
+## Failure
+
+The first local Core regression invocation used macOS system Python 3.9. It ran
+249 discovered tests, then reported seven import errors because the reviewed
+`psycopg` dependency is not installed in that interpreter. Core supports Python
+3.10+ and CI installs the hash-locked dependency before running tests.
+
+## Impact
+
+No Core or Control file was modified. The failures occurred during test-module
+import and are not application assertion failures. Core remained clean at
+`dddb94e8ac3d79f6ccd7d696d2fa92da1583850b`.
+
+## Controlled resolution
+
+Use an already-configured supported project interpreter if present. Do not
+modify the macOS system interpreter. If no project runtime exists, the exact
+green GitHub Core CI for the unchanged SHA is the authoritative regression
+evidence; M3.5.2's changed Control artifacts remain covered by their own local
+and remote suites.

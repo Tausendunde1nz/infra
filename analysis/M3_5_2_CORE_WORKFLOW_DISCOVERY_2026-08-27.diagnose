@@ -1,0 +1,13 @@
+# M3.5.2 Core workflow discovery diagnostic — 2026-08-27
+
+## Failure
+
+Two local, read-only discovery commands used nonexistent literal paths:
+`.github/workflows/ci.yml` and a separate `workflows` argument. The actual
+workflow is `.github/workflows/core-ci.yml`.
+
+## Impact and correction
+
+Neither command wrote to the Core or Control repository. Core remained clean at
+its exact `main` baseline. Subsequent checks must address the discovered path
+directly and must not pass speculative path arguments.
