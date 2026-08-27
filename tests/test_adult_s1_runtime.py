@@ -65,6 +65,8 @@ class PersistentS1RuntimeTest(unittest.TestCase):
         ):
             self.assertIn(path, source)
         self.assertIn('user:${RUNTIME_USER}:--x', source)
+        self.assertIn('mask::${MASKS[$index]}', source)
+        self.assertIn("r-x", source)
         self.assertIn("S1_PATH_ACCESS_OK", source)
         self.assertNotIn("setfacl -R", source)
         self.assertNotIn("chmod -R", source)

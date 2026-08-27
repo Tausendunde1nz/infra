@@ -13,6 +13,11 @@ EXPECTED=(
   2750:root:chatops
   2750:root:chatops
 )
+MASKS=(
+  rwx
+  r-x
+  r-x
+)
 
 [[ "$MODE" == apply || "$MODE" == verify ]] || {
   echo "usage: $0 [apply|verify]" >&2
@@ -28,9 +33,11 @@ for index in "${!PATHS[@]}"; do
   [[ -d "$path" && ! -L "$path" ]]
   [[ "$(stat -c '%a:%U:%G' "$path")" == "${EXPECTED[$index]}" ]]
   if [[ "$MODE" == apply ]]; then
-    setfacl -m "user:${RUNTIME_USER}:--x" -- "$path"
+    setfacl -m "user:${RUNTIME_USER}:--x,mask::${MASKS[$index]}" -- "$path"
   fi
   getfacl -cp -- "$path" | grep -Fx "user:${RUNTIME_USER}:--x" >/dev/null
+  getfacl -cp -- "$path" | grep -Fx "mask::${MASKS[$index]}" >/dev/null
+  [[ "$(stat -c '%a:%U:%G' "$path")" == "${EXPECTED[$index]}" ]]
   runuser -u "$RUNTIME_USER" -- test -x "$path"
 done
 

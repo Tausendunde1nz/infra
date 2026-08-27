@@ -63,7 +63,9 @@ The runtime receives execute-only, non-recursive ACL entries on exactly
 group-readable S1 tree without granting the runtime membership in `chatops`,
 directory listing, or write access. The versioned
 `scripts/tu1nz_adult_s1_path_access.sh` tool validates the pre-existing owner
-and mode of every ancestor before applying or verifying those entries.
+and mode of every ancestor before and after applying or verifying those
+entries. It explicitly preserves each existing ACL mask, so the execute-only
+entry cannot widen effective `chatops` or owning-group permissions.
 
 ## Credentials and configuration
 
