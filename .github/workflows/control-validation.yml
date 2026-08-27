@@ -44,3 +44,24 @@ jobs:
           scripts/tu1nz_adult_staging_manifest.py
           scripts/tu1nz_adult_s0_release_gate.py
           systemd/tu1nz-adult-s0-release-verify.service
+      - name: Compile M3.9 persistent S1 artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_s1_manifest.py
+          scripts/tu1nz_adult_s1_release_gate.py
+          tests/test_adult_s1_runtime.py
+      - name: Run M3.9 persistent S1 contract tests
+        run: python3 -m unittest -v tests.test_adult_s1_runtime
+      - name: Validate M3.9 release schema JSON
+        run: python3 -m json.tool manifests/adult-publishing-staging-s1-release.schema.json >/dev/null
+      - name: Validate M3.9 backup shell
+        run: bash -n scripts/tu1nz_encrypted_backup.sh
+      - name: Reject cron and live-provider credentials in M3.9 artifacts
+        run: >-
+          ! git grep -nEi
+          '((^|[[:space:]])crontab([[:space:]]|$)|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_s1_manifest.py
+          scripts/tu1nz_adult_s1_release_gate.py
+          scripts/tu1nz_encrypted_backup.sh
+          systemd/tu1nz-adult-publishing-s1.service
+          config/adult-publishing/staging-s1/runtime.env.example

@@ -33,3 +33,10 @@ Current Adult Publishing infrastructure decisions:
 - `scripts/tu1nz_adult_staging_manifest.py` and
   `scripts/tu1nz_adult_s0_release_gate.py` create and verify exact immutable S0
   release evidence. They contain no deploy or activation behavior.
+- `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
+  synthetic-only persistent Telegram environment, immutable paths, backup,
+  release gate, activation sequence and rollback.
+- `scripts/tu1nz_adult_s1_manifest.py`,
+  `scripts/tu1nz_adult_s1_release_gate.py` and
+  `systemd/tu1nz-adult-publishing-s1.service` are the fail-closed S1 Control
+  artifacts. They authorize no live Telegram/X/Reddit publisher or real media.
