@@ -22,3 +22,6 @@ Current Adult Publishing infrastructure decisions:
   staging/server preflight and its deployment `NO-GO` decision.
 - `analysis/M3_5_RESTORE_FALSE_GREEN_2026-08-27.diagnose` records the open
   installed-restore-script drift without activating a repair.
+- `docs/M3_5_RESTORE_REMEDIATION_DESIGN_2026-08-27.md` defines the reviewed
+  design, fault matrix and rollback gates for a future repair; it authorizes no
+  runtime action.

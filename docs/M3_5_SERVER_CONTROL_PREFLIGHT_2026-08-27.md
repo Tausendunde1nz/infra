@@ -213,16 +213,21 @@ change, snapshot, provider credential or deployment.
 
 ## 10. Exact next sequence
 
-1. Merge this report and its diagnosis through an exact-head reviewed PR.
-2. Update the application M3.5 preflight to reference this Control evidence.
-3. Prepare a separately authorized remediation design for the restore-script
-   drift, false-success exit semantics and current-SHA restore test.
-4. Define the S0 host/network/database/storage/secret/monitoring architecture
+The inventory report and diagnosis were merged as Control commit
+`5beb00f7a96bea6ebc90da48082edb9bc9c8ac8d`, and the application M3.5 preflight
+now references that immutable evidence. The restore remediation design is
+frozen in `docs/M3_5_RESTORE_REMEDIATION_DESIGN_2026-08-27.md`; it does not
+authorize execution.
+
+1. Obtain explicit business values for RPO, RTO and restore-evidence retention.
+2. Obtain separate authorization to implement and locally test the Control
+   restore artifacts without installing them.
+3. Define the S0 host/network/database/storage/secret/monitoring architecture
    and its RPO/RTO in Control SSOT.
-5. Obtain a pre-change infrastructure rollback or explicitly stop if no
+4. Obtain a pre-change infrastructure rollback or explicitly stop if no
    acceptable rollback can be demonstrated.
-6. Only after those documents are merged may a new implementation/deployment
-   authorization be requested.
+5. Only after the implementation artifacts and all synthetic negative tests are
+   reviewed may server installation/restore authorization be requested.
 
 ## 11. Rollback for this documentation change
 
