@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-staging-release.schema.json",
+  "title": "TU1NZ Adult Publishing STAGING-S0 release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "environment",
+    "application_sha",
+    "control_sha",
+    "outbound_providers_enabled",
+    "synthetic_data_only",
+    "migration_hashes",
+    "dependency_lock_sha256",
+    "archive_sha256",
+    "backup_completed_at",
+    "rpo_target_seconds",
+    "rto_target_seconds",
+    "local_source_required",
+    "approved_utc"
+  ],
+  "properties": {
+    "environment": { "const": "STAGING-S0" },
+    "application_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "control_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "outbound_providers_enabled": { "const": false },
+    "synthetic_data_only": { "const": true },
+    "migration_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[A-Za-z0-9._/-]+$" },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "dependency_lock_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "archive_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "backup_completed_at": { "type": "string", "format": "date-time" },
+    "rpo_target_seconds": { "type": "integer", "minimum": 1 },
+    "rto_target_seconds": { "type": "integer", "minimum": 1 },
+    "local_source_required": { "type": "boolean" },
+    "approved_utc": { "type": "string", "format": "date-time" }
+  }
+}
