@@ -42,9 +42,12 @@ The host may therefore install `postgresql-17` and `postgresql-client-17` only
 from the PostgreSQL Global Development Group repository for `noble-pgdg`. The
 repository key is stored at
 `/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc`; the deb822 source is
-`/etc/apt/sources.list.d/pgdg.sources`, uses HTTPS and `Signed-By`, and names no
-testing or development component. The installed package version is captured in
-the deployment evidence. No database port is opened by this decision.
+`/etc/apt/sources.list.d/pgdg.sources`, is byte-identical to
+`config/postgresql/pgdg.sources`, uses HTTPS and `Signed-By`, and names no
+testing or development component. The downloaded official key must have
+SHA-256 `0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76`.
+The installed package version is captured in the deployment evidence. No
+database port is opened by this decision.
 
 The release directories and virtual environment are immutable, root-owned and
 group-readable by the runtime. The application can write only its state root.

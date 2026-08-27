@@ -39,6 +39,8 @@
 !config/adult-publishing/
 !config/adult-publishing/staging-s1/
 !config/adult-publishing/staging-s1/runtime.env.example
+!config/postgresql/
+!config/postgresql/pgdg.sources
 !tests/
 !tests/test_adult_restore_verify.py
 !tests/test_adult_s0_deployment_readiness.py

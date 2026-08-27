@@ -16,6 +16,7 @@ MANIFEST_TOOL = ROOT / "scripts" / "tu1nz_adult_s1_manifest.py"
 GATE_TOOL = ROOT / "scripts" / "tu1nz_adult_s1_release_gate.py"
 UNIT = ROOT / "systemd" / "tu1nz-adult-publishing-s1.service"
 BACKUP = ROOT / "scripts" / "tu1nz_encrypted_backup.sh"
+PGDG_SOURCE = ROOT / "config" / "postgresql" / "pgdg.sources"
 
 
 def run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
@@ -307,6 +308,17 @@ class PersistentS1RuntimeTest(unittest.TestCase):
         ):
             self.assertIn(required, text)
         self.assertNotIn("crontab", text)
+
+    def test_postgresql_source_is_exact_noble_pgdg_https_contract(self) -> None:
+        self.assertEqual(
+            PGDG_SOURCE.read_text(encoding="ascii"),
+            "Types: deb\n"
+            "URIs: https://apt.postgresql.org/pub/repos/apt\n"
+            "Suites: noble-pgdg\n"
+            "Architectures: amd64\n"
+            "Components: main\n"
+            "Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n",
+        )
 
 
 if __name__ == "__main__":
