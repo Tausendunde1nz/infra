@@ -58,10 +58,11 @@ database port is opened by this decision.
 The release directories and virtual environment are immutable, root-owned and
 group-readable by the runtime. The application can write only its state root.
 The runtime receives execute-only, non-recursive ACL entries on exactly
-`/opt/tu1nz_repos`, `/opt/tu1nz_repos/releases` and
-`/opt/tu1nz_repos/releases/adult-publishing`. This permits traversal to the
-group-readable S1 tree without granting the runtime membership in `chatops`,
-directory listing, or write access. The versioned
+`/opt/tu1nz_repos`, `/opt/tu1nz_repos/releases`,
+`/opt/tu1nz_repos/releases/adult-publishing`, `/etc/tu1nz` and
+`/var/lib/tausendunde1nz/adult-publishing`. This permits traversal to the
+group-readable S1 release, configuration and state trees without granting the
+runtime membership in `chatops`, directory listing, or write access. The versioned
 `scripts/tu1nz_adult_s1_path_access.sh` tool validates the pre-existing owner
 and mode of every ancestor before and after applying or verifying those
 entries. It explicitly preserves each existing ACL mask, so the execute-only
@@ -173,6 +174,8 @@ service is stopped:
 setfacl -x user:tu1nz-adult-s1 /opt/tu1nz_repos
 setfacl -x user:tu1nz-adult-s1 /opt/tu1nz_repos/releases
 setfacl -x user:tu1nz-adult-s1 /opt/tu1nz_repos/releases/adult-publishing
+setfacl -x user:tu1nz-adult-s1 /etc/tu1nz
+setfacl -x user:tu1nz-adult-s1 /var/lib/tausendunde1nz/adult-publishing
 ```
 
 ## Product trace
