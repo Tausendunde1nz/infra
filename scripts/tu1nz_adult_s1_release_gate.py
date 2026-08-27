@@ -126,7 +126,14 @@ def load_manifest(path: Path) -> dict[str, object]:
 
 def git(repository: Path, *arguments: str) -> str:
     result = subprocess.run(
-        ["/usr/bin/git", "-C", str(repository), *arguments],
+        [
+            "/usr/bin/git",
+            "-c",
+            "safe.directory=" + str(repository),
+            "-C",
+            str(repository),
+            *arguments,
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -167,7 +174,15 @@ def verify_repository(repository: Path, expected_sha: str, field: str) -> None:
         raise GateFailure(field + ": worktree is dirty")
     git(repository, "fsck", "--full")
     ignored = subprocess.run(
-        ["/usr/bin/git", "-C", str(repository), "clean", "-ndx"],
+        [
+            "/usr/bin/git",
+            "-c",
+            "safe.directory=" + str(repository),
+            "-C",
+            str(repository),
+            "clean",
+            "-ndx",
+        ],
         check=False,
         capture_output=True,
         text=True,

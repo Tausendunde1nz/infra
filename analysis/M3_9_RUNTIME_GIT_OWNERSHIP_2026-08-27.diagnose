@@ -1,0 +1,14 @@
+M3.9 runtime Git ownership diagnosis
+Date: 2026-08-27
+Result: pre-start check blocked; S1 service remained disabled and inactive
+
+The root-run release gate passed. A read-only rehearsal under the actual
+tu1nz-adult-s1 service account then showed that Git rejects the root-owned
+immutable application and Control repositories as dubious ownership before it
+can compare their commits.
+
+No global or per-user safe.directory configuration is permitted. The gate is
+changed to pass the exact repository path as a command-local `git -c
+safe.directory=<path>` value for each read-only repository verification. The
+override does not survive the command and does not broaden another repository.
+A new Control release, backup/restore proof and manifest are required.

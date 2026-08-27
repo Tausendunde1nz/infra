@@ -75,6 +75,12 @@ class PersistentS1RuntimeTest(unittest.TestCase):
         self.assertNotIn("setfacl -R", source)
         self.assertNotIn("chmod -R", source)
 
+    def test_gate_scopes_safe_directory_to_each_git_command(self) -> None:
+        source = GATE_TOOL.read_text(encoding="utf-8")
+        self.assertGreaterEqual(source.count('"safe.directory=" + str(repository)'), 2)
+        self.assertNotIn("--global", source)
+        self.assertNotIn("safe.directory=*", source)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

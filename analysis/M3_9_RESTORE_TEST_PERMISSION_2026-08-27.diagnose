@@ -1,0 +1,24 @@
+M3.9 isolated restore permission diagnosis
+Date: 2026-08-27
+Result: restore proof incomplete; production archive and database unchanged
+
+The archive structure, checksum and pg_restore catalogue passed. The first
+isolated restore attempt then stopped because mktemp created the throwaway
+restore directory as root:root mode 0700 while pg_restore deliberately ran as
+the unprivileged postgres account. The cleanup trap removed the empty
+throwaway database, extracted dump and temporary directory.
+
+The retry is limited to assigning that random restore directory and extracted
+dump to root:postgres with modes 0750 and 0640. The production database is not
+a restore target. The randomly named database is force-dropped and the exact
+temporary files are unlinked after the invariant queries complete.
+
+That retry still stopped because the postgres account cannot traverse the
+private backup ancestors, which is an intentional separation and must not be
+widened for test tooling. The final restore proof therefore has root read and
+validate the dump, emits owner/privilege-free SQL on standard output and pipes
+it directly to psql running as postgres with ON_ERROR_STOP. No dump copy or
+backup-directory ACL is exposed to postgres.
+The first streaming invocation omitted pg_restore's mandatory `--file=-`
+selector and therefore exited before emitting SQL; the cleanup again removed
+the empty throwaway database. The verified retry uses that explicit selector.

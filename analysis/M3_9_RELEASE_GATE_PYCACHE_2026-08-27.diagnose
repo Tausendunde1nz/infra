@@ -1,0 +1,12 @@
+M3.9 release-gate ignored-artifact diagnosis
+Date: 2026-08-27
+Result: gate blocked; S1 service remained disabled and inactive
+
+The root-run release-manifest generator imported its adjacent Control helper
+and created only `scripts/__pycache__/` inside the not-yet-active Control
+release. The immutable release gate correctly rejected that ignored artifact.
+
+The remediation removes only the path reported by `git clean -ndx`, verifies
+the repository is clean again and runs all subsequent Control Python tools
+with `PYTHONDONTWRITEBYTECODE=1`. The committed Control tree, manifest content,
+database, configuration and application release are not modified.
