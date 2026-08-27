@@ -17,6 +17,7 @@ GATE_TOOL = ROOT / "scripts" / "tu1nz_adult_s1_release_gate.py"
 UNIT = ROOT / "systemd" / "tu1nz-adult-publishing-s1.service"
 BACKUP = ROOT / "scripts" / "tu1nz_encrypted_backup.sh"
 PGDG_SOURCE = ROOT / "config" / "postgresql" / "pgdg.sources"
+BOOTSTRAP = ROOT / "config" / "adult-publishing" / "staging-s1" / "bootstrap.sql"
 
 
 def run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
@@ -319,6 +320,36 @@ class PersistentS1RuntimeTest(unittest.TestCase):
             "Components: main\n"
             "Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n",
         )
+
+    def test_bootstrap_is_synthetic_complete_and_least_privilege(self) -> None:
+        text = BOOTSTRAP.read_text(encoding="ascii")
+        for required in (
+            "BEGIN;",
+            "COMMIT;",
+            "telegram_user_id",
+            "'79000000-0000-4000-8000-000000000101', NULL",
+            "m3.7-synthetic-policy-v1",
+            "C3_SEXUAL_ACTIVITY",
+            "'REDDIT', 'TEST'",
+            "'TELEGRAM', 'TEST'",
+            "'X', 'TEST'",
+            "reddit-data-api+tu1nz-m3.4-reddit-synthetic-v1",
+            "telegram-bot-api-10.3+tu1nz-m3.4-synthetic-v1",
+            "x-api-v2+tu1nz-m3.4-x-synthetic-v1",
+            'TO "tu1nz-adult-s1"',
+            "REVOKE CONNECT ON DATABASE tu1nz_adult_s1 FROM PUBLIC",
+        ):
+            self.assertIn(required, text)
+        for forbidden in (
+            "SUPERUSER",
+            "CREATEDB",
+            "CREATEROLE",
+            "PASSWORD",
+            "http://",
+            "https://",
+            "crontab",
+        ):
+            self.assertNotIn(forbidden, text)
 
 
 if __name__ == "__main__":

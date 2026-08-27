@@ -37,6 +37,12 @@ the dedicated sandbox bot.
 | PostgreSQL | local Unix socket, database `tu1nz_adult_s1`, role `tu1nz-adult-s1` |
 | Migrations | one-shot administrator action; never the application identity |
 
+After all application migrations, the administrator applies the byte-exact
+`config/adult-publishing/staging-s1/bootstrap.sql`. It creates only one
+pseudonymous synthetic creator, synthetic policy and three network-free TEST
+destinations, then grants the runtime role only schema usage and application
+DML/function access. It stores no raw Telegram identity and no credential.
+
 Ubuntu 24.04 does not provide PostgreSQL 17 from its distribution snapshot.
 The host may therefore install `postgresql-17` and `postgresql-client-17` only
 from the PostgreSQL Global Development Group repository for `noble-pgdg`. The

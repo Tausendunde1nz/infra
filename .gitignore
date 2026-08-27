@@ -39,6 +39,7 @@
 !config/adult-publishing/
 !config/adult-publishing/staging-s1/
 !config/adult-publishing/staging-s1/runtime.env.example
+!config/adult-publishing/staging-s1/bootstrap.sql
 !config/postgresql/
 !config/postgresql/pgdg.sources
 !tests/
