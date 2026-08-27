@@ -61,6 +61,15 @@ were removed afterward. The pre-change backup remains separately available.
 - No S1 listener, S1 timer, container mount or temporary transfer material
   remained.
 
+At the final post-merge observation (`2026-08-27T22:02:07Z`), systemd still
+reported the service active with the same main process, result `success` and
+automatic restart count `0`; the runtime-owned status file had been rewritten
+five seconds earlier. The chatops identity could not execute the safe health
+reader against that 0600 file, and non-interactive sudo correctly required a
+password. No privilege was added and no runtime action was taken. This
+observation does not replace the successful privileged `READY` acceptance
+recorded above; the rights-limited check is captured in the matching diagnosis.
+
 ## Preserved safety boundary
 
 External Telegram intake is enabled only for the dedicated sandbox bot.
