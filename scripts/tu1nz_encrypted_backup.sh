@@ -7,6 +7,7 @@ LOG_FILE="/var/log/tausendunde1nz/rclone_backup.log"
 ARCHIVE="$BACKUP_DIR/tu1nz_system_backup_${TS}.tar.gz"
 DUMP_DIR=""
 DB_DUMP=""
+S1_RUNTIME_USER="tu1nz-adult-s1"
 
 notify() {
   /usr/local/bin/notify_telegram.sh "$1" || true
@@ -49,8 +50,10 @@ do
 done
 
 DUMP_DIR="$(/usr/bin/mktemp -d "$BACKUP_DIR/.s1-dump.XXXXXX")"
+chown "$S1_RUNTIME_USER:$S1_RUNTIME_USER" "$DUMP_DIR"
+chmod 0700 "$DUMP_DIR"
 DB_DUMP="$DUMP_DIR/staging-s1-database.dump"
-/usr/sbin/runuser -u tu1nz-adult-s1 -- \
+/usr/sbin/runuser -u "$S1_RUNTIME_USER" -- \
   /usr/bin/pg_dump --format=custom --file="$DB_DUMP" --dbname=tu1nz_adult_s1
 [[ -s "$DB_DUMP" ]] || {
   echo "STAGING-S1 PostgreSQL dump is empty" >&2
