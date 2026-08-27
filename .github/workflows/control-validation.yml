@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compile Python verifier
         run: python3 -m py_compile scripts/tu1nz_adult_restore_verify.py tests/test_adult_restore_verify.py
       - name: Check shell wrapper
