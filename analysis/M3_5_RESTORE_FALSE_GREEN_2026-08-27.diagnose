@@ -3,7 +3,7 @@
 Date: 2026-08-27
 Host: `ubuntu-8gb-nbg1-2`
 Scope: read-only restore evidence audit
-Status: open; runtime remediation not authorized
+Status: design prepared; runtime remediation not authorized
 
 ## Observed result
 
@@ -55,7 +55,13 @@ or why it was not subsequently reconciled.
 
 ## Required remediation design
 
-Before any runtime action, Control SSOT must specify and review:
+The binding design is recorded in
+`docs/M3_5_RESTORE_REMEDIATION_DESIGN_2026-08-27.md`. It separates correction
+of the generic false-green service from the dedicated Adult Publishing
+current-SHA restore gate and retains all runtime actions behind separate
+authorization.
+
+Before any runtime action, Control SSOT requires:
 
 1. the exact installed destination and hash for the restore script;
 2. an installation transaction and rollback artifact;
