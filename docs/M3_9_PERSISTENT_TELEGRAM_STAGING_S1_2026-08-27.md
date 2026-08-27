@@ -57,6 +57,13 @@ database port is opened by this decision.
 
 The release directories and virtual environment are immutable, root-owned and
 group-readable by the runtime. The application can write only its state root.
+The runtime receives execute-only, non-recursive ACL entries on exactly
+`/opt/tu1nz_repos`, `/opt/tu1nz_repos/releases` and
+`/opt/tu1nz_repos/releases/adult-publishing`. This permits traversal to the
+group-readable S1 tree without granting the runtime membership in `chatops`,
+directory listing, or write access. The versioned
+`scripts/tu1nz_adult_s1_path_access.sh` tool validates the pre-existing owner
+and mode of every ancestor before applying or verifying those entries.
 
 ## Credentials and configuration
 
@@ -121,7 +128,8 @@ throwaway database before service start.
 3. repeat privileged path/service/timer/container/open-file checks;
 4. install the supported native PostgreSQL 17 packages from the exact PGDG
    source above, then create the dedicated OS and PostgreSQL identities;
-5. stage clean SHA-named releases and a hash-locked virtual environment;
+5. apply and verify the versioned execute-only S1 ancestor ACL, then stage
+   clean SHA-named releases and a hash-locked virtual environment;
 6. install private configuration and fresh state without printing secrets;
 7. apply all migrations as an administrator and seed only synthetic fixtures;
 8. install the versioned backup script and create/upload the exact S1 archive;
@@ -155,6 +163,15 @@ Rollback targets only the S1 service and exact S1 paths:
 If no prior S1 release exists, leave the service disabled and retain the state
 for investigation. Legacy bots and unrelated databases are never rollback
 targets.
+
+The S1 ancestor ACL rollback is limited to these exact commands after the S1
+service is stopped:
+
+```text
+setfacl -x user:tu1nz-adult-s1 /opt/tu1nz_repos
+setfacl -x user:tu1nz-adult-s1 /opt/tu1nz_repos/releases
+setfacl -x user:tu1nz-adult-s1 /opt/tu1nz_repos/releases/adult-publishing
+```
 
 ## Product trace
 

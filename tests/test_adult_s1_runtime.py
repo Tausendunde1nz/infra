@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_TOOL = ROOT / "scripts" / "tu1nz_adult_s1_manifest.py"
 GATE_TOOL = ROOT / "scripts" / "tu1nz_adult_s1_release_gate.py"
+PATH_ACCESS_TOOL = ROOT / "scripts" / "tu1nz_adult_s1_path_access.sh"
 UNIT = ROOT / "systemd" / "tu1nz-adult-publishing-s1.service"
 BACKUP = ROOT / "scripts" / "tu1nz_encrypted_backup.sh"
 PGDG_SOURCE = ROOT / "config" / "postgresql" / "pgdg.sources"
@@ -55,6 +56,19 @@ def create_repository(path: Path, *, application: bool) -> str:
 
 
 class PersistentS1RuntimeTest(unittest.TestCase):
+    def test_path_access_is_execute_only_exact_and_non_recursive(self) -> None:
+        source = PATH_ACCESS_TOOL.read_text(encoding="utf-8")
+        for path in (
+            "/opt/tu1nz_repos",
+            "/opt/tu1nz_repos/releases",
+            "/opt/tu1nz_repos/releases/adult-publishing",
+        ):
+            self.assertIn(path, source)
+        self.assertIn('user:${RUNTIME_USER}:--x', source)
+        self.assertIn("S1_PATH_ACCESS_OK", source)
+        self.assertNotIn("setfacl -R", source)
+        self.assertNotIn("chmod -R", source)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
