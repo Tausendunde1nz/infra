@@ -62,6 +62,8 @@ class PersistentS1RuntimeTest(unittest.TestCase):
             "/opt/tu1nz_repos",
             "/opt/tu1nz_repos/releases",
             "/opt/tu1nz_repos/releases/adult-publishing",
+            "/etc/tu1nz",
+            "/var/lib/tausendunde1nz/adult-publishing",
         ):
             self.assertIn(path, source)
         self.assertIn('user:${RUNTIME_USER}:--x', source)
