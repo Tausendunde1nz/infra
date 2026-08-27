@@ -1,0 +1,18 @@
+M3.9 final acceptance query diagnosis
+Date: 2026-08-27
+Result: operational checks passed; one read-only assertion used a wrong table name
+
+The bot contract, controlled service restart, cursor monotonicity, private state
+check and fresh READY health all passed. The final zero-publication assertion
+then queried `publication_records`, which is not part of the accepted schema;
+the versioned table is `publications`. The query failed without modifying the
+database or service.
+
+The retry changes only that table identifier, repeats the complete acceptance
+and retains the exact expected database facts `0|0|0` for raw Telegram IDs,
+publications and dispatches.
+
+Documentation validation note:
+The first staged documentation check also rejected two Markdown lines with
+trailing whitespace. The issue was formatting-only, had no runtime effect and
+was corrected before commit. The complete staged check was then repeated.

@@ -5,6 +5,10 @@ Status date: 2026-08-27
 Control decision: **GO for a controlled, synthetic-only S1 release after every
 gate in this document passes; NO-GO for production and all real publishers**
 
+Deployment result on 2026-08-27: **enabled, active and READY**. Exact evidence
+is recorded in `docs/M3_9_DEPLOYMENT_EVIDENCE_2026-08-27.md`. The live boundary
+remains closed.
+
 ## Goal and boundary
 
 M3.9 installs one persistent worker for the dedicated
