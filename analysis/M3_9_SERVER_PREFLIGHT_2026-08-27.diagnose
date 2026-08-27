@@ -1,0 +1,57 @@
+M3.9 privileged server preflight
+Date: 2026-08-27
+Host: ubuntu-8gb-nbg1-2
+Route: Tailscale 100.121.130.51
+Result: GO for isolated S1 staging after the recorded backup
+
+Identity and route
+- SSH used root over the Tailscale address only.
+- Three VPN pings reached the correct host through DERP; no direct peer path was
+  established. SSH remained stable and no public SSH route was used.
+
+Capacity
+- Root filesystem: 75 GiB total, 21 GiB available, 72 percent used.
+- Inodes: 13 percent used.
+- Memory: 7.6 GiB total, 5.8 GiB available; no swap.
+
+Path and writer checks
+- The S1 release, configuration and state roots were absent.
+- tu1nz-adult-publishing-s1.service was not installed.
+- No systemd unit, timer, cron entry, Docker mount, running process or open file
+  referenced the S1 paths.
+- Canonical application and Control checkouts were clean when inspected as
+  their owner, chatops. The application checkout was stale and is not used as
+  a deployment source. Control was at ae81a7c22924bc76b7d73026c647b642d6f79b15.
+- The canonical Control tree contains deliberately ignored security material;
+  the immutable release gate will use a fresh SHA-named clone without ignored
+  files.
+
+Host state
+- Ubuntu 24.04, Python 3.12.3, Git and rclone were present.
+- Native PostgreSQL was absent; Ubuntu's default repository does not expose the
+  supported PostgreSQL 17 package. The official noble-pgdg source is therefore
+  versioned in the M3.9 Control document before installation.
+- UFW was active. Public firewall allowances were limited to 80/tcp, 443/tcp
+  and Tailscale 41641/udp; public 22/tcp was denied.
+- Existing public Docker listeners remain unrelated to S1. S1 adds no listener.
+- tu1nz-doc.service remained failed and spicymila_bot remained unhealthy. They
+  share no S1 path and are outside this sprint.
+
+Backup and rollback
+- The existing encrypted backup service was green before the window.
+- A fresh pre-change encrypted archive was created and uploaded successfully:
+  tu1nz_system_backup_20260827T19-52-37Z.tar.gz
+- SHA-256:
+  ae73320a3ccc8ccd82324239db4cfcb633ddd39b76f7d3714c3b8f20c4ab3974
+- Size: 13008515 bytes.
+- Exactly one matching object was present at gcrypt01:backups.
+
+Risks and decision
+- DERP routing may add latency but does not widen access or affect an outbound
+  long-polling worker.
+- The application repository deploy key did not authenticate. Deployment must
+  not weaken repository permissions; the exact merged application commit will
+  be transferred as a clean local Git bundle and validated by SHA and git fsck.
+- No S1 collision or capacity blocker was found. Installation remains gated by
+  exact immutable releases, the S1 encrypted backup/restore proof, the release
+  manifest and the pre-start gate.

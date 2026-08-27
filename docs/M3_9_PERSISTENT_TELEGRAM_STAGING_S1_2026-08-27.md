@@ -37,6 +37,15 @@ the dedicated sandbox bot.
 | PostgreSQL | local Unix socket, database `tu1nz_adult_s1`, role `tu1nz-adult-s1` |
 | Migrations | one-shot administrator action; never the application identity |
 
+Ubuntu 24.04 does not provide PostgreSQL 17 from its distribution snapshot.
+The host may therefore install `postgresql-17` and `postgresql-client-17` only
+from the PostgreSQL Global Development Group repository for `noble-pgdg`. The
+repository key is stored at
+`/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc`; the deb822 source is
+`/etc/apt/sources.list.d/pgdg.sources`, uses HTTPS and `Signed-By`, and names no
+testing or development component. The installed package version is captured in
+the deployment evidence. No database port is opened by this decision.
+
 The release directories and virtual environment are immutable, root-owned and
 group-readable by the runtime. The application can write only its state root.
 
@@ -101,7 +110,8 @@ throwaway database before service start.
 1. merge application M3.9 and Control M3.9 through reviewed pull requests;
 2. take and verify the pre-change encrypted backup;
 3. repeat privileged path/service/timer/container/open-file checks;
-4. create the dedicated OS and PostgreSQL identities;
+4. install the supported native PostgreSQL 17 packages from the exact PGDG
+   source above, then create the dedicated OS and PostgreSQL identities;
 5. stage clean SHA-named releases and a hash-locked virtual environment;
 6. install private configuration and fresh state without printing secrets;
 7. apply all migrations as an administrator and seed only synthetic fixtures;
