@@ -1,0 +1,19 @@
+M3.9 final read-only health diagnosis
+Date: 2026-08-28
+Result: privileged invocation unavailable; runtime unchanged
+
+The final read-only check attempted to execute the versioned health command as
+the dedicated runtime identity through non-interactive sudo. The server
+correctly rejected that privilege transition because an interactive password
+would be required. No password was requested, no privilege or sudo policy was
+changed, and the service remained enabled, active and unchanged.
+
+The acceptance continues only with unprivileged read-only checks available to
+the chatops identity. Any failure to obtain a fresh safe health result through
+those existing rights remains fail-closed and must not be represented as GO.
+
+The same health command under the unprivileged chatops identity returned the
+safe `RED` envelope because that identity cannot read the runtime-owned 0600
+status file. This is an observation-permission failure, not evidence that the
+runtime changed state. The final report therefore distinguishes the last
+privileged READY acceptance from the later unprivileged service observations.
