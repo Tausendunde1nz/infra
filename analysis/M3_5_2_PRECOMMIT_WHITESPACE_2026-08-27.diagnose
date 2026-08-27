@@ -1,0 +1,12 @@
+# M3.5.2 pre-commit whitespace diagnostic — 2026-08-27
+
+## Finding
+
+The first staged diff check rejected two Markdown hardbreaks in the M3.5.2
+document as trailing whitespace.
+
+## Correction
+
+The hardbreaks were replaced with blank paragraphs. No semantic content or
+runtime artifact changed. The complete staged diff check must pass before a
+commit is created.

@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Compile Python verifier
         run: python3 -m py_compile scripts/tu1nz_adult_restore_verify.py tests/test_adult_restore_verify.py
       - name: Check shell wrapper
@@ -29,3 +29,18 @@ jobs:
           scripts/tu1nz_adult_restore_verify.py
           scripts/tu1nz_adult_restore_verify.sh
           systemd/tu1nz-adult-restore-verify.service
+      - name: Compile M3.5.2 deployment-readiness artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_staging_manifest.py
+          scripts/tu1nz_adult_s0_release_gate.py
+          tests/test_adult_s0_deployment_readiness.py
+      - name: Run M3.5.2 deployment-readiness tests
+        run: python3 -m unittest -v tests.test_adult_s0_deployment_readiness
+      - name: Reject activation, networking and cron in M3.5.2 artifacts
+        run: >-
+          ! git grep -nEi
+          '(WantedBy=|Listen(Stream|Datagram)=|https?://|(^|[[:space:]])crontab([[:space:]]|$))' --
+          scripts/tu1nz_adult_staging_manifest.py
+          scripts/tu1nz_adult_s0_release_gate.py
+          systemd/tu1nz-adult-s0-release-verify.service

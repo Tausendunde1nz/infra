@@ -1,0 +1,23 @@
+# M3.5.2 release-manifest self-reference diagnostic — 2026-08-27
+
+## Finding
+
+A manifest cannot both contain the SHA of the commit that contains that same
+manifest and be byte-for-byte immutable: committing the generated file changes
+the commit SHA. Treating both requirements as simultaneous would create a
+circular, unverifiable release contract.
+
+## Resolution
+
+The Control implementation and manifest schema are versioned and merged first
+as artifact commit **A**. Only afterward is the manifest generated from the
+clean checkout at A and the clean application release. The generated manifest
+is stored outside the live Control worktree with mode `0600`; its printed
+SHA-256 is the approval/evidence identifier. `control_sha` binds the verifier
+implementation at A, not a later evidence commit. A future evidence commit may
+record the digest but must not reinterpret `control_sha`.
+
+The release archive must contain the exact application and Control checkouts
+named by the manifest. The restore verifier validates both after extraction.
+No manifest instance is committed in M3.5.2 because no business-approved
+RPO/RTO/retention values or qualifying fresh archive exist.

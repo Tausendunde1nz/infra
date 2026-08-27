@@ -136,6 +136,7 @@ raise SystemExit(8)
             "backup_completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "rpo_target_seconds": 3600,
             "rto_target_seconds": 30,
+            "retention_days": 7,
             "local_source_required": True,
             "approved_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
@@ -213,6 +214,12 @@ raise SystemExit(8)
     def test_n03_outbound_enabled(self) -> None:
         self._write_manifest(outbound_providers_enabled=True)
         self.assert_failure(self._run(), "OUTBOUND_NOT_DISABLED")
+
+    def test_n19_retention_missing(self) -> None:
+        payload = self._manifest_payload()
+        payload.pop("retention_days")
+        self.manifest.write_text(json.dumps(payload), encoding="utf-8")
+        self.assert_failure(self._run(), "MANIFEST_INVALID")
 
     def test_n04_archive_not_found(self) -> None:
         self.archive.unlink()
