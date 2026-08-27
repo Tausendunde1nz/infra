@@ -13,3 +13,12 @@ Operational changes follow this sequence:
 5. validate the live state and record the result.
 
 The branch `control-main` in `Tausendunde1nz/infra` is the baseline for this independent Control history. M1 application work must use a separate repository and branch.
+
+Current Adult Publishing infrastructure decisions:
+
+- `docs/M1_ADULT_PUBLISHING_PREFLIGHT_EXECUTION_2026-08-26.md` records the
+  completed M1 repository/bootstrap preflight.
+- `docs/M3_5_SERVER_CONTROL_PREFLIGHT_2026-08-27.md` records the current
+  staging/server preflight and its deployment `NO-GO` decision.
+- `analysis/M3_5_RESTORE_FALSE_GREEN_2026-08-27.diagnose` records the open
+  installed-restore-script drift without activating a repair.
