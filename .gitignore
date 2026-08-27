@@ -16,6 +16,8 @@
 !scripts/tu1nz_adult_restore_verify.sh
 !scripts/tu1nz_adult_staging_manifest.py
 !scripts/tu1nz_adult_s0_release_gate.py
+!scripts/tu1nz_adult_s1_manifest.py
+!scripts/tu1nz_adult_s1_release_gate.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -26,14 +28,21 @@
 !systemd/tu1nz-legacy-git-sync.timer
 !systemd/tu1nz-adult-restore-verify.service
 !systemd/tu1nz-adult-s0-release-verify.service
+!systemd/tu1nz-adult-publishing-s1.service
 !.github/
 !.github/workflows/
 !.github/workflows/control-validation.yml
 !manifests/
 !manifests/adult-publishing-staging-release.schema.json
+!manifests/adult-publishing-staging-s1-release.schema.json
+!config/
+!config/adult-publishing/
+!config/adult-publishing/staging-s1/
+!config/adult-publishing/staging-s1/runtime.env.example
 !tests/
 !tests/test_adult_restore_verify.py
 !tests/test_adult_s0_deployment_readiness.py
+!tests/test_adult_s1_runtime.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -42,3 +51,4 @@
 !analysis/M3_5_2_CORE_LOCAL_RUNTIME_2026-08-27.diagnose
 !analysis/M3_5_2_ROLLBACK_FIXTURE_2026-08-27.diagnose
 !analysis/M3_5_2_PRECOMMIT_WHITESPACE_2026-08-27.diagnose
+!analysis/M3_9_SERVER_PREFLIGHT_2026-08-27.diagnose

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-staging-s1-release.schema.json",
+  "title": "TU1NZ Adult Publishing STAGING-S1 release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "application_sha",
+    "approved_utc",
+    "archive_sha256",
+    "backup_completed_at",
+    "bot_username",
+    "control_sha",
+    "dependency_lock_sha256",
+    "environment",
+    "live_publishers_enabled",
+    "local_source_required",
+    "migration_hashes",
+    "mock_payment_only",
+    "required_platforms",
+    "retention_days",
+    "rpo_target_seconds",
+    "rto_target_seconds",
+    "synthetic_data_only",
+    "telegram_intake_enabled"
+  ],
+  "properties": {
+    "application_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "approved_utc": { "type": "string", "format": "date-time" },
+    "archive_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "backup_completed_at": { "type": "string", "format": "date-time" },
+    "bot_username": { "const": "TU1NZ_Adult_Sandbox_Bot" },
+    "control_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "dependency_lock_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "environment": { "const": "STAGING-S1" },
+    "live_publishers_enabled": { "const": false },
+    "local_source_required": { "type": "boolean" },
+    "migration_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[A-Za-z0-9._/-]+$" },
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "mock_payment_only": { "const": true },
+    "required_platforms": {
+      "const": ["REDDIT", "TELEGRAM", "X"]
+    },
+    "retention_days": { "type": "integer", "minimum": 1 },
+    "rpo_target_seconds": { "type": "integer", "minimum": 1 },
+    "rto_target_seconds": { "type": "integer", "minimum": 1 },
+    "synthetic_data_only": { "const": true },
+    "telegram_intake_enabled": { "const": true }
+  }
+}
