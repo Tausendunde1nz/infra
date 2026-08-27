@@ -323,6 +323,8 @@ class PersistentS1RuntimeTest(unittest.TestCase):
             "tausendunde1nz/adult-publishing/staging-s1",
             "pg_dump --format=custom",
             "staging-s1-database.dump",
+            'chown "$S1_RUNTIME_USER:$S1_RUNTIME_USER" "$DUMP_DIR"',
+            'chmod 0700 "$DUMP_DIR"',
             "gcrypt01:backups",
         ):
             self.assertIn(required, text)

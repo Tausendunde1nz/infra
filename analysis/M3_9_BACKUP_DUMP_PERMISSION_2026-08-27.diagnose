@@ -1,0 +1,15 @@
+M3.9 encrypted backup database-dump diagnosis
+Date: 2026-08-27
+Result: fail closed; no release manifest and no S1 service activation
+
+The first S1-aware backup stopped before archive creation. The root-run backup
+created its private temporary dump directory with mode 0700 and root ownership,
+then deliberately executed pg_dump as the unprivileged tu1nz-adult-s1 role.
+That role could not create staging-s1-database.dump inside the root-only
+directory. PostgreSQL, application state and prior archives were unchanged.
+
+Remediation is limited to assigning the fresh, randomly named dump directory
+to tu1nz-adult-s1 with mode 0700 before pg_dump. The directory remains beneath
+the fixed backup root, is removed by the existing exact cleanup guard and is
+never shared with another account. A fresh encrypted upload and isolated
+restore proof are mandatory before release approval.
