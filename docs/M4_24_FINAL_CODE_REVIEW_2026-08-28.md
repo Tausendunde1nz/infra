@@ -12,7 +12,7 @@ start, provider access, real data or contract approval was performed.
 ## Result
 
 The original draft was not safe enough for a future first-start window. The
-review found one critical and seven high/medium fail-closed gaps. The code,
+review found one critical and eight high/medium fail-closed gaps. The code,
 contract, schema, tests, CI guard and M4.24 design were hardened. The existing
 installed unit remains deliberately incompatible with execution because it has
 `Restart=on-failure` and no finite runtime maximum. That fact is now a third
