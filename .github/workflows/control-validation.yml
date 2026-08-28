@@ -199,6 +199,24 @@ jobs:
               exit "$status"
             fi
           fi
+      - name: Validate M4.25 stopped unit refresh shell
+        run: bash -n scripts/tu1nz_adult_commercial_s0_unit_refresh.sh
+      - name: Validate M4.25 systemd unit
+        run: systemd-analyze verify systemd/tu1nz-adult-commercial-s0.service
+      - name: Compile M4.25 stopped unit refresh tests
+        run: python3 -m py_compile tests/test_adult_commercial_s0_unit_refresh.py
+      - name: Run M4.25 stopped unit refresh tests
+        run: python3 -m unittest -v tests.test_adult_commercial_s0_unit_refresh
+      - name: Reject candidate activation, cron and provider credentials in M4.25 controller
+        run: >-
+          ! git grep -nEi
+          '(systemctl[[:space:]]+(start|restart|enable)[[:space:]]+.*commercial|(^|[[:space:]])crontab([[:space:]]|$)|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_s0_unit_refresh.sh
+      - name: Reject restart and activation directives in M4.25 unit
+        run: >-
+          ! git grep -nE
+          '(WantedBy=|OnFailure=|Restart=(always|on-failure))' --
+          systemd/tu1nz-adult-commercial-s0.service
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

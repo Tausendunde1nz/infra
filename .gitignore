@@ -28,6 +28,7 @@
 !scripts/tu1nz_adult_commercial_s0_install.sh
 !scripts/tu1nz_adult_commercial_first_start_gate.py
 !scripts/tu1nz_adult_commercial_s0_first_start.py
+!scripts/tu1nz_adult_commercial_s0_unit_refresh.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -82,6 +83,7 @@
 !tests/test_adult_commercial_installation_authorization.py
 !tests/test_adult_commercial_s0_stopped_installation.py
 !tests/test_adult_commercial_first_start.py
+!tests/test_adult_commercial_s0_unit_refresh.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
