@@ -1,0 +1,32 @@
+M4.20 GitHub tree-size query diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+Two read-only GitHub tree requests returned HTTP 404 while the immediately
+following commit request succeeded.
+
+Cause
+-----
+The local zsh loop stored repository and tree SHA in one scalar. Unlike the
+assumed shell behavior, zsh did not split that scalar on spaces for `set --`.
+The resulting GitHub path was malformed. No repository, branch, server, token,
+service, database or provider state was changed.
+
+Risk
+----
+None to remote or server state. The only risk is recording an incorrect
+capacity estimate if the failed output were used.
+
+Rollback
+--------
+No rollback is required because the request was read-only and returned no
+data. This diagnosis file can be reverted with the M4.20 branch if the sprint
+is abandoned.
+
+Approved continuation
+---------------------
+Repeat each read-only request with a literal repository and literal tree SHA,
+validate `truncated=false`, and use the returned blob-byte totals only as a
+lower-bound source-tree estimate. Do not install, fetch, deploy or alter the
+application checkout.

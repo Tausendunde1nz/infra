@@ -1,0 +1,161 @@
+{
+  "active": false,
+  "activation_decision": "NO_GO",
+  "backup_restore": {
+    "commercial_release_bound": false,
+    "exact_archive_bytes": 45142464,
+    "exact_archive_name": "tu1nz_system_backup_20260828T03-31-58Z.tar.gz",
+    "exact_archive_remote_present": true,
+    "exact_archive_sha256": "5110d1e85d4256e22af6ad44cf23cb0333cd759c763219ce35a10dcc0f1496e5",
+    "installed_backup_script_matches_versioned": false,
+    "installed_backup_script_sha256": "068eccb256b4f5f9d3abed8bcc58b03145bdb2745b003ca60616daf4c07d0f78",
+    "legacy_monthly_restore_false_green_known": true,
+    "restore_smoke_archive": "tu1nz_system_backup_20260828T03-31-58Z.tar.gz",
+    "restore_smoke_completed_at": "2026-08-28T06:16:52Z",
+    "restore_smoke_passed": true,
+    "versioned_backup_script_sha256": "0de61224be517e08fd0a789673df7977f0581aa92608513d99ca9a26ad4bebe8"
+  },
+  "blockers": [
+    "RUNTIME_PARENT_TRAVERSAL_ACL_NOT_VERSIONED",
+    "POSTGRES_PEER_IDENTITY_MAPPING_NOT_VERSIONED",
+    "CANONICAL_APPLICATION_CHECKOUT_NOT_FINAL",
+    "COMMERCIAL_RELEASE_NOT_STAGED",
+    "COMMERCIAL_IDENTITIES_AND_DATABASE_ABSENT",
+    "MIGRATION_0014_NOT_INSTALLED",
+    "VERSIONED_BACKUP_SCRIPT_NOT_INSTALLED",
+    "EXACT_COMMERCIAL_BACKUP_AND_RESTORE_NOT_PROVEN",
+    "COMMERCIAL_UNIT_NOT_INSTALLED_OR_NATIVE_VERIFIED",
+    "FIRST_START_NOT_APPROVED"
+  ],
+  "capacity": {
+    "application_tree_blob_bytes": 3047701,
+    "application_tree_blob_count": 332,
+    "application_tree_truncated": false,
+    "capacity_preflight_passed": true,
+    "control_tree_blob_bytes": 382053,
+    "control_tree_blob_count": 92,
+    "control_tree_truncated": false,
+    "local_reference_venv_bytes": 31920128,
+    "memory_available_bytes": 6137077760,
+    "memory_total_bytes": 8127746048,
+    "root_filesystem_available_bytes": 21014937600,
+    "root_filesystem_percent_used": 73,
+    "swap_total_bytes": 0
+  },
+  "contract_version": "tu1nz-commercial-installation-preflight-m4.20-v1",
+  "final_baselines": {
+    "application_canonical_checkout_clean": true,
+    "application_canonical_checkout_matches_final": false,
+    "application_canonical_checkout_sha": "5572ea165c11fa9d409d1e76ddf08243ae657ea0",
+    "application_main_merged": true,
+    "application_main_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+    "application_tree_sha": "b2820945c52ffdf77c2f5fbdd227c03ee6b245ab",
+    "control_canonical_checkout_clean": true,
+    "control_canonical_checkout_matches_final": true,
+    "control_canonical_checkout_sha": "2a1b46dfb90fb3e6edcdb7fceaf369bcac0f33e9",
+    "control_main_merged": true,
+    "control_main_sha": "2a1b46dfb90fb3e6edcdb7fceaf369bcac0f33e9",
+    "control_tree_sha": "6f3ace3fec2d7d0aa78b409ad108f474d2ae468b"
+  },
+  "installed": false,
+  "installation_decision": "NO_GO",
+  "interference": {
+    "active_s1_application_sha": "91d0ae139604bfe8eb61812797cac1056fa2c7d2",
+    "active_s1_control_sha": "a6a7740ed854238aa575e741bf7812f601a20217",
+    "canonical_control_mutated_by_agentmode": true,
+    "commercial_container_mount_reference_detected": false,
+    "commercial_cron_reference_detected": false,
+    "commercial_open_file_reference_detected": false,
+    "commercial_process_reference_detected": false,
+    "commercial_service_or_timer_reference_detected": false,
+    "path_collision_detected": false
+  },
+  "network_enabled": false,
+  "observation_window": {
+    "completed_at": "2026-08-28T13:17:13Z",
+    "started_at": "2026-08-28T13:11:33Z"
+  },
+  "path_and_identity": {
+    "access_acl_for_runtime_identity_present": false,
+    "configuration_root_absent": true,
+    "database_and_roles_absent": true,
+    "operating_system_identity_absent": true,
+    "release_root_absent": true,
+    "runtime_parent_traversal_ready": false,
+    "state_root_absent": true,
+    "traversal_blocking_parents": [
+      "/opt/tu1nz_repos",
+      "/opt/tu1nz_repos/releases",
+      "/opt/tu1nz_repos/releases/adult-publishing",
+      "/etc/tu1nz",
+      "/var/lib/tausendunde1nz/adult-publishing"
+    ]
+  },
+  "postgresql": {
+    "cluster_online": true,
+    "database_absent": true,
+    "ident_mapping_present": false,
+    "listen_addresses": "localhost",
+    "local_default_authentication": "peer",
+    "planned_runtime_database_role": "tu1nz_adult_commercial_s0_runtime",
+    "planned_runtime_operating_system_user": "tu1nz-adult-commercial-s0",
+    "roles_absent": true,
+    "runtime_dsn_authentication_ready": false,
+    "tcp_listener": "127.0.0.1:5432",
+    "unix_socket_directory": "/run/postgresql",
+    "version": "17.11"
+  },
+  "product_boundary": {
+    "external_providers_enabled": false,
+    "paid_targets": [
+      "REDDIT",
+      "TELEGRAM"
+    ],
+    "real_media_enabled": false,
+    "real_payment_enabled": false,
+    "synthetic_data_only": true,
+    "telegram_intake_enabled": false,
+    "uncompensated_targets": [
+      "X"
+    ]
+  },
+  "required_next_gates": {
+    "commercial_archive_manifest_pair_verified": false,
+    "commercial_restore_rehearsal_complete": false,
+    "database_and_roles_created": false,
+    "first_start_separately_approved": false,
+    "immutable_application_release_staged": false,
+    "immutable_control_release_staged": false,
+    "migration_0014_installed": false,
+    "native_unit_verification_passed_after_staging": false,
+    "operating_system_identity_created": false,
+    "postgres_peer_mapping_versioned_and_tested": false,
+    "pre_install_snapshot_and_restore_verified": false,
+    "runtime_parent_acl_versioned_and_tested": false,
+    "unit_installed_stopped_and_disabled": false,
+    "versioned_backup_script_installed": false,
+    "virtual_environment_staged": false
+  },
+  "server": {
+    "hostname": "ubuntu-8gb-nbg1-2",
+    "operating_system": "Ubuntu 24.04.3 LTS",
+    "ssh_identity": "root",
+    "system_state": "degraded",
+    "system_state_unrelated_failed_unit": "tu1nz-doc.service",
+    "tailscale_ip": "100.121.130.51",
+    "tailscale_route": "DERP_NUE",
+    "tailscale_version_skew_present": true
+  },
+  "server_changed": false,
+  "sprint": "M4.20",
+  "unit": {
+    "installed": false,
+    "native_security_exposure_level": 0.6,
+    "native_security_rating": "SAFE",
+    "native_verify_result": "BLOCKED_EXPECTED_MISSING_EXECUTABLE",
+    "no_enablement_section": true,
+    "private_network": true,
+    "restrict_address_families": "AF_UNIX",
+    "versioned_sha256": "ecec13e294ded68dfeeaba1300eb2f5247aacf5e9085c9838eca3b50f6a56bf3"
+  }
+}

@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-installation-preflight.schema.json",
+  "title": "TU1NZ Adult Publishing M4.20 commercial S0 installation preflight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "activation_decision",
+    "backup_restore",
+    "blockers",
+    "capacity",
+    "contract_version",
+    "final_baselines",
+    "installed",
+    "installation_decision",
+    "interference",
+    "network_enabled",
+    "observation_window",
+    "path_and_identity",
+    "postgresql",
+    "product_boundary",
+    "required_next_gates",
+    "server",
+    "server_changed",
+    "sprint",
+    "unit"
+  ],
+  "properties": {
+    "active": { "const": false },
+    "activation_decision": { "const": "NO_GO" },
+    "backup_restore": { "$ref": "#/$defs/backupRestore" },
+    "blockers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" }
+    },
+    "capacity": { "$ref": "#/$defs/capacity" },
+    "contract_version": {
+      "const": "tu1nz-commercial-installation-preflight-m4.20-v1"
+    },
+    "final_baselines": { "$ref": "#/$defs/finalBaselines" },
+    "installed": { "const": false },
+    "installation_decision": { "const": "NO_GO" },
+    "interference": { "$ref": "#/$defs/interference" },
+    "network_enabled": { "const": false },
+    "observation_window": { "$ref": "#/$defs/observationWindow" },
+    "path_and_identity": { "$ref": "#/$defs/pathAndIdentity" },
+    "postgresql": { "$ref": "#/$defs/postgresql" },
+    "product_boundary": { "$ref": "#/$defs/productBoundary" },
+    "required_next_gates": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z0-9_]+$" },
+      "additionalProperties": { "const": false }
+    },
+    "server": { "$ref": "#/$defs/server" },
+    "server_changed": { "const": false },
+    "sprint": { "const": "M4.20" },
+    "unit": { "$ref": "#/$defs/unit" }
+  },
+  "$defs": {
+    "sha40": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "backupRestore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commercial_release_bound",
+        "exact_archive_bytes",
+        "exact_archive_name",
+        "exact_archive_remote_present",
+        "exact_archive_sha256",
+        "installed_backup_script_matches_versioned",
+        "installed_backup_script_sha256",
+        "legacy_monthly_restore_false_green_known",
+        "restore_smoke_archive",
+        "restore_smoke_completed_at",
+        "restore_smoke_passed",
+        "versioned_backup_script_sha256"
+      ],
+      "properties": {
+        "commercial_release_bound": { "const": false },
+        "exact_archive_bytes": { "type": "integer", "minimum": 1 },
+        "exact_archive_name": { "type": "string", "pattern": "^tu1nz_system_backup_[0-9TZ-]+\\.tar\\.gz$" },
+        "exact_archive_remote_present": { "const": true },
+        "exact_archive_sha256": { "$ref": "#/$defs/sha256" },
+        "installed_backup_script_matches_versioned": { "const": false },
+        "installed_backup_script_sha256": { "$ref": "#/$defs/sha256" },
+        "legacy_monthly_restore_false_green_known": { "const": true },
+        "restore_smoke_archive": { "type": "string" },
+        "restore_smoke_completed_at": { "type": "string" },
+        "restore_smoke_passed": { "const": true },
+        "versioned_backup_script_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_tree_blob_bytes",
+        "application_tree_blob_count",
+        "application_tree_truncated",
+        "capacity_preflight_passed",
+        "control_tree_blob_bytes",
+        "control_tree_blob_count",
+        "control_tree_truncated",
+        "local_reference_venv_bytes",
+        "memory_available_bytes",
+        "memory_total_bytes",
+        "root_filesystem_available_bytes",
+        "root_filesystem_percent_used",
+        "swap_total_bytes"
+      ],
+      "properties": {
+        "application_tree_blob_bytes": { "type": "integer", "minimum": 1 },
+        "application_tree_blob_count": { "type": "integer", "minimum": 1 },
+        "application_tree_truncated": { "const": false },
+        "capacity_preflight_passed": { "const": true },
+        "control_tree_blob_bytes": { "type": "integer", "minimum": 1 },
+        "control_tree_blob_count": { "type": "integer", "minimum": 1 },
+        "control_tree_truncated": { "const": false },
+        "local_reference_venv_bytes": { "type": "integer", "minimum": 1 },
+        "memory_available_bytes": { "type": "integer", "minimum": 1 },
+        "memory_total_bytes": { "type": "integer", "minimum": 1 },
+        "root_filesystem_available_bytes": { "type": "integer", "minimum": 1 },
+        "root_filesystem_percent_used": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "swap_total_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "finalBaselines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_canonical_checkout_clean",
+        "application_canonical_checkout_matches_final",
+        "application_canonical_checkout_sha",
+        "application_main_merged",
+        "application_main_sha",
+        "application_tree_sha",
+        "control_canonical_checkout_clean",
+        "control_canonical_checkout_matches_final",
+        "control_canonical_checkout_sha",
+        "control_main_merged",
+        "control_main_sha",
+        "control_tree_sha"
+      ],
+      "properties": {
+        "application_canonical_checkout_clean": { "const": true },
+        "application_canonical_checkout_matches_final": { "const": false },
+        "application_canonical_checkout_sha": { "$ref": "#/$defs/sha40" },
+        "application_main_merged": { "const": true },
+        "application_main_sha": { "$ref": "#/$defs/sha40" },
+        "application_tree_sha": { "$ref": "#/$defs/sha40" },
+        "control_canonical_checkout_clean": { "const": true },
+        "control_canonical_checkout_matches_final": { "const": true },
+        "control_canonical_checkout_sha": { "$ref": "#/$defs/sha40" },
+        "control_main_merged": { "const": true },
+        "control_main_sha": { "$ref": "#/$defs/sha40" },
+        "control_tree_sha": { "$ref": "#/$defs/sha40" }
+      }
+    },
+    "interference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_s1_application_sha",
+        "active_s1_control_sha",
+        "canonical_control_mutated_by_agentmode",
+        "commercial_container_mount_reference_detected",
+        "commercial_cron_reference_detected",
+        "commercial_open_file_reference_detected",
+        "commercial_process_reference_detected",
+        "commercial_service_or_timer_reference_detected",
+        "path_collision_detected"
+      ],
+      "properties": {
+        "active_s1_application_sha": { "$ref": "#/$defs/sha40" },
+        "active_s1_control_sha": { "$ref": "#/$defs/sha40" },
+        "canonical_control_mutated_by_agentmode": { "const": true },
+        "commercial_container_mount_reference_detected": { "const": false },
+        "commercial_cron_reference_detected": { "const": false },
+        "commercial_open_file_reference_detected": { "const": false },
+        "commercial_process_reference_detected": { "const": false },
+        "commercial_service_or_timer_reference_detected": { "const": false },
+        "path_collision_detected": { "const": false }
+      }
+    },
+    "observationWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completed_at", "started_at"],
+      "properties": {
+        "completed_at": { "type": "string" },
+        "started_at": { "type": "string" }
+      }
+    },
+    "pathAndIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "access_acl_for_runtime_identity_present",
+        "configuration_root_absent",
+        "database_and_roles_absent",
+        "operating_system_identity_absent",
+        "release_root_absent",
+        "runtime_parent_traversal_ready",
+        "state_root_absent",
+        "traversal_blocking_parents"
+      ],
+      "properties": {
+        "access_acl_for_runtime_identity_present": { "const": false },
+        "configuration_root_absent": { "const": true },
+        "database_and_roles_absent": { "const": true },
+        "operating_system_identity_absent": { "const": true },
+        "release_root_absent": { "const": true },
+        "runtime_parent_traversal_ready": { "const": false },
+        "state_root_absent": { "const": true },
+        "traversal_blocking_parents": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^/" }
+        }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cluster_online",
+        "database_absent",
+        "ident_mapping_present",
+        "listen_addresses",
+        "local_default_authentication",
+        "planned_runtime_database_role",
+        "planned_runtime_operating_system_user",
+        "roles_absent",
+        "runtime_dsn_authentication_ready",
+        "tcp_listener",
+        "unix_socket_directory",
+        "version"
+      ],
+      "properties": {
+        "cluster_online": { "const": true },
+        "database_absent": { "const": true },
+        "ident_mapping_present": { "const": false },
+        "listen_addresses": { "const": "localhost" },
+        "local_default_authentication": { "const": "peer" },
+        "planned_runtime_database_role": { "const": "tu1nz_adult_commercial_s0_runtime" },
+        "planned_runtime_operating_system_user": { "const": "tu1nz-adult-commercial-s0" },
+        "roles_absent": { "const": true },
+        "runtime_dsn_authentication_ready": { "const": false },
+        "tcp_listener": { "const": "127.0.0.1:5432" },
+        "unix_socket_directory": { "const": "/run/postgresql" },
+        "version": { "const": "17.11" }
+      }
+    },
+    "productBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_providers_enabled",
+        "paid_targets",
+        "real_media_enabled",
+        "real_payment_enabled",
+        "synthetic_data_only",
+        "telegram_intake_enabled",
+        "uncompensated_targets"
+      ],
+      "properties": {
+        "external_providers_enabled": { "const": false },
+        "paid_targets": { "const": ["REDDIT", "TELEGRAM"] },
+        "real_media_enabled": { "const": false },
+        "real_payment_enabled": { "const": false },
+        "synthetic_data_only": { "const": true },
+        "telegram_intake_enabled": { "const": false },
+        "uncompensated_targets": { "const": ["X"] }
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostname",
+        "operating_system",
+        "ssh_identity",
+        "system_state",
+        "system_state_unrelated_failed_unit",
+        "tailscale_ip",
+        "tailscale_route",
+        "tailscale_version_skew_present"
+      ],
+      "properties": {
+        "hostname": { "const": "ubuntu-8gb-nbg1-2" },
+        "operating_system": { "const": "Ubuntu 24.04.3 LTS" },
+        "ssh_identity": { "const": "root" },
+        "system_state": { "const": "degraded" },
+        "system_state_unrelated_failed_unit": { "const": "tu1nz-doc.service" },
+        "tailscale_ip": { "const": "100.121.130.51" },
+        "tailscale_route": { "const": "DERP_NUE" },
+        "tailscale_version_skew_present": { "const": true }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installed",
+        "native_security_exposure_level",
+        "native_security_rating",
+        "native_verify_result",
+        "no_enablement_section",
+        "private_network",
+        "restrict_address_families",
+        "versioned_sha256"
+      ],
+      "properties": {
+        "installed": { "const": false },
+        "native_security_exposure_level": { "type": "number", "minimum": 0, "maximum": 1 },
+        "native_security_rating": { "const": "SAFE" },
+        "native_verify_result": { "const": "BLOCKED_EXPECTED_MISSING_EXECUTABLE" },
+        "no_enablement_section": { "const": true },
+        "private_network": { "const": true },
+        "restrict_address_families": { "const": "AF_UNIX" },
+        "versioned_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

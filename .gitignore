@@ -21,6 +21,7 @@
 !scripts/tu1nz_adult_commercial_readiness_gate.py
 !scripts/tu1nz_adult_commercial_s0_manifest.py
 !scripts/tu1nz_adult_commercial_s0_release_gate.py
+!scripts/tu1nz_adult_commercial_installation_preflight_gate.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -42,6 +43,8 @@
 !manifests/adult-publishing-commercial-readiness.schema.json
 !manifests/adult-publishing-commercial-readiness.m4-18.json
 !manifests/adult-publishing-commercial-s0-release.schema.json
+!manifests/adult-publishing-commercial-installation-preflight.schema.json
+!manifests/adult-publishing-commercial-installation-preflight.m4-20.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -57,6 +60,7 @@
 !tests/test_adult_s1_runtime.py
 !tests/test_adult_commercial_readiness.py
 !tests/test_adult_commercial_s0_installation_design.py
+!tests/test_adult_commercial_installation_preflight.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -68,3 +72,6 @@
 !analysis/M3_9_SERVER_PREFLIGHT_2026-08-27.diagnose
 !analysis/M4_18_SERVER_READINESS_2026-08-28.diagnose
 !analysis/M4_19_LOCAL_PATH_DISCOVERY_2026-08-28.diagnose
+!analysis/M4_20_GITHUB_TREE_SIZE_QUERY_2026-08-28.diagnose
+!analysis/M4_20_PREFLIGHT_GATE_EXECUTION_MODE_2026-08-28.diagnose
+!analysis/M4_20_UNITTEST_DISCOVERY_2026-08-28.diagnose

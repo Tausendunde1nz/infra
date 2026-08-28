@@ -89,6 +89,24 @@ jobs:
           '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]+(run|start|stop|restart)|subprocess\.(run|Popen).*\b(rm|mv|cp|install|chmod|chown)\b)' --
           scripts/tu1nz_adult_commercial_s0_manifest.py
           scripts/tu1nz_adult_commercial_s0_release_gate.py
+      - name: Validate M4.20 commercial installation preflight JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-installation-preflight.schema.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-installation-preflight.m4-20.json >/dev/null
+      - name: Compile M4.20 commercial installation preflight artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_installation_preflight_gate.py
+          tests/test_adult_commercial_installation_preflight.py
+      - name: Run M4.20 commercial installation preflight tests
+        run: python3 -m unittest -v tests.test_adult_commercial_installation_preflight
+      - name: Reject server mutation behavior in M4.20 preflight gate
+        run: >-
+          ! git grep -nEi
+          '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]+(run|start|stop|restart)|ssh[[:space:]]|tailscale[[:space:]]|subprocess|(^|[[:space:]])crontab([[:space:]]|$))' --
+          scripts/tu1nz_adult_commercial_installation_preflight_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile
