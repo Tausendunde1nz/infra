@@ -16,7 +16,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
     def test_installer_is_explicitly_two_phase_and_never_starts_candidate(self) -> None:
         source = INSTALLER.read_text(encoding="ascii")
         for required in (
-            "preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|resume-after-venv-build|resume-after-control-stage|finalize-schema-acceptance|verify-prepared|install-unit",
+            "preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|resume-after-venv-build|resume-after-control-stage|finalize-schema-acceptance|advance-prepared-control|verify-prepared|install-unit",
             "M4_23_STOPPED_INSTALLATION_PREFLIGHT_OK",
             "M4_23_STOPPED_CANDIDATE_PREPARED_OK",
             "M4_23_STOPPED_UNIT_INSTALLED_OK",
@@ -34,9 +34,11 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             "M4_23_BUILT_PARTIAL_BOUNDARY_OK",
             "M4_23_MIGRATION_PARTIAL_BOUNDARY_OK",
             "M4_23_SCHEMA_PARTIAL_BOUNDARY_OK",
+            "M4_23_PREPARED_CONTROL_BOUNDARY_OK",
             "resumed_after_venv_build",
             "resumed_after_control_stage",
             "finalized_schema_acceptance",
+            "advanced_prepared_control",
             'git -c "safe.directory=$CONTROL_REPOSITORY" -C "$CONTROL_REPOSITORY" bundle verify',
             "git@github.com-infra:Tausendunde1nz/infra.git",
             'git_read "$app_target" archive --format=tar.gz',
@@ -48,6 +50,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             '<"$app_target/migrations/$migration"',
             '--username="$RUNTIME_ROLE"',
             "/usr/bin/mv -T --",
+            "tu1nz_encrypted_backup.sh.before-commercial-dump-fix",
         ):
             self.assertIn(required, source)
         for forbidden in (
