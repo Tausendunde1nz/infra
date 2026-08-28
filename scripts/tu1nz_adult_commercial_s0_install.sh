@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 MODE="${1:-}"
-[[ "$MODE" == preflight || "$MODE" == prepare || "$MODE" == verify-prepared || "$MODE" == install-unit ]] || {
-  echo "usage: $0 preflight|prepare|verify-prepared|install-unit [arguments]" >&2
+[[ "$MODE" == preflight || "$MODE" == prepare || "$MODE" == partial-preflight || "$MODE" == recover-partial || "$MODE" == resume-prepare || "$MODE" == verify-prepared || "$MODE" == install-unit ]] || {
+  echo "usage: $0 preflight|prepare|partial-preflight|recover-partial|resume-prepare|verify-prepared|install-unit [arguments]" >&2
   exit 2
 }
 shift
@@ -13,6 +13,8 @@ CONTROL_SHA=""
 PREINSTALL_ARCHIVE=""
 PREINSTALL_SHA256=""
 RELEASE_ARCHIVE=""
+APPLICATION_BUNDLE=""
+APPLICATION_BUNDLE_SHA256=""
 
 while (( $# > 0 )); do
   case "$1" in
@@ -21,6 +23,8 @@ while (( $# > 0 )); do
     --preinstall-archive) PREINSTALL_ARCHIVE="${2:-}"; shift 2 ;;
     --preinstall-sha256) PREINSTALL_SHA256="${2:-}"; shift 2 ;;
     --release-archive) RELEASE_ARCHIVE="${2:-}"; shift 2 ;;
+    --application-bundle) APPLICATION_BUNDLE="${2:-}"; shift 2 ;;
+    --application-bundle-sha256) APPLICATION_BUNDLE_SHA256="${2:-}"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -42,15 +46,22 @@ readonly RELEASE_ROOT="/opt/tu1nz_repos/releases/adult-publishing/staging-s0-com
 readonly CONFIG_ROOT="/etc/tu1nz/adult-publishing/staging-s0-commercial"
 readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial"
 readonly CONTROL_REPOSITORY="/opt/tu1nz_repos/control"
-readonly APPLICATION_REMOTE="git@github.com:Tausendunde1nz/adult-publishing-core.git"
-readonly CONTROL_REMOTE="git@github.com:Tausendunde1nz/infra.git"
+readonly CONTROL_REMOTE="git@github.com-infra:Tausendunde1nz/infra.git"
 readonly AUTHORIZATION="$CONTROL_REPOSITORY/manifests/adult-publishing-commercial-installation-authorization.m4-22.json"
 readonly INSTALLED_BACKUP="/usr/local/bin/tu1nz_encrypted_backup.sh"
 readonly INSTALLED_UNIT="/etc/systemd/system/$UNIT"
+readonly PARTIAL_STAGE_ROOT="/opt/tu1nz_repos/.m4-23-commercial-s0-stage-30b4531449ec05b30afe0097eb69e1cb569590da"
+BACKUP_TIMER_PAUSED=0
 
 fail() {
   echo "M4_23_STOPPED_INSTALLATION_BLOCKED $*" >&2
   exit 1
+}
+
+resume_backup_timer() {
+  if (( BACKUP_TIMER_PAUSED == 1 )); then
+    /bin/systemctl start tu1nz_encrypted_backup.timer
+  fi
 }
 
 require_root() {
@@ -176,17 +187,52 @@ clone_release() {
   /usr/sbin/runuser -u chatops -- /usr/bin/git -C "$target" checkout --detach "$sha"
 }
 
+clone_bundle_release() {
+  local bundle="$1"
+  local target="$2"
+  local sha="$3"
+  [[ ! -e "$target" && ! -L "$target" ]] || fail "release target already exists: $target"
+  /usr/bin/git clone --no-checkout "$bundle" "$target"
+  /usr/bin/git -C "$target" checkout --detach "$sha"
+}
+
+verify_application_bundle() {
+  local expected_path="/opt/tu1nz_repos/backups/m4-23-input/adult-publishing-core-$APPLICATION_SHA.bundle"
+  [[ "$APPLICATION_BUNDLE" == "$expected_path" ]] || fail "exact application bundle path required"
+  [[ "$APPLICATION_BUNDLE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "application bundle SHA-256 required"
+  [[ -f "$APPLICATION_BUNDLE" && ! -L "$APPLICATION_BUNDLE" && "$(stat -c '%a:%U:%G:%h' "$APPLICATION_BUNDLE")" == "600:root:root:1" ]] || fail "safe root-private application bundle required"
+  [[ "$(sha256 "$APPLICATION_BUNDLE")" == "$APPLICATION_BUNDLE_SHA256" ]] || fail "application bundle digest mismatch"
+  /usr/bin/git bundle verify "$APPLICATION_BUNDLE" >/dev/null
+}
+
 prepare_release_and_database() {
+  local source_mode="${1:-bundle-new}"
   local app_target="$RELEASE_ROOT/application/$APPLICATION_SHA"
   local control_target="$RELEASE_ROOT/control/$CONTROL_SHA"
   local venv_target="$RELEASE_ROOT/venv/$APPLICATION_SHA"
-  local stage_root="/opt/tu1nz_repos/.m4-23-commercial-s0-stage-$CONTROL_SHA"
-  local app_stage="$stage_root/application-$APPLICATION_SHA"
-  local control_stage="$stage_root/control-$CONTROL_SHA"
+  local stage_root=""
+  local app_stage=""
+  local control_stage=""
   local migration
-  [[ ! -e "$stage_root" && ! -L "$stage_root" ]] || fail "staging root already exists"
-  /usr/bin/install -d -o chatops -g chatops -m 0700 "$stage_root"
-  clone_release "$APPLICATION_REMOTE" "$app_stage" "$APPLICATION_SHA"
+  if [[ "$source_mode" == bundle-new ]]; then
+    stage_root="/opt/tu1nz_repos/.m4-23-commercial-s0-stage-$CONTROL_SHA"
+    app_stage="$stage_root/application-$APPLICATION_SHA"
+    control_stage="$stage_root/control-$CONTROL_SHA"
+    [[ ! -e "$stage_root" && ! -L "$stage_root" ]] || fail "staging root already exists"
+    /usr/bin/install -d -o chatops -g chatops -m 0700 "$stage_root"
+    verify_application_bundle
+    clone_bundle_release "$APPLICATION_BUNDLE" "$app_stage" "$APPLICATION_SHA"
+  elif [[ "$source_mode" == bundle-resume ]]; then
+    stage_root="$PARTIAL_STAGE_ROOT"
+    app_stage="$stage_root/application-$APPLICATION_SHA"
+    control_stage="$stage_root/control-$CONTROL_SHA"
+    [[ -d "$stage_root" && ! -L "$stage_root" && "$(stat -c '%a:%U:%G' "$stage_root")" == "2700:chatops:chatops" ]] || fail "exact empty partial staging root required"
+    [[ -z "$(/usr/bin/find "$stage_root" -mindepth 1 -print -quit)" ]] || fail "partial staging root is not empty"
+    verify_application_bundle
+    clone_bundle_release "$APPLICATION_BUNDLE" "$app_stage" "$APPLICATION_SHA"
+  else
+    fail "invalid release source mode"
+  fi
   clone_release "$CONTROL_REMOTE" "$control_stage" "$CONTROL_SHA"
   verify_clean_release "$app_stage" "$APPLICATION_SHA" "$EXPECTED_APPLICATION_TREE"
   verify_clean_release "$control_stage" "$CONTROL_SHA" "$(git_read "$CONTROL_REPOSITORY" rev-parse 'HEAD^{tree}')"
@@ -232,6 +278,67 @@ prepare_release_and_database() {
 
   /usr/sbin/runuser -u "$RUNTIME_USER" -- /usr/bin/psql --no-psqlrc --dbname="$DATABASE" --set=ON_ERROR_STOP=1 \
     --file="$app_target/tests/postgres/m4_15_durable_commercial_persistence_schema_acceptance.sql" >/dev/null
+}
+
+verify_partial() {
+  local timer_phase="${1:-paused}"
+  local stage_root="$PARTIAL_STAGE_ROOT"
+  local evidence_root="/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/20260828T15-39-59Z"
+  verify_common_inputs
+  [[ "$(sha256 "$INSTALLED_BACKUP")" == "$(sha256 "$CONTROL_REPOSITORY/scripts/tu1nz_encrypted_backup.sh")" ]] || fail "commercial-aware backup script is not installed"
+  /usr/bin/getent passwd "$RUNTIME_USER" >/dev/null || fail "commercial operating-system user is absent"
+  /usr/bin/getent group "$RUNTIME_GROUP" >/dev/null || fail "commercial operating-system group is absent"
+  [[ -z "$(/usr/bin/id -nG "$RUNTIME_USER" | /usr/bin/tr ' ' '\n' | /usr/bin/grep -Fx chatops || true)" ]] || fail "runtime identity belongs to forbidden chatops group"
+  "$CONTROL_REPOSITORY/scripts/tu1nz_adult_commercial_path_access.sh" verify >/dev/null
+  resolve_postgres_files
+  "$CONTROL_REPOSITORY/scripts/tu1nz_adult_commercial_host_access_gate.py" \
+    --contract "$CONTROL_REPOSITORY/manifests/adult-publishing-commercial-host-access.m4-21.json" \
+    --control-repository "$CONTROL_REPOSITORY" --phase installed \
+    --pg-hba "$HBA_FILE" --pg-ident "$IDENT_FILE" >/dev/null
+  [[ "$(postgres --dbname=postgres --command="SELECT string_agg(rolname || ':' || rolcanlogin, ',' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('$MIGRATOR_ROLE','$RUNTIME_ROLE')")" == "$MIGRATOR_ROLE:false,$RUNTIME_ROLE:true" ]] || fail "commercial PostgreSQL role boundary mismatch"
+  [[ "$(postgres --dbname=postgres --command="SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='$DATABASE'")" == "$MIGRATOR_ROLE" ]] || fail "commercial PostgreSQL database boundary mismatch"
+  [[ "$(postgres --dbname="$DATABASE" --command="SELECT count(*) FROM pg_tables WHERE schemaname='public'")" == 0 ]] || fail "partial commercial database is not empty"
+  for path in "$RELEASE_ROOT" "$CONFIG_ROOT" "$STATE_ROOT" "$INSTALLED_UNIT"; do
+    [[ ! -e "$path" && ! -L "$path" ]] || fail "partial boundary target must be absent: $path"
+  done
+  [[ -d "$stage_root" && ! -L "$stage_root" && "$(stat -c '%a:%U:%G' "$stage_root")" == "2700:chatops:chatops" ]] || fail "partial staging root mismatch"
+  [[ -z "$(/usr/bin/find "$stage_root" -mindepth 1 -print -quit)" ]] || fail "partial staging root is not empty"
+  for evidence in tu1nz_encrypted_backup.sh.before pg_hba.conf.before pg_ident.conf.before; do
+    [[ -f "$evidence_root/$evidence" && ! -L "$evidence_root/$evidence" && "$(stat -c '%a:%U:%G:%h' "$evidence_root/$evidence")" == "600:root:root:1" ]] || fail "rollback evidence mismatch: $evidence"
+  done
+  /bin/systemctl is-active --quiet tu1nz-adult-publishing-s1.service || fail "STAGING-S1 is not active"
+  ! /bin/systemctl is-active --quiet tu1nz_encrypted_backup.service || fail "backup service is active during partial recovery"
+  if [[ "$timer_phase" == paused ]]; then
+    ! /bin/systemctl is-active --quiet tu1nz_encrypted_backup.timer || fail "backup timer is unexpectedly active"
+  elif [[ "$timer_phase" == active ]]; then
+    /bin/systemctl is-active --quiet tu1nz_encrypted_backup.timer || fail "backup timer is not active"
+  else
+    fail "invalid partial timer phase"
+  fi
+  ! /bin/systemctl is-active --quiet "$UNIT" || fail "commercial unit is active"
+  echo "M4_23_PARTIAL_BOUNDARY_OK timer=$timer_phase"
+}
+
+recover_partial() {
+  verify_partial paused >/dev/null
+  /bin/systemctl start tu1nz_encrypted_backup.timer
+  verify_partial active >/dev/null
+  echo "M4_23_PARTIAL_TIMER_RECOVERED_OK"
+}
+
+resume_prepare() {
+  verify_partial active >/dev/null
+  verify_application_bundle
+  trap resume_backup_timer EXIT
+  /bin/systemctl stop tu1nz_encrypted_backup.timer
+  BACKUP_TIMER_PAUSED=1
+  prepare_release_and_database bundle-resume
+  verify_prepared absent paused >/dev/null
+  /bin/systemctl start tu1nz_encrypted_backup.timer
+  BACKUP_TIMER_PAUSED=0
+  /bin/systemctl is-active --quiet tu1nz_encrypted_backup.timer || fail "backup timer did not resume"
+  trap - EXIT
+  echo "M4_23_STOPPED_CANDIDATE_PREPARED_OK resumed_from_exact_partial_state"
 }
 
 verify_prepared() {
@@ -296,16 +403,11 @@ verify_prepared() {
 
 prepare() {
   preflight_absent >/dev/null
+  verify_application_bundle
   local evidence_root="/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/$(/usr/bin/date -u +%Y%m%dT%H-%M-%SZ)"
-  local backup_timer_paused=0
-  resume_backup_timer() {
-    if (( backup_timer_paused == 1 )); then
-      /bin/systemctl start tu1nz_encrypted_backup.timer
-    fi
-  }
   trap resume_backup_timer EXIT
   /bin/systemctl stop tu1nz_encrypted_backup.timer
-  backup_timer_paused=1
+  BACKUP_TIMER_PAUSED=1
   /usr/bin/install -d -o root -g root -m 0700 "$evidence_root"
   /usr/bin/install -o root -g root -m 0600 "$INSTALLED_BACKUP" "$evidence_root/tu1nz_encrypted_backup.sh.before"
   /usr/bin/install -o root -g root -m 0755 "$CONTROL_REPOSITORY/scripts/tu1nz_encrypted_backup.sh" "$INSTALLED_BACKUP"
@@ -317,10 +419,10 @@ prepare() {
   resolve_postgres_files
   install_postgres_mapping "$evidence_root"
   create_database
-  prepare_release_and_database
+  prepare_release_and_database bundle-new
   verify_prepared absent paused >/dev/null
   /bin/systemctl start tu1nz_encrypted_backup.timer
-  backup_timer_paused=0
+  BACKUP_TIMER_PAUSED=0
   /bin/systemctl is-active --quiet tu1nz_encrypted_backup.timer || fail "backup timer did not resume"
   trap - EXIT
   echo "M4_23_STOPPED_CANDIDATE_PREPARED_OK evidence=$evidence_root"
@@ -357,6 +459,9 @@ install_unit() {
 case "$MODE" in
   preflight) preflight_absent ;;
   prepare) prepare ;;
+  partial-preflight) verify_partial paused ;;
+  recover-partial) recover_partial ;;
+  resume-prepare) resume_prepare ;;
   verify-prepared) verify_prepared ;;
   install-unit) install_unit ;;
 esac

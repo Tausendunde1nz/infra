@@ -16,7 +16,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
     def test_installer_is_explicitly_two_phase_and_never_starts_candidate(self) -> None:
         source = INSTALLER.read_text(encoding="ascii")
         for required in (
-            "preflight|prepare|verify-prepared|install-unit",
+            "preflight|prepare|partial-preflight|recover-partial|resume-prepare|verify-prepared|install-unit",
             "M4_23_STOPPED_INSTALLATION_PREFLIGHT_OK",
             "M4_23_STOPPED_CANDIDATE_PREPARED_OK",
             "M4_23_STOPPED_UNIT_INSTALLED_OK",
@@ -28,6 +28,10 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             "systemd-analyze verify",
             "systemctl stop tu1nz_encrypted_backup.timer",
             "systemctl start tu1nz_encrypted_backup.timer",
+            "M4_23_PARTIAL_BOUNDARY_OK",
+            "M4_23_PARTIAL_TIMER_RECOVERED_OK",
+            "git bundle verify",
+            "git@github.com-infra:Tausendunde1nz/infra.git",
         ):
             self.assertIn(required, source)
         for forbidden in (
@@ -52,6 +56,16 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
         self.assertIn("pre-install archive digest mismatch", source)
         self.assertIn("installed backup baseline drift", source)
         self.assertIn("commercial-aware backup script is not installed", source)
+        self.assertIn("exact empty partial staging root required", source)
+        self.assertIn("partial commercial database is not empty", source)
+        self.assertIn("application bundle digest mismatch", source)
+
+    def test_timer_recovery_state_is_global_and_bundle_is_root_private(self) -> None:
+        source = INSTALLER.read_text(encoding="ascii")
+        self.assertIn("BACKUP_TIMER_PAUSED=0", source)
+        self.assertNotIn("local backup_timer_paused", source)
+        self.assertIn("600:root:root:1", source)
+        self.assertIn("/opt/tu1nz_repos/backups/m4-23-input/", source)
 
     def test_synthetic_identity_and_empty_state_are_exact(self) -> None:
         identities = json.loads(IDENTITIES.read_text(encoding="ascii"))

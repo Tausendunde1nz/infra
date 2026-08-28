@@ -29,7 +29,8 @@ successful and is recorded in the M4.23 diagnosis.
 
 ## Versioned installation transaction
 
-`scripts/tu1nz_adult_commercial_s0_install.sh` has four explicit modes:
+`scripts/tu1nz_adult_commercial_s0_install.sh` has four normal installation
+modes:
 
 1. `preflight` proves the final repositories, authorization, backup hash,
    absent commercial targets, active PostgreSQL/S1, idle backup process,
@@ -39,11 +40,22 @@ successful and is recorded in the M4.23 diagnosis.
    mapping, creates isolated database roles/database, stages clean immutable
    releases, builds the hash-locked venv, applies migrations 0001–0014 and the
    synthetic bootstrap, and creates exact private config/empty state.
+   Application transport is the same root-private, SHA-256-bound Git bundle
+   used by partial recovery; no server-side application credential is needed.
 3. `verify-prepared` validates that prepared state read-only and requires the
    release manifest and installed unit to remain absent.
 4. `install-unit` is intentionally blocked until a qualifying commercial
    archive and post-backup approved manifest exist. It can only install and
    verify the unit stopped; it contains no candidate start or enable action.
+
+The fail-closed partial-state repair adds three modes without broadening the
+product scope: `partial-preflight` recognizes only the exact stopped boundary
+recorded in the M4.23 diagnosis, `recover-partial` restores only the daily
+encrypted-backup timer, and `resume-prepare` consumes one root-private,
+SHA-256-bound Git bundle for the final application commit. The bundle must
+verify as Git data and still produce the exact final commit/tree and clean
+object graph. This avoids creating or broadening a GitHub credential. Control
+uses the existing `github.com-infra` server route.
 
 The PostgreSQL HBA/ident changes and database storage are the narrow,
 operator-approved exceptions needed to implement the M4.21 peer-auth design.
