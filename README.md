@@ -84,8 +84,17 @@ Current Adult Publishing infrastructure decisions:
   M4.24 first-start scripts define exact read-only prechecks, a locked and
   fully revalidated network-free acceptance window, mandatory stopped
   post-checks and evidence-preserving abort behavior. The committed contract
-  remains `NO_GO`; the observed unit lacks the required single-start/runtime
-  guard, so this repository state cannot start the candidate.
+  remains historical `NO_GO`; its captured pre-M4.25 unit lacked the required
+  single-start/runtime guard, so M4.24 can never start the candidate.
+- `docs/M4_25_STOPPED_UNIT_REFRESH_2026-08-28.md` and
+  `manifests/adult-publishing-commercial-unit-refresh.m4-25.json` record the
+  completed, still-never-started unit refresh, exact fresh encrypted backup,
+  isolated restore proof and the static `Restart=no`/180-second guard.
+- `docs/M4_26_FIRST_START_CONTRACT_REFRESH_2026-08-28.md`,
+  `manifests/adult-publishing-commercial-first-start.m4-26.json` and
+  `scripts/tu1nz_adult_commercial_m4_26_gate.py` bind the merged PR #33/#34
+  base, installed M4.25 release and complete read-only server preflight. M4.26
+  remains immutable `NO_GO` evidence and can never authorize a first start.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

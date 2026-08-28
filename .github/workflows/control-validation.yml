@@ -242,6 +242,34 @@ jobs:
               exit "$status"
             fi
           fi
+      - name: Compile M4.26 read-only first-start gate and tests
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_m4_26_gate.py
+          tests/test_adult_commercial_m4_26.py
+      - name: Run M4.26 read-only first-start tests
+        run: python3 -m unittest -v tests.test_adult_commercial_m4_26
+      - name: Validate M4.26 evidence JSON and closed approval gate
+        shell: bash
+        run: |
+          python3 -m json.tool \
+            manifests/adult-publishing-commercial-first-start.m4-26.schema.json >/dev/null
+          python3 -m json.tool \
+            manifests/adult-publishing-commercial-first-start.m4-26.json >/dev/null
+          scripts/tu1nz_adult_commercial_m4_26_gate.py \
+            --contract manifests/adult-publishing-commercial-first-start.m4-26.json
+          if scripts/tu1nz_adult_commercial_m4_26_gate.py \
+            --contract manifests/adult-publishing-commercial-first-start.m4-26.json \
+            --require-approved
+          then
+            echo "M4.26 unexpectedly authorized first start" >&2
+            exit 1
+          fi
+      - name: Reject mutation and provider surfaces in M4.26 gate
+        run: >-
+          ! git grep -nEi
+          '(subprocess|systemctl|docker|requests|urllib|socket|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_m4_26_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile
