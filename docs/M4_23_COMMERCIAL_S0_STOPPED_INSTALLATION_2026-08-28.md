@@ -57,6 +57,11 @@ verify as Git data and still produce the exact final commit/tree and clean
 object graph. This avoids creating or broadening a GitHub credential. Control
 uses the existing `github.com-infra` server route.
 
+If a formally valid but non-clonable shallow bundle is encountered,
+`reject-incomplete-bundle` recognizes only its recorded SHA-256 and moves it
+into the root-private M4.23 evidence directory. It does not delete that
+artifact or alter the partial database/identity/ACL boundary.
+
 The PostgreSQL HBA/ident changes and database storage are the narrow,
 operator-approved exceptions needed to implement the M4.21 peer-auth design.
 Before writing them, the transaction verifies the exact M4.20 hashes and saves

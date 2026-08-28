@@ -16,7 +16,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
     def test_installer_is_explicitly_two_phase_and_never_starts_candidate(self) -> None:
         source = INSTALLER.read_text(encoding="ascii")
         for required in (
-            "preflight|prepare|partial-preflight|recover-partial|resume-prepare|verify-prepared|install-unit",
+            "preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|verify-prepared|install-unit",
             "M4_23_STOPPED_INSTALLATION_PREFLIGHT_OK",
             "M4_23_STOPPED_CANDIDATE_PREPARED_OK",
             "M4_23_STOPPED_UNIT_INSTALLED_OK",
@@ -30,6 +30,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             "systemctl start tu1nz_encrypted_backup.timer",
             "M4_23_PARTIAL_BOUNDARY_OK",
             "M4_23_PARTIAL_TIMER_RECOVERED_OK",
+            "M4_23_INCOMPLETE_BUNDLE_PRESERVED_OK",
             'git -c "safe.directory=$CONTROL_REPOSITORY" -C "$CONTROL_REPOSITORY" bundle verify',
             "git@github.com-infra:Tausendunde1nz/infra.git",
         ):
@@ -59,6 +60,8 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
         self.assertIn("exact empty partial staging root required", source)
         self.assertIn("partial commercial database is not empty", source)
         self.assertIn("application bundle digest mismatch", source)
+        self.assertIn("a646e244641ae7297834b413c863e43f070458565406faf71fd1dc36868e3167", source)
+        self.assertIn("rejected-incomplete-application-", source)
 
     def test_timer_recovery_state_is_global_and_bundle_is_root_private(self) -> None:
         source = INSTALLER.read_text(encoding="ascii")

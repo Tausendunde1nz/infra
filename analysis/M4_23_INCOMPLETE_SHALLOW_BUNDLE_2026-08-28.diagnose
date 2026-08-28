@@ -1,0 +1,9 @@
+# M4.23 incomplete shallow application bundle
+
+- Date: 2026-08-28
+- Scope: stopped partial-state `resume-prepare`
+- Bundle SHA-256: `a646e244641ae7297834b413c863e43f070458565406faf71fd1dc36868e3167`
+- Error: the bundle was produced from a depth-one repository. `git bundle verify` accepted its header, but clone traversal failed because parent object `bd30b4ffba7eb2864e7353f4297b4215f98ce267` was absent.
+- Result: Git removed the failed clone target. The partial staging root is empty again; commercial release/config/state/unit remain absent and the commercial database still has zero public tables. The corrected EXIT handler restored the backup timer; STAGING-S1 remains active.
+- Recovery: version one exact mode that moves this root-private bundle into the existing M4.23 evidence directory without deletion. Create the replacement from a full repository, require local full clone + exact commit/tree + `git fsck --full` before transfer, and retain the existing server hash/mode/Git gates.
+- Rollback: the rejected bundle remains recoverable in evidence. No database, identity, ACL or PostgreSQL rollback is required or authorized.
