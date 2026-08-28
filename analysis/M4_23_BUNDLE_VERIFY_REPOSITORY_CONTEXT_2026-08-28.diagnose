@@ -1,0 +1,10 @@
+# M4.23 bundle verification repository context
+
+- Date: 2026-08-28
+- Scope: Tailscale-only root-private application bundle staging
+- Error: `git bundle verify` was invoked from the remote root login directory, which is not a Git repository, and returned `need a repository to verify a bundle`.
+- State: transfer completed to the exact `.incoming` path with root:root mode 0600. Its streamed SHA-256 had already matched `a646e244641ae7297834b413c863e43f070458565406faf71fd1dc36868e3167`. The command stopped before the final rename.
+- Impact: no release, database migration, configuration, unit or service start occurred. The encrypted-backup timer and STAGING-S1 remain active.
+- Cause: bundle prerequisite verification requires an object-format repository context even when the bundle has no external prerequisites.
+- Recovery: version `git -C /opt/tu1nz_repos/control bundle verify`, require CI/merge/sync, then verify the incoming file, rename it to the exact root-private bundle path and resume only through the exact partial-state gate.
+- Rollback: the incoming file is isolated and can remain until the versioned verification succeeds; no deletion is authorized by this diagnosis.
