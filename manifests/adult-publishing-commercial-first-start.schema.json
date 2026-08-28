@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-first-start.schema.json",
+  "title": "TU1NZ Adult Publishing M4.24 network-free first-start contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "approval",
+    "archive",
+    "blockers",
+    "contract_version",
+    "decision",
+    "environment",
+    "first_start_window",
+    "preflight_observation",
+    "product_boundary",
+    "recovery",
+    "release",
+    "sprint",
+    "starting_database"
+  ],
+  "properties": {
+    "active": { "type": "boolean" },
+    "approval": { "$ref": "#/$defs/approval" },
+    "archive": { "$ref": "#/$defs/archive" },
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" }
+    },
+    "contract_version": { "const": "tu1nz-commercial-network-free-first-start-m4.24-v1" },
+    "decision": {
+      "enum": ["NO_GO", "GO_FOR_ONE_CONTROLLED_NETWORK_FREE_FIRST_START"]
+    },
+    "environment": { "const": "STAGING-S0-COMMERCIAL-CANDIDATE" },
+    "first_start_window": { "$ref": "#/$defs/firstStartWindow" },
+    "preflight_observation": { "$ref": "#/$defs/preflightObservation" },
+    "product_boundary": { "$ref": "#/$defs/productBoundary" },
+    "recovery": { "$ref": "#/$defs/recovery" },
+    "release": { "$ref": "#/$defs/release" },
+    "sprint": { "const": "M4.24" },
+    "starting_database": { "$ref": "#/$defs/startingDatabase" }
+  },
+  "$defs": {
+    "sha40": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approved_at",
+        "first_start_approved",
+        "known_unrelated_failed_unit_accepted",
+        "no_swap_risk_accepted"
+      ],
+      "properties": {
+        "approved_at": { "type": ["string", "null"] },
+        "first_start_approved": { "type": "boolean" },
+        "known_unrelated_failed_unit_accepted": { "type": "boolean" },
+        "no_swap_risk_accepted": { "type": "boolean" }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_inventory_sha256",
+        "backup_completed_at",
+        "exact_archive_bytes",
+        "exact_archive_name",
+        "exact_archive_remote_hash_verified",
+        "exact_archive_sha256",
+        "isolated_restore_passed",
+        "isolated_restore_root"
+      ],
+      "properties": {
+        "archive_inventory_sha256": { "$ref": "#/$defs/sha256" },
+        "backup_completed_at": { "type": "string" },
+        "exact_archive_bytes": { "type": "integer", "minimum": 1 },
+        "exact_archive_name": { "const": "tu1nz_system_backup_20260828T16-50-53Z.tar.gz" },
+        "exact_archive_remote_hash_verified": { "const": true },
+        "exact_archive_sha256": { "$ref": "#/$defs/sha256" },
+        "isolated_restore_passed": { "const": true },
+        "isolated_restore_root": { "type": "string", "pattern": "^/opt/tu1nz_repos/backups/" }
+      }
+    },
+    "firstStartWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_maximum_age_seconds",
+        "health_maximum_age_seconds",
+        "maximum_runtime_seconds",
+        "must_end_stopped",
+        "ready_timeout_seconds",
+        "single_controlled_start",
+        "stop_timeout_seconds"
+      ],
+      "properties": {
+        "approval_maximum_age_seconds": { "const": 3600 },
+        "health_maximum_age_seconds": { "type": "integer", "minimum": 30, "maximum": 300 },
+        "maximum_runtime_seconds": { "const": 180 },
+        "must_end_stopped": { "const": true },
+        "ready_timeout_seconds": { "type": "integer", "minimum": 10, "maximum": 300 },
+        "single_controlled_start": { "const": true },
+        "stop_timeout_seconds": { "type": "integer", "minimum": 10, "maximum": 300 }
+      }
+    },
+    "preflightObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_release_clean",
+        "backup_service_idle",
+        "backup_timer_active",
+        "commercial_container_mount_reference_detected",
+        "commercial_cron_reference_detected",
+        "commercial_open_file_reference_detected",
+        "commercial_process_reference_detected",
+        "commercial_timer_reference_detected",
+        "control_release_clean",
+        "memory_available_kib",
+        "native_unit_verify_passed",
+        "observed_at",
+        "release_gate_passed",
+        "root_filesystem_available_bytes",
+        "runtime_maximum_seconds",
+        "s1_active",
+        "security_exposure_level",
+        "security_rating",
+        "swap_total_kib",
+        "tailscale_ipv4",
+        "unit_active",
+        "unit_file_state",
+        "unit_installed",
+        "unit_previously_started",
+        "unit_restart_policy",
+        "unit_single_start_guard_installed"
+      ],
+      "properties": {
+        "application_release_clean": { "const": true },
+        "backup_service_idle": { "const": true },
+        "backup_timer_active": { "const": true },
+        "commercial_container_mount_reference_detected": { "const": false },
+        "commercial_cron_reference_detected": { "const": false },
+        "commercial_open_file_reference_detected": { "const": false },
+        "commercial_process_reference_detected": { "const": false },
+        "commercial_timer_reference_detected": { "const": false },
+        "control_release_clean": { "const": true },
+        "memory_available_kib": { "type": "integer", "minimum": 1 },
+        "native_unit_verify_passed": { "const": true },
+        "observed_at": { "type": "string" },
+        "release_gate_passed": { "const": true },
+        "root_filesystem_available_bytes": { "type": "integer", "minimum": 1073741824 },
+        "runtime_maximum_seconds": { "type": ["integer", "null"] },
+        "s1_active": { "const": true },
+        "security_exposure_level": { "type": "number", "maximum": 1.0 },
+        "security_rating": { "const": "SAFE" },
+        "swap_total_kib": { "type": "integer", "minimum": 0 },
+        "tailscale_ipv4": { "type": "string", "pattern": "^100\\." },
+        "unit_active": { "const": false },
+        "unit_file_state": { "const": "static" },
+        "unit_installed": { "const": true },
+        "unit_previously_started": { "const": false },
+        "unit_restart_policy": { "enum": ["no", "on-failure"] },
+        "unit_single_start_guard_installed": { "type": "boolean" }
+      }
+    },
+    "productBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_providers_enabled",
+        "network_enabled",
+        "paid_targets",
+        "real_media_enabled",
+        "real_payment_enabled",
+        "synthetic_data_only",
+        "synthetic_publishers_only",
+        "telegram_intake_enabled",
+        "uncompensated_targets"
+      ],
+      "properties": {
+        "external_providers_enabled": { "const": false },
+        "network_enabled": { "const": false },
+        "paid_targets": { "const": ["REDDIT", "TELEGRAM"] },
+        "real_media_enabled": { "const": false },
+        "real_payment_enabled": { "const": false },
+        "synthetic_data_only": { "const": true },
+        "synthetic_publishers_only": { "const": true },
+        "telegram_intake_enabled": { "const": false },
+        "uncompensated_targets": { "const": ["X"] }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "abort_must_stop_unit",
+        "abort_preserves_database",
+        "abort_preserves_runtime_evidence",
+        "evidence_root",
+        "never_enable_unit",
+        "never_remove_runtime_evidence_automatically"
+      ],
+      "properties": {
+        "abort_must_stop_unit": { "const": true },
+        "abort_preserves_database": { "const": true },
+        "abort_preserves_runtime_evidence": { "const": true },
+        "evidence_root": { "const": "/opt/tu1nz_repos/backups/m4-24-commercial-s0-first-start" },
+        "never_enable_unit": { "const": true },
+        "never_remove_runtime_evidence_automatically": { "const": true }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_sha",
+        "application_tree_sha",
+        "control_sha",
+        "release_manifest_sha256",
+        "unit_sha256"
+      ],
+      "properties": {
+        "application_sha": { "$ref": "#/$defs/sha40" },
+        "application_tree_sha": { "$ref": "#/$defs/sha40" },
+        "control_sha": { "$ref": "#/$defs/sha40" },
+        "release_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "unit_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "startingDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_rows_zero", "function_count", "seed_counts", "table_count"],
+      "properties": {
+        "business_rows_zero": { "const": true },
+        "function_count": { "const": 21 },
+        "seed_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "country_policy_rules",
+            "creators",
+            "integration_accounts",
+            "platform_policy_rules",
+            "policy_versions",
+            "publication_destinations"
+          ],
+          "properties": {
+            "country_policy_rules": { "const": 1 },
+            "creators": { "const": 1 },
+            "integration_accounts": { "const": 3 },
+            "platform_policy_rules": { "const": 3 },
+            "policy_versions": { "const": 1 },
+            "publication_destinations": { "const": 3 }
+          }
+        },
+        "table_count": { "const": 39 }
+      }
+    }
+  }
+}

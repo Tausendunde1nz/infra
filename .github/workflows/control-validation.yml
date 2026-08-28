@@ -161,6 +161,44 @@ jobs:
           config/adult-publishing/staging-s0-commercial/bootstrap.sql
           config/adult-publishing/staging-s0-commercial/core-identities.synthetic.json
           config/adult-publishing/staging-s0-commercial/state.empty.json
+      - name: Validate M4.24 network-free first-start JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-first-start.schema.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-first-start.m4-24.json >/dev/null
+      - name: Compile M4.24 first-start artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_first_start_gate.py
+          scripts/tu1nz_adult_commercial_s0_first_start.py
+          tests/test_adult_commercial_first_start.py
+      - name: Run M4.24 first-start tests
+        run: python3 -m unittest -v tests.test_adult_commercial_first_start
+      - name: Require committed M4.24 contract to remain NO-GO
+        run: >-
+          scripts/tu1nz_adult_commercial_first_start_gate.py
+          --contract manifests/adult-publishing-commercial-first-start.m4-24.json
+          && ! scripts/tu1nz_adult_commercial_first_start_gate.py
+          --contract manifests/adult-publishing-commercial-first-start.m4-24.json
+          --require-approved
+      - name: Reject enablement, restart, deletion, networking and provider credentials in M4.24
+        shell: bash
+        run: |
+          if git grep -nEi \
+            '(SYSTEMCTL,[[:space:]]*"(enable|restart)"|rm[[:space:]]+-rf|shutil\.rmtree|docker[[:space:]]+run|https?://api\.|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN|(^|[[:space:]])crontab([[:space:]]|$))' -- \
+            scripts/tu1nz_adult_commercial_first_start_gate.py \
+            scripts/tu1nz_adult_commercial_s0_first_start.py
+          then
+            echo "Forbidden M4.24 behavior detected" >&2
+            exit 1
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              echo "M4.24 static guard infrastructure failed" >&2
+              exit "$status"
+            fi
+          fi
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

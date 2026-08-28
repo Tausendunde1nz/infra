@@ -1,0 +1,24 @@
+# M4.24 final regression count diagnosis
+
+Date: 2026-08-28
+
+## Failure
+
+The final local validation redirected non-verbose `unittest` output and then
+attempted to count lines beginning with `test_`. Non-verbose output contains a
+dot progress line instead, so `grep` returned one and `set -e` stopped the
+remaining validation commands.
+
+## Impact
+
+The regression itself completed successfully: `Ran 166 tests` and `OK` are
+present in the captured log. Compilation, JSON, shell and static checks in that
+combined command did not run after the counter failure. No repository, GitHub
+or server state changed.
+
+## Correction and rollback
+
+The final validation is rerun without parsing individual test lines. Its native
+`Ran 166 tests` result is used directly, followed by every remaining check as
+separate fail-closed commands. This diagnosis is documentation-only; rollback
+is a normal Git revert with the rest of the unactivated M4.24 branch.

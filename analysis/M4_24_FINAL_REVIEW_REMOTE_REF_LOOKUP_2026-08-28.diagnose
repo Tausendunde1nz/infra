@@ -1,0 +1,25 @@
+# M4.24 final review — remote-ref lookup
+
+Date: 2026-08-28
+
+## Failure
+
+The post-push review tried to resolve the local remote-tracking name
+`origin/feat/m4-24-network-free-first-start-acceptance`. This checkout does not
+create that tracking ref on push, so Git returned an ambiguous-revision error.
+
+## Cause and impact
+
+The local name was an invalid verification assumption. The authenticated PR
+query independently confirmed Draft PR #33 at
+`ab775982263392de6b9d83ae01f2be55dd2e5aef` with successful CI. No repository,
+server, unit, contract or provider state was changed by the failed read.
+
+## Minimal correction
+
+Verify the authoritative remote branch with read-only `git ls-remote --heads`
+and compare its returned object ID with local HEAD and the PR head object ID.
+
+## Rollback
+
+No runtime rollback applies. This diagnosis is documentation-only.
