@@ -1,0 +1,29 @@
+M4.20 unittest discovery diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+`python3 -m unittest discover -v` exited successfully but reported zero tests,
+so it did not provide the intended complete Control regression evidence.
+
+Cause
+-----
+The repository's tests directory is not configured as a discovery package.
+The versioned GitHub workflow invokes all six test modules explicitly. This is
+existing repository behavior, not a test failure and not a server condition.
+
+Risk
+----
+Treating the zero-test invocation as a full pass would create false-green
+evidence. No remote or server state was changed.
+
+Rollback
+--------
+No server rollback is required. Repository rollback remains abandonment or
+revert of the M4.20 branch.
+
+Approved continuation
+---------------------
+Invoke the same six existing modules and the new M4.20 module explicitly, as
+the GitHub workflow does, and record only that nonzero test run as full Control
+validation evidence.

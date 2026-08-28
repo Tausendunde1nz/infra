@@ -50,6 +50,13 @@ Current Adult Publishing infrastructure decisions:
   `scripts/tu1nz_adult_commercial_s0_release_gate.py` and
   `systemd/tu1nz-adult-commercial-s0.service` bind and verify that future
   synthetic-only release without installing or activating it.
+- `docs/M4_20_COMMERCIAL_S0_INSTALLATION_PREFLIGHT_2026-08-28.md` records the
+  completed Tailscale-only host preflight. Installation remains `NO-GO` until
+  least-privilege parent traversal and PostgreSQL peer identity mapping are
+  versioned and tested.
+- `manifests/adult-publishing-commercial-installation-preflight.m4-20.json` and
+  `scripts/tu1nz_adult_commercial_installation_preflight_gate.py` bind and
+  validate that read-only NO-GO evidence without server mutation behavior.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

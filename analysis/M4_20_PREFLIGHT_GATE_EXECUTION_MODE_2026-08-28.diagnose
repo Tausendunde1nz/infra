@@ -1,0 +1,32 @@
+M4.20 preflight gate execution-mode diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+All 15 M4.20 unit tests raised `PermissionError` before the gate process could
+start.
+
+Cause
+-----
+The new gate file was created with mode 0644 while the tests invoke it through
+its versioned shebang, consistent with the existing Control gates. The file
+content compiled successfully and both JSON files parsed successfully. The
+explicit Control `.gitignore` allowlist also did not yet include the new M4.20
+machine artifacts and diagnoses.
+
+Risk
+----
+Local validation had not executed and therefore could not support a completion
+claim. No server command, GitHub write, service, database, token, provider or
+runtime state was affected.
+
+Rollback
+--------
+No server rollback is required. Repository rollback is branch abandonment or
+revert of the M4.20 commit.
+
+Approved correction
+-------------------
+Add only the exact M4.20 artifact paths to the Control allowlist, set the gate
+to the same executable mode as existing gate scripts, and repeat the complete
+M4.20 validation from the beginning.
