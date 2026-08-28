@@ -107,6 +107,28 @@ jobs:
           ! git grep -nEi
           '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]+(run|start|stop|restart)|ssh[[:space:]]|tailscale[[:space:]]|subprocess|(^|[[:space:]])crontab([[:space:]]|$))' --
           scripts/tu1nz_adult_commercial_installation_preflight_gate.py
+      - name: Validate M4.21 commercial host-access JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-host-access.schema.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-host-access.m4-21.json >/dev/null
+      - name: Compile M4.21 commercial host-access artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_host_access_gate.py
+          tests/test_adult_commercial_host_access_design.py
+      - name: Validate M4.21 ACL shell
+        run: bash -n scripts/tu1nz_adult_commercial_path_access.sh
+      - name: Run M4.21 commercial host-access tests
+        run: python3 -m unittest -v tests.test_adult_commercial_host_access_design
+      - name: Reject broad ACL, activation, cron and provider credentials in M4.21 operational artifacts
+        run: >-
+          ! git grep -nEi
+          '(setfacl[[:space:]]+(-R|--recursive)|systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]|WantedBy=|(^|[[:space:]])crontab([[:space:]]|$)|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN|[[:space:]]trust([[:space:]]|$))' --
+          scripts/tu1nz_adult_commercial_path_access.sh
+          config/postgresql/adult-publishing-commercial-s0.pg_hba.rule
+          config/postgresql/adult-publishing-commercial-s0.pg_ident.map
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

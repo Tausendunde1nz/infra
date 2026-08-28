@@ -57,6 +57,13 @@ Current Adult Publishing infrastructure decisions:
 - `manifests/adult-publishing-commercial-installation-preflight.m4-20.json` and
   `scripts/tu1nz_adult_commercial_installation_preflight_gate.py` bind and
   validate that read-only NO-GO evidence without server mutation behavior.
+- `docs/M4_21_COMMERCIAL_HOST_ACCESS_REMEDIATION_DESIGN_2026-08-28.md` closes
+  the M4.20 parent-traversal and PostgreSQL peer design gaps while keeping all
+  installation and activation gates closed.
+- `scripts/tu1nz_adult_commercial_path_access.sh`, the two versioned
+  PostgreSQL fragments and
+  `scripts/tu1nz_adult_commercial_host_access_gate.py` define exact future
+  apply/verify/rollback behavior. They remain uninstalled.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

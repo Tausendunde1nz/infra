@@ -1,0 +1,135 @@
+{
+  "active": false,
+  "activation_decision": "NO_GO",
+  "application_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+  "artifact_sha256": {
+    "config/postgresql/adult-publishing-commercial-s0.pg_hba.rule": "6ee9b816caf4bc530f918f8189fca4ea85926a4a817a10b0e93d600029e2ac3b",
+    "config/postgresql/adult-publishing-commercial-s0.pg_ident.map": "de628e84ba6f50d12fff6fa45646f84637b1507eed06675592ea67563b55a46a",
+    "scripts/tu1nz_adult_commercial_path_access.sh": "8a9bf545c9b147b03b409c7a98c0abb27c03080f1bafd58e278a2212da1ac468"
+  },
+  "contract_version": "tu1nz-commercial-host-access-m4.21-v1",
+  "control_parent_sha": "7bcf6e1eb064e1d7328caa160030685f9ed10595",
+  "design_decision": "GO",
+  "installed": false,
+  "installation_decision": "NO_GO",
+  "path_access": {
+    "entry": "--x",
+    "forbidden_supplementary_group": "chatops",
+    "modes": [
+      "apply",
+      "verify",
+      "rollback"
+    ],
+    "paths": [
+      {
+        "acl_mask": "rwx",
+        "expected_metadata": "2770:chatops:chatops",
+        "path": "/opt/tu1nz_repos"
+      },
+      {
+        "acl_mask": "r-x",
+        "expected_metadata": "2750:root:chatops",
+        "path": "/opt/tu1nz_repos/releases"
+      },
+      {
+        "acl_mask": "r-x",
+        "expected_metadata": "2750:root:chatops",
+        "path": "/opt/tu1nz_repos/releases/adult-publishing"
+      },
+      {
+        "acl_mask": "r-x",
+        "expected_metadata": "750:root:chatops",
+        "path": "/etc/tu1nz"
+      },
+      {
+        "acl_mask": "r-x",
+        "expected_metadata": "2750:root:chatops",
+        "path": "/var/lib/tausendunde1nz/adult-publishing"
+      }
+    ],
+    "preserve_acl_mask": true,
+    "recursive": false,
+    "runtime_group": "tu1nz-adult-commercial-s0",
+    "runtime_user": "tu1nz-adult-commercial-s0",
+    "tool": "scripts/tu1nz_adult_commercial_path_access.sh"
+  },
+  "postgres_peer": {
+    "authentication_method": "peer",
+    "configuration_backup_required": true,
+    "credential_required": false,
+    "database": "tu1nz_adult_commercial_s0",
+    "hba_anchor_fields": [
+      "local",
+      "all",
+      "all",
+      "peer"
+    ],
+    "hba_fields": [
+      "local",
+      "tu1nz_adult_commercial_s0",
+      "tu1nz_adult_commercial_s0_runtime",
+      "peer",
+      "map=tu1nz_adult_commercial_s0"
+    ],
+    "hba_rule_file": "config/postgresql/adult-publishing-commercial-s0.pg_hba.rule",
+    "hba_rule_must_precede_anchor": true,
+    "ident_fields": [
+      "tu1nz_adult_commercial_s0",
+      "tu1nz-adult-commercial-s0",
+      "tu1nz_adult_commercial_s0_runtime"
+    ],
+    "ident_map_file": "config/postgresql/adult-publishing-commercial-s0.pg_ident.map",
+    "map_name": "tu1nz_adult_commercial_s0",
+    "migrator_mapping_present": false,
+    "migrator_role": "tu1nz_adult_commercial_s0_migrator",
+    "native_rule_views_error_free_required": true,
+    "observed_hba_file": "/etc/postgresql/17/main/pg_hba.conf",
+    "observed_hba_metadata": "640:postgres:postgres",
+    "observed_hba_sha256": "ad0df9635890926d79a12d5627b68af6b85b6254fa23cace2bbe077838969c9e",
+    "observed_ident_file": "/etc/postgresql/17/main/pg_ident.conf",
+    "observed_ident_metadata": "640:postgres:postgres",
+    "observed_ident_sha256": "b4dfef08731a7d20a3bb724ad4cf3e1cd91ec01fbe51349c6a3acc5704072965",
+    "operating_system_user": "tu1nz-adult-commercial-s0",
+    "positive_connection_identity": "tu1nz_adult_commercial_s0_runtime",
+    "reload_required": true,
+    "runtime_role": "tu1nz_adult_commercial_s0_runtime"
+  },
+  "product_boundary": {
+    "external_providers_enabled": false,
+    "network_enabled": false,
+    "paid_targets": [
+      "REDDIT",
+      "TELEGRAM"
+    ],
+    "real_media_enabled": false,
+    "real_payment_enabled": false,
+    "synthetic_data_only": true,
+    "telegram_intake_enabled": false,
+    "uncompensated_targets": [
+      "X"
+    ]
+  },
+  "required_installation_gates": {
+    "acl_apply_and_verify_complete": false,
+    "acl_prestate_captured": false,
+    "commercial_database_and_roles_created": false,
+    "exact_postgres_files_backed_up": false,
+    "migrator_negative_peer_test_passed": false,
+    "native_pg_hba_file_rules_error_free": false,
+    "native_pg_ident_file_mappings_error_free": false,
+    "postgres_configuration_reload_succeeded": false,
+    "runtime_peer_connection_test_passed": false,
+    "separate_root_window_approved": false,
+    "unrelated_identity_negative_peer_test_passed": false
+  },
+  "rollback": {
+    "acl_mode": "rollback",
+    "postgres_reload_and_rule_validation_required": true,
+    "preserve_s1_acl_and_runtime": true,
+    "remove_only_commercial_acl_entry": true,
+    "restore_exact_postgres_file_backups": true,
+    "runtime_connection_must_fail_after_rollback": true
+  },
+  "server_changed": false,
+  "sprint": "M4.21"
+}
