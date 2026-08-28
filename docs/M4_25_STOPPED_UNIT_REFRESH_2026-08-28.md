@@ -104,3 +104,33 @@ first-start authorization/acceptance contract that binds the M4.25 release,
 unit, manifest and backup evidence and re-runs the complete M4.24 preflight.
 Actual first start, PR merge, deployment activation and production use remain
 blocked until a new explicit operator authorization.
+
+## Executed stopped evidence
+
+The installed application remains
+`52494d6121660ead53774deb8616701f14bb7a8f`. The active immutable Control
+release is `3135197ba4ac577bbb7fd28341d0c2dc845a7ebe`; the separately versioned
+recovery verifier is `b636048d7bef54c1c02cce572b5ba4081f1fabbc`. The installed
+unit is byte-identical to SSOT with SHA-256
+`ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d`.
+The installed release-manifest SHA-256 is
+`68d8e276b2e0442cc9e02937264c6f493e938f7ab0fc3372239dba69a05a6386`.
+
+The fresh encrypted archive is
+`tu1nz_system_backup_20260828T18-15-58Z.tar.gz`, 64,488,092 bytes, SHA-256
+`f892758dccf2157b4fa11afa38fe61dfcd36f18076230a76f1d23627bf18afc0`.
+Local and decrypted remote hashes match. Its inventory SHA-256 is
+`f7dd1b3fea220bc1ef032325edc9bb8033d79f2c52e5893927d93018f3d4aec3`.
+The isolated restore completed at 2026-08-28T18:35:13Z and its evidence hash is
+`013e89b92fda435f978960bb417cf2a7c6da93e6bc5387612b648a2358220b7d`.
+
+At 2026-08-28T18:43:19Z systemd reported loaded/inactive/dead/static,
+`Restart=no`, an effective 180-second maximum, `NRestarts=0`, `MainPID=0`, no
+start timestamps, no journal lines, no status and no lock. The effective
+security exposure remains `0.6 SAFE`. The synthetic database remains 39 tables,
+21 TU1NZ functions and bootstrap counts `1|1|1|3|3|3`; S1 and the backup timer
+are active and the backup service is inactive.
+
+`manifests/adult-publishing-commercial-unit-refresh.m4-25.json` is the
+versioned evidence SSOT. It deliberately records the unmerged canonical
+boundary and keeps first start at NO-GO.

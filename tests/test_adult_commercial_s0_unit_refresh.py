@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
 from pathlib import Path
 
@@ -8,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UNIT = ROOT / "systemd" / "tu1nz-adult-commercial-s0.service"
 REFRESH = ROOT / "scripts" / "tu1nz_adult_commercial_s0_unit_refresh.sh"
 M4_24_CONTRACT = ROOT / "manifests" / "adult-publishing-commercial-first-start.m4-24.json"
+M4_25_CONTRACT = ROOT / "manifests" / "adult-publishing-commercial-unit-refresh.m4-25.json"
 
 
 class CommercialS0UnitRefreshTest(unittest.TestCase):
@@ -94,6 +97,31 @@ class CommercialS0UnitRefreshTest(unittest.TestCase):
         self.assertIn('"active": false', source)
         self.assertIn('"first_start_approved": false', source)
         self.assertIn('"decision": "NO_GO"', source)
+
+    def test_executed_evidence_is_stopped_and_hash_bound(self) -> None:
+        payload = json.loads(M4_25_CONTRACT.read_text(encoding="ascii"))
+        self.assertEqual(payload["decision"], "GO_M4_25_STOPPED_NO_GO_FIRST_START")
+        self.assertFalse(payload["active"])
+        self.assertFalse(payload["first_start_approved"])
+        self.assertFalse(payload["network_enabled"])
+        self.assertFalse(payload["external_providers_enabled"])
+        self.assertEqual(payload["installed_control_sha"], "3135197ba4ac577bbb7fd28341d0c2dc845a7ebe")
+        self.assertEqual(payload["unit_sha256"], "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d")
+        self.assertEqual(payload["systemd"]["restart"], "no")
+        self.assertEqual(payload["systemd"]["runtime_maximum_seconds"], 180)
+        self.assertEqual(payload["systemd"]["active_state"], "inactive")
+        self.assertEqual(payload["systemd"]["sub_state"], "dead")
+        self.assertEqual(payload["systemd"]["unit_file_state"], "static")
+        self.assertEqual(payload["start_evidence"]["n_restarts"], 0)
+        self.assertEqual(payload["start_evidence"]["main_pid"], 0)
+        self.assertEqual(payload["start_evidence"]["journal_lines"], 0)
+        self.assertTrue(payload["backup"]["local_remote_sha256_match"])
+        self.assertTrue(payload["backup"]["restore_verified"])
+        self.assertTrue(payload["database"]["synthetic_only"])
+        self.assertEqual(
+            payload["m4_24_contract_sha256"],
+            hashlib.sha256(M4_24_CONTRACT.read_bytes()).hexdigest(),
+        )
 
 
 if __name__ == "__main__":

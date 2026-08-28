@@ -58,6 +58,8 @@
 !manifests/adult-publishing-commercial-installation-authorization.m4-22.json
 !manifests/adult-publishing-commercial-first-start.schema.json
 !manifests/adult-publishing-commercial-first-start.m4-24.json
+!manifests/adult-publishing-commercial-unit-refresh.schema.json
+!manifests/adult-publishing-commercial-unit-refresh.m4-25.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/

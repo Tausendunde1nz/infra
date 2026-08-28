@@ -212,6 +212,12 @@ jobs:
         run: python3 -m py_compile tests/test_adult_commercial_s0_unit_refresh.py
       - name: Run M4.25 stopped unit refresh tests
         run: python3 -m unittest -v tests.test_adult_commercial_s0_unit_refresh
+      - name: Validate M4.25 stopped unit refresh evidence JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-unit-refresh.schema.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-unit-refresh.m4-25.json >/dev/null
       - name: Reject candidate activation, cron and provider credentials in M4.25 controller
         run: >-
           ! git grep -nEi

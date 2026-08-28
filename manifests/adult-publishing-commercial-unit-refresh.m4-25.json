@@ -1,0 +1,84 @@
+{
+  "active": false,
+  "application_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+  "backup": {
+    "archive_inventory_sha256": "f7dd1b3fea220bc1ef032325edc9bb8033d79f2c52e5893927d93018f3d4aec3",
+    "archive_name": "tu1nz_system_backup_20260828T18-15-58Z.tar.gz",
+    "archive_sha256": "f892758dccf2157b4fa11afa38fe61dfcd36f18076230a76f1d23627bf18afc0",
+    "completed_at": "2026-08-28T18:34:28Z",
+    "local_remote_sha256_match": true,
+    "restore_completed_at": "2026-08-28T18:35:13Z",
+    "restore_evidence_sha256": "013e89b92fda435f978960bb417cf2a7c6da93e6bc5387612b648a2358220b7d",
+    "restore_root": "/opt/tu1nz_repos/backups/m4-25-commercial-s0-unit-refresh-restore/20260828T18-35-00Z",
+    "restore_verified": true,
+    "size_bytes": 64488092
+  },
+  "canonical_control_sha": "8c4e8992a60c215295cf9d0c400afcd9a931f883",
+  "contract_version": "tu1nz-commercial-unit-refresh-m4.25-v1",
+  "database": {
+    "bootstrap_counts": {
+      "country_policy_rules": 1,
+      "creators": 1,
+      "integration_accounts": 3,
+      "platform_policy_rules": 3,
+      "policy_versions": 1,
+      "publication_destinations": 3
+    },
+    "function_count": 21,
+    "state_sha256": "8311a0072ab0e8165d21256e0edb6980bfc1e2acf7abe97b226cfc979545fd12",
+    "synthetic_only": true,
+    "table_count": 39
+  },
+  "decision": "GO_M4_25_STOPPED_NO_GO_FIRST_START",
+  "external_providers_enabled": false,
+  "first_start_approved": false,
+  "first_start_blockers": [
+    "M4_24_CONTRACT_REMAINS_HISTORICAL_NO_GO",
+    "PR_33_NOT_MERGED",
+    "PR_34_NOT_MERGED",
+    "NEW_FIRST_START_AUTHORIZATION_REQUIRED"
+  ],
+  "installed_control_sha": "3135197ba4ac577bbb7fd28341d0c2dc845a7ebe",
+  "m4_24_contract_sha256": "bf43aee420e133b9e5167a90c2e4c260d2716c0390c8cfc439fb1d03c1b87da3",
+  "network_enabled": false,
+  "observed_at": "2026-08-28T18:43:19Z",
+  "release_manifest_sha256": "68d8e276b2e0442cc9e02937264c6f493e938f7ab0fc3372239dba69a05a6386",
+  "rollback": {
+    "automatic": false,
+    "old_control_sha": "8c4e8992a60c215295cf9d0c400afcd9a931f883",
+    "old_manifest_sha256": "2a3dc857205f9cff262edd686bc6db13d799c1e5de8aea954a8f50b9420cdc54",
+    "old_unit_sha256": "ecec13e294ded68dfeeaba1300eb2f5247aacf5e9085c9838eca3b50f6a56bf3",
+    "preserved": true
+  },
+  "source": {
+    "branch": "feat/m4-25-stopped-unit-refresh",
+    "draft_pr": 34,
+    "implementation_ci_run_id": 33200419445,
+    "pr_33_merged": false,
+    "pr_34_merged": false
+  },
+  "start_evidence": {
+    "active_enter_timestamp": "",
+    "exec_main_start_timestamp": "",
+    "journal_lines": 0,
+    "lock_present": false,
+    "main_pid": 0,
+    "n_restarts": 0,
+    "runtime_status_present": false
+  },
+  "systemd": {
+    "active_state": "inactive",
+    "backup_service": "inactive",
+    "backup_timer": "active",
+    "byte_equal_to_ssot": true,
+    "load_state": "loaded",
+    "restart": "no",
+    "runtime_maximum_seconds": 180,
+    "security_exposure": "0.6 SAFE",
+    "staging_s1": "active",
+    "sub_state": "dead",
+    "unit_file_state": "static"
+  },
+  "unit_sha256": "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d",
+  "verification_control_sha": "b636048d7bef54c1c02cce572b5ba4081f1fabbc"
+}
