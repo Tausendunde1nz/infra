@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 MODE="${1:-}"
-[[ "$MODE" == preflight || "$MODE" == prepare || "$MODE" == partial-preflight || "$MODE" == recover-partial || "$MODE" == reject-incomplete-bundle || "$MODE" == resume-prepare || "$MODE" == resume-after-venv-build || "$MODE" == resume-after-control-stage || "$MODE" == verify-prepared || "$MODE" == install-unit ]] || {
-  echo "usage: $0 preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|resume-after-venv-build|resume-after-control-stage|verify-prepared|install-unit [arguments]" >&2
+[[ "$MODE" == preflight || "$MODE" == prepare || "$MODE" == partial-preflight || "$MODE" == recover-partial || "$MODE" == reject-incomplete-bundle || "$MODE" == resume-prepare || "$MODE" == resume-after-venv-build || "$MODE" == resume-after-control-stage || "$MODE" == finalize-schema-acceptance || "$MODE" == verify-prepared || "$MODE" == install-unit ]] || {
+  echo "usage: $0 preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|resume-after-venv-build|resume-after-control-stage|finalize-schema-acceptance|verify-prepared|install-unit [arguments]" >&2
   exit 2
 }
 shift
@@ -56,6 +56,8 @@ readonly BUILT_PARTIAL_CONTROL_SHA="8f27022e40cd8ffd24f738ad98836bc2df1f78f1"
 readonly BUILT_PARTIAL_CONTROL_TREE="583f9365f29fadfcf2dbd7210ede84054e618cff"
 readonly MIGRATION_PARTIAL_CONTROL_SHA="39082986d220a5f48148d3dda18f14ef1c1e4814"
 readonly MIGRATION_PARTIAL_CONTROL_TREE="b156739657b092d4a1124bd7200edd6331b4595a"
+readonly SCHEMA_PARTIAL_CONTROL_SHA="460c7befebb675117ac61c93ace6716d49abeb9e"
+readonly SCHEMA_PARTIAL_CONTROL_TREE="7b6d6944185ada4f8876a9d3a533103fc05b7a31"
 BACKUP_TIMER_PAUSED=0
 
 fail() {
@@ -227,6 +229,13 @@ apply_migrations_and_bootstrap() {
       <"$control_target/config/adult-publishing/staging-s0-commercial/bootstrap.sql" >/dev/null
 }
 
+verify_schema_acceptance() {
+  local app_target="$1"
+  /usr/sbin/runuser -u "$RUNTIME_USER" -- /usr/bin/psql --no-psqlrc \
+    --username="$RUNTIME_ROLE" --dbname="$DATABASE" --set=ON_ERROR_STOP=1 \
+    --file="$app_target/tests/postgres/m4_15_durable_commercial_persistence_schema_acceptance.sql" >/dev/null
+}
+
 prepare_release_and_database() {
   local source_mode="${1:-bundle-new}"
   local app_target="$RELEASE_ROOT/application/$APPLICATION_SHA"
@@ -298,8 +307,7 @@ prepare_release_and_database() {
   /usr/bin/ln -s "control/$CONTROL_SHA" "$RELEASE_ROOT/control-current"
   /usr/bin/ln -s "venv/$APPLICATION_SHA" "$RELEASE_ROOT/venv-current"
 
-  /usr/sbin/runuser -u "$RUNTIME_USER" -- /usr/bin/psql --no-psqlrc --dbname="$DATABASE" --set=ON_ERROR_STOP=1 \
-    --file="$app_target/tests/postgres/m4_15_durable_commercial_persistence_schema_acceptance.sql" >/dev/null
+  verify_schema_acceptance "$app_target"
 }
 
 verify_partial() {
@@ -475,8 +483,7 @@ resume_after_venv_build() {
   /usr/bin/ln -s "control/$CONTROL_SHA" "$RELEASE_ROOT/control-current"
   /usr/bin/ln -s "venv/$APPLICATION_SHA" "$RELEASE_ROOT/venv-current"
 
-  /usr/sbin/runuser -u "$RUNTIME_USER" -- /usr/bin/psql --no-psqlrc --dbname="$DATABASE" --set=ON_ERROR_STOP=1 \
-    --file="$app_target/tests/postgres/m4_15_durable_commercial_persistence_schema_acceptance.sql" >/dev/null
+  verify_schema_acceptance "$app_target"
   verify_prepared absent paused >/dev/null
   /bin/systemctl start tu1nz_encrypted_backup.timer
   BACKUP_TIMER_PAUSED=0
@@ -572,14 +579,111 @@ resume_after_control_stage() {
   /usr/bin/ln -s "control/$CONTROL_SHA" "$RELEASE_ROOT/control-current"
   /usr/bin/ln -s "venv/$APPLICATION_SHA" "$RELEASE_ROOT/venv-current"
 
-  /usr/sbin/runuser -u "$RUNTIME_USER" -- /usr/bin/psql --no-psqlrc --dbname="$DATABASE" --set=ON_ERROR_STOP=1 \
-    --file="$app_target/tests/postgres/m4_15_durable_commercial_persistence_schema_acceptance.sql" >/dev/null
+  verify_schema_acceptance "$app_target"
   verify_prepared absent paused >/dev/null
   /bin/systemctl start tu1nz_encrypted_backup.timer
   BACKUP_TIMER_PAUSED=0
   /bin/systemctl is-active --quiet tu1nz_encrypted_backup.timer || fail "backup timer did not resume"
   trap - EXIT
   echo "M4_23_STOPPED_CANDIDATE_PREPARED_OK resumed_after_control_stage"
+}
+
+verify_schema_partial() {
+  local app_target="$RELEASE_ROOT/application/$APPLICATION_SHA"
+  local control_target="$RELEASE_ROOT/control/$SCHEMA_PARTIAL_CONTROL_SHA"
+  local venv_target="$RELEASE_ROOT/venv/$APPLICATION_SHA"
+  local evidence_target="/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/20260828T15-39-59Z/rejected-immutable-build-output-$APPLICATION_SHA"
+  local expected_controls
+  local expected_evidence
+  expected_controls=$'39082986d220a5f48148d3dda18f14ef1c1e4814\n460c7befebb675117ac61c93ace6716d49abeb9e\n8f27022e40cd8ffd24f738ad98836bc2df1f78f1'
+  expected_evidence=$'build\ntu1nz_adult_publishing_core.egg-info'
+  verify_common_inputs
+  verify_application_bundle
+  [[ "$(sha256 "$INSTALLED_BACKUP")" == "$(sha256 "$CONTROL_REPOSITORY/scripts/tu1nz_encrypted_backup.sh")" ]] || fail "commercial-aware backup script is not installed"
+  /usr/bin/getent passwd "$RUNTIME_USER" >/dev/null || fail "commercial operating-system user is absent"
+  /usr/bin/getent group "$RUNTIME_GROUP" >/dev/null || fail "commercial operating-system group is absent"
+  [[ -z "$(/usr/bin/id -nG "$RUNTIME_USER" | /usr/bin/tr ' ' '\n' | /usr/bin/grep -Fx chatops || true)" ]] || fail "runtime identity belongs to forbidden chatops group"
+  "$CONTROL_REPOSITORY/scripts/tu1nz_adult_commercial_path_access.sh" verify >/dev/null
+  resolve_postgres_files
+  "$CONTROL_REPOSITORY/scripts/tu1nz_adult_commercial_host_access_gate.py" \
+    --contract "$CONTROL_REPOSITORY/manifests/adult-publishing-commercial-host-access.m4-21.json" \
+    --control-repository "$CONTROL_REPOSITORY" --phase installed \
+    --pg-hba "$HBA_FILE" --pg-ident "$IDENT_FILE" >/dev/null
+  [[ "$(postgres --dbname=postgres --command="SELECT string_agg(rolname || ':' || rolcanlogin, ',' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('$MIGRATOR_ROLE','$RUNTIME_ROLE')")" == "$MIGRATOR_ROLE:false,$RUNTIME_ROLE:true" ]] || fail "commercial PostgreSQL role boundary mismatch"
+  [[ "$(postgres --dbname=postgres --command="SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='$DATABASE'")" == "$MIGRATOR_ROLE" ]] || fail "commercial PostgreSQL database boundary mismatch"
+  [[ "$(postgres --dbname="$DATABASE" --command="SELECT count(*) FROM pg_tables WHERE schemaname='public'")" == 39 ]] || fail "schema partial table count mismatch"
+  [[ "$(postgres --dbname="$DATABASE" --command="SELECT count(*) FROM pg_proc WHERE proname LIKE 'tu1nz_%'")" == 21 ]] || fail "schema partial function count mismatch"
+  [[ "$(postgres --dbname="$DATABASE" --command="SELECT (SELECT count(*) FROM creators) || '|' || (SELECT count(*) FROM policy_versions) || '|' || (SELECT count(*) FROM country_policy_rules) || '|' || (SELECT count(*) FROM platform_policy_rules) || '|' || (SELECT count(*) FROM integration_accounts) || '|' || (SELECT count(*) FROM publication_destinations)")" == "1|1|1|3|3|3" ]] || fail "schema partial synthetic bootstrap count mismatch"
+
+  verify_clean_release "$app_target" "$APPLICATION_SHA" "$EXPECTED_APPLICATION_TREE"
+  verify_clean_release "$RELEASE_ROOT/control/$BUILT_PARTIAL_CONTROL_SHA" "$BUILT_PARTIAL_CONTROL_SHA" "$BUILT_PARTIAL_CONTROL_TREE"
+  verify_clean_release "$RELEASE_ROOT/control/$MIGRATION_PARTIAL_CONTROL_SHA" "$MIGRATION_PARTIAL_CONTROL_SHA" "$MIGRATION_PARTIAL_CONTROL_TREE"
+  verify_clean_release "$control_target" "$SCHEMA_PARTIAL_CONTROL_SHA" "$SCHEMA_PARTIAL_CONTROL_TREE"
+  [[ "$(/usr/bin/find "$RELEASE_ROOT/application" -mindepth 1 -maxdepth 1 -printf '%f\n' | /usr/bin/sort)" == "$APPLICATION_SHA" ]] || fail "schema partial application release set mismatch"
+  [[ "$(/usr/bin/find "$RELEASE_ROOT/venv" -mindepth 1 -maxdepth 1 -printf '%f\n' | /usr/bin/sort)" == "$APPLICATION_SHA" ]] || fail "schema partial venv release set mismatch"
+  [[ "$(/usr/bin/find "$RELEASE_ROOT/control" -mindepth 1 -maxdepth 1 -printf '%f\n' | /usr/bin/sort)" == "$expected_controls" ]] || fail "schema partial Control release set mismatch"
+  for target in "$app_target" "$RELEASE_ROOT/control/$BUILT_PARTIAL_CONTROL_SHA" "$RELEASE_ROOT/control/$MIGRATION_PARTIAL_CONTROL_SHA" "$control_target" "$venv_target"; do
+    [[ "$(stat -c '%a:%U:%G' "$target")" == "750:root:$RUNTIME_GROUP" ]] || fail "schema partial release metadata mismatch: $target"
+  done
+  for parent in "$RELEASE_ROOT" "$RELEASE_ROOT/application" "$RELEASE_ROOT/control" "$RELEASE_ROOT/venv"; do
+    [[ ! -L "$parent" && -d "$parent" && "$(stat -c '%a:%U:%G' "$parent")" == "2750:root:$RUNTIME_GROUP" ]] || fail "schema partial release parent mismatch: $parent"
+  done
+  [[ "$(PYTHONDONTWRITEBYTECODE=1 "$venv_target/bin/python" -c "import importlib.metadata,psycopg,tu1nz_sandbox;print(psycopg.__version__+'|'+importlib.metadata.version('tu1nz-adult-publishing-core'))")" == "3.3.4|0.1.0" ]] || fail "schema partial venv contract mismatch"
+  [[ ! -L "$evidence_target" && -d "$evidence_target" && "$(stat -c '%a:%U:%G' "$evidence_target")" == "700:root:root" ]] || fail "schema partial build-output evidence root mismatch"
+  [[ "$(/usr/bin/find "$evidence_target" -mindepth 1 -maxdepth 1 -printf '%f\n' | /usr/bin/sort)" == "$expected_evidence" ]] || fail "schema partial build-output evidence content mismatch"
+  for evidence in "$evidence_target/build" "$evidence_target/tu1nz_adult_publishing_core.egg-info"; do
+    [[ ! -L "$evidence" && -d "$evidence" && "$(stat -c '%U:%G' "$evidence")" == "root:root" ]] || fail "schema partial build-output evidence metadata mismatch: $evidence"
+  done
+
+  [[ "$(readlink "$RELEASE_ROOT/application-current")" == "application/$APPLICATION_SHA" ]] || fail "schema partial application link mismatch"
+  [[ "$(readlink "$RELEASE_ROOT/control-current")" == "control/$SCHEMA_PARTIAL_CONTROL_SHA" ]] || fail "schema partial Control link mismatch"
+  [[ "$(readlink "$RELEASE_ROOT/venv-current")" == "venv/$APPLICATION_SHA" ]] || fail "schema partial venv link mismatch"
+  [[ "$(stat -c '%a:%U:%G' "$CONFIG_ROOT")" == "750:root:$RUNTIME_GROUP" ]] || fail "schema partial configuration metadata mismatch"
+  [[ "$(stat -c '%a:%U:%G' "$CONFIG_ROOT/runtime.env")" == "640:root:$RUNTIME_GROUP" ]] || fail "schema partial runtime environment metadata mismatch"
+  [[ "$(stat -c '%a:%U:%G' "$CONFIG_ROOT/core-identities.json")" == "600:$RUNTIME_USER:$RUNTIME_GROUP" ]] || fail "schema partial identities metadata mismatch"
+  /usr/bin/cmp --silent "$CONFIG_ROOT/runtime.env" "$control_target/config/adult-publishing/staging-s0-commercial/runtime.env.example" || fail "schema partial runtime environment drift"
+  /usr/bin/cmp --silent "$CONFIG_ROOT/core-identities.json" "$control_target/config/adult-publishing/staging-s0-commercial/core-identities.synthetic.json" || fail "schema partial identities drift"
+  [[ "$(stat -c '%a:%U:%G' "$STATE_ROOT")" == "700:$RUNTIME_USER:$RUNTIME_GROUP" ]] || fail "schema partial state metadata mismatch"
+  [[ "$(stat -c '%a:%U:%G' "$STATE_ROOT/state.json")" == "600:$RUNTIME_USER:$RUNTIME_GROUP" ]] || fail "schema partial state file metadata mismatch"
+  /usr/bin/cmp --silent "$STATE_ROOT/state.json" "$control_target/config/adult-publishing/staging-s0-commercial/state.empty.json" || fail "schema partial initial state drift"
+  for path in "$CONFIG_ROOT/release-manifest.json" "$STATE_ROOT/runtime-status.json" "$STATE_ROOT/runtime.lock" "$INSTALLED_UNIT" "/opt/tu1nz_repos/.m4-23-commercial-s0-control-stage-$CONTROL_SHA" "$RELEASE_ROOT/control/$CONTROL_SHA"; do
+    [[ ! -e "$path" && ! -L "$path" ]] || fail "schema partial target must be absent: $path"
+  done
+  verify_schema_acceptance "$app_target"
+  /bin/systemctl is-active --quiet tu1nz-adult-publishing-s1.service || fail "STAGING-S1 is not active"
+  ! /bin/systemctl is-active --quiet tu1nz_encrypted_backup.service || fail "backup service is active during schema-partial recovery"
+  /bin/systemctl is-active --quiet tu1nz_encrypted_backup.timer || fail "backup timer is not active before schema-partial recovery"
+  ! /bin/systemctl is-active --quiet "$UNIT" || fail "commercial unit is active"
+  echo "M4_23_SCHEMA_PARTIAL_BOUNDARY_OK"
+}
+
+finalize_schema_acceptance() {
+  local control_target="$RELEASE_ROOT/control/$CONTROL_SHA"
+  local stage_root="/opt/tu1nz_repos/.m4-23-commercial-s0-control-stage-$CONTROL_SHA"
+  local control_stage="$stage_root/control-$CONTROL_SHA"
+  local next_link="$RELEASE_ROOT/control-current.m4-23-$CONTROL_SHA"
+  verify_schema_partial >/dev/null
+  [[ ! -e "$next_link" && ! -L "$next_link" ]] || fail "next Control link already exists"
+  trap resume_backup_timer EXIT
+  /bin/systemctl stop tu1nz_encrypted_backup.timer
+  BACKUP_TIMER_PAUSED=1
+  /usr/bin/install -d -o chatops -g chatops -m 0700 "$stage_root"
+  clone_release "$CONTROL_REMOTE" "$control_stage" "$CONTROL_SHA"
+  verify_clean_release "$control_stage" "$CONTROL_SHA" "$(git_read "$CONTROL_REPOSITORY" rev-parse 'HEAD^{tree}')"
+  /usr/bin/chown -R root:"$RUNTIME_GROUP" "$control_stage"
+  /usr/bin/chmod 0750 "$control_stage"
+  /usr/bin/chmod g-s "$control_stage"
+  /usr/bin/mv -- "$control_stage" "$control_target"
+  /usr/bin/rmdir -- "$stage_root"
+  verify_clean_release "$control_target" "$CONTROL_SHA" "$(git_read "$CONTROL_REPOSITORY" rev-parse 'HEAD^{tree}')"
+  /usr/bin/ln -s "control/$CONTROL_SHA" "$next_link"
+  /usr/bin/mv -T -- "$next_link" "$RELEASE_ROOT/control-current"
+  verify_prepared absent paused >/dev/null
+  /bin/systemctl start tu1nz_encrypted_backup.timer
+  BACKUP_TIMER_PAUSED=0
+  /bin/systemctl is-active --quiet tu1nz_encrypted_backup.timer || fail "backup timer did not resume"
+  trap - EXIT
+  echo "M4_23_STOPPED_CANDIDATE_PREPARED_OK finalized_schema_acceptance"
 }
 
 verify_prepared() {
@@ -620,8 +724,7 @@ verify_prepared() {
   /usr/bin/cmp --silent "$STATE_ROOT/state.json" "$control_target/config/adult-publishing/staging-s0-commercial/state.empty.json" || fail "initial state drift"
   [[ ! -e "$STATE_ROOT/runtime-status.json" && ! -L "$STATE_ROOT/runtime-status.json" ]] || fail "runtime status exists before first start"
   [[ ! -e "$STATE_ROOT/runtime.lock" && ! -L "$STATE_ROOT/runtime.lock" ]] || fail "runtime lock exists before first start"
-  /usr/sbin/runuser -u "$RUNTIME_USER" -- /usr/bin/psql --no-psqlrc --dbname="$DATABASE" --set=ON_ERROR_STOP=1 \
-    --file="$app_target/tests/postgres/m4_15_durable_commercial_persistence_schema_acceptance.sql" >/dev/null
+  verify_schema_acceptance "$app_target"
   if [[ "$manifest_phase" == absent ]]; then
     [[ ! -e "$CONFIG_ROOT/release-manifest.json" && ! -L "$CONFIG_ROOT/release-manifest.json" ]] || fail "release manifest must await post-backup approval"
   elif [[ "$manifest_phase" == present ]]; then
@@ -706,6 +809,7 @@ case "$MODE" in
   resume-prepare) resume_prepare ;;
   resume-after-venv-build) resume_after_venv_build ;;
   resume-after-control-stage) resume_after_control_stage ;;
+  finalize-schema-acceptance) finalize_schema_acceptance ;;
   verify-prepared) verify_prepared ;;
   install-unit) install_unit ;;
 esac
