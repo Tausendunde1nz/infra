@@ -112,6 +112,11 @@ Current Adult Publishing infrastructure decisions:
   and `scripts/tu1nz_adult_commercial_m4_29_gate.py` bind the actual M4.28 merge
   result and separate contact, read-only evidence, sync authorization and
   mutation-ready gates. All committed approvals remain false and `NO_GO`.
+- `docs/M4_29_2_AGENTMODE_MAINTENANCE_2026-08-28.md`, the five versioned
+  maintenance scripts and three hardened units remove every known automatic
+  Control mutator. Remote drift is observed without local ref updates, all
+  runtime state lives outside Control, and the Adult Candidate remains
+  never-started. PR #38 remains Draft and unmerged.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

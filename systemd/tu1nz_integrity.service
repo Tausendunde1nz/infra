@@ -1,0 +1,24 @@
+[Unit]
+Description=TU1NZ read-only Control integrity consolidation
+After=network-online.target tu1nz_agentmode.service
+Wants=network-online.target tu1nz_agentmode.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=chatops
+Group=chatops
+ExecStart=/usr/local/bin/tu1nz_integrity_consolidation.sh
+UMask=0027
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadOnlyPaths=/opt/tu1nz_repos/control /opt/tu1nz_repos/docs
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

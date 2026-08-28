@@ -1,0 +1,22 @@
+[Unit]
+Description=TU1NZ monitor wrapper with external runtime state
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+ExecStart=/usr/local/bin/tu1nz_monitor_wrap.sh
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadOnlyPaths=/opt/tu1nz_repos/control
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

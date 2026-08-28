@@ -357,6 +357,63 @@ jobs:
           ! git grep -nEi
           '(subprocess|systemctl|daemon-reload|paramiko|(^|[^[:alnum:]_])ssh([^[:alnum:]_]|$)|requests|urllib|socket|os\.system|shutil|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
           scripts/tu1nz_adult_commercial_m4_29_gate.py
+      - name: Validate M4.29.2 Agentmode maintenance shell
+        run: >-
+          bash -n
+          scripts/tu1nz_sync_all.sh
+          scripts/tu1nz_agent_health.sh
+          scripts/tu1nz_require_sync.sh
+          scripts/tu1nz_integrity_consolidation.sh
+          scripts/tu1nz_monitor_wrap.sh
+      - name: Validate M4.29.2 hardened units
+        shell: bash
+        run: |
+          for source in \
+            systemd/tu1nz_agentmode.service \
+            systemd/tu1nz_integrity.service \
+            systemd/tu1nz_monitor.service
+          do
+            temporary_unit="$(mktemp --suffix=.service)"
+            sed 's|^ExecStart=.*$|ExecStart=/bin/true|' "$source" >"$temporary_unit"
+            systemd-analyze verify "$temporary_unit"
+          done
+      - name: Compile and run M4.29.2 maintenance contract
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_agentmode_maintenance_gate.py
+          tests/test_m4_29_2_agentmode_maintenance.py
+          && python3 -m unittest -v tests.test_m4_29_2_agentmode_maintenance
+      - name: Validate M4.29.2 JSON and bound artifact hashes
+        run: >-
+          python3 -m json.tool manifests/tu1nz-agentmode-maintenance.m4-29-2.schema.json >/dev/null
+          && python3 -m json.tool manifests/tu1nz-agentmode-maintenance.m4-29-2.json >/dev/null
+          && scripts/tu1nz_agentmode_maintenance_gate.py
+      - name: Reject automatic Control mutation and Adult Candidate activation in M4.29.2
+        shell: bash
+        run: |
+          if grep -nE '"\$CONTROL_DIR"[[:space:]]+(fetch|pull|merge|reset|checkout|clean)' \
+            scripts/tu1nz_sync_all.sh
+          then
+            echo "Automatic Control mutator detected" >&2
+            exit 1
+          fi
+          if git grep -nEi \
+            '(systemctl[[:space:]]+(start|restart|enable)[[:space:]]+.*tu1nz-adult-commercial|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN|(^|[[:space:]])crontab([[:space:]]|$))' -- \
+            scripts/tu1nz_sync_all.sh \
+            scripts/tu1nz_agent_health.sh \
+            scripts/tu1nz_require_sync.sh \
+            scripts/tu1nz_integrity_consolidation.sh \
+            scripts/tu1nz_monitor_wrap.sh \
+            systemd/tu1nz_agentmode.service \
+            systemd/tu1nz_integrity.service \
+            systemd/tu1nz_monitor.service
+          then
+            echo "Forbidden M4.29.2 surface detected" >&2
+            exit 1
+          fi
+          grep -qx 'ReadOnlyPaths=/opt/tu1nz_repos/control' systemd/tu1nz_agentmode.service
+          grep -qx 'ReadOnlyPaths=/opt/tu1nz_repos/control /opt/tu1nz_repos/docs' systemd/tu1nz_integrity.service
+          grep -qx 'ReadOnlyPaths=/opt/tu1nz_repos/control' systemd/tu1nz_monitor.service
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

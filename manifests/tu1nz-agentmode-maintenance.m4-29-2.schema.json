@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TU1NZ M4.29.2 Agentmode maintenance contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "decision",
+    "maintenance_authorized",
+    "canonical_control",
+    "runtime_state",
+    "preflight",
+    "recovery",
+    "artifacts",
+    "installation",
+    "adult_candidate_boundary"
+  ],
+  "properties": {
+    "contract_version": {"const": "tu1nz-m4.29.2-agentmode-maintenance-v1"},
+    "decision": {"const": "GO_MAINTENANCE_WINDOW_ONLY"},
+    "maintenance_authorized": {"const": true},
+    "canonical_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "branch", "automatic_mutation_allowed", "remote_probe"],
+      "properties": {
+        "path": {"const": "/opt/tu1nz_repos/control"},
+        "branch": {"const": "control-main"},
+        "automatic_mutation_allowed": {"const": false},
+        "remote_probe": {"const": "git-ls-remote-without-local-ref-update"}
+      }
+    },
+    "runtime_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "log_root", "contains_secrets"],
+      "properties": {
+        "root": {"const": "/var/lib/tausendunde1nz/agentmode"},
+        "log_root": {"const": "/var/log/tausendunde1nz/health"},
+        "contains_secrets": {"const": false}
+      }
+    },
+    "preflight": {"type": "object"},
+    "recovery": {"type": "object"},
+    "artifacts": {
+      "type": "object",
+      "minProperties": 8,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "commit", "ci_run", "installed_at", "installed_hashes"],
+      "properties": {
+        "status": {"enum": ["PENDING", "COMPLETE"]},
+        "commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "ci_run": {"type": ["string", "null"]},
+        "installed_at": {"type": ["string", "null"]},
+        "installed_hashes": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "adult_candidate_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "active_state",
+        "sub_state",
+        "unit_file_state",
+        "n_restarts",
+        "never_started",
+        "first_start_approved",
+        "production_approved"
+      ],
+      "properties": {
+        "unit": {"const": "tu1nz-adult-commercial-s0.service"},
+        "active_state": {"const": "inactive"},
+        "sub_state": {"const": "dead"},
+        "unit_file_state": {"const": "static"},
+        "n_restarts": {"const": 0},
+        "never_started": {"const": true},
+        "first_start_approved": {"const": false},
+        "production_approved": {"const": false}
+      }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "contract_version": "tu1nz-m4.29.2-agentmode-maintenance-v1",
+  "decision": "GO_MAINTENANCE_WINDOW_ONLY",
+  "maintenance_authorized": true,
+  "canonical_control": {
+    "path": "/opt/tu1nz_repos/control",
+    "branch": "control-main",
+    "automatic_mutation_allowed": false,
+    "remote_probe": "git-ls-remote-without-local-ref-update"
+  },
+  "runtime_state": {
+    "root": "/var/lib/tausendunde1nz/agentmode",
+    "log_root": "/var/log/tausendunde1nz/health",
+    "contains_secrets": false
+  },
+  "preflight": {
+    "captured_at": "2026-08-28T20:46:38Z",
+    "hostname": "ubuntu-8gb-nbg1-2",
+    "tailscale_ipv4": "100.121.130.51",
+    "control_head": "2c17ae00d9c9b6e057ba36a1766166f7f5549d4c",
+    "control_tree": "c9408b89f994f1f2fc6f57709bebfb11b767209b",
+    "control_refs_sha256": "49cd9e71791b8f5749409a84c4e96365f8251780b40f5e94f64843b14192560a",
+    "control_tracked_bytes_sha256": "80e8650bc7136b613684b8f970a5c961c03a656277bbd647bd59733dadae2e89",
+    "tracked_clean": true,
+    "known_mutators": [
+      "tu1nz_agentmode.service",
+      "/usr/local/bin/tu1nz_sync_all.sh",
+      "/usr/local/bin/tu1nz_agent_health.sh",
+      "tu1nz_integrity.service",
+      "/usr/local/bin/tu1nz_integrity_consolidation.sh",
+      "/usr/local/bin/tu1nz_require_sync.sh",
+      "tu1nz_monitor.service",
+      "/usr/local/bin/tu1nz_monitor_wrap.sh"
+    ]
+  },
+  "recovery": {
+    "path": "/var/log/tausendunde1nz/health/recovery/m4-29-2-20260828T204845Z/installed-before.tar.gz",
+    "sha256": "fb0c367282d5787cad1b8f1e4caeedf933666050f5ea1b50caf29fa296dbfb18",
+    "restore_policy": "restore-only-while-services-stopped-and-never-auto-restart-known-unsafe-agentmode"
+  },
+  "artifacts": {
+    "scripts/tu1nz_sync_all.sh": "e889ff375539ee5483eae62bb1db6b9c49e5cc8c8c46460fb9d5f9bcfaac381d",
+    "scripts/tu1nz_agent_health.sh": "d80048e455c5a0c754c396e915ef222c20ba15f6badfa5b44e99bd10b5b6807b",
+    "scripts/tu1nz_require_sync.sh": "eb91971c3b5c1cbca7910d5277111780867dc9eb27869402ffaa31b4e08fc80c",
+    "scripts/tu1nz_integrity_consolidation.sh": "7d4acabbe3568f6482150b44e6972710996f69f9222de6cbf0b3acbaec81c954",
+    "scripts/tu1nz_monitor_wrap.sh": "736abe5bd7a80d5457bbf77f2b4e96ee8885b802b7638be7ee300a7ba5aa076f",
+    "systemd/tu1nz_agentmode.service": "c53b51ca94b8ba87713a74bd51ffc21ad5a0c47f3ad617eb003a978ed867a707",
+    "systemd/tu1nz_integrity.service": "cdd3b055c90dcf41f7ba306849e37e4ee9a1b04d96e166753d06e85b5d948692",
+    "systemd/tu1nz_monitor.service": "6fe128985f40d10a94120cdf9b9fa1be1b3155e8defe11ace171846c5fd669ca",
+    "systemd/tu1nz-adult-commercial-s0.service": "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d"
+  },
+  "installation": {
+    "status": "PENDING",
+    "commit": null,
+    "ci_run": null,
+    "installed_at": null,
+    "installed_hashes": {}
+  },
+  "adult_candidate_boundary": {
+    "unit": "tu1nz-adult-commercial-s0.service",
+    "active_state": "inactive",
+    "sub_state": "dead",
+    "unit_file_state": "static",
+    "n_restarts": 0,
+    "never_started": true,
+    "first_start_approved": false,
+    "production_approved": false
+  }
+}

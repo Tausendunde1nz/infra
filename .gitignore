@@ -33,6 +33,12 @@
 !scripts/tu1nz_adult_commercial_m4_27_gate.py
 !scripts/tu1nz_adult_commercial_m4_28_gate.py
 !scripts/tu1nz_adult_commercial_m4_29_gate.py
+!scripts/tu1nz_sync_all.sh
+!scripts/tu1nz_agent_health.sh
+!scripts/tu1nz_require_sync.sh
+!scripts/tu1nz_integrity_consolidation.sh
+!scripts/tu1nz_monitor_wrap.sh
+!scripts/tu1nz_agentmode_maintenance_gate.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -45,6 +51,9 @@
 !systemd/tu1nz-adult-s0-release-verify.service
 !systemd/tu1nz-adult-publishing-s1.service
 !systemd/tu1nz-adult-commercial-s0.service
+!systemd/tu1nz_agentmode.service
+!systemd/tu1nz_integrity.service
+!systemd/tu1nz_monitor.service
 !.github/
 !.github/workflows/
 !.github/workflows/control-validation.yml
@@ -72,6 +81,8 @@
 !manifests/adult-publishing-commercial-canonical-sync-authorization.m4-28.json
 !manifests/adult-publishing-commercial-post-merge-sync-authorization.m4-29.schema.json
 !manifests/adult-publishing-commercial-post-merge-sync-authorization.m4-29.json
+!manifests/tu1nz-agentmode-maintenance.m4-29-2.schema.json
+!manifests/tu1nz-agentmode-maintenance.m4-29-2.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -102,6 +113,7 @@
 !tests/test_adult_commercial_m4_27.py
 !tests/test_adult_commercial_m4_28.py
 !tests/test_adult_commercial_m4_29.py
+!tests/test_m4_29_2_agentmode_maintenance.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
