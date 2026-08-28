@@ -89,6 +89,12 @@ The systemd units add an OS-level `ReadOnlyPaths=/opt/tu1nz_repos/control`
 boundary. Integrity also receives a private network and writes only external
 manifests/state. Monitor output is moved to the external state root.
 
+The Monitor also uses `ProtectHome=read-only` because its retained Docs remote
+reachability check needs the existing read-only SSH configuration. Its wrapper
+converts every red status line into a non-zero service result, so a legacy
+check can no longer display failure while systemd records success. This closes
+the discrepancy found in the first post-install evidence capture.
+
 Agentmode uses `ProtectHome=read-only`: the existing read-only GitHub deploy
 key and SSH host configuration remain visible to `git ls-remote` and the
 retained Docs sync, while every home directory remains non-writable. The first

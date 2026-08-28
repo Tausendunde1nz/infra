@@ -13,5 +13,8 @@ set +e
 monitor_status=${PIPESTATUS[0]}
 set -e
 chmod 0640 "$output_file"
+if grep -q '🔴' "$output_file"; then
+  monitor_status=1
+fi
 "$ALERT_COMMAND" || true
 exit "$monitor_status"

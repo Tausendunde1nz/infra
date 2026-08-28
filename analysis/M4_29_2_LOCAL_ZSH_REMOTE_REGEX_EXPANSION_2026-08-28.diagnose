@@ -1,0 +1,25 @@
+# M4.29.2 local zsh expansion before remote install
+
+Date: 2026-08-28
+
+## Symptom
+
+The planned remote reinstall command exited locally with `zsh: no matches
+found` while parsing a JSON-validation regular expression.
+
+## Cause
+
+Nested quoting exposed `[[:space:]]` to the local interactive shell instead of
+passing it literally to the remote shell.
+
+## Impact
+
+SSH was never invoked. The server unit, daemon state, services, Control and
+Adult Candidate were not changed. The current Agentmode, Integrity and Monitor
+services remain stopped.
+
+## Resolution
+
+Transmit the already reviewed transaction as a literal standard-input script
+to remote `bash`. Parse observation JSON with `jq` and avoid nested regular
+expressions. Retain the same fail-closed trap and recovery material.

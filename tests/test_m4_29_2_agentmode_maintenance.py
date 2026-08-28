@@ -342,6 +342,30 @@ class AgentmodeMaintenanceTest(unittest.TestCase):
         self.assertEqual(before, control_snapshot(self.control))
         self.assertEqual((self.state / "monitor_last.txt").read_text(), "MONITOR_OK\n")
 
+    def test_monitor_rejects_red_status_even_when_legacy_command_exits_zero(self) -> None:
+        fake_monitor = self.root / "fake-monitor-red"
+        fake_alert = self.root / "fake-alert"
+        fake_monitor.write_text(
+            "#!/usr/bin/env bash\nprintf '🔴 Git Fehler\\n'\nexit 0\n",
+            encoding="utf-8",
+        )
+        fake_alert.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="ascii")
+        fake_monitor.chmod(0o755)
+        fake_alert.chmod(0o755)
+        before = control_snapshot(self.control)
+        result = run(
+            ["bash", str(MONITOR_WRAP)],
+            env={
+                "TU1NZ_STATE_DIR": str(self.state),
+                "TU1NZ_MONITOR_COMMAND": str(fake_monitor),
+                "TU1NZ_ALERT_COMMAND": str(fake_alert),
+            },
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, control_snapshot(self.control))
+        self.assertIn("🔴 Git Fehler", (self.state / "monitor_last.txt").read_text())
+
     def test_runtime_permissions_and_static_control_boundary(self) -> None:
         self.run_sync("--observe-once")
         self.assertEqual(stat.S_IMODE(self.state.stat().st_mode), 0o750)
@@ -361,6 +385,8 @@ class AgentmodeMaintenanceTest(unittest.TestCase):
             self.assertNotIn("tu1nz-adult-commercial-s0", unit)
         self.assertIn("ProtectHome=read-only", agent_unit)
         self.assertNotIn("ProtectHome=yes", agent_unit)
+        self.assertIn("ProtectHome=read-only", monitor_unit)
+        self.assertNotIn("ProtectHome=yes", monitor_unit)
         self.assertIn("PrivateNetwork=yes", integrity_unit)
 
     def test_no_forbidden_control_git_mutators_or_candidate_activation(self) -> None:

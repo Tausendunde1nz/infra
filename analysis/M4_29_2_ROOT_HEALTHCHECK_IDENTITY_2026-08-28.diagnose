@@ -1,0 +1,31 @@
+# M4.29.2 root healthcheck identity
+
+Date: 2026-08-28
+
+## Symptom
+
+The corrected Agentmode unit was installed and produced a fresh valid external
+observation. The subsequent explicit Agent Health invocation reported
+`CONTROL_LOCAL_STATE_INVALID`, after which the fail-closed trap stopped all
+three maintenance services.
+
+## Cause
+
+The operational transaction invoked `tu1nz_agent_health.sh` as root. Its
+read-only `--check` delegates to Git, and Git correctly refused the
+`chatops`-owned Control checkout. The persistent Agentmode unit itself runs as
+`chatops` and had already completed its probe successfully.
+
+## Impact
+
+- corrected unit installed with the manifest-bound hash;
+- Agentmode stopped after the transaction trap;
+- Integrity and Monitor restart not reached;
+- Control unchanged;
+- Adult Candidate unchanged and never started.
+
+## Resolution
+
+Run the explicit Health validation as `chatops` with `runuser`, matching the
+service identity. Do not weaken Git ownership protections. Revalidate the
+already-installed unit hash before restarting the maintenance services.

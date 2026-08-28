@@ -1,0 +1,34 @@
+# M4.29.2 Monitor false success and SSH sandbox
+
+Date: 2026-08-28
+
+## Symptom
+
+After two complete stable Agentmode cycles, `tu1nz_monitor.service` had
+`Result=success`, but external `monitor_last.txt` contained `🔴 Git Fehler`.
+
+## Cause
+
+The retained legacy monitor performs a read-only Docs `git ls-remote` through
+the `chatops` SSH configuration. `ProtectHome=yes` hid that configuration from
+the Monitor unit. Independently, the legacy script prints red check results but
+can still exit zero; the external-state wrapper previously preserved only that
+zero exit status.
+
+## Impact
+
+- no Control mutation or drift;
+- Agentmode completed two full stable 300-second cycles;
+- Integrity completed successfully with external evidence;
+- Monitor evidence was contradictory and cannot be accepted as final;
+- Adult Candidate remained inactive, dead, static and never started.
+
+## Remediation and rollback
+
+Use `ProtectHome=read-only` for Monitor so its existing deploy key remains
+readable but no home directory is writable. Make the wrapper return non-zero
+when captured output contains a red status marker, even if the legacy command
+returns zero. Add regression tests, bind both new hashes, pass full CI, back up
+the currently installed wrapper/unit, install only those two artifacts, and
+rerun Monitor. On any red output or non-success result, restore the immediately
+preceding bytes while the oneshot is inactive and leave Monitor stopped.

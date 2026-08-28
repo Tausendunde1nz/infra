@@ -43,10 +43,10 @@
     "scripts/tu1nz_agent_health.sh": "76476746122f97be5dce43bd7f3053d8b62a5b941b5fc212329c9830d0f79e23",
     "scripts/tu1nz_require_sync.sh": "eb91971c3b5c1cbca7910d5277111780867dc9eb27869402ffaa31b4e08fc80c",
     "scripts/tu1nz_integrity_consolidation.sh": "97cfcd27a13c66088f3dca1becc25417b4f9391223bd2f950415bb1f41214ef2",
-    "scripts/tu1nz_monitor_wrap.sh": "2a29048e95146d0af0ff19c532855b929cfa62b657460393db1f36042416bc39",
+    "scripts/tu1nz_monitor_wrap.sh": "06d5d803282b9650c5671797639a4718233376206354f2006d2ad10e18699ed6",
     "systemd/tu1nz_agentmode.service": "cc0ebe655f5fc843e8d8ded5ba321214aed58a8b1062b198606d1667dff356e1",
     "systemd/tu1nz_integrity.service": "cdd3b055c90dcf41f7ba306849e37e4ee9a1b04d96e166753d06e85b5d948692",
-    "systemd/tu1nz_monitor.service": "6fe128985f40d10a94120cdf9b9fa1be1b3155e8defe11ace171846c5fd669ca",
+    "systemd/tu1nz_monitor.service": "00bbb6a449bda39bfa8fa6b818eb1648fab1ac3ed5bd7fb58451b296374a4547",
     "systemd/tu1nz-adult-commercial-s0.service": "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d"
   },
   "installation": {
