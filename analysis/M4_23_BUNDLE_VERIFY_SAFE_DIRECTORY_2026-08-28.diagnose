@@ -1,0 +1,8 @@
+# M4.23 bundle verification safe.directory
+
+- Date: 2026-08-28
+- Scope: Tailscale-only root verification of the root-private application bundle
+- Error: adding `-C /opt/tu1nz_repos/control` was insufficient because the canonical Control checkout belongs to `chatops`; root Git did not accept it as a repository without a scoped safe-directory setting.
+- State: the mode-0600 incoming bundle remains unchanged at the isolated input path with the previously matched SHA-256. The verification stopped before rename. Backup timer and STAGING-S1 remain active; no release or migration exists.
+- Recovery: add only `-c safe.directory=/opt/tu1nz_repos/control` to the bundle verification command, matching the existing repository gates. Global Git configuration is forbidden. Require tests, CI, merge and Control sync before retry.
+- Rollback: not applicable; no state beyond the already documented isolated incoming bundle changed.

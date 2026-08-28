@@ -30,7 +30,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             "systemctl start tu1nz_encrypted_backup.timer",
             "M4_23_PARTIAL_BOUNDARY_OK",
             "M4_23_PARTIAL_TIMER_RECOVERED_OK",
-            'git -C "$CONTROL_REPOSITORY" bundle verify',
+            'git -c "safe.directory=$CONTROL_REPOSITORY" -C "$CONTROL_REPOSITORY" bundle verify',
             "git@github.com-infra:Tausendunde1nz/infra.git",
         ):
             self.assertIn(required, source)
@@ -67,6 +67,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
         self.assertIn("600:root:root:1", source)
         self.assertIn("/opt/tu1nz_repos/backups/m4-23-input/", source)
         self.assertNotIn('/usr/bin/git bundle verify "$APPLICATION_BUNDLE"', source)
+        self.assertNotIn("git config --global", source)
 
     def test_synthetic_identity_and_empty_state_are_exact(self) -> None:
         identities = json.loads(IDENTITIES.read_text(encoding="ascii"))
