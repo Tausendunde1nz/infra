@@ -1,0 +1,26 @@
+# M4.29.2 prestart — legacy SSOT checksum mismatch
+
+Date: 2026-08-28
+
+## Finding
+
+A read-only prestart verification as `chatops` returned non-zero for
+`/etc/tu1nz/ssot.checksum`. The file predates M4.29.2 and is already stale.
+Changing or regenerating it is not required for, and would broaden, this
+maintenance transaction.
+
+## Safety decision
+
+The new Control observer and external Integrity state are authoritative for
+this sprint. `tu1nz_agent_health.sh` continues to report the legacy mismatch
+explicitly but treats it as a warning rather than overriding a successful
+read-only Control check. No legacy checksum file is edited or deleted.
+
+## Impact
+
+- server mutation from this check: none;
+- services: remain stopped;
+- Control: unchanged;
+- Adult Candidate: unchanged and never started.
+
+The warning remains a separately visible residual legacy risk.

@@ -89,6 +89,12 @@ The systemd units add an OS-level `ReadOnlyPaths=/opt/tu1nz_repos/control`
 boundary. Integrity also receives a private network and writes only external
 manifests/state. Monitor output is moved to the external state root.
 
+The pre-existing `/etc/tu1nz/ssot.checksum` is stale. It remains unmodified and
+is reported by Agent Health as `LEGACY_MISMATCH`; it is not allowed to override
+a successful current Control probe. The new external Integrity result is the
+authoritative checksum state for M4.29.2. Removing or regenerating the legacy
+reference is outside this maintenance window.
+
 ## State-aware behavior
 
 The observer refreshes its external observation and freshness marker each

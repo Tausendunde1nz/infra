@@ -1,0 +1,29 @@
+# M4.29.2 staged hash-list transcription failure
+
+Date: 2026-08-28
+
+## Symptom
+
+The second CI-approved payload was staged. Validation stopped on
+`tu1nz_integrity_consolidation.sh` even though the calculated staged hash was
+the correct committed value.
+
+## Cause
+
+The expected hash embedded manually in the operational validation command had
+one transcribed character too many. The committed M4.29.2 manifest and staged
+payload were not wrong.
+
+## Impact
+
+- installation from the second commit: not started;
+- services: remain stopped;
+- Control: unchanged;
+- Adult Candidate: unchanged and never started.
+
+## Resolution
+
+Do not repeat a manually transcribed hash list. Stage the committed manifest
+and have Python compare every staged payload file directly with the manifest's
+artifact map. Require exactly eight matching installable artifacts before the
+runtime-user check or installation.

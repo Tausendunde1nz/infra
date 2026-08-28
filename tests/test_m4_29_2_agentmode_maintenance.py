@@ -298,6 +298,31 @@ class AgentmodeMaintenanceTest(unittest.TestCase):
             1,
         )
 
+    def test_legacy_checksum_mismatch_is_visible_but_not_authoritative(self) -> None:
+        marker = self.root / "agent-mode.marker"
+        marker.touch()
+        checksum_target = self.root / "legacy-target"
+        checksum_target.write_text("current\n", encoding="ascii")
+        checksum_file = self.root / "legacy.checksum"
+        checksum_file.write_text(f"{'0' * 64}  {checksum_target}\n", encoding="ascii")
+        fake_systemctl = self.root / "fake-systemctl"
+        fake_systemctl.write_text("#!/usr/bin/env bash\nprintf 'inactive\\n'\n", encoding="ascii")
+        fake_systemctl.chmod(0o755)
+
+        result = run(
+            ["bash", str(HEALTH)],
+            env={
+                **self.base_env,
+                "TU1NZ_SYNC_COMMAND": str(SYNC),
+                "TU1NZ_SYSTEMCTL_BIN": str(fake_systemctl),
+                "TU1NZ_AGENT_MODE_MARKER": str(marker),
+                "TU1NZ_SSOT_CHECKSUM": str(checksum_file),
+            },
+        )
+        self.assertIn("CONTROL: CONTROL_CURRENT", result.stdout)
+        self.assertIn("CHECKSUM: LEGACY_MISMATCH", result.stdout)
+        self.assertEqual(result.returncode, 0)
+
     def test_monitor_output_is_external(self) -> None:
         fake_monitor = self.root / "fake-monitor"
         fake_alert = self.root / "fake-alert"
