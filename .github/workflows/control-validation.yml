@@ -328,6 +328,35 @@ jobs:
           ! git grep -nEi
           '(subprocess|systemctl|daemon-reload|paramiko|(^|[^[:alnum:]_])ssh([^[:alnum:]_]|$)|requests|urllib|socket|os\.system|shutil|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
           scripts/tu1nz_adult_commercial_m4_28_gate.py
+      - name: Compile M4.29 post-merge sync gate and tests
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_m4_29_gate.py
+          tests/test_adult_commercial_m4_29.py
+      - name: Run M4.29 post-merge sync tests
+        run: python3 -m unittest -v tests.test_adult_commercial_m4_29
+      - name: Validate M4.29 JSON and all closed gates
+        shell: bash
+        run: |
+          contract=manifests/adult-publishing-commercial-post-merge-sync-authorization.m4-29.json
+          python3 -m json.tool \
+            manifests/adult-publishing-commercial-post-merge-sync-authorization.m4-29.schema.json >/dev/null
+          python3 -m json.tool "$contract" >/dev/null
+          scripts/tu1nz_adult_commercial_m4_29_gate.py --contract "$contract"
+          for readiness in --require-server-contact-ready --require-sync-authorization-ready --require-mutation-ready
+          do
+            if scripts/tu1nz_adult_commercial_m4_29_gate.py \
+              --contract "$contract" "$readiness"
+            then
+              echo "M4.29 unexpectedly opened readiness gate: $readiness" >&2
+              exit 1
+            fi
+          done
+      - name: Reject host, network, write and provider surfaces in M4.29 gate
+        run: >-
+          ! git grep -nEi
+          '(subprocess|systemctl|daemon-reload|paramiko|(^|[^[:alnum:]_])ssh([^[:alnum:]_]|$)|requests|urllib|socket|os\.system|shutil|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_m4_29_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

@@ -107,6 +107,11 @@ Current Adult Publishing infrastructure decisions:
   target and define the evidence required for a later Control-only
   fast-forward. The committed authorization remains inactive and `NO_GO`; the
   gate has no host, network, write or service-control capability.
+- `docs/M4_29_POST_MERGE_SYNC_TARGET_REFRESH_SERVER_SYNC_AUTHORIZATION_2026-08-28.md`,
+  `manifests/adult-publishing-commercial-post-merge-sync-authorization.m4-29.json`
+  and `scripts/tu1nz_adult_commercial_m4_29_gate.py` bind the actual M4.28 merge
+  result and separate contact, read-only evidence, sync authorization and
+  mutation-ready gates. All committed approvals remain false and `NO_GO`.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.
