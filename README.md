@@ -42,6 +42,14 @@ Current Adult Publishing infrastructure decisions:
 - `scripts/tu1nz_adult_commercial_readiness_gate.py` verifies that contract and
   the exact application artifacts without modifying either repository or a
   server.
+- `docs/M4_19_COMMERCIAL_S0_INSTALLATION_DESIGN_2026-08-28.md` defines the
+  immutable commercial S0 release, exact encrypted backup/restore evidence,
+  rollback gates and a hardened network-free service design. All M4.19
+  artifacts remain local, uninstalled and disabled.
+- `scripts/tu1nz_adult_commercial_s0_manifest.py`,
+  `scripts/tu1nz_adult_commercial_s0_release_gate.py` and
+  `systemd/tu1nz-adult-commercial-s0.service` bind and verify that future
+  synthetic-only release without installing or activating it.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.
