@@ -1,0 +1,19 @@
+# M4.23 commercial backup dump access
+
+- Date: 2026-08-28
+- Scope: first stopped-candidate encrypted backup
+- Prepared Control commit: `7ce7583a394d28e916bd7d3e8e37e2292e0bf5f8`
+
+The stopped candidate passed independent prepared-state verification. The first
+commercial-aware backup then failed before archive creation or upload because
+`pg_dump`, running as local `postgres`, could not traverse the protected backup
+parent to open its output file. The temporary S1 and commercial dump directories
+were removed by the existing cleanup trap. No new archive exists and the remote
+was not modified by this failed attempt.
+
+The database and release protections remain correct. The root backup shell now
+creates a root-private commercial dump directory, opens a root-private output
+file, and receives custom-format `pg_dump` data through standard output. The
+database process remains local `postgres`; no parent ACL, group membership or
+filesystem permission is widened. The archive, upload, retention and restore
+contracts are unchanged.
