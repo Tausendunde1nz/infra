@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-readiness.schema.json",
+  "title": "TU1NZ Adult Publishing M4.18 commercial runtime readiness contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "activation_decision",
+    "application_merged_to_main",
+    "application_pr_url",
+    "application_repository_url",
+    "application_sha",
+    "artifact_sha256",
+    "commercial_contract_version",
+    "contract_version",
+    "control_baseline_sha",
+    "control_repository_url",
+    "database_scope",
+    "environment",
+    "external_providers_enabled",
+    "installed",
+    "network_enabled",
+    "paid_targets",
+    "persistence_schema_version",
+    "planned_identities",
+    "planned_paths",
+    "real_media_enabled",
+    "real_payment_enabled",
+    "required_activation_gates",
+    "required_platforms",
+    "runtime_version",
+    "server_enabled",
+    "server_observation",
+    "synthetic_data_only",
+    "synthetic_publishers_only",
+    "telegram_intake_enabled",
+    "uncompensated_targets"
+  ],
+  "properties": {
+    "active": { "const": false },
+    "activation_decision": { "const": "NO_GO" },
+    "application_merged_to_main": { "const": false },
+    "application_pr_url": {
+      "const": "https://github.com/Tausendunde1nz/adult-publishing-core/pull/58"
+    },
+    "application_repository_url": {
+      "const": "https://github.com/Tausendunde1nz/adult-publishing-core.git"
+    },
+    "application_sha": { "const": "183c5479246a27e7844670bf53c7e34200de92ea" },
+    "artifact_sha256": {
+      "type": "object",
+      "minProperties": 10,
+      "propertyNames": { "pattern": "^[A-Za-z0-9._/-]+$" },
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "commercial_contract_version": {
+      "const": "tu1nz-commercial-persistence-m4.15-v1"
+    },
+    "contract_version": { "const": "tu1nz-commercial-control-m4.18-v1" },
+    "control_baseline_sha": { "const": "0467b6354f0202b95c86c17bdca6c45dfd1626d5" },
+    "control_repository_url": {
+      "const": "https://github.com/Tausendunde1nz/infra.git"
+    },
+    "database_scope": { "const": "LOCAL_ONLY" },
+    "environment": { "const": "STAGING-S0-COMMERCIAL-CANDIDATE" },
+    "external_providers_enabled": { "const": false },
+    "installed": { "const": false },
+    "network_enabled": { "const": false },
+    "paid_targets": { "const": ["REDDIT", "TELEGRAM"] },
+    "persistence_schema_version": {
+      "const": "0014_m4_15_durable_commercial_persistence"
+    },
+    "planned_identities": {
+      "const": {
+        "database": "tu1nz_adult_commercial_s0",
+        "database_migrator": "tu1nz_adult_commercial_s0_migrator",
+        "database_runtime": "tu1nz_adult_commercial_s0_runtime",
+        "operating_system_group": "tu1nz-adult-commercial-s0",
+        "operating_system_user": "tu1nz-adult-commercial-s0"
+      }
+    },
+    "planned_paths": {
+      "const": {
+        "application_release_root": "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/application",
+        "configuration_root": "/etc/tu1nz/adult-publishing/staging-s0-commercial",
+        "control_release_root": "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/control",
+        "state_root": "/var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial",
+        "venv_release_root": "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/venv"
+      }
+    },
+    "real_media_enabled": { "const": false },
+    "real_payment_enabled": { "const": false },
+    "required_activation_gates": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z0-9_]+$" },
+      "additionalProperties": { "type": "boolean" }
+    },
+    "required_platforms": { "const": ["REDDIT", "TELEGRAM", "X"] },
+    "runtime_version": { "const": "tu1nz-commercial-runtime-candidate-m4.17-v1" },
+    "server_enabled": { "const": false },
+    "server_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_s1_application_sha",
+        "active_s1_control_sha",
+        "canonical_application_sha",
+        "local_tailscale_cli_daemon_version_skew",
+        "control_sha",
+        "control_sync_mutates_canonical_checkout",
+        "exact_candidate_sha_in_backup",
+        "fresh_backup_archive",
+        "fresh_backup_bytes",
+        "fresh_backup_remote_present",
+        "fresh_backup_sha256",
+        "hostname",
+        "observed_at",
+        "path_collision_detected",
+        "planned_identities_absent",
+        "planned_paths_absent",
+        "postgres_listener",
+        "postgres_version",
+        "privileged_open_reference_detected",
+        "restore_smoke_completed_at",
+        "restore_smoke_passed",
+        "ssh_identity",
+        "tailscale_ip",
+        "vpn_route"
+      ],
+      "properties": {
+        "active_s1_application_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "active_s1_control_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "canonical_application_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "local_tailscale_cli_daemon_version_skew": { "const": true },
+        "control_sha": { "const": "0467b6354f0202b95c86c17bdca6c45dfd1626d5" },
+        "control_sync_mutates_canonical_checkout": { "const": true },
+        "exact_candidate_sha_in_backup": { "const": false },
+        "fresh_backup_archive": { "const": "tu1nz_system_backup_20260828T03-31-58Z.tar.gz" },
+        "fresh_backup_bytes": { "const": 45142464 },
+        "fresh_backup_remote_present": { "const": true },
+        "fresh_backup_sha256": {
+          "const": "5110d1e85d4256e22af6ad44cf23cb0333cd759c763219ce35a10dcc0f1496e5"
+        },
+        "hostname": { "const": "ubuntu-8gb-nbg1-2" },
+        "observed_at": { "const": "2026-08-28T11:18:12Z" },
+        "path_collision_detected": { "const": false },
+        "planned_identities_absent": { "const": true },
+        "planned_paths_absent": { "const": true },
+        "postgres_listener": { "const": "127.0.0.1:5432" },
+        "postgres_version": { "const": "17.11" },
+        "privileged_open_reference_detected": { "const": false },
+        "restore_smoke_completed_at": { "const": "2026-08-28T06:16:52Z" },
+        "restore_smoke_passed": { "const": true },
+        "ssh_identity": { "const": "root" },
+        "tailscale_ip": { "const": "100.121.130.51" },
+        "vpn_route": { "const": "DERP_NUE" }
+      }
+    },
+    "synthetic_data_only": { "const": true },
+    "synthetic_publishers_only": { "const": true },
+    "telegram_intake_enabled": { "const": false },
+    "uncompensated_targets": { "const": ["X"] }
+  }
+}

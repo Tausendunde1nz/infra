@@ -44,6 +44,24 @@ jobs:
           scripts/tu1nz_adult_staging_manifest.py
           scripts/tu1nz_adult_s0_release_gate.py
           systemd/tu1nz-adult-s0-release-verify.service
+      - name: Validate M4.18 commercial readiness JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-readiness.schema.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-readiness.m4-18.json >/dev/null
+      - name: Compile M4.18 commercial readiness artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_readiness_gate.py
+          tests/test_adult_commercial_readiness.py
+      - name: Run M4.18 commercial readiness tests
+        run: python3 -m unittest -v tests.test_adult_commercial_readiness
+      - name: Reject server mutation and activation behavior in M4.18 gate
+        run: >-
+          ! git grep -nEi
+          '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]+(run|start|stop|restart)|(^|[[:space:]])crontab([[:space:]]|$)|subprocess\.(run|Popen).*\b(rm|mv|cp|install|chmod|chown)\b)' --
+          scripts/tu1nz_adult_commercial_readiness_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile
