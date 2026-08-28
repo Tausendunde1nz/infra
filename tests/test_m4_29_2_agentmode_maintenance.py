@@ -17,6 +17,8 @@ HEALTH = ROOT / "scripts" / "tu1nz_agent_health.sh"
 REQUIRE_SYNC = ROOT / "scripts" / "tu1nz_require_sync.sh"
 INTEGRITY = ROOT / "scripts" / "tu1nz_integrity_consolidation.sh"
 MONITOR_WRAP = ROOT / "scripts" / "tu1nz_monitor_wrap.sh"
+MAINTENANCE_GATE = ROOT / "scripts" / "tu1nz_agentmode_maintenance_gate.py"
+MAINTENANCE_CONTRACT = ROOT / "manifests" / "tu1nz-agentmode-maintenance.m4-29-2.json"
 AGENT_UNIT = ROOT / "systemd" / "tu1nz_agentmode.service"
 INTEGRITY_UNIT = ROOT / "systemd" / "tu1nz_integrity.service"
 MONITOR_UNIT = ROOT / "systemd" / "tu1nz_monitor.service"
@@ -406,6 +408,34 @@ class AgentmodeMaintenanceTest(unittest.TestCase):
             self.assertNotIn("systemctl start", source)
             self.assertNotIn("systemctl restart", source)
             self.assertNotIn("systemctl enable", source)
+
+    def test_completed_contract_binds_installation_and_two_cycle_evidence(self) -> None:
+        result = run([str(MAINTENANCE_GATE)])
+        self.assertIn("M4_29_2_CONTRACT_VALID", result.stdout)
+
+        contract = json.loads(MAINTENANCE_CONTRACT.read_text(encoding="ascii"))
+        mutations = (
+            ("installed hash", lambda value: value["installation"]["installed_hashes"].update(
+                {"/usr/local/bin/tu1nz_sync_all.sh": "0" * 64}
+            )),
+            ("observation duration", lambda value: value["postinstall_validation"].update(
+                {"duration_seconds": 599}
+            )),
+            ("Control evidence", lambda value: value["postinstall_validation"].update(
+                {"control_tree": "0" * 40}
+            )),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                changed = json.loads(json.dumps(contract))
+                mutate(changed)
+                path = self.root / f"changed-{label.replace(' ', '-')}.json"
+                path.write_text(json.dumps(changed), encoding="ascii")
+                rejected = run(
+                    [str(MAINTENANCE_GATE), "--contract", str(path)],
+                    check=False,
+                )
+                self.assertNotEqual(rejected.returncode, 0)
 
 
 if __name__ == "__main__":

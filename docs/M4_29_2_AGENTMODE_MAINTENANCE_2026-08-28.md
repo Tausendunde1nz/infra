@@ -152,3 +152,38 @@ This maintenance does not authorize or perform a Control fast-forward, PR #38
 merge, First Start, no-swap acceptance, provider/token/media/payment activity,
 publishing or production. The candidate unit must never be started, restarted
 or enabled by any M4.29.2 artifact.
+
+## Installed and validated evidence
+
+The final installed artifact set is bound to commit
+`d47bc32cda6f9615f2c1f6cb574d49b067c5b66a` and successful CI run
+`33213979520`. Installation completed at `2026-08-28T21:47:43Z`.
+
+All eight installed hashes match the contract. Agentmode is `active/running`,
+Integrity is `active/exited`, and Monitor is `inactive/dead` with
+`Result=success`; all report `NRestarts=0`. The final Monitor output contains
+four green checks and no red status.
+
+The read-only observation ran for 660 seconds with 23 successful samples. It
+captured the initial observation plus complete follow-up observations at:
+
+- `2026-08-28T21:31:16Z`;
+- `2026-08-28T21:36:19Z`;
+- `2026-08-28T21:41:22Z`.
+
+Before, throughout and after that window, Control remained exactly:
+
+- HEAD `2c17ae00d9c9b6e057ba36a1766166f7f5549d4c`;
+- tree `c9408b89f994f1f2fc6f57709bebfb11b767209b`;
+- refs SHA-256 `49cd9e71791b8f5749409a84c4e96365f8251780b40f5e94f64843b14192560a`;
+- clean-status SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`;
+- tracked-byte SHA-256 `80e8650bc7136b613684b8f970a5c961c03a656277bbd647bd59733dadae2e89`;
+- full 248-file SHA-256 `009c4d97bdc52b3b10e7f4c4a546c602788e743a3cc924e772c56a1cdd84b1b6`;
+- empty-symlink SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+The transition log stayed at two lines throughout unchanged cycles, proving
+transition-only notification behavior. The Candidate remained inactive, dead,
+static, at `NRestarts=0`, with an empty start timestamp. No Docker mount uses
+Control. The pre-existing failed `tu1nz-doc.service`, stale legacy checksum and
+other legacy read-only Control references remain documented residual risks;
+none changed Control during this maintenance window.

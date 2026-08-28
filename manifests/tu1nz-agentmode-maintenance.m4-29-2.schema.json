@@ -13,6 +13,7 @@
     "recovery",
     "artifacts",
     "installation",
+    "postinstall_validation",
     "adult_candidate_boundary"
   ],
   "properties": {
@@ -63,6 +64,66 @@
           "type": "object",
           "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
+      }
+    },
+    "postinstall_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "observation_started_at",
+        "observation_completed_at",
+        "duration_seconds",
+        "sample_count",
+        "distinct_observations",
+        "observation_timestamps",
+        "control_unchanged",
+        "candidate_unchanged",
+        "transition_only_notifications",
+        "transition_log_lines",
+        "monitor_no_red_status",
+        "control_head",
+        "control_tree",
+        "control_refs_sha256",
+        "control_status_sha256",
+        "control_tracked_bytes_sha256",
+        "control_full_files_sha256",
+        "control_symlinks_sha256",
+        "control_file_count",
+        "agentmode_state",
+        "integrity_state",
+        "monitor_state",
+        "service_restarts"
+      ],
+      "properties": {
+        "status": {"const": "PASS"},
+        "observation_started_at": {"type": "string"},
+        "observation_completed_at": {"type": "string"},
+        "duration_seconds": {"type": "integer", "minimum": 600},
+        "sample_count": {"type": "integer", "minimum": 3},
+        "distinct_observations": {"type": "integer", "minimum": 3},
+        "observation_timestamps": {
+          "type": "array",
+          "minItems": 3,
+          "items": {"type": "string"}
+        },
+        "control_unchanged": {"const": true},
+        "candidate_unchanged": {"const": true},
+        "transition_only_notifications": {"const": true},
+        "transition_log_lines": {"type": "integer", "minimum": 1},
+        "monitor_no_red_status": {"const": true},
+        "control_head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "control_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "control_refs_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "control_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "control_tracked_bytes_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "control_full_files_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "control_symlinks_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "control_file_count": {"type": "integer", "minimum": 1},
+        "agentmode_state": {"const": "active/running"},
+        "integrity_state": {"const": "active/exited"},
+        "monitor_state": {"const": "inactive/dead/success"},
+        "service_restarts": {"const": 0}
       }
     },
     "adult_candidate_boundary": {

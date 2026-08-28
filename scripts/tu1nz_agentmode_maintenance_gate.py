@@ -95,13 +95,87 @@ def validate(contract: dict[str, Any], root: Path = ROOT) -> None:
     require(boundary.get("production_approved") is False, "production approved")
 
     installation = contract.get("installation", {})
-    require(installation.get("status") in {"PENDING", "COMPLETE"}, "invalid install status")
-    if installation.get("status") == "COMPLETE":
-        require(isinstance(installation.get("commit"), str), "installed commit missing")
-        require(isinstance(installation.get("ci_run"), str), "CI binding missing")
-        require(isinstance(installation.get("installed_at"), str), "install timestamp missing")
-        installed = installation.get("installed_hashes")
-        require(isinstance(installed, dict) and len(installed) == 8, "installed hashes incomplete")
+    require(installation.get("status") == "COMPLETE", "installation is not complete")
+    commit = installation.get("commit")
+    require(
+        isinstance(commit, str)
+        and len(commit) == 40
+        and all(character in "0123456789abcdef" for character in commit),
+        "installed commit missing or invalid",
+    )
+    ci_run = installation.get("ci_run")
+    require(
+        isinstance(ci_run, str)
+        and ci_run.startswith("https://github.com/Tausendunde1nz/infra/actions/runs/"),
+        "CI binding missing or invalid",
+    )
+    require(isinstance(installation.get("installed_at"), str), "install timestamp missing")
+    installed = installation.get("installed_hashes")
+    expected_installed = {
+        "/usr/local/bin/tu1nz_sync_all.sh": artifacts["scripts/tu1nz_sync_all.sh"],
+        "/usr/local/bin/tu1nz_agent_health.sh": artifacts["scripts/tu1nz_agent_health.sh"],
+        "/usr/local/bin/tu1nz_require_sync.sh": artifacts["scripts/tu1nz_require_sync.sh"],
+        "/usr/local/bin/tu1nz_integrity_consolidation.sh": artifacts[
+            "scripts/tu1nz_integrity_consolidation.sh"
+        ],
+        "/usr/local/bin/tu1nz_monitor_wrap.sh": artifacts[
+            "scripts/tu1nz_monitor_wrap.sh"
+        ],
+        "/etc/systemd/system/tu1nz_agentmode.service": artifacts[
+            "systemd/tu1nz_agentmode.service"
+        ],
+        "/etc/systemd/system/tu1nz_integrity.service": artifacts[
+            "systemd/tu1nz_integrity.service"
+        ],
+        "/etc/systemd/system/tu1nz_monitor.service": artifacts[
+            "systemd/tu1nz_monitor.service"
+        ],
+    }
+    require(installed == expected_installed, "installed hashes do not match bound artifacts")
+
+    postinstall = contract.get("postinstall_validation", {})
+    require(postinstall.get("status") == "PASS", "post-install validation did not pass")
+    require(postinstall.get("duration_seconds", 0) >= 600, "observation window too short")
+    require(postinstall.get("sample_count", 0) >= 3, "observation samples incomplete")
+    require(
+        postinstall.get("distinct_observations", 0) >= 3,
+        "two complete follow-up cycles not observed",
+    )
+    timestamps = postinstall.get("observation_timestamps")
+    require(
+        isinstance(timestamps, list)
+        and len(timestamps) == postinstall.get("distinct_observations"),
+        "observation timestamps incomplete",
+    )
+    for flag in (
+        "control_unchanged",
+        "candidate_unchanged",
+        "transition_only_notifications",
+        "monitor_no_red_status",
+    ):
+        require(postinstall.get(flag) is True, f"post-install flag is not true: {flag}")
+    require(postinstall.get("service_restarts") == 0, "service restart detected")
+    require(postinstall.get("agentmode_state") == "active/running", "Agentmode not healthy")
+    require(postinstall.get("integrity_state") == "active/exited", "Integrity not healthy")
+    require(
+        postinstall.get("monitor_state") == "inactive/dead/success",
+        "Monitor not healthy",
+    )
+    preflight = contract.get("preflight", {})
+    for key in (
+        "control_head",
+        "control_tree",
+        "control_refs_sha256",
+        "control_status_sha256",
+        "control_tracked_bytes_sha256",
+        "control_full_files_sha256",
+        "control_symlinks_sha256",
+        "control_file_count",
+    ):
+        require(
+            postinstall.get(key) == preflight.get(key),
+            f"post-install Control evidence drift: {key}",
+        )
 
 
 def main() -> int:
