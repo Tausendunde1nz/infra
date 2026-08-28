@@ -202,7 +202,7 @@ verify_application_bundle() {
   [[ "$APPLICATION_BUNDLE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "application bundle SHA-256 required"
   [[ -f "$APPLICATION_BUNDLE" && ! -L "$APPLICATION_BUNDLE" && "$(stat -c '%a:%U:%G:%h' "$APPLICATION_BUNDLE")" == "600:root:root:1" ]] || fail "safe root-private application bundle required"
   [[ "$(sha256 "$APPLICATION_BUNDLE")" == "$APPLICATION_BUNDLE_SHA256" ]] || fail "application bundle digest mismatch"
-  /usr/bin/git -C "$CONTROL_REPOSITORY" bundle verify "$APPLICATION_BUNDLE" >/dev/null
+  /usr/bin/git -c "safe.directory=$CONTROL_REPOSITORY" -C "$CONTROL_REPOSITORY" bundle verify "$APPLICATION_BUNDLE" >/dev/null
 }
 
 prepare_release_and_database() {
