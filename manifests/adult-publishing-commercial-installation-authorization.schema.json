@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-installation-authorization.schema.json",
+  "title": "TU1NZ Adult Publishing M4.22 commercial S0 installation authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "activation_decision",
+    "authorization",
+    "backup_restore",
+    "blockers",
+    "contract_version",
+    "execution_decision",
+    "host_access_contract",
+    "host_observation",
+    "installation_gates",
+    "installed",
+    "network_enabled",
+    "product_boundary",
+    "repository_baselines",
+    "server",
+    "server_changed",
+    "sprint",
+    "technical_decision",
+    "unit"
+  ],
+  "properties": {
+    "active": { "const": false },
+    "activation_decision": { "const": "NO_GO" },
+    "authorization": { "$ref": "#/$defs/authorization" },
+    "backup_restore": { "$ref": "#/$defs/backupRestore" },
+    "blockers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" }
+    },
+    "contract_version": { "const": "tu1nz-commercial-installation-authorization-m4.22-v1" },
+    "execution_decision": { "const": "NO_GO_PENDING_OPERATOR_PROFILE_AND_FRESH_BACKUP" },
+    "host_access_contract": { "$ref": "#/$defs/hostAccessContract" },
+    "host_observation": { "$ref": "#/$defs/hostObservation" },
+    "installation_gates": { "$ref": "#/$defs/installationGates" },
+    "installed": { "const": false },
+    "network_enabled": { "const": false },
+    "product_boundary": { "$ref": "#/$defs/productBoundary" },
+    "repository_baselines": { "$ref": "#/$defs/repositoryBaselines" },
+    "server": { "$ref": "#/$defs/server" },
+    "server_changed": { "const": false },
+    "sprint": { "const": "M4.22" },
+    "technical_decision": { "const": "GO_FOR_SEPARATELY_APPROVED_ROOT_WINDOW" },
+    "unit": { "$ref": "#/$defs/unit" }
+  },
+  "$defs": {
+    "sha40": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "nullablePositiveInteger": { "type": ["integer", "null"], "minimum": 1 },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_at", "known_unrelated_failed_unit_accepted", "operator_approved", "recommended_profile", "selected_profile"],
+      "properties": {
+        "approved_at": { "type": "null" },
+        "known_unrelated_failed_unit_accepted": { "const": false },
+        "operator_approved": { "const": false },
+        "recommended_profile": { "$ref": "#/$defs/recoveryProfile" },
+        "selected_profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["retention_days", "rpo_target_seconds", "rto_target_seconds"],
+          "properties": {
+            "retention_days": { "type": "null" },
+            "rpo_target_seconds": { "type": "null" },
+            "rto_target_seconds": { "type": "null" }
+          }
+        }
+      }
+    },
+    "recoveryProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retention_days", "rpo_target_seconds", "rto_target_seconds"],
+      "properties": {
+        "retention_days": { "type": "integer", "minimum": 1 },
+        "rpo_target_seconds": { "type": "integer", "minimum": 1 },
+        "rto_target_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "backupRestore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existing_archive_bytes", "existing_archive_name", "existing_archive_remote_present", "existing_archive_sha256", "existing_restore_smoke_completed_at", "existing_restore_smoke_passed", "fresh_preinstall_archive_created", "fresh_preinstall_restore_verified", "installed_backup_script_matches_versioned", "installed_backup_script_sha256", "versioned_backup_script_sha256"],
+      "properties": {
+        "existing_archive_bytes": { "type": "integer", "minimum": 1 },
+        "existing_archive_name": { "type": "string", "pattern": "^tu1nz_system_backup_[0-9TZ-]+\\.tar\\.gz$" },
+        "existing_archive_remote_present": { "const": true },
+        "existing_archive_sha256": { "$ref": "#/$defs/sha256" },
+        "existing_restore_smoke_completed_at": { "type": "string" },
+        "existing_restore_smoke_passed": { "const": true },
+        "fresh_preinstall_archive_created": { "const": false },
+        "fresh_preinstall_restore_verified": { "const": false },
+        "installed_backup_script_matches_versioned": { "const": false },
+        "installed_backup_script_sha256": { "$ref": "#/$defs/sha256" },
+        "versioned_backup_script_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "hostAccessContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hba_rule_sha256", "host_access_gate_sha256", "ident_map_sha256", "manifest_sha256", "m4_21_merged", "path_access_tool_sha256"],
+      "properties": {
+        "hba_rule_sha256": { "$ref": "#/$defs/sha256" },
+        "host_access_gate_sha256": { "$ref": "#/$defs/sha256" },
+        "ident_map_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "m4_21_merged": { "const": true },
+        "path_access_tool_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "hostObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application_canonical_checkout_clean", "application_canonical_checkout_matches_final", "commercial_container_mount_reference_detected", "commercial_cron_reference_detected", "commercial_database_absent", "commercial_identity_absent", "commercial_open_file_reference_detected", "commercial_paths_absent", "commercial_process_reference_detected", "commercial_roles_absent", "commercial_service_or_timer_reference_detected", "completed_at", "control_canonical_checkout_clean", "control_canonical_checkout_matches_final", "memory_available_bytes", "postgres_cluster_online", "postgres_listen_addresses", "postgres_tcp_listener", "root_filesystem_available_bytes", "started_at", "swap_total_bytes", "system_state", "unrelated_failed_unit"],
+      "properties": {
+        "application_canonical_checkout_clean": { "const": true },
+        "application_canonical_checkout_matches_final": { "const": false },
+        "commercial_container_mount_reference_detected": { "const": false },
+        "commercial_cron_reference_detected": { "const": false },
+        "commercial_database_absent": { "const": true },
+        "commercial_identity_absent": { "const": true },
+        "commercial_open_file_reference_detected": { "const": false },
+        "commercial_paths_absent": { "const": true },
+        "commercial_process_reference_detected": { "const": false },
+        "commercial_roles_absent": { "const": true },
+        "commercial_service_or_timer_reference_detected": { "const": false },
+        "completed_at": { "type": "string" },
+        "control_canonical_checkout_clean": { "const": true },
+        "control_canonical_checkout_matches_final": { "const": true },
+        "memory_available_bytes": { "type": "integer", "minimum": 1 },
+        "postgres_cluster_online": { "const": true },
+        "postgres_listen_addresses": { "const": "localhost" },
+        "postgres_tcp_listener": { "const": "127.0.0.1:5432" },
+        "root_filesystem_available_bytes": { "type": "integer", "minimum": 1 },
+        "started_at": { "type": "string" },
+        "swap_total_bytes": { "type": "integer", "minimum": 0 },
+        "system_state": { "const": "degraded" },
+        "unrelated_failed_unit": { "const": "tu1nz-doc.service" }
+      }
+    },
+    "installationGates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commercial_installation_executed", "control_sync_verified", "first_start_approved", "fresh_preinstall_backup_verified", "host_access_design_verified", "immutable_release_staged", "operator_profile_approved", "path_and_interference_preflight_passed", "repository_baselines_final", "root_installation_window_approved"],
+      "properties": {
+        "commercial_installation_executed": { "const": false },
+        "control_sync_verified": { "const": true },
+        "first_start_approved": { "const": false },
+        "fresh_preinstall_backup_verified": { "const": false },
+        "host_access_design_verified": { "const": true },
+        "immutable_release_staged": { "const": false },
+        "operator_profile_approved": { "const": false },
+        "path_and_interference_preflight_passed": { "const": true },
+        "repository_baselines_final": { "const": true },
+        "root_installation_window_approved": { "const": false }
+      }
+    },
+    "productBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_providers_enabled", "paid_targets", "real_media_enabled", "real_payment_enabled", "synthetic_data_only", "telegram_intake_enabled", "uncompensated_targets"],
+      "properties": {
+        "external_providers_enabled": { "const": false },
+        "paid_targets": { "const": ["REDDIT", "TELEGRAM"] },
+        "real_media_enabled": { "const": false },
+        "real_payment_enabled": { "const": false },
+        "synthetic_data_only": { "const": true },
+        "telegram_intake_enabled": { "const": false },
+        "uncompensated_targets": { "const": ["X"] }
+      }
+    },
+    "repositoryBaselines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application_canonical_checkout_sha", "application_main_sha", "application_tree_sha", "control_canonical_checkout_sha", "control_main_sha", "control_tree_sha"],
+      "properties": {
+        "application_canonical_checkout_sha": { "$ref": "#/$defs/sha40" },
+        "application_main_sha": { "$ref": "#/$defs/sha40" },
+        "application_tree_sha": { "$ref": "#/$defs/sha40" },
+        "control_canonical_checkout_sha": { "$ref": "#/$defs/sha40" },
+        "control_main_sha": { "$ref": "#/$defs/sha40" },
+        "control_tree_sha": { "$ref": "#/$defs/sha40" }
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "operating_system", "ssh_identity", "tailscale_ip", "tailscale_version"],
+      "properties": {
+        "hostname": { "const": "ubuntu-8gb-nbg1-2" },
+        "operating_system": { "const": "Ubuntu 24.04.3 LTS" },
+        "ssh_identity": { "const": "root" },
+        "tailscale_ip": { "const": "100.121.130.51" },
+        "tailscale_version": { "type": "string" }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installed", "native_security_exposure_level", "native_security_rating", "native_verify_result", "versioned_sha256"],
+      "properties": {
+        "installed": { "const": false },
+        "native_security_exposure_level": { "const": 0.6 },
+        "native_security_rating": { "const": "SAFE" },
+        "native_verify_result": { "const": "BLOCKED_EXPECTED_MISSING_EXECUTABLE" },
+        "versioned_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

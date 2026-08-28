@@ -1,0 +1,30 @@
+M4.22 root Git ownership probe diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+The comprehensive read-only server probe invoked Git for the canonical Control
+and application checkouts as `root`. Git rejected those repository reads with
+its `dubious ownership` protection because both checkouts belong to `chatops`.
+
+Cause
+-----
+The probe correctly used root for protected PostgreSQL and system inventory,
+but did not switch only its Git subcommands back to the repository owner.
+Consequently, the Git fields from that root invocation are empty and are not
+accepted as evidence. All remaining inventory output is read-only and valid.
+
+Risk
+----
+None to either repository or the server. No safe-directory exception was
+created, no Git configuration was changed and no file was modified.
+
+Rollback
+--------
+No server rollback is required because the operation was read-only. This
+diagnosis can be reverted with the M4.22 branch.
+
+Approved continuation
+---------------------
+Repeat only the Git identity, cleanliness and remote checks under `chatops`,
+and bind M4.22 evidence exclusively to those successful results.

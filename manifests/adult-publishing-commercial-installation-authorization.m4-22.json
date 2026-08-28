@@ -1,0 +1,130 @@
+{
+  "active": false,
+  "activation_decision": "NO_GO",
+  "authorization": {
+    "approved_at": null,
+    "known_unrelated_failed_unit_accepted": false,
+    "operator_approved": false,
+    "recommended_profile": {
+      "retention_days": 7,
+      "rpo_target_seconds": 86400,
+      "rto_target_seconds": 14400
+    },
+    "selected_profile": {
+      "retention_days": null,
+      "rpo_target_seconds": null,
+      "rto_target_seconds": null
+    }
+  },
+  "backup_restore": {
+    "existing_archive_bytes": 45142464,
+    "existing_archive_name": "tu1nz_system_backup_20260828T03-31-58Z.tar.gz",
+    "existing_archive_remote_present": true,
+    "existing_archive_sha256": "5110d1e85d4256e22af6ad44cf23cb0333cd759c763219ce35a10dcc0f1496e5",
+    "existing_restore_smoke_completed_at": "2026-08-28T06:16:52Z",
+    "existing_restore_smoke_passed": true,
+    "fresh_preinstall_archive_created": false,
+    "fresh_preinstall_restore_verified": false,
+    "installed_backup_script_matches_versioned": false,
+    "installed_backup_script_sha256": "068eccb256b4f5f9d3abed8bcc58b03145bdb2745b003ca60616daf4c07d0f78",
+    "versioned_backup_script_sha256": "0de61224be517e08fd0a789673df7977f0581aa92608513d99ca9a26ad4bebe8"
+  },
+  "blockers": [
+    "OPERATOR_RECOVERY_PROFILE_NOT_APPROVED",
+    "UNRELATED_FAILED_UNIT_NOT_ACCEPTED_FOR_WINDOW",
+    "FRESH_PREINSTALL_BACKUP_NOT_CREATED",
+    "VERSIONED_BACKUP_SCRIPT_NOT_INSTALLED",
+    "COMMERCIAL_RELEASE_NOT_STAGED",
+    "COMMERCIAL_IDENTITIES_AND_DATABASE_ABSENT",
+    "COMMERCIAL_UNIT_NOT_INSTALLED",
+    "FIRST_START_NOT_APPROVED"
+  ],
+  "contract_version": "tu1nz-commercial-installation-authorization-m4.22-v1",
+  "execution_decision": "NO_GO_PENDING_OPERATOR_PROFILE_AND_FRESH_BACKUP",
+  "host_access_contract": {
+    "hba_rule_sha256": "6ee9b816caf4bc530f918f8189fca4ea85926a4a817a10b0e93d600029e2ac3b",
+    "host_access_gate_sha256": "c5a130a6e70e0045bd7d2bfd0012376e463402b85f937d8003bd5513f6f57d61",
+    "ident_map_sha256": "de628e84ba6f50d12fff6fa45646f84637b1507eed06675592ea67563b55a46a",
+    "manifest_sha256": "9b29c180cc7f7881fc4c25c477a5faad3d41700f2894bbd12f4ce3f1a50991bb",
+    "m4_21_merged": true,
+    "path_access_tool_sha256": "8a9bf545c9b147b03b409c7a98c0abb27c03080f1bafd58e278a2212da1ac468"
+  },
+  "host_observation": {
+    "application_canonical_checkout_clean": true,
+    "application_canonical_checkout_matches_final": false,
+    "commercial_container_mount_reference_detected": false,
+    "commercial_cron_reference_detected": false,
+    "commercial_database_absent": true,
+    "commercial_identity_absent": true,
+    "commercial_open_file_reference_detected": false,
+    "commercial_paths_absent": true,
+    "commercial_process_reference_detected": false,
+    "commercial_roles_absent": true,
+    "commercial_service_or_timer_reference_detected": false,
+    "completed_at": "2026-08-28T14:22:05Z",
+    "control_canonical_checkout_clean": true,
+    "control_canonical_checkout_matches_final": true,
+    "memory_available_bytes": 6109085696,
+    "postgres_cluster_online": true,
+    "postgres_listen_addresses": "localhost",
+    "postgres_tcp_listener": "127.0.0.1:5432",
+    "root_filesystem_available_bytes": 21029371904,
+    "started_at": "2026-08-28T14:21:37Z",
+    "swap_total_bytes": 0,
+    "system_state": "degraded",
+    "unrelated_failed_unit": "tu1nz-doc.service"
+  },
+  "installation_gates": {
+    "commercial_installation_executed": false,
+    "control_sync_verified": true,
+    "first_start_approved": false,
+    "fresh_preinstall_backup_verified": false,
+    "host_access_design_verified": true,
+    "immutable_release_staged": false,
+    "operator_profile_approved": false,
+    "path_and_interference_preflight_passed": true,
+    "repository_baselines_final": true,
+    "root_installation_window_approved": false
+  },
+  "installed": false,
+  "network_enabled": false,
+  "product_boundary": {
+    "external_providers_enabled": false,
+    "paid_targets": [
+      "REDDIT",
+      "TELEGRAM"
+    ],
+    "real_media_enabled": false,
+    "real_payment_enabled": false,
+    "synthetic_data_only": true,
+    "telegram_intake_enabled": false,
+    "uncompensated_targets": [
+      "X"
+    ]
+  },
+  "repository_baselines": {
+    "application_canonical_checkout_sha": "5572ea165c11fa9d409d1e76ddf08243ae657ea0",
+    "application_main_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+    "application_tree_sha": "b2820945c52ffdf77c2f5fbdd227c03ee6b245ab",
+    "control_canonical_checkout_sha": "e6426429cd44a57afd22801789ad518952098df0",
+    "control_main_sha": "e6426429cd44a57afd22801789ad518952098df0",
+    "control_tree_sha": "01c0be0ed03d31901f2132c853771807bbeaebdf"
+  },
+  "server": {
+    "hostname": "ubuntu-8gb-nbg1-2",
+    "operating_system": "Ubuntu 24.04.3 LTS",
+    "ssh_identity": "root",
+    "tailscale_ip": "100.121.130.51",
+    "tailscale_version": "1.102.2"
+  },
+  "server_changed": false,
+  "sprint": "M4.22",
+  "technical_decision": "GO_FOR_SEPARATELY_APPROVED_ROOT_WINDOW",
+  "unit": {
+    "installed": false,
+    "native_security_exposure_level": 0.6,
+    "native_security_rating": "SAFE",
+    "native_verify_result": "BLOCKED_EXPECTED_MISSING_EXECUTABLE",
+    "versioned_sha256": "ecec13e294ded68dfeeaba1300eb2f5247aacf5e9085c9838eca3b50f6a56bf3"
+  }
+}

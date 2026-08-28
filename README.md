@@ -64,6 +64,14 @@ Current Adult Publishing infrastructure decisions:
   PostgreSQL fragments and
   `scripts/tu1nz_adult_commercial_host_access_gate.py` define exact future
   apply/verify/rollback behavior. They remain uninstalled.
+- `docs/M4_22_COMMERCIAL_S0_INSTALLATION_AUTHORIZATION_2026-08-28.md` records
+  the final post-merge host preflight. The technical design is ready for a
+  separately approved root window, while execution remains blocked pending an
+  operator-approved recovery profile and a fresh encrypted pre-install backup.
+- `manifests/adult-publishing-commercial-installation-authorization.m4-22.json`
+  and `scripts/tu1nz_adult_commercial_installation_authorization_gate.py` bind
+  that split GO/NO-GO result and reject invented approval, installation,
+  activation, networking or backup evidence.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

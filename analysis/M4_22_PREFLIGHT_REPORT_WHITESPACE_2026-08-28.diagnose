@@ -1,0 +1,27 @@
+M4.22 preflight report whitespace diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+The staged-diff whitespace check reported trailing spaces on the report's date
+and environment lines.
+
+Cause
+-----
+Those two Markdown lines used two trailing spaces as an explicit line break.
+The repository's whitespace policy rejects that otherwise valid Markdown form.
+
+Risk
+----
+None to runtime behavior, evidence values or the server. The issue was confined
+to formatting in a new documentation file.
+
+Rollback
+--------
+No server rollback is required. The formatting correction and this diagnosis
+can be reverted with the M4.22 branch.
+
+Approved continuation
+---------------------
+Replace the two trailing-space line breaks with blank lines, restage the exact
+M4.22 allowlist and repeat the staged-diff and regression checks.
