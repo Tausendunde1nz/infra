@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 MODE="${1:-}"
-[[ "$MODE" == preflight || "$MODE" == restore-test || "$MODE" == install || "$MODE" == resume-verify || "$MODE" == verify || "$MODE" == rollback ]] || {
-  echo "usage: $0 preflight|restore-test|install|resume-verify|verify|rollback --control-sha SHA [--archive PATH] [--manifest PATH] [--evidence-root PATH] [--restore-root PATH]" >&2
+[[ "$MODE" == preflight || "$MODE" == restore-test || "$MODE" == install || "$MODE" == resume-verify || "$MODE" == recover-bytecode-resume || "$MODE" == verify || "$MODE" == rollback ]] || {
+  echo "usage: $0 preflight|restore-test|install|resume-verify|recover-bytecode-resume|verify|rollback --control-sha SHA [--archive PATH] [--manifest PATH] [--evidence-root PATH] [--restore-root PATH]" >&2
   exit 2
 }
 shift
@@ -167,7 +167,7 @@ verify_post_refresh() {
   /usr/bin/cmp --silent "$INSTALLED_UNIT" "$CONTROL_RELEASE/systemd/$UNIT" || fail "installed unit differs from SSOT"
   [[ "$(property Restart)" == no ]] || fail "effective Restart is not no"
   [[ "$(runtime_max_microseconds "$(property RuntimeMaxUSec)")" == 180000000 ]] || fail "effective runtime maximum is not 180 seconds"
-  "$CONTROL_RELEASE/scripts/tu1nz_adult_commercial_s0_release_gate.py" \
+  PYTHONDONTWRITEBYTECODE=1 "$CONTROL_RELEASE/scripts/tu1nz_adult_commercial_s0_release_gate.py" \
     --manifest "$INSTALLED_MANIFEST" --application-repository "$RELEASE_ROOT/application-current" \
     --control-repository "$RELEASE_ROOT/control-current" --application-release-root "$RELEASE_ROOT/application" \
     --control-release-root "$CONTROL_RELEASE_ROOT" --venv "$RELEASE_ROOT/venv-current" \
@@ -273,6 +273,35 @@ resume_verify() {
   echo "M4_25_STOPPED_UNIT_RESUME_VERIFY_OK evidence=$EVIDENCE_ROOT"
 }
 
+recover_bytecode_resume() {
+  require_root
+  acquire_lock
+  require_control_sha
+  require_safe_evidence_root
+  require_safe_archive
+  local bytecode="$CONTROL_RELEASE/scripts/__pycache__"
+  local manifest_pyc="$bytecode/tu1nz_adult_commercial_s0_manifest.cpython-312.pyc"
+  local staging_pyc="$bytecode/tu1nz_adult_staging_manifest.cpython-312.pyc"
+  local preserved="$EVIDENCE_ROOT/rejected-python-bytecode-$CONTROL_SHA"
+  [[ "$(cat "$EVIDENCE_ROOT/phase.txt")" == phase=daemon-reloaded ]] || fail "exact daemon-reloaded recovery phase required"
+  verify_never_started
+  [[ -d "$bytecode" && ! -L "$bytecode" && ! -e "$preserved" && ! -L "$preserved" ]] || fail "exact bytecode recovery boundary required"
+  [[ "$(/usr/bin/find "$bytecode" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | /usr/bin/sort)" == $'tu1nz_adult_commercial_s0_manifest.cpython-312.pyc\ntu1nz_adult_staging_manifest.cpython-312.pyc' ]] || fail "unexpected bytecode recovery content"
+  [[ "$(sha256 "$manifest_pyc")" == 788207a92807a9cd5437da6966a5d0f3cd947fc991154af56b49654fdb3282cf ]] || fail "commercial manifest bytecode digest mismatch"
+  [[ "$(sha256 "$staging_pyc")" == c18c5c923d075ac94e3d1ddd859e8c33a5dbbe4944ef5464dd3d639d0bc55093 ]] || fail "staging manifest bytecode digest mismatch"
+  [[ -z "$(git_read "$CONTROL_RELEASE" status --porcelain=v1)" ]] || fail "tracked Control release drift during bytecode recovery"
+  [[ "$(git_read "$CONTROL_RELEASE" clean -ndx)" == "Would remove scripts/__pycache__/" ]] || fail "unexpected ignored Control release material"
+  /usr/bin/mv -- "$bytecode" "$preserved"
+  /usr/bin/chown -R root:root "$preserved"
+  /usr/bin/chmod 0700 "$preserved"
+  /usr/bin/chmod 0600 "$preserved"/*.pyc
+  [[ -z "$(git_read "$CONTROL_RELEASE" status --porcelain=v1)" ]] || fail "tracked Control release drift after bytecode preservation"
+  [[ -z "$(git_read "$CONTROL_RELEASE" clean -ndx)" ]] || fail "Control release remains unclean after bytecode preservation"
+  verify_post_refresh
+  printf 'phase=verified-stopped\n' >"$EVIDENCE_ROOT/phase.txt"
+  echo "M4_25_STOPPED_UNIT_BYTECODE_RECOVERY_OK evidence=$EVIDENCE_ROOT"
+}
+
 rollback_refresh() {
   require_root
   acquire_lock
@@ -301,7 +330,7 @@ rollback_refresh() {
   [[ "$(sha256 "$INSTALLED_MANIFEST")" == "$OLD_MANIFEST_SHA256" ]] || fail "old manifest was not restored"
   [[ "$(readlink "$RELEASE_ROOT/control-current")" == "control/$OLD_CONTROL_SHA" ]] || fail "old Control link was not restored"
   [[ "$(property Restart)" == on-failure && "$(property RuntimeMaxUSec)" == infinity ]] || fail "old effective unit boundary was not restored"
-  "$CONTROL_RELEASE_ROOT/$OLD_CONTROL_SHA/scripts/tu1nz_adult_commercial_s0_release_gate.py" \
+  PYTHONDONTWRITEBYTECODE=1 "$CONTROL_RELEASE_ROOT/$OLD_CONTROL_SHA/scripts/tu1nz_adult_commercial_s0_release_gate.py" \
     --manifest "$INSTALLED_MANIFEST" --application-repository "$RELEASE_ROOT/application-current" \
     --control-repository "$RELEASE_ROOT/control-current" --application-release-root "$RELEASE_ROOT/application" \
     --control-release-root "$CONTROL_RELEASE_ROOT" --venv "$RELEASE_ROOT/venv-current" \
@@ -323,6 +352,7 @@ case "$MODE" in
   restore-test) restore_test ;;
   install) install_refresh ;;
   resume-verify) resume_verify ;;
+  recover-bytecode-resume) recover_bytecode_resume ;;
   verify)
     require_root
     acquire_lock

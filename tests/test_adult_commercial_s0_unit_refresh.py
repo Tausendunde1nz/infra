@@ -34,11 +34,12 @@ class CommercialS0UnitRefreshTest(unittest.TestCase):
     def test_controller_has_separate_guarded_modes(self) -> None:
         source = REFRESH.read_text(encoding="ascii")
         for required in (
-            "preflight|restore-test|install|resume-verify|verify|rollback",
+            "preflight|restore-test|install|resume-verify|recover-bytecode-resume|verify|rollback",
             "M4_25_STOPPED_UNIT_PREFLIGHT_OK",
             "M4_25_ISOLATED_RESTORE_OK",
             "M4_25_STOPPED_UNIT_REFRESH_OK",
             "M4_25_STOPPED_UNIT_RESUME_VERIFY_OK",
+            "M4_25_STOPPED_UNIT_BYTECODE_RECOVERY_OK",
             "M4_25_STOPPED_UNIT_VERIFY_OK",
             "M4_25_STOPPED_UNIT_ROLLBACK_OK",
             "systemctl daemon-reload",
@@ -62,6 +63,8 @@ class CommercialS0UnitRefreshTest(unittest.TestCase):
             "m4-25-commercial-s0-unit-refresh-input",
             "control-current.before",
             "phase=verified-stopped",
+            "rejected-python-bytecode",
+            "PYTHONDONTWRITEBYTECODE=1",
         ):
             self.assertIn(required, source)
 

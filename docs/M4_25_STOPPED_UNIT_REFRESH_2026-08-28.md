@@ -77,6 +77,13 @@ exact `daemon-reloaded` partial boundary with intact rollback evidence; it
 performs no second installation and only records `verified-stopped` after the
 complete post-check passes.
 
+All direct Python release-gate calls disable bytecode writes. If the exact two
+bytecode files recorded in the M4.25 diagnosis already exist at the
+`daemon-reloaded` boundary, `recover-bytecode-resume` moves that whole ignored
+directory into root-private evidence, proves the immutable release clean and
+then performs the same post-check. It accepts no additional ignored or tracked
+change and deletes nothing.
+
 Each completed boundary is written to a root-private `phase.txt`. Any mismatch
 stops immediately and preserves evidence. There is no automatic rollback or
 quick live correction.
