@@ -1,0 +1,20 @@
+# M4.23 restore dump input
+
+- Date: 2026-08-28
+- Archive: `tu1nz_system_backup_20260828T16-50-53Z.tar.gz`
+- Archive SHA-256: `b96f9efb304b2898758539516d842d27574307de82cbfb49229692ab8c9bcbd7`
+- Restore root: `/opt/tu1nz_repos/backups/m4-23-commercial-s0-restore/20260828T16-50-53Z`
+
+The encrypted remote stream hash matched the local archive and the commercial
+archive inventory gate passed. Safe extraction, application/Control Git checks,
+venv import and config/state comparisons passed. The restore rehearsal then
+stopped before creating its temporary database because local `postgres` could
+not traverse the root-private restore evidence path to open
+`commercial-s0-database.dump`.
+
+No temporary database exists and no live path was changed. The correction keeps
+the restore root private: the root operator opens the already inventory-checked
+custom dump and passes it through standard input to `pg_restore --list` and the
+isolated temporary-database restore. The temporary database remains protected
+by an exit trap and is dropped after verification. No ACL, group or permission
+is widened.
