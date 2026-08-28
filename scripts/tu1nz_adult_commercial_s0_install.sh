@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 MODE="${1:-}"
-[[ "$MODE" == preflight || "$MODE" == prepare || "$MODE" == partial-preflight || "$MODE" == recover-partial || "$MODE" == resume-prepare || "$MODE" == verify-prepared || "$MODE" == install-unit ]] || {
-  echo "usage: $0 preflight|prepare|partial-preflight|recover-partial|resume-prepare|verify-prepared|install-unit [arguments]" >&2
+[[ "$MODE" == preflight || "$MODE" == prepare || "$MODE" == partial-preflight || "$MODE" == recover-partial || "$MODE" == reject-incomplete-bundle || "$MODE" == resume-prepare || "$MODE" == verify-prepared || "$MODE" == install-unit ]] || {
+  echo "usage: $0 preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|verify-prepared|install-unit [arguments]" >&2
   exit 2
 }
 shift
@@ -51,6 +51,7 @@ readonly AUTHORIZATION="$CONTROL_REPOSITORY/manifests/adult-publishing-commercia
 readonly INSTALLED_BACKUP="/usr/local/bin/tu1nz_encrypted_backup.sh"
 readonly INSTALLED_UNIT="/etc/systemd/system/$UNIT"
 readonly PARTIAL_STAGE_ROOT="/opt/tu1nz_repos/.m4-23-commercial-s0-stage-30b4531449ec05b30afe0097eb69e1cb569590da"
+readonly INCOMPLETE_BUNDLE_SHA256="a646e244641ae7297834b413c863e43f070458565406faf71fd1dc36868e3167"
 BACKUP_TIMER_PAUSED=0
 
 fail() {
@@ -326,6 +327,19 @@ recover_partial() {
   echo "M4_23_PARTIAL_TIMER_RECOVERED_OK"
 }
 
+reject_incomplete_bundle() {
+  local bundle="/opt/tu1nz_repos/backups/m4-23-input/adult-publishing-core-$APPLICATION_SHA.bundle"
+  local rejected="/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/20260828T15-39-59Z/rejected-incomplete-application-$INCOMPLETE_BUNDLE_SHA256.bundle"
+  verify_partial active >/dev/null
+  [[ -f "$bundle" && ! -L "$bundle" && "$(stat -c '%a:%U:%G:%h' "$bundle")" == "600:root:root:1" ]] || fail "exact incomplete bundle metadata required"
+  [[ "$(sha256 "$bundle")" == "$INCOMPLETE_BUNDLE_SHA256" ]] || fail "exact incomplete bundle digest required"
+  [[ ! -e "$rejected" && ! -L "$rejected" ]] || fail "rejected bundle evidence target already exists"
+  /usr/bin/mv -- "$bundle" "$rejected"
+  [[ "$(sha256 "$rejected")" == "$INCOMPLETE_BUNDLE_SHA256" ]] || fail "rejected bundle evidence digest mismatch"
+  verify_partial active >/dev/null
+  echo "M4_23_INCOMPLETE_BUNDLE_PRESERVED_OK evidence=$rejected"
+}
+
 resume_prepare() {
   verify_partial active >/dev/null
   verify_application_bundle
@@ -461,6 +475,7 @@ case "$MODE" in
   prepare) prepare ;;
   partial-preflight) verify_partial paused ;;
   recover-partial) recover_partial ;;
+  reject-incomplete-bundle) reject_incomplete_bundle ;;
   resume-prepare) resume_prepare ;;
   verify-prepared) verify_prepared ;;
   install-unit) install_unit ;;
