@@ -136,3 +136,12 @@ permissions unchanged. Root opens a `0600` file inside a root-private temporary
 directory and receives `pg_dump --format=custom --file=-` output. Cleanup,
 archive membership, encrypted upload, seven-day retention and the later restore
 contract are unchanged.
+
+Because that backup correction creates a newer canonical Control commit after
+the stopped candidate was already prepared, `advance-prepared-control` binds to
+the exact verified `7ce7583a394d28e916bd7d3e8e37e2292e0bf5f8` release and prior backup-script
+digest. It preserves that installed script as root-private evidence, installs
+only the newly versioned backup script, stages the current reviewed Control
+release and atomically advances the Control link. It then reruns the complete
+stopped verification with manifest and unit still absent. This avoids a split
+between canonical SSOT, active immutable Control and the installed backup code.
