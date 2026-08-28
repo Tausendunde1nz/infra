@@ -1,0 +1,49 @@
+# M4.29.2 Agentmode protected-home SSH access failure
+
+Date: 2026-08-28
+
+## Symptom
+
+The second authorized start produced external state immediately, but its state
+was fail-closed:
+
+- `CONTROL_REMOTE_CHECK_FAILED`
+- `DOCS_SYNC_FAILED`
+- remote SHA `-`
+
+The 60-second installation gate therefore stopped Agentmode, Integrity and
+Monitor. All eight installed artifact hashes matched the committed manifest.
+
+## Evidence and cause
+
+As `chatops` outside the unit, the exact `git ls-remote` probe against
+`refs/heads/control-main` succeeded and returned
+`2c17ae00d9c9b6e057ba36a1766166f7f5549d4c`. The repositories use SSH aliases
+and deploy keys under `/home/chatops/.ssh`.
+
+The Agentmode unit specified `ProtectHome=yes`, which makes the entire home
+tree inaccessible inside the service namespace. Both the read-only Control
+remote probe and the deliberately retained Docs synchronization consequently
+lost access to their SSH configuration and keys.
+
+## Impact
+
+- Control HEAD/tree/refs/tracked state: unchanged;
+- Adult Candidate: inactive, dead, static, `NRestarts=0`, never started;
+- Integrity and Monitor: not restarted after the failed gate;
+- Agentmode: stopped by the error trap;
+- provider/token/media/payment/publishing paths: untouched.
+
+## Remediation and rollback
+
+Use `ProtectHome=read-only` for Agentmode. This exposes the existing SSH
+configuration and deploy keys read-only while denying all service writes to
+home directories. Keep `ReadOnlyPaths=/opt/tu1nz_repos/control` unchanged.
+Add a regression assertion for the exact sandbox value, rebind the unit hash in
+the manifest, run the complete local suite, commit, push and wait for green CI
+before reinstalling that unit.
+
+If the corrected start does not reach a valid observation, stop all three
+maintenance services and leave them stopped. Restore old bytes only from the
+root-private recovery archive and only while services are stopped; never
+automatically restart the archived unsafe Agentmode.

@@ -1,0 +1,22 @@
+# M4.29.2 full unittest discovery root
+
+Date: 2026-08-28
+
+## Symptom
+
+`python3 -m unittest discover -v` exited successfully but discovered zero tests.
+
+## Cause
+
+This repository's test modules are discovered only when the `tests` directory
+is supplied explicitly as the discovery start directory.
+
+## Impact
+
+No source, server or service state was changed by the empty test invocation.
+It is not accepted as validation evidence.
+
+## Resolution
+
+Run the complete suite with `python3 -m unittest discover -s tests -v` and use
+only that non-zero result as full-suite evidence.

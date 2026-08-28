@@ -89,6 +89,15 @@ The systemd units add an OS-level `ReadOnlyPaths=/opt/tu1nz_repos/control`
 boundary. Integrity also receives a private network and writes only external
 manifests/state. Monitor output is moved to the external state root.
 
+Agentmode uses `ProtectHome=read-only`: the existing read-only GitHub deploy
+key and SSH host configuration remain visible to `git ls-remote` and the
+retained Docs sync, while every home directory remains non-writable. The first
+installed attempt used `ProtectHome=yes`; that hid the deploy key, produced
+`CONTROL_REMOTE_CHECK_FAILED` / `DOCS_SYNC_FAILED`, and triggered the
+fail-closed stop after 60 seconds. No Control bytes or refs changed. The
+diagnosis and correction are recorded in
+`analysis/M4_29_2_AGENTMODE_PROTECTED_HOME_SSH_ACCESS_2026-08-28.diagnose`.
+
 The pre-existing `/etc/tu1nz/ssot.checksum` is stale. It remains unmodified and
 is reported by Agent Health as `LEGACY_MISMATCH`; it is not allowed to override
 a successful current Control probe. The new external Integrity result is the

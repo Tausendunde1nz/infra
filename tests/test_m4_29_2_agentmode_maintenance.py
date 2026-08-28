@@ -359,6 +359,8 @@ class AgentmodeMaintenanceTest(unittest.TestCase):
         for unit in (agent_unit, integrity_unit, monitor_unit):
             self.assertIn("ReadOnlyPaths=/opt/tu1nz_repos/control", unit)
             self.assertNotIn("tu1nz-adult-commercial-s0", unit)
+        self.assertIn("ProtectHome=read-only", agent_unit)
+        self.assertNotIn("ProtectHome=yes", agent_unit)
         self.assertIn("PrivateNetwork=yes", integrity_unit)
 
     def test_no_forbidden_control_git_mutators_or_candidate_activation(self) -> None:
