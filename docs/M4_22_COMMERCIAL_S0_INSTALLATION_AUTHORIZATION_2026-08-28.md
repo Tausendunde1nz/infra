@@ -10,18 +10,19 @@ Scope: final post-merge, read-only installation authorization checkpoint
 
 **Technical decision: GO for a separately approved root installation window.**
 
-**Execution decision: NO-GO pending the operator recovery profile, explicit
-acceptance of the unrelated failed documentation unit and a fresh encrypted
-pre-install backup with restore verification.**
+**Execution decision: GO for the fresh pre-install backup and the isolated,
+stopped installation. First start and every external provider remain NO-GO.**
 
 M4.22 did not install, stage, activate or start anything. It changed no server
 path, identity, ACL, PostgreSQL rule, database, service, timer, container,
 token, provider or network setting. The existing synthetic S1 service remained
 untouched.
 
-This split decision is deliberate: all discoverable technical design gaps are
-closed, but no machine-readable record may invent the operator's RPO, RTO,
-retention or risk acceptance.
+The operator approved RPO 24 hours, RTO 4 hours, encrypted retention 7 days and
+accepted that the known unrelated `tu1nz-doc.service` failure does not block
+this isolated, stopped installation window at `2026-08-28T14:35:32Z`. The
+fresh encrypted absent-state backup remains mandatory before the first server
+mutation.
 
 ## Product boundary
 
@@ -124,25 +125,25 @@ commercial root is created. A commercial archive/manifest pair and isolated
 database restore rehearsal remain mandatory before the stopped unit can be
 considered installed successfully.
 
-## Operator decision still required
+## Operator decision recorded
 
 M4.19 intentionally requires explicit values rather than inventing them. The
 recommended starting profile, matching the existing S1 operating target, is:
 
-| Item | Recommended value | Current approval |
+| Item | Selected value | Approval |
 | --- | --- | --- |
-| RPO | 24 hours (`86400` seconds) | not approved |
-| RTO | 4 hours (`14400` seconds) | not approved |
-| encrypted retention | 7 days | not approved |
-| known unrelated `tu1nz-doc.service` failure | accept only for this isolated, stopped installation window | not approved |
+| RPO | 24 hours (`86400` seconds) | approved |
+| RTO | 4 hours (`14400` seconds) | approved |
+| encrypted retention | 7 days | approved |
+| known unrelated `tu1nz-doc.service` failure | accepted only for this isolated, stopped installation window | approved |
 
-No root window, fresh backup or installation may begin until these four items
-are explicitly accepted.
+The approval authorizes the fresh backup and stopped installation sequence in
+this document. It does not authorize first start, network access, providers,
+tokens, real media, real payment or publication.
 
-## Exact continuation after approval
+## Authorized installation sequence
 
-1. Record the approved RPO, RTO, retention and failed-unit acceptance in a new
-   immutable authorization revision; validate, commit, push and merge it.
+1. Validate, commit, push and merge this operator-approved authorization.
 2. Create a fresh encrypted absent-state archive with the currently installed
    backup process, verify its remote checksum and run a non-disruptive restore
    smoke. Abort on any mismatch.
@@ -159,7 +160,6 @@ are explicitly accepted.
 ## Machine-verifiable evidence
 
 `manifests/adult-publishing-commercial-installation-authorization.m4-22.json`
-binds this result. Its gate accepts only the technical GO plus execution NO-GO
-state and rejects invented approval, backup, installation, activation,
-networking, provider or server-change claims. The negative test suite covers
-all critical transitions.
+binds this result. Its gate requires the exact approved profile while keeping
+fresh-backup, installation, activation, networking, provider and server-change
+claims fail-closed. The negative test suite covers all critical transitions.

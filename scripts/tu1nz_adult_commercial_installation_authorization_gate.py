@@ -21,8 +21,6 @@ EXPECTED_APPLICATION_TREE = "b2820945c52ffdf77c2f5fbdd227c03ee6b245ab"
 EXPECTED_CONTROL_SHA = "e6426429cd44a57afd22801789ad518952098df0"
 EXPECTED_CONTROL_TREE = "01c0be0ed03d31901f2132c853771807bbeaebdf"
 EXPECTED_BLOCKERS = {
-    "OPERATOR_RECOVERY_PROFILE_NOT_APPROVED",
-    "UNRELATED_FAILED_UNIT_NOT_ACCEPTED_FOR_WINDOW",
     "FRESH_PREINSTALL_BACKUP_NOT_CREATED",
     "VERSIONED_BACKUP_SCRIPT_NOT_INSTALLED",
     "COMMERCIAL_RELEASE_NOT_STAGED",
@@ -80,7 +78,7 @@ def validate_contract(contract: dict[str, object]) -> None:
         contract["contract_version"] != "tu1nz-commercial-installation-authorization-m4.22-v1"
         or contract["sprint"] != "M4.22"
         or contract["technical_decision"] != "GO_FOR_SEPARATELY_APPROVED_ROOT_WINDOW"
-        or contract["execution_decision"] != "NO_GO_PENDING_OPERATOR_PROFILE_AND_FRESH_BACKUP"
+        or contract["execution_decision"] != "GO_FOR_PREINSTALL_BACKUP_AND_STOPPED_INSTALLATION"
         or contract["activation_decision"] != "NO_GO"
     ):
         raise GateFailure("M4.22 split decision required")
@@ -168,15 +166,15 @@ def validate_contract(contract: dict[str, object]) -> None:
     if not isinstance(authorization, dict):
         raise GateFailure("authorization object required")
     if (
-        authorization.get("operator_approved") is not False
-        or authorization.get("known_unrelated_failed_unit_accepted") is not False
-        or authorization.get("approved_at") is not None
+        authorization.get("operator_approved") is not True
+        or authorization.get("known_unrelated_failed_unit_accepted") is not True
+        or authorization.get("approved_at") != "2026-08-28T14:35:32Z"
         or authorization.get("selected_profile")
-        != {"retention_days": None, "rpo_target_seconds": None, "rto_target_seconds": None}
+        != {"retention_days": 7, "rpo_target_seconds": 86400, "rto_target_seconds": 14400}
         or authorization.get("recommended_profile")
         != {"retention_days": 7, "rpo_target_seconds": 86400, "rto_target_seconds": 14400}
     ):
-        raise GateFailure("operator recovery profile must remain unapproved")
+        raise GateFailure("exact operator recovery approval required")
 
     backup = contract["backup_restore"]
     if not isinstance(backup, dict):
@@ -202,10 +200,10 @@ def validate_contract(contract: dict[str, object]) -> None:
         "fresh_preinstall_backup_verified": False,
         "host_access_design_verified": True,
         "immutable_release_staged": False,
-        "operator_profile_approved": False,
+        "operator_profile_approved": True,
         "path_and_interference_preflight_passed": True,
         "repository_baselines_final": True,
-        "root_installation_window_approved": False,
+        "root_installation_window_approved": True,
     }
     if gates != expected_gates:
         raise GateFailure("exact fail-closed installation gate set required")
@@ -246,7 +244,7 @@ def main() -> int:
     arguments = parse_arguments()
     try:
         validate_contract(read_contract(arguments.contract))
-        print("M4_22_TECHNICAL_GO_EXECUTION_NO_GO_CONFIRMED")
+        print("M4_22_STOPPED_INSTALLATION_AUTHORIZED")
         return 0
     except (GateFailure, OSError) as error:
         print("M4_22_INSTALLATION_AUTHORIZATION_INVALID " + str(error), file=sys.stderr)

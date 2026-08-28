@@ -2,18 +2,18 @@
   "active": false,
   "activation_decision": "NO_GO",
   "authorization": {
-    "approved_at": null,
-    "known_unrelated_failed_unit_accepted": false,
-    "operator_approved": false,
+    "approved_at": "2026-08-28T14:35:32Z",
+    "known_unrelated_failed_unit_accepted": true,
+    "operator_approved": true,
     "recommended_profile": {
       "retention_days": 7,
       "rpo_target_seconds": 86400,
       "rto_target_seconds": 14400
     },
     "selected_profile": {
-      "retention_days": null,
-      "rpo_target_seconds": null,
-      "rto_target_seconds": null
+      "retention_days": 7,
+      "rpo_target_seconds": 86400,
+      "rto_target_seconds": 14400
     }
   },
   "backup_restore": {
@@ -30,8 +30,6 @@
     "versioned_backup_script_sha256": "0de61224be517e08fd0a789673df7977f0581aa92608513d99ca9a26ad4bebe8"
   },
   "blockers": [
-    "OPERATOR_RECOVERY_PROFILE_NOT_APPROVED",
-    "UNRELATED_FAILED_UNIT_NOT_ACCEPTED_FOR_WINDOW",
     "FRESH_PREINSTALL_BACKUP_NOT_CREATED",
     "VERSIONED_BACKUP_SCRIPT_NOT_INSTALLED",
     "COMMERCIAL_RELEASE_NOT_STAGED",
@@ -40,7 +38,7 @@
     "FIRST_START_NOT_APPROVED"
   ],
   "contract_version": "tu1nz-commercial-installation-authorization-m4.22-v1",
-  "execution_decision": "NO_GO_PENDING_OPERATOR_PROFILE_AND_FRESH_BACKUP",
+  "execution_decision": "GO_FOR_PREINSTALL_BACKUP_AND_STOPPED_INSTALLATION",
   "host_access_contract": {
     "hba_rule_sha256": "6ee9b816caf4bc530f918f8189fca4ea85926a4a817a10b0e93d600029e2ac3b",
     "host_access_gate_sha256": "c5a130a6e70e0045bd7d2bfd0012376e463402b85f937d8003bd5513f6f57d61",
@@ -81,10 +79,10 @@
     "fresh_preinstall_backup_verified": false,
     "host_access_design_verified": true,
     "immutable_release_staged": false,
-    "operator_profile_approved": false,
+    "operator_profile_approved": true,
     "path_and_interference_preflight_passed": true,
     "repository_baselines_final": true,
-    "root_installation_window_approved": false
+    "root_installation_window_approved": true
   },
   "installed": false,
   "network_enabled": false,

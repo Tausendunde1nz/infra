@@ -37,7 +37,7 @@
       "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" }
     },
     "contract_version": { "const": "tu1nz-commercial-installation-authorization-m4.22-v1" },
-    "execution_decision": { "const": "NO_GO_PENDING_OPERATOR_PROFILE_AND_FRESH_BACKUP" },
+    "execution_decision": { "const": "GO_FOR_PREINSTALL_BACKUP_AND_STOPPED_INSTALLATION" },
     "host_access_contract": { "$ref": "#/$defs/hostAccessContract" },
     "host_observation": { "$ref": "#/$defs/hostObservation" },
     "installation_gates": { "$ref": "#/$defs/installationGates" },
@@ -60,18 +60,18 @@
       "additionalProperties": false,
       "required": ["approved_at", "known_unrelated_failed_unit_accepted", "operator_approved", "recommended_profile", "selected_profile"],
       "properties": {
-        "approved_at": { "type": "null" },
-        "known_unrelated_failed_unit_accepted": { "const": false },
-        "operator_approved": { "const": false },
+        "approved_at": { "const": "2026-08-28T14:35:32Z" },
+        "known_unrelated_failed_unit_accepted": { "const": true },
+        "operator_approved": { "const": true },
         "recommended_profile": { "$ref": "#/$defs/recoveryProfile" },
         "selected_profile": {
           "type": "object",
           "additionalProperties": false,
           "required": ["retention_days", "rpo_target_seconds", "rto_target_seconds"],
           "properties": {
-            "retention_days": { "type": "null" },
-            "rpo_target_seconds": { "type": "null" },
-            "rto_target_seconds": { "type": "null" }
+            "retention_days": { "const": 7 },
+            "rpo_target_seconds": { "const": 86400 },
+            "rto_target_seconds": { "const": 14400 }
           }
         }
       }
@@ -158,10 +158,10 @@
         "fresh_preinstall_backup_verified": { "const": false },
         "host_access_design_verified": { "const": true },
         "immutable_release_staged": { "const": false },
-        "operator_profile_approved": { "const": false },
+        "operator_profile_approved": { "const": true },
         "path_and_interference_preflight_passed": { "const": true },
         "repository_baselines_final": { "const": true },
-        "root_installation_window_approved": { "const": false }
+        "root_installation_window_approved": { "const": true }
       }
     },
     "productBoundary": {

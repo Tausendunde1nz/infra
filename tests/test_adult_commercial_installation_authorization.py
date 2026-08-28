@@ -41,10 +41,10 @@ class CommercialInstallationAuthorizationTest(unittest.TestCase):
         self.write_contract()
         self.assertNotEqual(self.gate().returncode, 0)
 
-    def test_accepts_technical_go_with_execution_blocked(self) -> None:
+    def test_accepts_operator_approved_stopped_installation(self) -> None:
         result = self.gate()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("M4_22_TECHNICAL_GO_EXECUTION_NO_GO_CONFIRMED", result.stdout)
+        self.assertIn("M4_22_STOPPED_INSTALLATION_AUTHORIZED", result.stdout)
 
     def test_rejects_installation_execution_claim(self) -> None:
         self.contract["installation_gates"]["commercial_installation_executed"] = True
@@ -62,16 +62,16 @@ class CommercialInstallationAuthorizationTest(unittest.TestCase):
         self.contract["server_changed"] = True
         self.assert_rejected()
 
-    def test_rejects_invented_operator_approval(self) -> None:
-        self.contract["authorization"]["operator_approved"] = True
+    def test_rejects_missing_operator_approval(self) -> None:
+        self.contract["authorization"]["operator_approved"] = False
         self.assert_rejected()
 
-    def test_rejects_invented_selected_profile(self) -> None:
-        self.contract["authorization"]["selected_profile"]["retention_days"] = 7
+    def test_rejects_missing_selected_profile(self) -> None:
+        self.contract["authorization"]["selected_profile"]["retention_days"] = None
         self.assert_rejected()
 
-    def test_rejects_invented_failed_unit_acceptance(self) -> None:
-        self.contract["authorization"]["known_unrelated_failed_unit_accepted"] = True
+    def test_rejects_missing_failed_unit_acceptance(self) -> None:
+        self.contract["authorization"]["known_unrelated_failed_unit_accepted"] = False
         self.assert_rejected()
 
     def test_rejects_false_fresh_backup_claim(self) -> None:
