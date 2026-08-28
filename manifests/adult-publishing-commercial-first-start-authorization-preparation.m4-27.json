@@ -1,0 +1,283 @@
+{
+  "active": false,
+  "approval": {
+    "approved_at": null,
+    "first_start_approved": false,
+    "no_swap_risk_accepted": false,
+    "separate_authorization_contract_required": true,
+    "server_control_sync_approved": false
+  },
+  "blockers": [
+    "CANONICAL_SYNC_TARGET_REQUIRES_POST_MERGE_REFRESH",
+    "FIRST_START_AUTHORIZATION_CONTRACT_NOT_FINALIZED",
+    "FIRST_START_NOT_APPROVED",
+    "FRESH_PRESTART_NOT_EXECUTED",
+    "FRESH_PRESTART_REVALIDATION_REQUIRED",
+    "NO_SWAP_RISK_NOT_ACCEPTED_FOR_FIRST_START",
+    "SERVER_CONTROL_SYNC_NOT_APPROVED",
+    "SERVER_CONTROL_SYNC_NOT_EXECUTED"
+  ],
+  "canonical_control_sync": {
+    "ignored_material": {
+      "entries": [
+        ".r28r4-control-payload-clean.tar.gz",
+        "_filelist_reference.txt",
+        "_filelist_reference.txt.bak_20260215T082155Z",
+        "analysis/n8n_fix_2026-03-18/",
+        "analysis/n8n_perms_2026-03-18/",
+        "analysis/security_incident_2026-08-25/",
+        "checksums.txt",
+        "checksums_current.txt",
+        "checksums_reference.sha256",
+        "checksums_reference.txt",
+        "emoji_map.sed",
+        "integrity_baseline.sha256",
+        "integrity_reference.sha256",
+        "integrity_reference.txt",
+        "last_sync.ok",
+        "legacy_units/",
+        "monitor_last.txt",
+        "nginx/validation.pid",
+        "rebaseline_2026/",
+        "scripts/__pycache__/",
+        "scripts/encrypted_drive_backup",
+        "systemd/tu1nz-git-sync.service",
+        "systemd/tu1nz-git-sync.timer"
+      ],
+      "entries_count": 23,
+      "entries_sha256": "b23591e86c2b43fbc11a376eb3d0a68c19e3979b1538aa4ac50711b598300e89",
+      "recursive_byte_inventory_required": true
+    },
+    "last_proven_server": {
+      "branch": "control-main",
+      "head_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+      "observed_at": "2026-08-28T19:13:59Z",
+      "origin_control_main_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+      "tracked_clean": true,
+      "tree_sha": "c50ce73098d344763fd29f12ba077fb24139b38c"
+    },
+    "planned_target": {
+      "post_m4_27_merge_refresh_required": true,
+      "sha": "6f47780eb3b21b369db69a65962e0b3d86107deb",
+      "tree_sha": "5a202f8a25f1085e30d264d7323874028a58bae6"
+    },
+    "rollback": {
+      "bundle_required": true,
+      "evidence_root_pattern": "/opt/tu1nz_repos/backups/m4-27-control-sync/YYYYMMDDTHH-MM-SSZ",
+      "old_head_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+      "old_tree_sha": "c50ce73098d344763fd29f12ba077fb24139b38c",
+      "preserved_rollback_ref_required": true,
+      "status": "PLANNED_NOT_AUTHORIZED",
+      "steps": [
+        "REQUIRE_EXACT_FAILED_POST_SYNC_BOUNDARY",
+        "VERIFY_CANDIDATE_NEVER_STARTED",
+        "VERIFY_ROLLBACK_BUNDLE_AND_OLD_OBJECT",
+        "RESTORE_EXACT_OLD_TRACKED_TREE",
+        "VERIFY_IGNORED_RECURSIVE_INVENTORY_UNCHANGED",
+        "VERIFY_OLD_HEAD_TREE_AND_CLEAN_STATUS",
+        "PRESERVE_ALL_SYNC_AND_ROLLBACK_EVIDENCE"
+      ]
+    },
+    "transaction": {
+      "approved": false,
+      "fast_forward_only": true,
+      "mutation_scope": [
+        "/opt/tu1nz_repos/control/.git",
+        "/opt/tu1nz_repos/control tracked worktree"
+      ],
+      "server_path": "/opt/tu1nz_repos/control",
+      "status": "NOT_EXECUTED",
+      "steps": [
+        "READ_ONLY_REVALIDATE_SOURCE_AND_IGNORED_INVENTORY",
+        "FETCH_CONTROL_MAIN_WITHOUT_MERGE",
+        "VERIFY_REMOTE_TARGET_SHA_TREE_AND_POST_MERGE_REFRESH",
+        "VERIFY_FAST_FORWARD_ANCESTRY_AND_INCOMING_PATH_COLLISIONS",
+        "CREATE_ROOT_PRIVATE_ROLLBACK_REF_BUNDLE_AND_EVIDENCE",
+        "FAST_FORWARD_CONTROL_MAIN_ONLY",
+        "VERIFY_HEAD_ORIGIN_TREE_TRACKED_STATUS_AND_IGNORED_INVENTORY",
+        "VERIFY_HISTORICAL_CONTRACT_HASHES_AND_CANDIDATE_NEVER_STARTED"
+      ],
+      "unchanged_paths": [
+        "/etc/systemd/system/tu1nz-adult-commercial-s0.service",
+        "/etc/tu1nz/adult-publishing/staging-s0-commercial",
+        "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial",
+        "/var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial"
+      ],
+      "unchanged_services": [
+        "tu1nz-adult-commercial-s0.service",
+        "tu1nz-adult-publishing-s1.service",
+        "tu1nz_encrypted_backup.service",
+        "tu1nz_encrypted_backup.timer"
+      ]
+    }
+  },
+  "contract_version": "tu1nz-commercial-first-start-authorization-preparation-m4.27-v1",
+  "decision": "NO_GO",
+  "environment": "STAGING-S0-COMMERCIAL-CANDIDATE",
+  "first_start_window": {
+    "approval_maximum_age_seconds": 3600,
+    "auto_recovery_enabled": false,
+    "enablement_allowed": false,
+    "exactly_one_start": true,
+    "health_maximum_age_seconds": 90,
+    "maximum_runtime_seconds": 180,
+    "must_end_stopped": true,
+    "prestart_maximum_age_seconds": 300,
+    "ready_timeout_seconds": 60,
+    "restart_allowed": false,
+    "sequence": [
+      "FRESH_PREFLIGHT",
+      "EXPLICIT_AUTHORIZATION",
+      "EXACTLY_ONE_START",
+      "READY",
+      "LOCAL_HEALTH",
+      "CONTROLLED_STOP",
+      "POST_STATE_VERIFICATION",
+      "EVIDENCE_PRESERVATION"
+    ],
+    "stop_timeout_seconds": 45,
+    "timer_allowed": false
+  },
+  "fresh_prestart": {
+    "checks": [
+      "APPLICATION_SHA_TREE",
+      "BACKUP_ARCHIVE_SHA256",
+      "BACKUP_SERVICE_IDLE",
+      "BACKUP_TIMER_ACTIVE",
+      "CANDIDATE_PROCESSES_ABSENT",
+      "CANDIDATE_TIMERS_ABSENT",
+      "CANONICAL_CONTROL_SHA_TREE",
+      "CRON_REFERENCES_ABSENT",
+      "DATABASE_21_FUNCTIONS",
+      "DATABASE_39_TABLES",
+      "DATABASE_BUSINESS_ROWS_ZERO",
+      "DATABASE_SYNTHETIC_SEEDS_EXACT",
+      "DOCKER_MOUNTS_ABSENT",
+      "EXTERNAL_NETWORK_PATHS_DISABLED",
+      "INSTALLED_CONTROL_RELEASE",
+      "INSTALLED_UNIT_SHA256",
+      "MEMORY_AVAILABLE_AT_LEAST_4_GIB",
+      "NATIVE_UNIT_VERIFY",
+      "NO_OTHER_DATABASE_SESSIONS",
+      "ONLY_ACCEPTED_FAILED_UNIT",
+      "OPEN_FILES_ABSENT",
+      "POSTGRESQL_ACTIVE",
+      "RELEASE_GATE",
+      "RELEASE_MANIFEST_SHA256",
+      "RESTORE_EVIDENCE_SHA256",
+      "ROOT_STORAGE_CAPACITY",
+      "RUNTIME_LOCK_ABSENT",
+      "RUNTIME_STATUS_ABSENT",
+      "RUNTIME_USER_PROCESSES_ABSENT",
+      "SENSITIVE_PROVIDER_ENVIRONMENT_NAMES_ABSENT",
+      "STAGING_S1_ACTIVE",
+      "STATE_EMPTY_AND_HASH_BOUND",
+      "TAILSCALE_IDENTITY",
+      "UNIT_INACTIVE_DEAD_STATIC",
+      "UNIT_JOURNAL_EMPTY",
+      "UNIT_NRESTARTS_ZERO",
+      "UNIT_RESTART_NO",
+      "UNIT_RUNTIME_MAX_180",
+      "UNIT_START_TIMESTAMPS_ABSENT"
+    ],
+    "executed": false,
+    "maximum_age_seconds": 300,
+    "must_run_after_control_sync": true,
+    "must_run_immediately_before_authorization": true,
+    "observed_at": null,
+    "result": "NOT_EXECUTED"
+  },
+  "no_swap_assessment": {
+    "assessed_at": "2026-08-28T19:32:20Z",
+    "assessment_kind": "PLANNING_RECOMMENDATION_NOT_ACCEPTANCE",
+    "empirical_peak_rss_kib": null,
+    "memory_max_configured": false,
+    "mitigations": [
+      "FRESH_PREFLIGHT_REQUIRES_AT_LEAST_4_GIB_AVAILABLE_MEMORY",
+      "EXACTLY_ONE_START",
+      "RESTART_NO",
+      "RUNTIME_MAXIMUM_180_SECONDS",
+      "NETWORK_FREE_AND_PROVIDER_DISABLED",
+      "ZERO_REAL_MEDIA_AND_ZERO_PROJECTED_SUBMISSIONS",
+      "BACKUP_SERVICE_IDLE_AND_NO_OTHER_DATABASE_SESSION",
+      "ABORT_REQUIRES_VERIFIED_STOP_AND_NO_SECOND_START"
+    ],
+    "observed_memory_available_kib": 5948368,
+    "observed_swap_total_kib": 0,
+    "oom_recovery": [
+      "OOM_INVALIDATES_THE_WINDOW",
+      "SYSTEMD_MUST_NOT_RESTART_THE_CANDIDATE",
+      "CONTROLLER_ATTEMPTS_AND_VERIFIES_STOP",
+      "NO_SECOND_START_IS_ALLOWED",
+      "JOURNAL_AND_RUNTIME_EVIDENCE_ARE_PRESERVED",
+      "HOST_OR_UNRELATED_SERVICE_IMPACT_IS_REPORTED_AS_CRITICAL"
+    ],
+    "operator_accepted": false,
+    "recommendation": "ACCEPTABLE_FOR_ONE_CONTROLLED_FIRST_START",
+    "required_fresh_memory_available_kib": 4194304,
+    "risk_factors": [
+      "NO_SWAP_CONFIGURED",
+      "NO_CGROUP_MEMORY_MAX_CONFIGURED",
+      "NO_EMPIRICAL_FIRST_START_PEAK_RSS",
+      "KERNEL_OOM_MAY_AFFECT_CANDIDATE_OR_UNRELATED_PROCESS"
+    ],
+    "scope": "ONE_SYNTHETIC_NETWORK_FREE_FIRST_START_ONLY",
+    "workload_profile": "ONE_PYTHON_PROCESS_LOCAL_POSTGRES_ZERO_SUBMISSIONS_NO_MEDIA_NETWORK_FREE"
+  },
+  "product_boundary": {
+    "external_providers_enabled": false,
+    "network_enabled": false,
+    "paid_targets": [
+      "REDDIT",
+      "TELEGRAM"
+    ],
+    "publishing_enabled": false,
+    "real_media_enabled": false,
+    "real_payment_enabled": false,
+    "synthetic_data_only": true,
+    "synthetic_publishers_only": true,
+    "telegram_intake_enabled": false,
+    "uncompensated_targets": [
+      "X"
+    ]
+  },
+  "recovery": {
+    "abort_steps": [
+      "STOP_UNIT",
+      "VERIFY_INACTIVE_DEAD",
+      "VERIFY_NO_RESTART",
+      "FORBID_SECOND_START",
+      "VERIFY_DATABASE_UNCHANGED",
+      "VERIFY_STATE_UNCHANGED",
+      "PRESERVE_RUNTIME_EVIDENCE",
+      "PRESERVE_JOURNAL",
+      "VERIFY_CANDIDATE_STOPPED",
+      "REPORT_STOP_FAILURE_AS_CRITICAL"
+    ],
+    "automatic_database_rollback": false,
+    "automatic_evidence_deletion": false,
+    "evidence_root": "/opt/tu1nz_repos/backups/m4-28-commercial-s0-first-start",
+    "second_start_allowed": false,
+    "stop_failure_is_critical": true
+  },
+  "release_binding": {
+    "application_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+    "application_tree_sha": "b2820945c52ffdf77c2f5fbdd227c03ee6b245ab",
+    "archive_inventory_sha256": "f7dd1b3fea220bc1ef032325edc9bb8033d79f2c52e5893927d93018f3d4aec3",
+    "archive_name": "tu1nz_system_backup_20260828T18-15-58Z.tar.gz",
+    "archive_sha256": "f892758dccf2157b4fa11afa38fe61dfcd36f18076230a76f1d23627bf18afc0",
+    "canonical_control_sha": "6f47780eb3b21b369db69a65962e0b3d86107deb",
+    "canonical_control_tree_sha": "5a202f8a25f1085e30d264d7323874028a58bae6",
+    "installed_control_sha": "3135197ba4ac577bbb7fd28341d0c2dc845a7ebe",
+    "installed_control_tree_sha": "da01c5bacb883442e0b556d5e291c8b8206959a2",
+    "m4_24_contract_sha256": "bf43aee420e133b9e5167a90c2e4c260d2716c0390c8cfc439fb1d03c1b87da3",
+    "m4_25_contract_sha256": "b5ceaff212c8f10529b2c89a2667dd0ef715db5e361a2dcd05007074cbd61ee2",
+    "m4_26_contract_sha256": "47c5bca41e2b09e210fb61ab9de31d0ab1e44edf6715a2bc561619fcda4e3d59",
+    "manifest_sha256": "68d8e276b2e0442cc9e02937264c6f493e938f7ab0fc3372239dba69a05a6386",
+    "m4_26_post_merge_ci_run_id": 33203814784,
+    "restore_evidence_sha256": "013e89b92fda435f978960bb417cf2a7c6da93e6bc5387612b648a2358220b7d",
+    "state_sha256": "8311a0072ab0e8165d21256e0edb6980bfc1e2acf7abe97b226cfc979545fd12",
+    "unit_sha256": "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d"
+  },
+  "sprint": "M4.27"
+}

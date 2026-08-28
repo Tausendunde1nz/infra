@@ -95,6 +95,12 @@ Current Adult Publishing infrastructure decisions:
   `scripts/tu1nz_adult_commercial_m4_26_gate.py` bind the merged PR #33/#34
   base, installed M4.25 release and complete read-only server preflight. M4.26
   remains immutable `NO_GO` evidence and can never authorize a first start.
+- `docs/M4_27_CANONICAL_CONTROL_SYNC_FIRST_START_AUTH_PREPARATION_2026-08-28.md`,
+  `manifests/adult-publishing-commercial-first-start-authorization-preparation.m4-27.json`
+  and `scripts/tu1nz_adult_commercial_m4_27_gate.py` define the future
+  canonical-Control fast-forward/rollback transaction, fresh prestart, bounded
+  no-swap recommendation and authorization window. The draft remains `NO_GO`;
+  it neither synchronizes the server nor accepts risk or authorizes a start.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.
