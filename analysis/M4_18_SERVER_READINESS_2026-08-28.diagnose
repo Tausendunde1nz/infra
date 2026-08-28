@@ -105,3 +105,14 @@ Finding M4_18_PR_CREATE_LOCAL_QUOTING
 - No GitHub PR or other external change was created by that attempt.
 - The bounded correction is a plain-text PR body without those delimiters,
   followed by an explicit PR-state check. No history rewrite is used.
+
+Finding M4_18_LOCAL_REMOTE_TRACKING_REF_ABSENT
+- The final local `rev-parse` of the feature remote-tracking name failed even
+  though the push and Draft PR succeeded.
+- The clone intentionally fetches only
+  `refs/heads/control-main:refs/remotes/origin/control-main`; the branch's
+  upstream configuration exists, but this narrow refspec does not materialize
+  feature remote-tracking refs locally.
+- A direct read-only `git ls-remote` and GitHub PR query both returned
+  b01c8ba9c568e30fe12fb1cb11c6f9e5d57b9a1f, exactly matching local HEAD.
+- No user Git configuration or fetch refspec was changed.
