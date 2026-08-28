@@ -58,9 +58,12 @@ readonly MIGRATION_PARTIAL_CONTROL_SHA="39082986d220a5f48148d3dda18f14ef1c1e4814
 readonly MIGRATION_PARTIAL_CONTROL_TREE="b156739657b092d4a1124bd7200edd6331b4595a"
 readonly SCHEMA_PARTIAL_CONTROL_SHA="460c7befebb675117ac61c93ace6716d49abeb9e"
 readonly SCHEMA_PARTIAL_CONTROL_TREE="7b6d6944185ada4f8876a9d3a533103fc05b7a31"
-readonly PREPARED_CONTROL_SHA="7ce7583a394d28e916bd7d3e8e37e2292e0bf5f8"
-readonly PREPARED_CONTROL_TREE="aca209729f44e230c439b3cc870069632867754f"
-readonly PREPARED_BACKUP_SHA256="0de61224be517e08fd0a789673df7977f0581aa92608513d99ca9a26ad4bebe8"
+readonly PRIOR_PREPARED_CONTROL_SHA="7ce7583a394d28e916bd7d3e8e37e2292e0bf5f8"
+readonly PRIOR_PREPARED_CONTROL_TREE="aca209729f44e230c439b3cc870069632867754f"
+readonly PREPARED_CONTROL_SHA="7176e7b8f22ce7436c29cde07de8e58965896f04"
+readonly PREPARED_CONTROL_TREE="e1dd10530f2998c36c2dc43e37ea5fe7f55836cf"
+readonly PRIOR_PREPARED_BACKUP_SHA256="0de61224be517e08fd0a789673df7977f0581aa92608513d99ca9a26ad4bebe8"
+readonly PREPARED_BACKUP_SHA256="3b6228b394e037ee4a7b233f57d9c40d22fcc85c5469af7eda2c9d8816310ad5"
 BACKUP_TIMER_PAUSED=0
 
 fail() {
@@ -696,7 +699,7 @@ verify_prepared_control_boundary() {
   local evidence_root="/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/20260828T15-39-59Z"
   local evidence_target="$evidence_root/rejected-immutable-build-output-$APPLICATION_SHA"
   local expected_controls
-  expected_controls=$'39082986d220a5f48148d3dda18f14ef1c1e4814\n460c7befebb675117ac61c93ace6716d49abeb9e\n7ce7583a394d28e916bd7d3e8e37e2292e0bf5f8\n8f27022e40cd8ffd24f738ad98836bc2df1f78f1'
+  expected_controls=$'39082986d220a5f48148d3dda18f14ef1c1e4814\n460c7befebb675117ac61c93ace6716d49abeb9e\n7176e7b8f22ce7436c29cde07de8e58965896f04\n7ce7583a394d28e916bd7d3e8e37e2292e0bf5f8\n8f27022e40cd8ffd24f738ad98836bc2df1f78f1'
   verify_common_inputs
   verify_application_bundle
   [[ "$(sha256 "$INSTALLED_BACKUP")" == "$PREPARED_BACKUP_SHA256" ]] || fail "prepared commercial backup script boundary mismatch"
@@ -719,9 +722,10 @@ verify_prepared_control_boundary() {
   verify_clean_release "$RELEASE_ROOT/control/$BUILT_PARTIAL_CONTROL_SHA" "$BUILT_PARTIAL_CONTROL_SHA" "$BUILT_PARTIAL_CONTROL_TREE"
   verify_clean_release "$RELEASE_ROOT/control/$MIGRATION_PARTIAL_CONTROL_SHA" "$MIGRATION_PARTIAL_CONTROL_SHA" "$MIGRATION_PARTIAL_CONTROL_TREE"
   verify_clean_release "$RELEASE_ROOT/control/$SCHEMA_PARTIAL_CONTROL_SHA" "$SCHEMA_PARTIAL_CONTROL_SHA" "$SCHEMA_PARTIAL_CONTROL_TREE"
+  verify_clean_release "$RELEASE_ROOT/control/$PRIOR_PREPARED_CONTROL_SHA" "$PRIOR_PREPARED_CONTROL_SHA" "$PRIOR_PREPARED_CONTROL_TREE"
   verify_clean_release "$control_target" "$PREPARED_CONTROL_SHA" "$PREPARED_CONTROL_TREE"
   [[ "$(/usr/bin/find "$RELEASE_ROOT/control" -mindepth 1 -maxdepth 1 -printf '%f\n' | /usr/bin/sort)" == "$expected_controls" ]] || fail "prepared Control release set mismatch"
-  for target in "$app_target" "$RELEASE_ROOT/control/$BUILT_PARTIAL_CONTROL_SHA" "$RELEASE_ROOT/control/$MIGRATION_PARTIAL_CONTROL_SHA" "$RELEASE_ROOT/control/$SCHEMA_PARTIAL_CONTROL_SHA" "$control_target" "$venv_target"; do
+  for target in "$app_target" "$RELEASE_ROOT/control/$BUILT_PARTIAL_CONTROL_SHA" "$RELEASE_ROOT/control/$MIGRATION_PARTIAL_CONTROL_SHA" "$RELEASE_ROOT/control/$SCHEMA_PARTIAL_CONTROL_SHA" "$RELEASE_ROOT/control/$PRIOR_PREPARED_CONTROL_SHA" "$control_target" "$venv_target"; do
     [[ "$(stat -c '%a:%U:%G' "$target")" == "750:root:$RUNTIME_GROUP" ]] || fail "prepared Control release metadata mismatch: $target"
   done
   for parent in "$RELEASE_ROOT" "$RELEASE_ROOT/application" "$RELEASE_ROOT/control" "$RELEASE_ROOT/venv"; do
@@ -741,7 +745,8 @@ verify_prepared_control_boundary() {
   [[ "$(stat -c '%a:%U:%G' "$STATE_ROOT")" == "700:$RUNTIME_USER:$RUNTIME_GROUP" ]] || fail "prepared Control state metadata mismatch"
   [[ "$(stat -c '%a:%U:%G' "$STATE_ROOT/state.json")" == "600:$RUNTIME_USER:$RUNTIME_GROUP" ]] || fail "prepared Control state file metadata mismatch"
   /usr/bin/cmp --silent "$STATE_ROOT/state.json" "$control_target/config/adult-publishing/staging-s0-commercial/state.empty.json" || fail "prepared Control initial state drift"
-  for path in "$CONFIG_ROOT/release-manifest.json" "$STATE_ROOT/runtime-status.json" "$STATE_ROOT/runtime.lock" "$INSTALLED_UNIT" "/opt/tu1nz_repos/.m4-23-commercial-s0-control-stage-$CONTROL_SHA" "$RELEASE_ROOT/control/$CONTROL_SHA" "$RELEASE_ROOT/control-current.m4-23-$CONTROL_SHA" "$evidence_root/tu1nz_encrypted_backup.sh.before-commercial-dump-fix"; do
+  [[ "$(stat -c '%a:%U:%G' "$evidence_root/tu1nz_encrypted_backup.sh.before-commercial-dump-fix")" == "600:root:root" && "$(sha256 "$evidence_root/tu1nz_encrypted_backup.sh.before-commercial-dump-fix")" == "$PRIOR_PREPARED_BACKUP_SHA256" ]] || fail "prior commercial backup script evidence mismatch"
+  for path in "$CONFIG_ROOT/release-manifest.json" "$STATE_ROOT/runtime-status.json" "$STATE_ROOT/runtime.lock" "$INSTALLED_UNIT" "/opt/tu1nz_repos/.m4-23-commercial-s0-control-stage-$CONTROL_SHA" "$RELEASE_ROOT/control/$CONTROL_SHA" "$RELEASE_ROOT/control-current.m4-23-$CONTROL_SHA" "$evidence_root/tu1nz_encrypted_backup.sh.before-commercial-stdout-fix"; do
     [[ ! -e "$path" && ! -L "$path" ]] || fail "prepared Control target must be absent: $path"
   done
   verify_schema_acceptance "$app_target"
@@ -757,7 +762,7 @@ advance_prepared_control() {
   local stage_root="/opt/tu1nz_repos/.m4-23-commercial-s0-control-stage-$CONTROL_SHA"
   local control_stage="$stage_root/control-$CONTROL_SHA"
   local next_link="$RELEASE_ROOT/control-current.m4-23-$CONTROL_SHA"
-  local backup_evidence="/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/20260828T15-39-59Z/tu1nz_encrypted_backup.sh.before-commercial-dump-fix"
+  local backup_evidence="/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/20260828T15-39-59Z/tu1nz_encrypted_backup.sh.before-commercial-stdout-fix"
   verify_prepared_control_boundary >/dev/null
   trap resume_backup_timer EXIT
   /bin/systemctl stop tu1nz_encrypted_backup.timer

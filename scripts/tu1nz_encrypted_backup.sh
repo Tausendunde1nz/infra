@@ -94,7 +94,7 @@ if (( commercial_present == ${#commercial_paths[@]} )); then
   chmod 0700 "$COMMERCIAL_DUMP_DIR"
   COMMERCIAL_DB_DUMP="$COMMERCIAL_DUMP_DIR/commercial-s0-database.dump"
   /usr/sbin/runuser -u "$COMMERCIAL_RUNTIME_USER" -- \
-    /usr/bin/pg_dump --format=custom --file=- \
+    /usr/bin/pg_dump --format=custom \
       --dbname=tu1nz_adult_commercial_s0 >"$COMMERCIAL_DB_DUMP"
   chown root:root "$COMMERCIAL_DB_DUMP"
   chmod 0600 "$COMMERCIAL_DB_DUMP"

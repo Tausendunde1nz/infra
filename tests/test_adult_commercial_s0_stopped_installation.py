@@ -51,6 +51,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             '--username="$RUNTIME_ROLE"',
             "/usr/bin/mv -T --",
             "tu1nz_encrypted_backup.sh.before-commercial-dump-fix",
+            "tu1nz_encrypted_backup.sh.before-commercial-stdout-fix",
         ):
             self.assertIn(required, source)
         for forbidden in (
