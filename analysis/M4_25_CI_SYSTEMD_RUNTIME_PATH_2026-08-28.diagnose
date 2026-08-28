@@ -1,0 +1,41 @@
+M4.25 CI systemd runtime-path diagnosis
+Date: 2026-08-28
+Failed run: 33198254357
+Failed job: restore-contract / Validate M4.25 systemd unit
+
+Observed error
+--------------
+systemd-analyze rejected the unit because the GitHub runner does not contain
+the server-only executable at:
+
+/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/venv-current/bin/tu1nz-commercial-runtime-candidate
+
+Cause
+-----
+The new CI step executed systemd-analyze directly against the production-path
+unit in an ephemeral runner. systemd-analyze validates absolute executable
+existence as well as unit syntax. The missing runner path is expected and is
+not a unit syntax defect or server drift.
+
+Safety state
+------------
+No M4.25 server mutation had begun. The candidate remained never started and
+the existing unit, manifest, Control link, S1 and backup services were not
+changed. No rollback was required.
+
+Versioned correction
+--------------------
+CI validates a temporary copy in which only the ExecStart executable is
+replaced by /bin/true. All other unit directives are byte-preserved for
+systemd parsing. Dedicated tests continue to verify the exact versioned
+ExecStart, Restart=no, RuntimeMaxSec=180, static structure and network guards.
+
+The M4.25 server controller still runs systemd-analyze against the original
+unmodified versioned unit after the immutable release and real runtime path
+exist, before any installed-unit replacement. A server-side validation failure
+therefore remains fail-closed.
+
+Rollback plan
+-------------
+If the corrected CI does not pass, stop again with no server change and retain
+this diagnosis. Do not bypass the check or install the unit.
