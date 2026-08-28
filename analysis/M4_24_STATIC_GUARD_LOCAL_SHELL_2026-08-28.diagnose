@@ -1,0 +1,32 @@
+# M4.24 static guard — local shell mismatch
+
+Date: 2026-08-28
+
+## Failure
+
+The local reproduction of the M4.24 CI static guard was initially launched by
+the macOS task shell (`zsh`). The workflow step itself declares `shell: bash`,
+but the local wrapper did not. `zsh` reserves the variable name `status`, so the
+wrapper stopped with `read-only variable: status` before YAML validation.
+
+The repeated Bash guard passed. The separate optional Python YAML parser probe
+then found that PyYAML is not installed on this Mac. This does not affect GitHub
+Actions or the repository test suite; YAML syntax is repeated with the system
+Ruby/Psych parser instead of installing a new dependency during review.
+
+## Cause and impact
+
+This is a local test-harness shell mismatch, not a workflow failure. No service,
+server, provider, contract or repository history was changed. The full Python
+regression had already passed 182 tests.
+
+## Minimal correction
+
+Repeat the unchanged workflow guard with `/bin/bash` explicitly, retain the
+workflow's declared Bash shell, and use the already installed system YAML
+parser for the local syntax-only check.
+
+## Rollback
+
+No runtime rollback is applicable. The uncommitted review can still be removed
+to return to `758b404d5fe69b5395ff6e73cd3542b6da141926`.

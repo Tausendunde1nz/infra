@@ -1,0 +1,34 @@
+# M4.24 final review — local hardened-test failure
+
+Date: 2026-08-28
+
+## Failure
+
+The first post-hardening M4.24-only run completed 34 tests with four errors.
+Three execution-flow tests stopped before any mocked start because the local
+Python build does not accept `follow_symlinks` on `Path.stat`. One postcheck
+fixture returned the pre-hardening constant archive value instead of the
+archive value captured in its synthetic `before` snapshot.
+
+## Cause
+
+- Portability error in the newly added file-identity helper. `Path.lstat()` is
+  the compatible no-follow operation needed here.
+- Test-fixture mismatch after replacing aggregate database evidence with a
+  complete stable-boundary snapshot.
+
+## Safety impact
+
+None on a host or service. The run was local, mocked, and stopped before the
+mocked start command. No deployment, unit action, provider action or contract
+approval occurred. The committed PR head remains unchanged and NO-GO.
+
+## Minimal correction
+
+Use `Path.lstat()` and add the exact archive/unit boundary values to the local
+synthetic preflight fixture. Rerun M4.24 tests before any broader regression.
+
+## Rollback
+
+Discard the uncommitted review work to return to PR head
+`758b404d5fe69b5395ff6e73cd3542b6da141926`.

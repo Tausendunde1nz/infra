@@ -18,13 +18,16 @@
   },
   "blockers": [
     "FIRST_START_NOT_APPROVED",
-    "NO_SWAP_RISK_NOT_ACCEPTED_FOR_FIRST_START"
+    "NO_SWAP_RISK_NOT_ACCEPTED_FOR_FIRST_START",
+    "UNIT_SINGLE_START_GUARD_NOT_INSTALLED"
   ],
   "contract_version": "tu1nz-commercial-network-free-first-start-m4.24-v1",
   "decision": "NO_GO",
   "environment": "STAGING-S0-COMMERCIAL-CANDIDATE",
   "first_start_window": {
+    "approval_maximum_age_seconds": 3600,
     "health_maximum_age_seconds": 90,
+    "maximum_runtime_seconds": 180,
     "must_end_stopped": true,
     "ready_timeout_seconds": 60,
     "single_controlled_start": true,
@@ -45,6 +48,7 @@
     "observed_at": "2026-08-28T17:14:50Z",
     "release_gate_passed": true,
     "root_filesystem_available_bytes": 20483121152,
+    "runtime_maximum_seconds": null,
     "s1_active": true,
     "security_exposure_level": 0.6,
     "security_rating": "SAFE",
@@ -53,7 +57,9 @@
     "unit_active": false,
     "unit_file_state": "static",
     "unit_installed": true,
-    "unit_previously_started": false
+    "unit_previously_started": false,
+    "unit_restart_policy": "on-failure",
+    "unit_single_start_guard_installed": false
   },
   "product_boundary": {
     "external_providers_enabled": false,

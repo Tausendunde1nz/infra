@@ -7,7 +7,7 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -28,7 +28,9 @@ UNIT_SHA256 = "ecec13e294ded68dfeeaba1300eb2f5247aacf5e9085c9838eca3b50f6a56bf3"
 NO_GO_BLOCKERS = {
     "FIRST_START_NOT_APPROVED",
     "NO_SWAP_RISK_NOT_ACCEPTED_FOR_FIRST_START",
+    "UNIT_SINGLE_START_GUARD_NOT_INSTALLED",
 }
+APPROVAL_MAXIMUM_AGE_SECONDS = 3600
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 TOP_LEVEL = {
@@ -81,7 +83,12 @@ def utc(value: object, label: str) -> datetime:
     return parsed
 
 
-def validate_contract(contract: dict[str, object], *, require_approved: bool) -> bool:
+def validate_contract(
+    contract: dict[str, object],
+    *,
+    require_approved: bool,
+    now: datetime | None = None,
+) -> bool:
     if set(contract) != TOP_LEVEL:
         raise GateFailure("exact top-level key set required")
     if (
@@ -91,6 +98,9 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
         or contract["environment"] != "STAGING-S0-COMMERCIAL-CANDIDATE"
     ):
         raise GateFailure("M4.24 first-start identity mismatch")
+    if type(contract["active"]) is not bool:
+        raise GateFailure("active must be an exact boolean")
+    approved = contract["active"] is True
 
     release = exact_object(
         contract["release"],
@@ -151,7 +161,9 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
     window = exact_object(
         contract["first_start_window"],
         {
+            "approval_maximum_age_seconds",
             "health_maximum_age_seconds",
+            "maximum_runtime_seconds",
             "must_end_stopped",
             "ready_timeout_seconds",
             "single_controlled_start",
@@ -160,13 +172,30 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
         "first-start window",
     )
     if window != {
+        "approval_maximum_age_seconds": APPROVAL_MAXIMUM_AGE_SECONDS,
         "health_maximum_age_seconds": 90,
+        "maximum_runtime_seconds": 180,
         "must_end_stopped": True,
         "ready_timeout_seconds": 60,
         "single_controlled_start": True,
         "stop_timeout_seconds": 45,
     }:
         raise GateFailure("bounded first-start window required")
+    if (
+        window["must_end_stopped"] is not True
+        or window["single_controlled_start"] is not True
+        or any(
+            type(window[field]) is not int
+            for field in (
+                "approval_maximum_age_seconds",
+                "health_maximum_age_seconds",
+                "maximum_runtime_seconds",
+                "ready_timeout_seconds",
+                "stop_timeout_seconds",
+            )
+        )
+    ):
+        raise GateFailure("exact first-start window types required")
 
     observation = exact_object(
         contract["preflight_observation"],
@@ -185,6 +214,7 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
             "observed_at",
             "release_gate_passed",
             "root_filesystem_available_bytes",
+            "runtime_maximum_seconds",
             "s1_active",
             "security_exposure_level",
             "security_rating",
@@ -194,6 +224,8 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
             "unit_file_state",
             "unit_installed",
             "unit_previously_started",
+            "unit_restart_policy",
+            "unit_single_start_guard_installed",
         },
         "preflight observation",
     )
@@ -254,6 +286,13 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
         }
     ):
         raise GateFailure("synthetic starting database mismatch")
+    if (
+        type(database["table_count"]) is not int
+        or type(database["function_count"]) is not int
+        or not isinstance(database["seed_counts"], dict)
+        or any(type(value) is not int for value in database["seed_counts"].values())
+    ):
+        raise GateFailure("exact starting database count types required")
 
     boundary = exact_object(
         contract["product_boundary"],
@@ -323,17 +362,32 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
     if approval["known_unrelated_failed_unit_accepted"] is not True:
         raise GateFailure("known unrelated failed unit must remain explicit")
     blockers = contract["blockers"]
-    if not isinstance(blockers, list) or len(blockers) != len(set(blockers)):
+    if (
+        not isinstance(blockers, list)
+        or any(
+            not isinstance(blocker, str)
+            or re.fullmatch(r"[A-Z0-9_]+", blocker) is None
+            for blocker in blockers
+        )
+        or len(blockers) != len(set(blockers))
+    ):
         raise GateFailure("unique blocker list required")
 
-    approved = contract["active"] is True
     if approved:
+        current = now or datetime.now(timezone.utc)
+        approved_at = utc(approval["approved_at"], "approved_at")
         if (
             contract["decision"] != "GO_FOR_ONE_CONTROLLED_NETWORK_FREE_FIRST_START"
             or blockers != []
             or approval["first_start_approved"] is not True
             or approval["no_swap_risk_accepted"] is not True
-            or utc(approval["approved_at"], "approved_at") < observed_at
+            or approved_at < observed_at
+            or approved_at > current + timedelta(seconds=5)
+            or current - approved_at
+            > timedelta(seconds=APPROVAL_MAXIMUM_AGE_SECONDS)
+            or observation["unit_single_start_guard_installed"] is not True
+            or observation["unit_restart_policy"] != "no"
+            or observation["runtime_maximum_seconds"] != 180
         ):
             raise GateFailure("complete post-preflight first-start approval required")
     else:
@@ -343,6 +397,9 @@ def validate_contract(contract: dict[str, object], *, require_approved: bool) ->
             or approval["first_start_approved"] is not False
             or approval["no_swap_risk_accepted"] is not False
             or approval["approved_at"] is not None
+            or observation["unit_single_start_guard_installed"] is not False
+            or observation["unit_restart_policy"] != "on-failure"
+            or observation["runtime_maximum_seconds"] is not None
         ):
             raise GateFailure("exact pre-approval NO-GO required")
     if require_approved and not approved:

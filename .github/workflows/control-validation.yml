@@ -183,11 +183,22 @@ jobs:
           --contract manifests/adult-publishing-commercial-first-start.m4-24.json
           --require-approved
       - name: Reject enablement, restart, deletion, networking and provider credentials in M4.24
-        run: >-
-          ! git grep -nEi
-          '(SYSTEMCTL,[[:space:]]*"(enable|restart)"|rm[[:space:]]+-rf|shutil\.rmtree|docker[[:space:]]+run|https?://api\.|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN|(^|[[:space:]])crontab([[:space:]]|$))' --
-          scripts/tu1nz_adult_commercial_first_start_gate.py
-          scripts/tu1nz_adult_commercial_s0_first_start.py
+        shell: bash
+        run: |
+          if git grep -nEi \
+            '(SYSTEMCTL,[[:space:]]*"(enable|restart)"|rm[[:space:]]+-rf|shutil\.rmtree|docker[[:space:]]+run|https?://api\.|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN|(^|[[:space:]])crontab([[:space:]]|$))' -- \
+            scripts/tu1nz_adult_commercial_first_start_gate.py \
+            scripts/tu1nz_adult_commercial_s0_first_start.py
+          then
+            echo "Forbidden M4.24 behavior detected" >&2
+            exit 1
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              echo "M4.24 static guard infrastructure failed" >&2
+              exit "$status"
+            fi
+          fi
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

@@ -42,6 +42,13 @@ open release file, runtime status or lock. The dedicated database has 39
 tables, 21 TU1NZ functions, exact synthetic seed counts and zero rows across
 all 33 non-seed business tables.
 
+The final code review identified that this exact installed unit still has
+`Restart=on-failure` and no finite `RuntimeMaxSec`. It therefore does not yet
+meet the one-start/guaranteed-stop boundary. The contract records this as
+`UNIT_SINGLE_START_GUARD_NOT_INSTALLED`; the controller now rejects the unit
+unless its effective properties are exactly `Restart=no` and
+`RuntimeMaxUSec=180000000`. No start is possible with the observed unit.
+
 ## Fail-closed authorization
 
 `manifests/adult-publishing-commercial-first-start.m4-24.json` is the only
@@ -53,13 +60,16 @@ is deliberately inactive:
 - `first_start_approved=false`;
 - `approved_at=null`;
 - no-swap risk not accepted for the first-start window; and
-- explicit blockers remain.
+- the single-start unit guard is not installed; and
+- all three explicit blockers remain.
 
 The authorization gate validates this as a sound design state but exits
 nonzero when `--require-approved` is requested. A later approval must be a new
 reviewed Control change with an operator timestamp after the recorded
-preflight, acceptance of the known no-swap risk, no blockers and the exact GO
-decision. An unversioned copy or alternate path is rejected.
+preflight, acceptance of the known no-swap risk, no blockers, the exact GO
+decision and a verified single-start unit guard. Approval expires after 3600
+seconds and future timestamps are rejected. An unversioned copy, hard link,
+alternate path, dirty/ignored canonical file or parallel controller is rejected.
 
 ## Automated technical preflight
 
@@ -74,15 +84,21 @@ later start can be considered:
 4. the isolated restore evidence exists;
 5. the existing M4.19 release gate, native unit verification and `0.6 SAFE`
    security gate pass;
-6. the unit is loaded, inactive, dead and static with no prior start evidence;
+6. the unit is loaded, inactive, dead and static with no prior start/restart
+   evidence, `Restart=no` and a 180-second systemd maximum runtime;
 7. S1 and backup timer are active, backup service is idle and only the already
    accepted unrelated `tu1nz-doc.service` may be failed;
 8. runtime state is exactly empty and no runtime status or lock exists;
-9. database schema, functions, seed counts and all business-row zeros match;
+9. database schema, functions, exact per-table counts and complete deterministic
+   row-content hashes match in one repeatable-read, read-only transaction, with
+   no other database session;
 10. no process, commercial timer, cron entry, Docker mount or open release file
     collides;
 11. Tailscale identity is `100.121.130.51`; and
-12. minimum root storage and available-memory boundaries pass.
+12. no process owned by the dedicated runtime user remains, sensitive manager
+    or unit environment names are absent, and helper commands receive a fixed,
+    credential-free environment; and
+13. minimum root storage and available-memory boundaries pass.
 
 The zero-swap result remains a risk, not a hidden technical fact. It must be
 accepted in the later authorization contract before execution.
@@ -93,40 +109,52 @@ The `execute` mode is implemented but not authorized or invoked by this
 sprint. Its order is fixed:
 
 1. complete the entire read-only technical preflight;
-2. rerun the authorization gate with `--require-approved`;
+2. rerun the authorization gate with `--require-approved` and hold an exclusive
+   lock on the exact contract inode;
 3. create a new root-owned `0700` evidence directory below
    `/opt/tu1nz_repos/backups/m4-24-commercial-s0-first-start`;
 4. preserve the authorization and preflight snapshot;
-5. issue exactly one `systemctl start` for the static candidate;
-6. require a privacy-safe `READY` status with zero projected submissions and
+5. rerun the complete technical preflight, compare every stable release, unit,
+   contract, state, database and service boundary, then rerun authorization;
+6. issue exactly one `systemctl start` for the static candidate;
+7. require a fresh, privacy-safe `READY` status created after this window, with
+   zero projected submissions, and
    run the versioned local health command;
-7. issue `systemctl stop` within the bounded window;
-8. require `STOPPED`, inactive/dead/static state and zero restarts;
-9. compare the exact state-file hash and complete database snapshot with the
+8. issue `systemctl stop` within the bounded window;
+9. require `STOPPED`, inactive/dead/static state and zero restarts;
+10. compare the exact state-file hash and complete database snapshot with the
    pre-start snapshot;
-10. prove releases clean, S1 and backup timer active, backup service idle and
+11. rerun the release, manifest, unit, contract, provider-environment and
+    canonical-Control guards; prove S1 and the backup timer active, the backup
+    service idle and
     no commercial process remains; and
-11. preserve the journal, status and final result as root-private evidence.
+12. preserve the journal, status and final result as root-private evidence.
 
 Success is impossible unless the service ends stopped. There is no mode that
 leaves the first-start candidate running.
 
 ## Automated abort plan
 
-The controller marks the window as start-attempted before invoking systemd. Any
-subsequent command, readiness, health, timeout, state, database or release
-failure invokes the abort routine. The routine:
+The controller installs controlled `SIGHUP`, `SIGINT` and `SIGTERM` handling,
+then marks the window as start-attempted before invoking systemd. Any subsequent
+exception, command, readiness, health, timeout, state, database, evidence or
+release failure invokes the abort routine. The routine:
 
 1. captures the pre-abort service state;
 2. stops the candidate if it is not already inactive;
-3. waits for inactivity without deleting or rewriting state;
+3. waits for and verifies inactive/dead state; stop timeout or state-query
+   failure remains a critical error and is never reported as success;
 4. preserves the runtime status and the last 200 unit journal lines;
-5. records a timestamped abort result; and
-6. preserves the database, runtime state, manifest, lock, releases and all
+5. compares the complete database and state-file snapshot with the preflight
+   evidence rather than claiming preservation without proof;
+6. records a timestamped abort result; and
+7. preserves the database, runtime state, manifest, lock, releases and all
    evidence for diagnosis.
 
-The `finally` guard makes a second best-effort stop if an exception interrupted
-the abort path. The manual `abort` mode accepts only an existing root-owned
+The `finally` guard performs another mandatory, verified stop if an exception
+interrupts the abort path. The 180-second systemd runtime maximum is required so
+even an uncatchable controller termination cannot create an unbounded service.
+The manual `abort` mode accepts only an existing root-owned
 `0700` directory below the fixed evidence parent. It cannot target an arbitrary
 path. Neither automatic nor manual abort deletes evidence or rolls back the
 database.
@@ -137,15 +165,20 @@ The M4.24 module covers:
 
 - valid inactive contract and mandatory execution rejection;
 - a complete synthetic approved-contract fixture;
-- timestamp, no-swap, hash, prior-start, business-row, network and recovery
+- stale/future timestamp, no-swap, hash, prior-start, single-start guard,
+  business-row, network and recovery
   negative cases;
 - authorization-before-start ordering;
-- one-start/one-stop success flow ending stopped;
+- exclusive-controller locking, full pre-start revalidation and one-start/
+  one-stop success flow ending stopped;
 - authorization failure proving no start command is issued;
-- health failure proving abort and final stop;
-- exact synthetic database snapshot; and
-- static rejection of enable, restart, broad deletion, provider credentials
-  and external API URLs.
+- health and evidence failures proving abort and final stop;
+- signal conversion and fatal stop-timeout behavior;
+- exact per-table database counts, schema/content hashes and sum-cancellation
+  detection; and
+- AST and static rejection of dynamic systemctl verbs, enable, restart, broad
+  deletion, provider credentials and external API URLs. Static-guard
+  infrastructure errors are distinct from the expected no-match result.
 
 CI also requires the committed contract to remain NO-GO and confirms that
 `--require-approved` rejects it. The actual first start therefore cannot become
@@ -160,8 +193,9 @@ the unit or start a service. The M4.23 archive remains the recovery basis.
 
 ## Exact next boundary
 
-Stop after merge and CI. A later, separately approved window must first update
-the versioned M4.24 contract from NO-GO to the exact one-window GO state and
-resynchronize canonical Control. Only then may the controller's `preflight`
-mode be run on the server. The `execute` mode remains a further explicit action;
-it is not part of this sprint.
+Do not merge, deploy or start in this review. A separate stopped-unit sprint
+must first version, back up, install and verify `Restart=no` plus
+`RuntimeMaxSec=180`, then refresh every bound unit/manifest/archive digest and
+the preflight observation. Only after a fresh reviewed approval may canonical
+Control be synchronized and the read-only `preflight` mode run. `execute`
+remains a further explicit action and is not part of this sprint.

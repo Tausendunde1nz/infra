@@ -89,14 +89,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "approval_maximum_age_seconds",
         "health_maximum_age_seconds",
+        "maximum_runtime_seconds",
         "must_end_stopped",
         "ready_timeout_seconds",
         "single_controlled_start",
         "stop_timeout_seconds"
       ],
       "properties": {
+        "approval_maximum_age_seconds": { "const": 3600 },
         "health_maximum_age_seconds": { "type": "integer", "minimum": 30, "maximum": 300 },
+        "maximum_runtime_seconds": { "const": 180 },
         "must_end_stopped": { "const": true },
         "ready_timeout_seconds": { "type": "integer", "minimum": 10, "maximum": 300 },
         "single_controlled_start": { "const": true },
@@ -121,6 +125,7 @@
         "observed_at",
         "release_gate_passed",
         "root_filesystem_available_bytes",
+        "runtime_maximum_seconds",
         "s1_active",
         "security_exposure_level",
         "security_rating",
@@ -129,7 +134,9 @@
         "unit_active",
         "unit_file_state",
         "unit_installed",
-        "unit_previously_started"
+        "unit_previously_started",
+        "unit_restart_policy",
+        "unit_single_start_guard_installed"
       ],
       "properties": {
         "application_release_clean": { "const": true },
@@ -146,6 +153,7 @@
         "observed_at": { "type": "string" },
         "release_gate_passed": { "const": true },
         "root_filesystem_available_bytes": { "type": "integer", "minimum": 1073741824 },
+        "runtime_maximum_seconds": { "type": ["integer", "null"] },
         "s1_active": { "const": true },
         "security_exposure_level": { "type": "number", "maximum": 1.0 },
         "security_rating": { "const": "SAFE" },
@@ -154,7 +162,9 @@
         "unit_active": { "const": false },
         "unit_file_state": { "const": "static" },
         "unit_installed": { "const": true },
-        "unit_previously_started": { "const": false }
+        "unit_previously_started": { "const": false },
+        "unit_restart_policy": { "enum": ["no", "on-failure"] },
+        "unit_single_start_guard_installed": { "type": "boolean" }
       }
     },
     "productBoundary": {
