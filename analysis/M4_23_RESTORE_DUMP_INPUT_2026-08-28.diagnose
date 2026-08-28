@@ -18,3 +18,11 @@ custom dump and passes it through standard input to `pg_restore --list` and the
 isolated temporary-database restore. The temporary database remains protected
 by an exit trap and is dropped after verification. No ACL, group or permission
 is widened.
+
+The first corrected invocation stopped before database creation because the
+new restore directory inherited setgid from its root-only parent and therefore
+reported mode `2700` rather than the asserted `0700`. Ownership remained
+`root:root`, the dump was `0600 root:root`, `pg_restore --list` over standard
+input passed and the temporary database remained absent. Recovery explicitly
+clears the inherited setgid bit, reasserts `0700`, and then repeats the exact
+preconditions before creating the isolated database.
