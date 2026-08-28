@@ -128,3 +128,11 @@ preparation and the exact commercial backup. Manifest generation, isolated
 restore rehearsal and stopped unit installation then require one concise
 operator confirmation of that named archive. First start remains a later,
 separate decision even after the unit is installed.
+
+The first post-preparation backup attempt stopped before archive creation:
+local `postgres` could not traverse the protected backup parent to open its
+custom dump output. The correction keeps that identity and all parent
+permissions unchanged. Root opens a `0600` file inside a root-private temporary
+directory and receives `pg_dump --format=custom --file=-` output. Cleanup,
+archive membership, encrypted upload, seven-day retention and the later restore
+contract are unchanged.

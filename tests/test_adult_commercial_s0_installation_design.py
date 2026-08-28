@@ -405,10 +405,18 @@ class CommercialS0InstallationDesignTest(unittest.TestCase):
             "tu1nz_adult_commercial_s0",
             "Commercial S0 backup paths are only partially provisioned",
             'COMMERCIAL_RUNTIME_USER="postgres"',
+            'chown root:root "$COMMERCIAL_DUMP_DIR"',
+            '/usr/bin/pg_dump --format=custom --file=-',
+            '--dbname=tu1nz_adult_commercial_s0 >"$COMMERCIAL_DB_DUMP"',
+            'chmod 0600 "$COMMERCIAL_DB_DUMP"',
         ):
             self.assertIn(required, text)
         self.assertIn("commercial_present != 0", text)
         self.assertNotIn("crontab", text)
+        self.assertNotIn(
+            'chown "$COMMERCIAL_RUNTIME_USER:$COMMERCIAL_RUNTIME_USER" "$COMMERCIAL_DUMP_DIR"',
+            text,
+        )
 
     def test_gate_scopes_git_safety_and_contains_no_mutation_actions(self) -> None:
         text = GATE_TOOL.read_text(encoding="utf-8")

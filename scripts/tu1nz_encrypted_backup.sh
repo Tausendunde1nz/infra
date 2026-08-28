@@ -90,12 +90,14 @@ fi
 if (( commercial_present == ${#commercial_paths[@]} )); then
   COMMERCIAL_INCLUDED=1
   COMMERCIAL_DUMP_DIR="$(/usr/bin/mktemp -d "$BACKUP_DIR/.commercial-s0-dump.XXXXXX")"
-  chown "$COMMERCIAL_RUNTIME_USER:$COMMERCIAL_RUNTIME_USER" "$COMMERCIAL_DUMP_DIR"
+  chown root:root "$COMMERCIAL_DUMP_DIR"
   chmod 0700 "$COMMERCIAL_DUMP_DIR"
   COMMERCIAL_DB_DUMP="$COMMERCIAL_DUMP_DIR/commercial-s0-database.dump"
   /usr/sbin/runuser -u "$COMMERCIAL_RUNTIME_USER" -- \
-    /usr/bin/pg_dump --format=custom --file="$COMMERCIAL_DB_DUMP" \
-      --dbname=tu1nz_adult_commercial_s0
+    /usr/bin/pg_dump --format=custom --file=- \
+      --dbname=tu1nz_adult_commercial_s0 >"$COMMERCIAL_DB_DUMP"
+  chown root:root "$COMMERCIAL_DB_DUMP"
+  chmod 0600 "$COMMERCIAL_DB_DUMP"
   [[ -s "$COMMERCIAL_DB_DUMP" ]] || {
     echo "Commercial S0 PostgreSQL dump is empty" >&2
     exit 1
