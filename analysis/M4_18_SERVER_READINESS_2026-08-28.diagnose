@@ -1,0 +1,99 @@
+M4.18 commercial readiness implementation diagnosis
+Date: 2026-08-28
+Status: controlled local validation finding; no server action occurred
+
+Finding M4_18_LOCAL_GATE_NOT_EXECUTABLE
+- The first test run could not start the newly added read-only gate because the
+  file mode was 0644 rather than executable.
+- All ten tests failed at process creation with PermissionError. They did not
+  execute contract logic, mutate a fixture or contact the server.
+
+Cause
+- The content was added through the repository patch workflow, which created a
+  regular non-executable file. The test intentionally invokes the checked-in
+  script directly to verify its operational file contract.
+
+Approved bounded correction
+- Set only scripts/tu1nz_adult_commercial_readiness_gate.py to mode 0755.
+- Repeat compilation, the complete M4.18 test module and the exact local
+  candidate gate before any Tailscale/SSH observation.
+
+Rollback
+- Before commit, abandon the M4.18 branch or remove its uncommitted artifacts.
+- After commit, use a normal Git revert. No server rollback exists because this
+  finding and correction are local repository metadata only.
+
+Resolution M4_18_LOCAL_GATE_NOT_EXECUTABLE
+- The gate mode is now 0755.
+- Compilation, all ten then-expanded negative/positive tests, and the exact
+  candidate gate completed successfully before SSH inventory.
+
+Finding M4_18_CONTROL_BASELINE_STALE_LOCAL_CLONE
+- The first local Control checkout was clean but 24 commits behind its remote.
+- The M4.18 branch was created from freshly fetched origin/control-main at
+  0467b6354f0202b95c86c17bdca6c45dfd1626d5, not from the stale local branch.
+- No reset or rewrite was applied to the user's original local control-main
+  branch.
+
+Finding M4_18_CANONICAL_CONTROL_AUTORESET
+- On the server, tu1nz_agentmode.service invokes tu1nz_sync_all.sh every five
+  minutes.
+- The script performs git fetch followed by git reset --hard @{u} in
+  /opt/tu1nz_repos/control.
+- The checkout was clean and exactly at 0467b6354f0202b95c86c17bdca6c45dfd1626d5,
+  but it is an automatically mutated worktree and is prohibited as a staging
+  target. Future Control releases must be clean immutable SHA-named clones.
+
+Finding M4_18_APPLICATION_REVIEW_CHAIN_UNMERGED
+- Candidate 183c5479246a27e7844670bf53c7e34200de92ea is an open, mergeable Draft
+  PR #58 with four green checks.
+- It is stacked on Draft PRs #49 through #57 and is not main-reachable.
+- Activation remains NO-GO until the chain is merged in order and the final
+  main-reachable application SHA is rebound in release evidence.
+
+Finding M4_18_BACKUP_NOT_CANDIDATE_BOUND
+- The current encrypted archive
+  tu1nz_system_backup_20260828T03-31-58Z.tar.gz is present locally and remotely,
+  is 45142464 bytes and has SHA-256
+  5110d1e85d4256e22af6ad44cf23cb0333cd759c763219ce35a10dcc0f1496e5.
+- The daily restore smoke test passed for that exact archive at
+  2026-08-28T06:16:52Z.
+- The archive contains existing Control/application/S1 material but no member
+  named for M4.17 SHA 183c5479246a27e7844670bf53c7e34200de92ea.
+- It is valid current-host evidence and not an activation backup for M4.17.
+
+Finding M4_18_RCLONE_CONFIG_SAVE_WARNING
+- The successful backup journal includes a nonfatal rclone error when it tried
+  to create a temporary updated config on a read-only filesystem.
+- Transfer completed 1/1, the service returned success, the exact remote object
+  exists and the later restore-smoke test passed.
+- A later activation backup must explicitly resolve or re-prove this behavior;
+  M4.18 changes no rclone configuration.
+
+Finding M4_18_VPN_MAINTENANCE_RISK
+- Three Tailscale pings reached the exact host only through DERP(nue); no direct
+  connection was established.
+- The Mac CLI reports version 1.86.2 while its local daemon reports 1.86.4.
+- SSH was stable for both chatops and root read-only checks. No VPN update or
+  ACL change was performed.
+
+Final diagnosis decision
+- New commercial paths, identities, service, cron references, Docker mounts,
+  processes and privileged open-file references are absent.
+- PostgreSQL 17.11 listens only on 127.0.0.1:5432 and its local socket.
+- M4.18 is GO for documentation, Control contract and preflight completion.
+- Installation, activation, migration, exact-release backup/restore, provider
+  access, real media/payment and production remain NO-GO.
+
+Finding M4_18_UNITTEST_DISCOVERY_FALSE_ZERO
+- A generic `python3 -m unittest discover -v` invocation returned success after
+  running zero tests because this repository's test directory is exercised as
+  explicit namespace modules rather than a discovery package.
+- That zero-test result is rejected as evidence.
+- The bounded correction is to run all four named Control test modules exactly
+  as the workflow does; no package marker or production behavior is changed.
+
+Resolution M4_18_UNITTEST_DISCOVERY_FALSE_ZERO
+- The four explicit modules ran 69 tests and all 69 passed.
+- The M4.18 subset ran 12 positive/negative tests.
+- The exact local application candidate gate also passed.

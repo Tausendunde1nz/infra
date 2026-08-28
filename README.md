@@ -33,6 +33,15 @@ Current Adult Publishing infrastructure decisions:
 - `scripts/tu1nz_adult_staging_manifest.py` and
   `scripts/tu1nz_adult_s0_release_gate.py` create and verify exact immutable S0
   release evidence. They contain no deploy or activation behavior.
+- `docs/M4_18_COMMERCIAL_RUNTIME_CONTROL_READINESS_2026-08-28.md` records the
+  fresh Tailscale-only server preflight and the reviewed, still inactive M4.17
+  commercial runtime contract. Deployment and activation remain `NO-GO`.
+- `manifests/adult-publishing-commercial-readiness.m4-18.json` binds the exact
+  unmerged application candidate and fresh host evidence while keeping every
+  provider, payment, media, network, installation and server switch disabled.
+- `scripts/tu1nz_adult_commercial_readiness_gate.py` verifies that contract and
+  the exact application artifacts without modifying either repository or a
+  server.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

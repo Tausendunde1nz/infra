@@ -1,0 +1,103 @@
+{
+  "active": false,
+  "activation_decision": "NO_GO",
+  "application_merged_to_main": false,
+  "application_pr_url": "https://github.com/Tausendunde1nz/adult-publishing-core/pull/58",
+  "application_repository_url": "https://github.com/Tausendunde1nz/adult-publishing-core.git",
+  "application_sha": "183c5479246a27e7844670bf53c7e34200de92ea",
+  "artifact_sha256": {
+    "config/commercial-application-composition.disabled.json": "21f619f6798cd299993571ada0824326f8de82d9cfd471b9309d30b82b408747",
+    "config/commercial-runtime-candidate.disabled.json": "cbb678e9d6966bb7e1653b0cbddfecf06623a1ecde1945236d6cded16d550fb3",
+    "migrations/0014_m4_15_durable_commercial_persistence.down.sql": "64a4588e15d34f994c4f30aab19b1084ca6f45d5b664743fed9627685bfca04d",
+    "migrations/0014_m4_15_durable_commercial_persistence.sql": "049b2eb0b981f9505ca179d0857f2146634dbd0fa19524129d6efdafbb17eab3",
+    "requirements-m2.lock": "9ec9b739a7fd0837890637a1ee92c74ee43f5f8044e503d3a62b9b364f0bc294",
+    "src/tu1nz_application/commercial_composition.py": "43d5b4003bd823e26c9539fdaa2091e860a91d4b4e667a61db832afa4dc9d063",
+    "src/tu1nz_sandbox/commercial_candidate.py": "b6ad26869db2cc71b4c454728f8e5d733be86e7964377535a429e082a2db34ae",
+    "src/tu1nz_sandbox/commercial_runtime.py": "5c22a5e7cc11cc679816ca735fa780516c63aeca8f0bca592ae9132f6d706d92",
+    "tests/postgres/m4_17_commercial_runtime_candidate_acceptance.py": "ec87fad21a5aecc9975eaa2b67c0dcb7141656c76e64d8e7d7f590fdf237d824",
+    "tests/test_m4_17_commercial_runtime_candidate.py": "2f220404f45c4255f2b39485f6c928bc85a066a3278b76fc9e69a6e38ca3b6f6"
+  },
+  "commercial_contract_version": "tu1nz-commercial-persistence-m4.15-v1",
+  "contract_version": "tu1nz-commercial-control-m4.18-v1",
+  "control_baseline_sha": "0467b6354f0202b95c86c17bdca6c45dfd1626d5",
+  "control_repository_url": "https://github.com/Tausendunde1nz/infra.git",
+  "database_scope": "LOCAL_ONLY",
+  "environment": "STAGING-S0-COMMERCIAL-CANDIDATE",
+  "external_providers_enabled": false,
+  "installed": false,
+  "network_enabled": false,
+  "paid_targets": [
+    "REDDIT",
+    "TELEGRAM"
+  ],
+  "persistence_schema_version": "0014_m4_15_durable_commercial_persistence",
+  "planned_identities": {
+    "database": "tu1nz_adult_commercial_s0",
+    "database_migrator": "tu1nz_adult_commercial_s0_migrator",
+    "database_runtime": "tu1nz_adult_commercial_s0_runtime",
+    "operating_system_group": "tu1nz-adult-commercial-s0",
+    "operating_system_user": "tu1nz-adult-commercial-s0"
+  },
+  "planned_paths": {
+    "application_release_root": "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/application",
+    "configuration_root": "/etc/tu1nz/adult-publishing/staging-s0-commercial",
+    "control_release_root": "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/control",
+    "state_root": "/var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial",
+    "venv_release_root": "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/venv"
+  },
+  "real_media_enabled": false,
+  "real_payment_enabled": false,
+  "required_activation_gates": {
+    "activation_window_approved": false,
+    "application_commit_merged_to_main": false,
+    "backup_bound_to_exact_release": false,
+    "commercial_systemd_unit_versioned": false,
+    "dedicated_database_and_roles_present": false,
+    "dedicated_operating_system_identity_present": false,
+    "exact_application_release_staged": false,
+    "exact_control_release_staged": false,
+    "fresh_privileged_interference_check_complete": true,
+    "migration_0014_installed_in_isolated_database": false,
+    "restore_bound_to_exact_release": false,
+    "rollback_rehearsal_complete": false
+  },
+  "required_platforms": [
+    "REDDIT",
+    "TELEGRAM",
+    "X"
+  ],
+  "runtime_version": "tu1nz-commercial-runtime-candidate-m4.17-v1",
+  "server_enabled": false,
+  "server_observation": {
+    "active_s1_application_sha": "91d0ae139604bfe8eb61812797cac1056fa2c7d2",
+    "active_s1_control_sha": "a6a7740ed854238aa575e741bf7812f601a20217",
+    "canonical_application_sha": "5572ea165c11fa9d409d1e76ddf08243ae657ea0",
+    "control_sha": "0467b6354f0202b95c86c17bdca6c45dfd1626d5",
+    "control_sync_mutates_canonical_checkout": true,
+    "exact_candidate_sha_in_backup": false,
+    "fresh_backup_archive": "tu1nz_system_backup_20260828T03-31-58Z.tar.gz",
+    "fresh_backup_bytes": 45142464,
+    "fresh_backup_remote_present": true,
+    "fresh_backup_sha256": "5110d1e85d4256e22af6ad44cf23cb0333cd759c763219ce35a10dcc0f1496e5",
+    "hostname": "ubuntu-8gb-nbg1-2",
+    "local_tailscale_cli_daemon_version_skew": true,
+    "observed_at": "2026-08-28T11:18:12Z",
+    "path_collision_detected": false,
+    "planned_identities_absent": true,
+    "planned_paths_absent": true,
+    "postgres_listener": "127.0.0.1:5432",
+    "postgres_version": "17.11",
+    "privileged_open_reference_detected": false,
+    "restore_smoke_completed_at": "2026-08-28T06:16:52Z",
+    "restore_smoke_passed": true,
+    "ssh_identity": "root",
+    "tailscale_ip": "100.121.130.51",
+    "vpn_route": "DERP_NUE"
+  },
+  "synthetic_data_only": true,
+  "synthetic_publishers_only": true,
+  "telegram_intake_enabled": false,
+  "uncompensated_targets": [
+    "X"
+  ]
+}
