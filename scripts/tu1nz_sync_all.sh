@@ -200,7 +200,7 @@ write_docs_checksums() {
 
 observe_once() {
   local probe_rc=0 docs_rc=0
-  install -d -m 0750 "$STATE_DIR" "$LOG_DIR" "$(dirname "$LOCK_FILE")"
+  mkdir -p "$STATE_DIR" "$LOG_DIR" "$(dirname "$LOCK_FILE")"
   exec 9>"$LOCK_FILE"
   if ! "$FLOCK_BIN" -n 9; then
     return 0

@@ -7,7 +7,7 @@ MONITOR_COMMAND="${TU1NZ_MONITOR_COMMAND:-/usr/local/bin/tu1nz_monitor.sh}"
 ALERT_COMMAND="${TU1NZ_ALERT_COMMAND:-/usr/local/bin/tu1nz_alert_if_fail.sh}"
 output_file="$STATE_DIR/monitor_last.txt"
 
-install -d -m 0750 "$STATE_DIR"
+mkdir -p "$STATE_DIR"
 set +e
 "$MONITOR_COMMAND" | tee "$output_file"
 monitor_status=${PIPESTATUS[0]}

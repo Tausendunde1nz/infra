@@ -1,0 +1,39 @@
+# M4.29.2 Agent start failure — shared log directory mode
+
+Date: 2026-08-28
+
+## Symptom
+
+The eight committed artifacts were installed with exact expected hashes and
+systemd was reloaded. On the first authorized start,
+`tu1nz_agentmode.service` did not produce its external observation within the
+60-second gate. The maintenance error trap stopped Agentmode, Integrity and
+Monitor.
+
+Journal evidence:
+
+`install: cannot change permissions of /var/log/tausendunde1nz/health: Operation not permitted`
+
+## Cause
+
+The observer used `install -d -m 0750` on every cycle for both its dedicated
+state path and the pre-existing shared health-log directory. The shared log
+directory intentionally has an existing setgid group mode. Reapplying a
+different mode is unnecessary and was denied inside the hardened service
+sandbox.
+
+## Impact
+
+- Control mutation by the new service: none;
+- observation/runtime state: not created by the failed start;
+- Integrity/Monitor restart: not reached;
+- Adult Candidate: untouched and never started;
+- affected services after the trap: stopped/inactive;
+- installed bytes: first M4.29.2 commit remains installed but inactive.
+
+## Remediation
+
+Runtime directories are created and permissioned once by the authorized
+installer. Runtime scripts use `mkdir -p` only, which does not alter existing
+directory modes. New test directories still inherit the scripts' `0027` umask
+and become `0750`. Rebind hashes, commit, push and pass CI before reinstalling.

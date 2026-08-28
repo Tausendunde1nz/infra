@@ -1,0 +1,40 @@
+# M4.29.2 staged payload chatops traversal failure
+
+Date: 2026-08-28
+
+## Symptom
+
+All eight staged artifact hashes matched commit
+`d0838f7367940e00192e6599d6129bc11758e520`, all shell syntax checks passed and
+all three staged units passed `systemd-analyze verify`. The additional
+pre-install `--check` under the future runtime identity `chatops` failed before
+execution with `Permission denied`.
+
+## Cause
+
+The root-private staging directory and staged scripts were mode `0700`, so
+`chatops` could not traverse or execute them. This is a staging permission
+issue, not a script or Control failure.
+
+## Impact
+
+- installed artifacts changed: no;
+- daemon reload performed: no;
+- service restarted: no;
+- Control changed: no;
+- Adult Candidate changed: no;
+- affected services remain safely stopped.
+
+## Resolution
+
+Keep the recovery archive itself root-only. Change only the staged payload
+directory and staged scripts to `root:chatops` with group-read/traverse modes,
+repeat every staged hash and the `chatops --check`, then install only if all
+checks succeed.
+
+The first permission adjustment of the payload itself was insufficient because
+the parent recovery directory correctly remained root-only. No parent recovery
+permission is relaxed. Root instead opens the already hashed staged script and
+passes its bytes over standard input to a Bash process running as `chatops`.
+This validates the exact payload under the runtime identity without granting
+access to the recovery tree.

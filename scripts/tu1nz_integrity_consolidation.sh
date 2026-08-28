@@ -12,7 +12,7 @@ REQUIRE_SYNC="${TU1NZ_REQUIRE_SYNC:-/usr/local/bin/tu1nz_require_sync.sh}"
 GIT_BIN="${TU1NZ_GIT_BIN:-git}"
 FLOCK_BIN="${TU1NZ_FLOCK_BIN:-flock}"
 
-install -d -m 0750 "$STATE_ROOT" "$INTEGRITY_DIR" "$LOG_DIR" "$(dirname "$LOCK_FILE")"
+mkdir -p "$STATE_ROOT" "$INTEGRITY_DIR" "$LOG_DIR" "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
 "$FLOCK_BIN" -n 9 || exit 0
 
