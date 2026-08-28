@@ -1,0 +1,18 @@
+# M4.23 pg_dump standard output
+
+- Date: 2026-08-28
+- Scope: first commercial-backup retry
+- Prepared Control commit: `7176e7b8f22ce7436c29cde07de8e58965896f04`
+- Installed backup SHA-256: `3b6228b394e037ee4a7b233f57d9c40d22fcc85c5469af7eda2c9d8816310ad5`
+
+The prepared candidate and newly installed backup script passed exact
+verification. The backup retry still stopped before archive creation because
+this `pg_dump` treats `--file=-` as the literal output filename `-`; it does not
+select standard output. The root-opened redirection therefore existed, but the
+database process attempted and failed to open a separate file named `-`.
+
+Cleanup removed both temporary dump directories. No archive was created and no
+remote upload occurred. The correction omits the file option entirely, which
+is the native `pg_dump` standard-output mode, while retaining custom format,
+local `postgres`, the root-opened `0600` destination and all existing backup
+and restore boundaries.

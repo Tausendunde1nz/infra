@@ -145,3 +145,11 @@ only the newly versioned backup script, stages the current reviewed Control
 release and atomically advances the Control link. It then reruns the complete
 stopped verification with manifest and unit still absent. This avoids a split
 between canonical SSOT, active immutable Control and the installed backup code.
+
+The first retry exposed one command-line detail before archive creation:
+`pg_dump --file=-` treats the dash as a literal filename on this host. The
+native standard-output mode omits `--file` entirely. The corrected script keeps
+the root-opened `0600` redirection unchanged. The same prepared-Control advance
+is re-bound to the exact `7176e7b8f22ce7436c29cde07de8e58965896f04` state and
+installed script digest, preserves that failed-retry script separately and
+advances to the newly reviewed Control commit before the next backup attempt.
