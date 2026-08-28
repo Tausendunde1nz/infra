@@ -1,0 +1,103 @@
+{
+  "active": false,
+  "approval": {
+    "approved_at": null,
+    "first_start_approved": false,
+    "known_unrelated_failed_unit_accepted": true,
+    "no_swap_risk_accepted": false
+  },
+  "archive": {
+    "archive_inventory_sha256": "24144ec79a867c7f002da15c80fc7c9a5f429d28c52d16715a5602dded1c80c2",
+    "backup_completed_at": "2026-08-28T16:55:27Z",
+    "exact_archive_bytes": 63734473,
+    "exact_archive_name": "tu1nz_system_backup_20260828T16-50-53Z.tar.gz",
+    "exact_archive_remote_hash_verified": true,
+    "exact_archive_sha256": "b96f9efb304b2898758539516d842d27574307de82cbfb49229692ab8c9bcbd7",
+    "isolated_restore_passed": true,
+    "isolated_restore_root": "/opt/tu1nz_repos/backups/m4-23-commercial-s0-restore/20260828T16-50-53Z"
+  },
+  "blockers": [
+    "FIRST_START_NOT_APPROVED",
+    "NO_SWAP_RISK_NOT_ACCEPTED_FOR_FIRST_START"
+  ],
+  "contract_version": "tu1nz-commercial-network-free-first-start-m4.24-v1",
+  "decision": "NO_GO",
+  "environment": "STAGING-S0-COMMERCIAL-CANDIDATE",
+  "first_start_window": {
+    "health_maximum_age_seconds": 90,
+    "must_end_stopped": true,
+    "ready_timeout_seconds": 60,
+    "single_controlled_start": true,
+    "stop_timeout_seconds": 45
+  },
+  "preflight_observation": {
+    "application_release_clean": true,
+    "backup_service_idle": true,
+    "backup_timer_active": true,
+    "commercial_container_mount_reference_detected": false,
+    "commercial_cron_reference_detected": false,
+    "commercial_open_file_reference_detected": false,
+    "commercial_process_reference_detected": false,
+    "commercial_timer_reference_detected": false,
+    "control_release_clean": true,
+    "memory_available_kib": 5965840,
+    "native_unit_verify_passed": true,
+    "observed_at": "2026-08-28T17:14:50Z",
+    "release_gate_passed": true,
+    "root_filesystem_available_bytes": 20483121152,
+    "s1_active": true,
+    "security_exposure_level": 0.6,
+    "security_rating": "SAFE",
+    "swap_total_kib": 0,
+    "tailscale_ipv4": "100.121.130.51",
+    "unit_active": false,
+    "unit_file_state": "static",
+    "unit_installed": true,
+    "unit_previously_started": false
+  },
+  "product_boundary": {
+    "external_providers_enabled": false,
+    "network_enabled": false,
+    "paid_targets": [
+      "REDDIT",
+      "TELEGRAM"
+    ],
+    "real_media_enabled": false,
+    "real_payment_enabled": false,
+    "synthetic_data_only": true,
+    "synthetic_publishers_only": true,
+    "telegram_intake_enabled": false,
+    "uncompensated_targets": [
+      "X"
+    ]
+  },
+  "recovery": {
+    "abort_must_stop_unit": true,
+    "abort_preserves_database": true,
+    "abort_preserves_runtime_evidence": true,
+    "evidence_root": "/opt/tu1nz_repos/backups/m4-24-commercial-s0-first-start",
+    "never_enable_unit": true,
+    "never_remove_runtime_evidence_automatically": true
+  },
+  "release": {
+    "application_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+    "application_tree_sha": "b2820945c52ffdf77c2f5fbdd227c03ee6b245ab",
+    "control_sha": "8c4e8992a60c215295cf9d0c400afcd9a931f883",
+    "release_manifest_sha256": "2a3dc857205f9cff262edd686bc6db13d799c1e5de8aea954a8f50b9420cdc54",
+    "unit_sha256": "ecec13e294ded68dfeeaba1300eb2f5247aacf5e9085c9838eca3b50f6a56bf3"
+  },
+  "sprint": "M4.24",
+  "starting_database": {
+    "business_rows_zero": true,
+    "function_count": 21,
+    "seed_counts": {
+      "country_policy_rules": 1,
+      "creators": 1,
+      "integration_accounts": 3,
+      "platform_policy_rules": 3,
+      "policy_versions": 1,
+      "publication_destinations": 3
+    },
+    "table_count": 39
+  }
+}

@@ -78,6 +78,12 @@ Current Adult Publishing infrastructure decisions:
   `scripts/tu1nz_adult_commercial_s0_install.sh` define the reviewed two-phase
   stopped installation. Preparation and the first commercial backup precede a
   new archive-specific release approval; no first-start action exists.
+- `docs/M4_24_NETWORK_FREE_FIRST_START_ACCEPTANCE_2026-08-28.md`,
+  `manifests/adult-publishing-commercial-first-start.m4-24.json` and the two
+  M4.24 first-start scripts define exact read-only prechecks, one controlled
+  network-free acceptance window, stopped post-checks and evidence-preserving
+  abort behavior. The committed contract remains `NO_GO`; this repository
+  state cannot start the candidate.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

@@ -1,0 +1,29 @@
+# M4.24 static guard false-positive diagnosis
+
+Date: 2026-08-28
+
+## Failure
+
+The first M4.24 CI guard searched broadly for `systemctl` near `enable` or for
+`WantedBy=`. It matched the controller's read-only `is-enabled` observation and
+the code that explicitly rejects a `WantedBy=` unit. Those are safety checks,
+not activation behavior.
+
+The combined local validation also placed commands after the negated grep, so
+the later successful command hid that guard's nonzero final status. GitHub CI
+would not have hidden it because the grep is a dedicated step.
+
+## Impact
+
+No forbidden start persistence, enable or restart behavior exists. The
+dedicated unit test already rejects literal `SYSTEMCTL, "enable"` and
+`SYSTEMCTL, "restart"` command construction. No repository, GitHub or server
+state changed.
+
+## Correction and rollback
+
+The CI regex now targets only actual Python command argument sequences for
+`enable` or `restart`, while retaining broad-deletion, provider-credential,
+external-API and cron rejection. The local rerun uses an explicit conditional
+whose failure cannot be masked by later commands. Rollback is the normal Git
+revert for this still-unactivated branch.

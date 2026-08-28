@@ -26,6 +26,8 @@
 !scripts/tu1nz_adult_commercial_host_access_gate.py
 !scripts/tu1nz_adult_commercial_installation_authorization_gate.py
 !scripts/tu1nz_adult_commercial_s0_install.sh
+!scripts/tu1nz_adult_commercial_first_start_gate.py
+!scripts/tu1nz_adult_commercial_s0_first_start.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -53,6 +55,8 @@
 !manifests/adult-publishing-commercial-host-access.m4-21.json
 !manifests/adult-publishing-commercial-installation-authorization.schema.json
 !manifests/adult-publishing-commercial-installation-authorization.m4-22.json
+!manifests/adult-publishing-commercial-first-start.schema.json
+!manifests/adult-publishing-commercial-first-start.m4-24.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -77,6 +81,7 @@
 !tests/test_adult_commercial_host_access_design.py
 !tests/test_adult_commercial_installation_authorization.py
 !tests/test_adult_commercial_s0_stopped_installation.py
+!tests/test_adult_commercial_first_start.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -112,3 +117,6 @@
 !analysis/M4_23_RUNTIME_ROLE_SELECTION_2026-08-28.diagnose
 !analysis/M4_23_COMMERCIAL_BACKUP_DUMP_ACCESS_2026-08-28.diagnose
 !analysis/M4_23_PG_DUMP_STDOUT_2026-08-28.diagnose
+!analysis/M4_24_LOCAL_PATCH_WORKDIR_2026-08-28.diagnose
+!analysis/M4_24_FINAL_REGRESSION_COUNT_2026-08-28.diagnose
+!analysis/M4_24_STATIC_GUARD_FALSE_POSITIVE_2026-08-28.diagnose

@@ -1,0 +1,31 @@
+# M4.24 local patch workdir diagnosis
+
+Date: 2026-08-28
+
+## Failure
+
+The first M4.24 patch was applied relative to the ChatGPT project mirror rather
+than the explicit Control checkout at `/Users/daniel/Projects/TU1NZ/control-ssot`.
+The following four newly created files were affected: the M4.24 contract,
+schema, authorization gate and first-start controller.
+
+## Impact
+
+- No server command or server mutation occurred.
+- No existing project-mirror source was changed.
+- The Control branch did not yet contain the four files.
+- Compilation failed closed because the files were absent from the expected
+  checkout.
+
+## Correction and rollback
+
+The four files are moved directly into the explicit Control checkout using the
+patch mechanism. Both locations are verified immediately afterwards. Rollback
+is deletion of only the four new uncommitted Control files and this diagnosis;
+no tracked baseline file or server path is a rollback target.
+
+## Prevention
+
+Every following patch path is explicitly rooted relative to the ChatGPT task
+directory as `../../../Projects/TU1NZ/control-ssot/`, and every validation
+command uses that repository as its working directory.
