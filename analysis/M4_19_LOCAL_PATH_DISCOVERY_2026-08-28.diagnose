@@ -29,3 +29,9 @@
 - Resolution: update the existing assertion to the explicit `S1_DUMP_DIR` name, then rerun the full suite. No installed backup script or server state is changed.
 
 - The focused rerun found the matching stale `chmod` assertion as well. It also confirmed that an intentionally incomplete M4.19 archive is now rejected earlier with the more specific empty/missing database-dump error. Both are assertion updates; the fail-closed behavior is retained.
+
+## Narrow origin fetch refspec
+
+- After the first push and green CI, `git rev-parse @{upstream}` failed because this checkout fetches only `origin/control-main`; no feature-branch remote-tracking ref is stored locally.
+- The local branch configuration correctly names the feature branch, and `git ls-remote` plus GitHub PR #18 both prove that remote SHA `662fe0c4970a714141cc14e1cba6f5aabfb3f0af` exists exactly.
+- No fetch refspec is broadened in M4.19. Remote synchronization evidence uses the authoritative remote branch SHA and PR head SHA instead.
