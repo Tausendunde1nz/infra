@@ -1,0 +1,28 @@
+# M4.23 immutable release build output
+
+- Date: 2026-08-28
+- Scope: stopped partial-state `resume-prepare`
+- Control commit executed: `8f27022e40cd8ffd24f738ad98836bc2df1f78f1`
+- Full application bundle SHA-256: `7401678a2b7e854f1bf10d4c9f64c4579b2061ba0321d2adf753e0926d1f0f48`
+
+The complete bundle cloned successfully, the exact application and Control
+commits moved into the commercial release root, and the hash-locked venv built
+successfully. Installing the application directly from its immutable checkout
+created ignored `build/` and `src/tu1nz_adult_publishing_core.egg-info/`
+directories. The mandatory `git clean -ndx` gate stopped the transaction.
+
+Tracked application and Control status are clean. The venv imports exact
+`3.3.4|0.1.0`. Commercial database still has zero public tables; config,
+state, active links, unit and first start are absent. The corrected EXIT handler
+restored the encrypted-backup timer and STAGING-S1 remains active.
+
+Recovery is non-destructive: move only the two exact ignored build directories
+into root-private M4.23 evidence, clear inherited setgid bits to the reviewed
+0750 release/venv and 0700 state modes, stage the new merged Control commit,
+then continue migrations/bootstrap/config. Future installs must derive a
+source archive with `git archive` outside the immutable checkout and install
+the package from that archive. No tracked file is cleaned or overwritten.
+
+Local patch note: the first combined edit was rejected atomically because it
+addressed the installer in two update blocks. No requested change was applied;
+the repair was reapplied as a single-file patch before validation.

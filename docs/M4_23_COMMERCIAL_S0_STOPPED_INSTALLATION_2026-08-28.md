@@ -48,7 +48,7 @@ modes:
    archive and post-backup approved manifest exist. It can only install and
    verify the unit stopped; it contains no candidate start or enable action.
 
-The fail-closed partial-state repair adds three modes without broadening the
+The fail-closed partial-state repair adds dedicated modes without broadening the
 product scope: `partial-preflight` recognizes only the exact stopped boundary
 recorded in the M4.23 diagnosis, `recover-partial` restores only the daily
 encrypted-backup timer, and `resume-prepare` consumes one root-private,
@@ -56,6 +56,18 @@ SHA-256-bound Git bundle for the final application commit. The bundle must
 verify as Git data and still produce the exact final commit/tree and clean
 object graph. This avoids creating or broadening a GitHub credential. Control
 uses the existing `github.com-infra` server route.
+
+The later `resume-after-venv-build` mode recognizes only the exact second
+recorded boundary: final application and prior Control releases are present,
+the exact virtual environment imports successfully, the database is still
+empty, and only `build/` plus the package `egg-info` directory exist as ignored
+application output. It preserves those two directories below the root-private
+M4.23 evidence root, removes inherited setgid bits from immutable targets,
+stages the newly reviewed Control commit and completes the still-stopped
+database/configuration preparation. It contains no broad clean or recursive
+delete operation. Future fresh preparation creates a root-private source
+archive with `git archive` and installs the application from that archive, so
+the immutable checkout remains clean throughout the virtual-environment build.
 
 If a formally valid but non-clonable shallow bundle is encountered,
 `reject-incomplete-bundle` recognizes only its recorded SHA-256 and moves it
