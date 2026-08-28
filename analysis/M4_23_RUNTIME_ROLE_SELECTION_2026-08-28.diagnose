@@ -1,0 +1,27 @@
+# M4.23 runtime role selection
+
+- Date: 2026-08-28
+- Scope: stopped `resume-after-control-stage` transaction
+- Control commit executed: `460c7befebb675117ac61c93ace6716d49abeb9e`
+- Application commit: `52494d6121660ead53774deb8616701f14bb7a8f`
+
+All fourteen migrations and the synthetic commercial bootstrap completed. The
+transaction then stopped at the read-only schema acceptance because `psql`
+was started by operating-system identity `tu1nz-adult-commercial-s0` without an
+explicit database username. PostgreSQL therefore attempted the hyphenated OS
+name instead of the reviewed peer-map target
+`tu1nz_adult_commercial_s0_runtime`.
+
+The encrypted-backup timer was restored by the exit trap. The exact 39-table,
+21-function M4.15 schema is present and the synthetic seed counts are
+`1/1/1/3/3/3`. Private config, empty state and immutable active links are
+present. Release manifest, runtime status/lock, systemd unit and first start
+remain absent; the commercial service is inactive and S1 remains active.
+
+A read-only server probe with the explicit runtime role completed the exact
+M4.15 schema acceptance successfully. The correction centralizes that explicit
+role selection for every preparation and verification path. A final recovery
+mode recognizes only this exact post-bootstrap state, stages the newly reviewed
+Control commit, atomically advances only the Control symlink and completes the
+stopped verification. It adds no migration, provider, token, media, payment,
+publication or service-start action.

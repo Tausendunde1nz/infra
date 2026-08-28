@@ -78,6 +78,17 @@ reviewed file and provides it over standard input to `psql` running as
 `postgres` with the non-login migrator role. No traversal permission is added
 to PostgreSQL, and future fresh/recovery paths use the same input method.
 
+After migrations and synthetic bootstrap completed, the first acceptance run
+also stopped safely because `psql` inherited the hyphenated operating-system
+username instead of selecting the underscore PostgreSQL runtime role. A
+read-only probe proved the schema succeeds with the explicit reviewed role.
+`finalize-schema-acceptance` binds to the exact 39-table/21-function schema,
+synthetic seed counts, private config, empty state and immutable links. It
+stages the newly reviewed Control commit, atomically advances only the Control
+link and completes stopped verification. Every acceptance path now specifies
+`tu1nz_adult_commercial_s0_runtime`; no peer rule or filesystem permission is
+widened.
+
 If a formally valid but non-clonable shallow bundle is encountered,
 `reject-incomplete-bundle` recognizes only its recorded SHA-256 and moves it
 into the root-private M4.23 evidence directory. It does not delete that
