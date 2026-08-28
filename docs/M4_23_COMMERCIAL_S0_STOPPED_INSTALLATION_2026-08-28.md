@@ -69,6 +69,15 @@ delete operation. Future fresh preparation creates a root-private source
 archive with `git archive` and installs the application from that archive, so
 the immutable checkout remains clean throughout the virtual-environment build.
 
+The next fail-closed boundary occurred after the new Control release had been
+staged but before PostgreSQL parsed migration 0001: the `postgres` operating-
+system identity correctly cannot traverse the private runtime-group release.
+`resume-after-control-stage` accepts only that exact empty-database state.
+Migration and bootstrap files remain private; the root transaction opens each
+reviewed file and provides it over standard input to `psql` running as
+`postgres` with the non-login migrator role. No traversal permission is added
+to PostgreSQL, and future fresh/recovery paths use the same input method.
+
 If a formally valid but non-clonable shallow bundle is encountered,
 `reject-incomplete-bundle` recognizes only its recorded SHA-256 and moves it
 into the root-private M4.23 evidence directory. It does not delete that

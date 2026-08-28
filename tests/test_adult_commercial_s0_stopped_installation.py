@@ -16,7 +16,7 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
     def test_installer_is_explicitly_two_phase_and_never_starts_candidate(self) -> None:
         source = INSTALLER.read_text(encoding="ascii")
         for required in (
-            "preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|resume-after-venv-build|verify-prepared|install-unit",
+            "preflight|prepare|partial-preflight|recover-partial|reject-incomplete-bundle|resume-prepare|resume-after-venv-build|resume-after-control-stage|verify-prepared|install-unit",
             "M4_23_STOPPED_INSTALLATION_PREFLIGHT_OK",
             "M4_23_STOPPED_CANDIDATE_PREPARED_OK",
             "M4_23_STOPPED_UNIT_INSTALLED_OK",
@@ -32,7 +32,9 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             "M4_23_PARTIAL_TIMER_RECOVERED_OK",
             "M4_23_INCOMPLETE_BUNDLE_PRESERVED_OK",
             "M4_23_BUILT_PARTIAL_BOUNDARY_OK",
+            "M4_23_MIGRATION_PARTIAL_BOUNDARY_OK",
             "resumed_after_venv_build",
+            "resumed_after_control_stage",
             'git -c "safe.directory=$CONTROL_REPOSITORY" -C "$CONTROL_REPOSITORY" bundle verify',
             "git@github.com-infra:Tausendunde1nz/infra.git",
             'git_read "$app_target" archive --format=tar.gz',
@@ -40,6 +42,8 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             '"$app_target/build"',
             '"$app_target/src/tu1nz_adult_publishing_core.egg-info"',
             "rejected-immutable-build-output-$APPLICATION_SHA",
+            "--file=-",
+            '<"$app_target/migrations/$migration"',
         ):
             self.assertIn(required, source)
         for forbidden in (
@@ -55,6 +59,8 @@ class CommercialS0StoppedInstallationTest(unittest.TestCase):
             "AVS_TOKEN",
             "git clean -fdx",
             "rm -rf",
+            '--file="$app_target/migrations/$migration"',
+            '--file="$control_target/config/adult-publishing/staging-s0-commercial/bootstrap.sql"',
         ):
             self.assertNotIn(forbidden, source)
 

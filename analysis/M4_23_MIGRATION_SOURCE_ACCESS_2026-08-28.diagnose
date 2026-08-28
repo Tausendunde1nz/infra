@@ -1,0 +1,26 @@
+# M4.23 migration source access
+
+- Date: 2026-08-28
+- Scope: stopped `resume-after-venv-build` transaction
+- Control commit executed: `39082986d220a5f48148d3dda18f14ef1c1e4814`
+- Application commit: `52494d6121660ead53774deb8616701f14bb7a8f`
+
+The exact post-venv boundary was accepted. The two ignored build-output
+directories were moved into the root-private evidence directory, inherited
+setgid bits were cleared from immutable releases, and the reviewed Control
+commit was staged. PostgreSQL then rejected the first migration before parsing
+it because the `postgres` operating-system user cannot traverse the deliberately
+private `0750 root:tu1nz-adult-commercial-s0` application release.
+
+The global exit trap restored the encrypted-backup timer. The commercial
+database still has zero public tables. Application and both Control releases
+are clean, the exact virtual environment still imports, and configuration,
+state, active links, unit installation and first start remain absent. S1 is
+active and the backup service is inactive.
+
+The correction does not widen release permissions. The root transaction opens
+each reviewed SQL file and supplies it through standard input to `psql` running
+as `postgres` with the migrator role. A new recovery mode recognizes only the
+recorded post-Control-stage boundary, stages the newly reviewed Control commit,
+and continues the stopped preparation. No provider, token, real media, payment,
+publication or service-start action is added.
