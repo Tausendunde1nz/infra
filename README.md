@@ -84,8 +84,8 @@ Current Adult Publishing infrastructure decisions:
   M4.24 first-start scripts define exact read-only prechecks, a locked and
   fully revalidated network-free acceptance window, mandatory stopped
   post-checks and evidence-preserving abort behavior. The committed contract
-  remains `NO_GO`; the observed unit lacks the required single-start/runtime
-  guard, so this repository state cannot start the candidate.
+  remains historical `NO_GO`; its captured pre-M4.25 unit lacked the required
+  single-start/runtime guard, so M4.24 can never start the candidate.
 - `docs/M4_25_STOPPED_UNIT_REFRESH_2026-08-28.md` and
   `manifests/adult-publishing-commercial-unit-refresh.m4-25.json` record the
   completed, still-never-started unit refresh, exact fresh encrypted backup,
