@@ -1,0 +1,66 @@
+# M4.23 stopped preparation partial boundary
+
+- Date: 2026-08-28
+- Server: `ubuntu-8gb-nbg1-2` via Tailscale `100.121.130.51`
+- Control commit executed: `30b4531449ec05b30afe0097eb69e1cb569590da`
+- Command phase: versioned `prepare`; no first-start or unit-install phase
+
+## Failure
+
+The application clone used
+`git@github.com:Tausendunde1nz/adult-publishing-core.git`. The `chatops`
+server identity received `Repository not found`, so the transaction stopped
+before immutable releases, venv, migrations, configuration or state existed.
+
+The EXIT handler then reported `backup_timer_paused: unbound variable`. The
+handler referenced a function-local variable after Bash had unwound that
+scope. It therefore did not restore the encrypted-backup timer.
+
+## Exact observed partial state
+
+- STAGING-S1 remains active.
+- Commercial service/unit, release root, configuration root and state root are
+  absent; no migration ran and no first start occurred.
+- The commercial-aware backup script is installed at reviewed SHA-256
+  `0de61224be517e08fd0a789673df7977f0581aa92608513d99ca9a26ad4bebe8`.
+- The locked OS identity exists, is not in `chatops`, and the versioned minimal
+  traversal ACL gate passes.
+- The exact PostgreSQL peer rule/mapping gate passes. The migrator/runtime
+  roles and empty database exist.
+- The staging directory exists but has no children.
+- Root-private rollback copies of the previous backup script, `pg_hba.conf`
+  and `pg_ident.conf` exist under
+  `/opt/tu1nz_repos/backups/m4-23-commercial-s0-stopped-installation/20260828T15-39-59Z`.
+- The encrypted-backup service is inactive and its timer is temporarily
+  inactive. The next planned run was more than eleven hours away.
+
+## Authorized recovery plan
+
+1. Resolve the exact repository/credential route read-only from existing
+   server Git metadata; do not create another release path.
+2. Version and test a recovery mode that accepts only the exact partial state,
+   resumes the backup timer safely, and continues without recreating existing
+   identities/database/mapping.
+3. Make the timer-trap state global so every later error resumes the timer.
+4. Merge and synchronize the repair before any server write.
+5. Run the recovery preflight, resume the timer, then continue the stopped
+   preparation. Abort on any state outside this exact boundary.
+
+No destructive rollback, database drop, identity deletion, ACL removal,
+PostgreSQL restoration or path cleanup is authorized by this diagnosis.
+
+## Repository route result
+
+The canonical application remote uses the failing `github.com` host alias,
+whose configured private key does not match the public deploy key registered
+on the application repository. The working `github.com-infra` alias is scoped
+to Control and must not be reused as an application credential. No credential
+will be copied, rotated or broadened in M4.23.
+
+The reviewed recovery therefore accepts one root-owned mode-0600 Git bundle at
+an exact `/opt/tu1nz_repos/backups/m4-23-input/` path. The bundle is created
+from a depth-one fetch of the final application main commit, transferred only
+over Tailscale SSH, bound by SHA-256 at execution, verified with `git bundle
+verify`, and still required to produce the exact application commit/tree and a
+clean, complete Git object graph. Control continues through its existing,
+working `github.com-infra` read route.

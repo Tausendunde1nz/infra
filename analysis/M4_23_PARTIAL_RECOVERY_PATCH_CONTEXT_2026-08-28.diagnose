@@ -1,0 +1,8 @@
+# M4.23 partial recovery patch context
+
+- Date: 2026-08-28
+- Scope: local Control-SSOT repair branch
+- Error: the combined patch expected a documentation line that did not exactly match the current file.
+- Impact: none. Patch verification failed atomically before any of its requested changes were applied.
+- Recovery: split the repair into script, test, diagnosis and documentation patches using exact current context, then rerun syntax/tests/diff checks.
+- Rollback: not applicable; the rejected patch changed no file.
