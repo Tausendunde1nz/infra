@@ -1,0 +1,10 @@
+# M4.23 PR body shell interpolation
+
+- Date: 2026-08-28
+- Scope: local GitHub PR creation
+- Error: backtick-delimited mode names in a double-quoted PR body were interpreted by zsh as local command substitutions.
+- Result: the nonexistent local commands `preflight` and `prepare` returned command-not-found. PR #22 was still created; no server connection or server mutation occurred.
+- Impact: the initial PR body lost the two mode names. Repository content and commit were unaffected.
+- Recovery: update the PR body using a single-quoted literal, add this diagnosis to the branch and require the normal CI/review gate.
+- Prevention: do not pass Markdown backticks inside double-quoted shell arguments.
+- Rollback: not applicable; the PR text is editable and the failed substitutions changed no system state.
