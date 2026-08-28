@@ -101,6 +101,12 @@ Current Adult Publishing infrastructure decisions:
   canonical-Control fast-forward/rollback transaction, fresh prestart, bounded
   no-swap recommendation and authorization window. The draft remains `NO_GO`;
   it neither synchronizes the server nor accepts risk or authorizes a start.
+- `docs/M4_28_POST_MERGE_TARGET_BINDING_CANONICAL_SYNC_AUTHORIZATION_2026-08-28.md`,
+  `manifests/adult-publishing-commercial-canonical-sync-authorization.m4-28.json`
+  and `scripts/tu1nz_adult_commercial_m4_28_gate.py` bind the merged M4.27
+  target and define the evidence required for a later Control-only
+  fast-forward. The committed authorization remains inactive and `NO_GO`; the
+  gate has no host, network, write or service-control capability.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

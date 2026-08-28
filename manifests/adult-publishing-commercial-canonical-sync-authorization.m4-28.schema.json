@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-canonical-sync-authorization.m4-28.schema.json",
+  "title": "TU1NZ M4.28 canonical Control sync authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "approval",
+    "blockers",
+    "contract_path",
+    "contract_version",
+    "decision",
+    "environment",
+    "evidence_contract",
+    "historical_binding",
+    "ignored_baseline",
+    "post_merge_target",
+    "product_boundary",
+    "release_binding",
+    "rollback",
+    "sprint",
+    "sync_transaction"
+  ],
+  "properties": {
+    "active": { "type": "boolean" },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_at", "authorization_maximum_age_seconds", "first_start_approved", "no_swap_risk_accepted", "separate_first_start_authorization_required", "source_observed_at", "source_sha", "source_tree_sha", "sync_approved"],
+      "properties": {
+        "approved_at": { "type": ["null", "string"] },
+        "authorization_maximum_age_seconds": { "const": 300 },
+        "first_start_approved": { "const": false },
+        "no_swap_risk_accepted": { "const": false },
+        "separate_first_start_authorization_required": { "const": true },
+        "source_observed_at": { "type": ["null", "string"] },
+        "source_sha": { "type": ["null", "string"] },
+        "source_tree_sha": { "type": ["null", "string"] },
+        "sync_approved": { "type": "boolean" }
+      }
+    },
+    "blockers": { "type": "array", "minItems": 6, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "contract_path": { "const": "manifests/adult-publishing-commercial-canonical-sync-authorization.m4-28.json" },
+    "contract_version": { "const": "tu1nz-commercial-canonical-sync-authorization-m4.28-v1" },
+    "decision": { "enum": ["NO_GO", "GO_SERVER_CONTROL_SYNC_ONLY"] },
+    "environment": { "const": "STAGING-S0-COMMERCIAL-CANDIDATE" },
+    "evidence_contract": { "type": "object" },
+    "historical_binding": { "type": "object" },
+    "ignored_baseline": { "type": "object" },
+    "post_merge_target": { "type": "object" },
+    "product_boundary": { "type": "object" },
+    "release_binding": { "type": "object" },
+    "rollback": { "type": "object" },
+    "sprint": { "const": "M4.28" },
+    "sync_transaction": { "type": "object" }
+  }
+}

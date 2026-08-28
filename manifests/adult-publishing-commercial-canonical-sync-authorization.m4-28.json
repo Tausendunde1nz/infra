@@ -1,0 +1,202 @@
+{
+  "active": false,
+  "approval": {
+    "approved_at": null,
+    "authorization_maximum_age_seconds": 300,
+    "first_start_approved": false,
+    "no_swap_risk_accepted": false,
+    "separate_first_start_authorization_required": true,
+    "source_observed_at": null,
+    "source_sha": null,
+    "source_tree_sha": null,
+    "sync_approved": false
+  },
+  "blockers": [
+    "FIRST_START_AUTHORIZATION_CONTRACT_NOT_FINALIZED",
+    "FIRST_START_NOT_APPROVED",
+    "FRESH_PRESTART_NOT_EXECUTED",
+    "FRESH_PRESTART_REVALIDATION_REQUIRED",
+    "FRESH_SERVER_SOURCE_REVALIDATION_REQUIRED",
+    "NO_SWAP_RISK_NOT_ACCEPTED_FOR_FIRST_START",
+    "SERVER_CONTROL_SYNC_NOT_APPROVED",
+    "SERVER_CONTROL_SYNC_NOT_EXECUTED"
+  ],
+  "contract_path": "manifests/adult-publishing-commercial-canonical-sync-authorization.m4-28.json",
+  "contract_version": "tu1nz-commercial-canonical-sync-authorization-m4.28-v1",
+  "decision": "NO_GO",
+  "environment": "STAGING-S0-COMMERCIAL-CANDIDATE",
+  "evidence_contract": {
+    "authorization_must_follow_source_observation": true,
+    "mutation_evidence_required_before_fast_forward": true,
+    "pre_sync_evidence_maximum_age_seconds": 300,
+    "pre_sync_evidence_version": "tu1nz-m4.28-pre-sync-evidence-v1",
+    "read_error_is_failure": true,
+    "required_pre_sync_checks": [
+      "CANDIDATE_NEVER_STARTED",
+      "CONTROL_MAIN_BRANCH",
+      "GIT_INTEGRITY",
+      "IGNORED_23_TOP_LEVEL_ENTRIES",
+      "IGNORED_RECURSIVE_INVENTORY",
+      "NO_CHECKOUT_MUTATOR",
+      "NO_INCOMING_TRACKED_COLLISION",
+      "NO_RUNTIME_LOCK",
+      "NO_RUNTIME_STATUS",
+      "NO_START_TIMESTAMP",
+      "SERVER_CONTROL_EXPECTED_SOURCE",
+      "SOURCE_ANCESTOR_OF_TARGET",
+      "TAILSCALE_HOST_IDENTITY",
+      "TARGET_SHA_TREE",
+      "TRACKED_CLEAN",
+      "UNIT_INACTIVE_DEAD_STATIC",
+      "UNIT_JOURNAL_EMPTY",
+      "UNIT_NRESTARTS_ZERO",
+      "UNIT_RESTART_NO",
+      "UNIT_RUNTIME_MAX_180"
+    ],
+    "secrets_must_not_be_captured": true
+  },
+  "historical_binding": {
+    "last_server_control_branch": "control-main",
+    "last_server_control_observed_at": "2026-08-28T19:13:59Z",
+    "last_server_control_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+    "last_server_control_tree_sha": "c50ce73098d344763fd29f12ba077fb24139b38c",
+    "m4_24_contract_sha256": "bf43aee420e133b9e5167a90c2e4c260d2716c0390c8cfc439fb1d03c1b87da3",
+    "m4_25_contract_sha256": "b5ceaff212c8f10529b2c89a2667dd0ef715db5e361a2dcd05007074cbd61ee2",
+    "m4_26_contract_sha256": "47c5bca41e2b09e210fb61ab9de31d0ab1e44edf6715a2bc561619fcda4e3d59",
+    "m4_27_contract_sha256": "d2333ae8fcd623bb778e9bf1a780ec209b58577c0b2b14336186217784b84a46"
+  },
+  "ignored_baseline": {
+    "entries": [
+      ".r28r4-control-payload-clean.tar.gz",
+      "_filelist_reference.txt",
+      "_filelist_reference.txt.bak_20260215T082155Z",
+      "analysis/n8n_fix_2026-03-18/",
+      "analysis/n8n_perms_2026-03-18/",
+      "analysis/security_incident_2026-08-25/",
+      "checksums.txt",
+      "checksums_current.txt",
+      "checksums_reference.sha256",
+      "checksums_reference.txt",
+      "emoji_map.sed",
+      "integrity_baseline.sha256",
+      "integrity_reference.sha256",
+      "integrity_reference.txt",
+      "last_sync.ok",
+      "legacy_units/",
+      "monitor_last.txt",
+      "nginx/validation.pid",
+      "rebaseline_2026/",
+      "scripts/__pycache__/",
+      "scripts/encrypted_drive_backup",
+      "systemd/tu1nz-git-sync.service",
+      "systemd/tu1nz-git-sync.timer"
+    ],
+    "entries_count": 23,
+    "entries_sha256": "b23591e86c2b43fbc11a376eb3d0a68c19e3979b1538aa4ac50711b598300e89",
+    "recursive_inventory_algorithm": "sha256-canonical-path-mode-owner-group-size-content-or-link-target-v1",
+    "recursive_inventory_required_before_and_after": true
+  },
+  "post_merge_target": {
+    "branch": "control-main",
+    "merge_commit": true,
+    "merge_parents": [
+      "6f47780eb3b21b369db69a65962e0b3d86107deb",
+      "d23a07b3a729e4957587c7e72c56f4d43d2de9d7"
+    ],
+    "post_merge_ci_run_id": 33205253300,
+    "pull_request": 36,
+    "repository": "Tausendunde1nz/infra",
+    "sha": "7710acfbadb50ca7a143d6dce84c6556ddf9cb84",
+    "tree_sha": "c226e2dca456d79b1aeef377b3a380d68f83c396"
+  },
+  "product_boundary": {
+    "external_providers_enabled": false,
+    "first_start_authorized": false,
+    "network_enabled": false,
+    "publishing_enabled": false,
+    "real_media_enabled": false,
+    "real_payment_enabled": false,
+    "synthetic_data_only": true,
+    "telegram_intake_enabled": false
+  },
+  "release_binding": {
+    "application_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+    "application_tree_sha": "b2820945c52ffdf77c2f5fbdd227c03ee6b245ab",
+    "archive_inventory_sha256": "f7dd1b3fea220bc1ef032325edc9bb8033d79f2c52e5893927d93018f3d4aec3",
+    "archive_name": "tu1nz_system_backup_20260828T18-15-58Z.tar.gz",
+    "archive_sha256": "f892758dccf2157b4fa11afa38fe61dfcd36f18076230a76f1d23627bf18afc0",
+    "installed_control_sha": "3135197ba4ac577bbb7fd28341d0c2dc845a7ebe",
+    "installed_control_tree_sha": "da01c5bacb883442e0b556d5e291c8b8206959a2",
+    "manifest_sha256": "68d8e276b2e0442cc9e02937264c6f493e938f7ab0fc3372239dba69a05a6386",
+    "restore_evidence_sha256": "013e89b92fda435f978960bb417cf2a7c6da93e6bc5387612b648a2358220b7d",
+    "state_sha256": "8311a0072ab0e8165d21256e0edb6980bfc1e2acf7abe97b226cfc979545fd12",
+    "unit_sha256": "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d"
+  },
+  "rollback": {
+    "bundle_must_contain_source_and_target": true,
+    "evidence_root_pattern": "/opt/tu1nz_repos/backups/m4-28-control-sync/YYYYMMDDTHH-MM-SSZ",
+    "git_bundle_required_and_verified": true,
+    "git_clean_forbidden": true,
+    "ignored_material_must_be_preserved": true,
+    "rollback_ref_required": true,
+    "sequence": [
+      "REQUIRE_EXACT_FAILED_POST_SYNC_BOUNDARY",
+      "VERIFY_CANDIDATE_NEVER_STARTED",
+      "VERIFY_ROOT_PRIVATE_EVIDENCE",
+      "VERIFY_ROLLBACK_REF_AND_BUNDLE",
+      "RESTORE_OLD_TRACKED_CONTROL_TREE_AND_BRANCH_ONLY",
+      "VERIFY_IGNORED_RECURSIVE_INVENTORY_UNCHANGED",
+      "VERIFY_OLD_HEAD_TREE_TRACKED_CLEAN_AND_GIT_INTEGRITY",
+      "PRESERVE_ALL_SYNC_AND_ROLLBACK_EVIDENCE"
+    ],
+    "status": "PLANNED_NOT_AUTHORIZED"
+  },
+  "sprint": "M4.28",
+  "sync_transaction": {
+    "allowed_checkout": "/opt/tu1nz_repos/control",
+    "fast_forward_only": true,
+    "mutation_scope": [
+      "/opt/tu1nz_repos/control/.git",
+      "/opt/tu1nz_repos/control tracked worktree"
+    ],
+    "sequence": [
+      "READ_ONLY_PRE_SYNC_FULLY_GREEN",
+      "SEPARATE_AUTHORIZATION_GATE",
+      "CREATE_ROOT_PRIVATE_EVIDENCE",
+      "FETCH_CONTROL_MAIN_ONLY",
+      "REVERIFY_TARGET_SHA_TREE",
+      "VERIFY_ANCESTRY_AND_COLLISIONS",
+      "FAST_FORWARD_CONTROL_MAIN_ONLY",
+      "VERIFY_HEAD_EQUALS_TARGET",
+      "VERIFY_TREE_EQUALS_BOUND_TREE",
+      "VERIFY_TRACKED_CLEAN",
+      "VERIFY_IGNORED_RECURSIVE_INVENTORY_BYTE_IDENTICAL",
+      "VERIFY_GIT_INTEGRITY",
+      "VERIFY_M4_24_THROUGH_M4_27_HASHES",
+      "VERIFY_UNIT_MANIFEST_STATE_BACKUP_RESTORE_UNCHANGED",
+      "VERIFY_CANDIDATE_NEVER_STARTED"
+    ],
+    "status": "NOT_EXECUTED",
+    "unchanged_paths": [
+      "/etc/systemd/system/tu1nz-adult-commercial-s0.service",
+      "/etc/tu1nz",
+      "/opt/tu1nz_repos/adult-publishing-core",
+      "/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial",
+      "/var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial"
+    ],
+    "unchanged_resources": [
+      "APPLICATION_RELEASE",
+      "BACKUPS",
+      "CONTROL_CURRENT",
+      "INSTALLED_CONTROL_RELEASE",
+      "POSTGRESQL",
+      "PROVIDERS",
+      "SERVICES",
+      "STATE",
+      "SYSTEMD",
+      "TIMERS",
+      "TOKENS",
+      "VENV"
+    ]
+  }
+}
