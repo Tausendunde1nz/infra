@@ -34,3 +34,11 @@ technical stopped boundary recorded in
 No probe started, restarted, enabled, stopped or reloaded a unit; wrote a file;
 fetched or pulled Git; accessed secret values; activated a provider; or changed
 the database.
+
+## Draft-PR command wrapper
+
+After the first M4.26 commit was pushed, the initial local Draft-PR command was
+rejected by the JavaScript wrapper while parsing Markdown code delimiters. The
+GitHub CLI was not invoked and no pull request was created by that attempt. The
+same request was resubmitted without shell-sensitive Markdown delimiters and
+created Draft PR #35 successfully. No branch rewrite or server action occurred.
