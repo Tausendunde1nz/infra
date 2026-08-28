@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-first-start.m4-26.schema.json",
+  "title": "TU1NZ Adult Publishing M4.26 read-only first-start preflight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "approval",
+    "blockers",
+    "contract_version",
+    "decision",
+    "environment",
+    "preflight",
+    "product_boundary",
+    "release_binding",
+    "sprint"
+  ],
+  "properties": {
+    "active": { "const": false },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_at", "first_start_approved", "no_swap_risk_accepted", "separate_first_start_authorization_required"],
+      "properties": {
+        "approved_at": { "type": "null" },
+        "first_start_approved": { "const": false },
+        "no_swap_risk_accepted": { "const": false },
+        "separate_first_start_authorization_required": { "const": true }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "minItems": 5,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "contract_version": { "const": "tu1nz-commercial-first-start-m4.26-read-only-v1" },
+    "decision": { "const": "M4_26_READ_ONLY_PREFLIGHT_COMPLETE_NO_GO_FIRST_START" },
+    "environment": { "const": "STAGING-S0-COMMERCIAL-CANDIDATE" },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["archive", "canonical_control", "capacity", "database", "host", "isolation", "release", "services", "start_evidence", "systemd", "technical_checks_passed"],
+      "properties": {
+        "archive": { "type": "object" },
+        "canonical_control": { "type": "object" },
+        "capacity": { "type": "object" },
+        "database": { "type": "object" },
+        "host": { "type": "object" },
+        "isolation": { "type": "object" },
+        "release": { "type": "object" },
+        "services": { "type": "object" },
+        "start_evidence": { "type": "object" },
+        "systemd": { "type": "object" },
+        "technical_checks_passed": { "const": true }
+      }
+    },
+    "product_boundary": { "type": "object" },
+    "release_binding": { "type": "object" },
+    "sprint": { "const": "M4.26" }
+  }
+}

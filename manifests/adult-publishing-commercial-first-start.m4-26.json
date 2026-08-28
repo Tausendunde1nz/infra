@@ -1,0 +1,177 @@
+{
+  "active": false,
+  "approval": {
+    "approved_at": null,
+    "first_start_approved": false,
+    "no_swap_risk_accepted": false,
+    "separate_first_start_authorization_required": true
+  },
+  "blockers": [
+    "FIRST_START_NOT_APPROVED",
+    "NO_SWAP_RISK_NOT_ACCEPTED_FOR_FIRST_START",
+    "M4_26_NOT_MERGED_TO_CONTROL_MAIN",
+    "M4_26_NOT_DEPLOYED_TO_SERVER_CANONICAL_CONTROL",
+    "FRESH_PRESTART_REVALIDATION_REQUIRED"
+  ],
+  "contract_version": "tu1nz-commercial-first-start-m4.26-read-only-v1",
+  "decision": "M4_26_READ_ONLY_PREFLIGHT_COMPLETE_NO_GO_FIRST_START",
+  "environment": "STAGING-S0-COMMERCIAL-CANDIDATE",
+  "preflight": {
+    "archive": {
+      "archive_inventory_sha256": "f7dd1b3fea220bc1ef032325edc9bb8033d79f2c52e5893927d93018f3d4aec3",
+      "archive_name": "tu1nz_system_backup_20260828T18-15-58Z.tar.gz",
+      "archive_sha256": "f892758dccf2157b4fa11afa38fe61dfcd36f18076230a76f1d23627bf18afc0",
+      "exact_archive_bytes": 64488092,
+      "isolated_restore_passed": true,
+      "isolated_restore_root": "/opt/tu1nz_repos/backups/m4-25-commercial-s0-unit-refresh-restore/20260828T18-35-00Z",
+      "local_remote_sha256_match": true,
+      "restore_evidence_sha256": "013e89b92fda435f978960bb417cf2a7c6da93e6bc5387612b648a2358220b7d"
+    },
+    "canonical_control": {
+      "branch": "control-main",
+      "head_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+      "ignored_entries": [
+        ".r28r4-control-payload-clean.tar.gz",
+        "_filelist_reference.txt",
+        "_filelist_reference.txt.bak_20260215T082155Z",
+        "analysis/n8n_fix_2026-03-18/",
+        "analysis/n8n_perms_2026-03-18/",
+        "analysis/security_incident_2026-08-25/",
+        "checksums.txt",
+        "checksums_current.txt",
+        "checksums_reference.sha256",
+        "checksums_reference.txt",
+        "emoji_map.sed",
+        "integrity_baseline.sha256",
+        "integrity_reference.sha256",
+        "integrity_reference.txt",
+        "last_sync.ok",
+        "legacy_units/",
+        "monitor_last.txt",
+        "nginx/validation.pid",
+        "rebaseline_2026/",
+        "scripts/__pycache__/",
+        "scripts/encrypted_drive_backup",
+        "systemd/tu1nz-git-sync.service",
+        "systemd/tu1nz-git-sync.timer"
+      ],
+      "ignored_entries_count": 23,
+      "ignored_entries_sha256": "b23591e86c2b43fbc11a376eb3d0a68c19e3979b1538aa4ac50711b598300e89",
+      "origin_control_main_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+      "tracked_clean": true,
+      "tree_sha": "c50ce73098d344763fd29f12ba077fb24139b38c"
+    },
+    "capacity": {
+      "memory_available_kib": 5948368,
+      "root_filesystem_available_bytes": 20357632000,
+      "swap_total_kib": 0
+    },
+    "database": {
+      "business_rows_zero": true,
+      "content_sha256": "1be33016fecef1f1918dbbd505328712ef2c9121c143c1057bdc18aecdc980ed",
+      "function_count": 21,
+      "other_sessions": 0,
+      "schema_sha256": "d14fb552afaebe8ae847eaab46145c9a2d1b1d208fcde9332ef9468c0424223f",
+      "seed_counts": {
+        "country_policy_rules": 1,
+        "creators": 1,
+        "integration_accounts": 3,
+        "platform_policy_rules": 3,
+        "policy_versions": 1,
+        "publication_destinations": 3
+      },
+      "table_count": 39
+    },
+    "host": {
+      "hostname": "ubuntu-8gb-nbg1-2",
+      "observed_at": "2026-08-28T19:13:59Z",
+      "tailscale_ipv4": "100.121.130.51"
+    },
+    "isolation": {
+      "commercial_container_mount_reference_detected": false,
+      "commercial_cron_reference_detected": false,
+      "commercial_open_file_reference_detected": false,
+      "commercial_process_reference_detected": false,
+      "commercial_timer_reference_detected": false,
+      "manager_sensitive_environment_names": [],
+      "runtime_user_process_reference_detected": false,
+      "unit_sensitive_environment_names": []
+    },
+    "release": {
+      "application_link": "application/52494d6121660ead53774deb8616701f14bb7a8f",
+      "application_release_clean": true,
+      "application_sha": "52494d6121660ead53774deb8616701f14bb7a8f",
+      "application_tree_sha": "b2820945c52ffdf77c2f5fbdd227c03ee6b245ab",
+      "control_link": "control/3135197ba4ac577bbb7fd28341d0c2dc845a7ebe",
+      "control_release_clean": true,
+      "installed_control_sha": "3135197ba4ac577bbb7fd28341d0c2dc845a7ebe",
+      "installed_control_tree_sha": "da01c5bacb883442e0b556d5e291c8b8206959a2",
+      "release_gate_passed": true,
+      "release_manifest_sha256": "68d8e276b2e0442cc9e02937264c6f493e938f7ab0fc3372239dba69a05a6386",
+      "state_sha256": "8311a0072ab0e8165d21256e0edb6980bfc1e2acf7abe97b226cfc979545fd12",
+      "unit_sha256": "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d",
+      "venv_link": "venv/52494d6121660ead53774deb8616701f14bb7a8f"
+    },
+    "services": {
+      "allowed_failed_units": [
+        "tu1nz-doc.service"
+      ],
+      "backup_service": "inactive",
+      "backup_timer": "active",
+      "postgresql": "active",
+      "staging_s1": "active"
+    },
+    "start_evidence": {
+      "active_enter_timestamp": "",
+      "active_enter_timestamp_monotonic": 0,
+      "control_pid": 0,
+      "exec_main_start_timestamp": "",
+      "exec_main_start_timestamp_monotonic": 0,
+      "journal_lines": 0,
+      "main_pid": 0,
+      "n_restarts": 0,
+      "runtime_lock_present": false,
+      "runtime_status_present": false
+    },
+    "systemd": {
+      "active_state": "inactive",
+      "load_state": "loaded",
+      "native_unit_verify_passed": true,
+      "restart": "no",
+      "runtime_maximum_seconds": 180,
+      "security_exposure_level": 0.6,
+      "security_rating": "SAFE",
+      "sub_state": "dead",
+      "triggered": false,
+      "unit_file_state": "static"
+    },
+    "technical_checks_passed": true
+  },
+  "product_boundary": {
+    "external_providers_enabled": false,
+    "network_enabled": false,
+    "paid_targets": [
+      "REDDIT",
+      "TELEGRAM"
+    ],
+    "real_media_enabled": false,
+    "real_payment_enabled": false,
+    "synthetic_data_only": true,
+    "synthetic_publishers_only": true,
+    "telegram_intake_enabled": false,
+    "uncompensated_targets": [
+      "X"
+    ]
+  },
+  "release_binding": {
+    "base_control_main_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+    "base_control_main_tree_sha": "c50ce73098d344763fd29f12ba077fb24139b38c",
+    "m4_24_contract_sha256": "bf43aee420e133b9e5167a90c2e4c260d2716c0390c8cfc439fb1d03c1b87da3",
+    "m4_25_contract_sha256": "b5ceaff212c8f10529b2c89a2667dd0ef715db5e361a2dcd05007074cbd61ee2",
+    "post_merge_ci_run_id": 33202557484,
+    "pr_33_merged": true,
+    "pr_34_merge_commit_sha": "132d971dca214dcfa1cf2e3d48fbec172751e937",
+    "pr_34_merged": true
+  },
+  "sprint": "M4.26"
+}

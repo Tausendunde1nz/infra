@@ -1,0 +1,36 @@
+# M4.26 read-only preflight probe diagnosis
+
+Date: 2026-08-28
+
+## Failure 1 — local wrapper interpolation
+
+The first probe request failed inside the local JavaScript command wrapper with
+`ReferenceError: name is not defined`. The SSH process was never started, so no
+server command or mutation occurred. Cause: an unescaped shell variable inside
+a JavaScript template literal. Resolution: escape the one interpolation point
+and rerun the same read-only probe.
+
+## Failure 2 — ambiguous first probe fields
+
+The corrected broad probe completed, but three assumptions were wrong:
+
+- it queried `tu1nz-adult-staging-s1.service` instead of the versioned
+  `tu1nz-adult-publishing-s1.service`;
+- it queried `tu1nz-backup.timer/service` instead of
+  `tu1nz_encrypted_backup.timer/service`;
+- it used `rg`, which is not installed on the server.
+
+It also counted `information_schema.tables`, producing 40 instead of the
+contractual 39 physical public tables. These ambiguous values were not used.
+
+## Corrected evidence
+
+A final read-only probe reused the exact M4.24/M4.25 unit names, the versioned
+database snapshot implementation, `grep` where required, Git safe-directory
+configuration and the full M4.25 release-gate argument set. It confirmed the
+technical stopped boundary recorded in
+`manifests/adult-publishing-commercial-first-start.m4-26.json`.
+
+No probe started, restarted, enabled, stopped or reloaded a unit; wrote a file;
+fetched or pulled Git; accessed secret values; activated a provider; or changed
+the database.
