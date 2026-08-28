@@ -147,6 +147,20 @@ jobs:
           ! git grep -nEi
           '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]|ssh[[:space:]]|tailscale[[:space:]]|subprocess|https?://|(^|[[:space:]])crontab([[:space:]]|$))' --
           scripts/tu1nz_adult_commercial_installation_authorization_gate.py
+      - name: Validate M4.23 stopped installation shell
+        run: bash -n scripts/tu1nz_adult_commercial_s0_install.sh
+      - name: Compile M4.23 stopped installation tests
+        run: python3 -m py_compile tests/test_adult_commercial_s0_stopped_installation.py
+      - name: Run M4.23 stopped installation tests
+        run: python3 -m unittest -v tests.test_adult_commercial_s0_stopped_installation
+      - name: Reject first start, enablement, cron and provider credentials in M4.23
+        run: >-
+          ! git grep -nEi
+          '(systemctl[[:space:]]+(start|restart|enable)[[:space:]]+.*commercial|WantedBy=|(^|[[:space:]])crontab([[:space:]]|$)|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_s0_install.sh
+          config/adult-publishing/staging-s0-commercial/bootstrap.sql
+          config/adult-publishing/staging-s0-commercial/core-identities.synthetic.json
+          config/adult-publishing/staging-s0-commercial/state.empty.json
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

@@ -1,0 +1,9 @@
+# M4.23 local test discovery
+
+- Date: 2026-08-28
+- Scope: local Control-SSOT validation
+- Observation: `python3 -m unittest discover -v` exited successfully but selected zero tests because this repository's test modules are loaded through the explicit package/module names used by the versioned workflow.
+- Additional environment note: `shellcheck` is not installed on this Mac; no installation was attempted.
+- Impact: no false passing result is accepted. The earlier explicit M4.19–M4.23 modules selected 58 tests and passed; the complete workflow module list is rerun explicitly after this diagnosis.
+- Recovery: validate every module named by `.github/workflows/control-validation.yml`, retain `bash -n`, Python compilation, static forbidden-pattern checks and Git whitespace checks, then require GitHub CI before merge.
+- Rollback: not applicable; all operations were local and read-only apart from this versioned diagnosis.

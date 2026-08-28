@@ -73,6 +73,11 @@ Current Adult Publishing infrastructure decisions:
   and `scripts/tu1nz_adult_commercial_installation_authorization_gate.py` bind
   that bounded approval and reject missing approval, premature installation,
   activation, networking or backup evidence.
+- `docs/M4_23_COMMERCIAL_S0_STOPPED_INSTALLATION_2026-08-28.md`, the exact
+  synthetic bootstrap files and
+  `scripts/tu1nz_adult_commercial_s0_install.sh` define the reviewed two-phase
+  stopped installation. Preparation and the first commercial backup precede a
+  new archive-specific release approval; no first-start action exists.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.

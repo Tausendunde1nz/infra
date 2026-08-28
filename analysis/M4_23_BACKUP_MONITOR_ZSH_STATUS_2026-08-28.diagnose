@@ -1,0 +1,29 @@
+M4.23 backup monitor zsh status-variable diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+The first local polling loop stopped with `read-only variable: status` before
+it could print the remote backup service state.
+
+Cause
+-----
+The local shell is zsh, where `status` is a reserved read-only parameter. The
+poller attempted to assign the remote read-only service summary to that name.
+
+Risk
+----
+None to the running backup or server state. The separately issued server-side
+backup start had already succeeded and continued independently. The failed
+command performed no server write and did not stop or restart the service.
+
+Rollback
+--------
+No server rollback is required. This diagnosis can be reverted with the M4.23
+deployment-evidence branch.
+
+Approved continuation
+---------------------
+Repeat only the read-only service polling with `backup_state` as the local
+variable, fail immediately on a server-side failed state and continue only
+after an inactive/success/zero-exit result.
