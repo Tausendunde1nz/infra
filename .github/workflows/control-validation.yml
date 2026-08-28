@@ -299,6 +299,35 @@ jobs:
           ! git grep -nEi
           '(subprocess|systemctl|daemon-reload|docker[.(]|(import|from)[[:space:]]+docker|requests|urllib|socket|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
           scripts/tu1nz_adult_commercial_m4_27_gate.py
+      - name: Compile M4.28 sync authorization gate and tests
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_m4_28_gate.py
+          tests/test_adult_commercial_m4_28.py
+      - name: Run M4.28 sync authorization tests
+        run: python3 -m unittest -v tests.test_adult_commercial_m4_28
+      - name: Validate M4.28 JSON and closed authorization gates
+        shell: bash
+        run: |
+          contract=manifests/adult-publishing-commercial-canonical-sync-authorization.m4-28.json
+          python3 -m json.tool \
+            manifests/adult-publishing-commercial-canonical-sync-authorization.m4-28.schema.json >/dev/null
+          python3 -m json.tool "$contract" >/dev/null
+          scripts/tu1nz_adult_commercial_m4_28_gate.py --contract "$contract"
+          for readiness in --require-authorization-ready --require-mutation-ready
+          do
+            if scripts/tu1nz_adult_commercial_m4_28_gate.py \
+              --contract "$contract" "$readiness"
+            then
+              echo "M4.28 unexpectedly opened readiness gate: $readiness" >&2
+              exit 1
+            fi
+          done
+      - name: Reject host, network, write and provider surfaces in M4.28 gate
+        run: >-
+          ! git grep -nEi
+          '(subprocess|systemctl|daemon-reload|paramiko|(^|[^[:alnum:]_])ssh([^[:alnum:]_]|$)|requests|urllib|socket|os\.system|shutil|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_m4_28_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile
