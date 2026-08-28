@@ -1,0 +1,37 @@
+M4.21 rebase force-with-lease diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+The first `force-with-lease` push after rebasing M4.21 onto merged M4.20 was
+rejected with `stale info`. The remote branch remained at
+`958a85be41c602c4c6412a74c66231fce2b6fa1f` while the validated local rebased
+commit was `7568a3e`.
+
+Cause
+-----
+Only `control-main` had been fetched immediately before the rebase. The local
+repository therefore lacked a current remote-tracking lease for the M4.21
+branch. The command sequence did not use fail-fast shell mode, so the PR base
+and draft state were updated after the rejected push. PR #20 was immediately
+returned to Draft; no merge occurred.
+
+Risk
+----
+Git correctly prevented an unproven history rewrite. GitHub still references
+the old reviewed M4.21 head and the server remains unchanged. The only risk is
+merging the old head if the discrepancy were ignored.
+
+Rollback
+--------
+No server rollback is required. PR #20 is Draft and unmerged. The remote branch
+still has its original commit and can be retained if the rebased update is
+abandoned.
+
+Approved correction
+-------------------
+Verify the remote branch OID is still exactly
+`958a85be41c602c4c6412a74c66231fce2b6fa1f`, include this diagnosis in the
+rebased commit, and push with an explicit lease bound to that OID. Then require
+PR #20 to report the new head, rerun CI, recheck review threads and only then
+mark it ready and merge.

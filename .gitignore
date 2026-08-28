@@ -22,6 +22,8 @@
 !scripts/tu1nz_adult_commercial_s0_manifest.py
 !scripts/tu1nz_adult_commercial_s0_release_gate.py
 !scripts/tu1nz_adult_commercial_installation_preflight_gate.py
+!scripts/tu1nz_adult_commercial_path_access.sh
+!scripts/tu1nz_adult_commercial_host_access_gate.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -45,6 +47,8 @@
 !manifests/adult-publishing-commercial-s0-release.schema.json
 !manifests/adult-publishing-commercial-installation-preflight.schema.json
 !manifests/adult-publishing-commercial-installation-preflight.m4-20.json
+!manifests/adult-publishing-commercial-host-access.schema.json
+!manifests/adult-publishing-commercial-host-access.m4-21.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -54,6 +58,8 @@
 !config/adult-publishing/staging-s1/bootstrap.sql
 !config/postgresql/
 !config/postgresql/pgdg.sources
+!config/postgresql/adult-publishing-commercial-s0.pg_hba.rule
+!config/postgresql/adult-publishing-commercial-s0.pg_ident.map
 !tests/
 !tests/test_adult_restore_verify.py
 !tests/test_adult_s0_deployment_readiness.py
@@ -61,6 +67,7 @@
 !tests/test_adult_commercial_readiness.py
 !tests/test_adult_commercial_s0_installation_design.py
 !tests/test_adult_commercial_installation_preflight.py
+!tests/test_adult_commercial_host_access_design.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -75,3 +82,4 @@
 !analysis/M4_20_GITHUB_TREE_SIZE_QUERY_2026-08-28.diagnose
 !analysis/M4_20_PREFLIGHT_GATE_EXECUTION_MODE_2026-08-28.diagnose
 !analysis/M4_20_UNITTEST_DISCOVERY_2026-08-28.diagnose
+!analysis/M4_21_REBASE_FORCE_WITH_LEASE_2026-08-28.diagnose

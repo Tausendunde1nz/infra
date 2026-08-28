@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-host-access.schema.json",
+  "title": "TU1NZ Adult Publishing M4.21 commercial host access design",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "activation_decision",
+    "application_sha",
+    "artifact_sha256",
+    "contract_version",
+    "control_parent_sha",
+    "design_decision",
+    "installed",
+    "installation_decision",
+    "path_access",
+    "postgres_peer",
+    "product_boundary",
+    "required_installation_gates",
+    "rollback",
+    "server_changed",
+    "sprint"
+  ],
+  "properties": {
+    "active": { "const": false },
+    "activation_decision": { "const": "NO_GO" },
+    "application_sha": { "const": "52494d6121660ead53774deb8616701f14bb7a8f" },
+    "artifact_sha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config/postgresql/adult-publishing-commercial-s0.pg_hba.rule",
+        "config/postgresql/adult-publishing-commercial-s0.pg_ident.map",
+        "scripts/tu1nz_adult_commercial_path_access.sh"
+      ],
+      "properties": {
+        "config/postgresql/adult-publishing-commercial-s0.pg_hba.rule": { "$ref": "#/$defs/sha256" },
+        "config/postgresql/adult-publishing-commercial-s0.pg_ident.map": { "$ref": "#/$defs/sha256" },
+        "scripts/tu1nz_adult_commercial_path_access.sh": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "contract_version": { "const": "tu1nz-commercial-host-access-m4.21-v1" },
+    "control_parent_sha": { "const": "7bcf6e1eb064e1d7328caa160030685f9ed10595" },
+    "design_decision": { "const": "GO" },
+    "installed": { "const": false },
+    "installation_decision": { "const": "NO_GO" },
+    "path_access": { "$ref": "#/$defs/pathAccess" },
+    "postgres_peer": { "$ref": "#/$defs/postgresPeer" },
+    "product_boundary": { "$ref": "#/$defs/productBoundary" },
+    "required_installation_gates": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z0-9_]+$" },
+      "additionalProperties": { "const": false }
+    },
+    "rollback": { "$ref": "#/$defs/rollback" },
+    "server_changed": { "const": false },
+    "sprint": { "const": "M4.21" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "pathAccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry",
+        "forbidden_supplementary_group",
+        "modes",
+        "paths",
+        "preserve_acl_mask",
+        "recursive",
+        "runtime_group",
+        "runtime_user",
+        "tool"
+      ],
+      "properties": {
+        "entry": { "const": "--x" },
+        "forbidden_supplementary_group": { "const": "chatops" },
+        "modes": { "const": ["apply", "verify", "rollback"] },
+        "paths": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["acl_mask", "expected_metadata", "path"],
+            "properties": {
+              "acl_mask": { "enum": ["rwx", "r-x"] },
+              "expected_metadata": { "type": "string", "pattern": "^[0-7]{3,4}:[a-z-]+:[a-z-]+$" },
+              "path": { "type": "string", "pattern": "^/" }
+            }
+          }
+        },
+        "preserve_acl_mask": { "const": true },
+        "recursive": { "const": false },
+        "runtime_group": { "const": "tu1nz-adult-commercial-s0" },
+        "runtime_user": { "const": "tu1nz-adult-commercial-s0" },
+        "tool": { "const": "scripts/tu1nz_adult_commercial_path_access.sh" }
+      }
+    },
+    "postgresPeer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authentication_method",
+        "configuration_backup_required",
+        "credential_required",
+        "database",
+        "hba_anchor_fields",
+        "hba_fields",
+        "hba_rule_file",
+        "hba_rule_must_precede_anchor",
+        "ident_fields",
+        "ident_map_file",
+        "map_name",
+        "migrator_mapping_present",
+        "migrator_role",
+        "native_rule_views_error_free_required",
+        "observed_hba_file",
+        "observed_hba_metadata",
+        "observed_hba_sha256",
+        "observed_ident_file",
+        "observed_ident_metadata",
+        "observed_ident_sha256",
+        "operating_system_user",
+        "positive_connection_identity",
+        "reload_required",
+        "runtime_role"
+      ],
+      "properties": {
+        "authentication_method": { "const": "peer" },
+        "configuration_backup_required": { "const": true },
+        "credential_required": { "const": false },
+        "database": { "const": "tu1nz_adult_commercial_s0" },
+        "hba_anchor_fields": { "const": ["local", "all", "all", "peer"] },
+        "hba_fields": {
+          "const": [
+            "local",
+            "tu1nz_adult_commercial_s0",
+            "tu1nz_adult_commercial_s0_runtime",
+            "peer",
+            "map=tu1nz_adult_commercial_s0"
+          ]
+        },
+        "hba_rule_file": { "const": "config/postgresql/adult-publishing-commercial-s0.pg_hba.rule" },
+        "hba_rule_must_precede_anchor": { "const": true },
+        "ident_fields": {
+          "const": [
+            "tu1nz_adult_commercial_s0",
+            "tu1nz-adult-commercial-s0",
+            "tu1nz_adult_commercial_s0_runtime"
+          ]
+        },
+        "ident_map_file": { "const": "config/postgresql/adult-publishing-commercial-s0.pg_ident.map" },
+        "map_name": { "const": "tu1nz_adult_commercial_s0" },
+        "migrator_mapping_present": { "const": false },
+        "migrator_role": { "const": "tu1nz_adult_commercial_s0_migrator" },
+        "native_rule_views_error_free_required": { "const": true },
+        "observed_hba_file": { "const": "/etc/postgresql/17/main/pg_hba.conf" },
+        "observed_hba_metadata": { "const": "640:postgres:postgres" },
+        "observed_hba_sha256": { "const": "ad0df9635890926d79a12d5627b68af6b85b6254fa23cace2bbe077838969c9e" },
+        "observed_ident_file": { "const": "/etc/postgresql/17/main/pg_ident.conf" },
+        "observed_ident_metadata": { "const": "640:postgres:postgres" },
+        "observed_ident_sha256": { "const": "b4dfef08731a7d20a3bb724ad4cf3e1cd91ec01fbe51349c6a3acc5704072965" },
+        "operating_system_user": { "const": "tu1nz-adult-commercial-s0" },
+        "positive_connection_identity": { "const": "tu1nz_adult_commercial_s0_runtime" },
+        "reload_required": { "const": true },
+        "runtime_role": { "const": "tu1nz_adult_commercial_s0_runtime" }
+      }
+    },
+    "productBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_providers_enabled",
+        "network_enabled",
+        "paid_targets",
+        "real_media_enabled",
+        "real_payment_enabled",
+        "synthetic_data_only",
+        "telegram_intake_enabled",
+        "uncompensated_targets"
+      ],
+      "properties": {
+        "external_providers_enabled": { "const": false },
+        "network_enabled": { "const": false },
+        "paid_targets": { "const": ["REDDIT", "TELEGRAM"] },
+        "real_media_enabled": { "const": false },
+        "real_payment_enabled": { "const": false },
+        "synthetic_data_only": { "const": true },
+        "telegram_intake_enabled": { "const": false },
+        "uncompensated_targets": { "const": ["X"] }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acl_mode",
+        "postgres_reload_and_rule_validation_required",
+        "preserve_s1_acl_and_runtime",
+        "remove_only_commercial_acl_entry",
+        "restore_exact_postgres_file_backups",
+        "runtime_connection_must_fail_after_rollback"
+      ],
+      "properties": {
+        "acl_mode": { "const": "rollback" },
+        "postgres_reload_and_rule_validation_required": { "const": true },
+        "preserve_s1_acl_and_runtime": { "const": true },
+        "remove_only_commercial_acl_entry": { "const": true },
+        "restore_exact_postgres_file_backups": { "const": true },
+        "runtime_connection_must_fail_after_rollback": { "const": true }
+      }
+    }
+  }
+}
