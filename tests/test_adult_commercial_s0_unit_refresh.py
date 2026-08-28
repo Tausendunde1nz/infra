@@ -16,8 +16,12 @@ M4_25_CONTRACT = ROOT / "manifests" / "adult-publishing-commercial-unit-refresh.
 class CommercialS0UnitRefreshTest(unittest.TestCase):
     def test_unit_is_exact_single_start_static_guard(self) -> None:
         source = UNIT.read_text(encoding="ascii")
-        self.assertEqual(source.count("Restart=no\n"), 1)
-        self.assertEqual(source.count("RuntimeMaxSec=180\n"), 1)
+        lines = source.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("Restart=")], ["Restart=no"])
+        self.assertEqual(
+            [line for line in lines if line.startswith("RuntimeMaxSec=")],
+            ["RuntimeMaxSec=180"],
+        )
         for forbidden in (
             "Restart=on-failure",
             "Restart=always",
@@ -49,6 +53,8 @@ class CommercialS0UnitRefreshTest(unittest.TestCase):
             "another M4.25 transaction is active",
             "Restart=no",
             "RuntimeMaxSec=180",
+            "exactly one Restart directive",
+            "exactly one RuntimeMaxSec directive",
             "RuntimeMaxUSec",
             "systemd_duration_microseconds",
             "phase=daemon-reloaded",

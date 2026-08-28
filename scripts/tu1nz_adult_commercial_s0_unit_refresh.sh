@@ -82,17 +82,20 @@ require_safe_evidence_root() {
 }
 
 verify_release() {
+  local versioned_unit="$CONTROL_RELEASE/systemd/$UNIT"
   [[ -d "$CONTROL_RELEASE/.git" && ! -L "$CONTROL_RELEASE" ]] || fail "immutable Control release missing"
   [[ "$(git_read "$CONTROL_RELEASE" rev-parse HEAD)" == "$CONTROL_SHA" ]] || fail "Control release SHA mismatch"
   [[ -z "$(git_read "$CONTROL_RELEASE" status --porcelain=v1)" ]] || fail "Control release is dirty"
   [[ -z "$(git_read "$CONTROL_RELEASE" clean -ndx)" ]] || fail "Control release has untracked or ignored files"
   git_read "$CONTROL_RELEASE" fsck --full >/dev/null
   [[ "$(stat -c '%a:%U:%G' "$CONTROL_RELEASE")" == "750:root:$RUNTIME_GROUP" ]] || fail "Control release metadata mismatch"
-  [[ -f "$CONTROL_RELEASE/systemd/$UNIT" && ! -L "$CONTROL_RELEASE/systemd/$UNIT" ]] || fail "versioned unit missing"
-  /usr/bin/systemd-analyze verify "$CONTROL_RELEASE/systemd/$UNIT"
-  [[ "$(/usr/bin/grep -c '^Restart=no$' "$CONTROL_RELEASE/systemd/$UNIT")" == 1 ]] || fail "versioned unit must contain exact Restart=no"
-  [[ "$(/usr/bin/grep -c '^RuntimeMaxSec=180$' "$CONTROL_RELEASE/systemd/$UNIT")" == 1 ]] || fail "versioned unit must contain exact RuntimeMaxSec=180"
-  ! /usr/bin/grep -Eq '^\[Install\]$|^WantedBy=|^OnFailure=|^Restart=(always|on-failure)$' "$CONTROL_RELEASE/systemd/$UNIT" || fail "versioned unit contains activation or restart behavior"
+  [[ -f "$versioned_unit" && ! -L "$versioned_unit" ]] || fail "versioned unit missing"
+  /usr/bin/systemd-analyze verify "$versioned_unit"
+  [[ "$(/usr/bin/grep -c '^Restart=' "$versioned_unit")" == 1 ]] || fail "versioned unit must contain exactly one Restart directive"
+  [[ "$(/usr/bin/grep -c '^Restart=no$' "$versioned_unit")" == 1 ]] || fail "versioned unit must contain exact Restart=no"
+  [[ "$(/usr/bin/grep -c '^RuntimeMaxSec=' "$versioned_unit")" == 1 ]] || fail "versioned unit must contain exactly one RuntimeMaxSec directive"
+  [[ "$(/usr/bin/grep -c '^RuntimeMaxSec=180$' "$versioned_unit")" == 1 ]] || fail "versioned unit must contain exact RuntimeMaxSec=180"
+  ! /usr/bin/grep -Eq '^\[Install\]$|^WantedBy=|^OnFailure=|^RestartSec=' "$versioned_unit" || fail "versioned unit contains activation or restart behavior"
 }
 
 verify_never_started() {

@@ -1,0 +1,45 @@
+# M4.25.1 duplicate systemd scalar guard
+
+Date: 2026-08-28
+Scope: PR #34 stacked integration review only
+Status: corrected locally; no server action performed
+
+## Finding
+
+The M4.25 unit itself contains the intended single values `Restart=no` and
+`RuntimeMaxSec=180`. The pre-install release check and its regression test,
+however, counted only those exact safe lines and rejected only selected unsafe
+restart values. A second scalar assignment such as `Restart=on-abnormal` or
+`RuntimeMaxSec=infinity` could therefore coexist with the required line and
+pass the pre-install text guard. systemd applies the effective scalar value,
+so a later assignment could override the safe value.
+
+The post-install effective-property check would still fail, but only after the
+unit had been replaced and daemon-reloaded. That violates the intended
+fail-closed pre-mutation boundary and would require the already documented
+manual rollback path.
+
+## Minimal correction
+
+The release controller now requires exactly one `Restart=` assignment and
+exactly one `RuntimeMaxSec=` assignment, with the respective exact values
+`no` and `180`. It also rejects `RestartSec=`, `OnFailure=`, `[Install]` and
+`WantedBy=` before installation. The unit test and CI static guard enforce the
+same exact scalar cardinality.
+
+The versioned systemd unit, M4.24 historical contract, M4.25 evidence contract,
+unit digest, backup evidence and restore evidence are unchanged. No service,
+server, provider, token, payment, publishing or first-start action is involved.
+
+## Regression proof
+
+The M4.25 test must fail if any second `Restart=` or `RuntimeMaxSec=` assignment
+is added, including values not listed by the previous denylist. The full
+Control suite, shell syntax, JSON/schema checks, cumulative merge simulation
+and remote CI must pass again before PR #34 can receive a merge recommendation.
+
+## Rollback
+
+Before merge, revert the dedicated M4.25.1 guard commit. No operational
+rollback is needed because this correction changes only unmerged Control
+source, tests, CI and this diagnosis. First Start remains `NO-GO`.
