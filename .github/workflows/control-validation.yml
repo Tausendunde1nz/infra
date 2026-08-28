@@ -129,6 +129,24 @@ jobs:
           scripts/tu1nz_adult_commercial_path_access.sh
           config/postgresql/adult-publishing-commercial-s0.pg_hba.rule
           config/postgresql/adult-publishing-commercial-s0.pg_ident.map
+      - name: Validate M4.22 commercial installation authorization JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-installation-authorization.schema.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-installation-authorization.m4-22.json >/dev/null
+      - name: Compile M4.22 commercial installation authorization artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_installation_authorization_gate.py
+          tests/test_adult_commercial_installation_authorization.py
+      - name: Run M4.22 commercial installation authorization tests
+        run: python3 -m unittest -v tests.test_adult_commercial_installation_authorization
+      - name: Reject mutation and network behavior in M4.22 authorization gate
+        run: >-
+          ! git grep -nEi
+          '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]|ssh[[:space:]]|tailscale[[:space:]]|subprocess|https?://|(^|[[:space:]])crontab([[:space:]]|$))' --
+          scripts/tu1nz_adult_commercial_installation_authorization_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

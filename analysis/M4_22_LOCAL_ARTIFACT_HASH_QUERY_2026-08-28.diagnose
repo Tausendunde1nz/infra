@@ -1,0 +1,29 @@
+M4.22 local artifact-hash query diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+One read-only local SHA-256 invocation referenced the nonexistent filename
+`tu1nz_adult_commercial-host-access-gate.py`.
+
+Cause
+-----
+The command used a hyphen where the versioned filename uses an underscore.
+The failing lookup was suppressed for inventory continuity. The immediately
+following literal-path query used the correct file and returned the expected
+digest.
+
+Risk
+----
+None to GitHub, the server or any runtime. The failed lookup returned no hash
+and is not credited as evidence.
+
+Rollback
+--------
+No rollback is required because the operation was read-only. This diagnosis
+can be reverted with the M4.22 branch.
+
+Approved continuation
+---------------------
+Use only the successful literal-path digest set in M4.22 evidence and keep the
+typo diagnosis versioned.
