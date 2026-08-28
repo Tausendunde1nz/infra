@@ -1,0 +1,81 @@
+# M4.23 — Commercial S0 stopped installation
+
+Date: 2026-08-28
+
+Application: `52494d6121660ead53774deb8616701f14bb7a8f`
+
+Recovery profile: RPO 86400 seconds, RTO 14400 seconds, encrypted retention
+7 days.
+
+Decision: **GO for the reviewed stopped preparation after merge; NO-GO for
+first start, providers, tokens, real media, real payment or publication**
+
+## Goal and product boundary
+
+M4.23 installs only the persistent, network-free commercial S0 candidate that
+directly supports the TU1NZ path toward Telegram intake, adult/consent checks,
+human moderation, paid Telegram/Reddit distribution and separately authorized
+uncompensated X automation. All source data and publishers remain synthetic.
+The candidate has no Telegram intake and no external provider access.
+
+The fresh absent-state encrypted archive created immediately before this
+transaction is
+`tu1nz_system_backup_20260828T14-39-46Z.tar.gz`, 45,417,608 bytes, SHA-256
+`011856113239a94c83104e9156336dfc0cfbae8208f6cfdc0cee8f68d4316887`.
+The local and streamed encrypted-remote hashes match, and the non-disruptive
+restore smoke completed at 2026-08-28T15:26:01Z. Google Drive quota throttling
+made the upload require a whole-attempt retry; the final service result was
+successful and is recorded in the M4.23 diagnosis.
+
+## Versioned installation transaction
+
+`scripts/tu1nz_adult_commercial_s0_install.sh` has four explicit modes:
+
+1. `preflight` proves the final repositories, authorization, backup hash,
+   absent commercial targets, active PostgreSQL/S1, idle backup process,
+   capacity and exact PostgreSQL configuration baselines.
+2. `prepare` installs the reviewed commercial-aware backup script, creates the
+   locked OS identity and minimal parent traversal ACL, installs the exact peer
+   mapping, creates isolated database roles/database, stages clean immutable
+   releases, builds the hash-locked venv, applies migrations 0001–0014 and the
+   synthetic bootstrap, and creates exact private config/empty state.
+3. `verify-prepared` validates that prepared state read-only and requires the
+   release manifest and installed unit to remain absent.
+4. `install-unit` is intentionally blocked until a qualifying commercial
+   archive and post-backup approved manifest exist. It can only install and
+   verify the unit stopped; it contains no candidate start or enable action.
+
+The PostgreSQL HBA/ident changes and database storage are the narrow,
+operator-approved exceptions needed to implement the M4.21 peer-auth design.
+Before writing them, the transaction verifies the exact M4.20 hashes and saves
+root-private copies under the M4.23 backup evidence directory. It validates the
+versioned fragments, reloads PostgreSQL without stopping it and requires both
+native parser views to be error-free. Existing S1 remains active throughout.
+The daily encrypted-backup timer must be active before the window, is paused
+only while commercial roots transition from absent to complete, and is resumed
+by an exit trap on success or failure. The backup service itself must be idle.
+
+## Failure and rollback boundary
+
+Every phase aborts on the first mismatch. It does not automatically remove a
+partially prepared database, identity, ACL, release or configuration; evidence
+must be preserved and a `.diagnose` review must precede rollback. The approved
+rollback basis is the exact absent-state archive above plus the root-private
+copies of the prior backup script and PostgreSQL files. Rollback may remove
+only M4.23 resources, use the versioned ACL `rollback` mode, restore the exact
+PostgreSQL copies, reload/validate PostgreSQL and prove S1 stayed unchanged.
+
+## Deliberate post-backup gate
+
+After `prepare` passes, the installed backup process must create the first
+archive containing the immutable application/Control/venv roots, config,
+state and custom-format PostgreSQL dump. The release-manifest contract requires
+`approved_utc` to be at or after that backup's completion. The 14:35:32Z root
+window approval predates that future archive and is therefore not reused as a
+release approval. No timestamp is invented.
+
+Consequently the uninterrupted authorized work may proceed through stopped
+preparation and the exact commercial backup. Manifest generation, isolated
+restore rehearsal and stopped unit installation then require one concise
+operator confirmation of that named archive. First start remains a later,
+separate decision even after the unit is installed.

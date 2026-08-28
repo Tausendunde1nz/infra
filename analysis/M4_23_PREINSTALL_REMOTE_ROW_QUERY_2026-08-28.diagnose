@@ -1,0 +1,31 @@
+M4.23 pre-install remote row query diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+The first post-backup independent verification command exited nonzero without
+printing accepted archive evidence.
+
+Cause
+-----
+The command assumed a field order for `rclone lsf --format sp` and used that
+assumption to select the exact remote archive. The selection or size assertion
+failed before the hash output stage. No evidence from that invocation is
+credited.
+
+Risk
+----
+None to the completed local archive or remote object. Every operation in the
+failed command was read-only. Installation remains blocked until an exact row,
+size and remote stream hash are verified successfully.
+
+Rollback
+--------
+No server rollback is required. This diagnosis can be reverted with the M4.23
+deployment-evidence branch.
+
+Approved continuation
+---------------------
+Print only the exact named remote row with an unambiguous delimiter, inspect
+the literal field order, then repeat local/remote size and SHA-256 comparison
+using that observed format.

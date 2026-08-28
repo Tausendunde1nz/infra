@@ -1,0 +1,9 @@
+# M4.23 local unit path lookup
+
+- Date: 2026-08-28
+- Scope: local, read-only Control-SSOT inspection
+- Error: `sed` was asked to read `config/systemd/tu1nz-adult-commercial-s0.service`, which does not exist.
+- Cause: the service-template path was assumed instead of first resolving it from the repository inventory.
+- Impact: none. The preceding reads completed; no file or server state was modified by the failed lookup.
+- Recovery: resolve the exact tracked path with `rg --files`, then read that file.
+- Rollback: not applicable; the failed operation was read-only.

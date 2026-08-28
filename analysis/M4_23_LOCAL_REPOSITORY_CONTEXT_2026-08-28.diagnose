@@ -1,0 +1,9 @@
+# M4.23 local repository context
+
+- Date: 2026-08-28
+- Scope: local, read-only source inspection
+- Error: a Control-SSOT configuration path was queried while the command working directory was the application repository.
+- Cause: a relative path crossed the two deliberately separate repositories.
+- Impact: none. The application migration reads completed; no file or server state was changed.
+- Recovery: use the absolute Control-SSOT path for cross-repository reads.
+- Rollback: not applicable; the failed operation was read-only.

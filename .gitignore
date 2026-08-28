@@ -25,6 +25,7 @@
 !scripts/tu1nz_adult_commercial_path_access.sh
 !scripts/tu1nz_adult_commercial_host_access_gate.py
 !scripts/tu1nz_adult_commercial_installation_authorization_gate.py
+!scripts/tu1nz_adult_commercial_s0_install.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -56,6 +57,9 @@
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
 !config/adult-publishing/staging-s0-commercial/runtime.env.example
+!config/adult-publishing/staging-s0-commercial/bootstrap.sql
+!config/adult-publishing/staging-s0-commercial/core-identities.synthetic.json
+!config/adult-publishing/staging-s0-commercial/state.empty.json
 !config/adult-publishing/staging-s1/
 !config/adult-publishing/staging-s1/runtime.env.example
 !config/adult-publishing/staging-s1/bootstrap.sql
@@ -72,6 +76,7 @@
 !tests/test_adult_commercial_installation_preflight.py
 !tests/test_adult_commercial_host_access_design.py
 !tests/test_adult_commercial_installation_authorization.py
+!tests/test_adult_commercial_s0_stopped_installation.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -90,3 +95,9 @@
 !analysis/M4_22_LOCAL_ARTIFACT_HASH_QUERY_2026-08-28.diagnose
 !analysis/M4_22_ROOT_GIT_OWNERSHIP_PROBE_2026-08-28.diagnose
 !analysis/M4_22_PREFLIGHT_REPORT_WHITESPACE_2026-08-28.diagnose
+!analysis/M4_23_BACKUP_MONITOR_ZSH_STATUS_2026-08-28.diagnose
+!analysis/M4_23_PREINSTALL_BACKUP_DRIVE_QUOTA_2026-08-28.diagnose
+!analysis/M4_23_PREINSTALL_REMOTE_ROW_QUERY_2026-08-28.diagnose
+!analysis/M4_23_LOCAL_UNIT_PATH_LOOKUP_2026-08-28.diagnose
+!analysis/M4_23_LOCAL_REPOSITORY_CONTEXT_2026-08-28.diagnose
+!analysis/M4_23_LOCAL_TEST_DISCOVERY_2026-08-28.diagnose

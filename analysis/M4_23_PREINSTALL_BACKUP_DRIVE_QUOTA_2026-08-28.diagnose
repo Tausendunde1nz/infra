@@ -1,0 +1,36 @@
+M4.23 pre-install backup Google Drive quota diagnosis
+Date: 2026-08-28
+
+Error image
+-----------
+The fresh absent-state backup reached ten low-level upload repetitions before
+rclone recorded whole-operation attempt 1/3 as failed. Google Drive returned
+HTTP 403 `RATE_LIMIT_EXCEEDED` for the project's request-per-minute quota.
+
+Cause
+-----
+The encrypted remote backend exceeded a Google Drive API request quota while
+finalizing the uploaded object. The local archive and server service remained
+intact. rclone automatically entered its configured whole-operation retry
+sequence and continued with attempt 2/3.
+
+Risk
+----
+The new archive cannot be accepted as remote backup evidence until the backup
+service exits successfully and an independent remote stream hash matches the
+local archive hash. No installation, ACL, PostgreSQL, identity, release or
+systemd mutation has begun.
+
+Rollback
+--------
+No installation rollback is required because the installation boundary was
+not crossed. Do not terminate the active rclone retry unless it becomes stuck
+without its own bounded retry result. A final failed service leaves the prior
+verified archive as historical evidence but does not authorize installation.
+
+Approved continuation
+---------------------
+Allow the existing bounded rclone attempt 2/3 and, if needed, 3/3 to finish.
+Continue only on service result success, zero exit status, one exact remote
+object, matching local/remote SHA-256 and a successful non-disruptive restore
+smoke. Any final failure keeps M4.23 at NO-GO.
