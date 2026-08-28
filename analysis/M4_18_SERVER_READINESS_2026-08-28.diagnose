@@ -97,3 +97,11 @@ Resolution M4_18_UNITTEST_DISCOVERY_FALSE_ZERO
 - The four explicit modules ran 69 tests and all 69 passed.
 - The M4.18 subset ran 12 positive/negative tests.
 - The exact local application candidate gate also passed.
+
+Finding M4_18_PR_CREATE_LOCAL_QUOTING
+- The first local orchestration attempt to construct the Draft PR command was
+  rejected before command execution because Markdown delimiter characters
+  conflicted with the outer command string.
+- No GitHub PR or other external change was created by that attempt.
+- The bounded correction is a plain-text PR body without those delimiters,
+  followed by an explicit PR-state check. No history rewrite is used.
