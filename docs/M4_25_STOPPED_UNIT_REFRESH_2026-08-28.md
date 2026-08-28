@@ -70,6 +70,13 @@ candidate. Post-checks require byte equality with Control SSOT, effective
 `Restart=no`, effective `RuntimeMaxUSec=180000000`, release-gate success and the
 same stopped/never-started/database/S1/backup boundary.
 
+Because systemctl may present the same effective duration as `3min`, the
+controller reuses the M4.24 duration parser and compares the normalized value
+to exactly 180000000 microseconds. A `resume-verify` mode can continue only an
+exact `daemon-reloaded` partial boundary with intact rollback evidence; it
+performs no second installation and only records `verified-stopped` after the
+complete post-check passes.
+
 Each completed boundary is written to a root-private `phase.txt`. Any mismatch
 stops immediately and preserves evidence. There is no automatic rollback or
 quick live correction.

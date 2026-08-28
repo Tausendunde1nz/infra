@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 
 MODE="${1:-}"
-[[ "$MODE" == preflight || "$MODE" == restore-test || "$MODE" == install || "$MODE" == verify || "$MODE" == rollback ]] || {
-  echo "usage: $0 preflight|restore-test|install|verify|rollback --control-sha SHA [--archive PATH] [--manifest PATH] [--evidence-root PATH] [--restore-root PATH]" >&2
+[[ "$MODE" == preflight || "$MODE" == restore-test || "$MODE" == install || "$MODE" == resume-verify || "$MODE" == verify || "$MODE" == rollback ]] || {
+  echo "usage: $0 preflight|restore-test|install|resume-verify|verify|rollback --control-sha SHA [--archive PATH] [--manifest PATH] [--evidence-root PATH] [--restore-root PATH]" >&2
   exit 2
 }
 shift
@@ -47,6 +47,20 @@ git_read() { local repository="$1"; shift; /usr/bin/git -c "safe.directory=$repo
 property() { /bin/systemctl show "$UNIT" --property="$1" --value; }
 postgres() { /usr/sbin/runuser -u postgres -- /usr/bin/psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 "$@"; }
 require_root() { [[ "$EUID" -eq 0 ]] || fail "root identity required"; }
+
+runtime_max_microseconds() {
+  PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 - "$CONTROL_RELEASE/scripts" "$1" <<'PY'
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from tu1nz_adult_commercial_s0_first_start import systemd_duration_microseconds
+
+value = systemd_duration_microseconds(sys.argv[2])
+if value is None:
+    raise SystemExit("invalid finite systemd duration")
+print(value)
+PY
+}
 
 acquire_lock() {
   exec 9>>/opt/tu1nz_repos/backups/m4-25-commercial-s0-unit-refresh.lock
@@ -152,7 +166,7 @@ verify_post_refresh() {
   [[ "$(readlink "$RELEASE_ROOT/control-current")" == "control/$CONTROL_SHA" ]] || fail "active Control link mismatch"
   /usr/bin/cmp --silent "$INSTALLED_UNIT" "$CONTROL_RELEASE/systemd/$UNIT" || fail "installed unit differs from SSOT"
   [[ "$(property Restart)" == no ]] || fail "effective Restart is not no"
-  [[ "$(property RuntimeMaxUSec)" == 180000000 ]] || fail "effective runtime maximum is not 180 seconds"
+  [[ "$(runtime_max_microseconds "$(property RuntimeMaxUSec)")" == 180000000 ]] || fail "effective runtime maximum is not 180 seconds"
   "$CONTROL_RELEASE/scripts/tu1nz_adult_commercial_s0_release_gate.py" \
     --manifest "$INSTALLED_MANIFEST" --application-repository "$RELEASE_ROOT/application-current" \
     --control-repository "$RELEASE_ROOT/control-current" --application-release-root "$RELEASE_ROOT/application" \
@@ -243,6 +257,22 @@ install_refresh() {
   echo "M4_25_STOPPED_UNIT_REFRESH_OK evidence=$EVIDENCE_ROOT"
 }
 
+resume_verify() {
+  require_root
+  acquire_lock
+  require_control_sha
+  require_safe_evidence_root
+  require_safe_archive
+  [[ -f "$EVIDENCE_ROOT/phase.txt" && ! -L "$EVIDENCE_ROOT/phase.txt" ]] || fail "resume evidence phase missing"
+  [[ "$(cat "$EVIDENCE_ROOT/phase.txt")" == phase=daemon-reloaded ]] || fail "exact daemon-reloaded resume phase required"
+  [[ "$(sha256 "$EVIDENCE_ROOT/$UNIT.before")" == "$OLD_UNIT_SHA256" ]] || fail "resume rollback unit evidence mismatch"
+  [[ "$(sha256 "$EVIDENCE_ROOT/release-manifest.json.before")" == "$OLD_MANIFEST_SHA256" ]] || fail "resume rollback manifest evidence mismatch"
+  [[ "$(cat "$EVIDENCE_ROOT/control-current.before")" == "control/$OLD_CONTROL_SHA" ]] || fail "resume rollback Control evidence mismatch"
+  verify_post_refresh
+  printf 'phase=verified-stopped\n' >"$EVIDENCE_ROOT/phase.txt"
+  echo "M4_25_STOPPED_UNIT_RESUME_VERIFY_OK evidence=$EVIDENCE_ROOT"
+}
+
 rollback_refresh() {
   require_root
   acquire_lock
@@ -292,6 +322,7 @@ case "$MODE" in
     ;;
   restore-test) restore_test ;;
   install) install_refresh ;;
+  resume-verify) resume_verify ;;
   verify)
     require_root
     acquire_lock

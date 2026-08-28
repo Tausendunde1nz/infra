@@ -34,10 +34,11 @@ class CommercialS0UnitRefreshTest(unittest.TestCase):
     def test_controller_has_separate_guarded_modes(self) -> None:
         source = REFRESH.read_text(encoding="ascii")
         for required in (
-            "preflight|restore-test|install|verify|rollback",
+            "preflight|restore-test|install|resume-verify|verify|rollback",
             "M4_25_STOPPED_UNIT_PREFLIGHT_OK",
             "M4_25_ISOLATED_RESTORE_OK",
             "M4_25_STOPPED_UNIT_REFRESH_OK",
+            "M4_25_STOPPED_UNIT_RESUME_VERIFY_OK",
             "M4_25_STOPPED_UNIT_VERIFY_OK",
             "M4_25_STOPPED_UNIT_ROLLBACK_OK",
             "systemctl daemon-reload",
@@ -45,6 +46,8 @@ class CommercialS0UnitRefreshTest(unittest.TestCase):
             "Restart=no",
             "RuntimeMaxSec=180",
             "RuntimeMaxUSec",
+            "systemd_duration_microseconds",
+            "phase=daemon-reloaded",
             "ExecMainStartTimestampMonotonic",
             "ActiveEnterTimestampMonotonic",
             "runtime-status.json",
