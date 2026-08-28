@@ -1,0 +1,45 @@
+M4.25 release-gate Python bytecode diagnosis
+Date: 2026-08-28
+Failed boundary: resume verification / immutable Control release check
+Evidence root: /opt/tu1nz_repos/backups/m4-25-commercial-s0-unit-refresh/20260828T18-35-45Z
+
+Observed error
+--------------
+The direct commercial release-gate invocation did not set
+PYTHONDONTWRITEBYTECODE=1. Python wrote two ignored files into the active,
+otherwise immutable Control release. The release gate detected the resulting
+git clean -ndx output and blocked:
+
+scripts/__pycache__/tu1nz_adult_commercial_s0_manifest.cpython-312.pyc
+  size 12455
+  SHA-256 788207a92807a9cd5437da6966a5d0f3cd947fc991154af56b49654fdb3282cf
+
+scripts/__pycache__/tu1nz_adult_staging_manifest.cpython-312.pyc
+  size 10136
+  SHA-256 c18c5c923d075ac94e3d1ddd859e8c33a5dbbe4944ef5464dd3d639d0bc55093
+
+Tracked Git status remains clean. git clean -ndx reports only the exact
+scripts/__pycache__/ directory.
+
+Preserved safety state
+----------------------
+The evidence phase remains daemon-reloaded. The candidate is
+loaded/inactive/dead/static, Restart=no, RuntimeMaxUSec=3min, NRestarts=0,
+with zero start timestamps, zero journal lines and no runtime status or lock.
+No Unit, manifest, Control-link or candidate action followed the failure.
+
+Versioned correction
+--------------------
+All direct release-gate invocations set PYTHONDONTWRITEBYTECODE=1. A dedicated
+recover-bytecode-resume mode accepts only the exact daemon-reloaded phase,
+the two exact bytecode paths/hashes and otherwise clean release. It moves the
+entire __pycache__ directory to root-private M4.25 evidence, changes no tracked
+file, proves the release clean, then runs the full stopped post-verification.
+No file is deleted and rollback is not automatic.
+
+Rollback plan
+-------------
+If the recovery boundary differs or post-verification still fails, stop and
+preserve both release and evidence. The existing separately callable rollback
+mode can restore old Unit, manifest and Control link only while the candidate
+remains never started.

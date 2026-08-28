@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-unit-refresh.schema.json",
+  "title": "TU1NZ Adult Publishing M4.25 stopped unit refresh evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "application_sha",
+    "backup",
+    "canonical_control_sha",
+    "contract_version",
+    "database",
+    "decision",
+    "external_providers_enabled",
+    "first_start_approved",
+    "first_start_blockers",
+    "installed_control_sha",
+    "m4_24_contract_sha256",
+    "network_enabled",
+    "observed_at",
+    "release_manifest_sha256",
+    "rollback",
+    "source",
+    "start_evidence",
+    "systemd",
+    "unit_sha256",
+    "verification_control_sha"
+  ],
+  "properties": {
+    "active": { "const": false },
+    "application_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["archive_inventory_sha256", "archive_name", "archive_sha256", "completed_at", "local_remote_sha256_match", "restore_completed_at", "restore_evidence_sha256", "restore_root", "restore_verified", "size_bytes"],
+      "properties": {
+        "archive_inventory_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "archive_name": { "type": "string", "pattern": "^tu1nz_system_backup_[A-Za-z0-9_.-]+\\.tar\\.gz$" },
+        "archive_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "local_remote_sha256_match": { "const": true },
+        "restore_completed_at": { "type": "string", "format": "date-time" },
+        "restore_evidence_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "restore_root": { "type": "string", "pattern": "^/opt/tu1nz_repos/backups/m4-25-commercial-s0-unit-refresh-restore/" },
+        "restore_verified": { "const": true },
+        "size_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "canonical_control_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "contract_version": { "const": "tu1nz-commercial-unit-refresh-m4.25-v1" },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bootstrap_counts", "function_count", "state_sha256", "synthetic_only", "table_count"],
+      "properties": {
+        "bootstrap_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["country_policy_rules", "creators", "integration_accounts", "platform_policy_rules", "policy_versions", "publication_destinations"],
+          "properties": {
+            "country_policy_rules": { "const": 1 },
+            "creators": { "const": 1 },
+            "integration_accounts": { "const": 3 },
+            "platform_policy_rules": { "const": 3 },
+            "policy_versions": { "const": 1 },
+            "publication_destinations": { "const": 3 }
+          }
+        },
+        "function_count": { "const": 21 },
+        "state_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "synthetic_only": { "const": true },
+        "table_count": { "const": 39 }
+      }
+    },
+    "decision": { "const": "GO_M4_25_STOPPED_NO_GO_FIRST_START" },
+    "external_providers_enabled": { "const": false },
+    "first_start_approved": { "const": false },
+    "first_start_blockers": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "installed_control_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "m4_24_contract_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "network_enabled": { "const": false },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "release_manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["automatic", "old_control_sha", "old_manifest_sha256", "old_unit_sha256", "preserved"],
+      "properties": {
+        "automatic": { "const": false },
+        "old_control_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "old_manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "old_unit_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "preserved": { "const": true }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch", "draft_pr", "implementation_ci_run_id", "pr_33_merged", "pr_34_merged"],
+      "properties": {
+        "branch": { "const": "feat/m4-25-stopped-unit-refresh" },
+        "draft_pr": { "const": 34 },
+        "implementation_ci_run_id": { "type": "integer", "minimum": 1 },
+        "pr_33_merged": { "const": false },
+        "pr_34_merged": { "const": false }
+      }
+    },
+    "start_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_enter_timestamp", "exec_main_start_timestamp", "journal_lines", "lock_present", "main_pid", "n_restarts", "runtime_status_present"],
+      "properties": {
+        "active_enter_timestamp": { "const": "" },
+        "exec_main_start_timestamp": { "const": "" },
+        "journal_lines": { "const": 0 },
+        "lock_present": { "const": false },
+        "main_pid": { "const": 0 },
+        "n_restarts": { "const": 0 },
+        "runtime_status_present": { "const": false }
+      }
+    },
+    "systemd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_state", "backup_service", "backup_timer", "byte_equal_to_ssot", "load_state", "restart", "runtime_maximum_seconds", "security_exposure", "staging_s1", "sub_state", "unit_file_state"],
+      "properties": {
+        "active_state": { "const": "inactive" },
+        "backup_service": { "const": "inactive" },
+        "backup_timer": { "const": "active" },
+        "byte_equal_to_ssot": { "const": true },
+        "load_state": { "const": "loaded" },
+        "restart": { "const": "no" },
+        "runtime_maximum_seconds": { "const": 180 },
+        "security_exposure": { "const": "0.6 SAFE" },
+        "staging_s1": { "const": "active" },
+        "sub_state": { "const": "dead" },
+        "unit_file_state": { "const": "static" }
+      }
+    },
+    "unit_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "verification_control_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+  }
+}

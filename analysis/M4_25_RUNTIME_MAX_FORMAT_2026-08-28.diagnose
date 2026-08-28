@@ -1,0 +1,51 @@
+M4.25 effective RuntimeMaxUSec format diagnosis
+Date: 2026-08-28
+Failed boundary: stopped refresh post-verification
+Evidence root: /opt/tu1nz_repos/backups/m4-25-commercial-s0-unit-refresh/20260828T18-35-45Z
+
+Observed error
+--------------
+The controller required the literal systemctl value 180000000. The server's
+systemd version returned the semantically equivalent human-readable value:
+
+RuntimeMaxUSec=3min
+
+systemd-analyze timespan reported exactly 180000000 microseconds.
+
+Preserved state
+---------------
+The controller stopped fail-closed after daemon-reload and before recording a
+successful phase. The evidence phase is daemon-reloaded. The installed unit
+and immutable Control SSOT have the same SHA-256
+ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d.
+The installed manifest SHA-256 is
+68d8e276b2e0442cc9e02937264c6f493e938f7ab0fc3372239dba69a05a6386,
+and control-current resolves to Control release
+3135197ba4ac577bbb7fd28341d0c2dc845a7ebe.
+
+The candidate is loaded/inactive/dead/static with Restart=no, NRestarts=0,
+zero start timestamps, zero journal lines and no runtime status or lock. S1 and
+the backup timer are active; the backup service is inactive. No rollback or
+candidate action was executed.
+
+Cause
+-----
+M4.25 compared systemctl's presentation string instead of normalizing a
+systemd duration. M4.24 already contains and tests the correct parser, including
+the exact 3min representation seen on this host.
+
+Versioned correction
+--------------------
+M4.25 reuses the M4.24 systemd_duration_microseconds parser and requires the
+normalized value to equal 180000000. A new resume-verify mode accepts only the
+exact daemon-reloaded evidence phase, old rollback evidence, current release,
+manifest, archive and never-started boundary. It performs no Unit, manifest or
+control-current replacement; it only re-runs the complete post-verification
+and advances phase.txt to verified-stopped on success.
+
+Rollback plan
+-------------
+If versioned resume verification fails, stop again and preserve the current
+never-started state. The already versioned rollback mode remains available and
+can restore the old M4.23 unit, manifest and Control link from exact evidence,
+but must not run automatically.

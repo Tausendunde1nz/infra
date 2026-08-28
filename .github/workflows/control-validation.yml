@@ -199,6 +199,49 @@ jobs:
               exit "$status"
             fi
           fi
+      - name: Validate M4.25 stopped unit refresh shell
+        run: bash -n scripts/tu1nz_adult_commercial_s0_unit_refresh.sh
+      - name: Validate M4.25 systemd unit
+        shell: bash
+        run: |
+          temporary_unit="$(mktemp --suffix=.service)"
+          sed 's|^ExecStart=.*$|ExecStart=/bin/true|' \
+            systemd/tu1nz-adult-commercial-s0.service >"$temporary_unit"
+          systemd-analyze verify "$temporary_unit"
+      - name: Compile M4.25 stopped unit refresh tests
+        run: python3 -m py_compile tests/test_adult_commercial_s0_unit_refresh.py
+      - name: Run M4.25 stopped unit refresh tests
+        run: python3 -m unittest -v tests.test_adult_commercial_s0_unit_refresh
+      - name: Validate M4.25 stopped unit refresh evidence JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-unit-refresh.schema.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-unit-refresh.m4-25.json >/dev/null
+      - name: Reject candidate activation, cron and provider credentials in M4.25 controller
+        run: >-
+          ! git grep -nEi
+          '(systemctl[[:space:]]+(start|restart|enable)[[:space:]]+.*commercial|(^|[[:space:]])crontab([[:space:]]|$)|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_s0_unit_refresh.sh
+      - name: Require exact restart, runtime and static M4.25 unit boundary
+        shell: bash
+        run: |
+          unit=systemd/tu1nz-adult-commercial-s0.service
+          test "$(grep -c '^Restart=' "$unit")" -eq 1
+          grep -qx 'Restart=no' "$unit"
+          test "$(grep -c '^RuntimeMaxSec=' "$unit")" -eq 1
+          grep -qx 'RuntimeMaxSec=180' "$unit"
+          if grep -nE '^(RestartSec=|OnFailure=|WantedBy=|\[Install\])' "$unit"
+          then
+            echo "Forbidden M4.25 restart or activation directive detected" >&2
+            exit 1
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              echo "M4.25 unit boundary guard infrastructure failed" >&2
+              exit "$status"
+            fi
+          fi
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

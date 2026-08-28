@@ -28,6 +28,7 @@
 !scripts/tu1nz_adult_commercial_s0_install.sh
 !scripts/tu1nz_adult_commercial_first_start_gate.py
 !scripts/tu1nz_adult_commercial_s0_first_start.py
+!scripts/tu1nz_adult_commercial_s0_unit_refresh.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -57,6 +58,8 @@
 !manifests/adult-publishing-commercial-installation-authorization.m4-22.json
 !manifests/adult-publishing-commercial-first-start.schema.json
 !manifests/adult-publishing-commercial-first-start.m4-24.json
+!manifests/adult-publishing-commercial-unit-refresh.schema.json
+!manifests/adult-publishing-commercial-unit-refresh.m4-25.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -82,6 +85,7 @@
 !tests/test_adult_commercial_installation_authorization.py
 !tests/test_adult_commercial_s0_stopped_installation.py
 !tests/test_adult_commercial_first_start.py
+!tests/test_adult_commercial_s0_unit_refresh.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -123,3 +127,7 @@
 !analysis/M4_24_FINAL_REVIEW_LOCAL_TEST_FAILURE_2026-08-28.diagnose
 !analysis/M4_24_STATIC_GUARD_LOCAL_SHELL_2026-08-28.diagnose
 !analysis/M4_24_FINAL_REVIEW_REMOTE_REF_LOOKUP_2026-08-28.diagnose
+!analysis/M4_25_CI_SYSTEMD_RUNTIME_PATH_2026-08-28.diagnose
+!analysis/M4_25_RUNTIME_MAX_FORMAT_2026-08-28.diagnose
+!analysis/M4_25_RELEASE_GATE_BYTECODE_2026-08-28.diagnose
+!analysis/M4_25_1_DUPLICATE_SYSTEMD_SCALAR_GUARD_2026-08-28.diagnose

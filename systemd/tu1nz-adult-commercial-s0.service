@@ -18,8 +18,8 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=/etc/tu1nz/adult-publishing/staging-s0-commercial/runtime.env
 ExecStartPre=/usr/bin/python3 /opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/control-current/scripts/tu1nz_adult_commercial_s0_release_gate.py --manifest /etc/tu1nz/adult-publishing/staging-s0-commercial/release-manifest.json --application-repository /opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/application-current --control-repository /opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/control-current --application-release-root /opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/application --control-release-root /opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/control --venv /opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/venv-current --configuration-root /etc/tu1nz/adult-publishing/staging-s0-commercial --state-root /var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial --installed-unit /etc/systemd/system/tu1nz-adult-commercial-s0.service --runtime-user tu1nz-adult-commercial-s0 --runtime-group tu1nz-adult-commercial-s0 --release-user root --configuration-user root --unit-user root --unit-group root --require-active
 ExecStart=/opt/tu1nz_repos/releases/adult-publishing/staging-s0-commercial/venv-current/bin/tu1nz-commercial-runtime-candidate --enable-network-free-commercial-candidate --state-file /var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial/state.json --core-identity-registry /etc/tu1nz/adult-publishing/staging-s0-commercial/core-identities.json --runtime-status-file /var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial/runtime-status.json --runtime-lock-file /var/lib/tausendunde1nz/adult-publishing/staging-s0-commercial/runtime.lock
-Restart=on-failure
-RestartSec=15s
+Restart=no
+RuntimeMaxSec=180
 TimeoutStartSec=60s
 TimeoutStopSec=45s
 KillSignal=SIGTERM
