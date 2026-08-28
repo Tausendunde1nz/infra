@@ -2,7 +2,6 @@ name: Control validation
 
 on:
   pull_request:
-    branches: [control-main]
   push:
     branches: [control-main]
 
@@ -62,6 +61,34 @@ jobs:
           ! git grep -nEi
           '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]+(run|start|stop|restart)|(^|[[:space:]])crontab([[:space:]]|$)|subprocess\.(run|Popen).*\b(rm|mv|cp|install|chmod|chown)\b)' --
           scripts/tu1nz_adult_commercial_readiness_gate.py
+      - name: Validate M4.19 commercial S0 release schema JSON
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s0-release.schema.json >/dev/null
+      - name: Compile M4.19 commercial S0 installation artifacts
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_s0_manifest.py
+          scripts/tu1nz_adult_commercial_s0_release_gate.py
+          tests/test_adult_commercial_s0_installation_design.py
+      - name: Run M4.19 commercial S0 installation tests
+        run: python3 -m unittest -v tests.test_adult_commercial_s0_installation_design
+      - name: Validate M4.19 backup shell
+        run: bash -n scripts/tu1nz_encrypted_backup.sh
+      - name: Reject activation, IP networking, cron and provider credentials in M4.19 runtime artifacts
+        run: >-
+          ! git grep -nEi
+          '(WantedBy=|network-online\.target|AF_INET|https?://|(^|[[:space:]])crontab([[:space:]]|$)|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_s0_manifest.py
+          scripts/tu1nz_adult_commercial_s0_release_gate.py
+          systemd/tu1nz-adult-commercial-s0.service
+          config/adult-publishing/staging-s0-commercial/runtime.env.example
+      - name: Reject server mutation behavior in M4.19 release tools
+        run: >-
+          ! git grep -nEi
+          '(systemctl|service[[:space:]]+(start|stop|restart|enable|disable)|docker[[:space:]]+(run|start|stop|restart)|subprocess\.(run|Popen).*\b(rm|mv|cp|install|chmod|chown)\b)' --
+          scripts/tu1nz_adult_commercial_s0_manifest.py
+          scripts/tu1nz_adult_commercial_s0_release_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

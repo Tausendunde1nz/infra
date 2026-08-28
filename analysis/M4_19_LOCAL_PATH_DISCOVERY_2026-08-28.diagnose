@@ -1,0 +1,37 @@
+# M4.19 local path discovery
+
+- Time: 2026-08-28 (Europe/Berlin)
+- Scope: local, read-only source inspection before M4.19 implementation
+- Symptom: the first inspection addressed `src/tu1nz_core/commercial_candidate.py`, which does not exist in the application repository.
+- Cause: the M4.17 runtime candidate is located at `src/tu1nz_sandbox/commercial_candidate.py`.
+- Impact: none; the failed command was read-only and changed no application or server state.
+- Resolution: continue all source inspection against the discovered canonical path and keep the application repository unchanged.
+- Rollback: not applicable; this diagnostic note is the only resulting change.
+
+## Follow-up discovery
+
+- A combined follow-up inspection correctly read the application module but addressed Control scripts while still using the application repository as its working directory.
+- The resulting missing-file message was read-only and caused no state change.
+- Repository-scoped inspection is used from this point forward: application paths below `adult-publishing-core`, Control paths below `control-ssot`.
+
+- A later mixed inspection repeated the same harmless working-directory mistake for one trailing `rg` invocation. The preceding Control reads succeeded; only the application-targeted `rg` paths were absent under Control. No write or runtime action occurred.
+
+## Local systemd verifier availability
+
+- Python AST parsing and Bash syntax validation passed for the new artifacts.
+- `systemd-analyze verify` is unavailable on the macOS development host (`command not found`).
+- The unit is therefore validated locally by exact static safety assertions. A native `systemd-analyze verify` remains a mandatory read-only check in the separately authorized Linux installation preflight.
+
+## Existing S1 assertion after backup-variable separation
+
+- The first full Control suite found one S1 test failure after the backup script renamed its internal generic dump variables to explicit `S1_*` names.
+- The S1 archive paths, database, ownership, mode, upload and notification behavior were not removed or weakened.
+- Resolution: update the existing assertion to the explicit `S1_DUMP_DIR` name, then rerun the full suite. No installed backup script or server state is changed.
+
+- The focused rerun found the matching stale `chmod` assertion as well. It also confirmed that an intentionally incomplete M4.19 archive is now rejected earlier with the more specific empty/missing database-dump error. Both are assertion updates; the fail-closed behavior is retained.
+
+## Narrow origin fetch refspec
+
+- After the first push and green CI, `git rev-parse @{upstream}` failed because this checkout fetches only `origin/control-main`; no feature-branch remote-tracking ref is stored locally.
+- The local branch configuration correctly names the feature branch, and `git ls-remote` plus GitHub PR #18 both prove that remote SHA `662fe0c4970a714141cc14e1cba6f5aabfb3f0af` exists exactly.
+- No fetch refspec is broadened in M4.19. Remote synchronization evidence uses the authoritative remote branch SHA and PR head SHA instead.
