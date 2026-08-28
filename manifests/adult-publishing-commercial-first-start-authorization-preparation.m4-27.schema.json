@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-first-start-authorization-preparation.m4-27.schema.json",
+  "title": "TU1NZ M4.27 canonical sync and first-start authorization preparation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "approval",
+    "blockers",
+    "canonical_control_sync",
+    "contract_version",
+    "decision",
+    "environment",
+    "first_start_window",
+    "fresh_prestart",
+    "no_swap_assessment",
+    "product_boundary",
+    "recovery",
+    "release_binding",
+    "sprint"
+  ],
+  "properties": {
+    "active": { "const": false },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_at", "first_start_approved", "no_swap_risk_accepted", "separate_authorization_contract_required", "server_control_sync_approved"],
+      "properties": {
+        "approved_at": { "type": "null" },
+        "first_start_approved": { "const": false },
+        "no_swap_risk_accepted": { "const": false },
+        "separate_authorization_contract_required": { "const": true },
+        "server_control_sync_approved": { "const": false }
+      }
+    },
+    "blockers": { "type": "array", "minItems": 8, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "canonical_control_sync": { "type": "object" },
+    "contract_version": { "const": "tu1nz-commercial-first-start-authorization-preparation-m4.27-v1" },
+    "decision": { "const": "NO_GO" },
+    "environment": { "const": "STAGING-S0-COMMERCIAL-CANDIDATE" },
+    "first_start_window": { "type": "object" },
+    "fresh_prestart": {
+      "type": "object",
+      "required": ["checks", "executed", "maximum_age_seconds", "must_run_after_control_sync", "must_run_immediately_before_authorization", "observed_at", "result"],
+      "properties": {
+        "executed": { "const": false },
+        "observed_at": { "type": "null" },
+        "result": { "const": "NOT_EXECUTED" }
+      }
+    },
+    "no_swap_assessment": {
+      "type": "object",
+      "required": ["operator_accepted", "recommendation"],
+      "properties": {
+        "operator_accepted": { "const": false },
+        "recommendation": { "enum": ["ACCEPTABLE_FOR_ONE_CONTROLLED_FIRST_START", "NOT_ACCEPTABLE"] }
+      }
+    },
+    "product_boundary": { "type": "object" },
+    "recovery": { "type": "object" },
+    "release_binding": { "type": "object" },
+    "sprint": { "const": "M4.27" }
+  }
+}

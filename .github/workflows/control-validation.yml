@@ -270,6 +270,35 @@ jobs:
           ! git grep -nEi
           '(subprocess|systemctl|docker|requests|urllib|socket|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
           scripts/tu1nz_adult_commercial_m4_26_gate.py
+      - name: Compile M4.27 preparation gate and tests
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_m4_27_gate.py
+          tests/test_adult_commercial_m4_27.py
+      - name: Run M4.27 preparation tests
+        run: python3 -m unittest -v tests.test_adult_commercial_m4_27
+      - name: Validate M4.27 draft JSON and closed readiness gates
+        shell: bash
+        run: |
+          contract=manifests/adult-publishing-commercial-first-start-authorization-preparation.m4-27.json
+          python3 -m json.tool \
+            manifests/adult-publishing-commercial-first-start-authorization-preparation.m4-27.schema.json >/dev/null
+          python3 -m json.tool "$contract" >/dev/null
+          scripts/tu1nz_adult_commercial_m4_27_gate.py --contract "$contract"
+          for readiness in --require-sync-ready --require-prestart-ready --require-authorization-ready
+          do
+            if scripts/tu1nz_adult_commercial_m4_27_gate.py \
+              --contract "$contract" "$readiness"
+            then
+              echo "M4.27 unexpectedly opened readiness gate: $readiness" >&2
+              exit 1
+            fi
+          done
+      - name: Reject system, network, write and provider surfaces in M4.27 gate
+        run: >-
+          ! git grep -nEi
+          '(subprocess|systemctl|daemon-reload|docker[.(]|(import|from)[[:space:]]+docker|requests|urllib|socket|write_text|write_bytes|unlink\(|rmtree|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN)' --
+          scripts/tu1nz_adult_commercial_m4_27_gate.py
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile
