@@ -7,12 +7,12 @@ Commercial S4 prepares provider contracts and a creator/moderator beta journey w
 ## Release binding
 
 - Application branch: `feat/commercial-s4-provider-beta-readiness`
-- Application commit: `ffce727d8e1e45c93323bd805e77e5965e8b3941`
+- Canonical application merge commit: `d544a190ffb86ab49fd47e01067ff3750055a0a0`
 - Application tree: `6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a`
 - Database schema: `0018_commercial_s4_provider_beta_readiness`
 - Migration-chain SHA-256: `2a7763b33834493ca612f06b9762a3b00fef9f6af042154bba7918f624c32dae`
 
-The exact pre-mutation recovery point `/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T202700Z-pre-mutation` is bound with SHA-256 index digest `34b9d5019db0ad48df8f73bddd77e079eb515659b9e2fabbd0c49ee7753361d7`. The manifest decision is now `GO_FOR_BOUNDED_SERVER_STAGING`; every real provider, beta and production gate remains closed.
+The canonical application merge has parents `1101b3204a994486def9656807c50157b30f5d5d` and `ffce727d8e1e45c93323bd805e77e5965e8b3941`; its tree is byte-identical to the accepted candidate. The exact pre-mutation recovery point `/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T202700Z-pre-mutation` is bound with SHA-256 index digest `34b9d5019db0ad48df8f73bddd77e079eb515659b9e2fabbd0c49ee7753361d7`. The manifest decision is `GO_FOR_BOUNDED_SERVER_STAGING`; every real provider, beta and production gate remains closed.
 
 ## Risk assessment
 

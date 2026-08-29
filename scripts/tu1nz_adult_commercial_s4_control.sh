@@ -8,10 +8,10 @@ readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly CONFIG_ROOT="/etc/tu1nz"
 readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-commercial-s3"
-readonly APPLICATION_SHA="ffce727d8e1e45c93323bd805e77e5965e8b3941"
+readonly APPLICATION_SHA="d544a190ffb86ab49fd47e01067ff3750055a0a0"
 readonly APPLICATION_TREE="6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
 readonly DISABLED_CONTRACT_SHA="41e5682934cc632b8d00cd0afd542cd823ef3c99f1c9b418efcb01ccd1ad2f23"
-readonly RUNTIME_AUTHORIZATION_SHA="21916f05912789c19d43759cc0a9356ca5419d93fb2f260a6b37526ecd200a1f"
+readonly RUNTIME_AUTHORIZATION_SHA="ec04090243f63e53fa3e7aa58c8b956418e46f32f690a90b6a6abe7a93e00282"
 readonly PROVIDER_READINESS_SHA="8e3c4513315c5749ec01ec11a87c9adf057ad862631450a36a0319e6192b6bbc"
 readonly BETA_READINESS_SHA="4e43c8cd44969228c2ee8baf1f00d0fb08ed4a2c69047f5eff2c411b9c55ee3c"
 readonly UNIT_SHA="0a746cd03abc07e18e7193dbd00c246ead184717ea8bce83091a301279037cb9"
@@ -145,7 +145,7 @@ if not (
     and value.get("decision") == "GO_FOR_BOUNDED_SERVER_STAGING"
     and value.get("runtime_mode") == "BOUNDED_STAGING"
     and duration_valid
-    and value.get("application_sha") == "ffce727d8e1e45c93323bd805e77e5965e8b3941"
+    and value.get("application_sha") == "d544a190ffb86ab49fd47e01067ff3750055a0a0"
     and value.get("application_tree") == "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
     and value.get("telegram_intake", {}).get("enabled") is True
     and value.get("telegram_intake", {}).get("expected_bot_id") == 8729546284
@@ -209,7 +209,7 @@ value = json.loads(source.read_text(encoding="ascii"))
 now = datetime.now(timezone.utc).replace(microsecond=0)
 value["activation_id"] = "s4-" + identifier.lower()
 value["active"] = True
-value["application_sha"] = "ffce727d8e1e45c93323bd805e77e5965e8b3941"
+value["application_sha"] = "d544a190ffb86ab49fd47e01067ff3750055a0a0"
 value["application_tree"] = "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
 value["decision"] = "GO_FOR_BOUNDED_SERVER_STAGING"
 value["runtime_mode"] = "BOUNDED_STAGING"

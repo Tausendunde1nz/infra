@@ -2,7 +2,7 @@
   "application": {
     "branch": "feat/commercial-s4-provider-beta-readiness",
     "repository": "Tausendunde1nz/adult-publishing-core",
-    "sha": "ffce727d8e1e45c93323bd805e77e5965e8b3941",
+    "sha": "d544a190ffb86ab49fd47e01067ff3750055a0a0",
     "tree": "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
   },
   "authorization": {
@@ -123,7 +123,7 @@
   "runtime_release_authorization": {
     "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
     "path": "config/adult-publishing/staging-s3/commercial-s4-runtime-release-authorization.json",
-    "sha256": "21916f05912789c19d43759cc0a9356ca5419d93fb2f260a6b37526ecd200a1f",
+    "sha256": "ec04090243f63e53fa3e7aa58c8b956418e46f32f690a90b6a6abe7a93e00282",
     "service_start_authorized": false,
     "single_bootstrap_authorized": false
   },

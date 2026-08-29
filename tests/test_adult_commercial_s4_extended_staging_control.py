@@ -25,7 +25,7 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
     def test_release_and_recovery_point_are_exactly_bound(self) -> None:
         self.assertEqual(
             self.value["application"]["sha"],
-            "ffce727d8e1e45c93323bd805e77e5965e8b3941",
+            "d544a190ffb86ab49fd47e01067ff3750055a0a0",
         )
         self.assertEqual(
             self.value["application"]["tree"],

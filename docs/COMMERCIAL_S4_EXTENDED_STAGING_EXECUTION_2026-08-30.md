@@ -8,6 +8,7 @@ Commercial S4 completed its bounded server-staging acceptance and is stopped. Th
 
 - Application candidate: `ffce727d8e1e45c93323bd805e77e5965e8b3941`
 - Application tree: `6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a`
+- Canonical application merge after acceptance: `d544a190ffb86ab49fd47e01067ff3750055a0a0` (same tree)
 - Control candidate used for the final run: `abc71b56a434075de9be952ec172453459fd51ce`
 - Control tree: `633885c950cb10ee7f302c98e6c597ea06c79f0d`
 - Database schema: `0018_commercial_s4_provider_beta_readiness`
@@ -52,6 +53,8 @@ The final database aggregate also contained zero Telegram polling rows and revis
 - `RuntimeMaxUSec=6h`
 - Disabled contract SHA-256: `41e5682934cc632b8d00cd0afd542cd823ef3c99f1c9b418efcb01ccd1ad2f23`
 - Verify-only authorization SHA-256: `21916f05912789c19d43759cc0a9356ca5419d93fb2f260a6b37526ecd200a1f`
+
+The authorization digest above is the value used during the candidate acceptance. After the byte-identical application merge, the canonical verify-only authorization is rebound to merge SHA `d544a190ffb86ab49fd47e01067ff3750055a0a0` with digest `ec04090243f63e53fa3e7aa58c8b956418e46f32f690a90b6a6abe7a93e00282`; it still authorizes no start or provider.
 
 ## Provider readiness decision
 
