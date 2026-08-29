@@ -1,0 +1,98 @@
+{
+  "application": {
+    "branch": "fix/commercial-s3-staging-recovery",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "sha": "1101b3204a994486def9656807c50157b30f5d5d",
+    "tree": "b5bb4cf55ede2dc14987bcfc362e8079ecc21302"
+  },
+  "authorization": {
+    "diagnostic_starts_before_ready": "REPEATED_WITHIN_WINDOW",
+    "enable_authorized": false,
+    "maximum_product_acceptance_runs": 1,
+    "restart_authorized": false,
+    "rolling_server_debug_authorized": true,
+    "stop_between_diagnostic_starts": true
+  },
+  "baseline_recovery": {
+    "full_backup_repetition_required_for_code_only_delta": false,
+    "path": "/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-56-54Z",
+    "required": true,
+    "restore_proof_required": true
+  },
+  "control": {
+    "branch": "fix/commercial-s3-staging-recovery",
+    "exact_sha_and_tree_required_at_server_execution": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "decision": "GO_ROLLING_SERVER_STAGING_DEBUG_BEFORE_PRODUCT_ACCEPTANCE",
+  "evidence": {
+    "failure_evidence_required_before_ready": true,
+    "forbidden_fields": [
+      "credentials",
+      "dsn",
+      "media_bytes",
+      "telegram_response_body",
+      "token"
+    ],
+    "safe_exception_metadata": [
+      "errno",
+      "exception_module",
+      "exception_type",
+      "phase",
+      "postgres_sqlstate",
+      "safe_reason",
+      "timestamp"
+    ]
+  },
+  "runtime_release_authorization": {
+    "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
+    "path": "config/adult-publishing/staging-s3/commercial-s3-runtime-release-authorization.s3-2.json",
+    "sha256": "6cea50e578e81bf191f2ec45ab3b67d54c9217846ac6d7a34c24d4064e6cd631",
+    "service_start_authorized": false,
+    "single_bootstrap_authorized": false
+  },
+  "product_boundary": {
+    "adult_media_enabled": false,
+    "avs_provider": "MOCK",
+    "controlled_beta_enabled": false,
+    "external_publish_enabled": false,
+    "maximum_real_users": 1,
+    "payment_provider": "MOCK",
+    "production_enabled": false,
+    "publishers": {
+      "reddit": "SYNTHETIC",
+      "telegram": "SYNTHETIC",
+      "x": "SYNTHETIC"
+    },
+    "telegram_stars_enabled": false
+  },
+  "service": {
+    "main": "tu1nz-adult-commercial-s3.service",
+    "probe": "tu1nz-adult-commercial-s3-probe.service",
+    "probe_is_transient": true,
+    "probe_product_polling": false,
+    "restart": "no",
+    "unit_enablement": false
+  },
+  "startup_phases": [
+    "01_CONTRACT_LOAD",
+    "02_CREDENTIAL_LOAD",
+    "03_PATH_VALIDATE",
+    "04_DATABASE_CONNECT",
+    "05_MIGRATION_VALIDATE",
+    "06_BOOTSTRAP_VERIFY",
+    "07_ALLOWLIST_LOAD",
+    "08_STATE_VALIDATE",
+    "09_STATE_INITIALIZE",
+    "10_LOCK_ACQUIRE",
+    "11_TELEGRAM_ASSEMBLY",
+    "12_TELEGRAM_AUTH_VALIDATE",
+    "13_POLLING_STATE_LOAD",
+    "14_WORKER_ASSEMBLY",
+    "15_OUTBOX_VALIDATE",
+    "16_AUDIT_VALIDATE",
+    "17_HEALTH_INITIALIZE",
+    "18_READY"
+  ],
+  "version": "tu1nz-commercial-s3-2-rolling-debug-control-v1"
+}

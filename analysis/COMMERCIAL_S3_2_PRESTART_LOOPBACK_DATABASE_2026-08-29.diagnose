@@ -1,0 +1,41 @@
+Commercial S3.2 fresh-prestart loopback diagnosis
+=================================================
+
+Observed at: 2026-08-29T15:56:12Z
+Action: transient network-contained fresh-prestart
+
+Safe symptom
+------------
+
+The startup probe had already completed phases 01 through 17, but the separate
+fresh-prestart exited with status 2. The main service remained inactive,
+Restart remained no, NRestarts remained zero, and the diagnostic contract plus
+runtime authorization were restored exactly.
+
+Proven root cause
+-----------------
+
+The bound PostgreSQL DSN uses a loopback host. The first fresh-prestart sandbox
+allowed AF_UNIX only, so its database connection could not reach the local
+loopback PostgreSQL listener. A credential-safe classification reported only
+POSTGRES_HOST_CLASS=LOOPBACK; no host, port, database name, user or password was
+written to evidence.
+
+Correction boundary
+-------------------
+
+The transient prestart may use AF_UNIX, AF_INET and AF_INET6, but systemd
+applies IPAddressDeny=any and IPAddressAllow=localhost. It receives no Telegram
+token. Therefore only the local PostgreSQL loopback connection is possible;
+Telegram and every external provider remain unreachable.
+
+The wrapper also emits the prestart entrypoint's safe JSON output on failure
+before returning its own fail-closed code. The prestart entrypoint never emits
+exception messages or credential material.
+
+Rollback
+--------
+
+Restore Control commit d5c100c931d17b690d5ab1932ed39068939a1f11.
+This restores AF_UNIX-only prestart behavior and the proven local database
+connection failure without changing application code, database or state.

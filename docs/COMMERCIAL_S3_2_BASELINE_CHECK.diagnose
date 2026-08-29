@@ -1,0 +1,20 @@
+# Commercial S3.2 baseline-index invocation diagnosis
+
+Date: 2026-08-29
+Decision: SAFE_ABORT_BEFORE_REPOSITORY_DELTA
+
+The exact-replay server delta stopped before any Git fetch or checkout because
+`sha256sum --check` was invoked with an absolute index path while the current
+directory was not the baseline directory. The index intentionally contains
+relative member names, so six members were reported as unreadable.
+
+Read-only post-abort verification proved that the application and Control
+repositories remained at their previous SHA/tree pairs, both worktrees stayed
+clean, the service remained `inactive/dead`, `NRestarts=0`, and no main process
+existed. The newly allocated evidence directory contained no files.
+
+The bounded correction is invocation-only: execute each check from
+`/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-56-54Z`, matching the
+already versioned probe controller. No hash, index, baseline member, repository,
+contract, unit or database state is changed. A failed corrected check remains
+RED and aborts before repository mutation.
