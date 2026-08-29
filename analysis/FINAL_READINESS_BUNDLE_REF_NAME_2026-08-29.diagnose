@@ -1,0 +1,27 @@
+Incident: final Control-sync bundle creation rejected a raw positive commit ID
+Date: 2026-08-29
+Scope: local bundle preparation only; no server contact or mutation occurred
+
+Observed error:
+
+    fatal: Refusing to create empty bundle.
+
+Cause:
+
+`git bundle create` was given the target only as a raw positive commit ID and
+the source as a negative prerequisite. Bundle creation requires the included
+tip to be named by a ref; the equivalent raw revision expression produced no
+advertised reference and Git rejected the bundle.
+
+Safe correction:
+
+Use the already fetched and verified `origin/control-main` ref as the positive
+tip, retain the exact prior canonical server commit as the negative
+prerequisite, then run `git bundle verify`, SHA-256 and byte-size checks before
+any transfer. The target commit/tree must still be independently compared with
+the canonical post-merge values.
+
+Impact and rollback:
+
+No bundle was created, transferred or imported. No server file, ref, worktree,
+service or runtime state changed. There is therefore nothing to roll back.
