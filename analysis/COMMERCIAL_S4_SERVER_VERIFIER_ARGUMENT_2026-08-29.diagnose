@@ -1,0 +1,15 @@
+# Commercial S4 server verifier argument omission
+
+## Safe code
+
+`S4_SERVER_VERIFIER_REPOSITORY_ROOT_REQUIRED`
+
+## Result
+
+After the exact stopped Control checkout advanced to `e3de23711b63343352d76edf2a0877c12729e74e`, the runtime-authorization parser check passed. The following read-only application verifier invocation omitted its mandatory `--repository-root` argument and exited with argparse status 2.
+
+No installation, migration, unit change, contract activation or service start occurred. The corrective invocation is:
+
+`python -m tu1nz_commercial_s3.verify --repository-root /opt/tu1nz_repos/adult-publishing-core`
+
+The repository-root argument is a read-only path binding and does not change the release.

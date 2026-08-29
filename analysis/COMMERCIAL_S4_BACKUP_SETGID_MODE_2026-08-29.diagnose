@@ -1,0 +1,19 @@
+# Commercial S4 recovery-point setgid mode finding
+
+## Safe code
+
+`S4_BACKUP_ROOT_SETGID_MODE_POLICY_DRIFT`
+
+## Observed result
+
+The corrected recovery-point creation at `20260829T202700Z-pre-mutation` created all 15 expected files, generated and strictly verified `SHA256SUMS`, verified both Git bundles and parsed the PostgreSQL custom dump. Its final guard nevertheless rejected directory mode `2700` because the first policy revision required exact `0700`.
+
+The service remained inactive/dead/static with PID 0 and `NRestarts=0`. No Git sync, migration, unit installation, contract activation or service start occurred.
+
+## Cause
+
+`/opt/tu1nz_repos/backups` is an intentional setgid collaboration root. The S4 backup parent and new child therefore retain setgid. ACL inspection shows only `user::rwx`, `group::---`, `other::---`; ownership is `root:root`; no extended writable ACL or immutable/append-only attribute is present. Mode `2700` grants no group or other access and is equivalent to `0700` for read/write/traversal while preserving parent group inheritance semantics.
+
+## Corrected policy
+
+The backup, controller and evidence guards accept only `0700` or `2700`, always with `root:root`, no symlink and a strict valid SHA-256 index. No mode with group or other permission bits is accepted. A new read-only `verify-existing` path revalidates the already complete `20260829T202700Z-pre-mutation` artifact before it can be bound into the manifest.

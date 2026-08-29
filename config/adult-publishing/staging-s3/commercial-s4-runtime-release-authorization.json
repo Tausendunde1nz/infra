@@ -1,0 +1,23 @@
+{
+  "active": true,
+  "application_sha": "d544a190ffb86ab49fd47e01067ff3750055a0a0",
+  "application_tree": "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a",
+  "authorization_version": "tu1nz-commercial-s3-bootstrap-authorization-v1",
+  "bootstrap_reference_sha256": "57c56623b210afaa713accf168ab12a45aa4a48ad5d8a13bfbf38876c5919dd3",
+  "boundaries": {
+    "adult_media_enabled": false,
+    "avs_provider": "MOCK",
+    "external_publish_enabled": false,
+    "payment_provider": "MOCK",
+    "production_enabled": false,
+    "publisher_adapter": "SYNTHETIC",
+    "runtime_mode": "STAGING",
+    "service_start_authorized": false
+  },
+  "database_name": "tu1nz_adult_commercial_s3",
+  "database_role": "tu1nz_adult_commercial_s3_runtime",
+  "database_schema": "0018_commercial_s4_provider_beta_readiness",
+  "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
+  "migration_chain_sha256": "2a7763b33834493ca612f06b9762a3b00fef9f6af042154bba7918f624c32dae",
+  "single_bootstrap_authorized": false
+}

@@ -1,0 +1,145 @@
+{
+  "application": {
+    "branch": "feat/commercial-s4-provider-beta-readiness",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "sha": "d544a190ffb86ab49fd47e01067ff3750055a0a0",
+    "tree": "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
+  },
+  "authorization": {
+    "bounded_staging_authorized": true,
+    "continuous_staging_authorized": false,
+    "duration_seconds_maximum": 21600,
+    "duration_seconds_minimum": 7200,
+    "enable_authorized": false,
+    "manual_stop_required": true,
+    "repeated_controlled_start_stop_within_window": true,
+    "restart_authorized": false
+  },
+  "acceptance": {
+    "completed_at": "2026-08-29T22:53:23Z",
+    "database_connections_max": 1,
+    "evidence_index_sha256": "3548bc31f478aa7643f339954464814d551904857d408aa549e30bf3d6aa8569",
+    "evidence_path": "/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T213000Z-s4-extended",
+    "file_descriptors_max": 5,
+    "health_red_samples": 0,
+    "health_yellow_samples": 0,
+    "journal_growth_bytes": 104,
+    "main_pid_changes": 0,
+    "network_other_max": 0,
+    "provider_event_rows": 0,
+    "restarts_max": 0,
+    "rss_kib_average": 64209.12,
+    "rss_kib_peak": 67788,
+    "sample_count": 25,
+    "started_at": "2026-08-29T20:53:23Z",
+    "state_growth_bytes": 0,
+    "status": "GREEN_TWO_HOUR_BOUNDED_STAGING"
+  },
+  "backup_and_rollback": {
+    "exact_pre_mutation_recovery_point_required": true,
+    "index_sha256": "34b9d5019db0ad48df8f73bddd77e079eb515659b9e2fabbd0c49ee7753361d7",
+    "path": "/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T202700Z-pre-mutation",
+    "restore_proof_required": true,
+    "server_activation_blocked_until_bound": false
+  },
+  "control": {
+    "branch": "feat/commercial-s4-provider-beta-readiness",
+    "exact_sha_and_tree_required_at_server_execution": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "database": {
+    "migration_chain_sha256": "2a7763b33834493ca612f06b9762a3b00fef9f6af042154bba7918f624c32dae",
+    "schema": "0018_commercial_s4_provider_beta_readiness"
+  },
+  "decision": "GO_FOR_BOUNDED_SERVER_STAGING",
+  "evidence": {
+    "database_connection_count": true,
+    "forbidden_fields": [
+      "credentials",
+      "dsn",
+      "media_bytes",
+      "provider_response_body",
+      "telegram_response_body",
+      "token",
+      "user_identifier"
+    ],
+    "health_components": true,
+    "journal_growth": true,
+    "network_destination_classification_only": true,
+    "process_cpu_and_rss": true,
+    "process_file_descriptors": true,
+    "service_restart_counter": true,
+    "state_growth": true,
+    "telegram_cursor_aggregate_only": true
+  },
+  "external_risk_gate": {
+    "blocked_capabilities": [
+      "ADULT_MEDIA",
+      "CONTROLLED_BETA",
+      "EXTERNAL_PUBLISHING",
+      "FIRST_REAL_AVS_CALL",
+      "FIRST_REAL_PAYMENT_CALL",
+      "IDENTITY_OR_BIOMETRIC_DATA",
+      "OPEN_REGISTRATION",
+      "PRODUCTION",
+      "REAL_MONEY_OR_PAYMENT_INSTRUMENT",
+      "REAL_PROVIDER_CREDENTIALS",
+      "TELEGRAM_STARS"
+    ],
+    "separate_authorization_required": true,
+    "status": "STOP_REQUIRED"
+  },
+  "product_boundary": {
+    "adult_media_enabled": false,
+    "avs_provider": "MOCK",
+    "controlled_beta_enabled": false,
+    "external_publish_enabled": false,
+    "maximum_real_users": 1,
+    "payment_provider": "MOCK",
+    "production_enabled": false,
+    "provider_calls_enabled": false,
+    "provider_credentials_present": false,
+    "public_registration": false,
+    "publishers": {
+      "reddit": "SYNTHETIC",
+      "telegram": "SYNTHETIC",
+      "x": "SYNTHETIC"
+    },
+    "real_money_enabled": false,
+    "telegram_stars_enabled": false
+  },
+  "provider_readiness": {
+    "avs": {
+      "primary": "YOTI",
+      "secondary": "VERIFYMY",
+      "status": "OFFLINE_CONTRACT_ONLY"
+    },
+    "payment": {
+      "primary": "SEGPAY",
+      "secondary": "CCBILL",
+      "status": "OFFLINE_CONTRACT_ONLY"
+    }
+  },
+  "runtime_release_authorization": {
+    "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
+    "path": "config/adult-publishing/staging-s3/commercial-s4-runtime-release-authorization.json",
+    "sha256": "ec04090243f63e53fa3e7aa58c8b956418e46f32f690a90b6a6abe7a93e00282",
+    "service_start_authorized": false,
+    "single_bootstrap_authorized": false
+  },
+  "service": {
+    "hard_runtime_ceiling_seconds": 21600,
+    "main": "tu1nz-adult-commercial-s3.service",
+    "restart": "no",
+    "source_path": "systemd/tu1nz-adult-commercial-s4.service",
+    "source_sha256": "0a746cd03abc07e18e7193dbd00c246ead184717ea8bce83091a301279037cb9",
+    "unit_enablement": false
+  },
+  "telegram": {
+    "dedicated_bot_id": 8729546284,
+    "dedicated_bot_username": "TU1NZ_Adult_Test_bot",
+    "private_chat_only": true,
+    "single_allowlisted_creator": true
+  },
+  "version": "tu1nz-commercial-s4-extended-staging-control-v1"
+}

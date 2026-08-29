@@ -1,0 +1,17 @@
+# Commercial S4 runtime readiness race
+
+## Safe code
+
+`S4_RUNTIME_HEALTH_CHECK_BEFORE_PHASE_18_READY`
+
+## Result
+
+The first controlled S4 start entered phases 01 through 17 successfully. The operator health check ran after eight seconds while phase 18 was still waiting for the first Telegram long-poll completion. `initialize_health` intentionally records `POLLING=RED` until that first poll succeeds, so the check aborted and stopped the service before readiness.
+
+The captured journal contains no poll failure event, exception or retry. Phase 18 completed cleanly during the stop path, and the runtime exited cleanly. The service was restored to inactive/dead/static with PID 0, `NRestarts=0`; the disabled contract and verify-only authorization were restored.
+
+## Correction
+
+Readiness is not inferred from elapsed time. The versioned `await-readiness` action waits at most 120 seconds for a new startup summary whose exact state is `READY`, whose last completed phase is `18_READY`, and whose health report is `GREEN` with AVS and payment components `DISABLED_EXPECTED`. It fails immediately if the service exits or its restart counter changes.
+
+The S4 manifest explicitly permits repeated controlled stop/start cycles inside a valid bounded window. A later retry is therefore a staging acceptance retry, not a production or first-start authorization.
