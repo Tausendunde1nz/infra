@@ -39,6 +39,12 @@ private attempt evidence. `close-window` is permitted only while the service is
 inactive and restores the hash-bound disabled contract. Neither action changes
 the unit or enables a service.
 
+After a green startup probe, `fresh-prestart` runs the shared prestart
+dependency graph in a second transient systemd sandbox. Its address-family
+boundary is AF_UNIX only, so it cannot contact Telegram or any provider. It
+must return `S3_PRESTART_READY` and explicitly prove that no service was
+started before a diagnostic start is allowed.
+
 The window installs a separately versioned runtime-release authorization with
 `single_bootstrap_authorized=false` and
 `decision=GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY`. It binds the instrumented

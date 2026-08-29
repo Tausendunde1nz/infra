@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly SERVICE="tu1nz-adult-commercial-s3.service"
 readonly PROBE_SERVICE="tu1nz-adult-commercial-s3-probe.service"
+readonly PRESTART_SERVICE="tu1nz-adult-commercial-s3-prestart.service"
 readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-commercial-s3"
@@ -11,6 +12,7 @@ readonly BASELINE="/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-56-5
 readonly APPLICATION_SHA="05fd8b44f533fa34c3baeeb0dd1db2ae2e679c0a"
 readonly APPLICATION_TREE="dbee2c924ce4964851bd499cbee92f96725630df"
 readonly PROBE_CREDENTIAL_ROOT="/run/credentials/$PROBE_SERVICE"
+readonly PRESTART_CREDENTIAL_ROOT="/run/credentials/$PRESTART_SERVICE"
 readonly DISABLED_CONTRACT_SHA="504cd844bba8fe733e2beb8c734f3757c22fea06e3958c8d5cb95f3f00672fef"
 readonly S3_1_BOOTSTRAP_AUTHORIZATION_SHA="a7907f27a52c5992ac30af1c32929b1c3ed2a10f2ba0e74e07577ca835c68fc5"
 readonly S3_2_RUNTIME_AUTHORIZATION_SHA="7fb38340eb00ca90f86bae67921741d83d23b551f9c4521022e79ef19dd3e0a2"
@@ -261,6 +263,55 @@ PY
   printf '{"ok":true,"safe_code":"S3_2_STARTUP_PROBE_GREEN","product_polling":false,"ready":false}\n'
 }
 
+fresh_prestart() {
+  require_root
+  require_stopped
+  require_baseline
+  require_release "$1" "$2"
+  require_active_contract || fail "ACTIVE_CONTRACT_INVALID"
+  local output
+  set +e
+  output="$(systemd-run --quiet --wait --collect --pipe --unit="$PRESTART_SERVICE" \
+    --property=Type=exec \
+    --property=User=chatops --property=Group=chatops \
+    --property=WorkingDirectory="$APPLICATION_ROOT" \
+    --property=LoadCredential="postgres-dsn:$CONFIG_ROOT/adult-commercial-s3.postgres-dsn" \
+    --property=LoadCredential="subject-key:$CONFIG_ROOT/adult-commercial-s3.subject-key" \
+    --property=LoadCredential="staging-contract:$CONFIG_ROOT/adult-commercial-s3.contract.json" \
+    --property=LoadCredential="allowlist:$CONFIG_ROOT/adult-commercial-s3.allowlist.json" \
+    --property=LoadCredential="media-manifest:$CONFIG_ROOT/adult-commercial-s3.media-manifest.json" \
+    --property=LoadCredential="bootstrap-manifest:$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" \
+    --property=Restart=no --property=RuntimeMaxSec=120 \
+    --property=TimeoutStartSec=60 --property=TimeoutStopSec=30 \
+    --property=KillSignal=SIGTERM --property=UMask=0077 \
+    --property=NoNewPrivileges=true --property=PrivateDevices=true \
+    --property=PrivateTmp=true --property=ProtectHome=true \
+    --property=ProtectSystem=strict --property=ProtectControlGroups=true \
+    --property=ProtectKernelModules=true --property=ProtectKernelTunables=true \
+    --property=ProtectKernelLogs=true --property=LockPersonality=true \
+    --property=MemoryDenyWriteExecute=true --property=RestrictSUIDSGID=true \
+    --property=RestrictRealtime=true --property=RestrictNamespaces=true \
+    --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
+    --property=RestrictAddressFamilies=AF_UNIX \
+    --property="ReadOnlyPaths=$APPLICATION_ROOT $CONFIG_ROOT" \
+    --property="ReadWritePaths=$STATE_ROOT /var/log/tausendunde1nz" \
+    "$APPLICATION_ROOT/.venv/bin/tu1nz-commercial-s3-prestart" \
+      --contract "$PRESTART_CREDENTIAL_ROOT/staging-contract" \
+      --allowlist "$PRESTART_CREDENTIAL_ROOT/allowlist" \
+      --media-manifest "$PRESTART_CREDENTIAL_ROOT/media-manifest" \
+      --bootstrap-manifest "$PRESTART_CREDENTIAL_ROOT/bootstrap-manifest" \
+      --bootstrap-reference "$APPLICATION_ROOT/config/commercial-s3-bootstrap-reference.json" \
+      --migration-directory "$APPLICATION_ROOT/migrations" \
+      --state-directory "$STATE_ROOT" 2>&1)"
+  local status=$?
+  set -e
+  [ "$status" -eq 0 ] || fail "FRESH_PRESTART_EXECUTION_FAILED"
+  grep -q '"safe_code":"S3_PRESTART_READY"' <<<"$output" || fail "FRESH_PRESTART_NOT_READY"
+  grep -q '"service_started":false' <<<"$output" || fail "FRESH_PRESTART_STARTED_SERVICE"
+  require_stopped
+  printf '%s\n' "$output"
+}
+
 case "${1:-}" in
   preflight)
     [ "$#" -eq 3 ] || fail "ARGUMENT_COUNT"
@@ -277,6 +328,10 @@ case "${1:-}" in
   probe)
     [ "$#" -eq 3 ] || fail "ARGUMENT_COUNT"
     probe "$2" "$3"
+    ;;
+  fresh-prestart)
+    [ "$#" -eq 3 ] || fail "ARGUMENT_COUNT"
+    fresh_prestart "$2" "$3"
     ;;
   *)
     fail "UNKNOWN_ACTION"
