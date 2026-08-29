@@ -1,0 +1,25 @@
+# Commercial S3.1 state setgid/resume abort
+
+Date: 2026-08-29
+
+The first state-repair invocation stopped before creating the replacement
+cursor. The observed parent directory began as `chatops:chatops` mode `2700`.
+GNU chmod preserves set-user-ID and set-group-ID bits on directories unless they
+are explicitly cleared, so `chmod 0700` left the parent at `2700`. The
+Application ownership guard correctly returned
+`S3_STATE_OWNERSHIP_OR_MODE_INVALID`.
+
+Before that guard, the controller had already preserved the numeric Telegram
+offset in the valid recovery directory, removed the archived root-owned cursor
+and removed the archived empty legacy `media` directory. No replacement cursor
+was created. The only live state children are the unchanged chatops-owned
+mode-0700 `evidence` and `media-test` directories. The database, unit and
+service lifecycle were not changed; the service remains inactive/dead with
+`NRestarts=0` and no process.
+
+The correction explicitly executes `chmod g-s` and verifies mode `0700` before
+calling Application state initialization as `chatops`. It also adds a narrowly
+bounded resume path for exactly this interrupted shape. Resume requires the
+preserved offset file, extracts the old cursor from the already validated
+recovery archive, compares both offsets and rejects every other live path. It
+does not accept a generic missing cursor and performs no ownership takeover.

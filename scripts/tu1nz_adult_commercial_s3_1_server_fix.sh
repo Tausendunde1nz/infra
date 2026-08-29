@@ -154,14 +154,15 @@ repair_state() {
   require_application_release
   [ ! -L "$STATE_ROOT" ] || fail "STATE_ROOT_SYMLINK"
   [ "$(stat -c '%U:%G:%a' "$STATE_ROOT")" = "chatops:chatops:2700" ] || fail "LEGACY_STATE_ROOT_DIVERGED"
-  [ -d "$STATE_ROOT/media" ] && [ ! -L "$STATE_ROOT/media" ] || fail "LEGACY_MEDIA_PATH_DIVERGED"
-  [ -z "$(find "$STATE_ROOT/media" -mindepth 1 -print -quit)" ] || fail "LEGACY_MEDIA_NOT_EMPTY"
   [ "$(stat -c '%U:%G:%a' "$STATE_ROOT/evidence")" = "chatops:chatops:700" ] || fail "EVIDENCE_DIRECTORY_DIVERGED"
   [ "$(stat -c '%U:%G:%a' "$STATE_ROOT/media-test")" = "chatops:chatops:700" ] || fail "MEDIA_TEST_DIRECTORY_DIVERGED"
-  [ ! -L "$STATE_ROOT/telegram-offset.json" ] || fail "LEGACY_CURSOR_SYMLINK"
-  [ "$(stat -c '%u:%G:%a:%h' "$STATE_ROOT/telegram-offset.json")" = "0:chatops:600:1" ] || fail "LEGACY_CURSOR_DIVERGED"
   local offset
-  offset="$(python3 - "$STATE_ROOT/telegram-offset.json" <<'PY'
+  if [ -e "$STATE_ROOT/telegram-offset.json" ] || [ -L "$STATE_ROOT/telegram-offset.json" ]; then
+    [ -d "$STATE_ROOT/media" ] && [ ! -L "$STATE_ROOT/media" ] || fail "LEGACY_MEDIA_PATH_DIVERGED"
+    [ -z "$(find "$STATE_ROOT/media" -mindepth 1 -print -quit)" ] || fail "LEGACY_MEDIA_NOT_EMPTY"
+    [ ! -L "$STATE_ROOT/telegram-offset.json" ] || fail "LEGACY_CURSOR_SYMLINK"
+    [ "$(stat -c '%u:%G:%a:%h' "$STATE_ROOT/telegram-offset.json")" = "0:chatops:600:1" ] || fail "LEGACY_CURSOR_DIVERGED"
+    offset="$(python3 - "$STATE_ROOT/telegram-offset.json" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -174,11 +175,25 @@ if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
 print(offset)
 PY
 )" || fail "LEGACY_CURSOR_INVALID"
-  printf '%s\n' "$offset" >"$recovery/preserved-next-update-id.txt"
-  chmod 0600 "$recovery/preserved-next-update-id.txt"
-  rm -f -- "$STATE_ROOT/telegram-offset.json"
-  rmdir -- "$STATE_ROOT/media"
+    printf '%s\n' "$offset" >"$recovery/preserved-next-update-id.txt"
+    chmod 0600 "$recovery/preserved-next-update-id.txt"
+    rm -f -- "$STATE_ROOT/telegram-offset.json"
+    rmdir -- "$STATE_ROOT/media"
+  else
+    [ ! -e "$STATE_ROOT/media" ] && [ ! -L "$STATE_ROOT/media" ] || fail "PARTIAL_MEDIA_PATH_PRESENT"
+    [ -f "$recovery/preserved-next-update-id.txt" ] || fail "PARTIAL_OFFSET_EVIDENCE_MISSING"
+    offset="$(sed -n '1p' "$recovery/preserved-next-update-id.txt")"
+    [[ "$offset" =~ ^[0-9]+$ ]] || fail "PARTIAL_OFFSET_EVIDENCE_INVALID"
+    local archived_offset
+    archived_offset="$(tar -xOzf "$recovery/recovery-delta.tar.gz" \
+      var/lib/tausendunde1nz/adult-commercial-s3/telegram-offset.json | python3 -c \
+      'import json,sys; value=json.load(sys.stdin); print(value["next_update_id"] if value.get("version") == 1 else "INVALID")')"
+    [ "$offset" = "$archived_offset" ] || fail "PARTIAL_OFFSET_EVIDENCE_DIVERGED"
+    [ "$(find "$STATE_ROOT" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' ')" = "evidence media-test " ] || fail "PARTIAL_STATE_SHAPE_DIVERGED"
+  fi
   chmod 0700 "$STATE_ROOT"
+  chmod g-s "$STATE_ROOT"
+  [ "$(stat -c '%U:%G:%a' "$STATE_ROOT")" = "chatops:chatops:700" ] || fail "STATE_MODE_REPAIR_FAILED"
   runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/python" - "$STATE_ROOT" "$offset" <<'PY'
 import json
 import sys
