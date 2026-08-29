@@ -22,10 +22,14 @@ delta and never rewrites the old run.
 
 ## Bound Application and bootstrap
 
-The only permitted Application release is merge commit
-`2ff3af411ed58328ee4189255f13c7d5766552ad`, tree
-`82b8f5f888309a3dce47f8609c78b96dd1bd2200`. The canonical bootstrap-reference
-digest is
+The bootstrap was consumed once under merge commit
+`2ff3af411ed58328ee4189255f13c7d5766552ad`. The final permitted Application
+release is merge commit `54372b6b4e02119b7a82a9bf14b417e2307fb38d`,
+tree `e1662cc9e373bf85b82cd4a280da87c367f86975`. This corrective release leaves
+the canonical reference and migration chain unchanged, removes the unnecessary
+PostgreSQL TEMP requirement, bounds row-lock waits and validates that the
+private allowlist targets the same synthetic creator. The canonical
+bootstrap-reference digest is
 `3f7ac26960ac29aea471d33cac634ca1f6e8d572724701cf7fd8268101c0442a`;
 the migration-chain digest remains
 `24c116ae3f37eba0be1470f1b401fd4edcb03f8679dd0c95e9881ad20cafb42f`.
@@ -37,12 +41,12 @@ It grants exactly one STAGING bootstrap against database
 `tu1nz_adult_commercial_s3_runtime`. It explicitly sets
 `service_start_authorized=false` and cannot authorize a systemd start.
 
-The bootstrap creates exactly twelve reference rows: one anonymous synthetic
+The already-consumed bootstrap created exactly twelve reference rows: one anonymous synthetic
 creator, one policy version, one country rule, three platform rules, three TEST
 integration accounts and the three destinations `REDDIT_TEST`, `TELEGRAM_TEST`
 and `X_TEST`. It creates zero submissions, payments, publications, dispatches or
-other business rows. The mutating command may be invoked once and must return
-`CREATED`; the next operation is the separate read-only verifier, which must
+other business rows. The mutating command returned `CREATED` and no additional
+invocation is authorized. The next database operation is the separate read-only verifier, which must
 return `S3_BOOTSTRAP_READY` with 12 reference, 0 business and 0 external-target
 rows. The idempotent `ALREADY_CORRECT` behavior remains Application-tested but
 is not exercised as a second server bootstrap in this sprint.
@@ -76,19 +80,23 @@ implicit takeover, symlink acceptance or broad deletion.
 4. Execute `install` with the actual post-merge Control SHA/tree. This refreshes
    the editable local Application package, installs the root-private bootstrap
    authorization and S3.1 unit, then performs only `daemon-reload`.
-5. Execute `repair-state` and prove chatops ownership/modes and the preserved
-   offset.
-6. Execute `bootstrap-once`; require `CREATED`.
-7. Execute `verify`; require `S3_BOOTSTRAP_READY`, business rows 0 and external
-   targets 0.
-8. Execute `prestart` using the disabled contract. It uses the same dependency
+5. Confirm the already-completed state repair and preserved offset.
+6. Execute `repair-allowlist` exactly once. It requires the recovery archive and
+   exact source SHA-256, preserves the private Telegram IDs and roles byte-for-byte,
+   changes only the legacy creator UUID, and atomically installs the exact target hash.
+7. Do not execute `bootstrap-once` again; its `CREATED` evidence is already present.
+8. Execute `verify`; require `S3_BOOTSTRAP_READY`, business rows 0 and external
+   targets 0. Before refreshing the result file, preserve the verifier evidence
+   produced under the consumed bootstrap release.
+9. Execute `prestart` using the disabled contract. It uses the same dependency
    graph as runtime, performs the service-role DB rollback probe and runtime-user
    state write probe, performs no Telegram call and must return
-   `S3_PRESTART_READY` with `service_started=false`.
-9. Execute `finalize` to recheck inactive/dead/static, `NRestarts=0`, no
+   `S3_PRESTART_READY` with `service_started=false`. Preserve both files from
+   the prior failed S3.1 prestart before writing the new result.
+10. Execute `finalize` to recheck inactive/dead/static, `NRestarts=0`, no
    process, exact release/state/unit/DB results and historical hashes, then
    produce the final SHA-256 evidence inventory.
-10. **Stop.** A later bounded service start requires a new human authorization.
+11. **Stop.** A later bounded service start requires a new human authorization.
 
 Rollback restores only the archived pre-S3.1 unit/config/state targets and the
 recorded repository refs. The database dump is retained and never automatically

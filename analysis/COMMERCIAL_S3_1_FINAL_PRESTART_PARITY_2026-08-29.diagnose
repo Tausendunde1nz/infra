@@ -1,0 +1,24 @@
+# Commercial S3.1 final prestart parity diagnosis
+
+Date: 2026-08-29
+
+The first dry prestart after the successful one-time database bootstrap stopped
+closed for two independent parity defects. The service database role has the
+intended table DML grants but no database TEMP privilege, while the original
+probe attempted to create a temporary table. Separately, the root-private
+allowlist still referenced the preceding test creator rather than the S3.1
+synthetic reference creator.
+
+No privilege is broadened and the mutating database bootstrap is not repeated.
+Application merge `54372b6b4e02119b7a82a9bf14b417e2307fb38d`, tree
+`e1662cc9e373bf85b82cd4a280da87c367f86975`, replaces the TEMP probe with a
+rollback-only no-op DML probe, bounds lock/statement waits and requires the
+exact synthetic creator binding.
+
+Control permits one hash-bound allowlist repair only after validating the
+existing recovery archive, stopped service, immutable historical evidence,
+exact old file SHA-256 and private one-binding shape. The transform preserves
+the private Telegram IDs, roles and formatting and replaces only the creator
+UUID. The resulting SHA-256 is fixed in SSOT. A new read-only verifier and dry
+prestart must pass before evidence finalization. No service start, restart,
+enablement, provider, payment, publishing or production action is authorized.

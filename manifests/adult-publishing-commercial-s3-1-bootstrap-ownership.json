@@ -5,17 +5,17 @@
     "bootstrap_reference_file_sha256": "7024ffb4aaca309022db4a1e4391a1863ee3c583c02cae60ab7ae3dd7857d226",
     "bootstrap_reference_path": "config/commercial-s3-bootstrap-reference.json",
     "repository": "Tausendunde1nz/adult-publishing-core",
-    "sha": "2ff3af411ed58328ee4189255f13c7d5766552ad",
-    "tree": "82b8f5f888309a3dce47f8609c78b96dd1bd2200"
+    "sha": "54372b6b4e02119b7a82a9bf14b417e2307fb38d",
+    "tree": "e1662cc9e373bf85b82cd4a280da87c367f86975"
   },
   "artifacts": {
     "bootstrap_authorization": {
       "path": "config/adult-publishing/staging-s3/commercial-s3-bootstrap-authorization.s3-1.json",
-      "sha256": "36a9ac62b3b9bccc4a63bcce9938234efeec3f47a5d66bcc2f513c34bf06467b"
+      "sha256": "a7907f27a52c5992ac30af1c32929b1c3ed2a10f2ba0e74e07577ca835c68fc5"
     },
     "server_fix_controller": {
       "path": "scripts/tu1nz_adult_commercial_s3_1_server_fix.sh",
-      "sha256": "af18603d1e9a11834f4950d5bb386175946459ad7dbc79528ae2b054e0986bb4"
+      "sha256": "8a8e8a3dfed513feda5f902021c5cd9f5cab5e4c540d2ed0fe409a8a2a4a12bb"
     },
     "unit": {
       "path": "systemd/tu1nz-adult-commercial-s3-s3-1.service",
@@ -23,9 +23,12 @@
     }
   },
   "authorization": {
+    "allowlist_repair_authorized": true,
+    "bootstrap_consumed": true,
     "bootstrap_expected_result": "CREATED",
     "daemon_reload_authorized": true,
     "install_authorized": true,
+    "maximum_additional_bootstrap_invocations": 0,
     "maximum_bootstrap_invocations": 1,
     "prestart_authorized": true,
     "restart_authorized": false,
@@ -33,8 +36,21 @@
     "service_stop_authorized": false,
     "service_enable_authorized": false
   },
+  "allowlist_repair": {
+    "after_sha256": "4fdc4352c5fb57bf3dcea08ac141480c623d3b61328d2a6bf5494b217c1bd1ac",
+    "before_sha256": "2904a4c9aca0a5eda6c20a10c2fe506d92959959e457ccbc5bbfb8a0395cc8db",
+    "maximum_mutations": 1,
+    "preserve_private_telegram_ids": true,
+    "recovery_source_hash_required": true,
+    "roles_required": [
+      "CREATOR",
+      "MODERATOR"
+    ],
+    "synthetic_creator_id": "73100000-0000-4000-8000-000000000001"
+  },
   "bootstrap": {
     "business_rows_after": 0,
+    "consumed_application_sha": "2ff3af411ed58328ee4189255f13c7d5766552ad",
     "database_name": "tu1nz_adult_commercial_s3",
     "database_role": "tu1nz_adult_commercial_s3_runtime",
     "database_schema": "0017_commercial_s2_1_telegram_live_test_readiness",
@@ -79,9 +95,11 @@
     "exact_post_merge_sha_and_tree_required_before_server_install": true,
     "repository": "Tausendunde1nz/infra"
   },
-  "decision": "GO_FOR_S3_1_FIX_INSTALL_AND_EXACTLY_ONE_BOOTSTRAP",
+  "decision": "GO_FOR_S3_1_FINAL_INSTALL_ALLOWLIST_REPAIR_AND_READ_ONLY_PRESTART",
   "historical_evidence": {
+    "failed_s3_1_prestart_preserved_before_retry": true,
     "failure_evidence_immutable": true,
+    "initial_s3_1_verify_preserved_before_refresh": true,
     "final_evidence_index_sha256": "6d5606ebc293fef86f79a592930808a4ec324da6a615c631e9f5e72e233c2e27",
     "recovery_archive_sha256": "04421c79b292472b0f5a792cfd716d32044d31236693237cce0a498566b78888",
     "root": "/opt/tu1nz_repos/backups/commercial-s3-server-staging/20260829T12-48-21Z"
@@ -90,6 +108,7 @@
     "external_network": false,
     "required_dependencies": [
       "allowlist",
+      "allowlist_creator_binding",
       "application_release",
       "bootstrap_manifest",
       "bootstrap_reference_data",
