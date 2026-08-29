@@ -17,9 +17,10 @@
   },
   "backup_and_rollback": {
     "exact_pre_mutation_recovery_point_required": true,
-    "path": null,
+    "index_sha256": "34b9d5019db0ad48df8f73bddd77e079eb515659b9e2fabbd0c49ee7753361d7",
+    "path": "/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T202700Z-pre-mutation",
     "restore_proof_required": true,
-    "server_activation_blocked_until_bound": true
+    "server_activation_blocked_until_bound": false
   },
   "control": {
     "branch": "feat/commercial-s4-provider-beta-readiness",
@@ -30,7 +31,7 @@
     "migration_chain_sha256": "2a7763b33834493ca612f06b9762a3b00fef9f6af042154bba7918f624c32dae",
     "schema": "0018_commercial_s4_provider_beta_readiness"
   },
-  "decision": "NO_GO_SERVER_ACTIVATION_UNTIL_RECOVERY_POINT_BOUND",
+  "decision": "GO_FOR_BOUNDED_SERVER_STAGING",
   "evidence": {
     "database_connection_count": true,
     "forbidden_fields": [

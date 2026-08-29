@@ -12,7 +12,7 @@ Commercial S4 prepares provider contracts and a creator/moderator beta journey w
 - Database schema: `0018_commercial_s4_provider_beta_readiness`
 - Migration-chain SHA-256: `2a7763b33834493ca612f06b9762a3b00fef9f6af042154bba7918f624c32dae`
 
-The Control commit and exact recovery point are deliberately bound only after a fresh pre-mutation backup exists. Until both are versioned, the manifest decision is `NO_GO_SERVER_ACTIVATION_UNTIL_RECOVERY_POINT_BOUND`.
+The exact pre-mutation recovery point `/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T202700Z-pre-mutation` is bound with SHA-256 index digest `34b9d5019db0ad48df8f73bddd77e079eb515659b9e2fabbd0c49ee7753361d7`. The manifest decision is now `GO_FOR_BOUNDED_SERVER_STAGING`; every real provider, beta and production gate remains closed.
 
 ## Risk assessment
 

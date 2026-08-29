@@ -22,7 +22,7 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
     def setUp(self) -> None:
         self.value = json.loads(MANIFEST.read_text(encoding="ascii"))
 
-    def test_release_is_exact_and_initial_gate_is_fail_closed(self) -> None:
+    def test_release_and_recovery_point_are_exactly_bound(self) -> None:
         self.assertEqual(
             self.value["application"]["sha"],
             "ffce727d8e1e45c93323bd805e77e5965e8b3941",
@@ -33,10 +33,17 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         )
         self.assertEqual(
             self.value["decision"],
-            "NO_GO_SERVER_ACTIVATION_UNTIL_RECOVERY_POINT_BOUND",
+            "GO_FOR_BOUNDED_SERVER_STAGING",
         )
-        self.assertIsNone(self.value["backup_and_rollback"]["path"])
-        self.assertTrue(self.value["backup_and_rollback"]["server_activation_blocked_until_bound"])
+        self.assertEqual(
+            self.value["backup_and_rollback"]["path"],
+            "/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T202700Z-pre-mutation",
+        )
+        self.assertEqual(
+            self.value["backup_and_rollback"]["index_sha256"],
+            "34b9d5019db0ad48df8f73bddd77e079eb515659b9e2fabbd0c49ee7753361d7",
+        )
+        self.assertFalse(self.value["backup_and_rollback"]["server_activation_blocked_until_bound"])
         self.assertEqual(
             self.value["database"]["schema"],
             "0018_commercial_s4_provider_beta_readiness",

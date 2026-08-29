@@ -19,8 +19,8 @@ Current Adult Publishing infrastructure decisions:
 - `docs/COMMERCIAL_S4_EXTENDED_STAGING_CONTROL_2026-08-29.md`,
   `manifests/adult-publishing-commercial-s4-extended-staging.json` and the S4
   controller/observer bind the provider-readiness release to a static,
-  `Restart=no`, at-most-six-hour staging window. The initial manifest remains
-  `NO_GO` until a fresh exact server recovery point is versioned. Real provider
+  `Restart=no`, at-most-six-hour staging window. A fresh exact server recovery
+  point is versioned before the bounded staging decision. Real provider
   credentials/calls, adult media, payment, publishing, beta and production stay
   closed.
 
