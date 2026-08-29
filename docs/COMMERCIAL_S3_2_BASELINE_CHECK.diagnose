@@ -18,4 +18,3 @@ The bounded correction is invocation-only: execute each check from
 already versioned probe controller. No hash, index, baseline member, repository,
 contract, unit or database state is changed. A failed corrected check remains
 RED and aborts before repository mutation.
-
