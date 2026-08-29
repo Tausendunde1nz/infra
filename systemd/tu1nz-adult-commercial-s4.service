@@ -1,0 +1,49 @@
+[Unit]
+Description=TU1NZ Adult Publishing Commercial S4 bounded staging
+After=network-online.target postgresql.service
+Wants=network-online.target
+ConditionPathIsReadWrite=/var/lib/tausendunde1nz/adult-commercial-s3
+
+[Service]
+Type=simple
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-commercial-s3-runtime --contract %d/staging-contract --allowlist %d/allowlist --media-manifest %d/media-manifest --bootstrap-manifest %d/bootstrap-manifest --bootstrap-reference /opt/tu1nz_repos/adult-publishing-core/config/commercial-s3-bootstrap-reference.json --migration-directory /opt/tu1nz_repos/adult-publishing-core/migrations --state-directory /var/lib/tausendunde1nz/adult-commercial-s3
+LoadCredential=telegram-token:/etc/tu1nz/adult-commercial-s3.telegram-token
+LoadCredential=postgres-dsn:/etc/tu1nz/adult-commercial-s3.postgres-dsn
+LoadCredential=subject-key:/etc/tu1nz/adult-commercial-s3.subject-key
+LoadCredential=staging-contract:/etc/tu1nz/adult-commercial-s3.contract.json
+LoadCredential=allowlist:/etc/tu1nz/adult-commercial-s3.allowlist.json
+LoadCredential=media-manifest:/etc/tu1nz/adult-commercial-s3.media-manifest.json
+LoadCredential=bootstrap-manifest:/etc/tu1nz/adult-commercial-s3.bootstrap-manifest.json
+Restart=no
+RuntimeMaxSec=21600
+TimeoutStartSec=60
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/opt/tu1nz_repos/adult-publishing-core /etc/tu1nz
+ReadWritePaths=/var/lib/tausendunde1nz/adult-commercial-s3 /var/log/tausendunde1nz
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tu1nz-adult-commercial-s3
+
+# Deliberately no Install section: S4 cannot be enabled persistently.

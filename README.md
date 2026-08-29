@@ -16,6 +16,14 @@ The branch `control-main` in `Tausendunde1nz/infra` is the baseline for this ind
 
 Current Adult Publishing infrastructure decisions:
 
+- `docs/COMMERCIAL_S4_EXTENDED_STAGING_CONTROL_2026-08-29.md`,
+  `manifests/adult-publishing-commercial-s4-extended-staging.json` and the S4
+  controller/observer bind the provider-readiness release to a static,
+  `Restart=no`, at-most-six-hour staging window. The initial manifest remains
+  `NO_GO` until a fresh exact server recovery point is versioned. Real provider
+  credentials/calls, adult media, payment, publishing, beta and production stay
+  closed.
+
 - `docs/M1_ADULT_PUBLISHING_PREFLIGHT_EXECUTION_2026-08-26.md` records the
   completed M1 repository/bootstrap preflight.
 - `docs/M3_5_SERVER_CONTROL_PREFLIGHT_2026-08-27.md` records the current

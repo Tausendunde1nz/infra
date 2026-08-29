@@ -47,6 +47,8 @@
 !scripts/tu1nz_adult_commercial_s3_1_control_gate.py
 !scripts/tu1nz_adult_commercial_s3_1_server_fix.sh
 !scripts/tu1nz_adult_commercial_s3_2_probe.sh
+!scripts/tu1nz_adult_commercial_s4_control.sh
+!scripts/tu1nz_adult_commercial_s4_observe.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -61,6 +63,7 @@
 !systemd/tu1nz-adult-commercial-s0.service
 !systemd/tu1nz-adult-commercial-s3.service
 !systemd/tu1nz-adult-commercial-s3-s3-1.service
+!systemd/tu1nz-adult-commercial-s4.service
 !systemd/tu1nz_agentmode.service
 !systemd/tu1nz_integrity.service
 !systemd/tu1nz_monitor.service
@@ -97,6 +100,7 @@
 !manifests/adult-publishing-commercial-s3-server-staging.json
 !manifests/adult-publishing-commercial-s3-1-bootstrap-ownership.json
 !manifests/adult-publishing-commercial-s3-2-rolling-debug.json
+!manifests/adult-publishing-commercial-s4-extended-staging.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -114,6 +118,7 @@
 !config/adult-publishing/staging-s3/commercial-s3-media-manifest.example.json
 !config/adult-publishing/staging-s3/commercial-s3-bootstrap-authorization.s3-1.json
 !config/adult-publishing/staging-s3/commercial-s3-runtime-release-authorization.s3-2.json
+!config/adult-publishing/staging-s3/commercial-s4-runtime-release-authorization.json
 !config/postgresql/
 !config/postgresql/pgdg.sources
 !config/postgresql/adult-publishing-commercial-s0.pg_hba.rule
@@ -139,6 +144,7 @@
 !tests/test_adult_commercial_s3_server_staging_control.py
 !tests/test_adult_commercial_s3_1_bootstrap_ownership_control.py
 !tests/test_adult_commercial_s3_2_rolling_debug_control.py
+!tests/test_adult_commercial_s4_extended_staging_control.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
