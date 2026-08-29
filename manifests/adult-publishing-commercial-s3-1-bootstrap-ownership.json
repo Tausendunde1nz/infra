@@ -1,0 +1,162 @@
+{
+  "application": {
+    "branch": "main",
+    "bootstrap_reference_canonical_sha256": "3f7ac26960ac29aea471d33cac634ca1f6e8d572724701cf7fd8268101c0442a",
+    "bootstrap_reference_file_sha256": "7024ffb4aaca309022db4a1e4391a1863ee3c583c02cae60ab7ae3dd7857d226",
+    "bootstrap_reference_path": "config/commercial-s3-bootstrap-reference.json",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "sha": "2ff3af411ed58328ee4189255f13c7d5766552ad",
+    "tree": "82b8f5f888309a3dce47f8609c78b96dd1bd2200"
+  },
+  "artifacts": {
+    "bootstrap_authorization": {
+      "path": "config/adult-publishing/staging-s3/commercial-s3-bootstrap-authorization.s3-1.json",
+      "sha256": "36a9ac62b3b9bccc4a63bcce9938234efeec3f47a5d66bcc2f513c34bf06467b"
+    },
+    "server_fix_controller": {
+      "path": "scripts/tu1nz_adult_commercial_s3_1_server_fix.sh",
+      "sha256": "1be35b70ce633bb17d6262a6269c43ee85a00616b405f71ffa0c25325217f52d"
+    },
+    "unit": {
+      "path": "systemd/tu1nz-adult-commercial-s3-s3-1.service",
+      "sha256": "b9059cea568086796d1d5cbbe98a8599a5822ba7d4eaf9de9eb387d0bf9c41b5"
+    }
+  },
+  "authorization": {
+    "bootstrap_expected_result": "CREATED",
+    "daemon_reload_authorized": true,
+    "install_authorized": true,
+    "maximum_bootstrap_invocations": 1,
+    "prestart_authorized": true,
+    "restart_authorized": false,
+    "service_start_authorized": false,
+    "service_stop_authorized": false,
+    "service_enable_authorized": false
+  },
+  "bootstrap": {
+    "business_rows_after": 0,
+    "database_name": "tu1nz_adult_commercial_s3",
+    "database_role": "tu1nz_adult_commercial_s3_runtime",
+    "database_schema": "0017_commercial_s2_1_telegram_live_test_readiness",
+    "destinations": [
+      {
+        "integration_account_id": "73100000-0000-4000-8000-000000000101",
+        "name": "REDDIT_TEST",
+        "publication_destination_id": "73100000-0000-4000-8000-000000000201",
+        "provider": "REDDIT"
+      },
+      {
+        "integration_account_id": "73100000-0000-4000-8000-000000000102",
+        "name": "TELEGRAM_TEST",
+        "publication_destination_id": "73100000-0000-4000-8000-000000000202",
+        "provider": "TELEGRAM"
+      },
+      {
+        "integration_account_id": "73100000-0000-4000-8000-000000000103",
+        "name": "X_TEST",
+        "publication_destination_id": "73100000-0000-4000-8000-000000000203",
+        "provider": "X"
+      }
+    ],
+    "expected_reference_rows": {
+      "country_policy_rules": 1,
+      "creators": 1,
+      "integration_accounts": 3,
+      "platform_policy_rules": 3,
+      "policy_versions": 1,
+      "publication_destinations": 3,
+      "total": 12
+    },
+    "external_targets_after": 0,
+    "migration_chain_sha256": "24c116ae3f37eba0be1470f1b401fd4edcb03f8679dd0c95e9881ad20cafb42f",
+    "policy_fingerprint": "665c05efd6a8e89c3b3f5f87ae1594d9b060c7dd24c36a21535f21f5135cab65",
+    "policy_version": "s3.1-synthetic-policy-v1",
+    "synthetic_creator_id": "73100000-0000-4000-8000-000000000001",
+    "verifier_expected_result": "S3_BOOTSTRAP_READY"
+  },
+  "control_binding": {
+    "branch": "control-main",
+    "exact_post_merge_sha_and_tree_required_before_server_install": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "decision": "GO_FOR_S3_1_FIX_INSTALL_AND_EXACTLY_ONE_BOOTSTRAP",
+  "historical_evidence": {
+    "failure_evidence_immutable": true,
+    "final_evidence_index_sha256": "6d5606ebc293fef86f79a592930808a4ec324da6a615c631e9f5e72e233c2e27",
+    "recovery_archive_sha256": "04421c79b292472b0f5a792cfd716d32044d31236693237cce0a498566b78888",
+    "root": "/opt/tu1nz_repos/backups/commercial-s3-server-staging/20260829T12-48-21Z"
+  },
+  "prestart": {
+    "external_network": false,
+    "required_dependencies": [
+      "allowlist",
+      "application_release",
+      "bootstrap_manifest",
+      "bootstrap_reference_data",
+      "business_rows_zero",
+      "cursor_ownership",
+      "database_read_write",
+      "database_schema",
+      "harmless_media_manifest",
+      "policy",
+      "runtime_state",
+      "synthetic_creator",
+      "synthetic_destinations"
+    ],
+    "service_started": false,
+    "target_result": "S3_PRESTART_READY"
+  },
+  "product_boundary": {
+    "adult_media_enabled": false,
+    "avs_provider": "MOCK",
+    "external_publish_enabled": false,
+    "payment_provider": "MOCK",
+    "production_enabled": false,
+    "publisher_adapter": "SYNTHETIC",
+    "runtime_mode": "STAGING"
+  },
+  "recovery_delta": {
+    "database_dump_required": true,
+    "existing_recovery_point_remains_immutable": true,
+    "historical_evidence_excluded_from_mutation": true,
+    "member_hash_inventory_required": true,
+    "restore_proof_required": true,
+    "targets": [
+      "/etc/systemd/system/tu1nz-adult-commercial-s3.service",
+      "/etc/tu1nz/adult-commercial-s3.allowlist.json",
+      "/etc/tu1nz/adult-commercial-s3.contract.json",
+      "/etc/tu1nz/adult-commercial-s3.media-manifest.json",
+      "/etc/tu1nz/adult-commercial-s3.postgres-dsn",
+      "/etc/tu1nz/adult-commercial-s3.subject-key",
+      "/etc/tu1nz/adult-commercial-s3.telegram-token",
+      "/var/lib/tausendunde1nz/adult-commercial-s3"
+    ]
+  },
+  "server_baseline": {
+    "application_sha": "aba69dfc706fc71e7b1ff12446e5a24f94642762",
+    "business_rows": 0,
+    "control_sha": "1e88b6772e51be539ff91aeef09b2206b77df3e6",
+    "nrestarts": 0,
+    "service_active_state": "inactive",
+    "service_sub_state": "dead",
+    "unit_file_state": "static"
+  },
+  "state_recovery": {
+    "allowed_legacy_paths": [
+      "evidence",
+      "media",
+      "media-test",
+      "telegram-offset.json"
+    ],
+    "cursor_created_by_runtime_user": true,
+    "expected_directory_mode": "0700",
+    "expected_file_mode": "0600",
+    "legacy_cursor_preserved_in_recovery_delta": true,
+    "legacy_cursor_takeover": false,
+    "runtime_group": "chatops",
+    "runtime_user": "chatops",
+    "symlinks_allowed": false,
+    "unexpected_paths_allowed": false
+  },
+  "version": "tu1nz-commercial-s3-1-bootstrap-ownership-control-v1"
+}
