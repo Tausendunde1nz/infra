@@ -1,0 +1,36 @@
+COMMERCIAL S3.2 SERVER TEST WORKDIR DIAGNOSIS — 2026-08-29
+
+Observed safe failure
+---------------------
+The first code-only server delta successfully bound Application commit
+9f82e3c682a0f59a4675cca568058a3779a4a4ed and Control commit
+a27dcedaf0653a7b34a78f4a8a742f6dddd9ed26. The immediately following focused
+Application unittest command exited before the probe with
+`ModuleNotFoundError: No module named 'tests'`.
+
+Proven cause
+------------
+The remote orchestration invoked named unittest modules while its current
+directory was not `/opt/tu1nz_repos/adult-publishing-core`. `PYTHONPATH` bound
+the Application source package but did not make the repository's `tests`
+package importable from the unrelated working directory.
+
+Safety state after failure
+--------------------------
+- Commercial S3 remained inactive/dead with NRestarts=0 and ExecMainPID=0.
+- Restart remained `no`; the unit remained static.
+- The committed disabled contract remained installed with SHA-256
+  504cd844bba8fe733e2beb8c734f3757c22fea06e3958c8d5cb95f3f00672fef.
+- No startup probe, diagnostic service start, polling, product workflow,
+  provider action, payment, publishing, media handling, or production action
+  occurred.
+- Both repositories were clean and exactly matched their intended SHA/tree.
+- Partial evidence is preserved at
+  `/opt/tu1nz_repos/backups/commercial-s3-server-staging/20260829T152200Z-s3-2-rolling`.
+
+Controlled continuation
+-----------------------
+Repeat only the focused test commands after explicitly changing to each
+repository root. Preserve the failed output, append successful outputs under
+new filenames, then run the already-versioned probe preflight. Do not replace
+or conceal the failed attempt.
