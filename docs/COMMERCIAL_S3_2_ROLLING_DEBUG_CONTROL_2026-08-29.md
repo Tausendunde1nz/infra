@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`05fd8b44f533fa34c3baeeb0dd1db2ae2e679c0a`, tree
-`dbee2c924ce4964851bd499cbee92f96725630df`, on the single rolling branch
+`d7e78201f06ec493e7ecabcb4b624e5f92c9abf9`, tree
+`81f28d53b2595b88ad1a48cba68378e680b8abbd`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
