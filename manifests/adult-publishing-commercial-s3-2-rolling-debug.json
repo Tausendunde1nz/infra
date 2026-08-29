@@ -2,8 +2,8 @@
   "application": {
     "branch": "fix/commercial-s3-staging-recovery",
     "repository": "Tausendunde1nz/adult-publishing-core",
-    "sha": "0f32866cf1d979fb8fd3cf2306767f52e0039194",
-    "tree": "43883993f6cde52d60a7dbd6dbafc5f1e23864ae"
+    "sha": "f80b92d78f710f764d65bec2ef4dd88007cad4e2",
+    "tree": "b1559ccf80c0044acb6a571fa3546ce93caac693"
   },
   "authorization": {
     "diagnostic_starts_before_ready": "REPEATED_WITHIN_WINDOW",
@@ -47,7 +47,7 @@
   "runtime_release_authorization": {
     "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
     "path": "config/adult-publishing/staging-s3/commercial-s3-runtime-release-authorization.s3-2.json",
-    "sha256": "fdfecc17668439c87eb7b9913ab62eb509b49132b949108188d21017f61fec9d",
+    "sha256": "1508ffea163a6c80983ad8906c60cbaebd43a90cb36fc2f647bebdb2f278f8ea",
     "service_start_authorized": false,
     "single_bootstrap_authorized": false
   },

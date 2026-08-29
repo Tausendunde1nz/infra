@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`0f32866cf1d979fb8fd3cf2306767f52e0039194`, tree
-`43883993f6cde52d60a7dbd6dbafc5f1e23864ae`, on the single rolling branch
+`f80b92d78f710f764d65bec2ef4dd88007cad4e2`, tree
+`b1559ccf80c0044acb6a571fa3546ce93caac693`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -104,3 +104,14 @@ accepts only those two ignored thumbnail spellings; arbitrary document fields
 remain blocked. Exact size, MIME, JPEG boundary and SHA-256 verification still
 gate the normalized product input. The rejection again created zero
 submissions, zero payments and zero publications.
+
+The single accepted document then created exactly one submission and reached
+human moderation. The PostgreSQL projection rejected the approval because the
+creator-facing S1 mock-credit and legacy X binding did not match the M4.15
+durable composition contract. The JSON state therefore remained
+`READY_FOR_REVIEW`; no charge or publication was recorded. The bound repair
+emits the canonical X binding for new journeys, strictly normalizes the exact
+legacy in-flight binding, maps the one-credit mock payment to the catalog-bound
+synthetic core evidence, and preserves `AWAITING_PAYMENT` as a presentation
+state over the core target-authorization gate. Arbitrary bindings, X in a paid
+bundle, real payment and external publishers remain rejected.
