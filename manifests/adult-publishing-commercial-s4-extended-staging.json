@@ -86,7 +86,7 @@
   "runtime_release_authorization": {
     "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
     "path": "config/adult-publishing/staging-s3/commercial-s4-runtime-release-authorization.json",
-    "sha256": "ca5992ee4f4bf4253a123d3baedde1d666dfffb54387f516289ea72047325afa",
+    "sha256": "21916f05912789c19d43759cc0a9356ca5419d93fb2f260a6b37526ecd200a1f",
     "service_start_authorized": false,
     "single_bootstrap_authorized": false
   },

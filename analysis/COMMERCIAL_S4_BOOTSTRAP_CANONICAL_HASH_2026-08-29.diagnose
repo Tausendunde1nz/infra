@@ -1,0 +1,17 @@
+# Commercial S4 bootstrap canonical hash mismatch
+
+## Safe code
+
+`S4_BOOTSTRAP_REFERENCE_CANONICAL_HASH_REQUIRED`
+
+## Detection point
+
+The corrected stopped server verifier completed successfully and reported the runtime loader's canonical bootstrap-reference SHA-256 as `57c56623b210afaa713accf168ab12a45aa4a48ad5d8a13bfbf38876c5919dd3`. The initial S4 runtime authorization used `4fe06069...`, which is the digest of the pretty-printed file bytes.
+
+No package installation, database migration, unit change, configuration installation, contract activation or service start occurred.
+
+## Cause and correction
+
+`S3BootstrapReference.load` parses JSON and hashes canonical compact, sorted ASCII material. This deliberately decouples release binding from whitespace. The authorization must therefore bind the canonical digest emitted by that loader, not the source-file byte digest.
+
+The corrected verify-only authorization binds `57c56623...`; the Control manifest/controller hash is refreshed after this content change. Local cross-repository parsing and the server verifier must both remain green before installation.

@@ -76,6 +76,10 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), reference["sha256"])
         self.assertEqual(payload["application_sha"], self.value["application"]["sha"])
         self.assertEqual(payload["application_tree"], self.value["application"]["tree"])
+        self.assertEqual(
+            payload["bootstrap_reference_sha256"],
+            "57c56623b210afaa713accf168ab12a45aa4a48ad5d8a13bfbf38876c5919dd3",
+        )
         self.assertEqual(payload["decision"], "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY")
         self.assertFalse(payload["single_bootstrap_authorized"])
         self.assertFalse(payload["boundaries"]["service_start_authorized"])
