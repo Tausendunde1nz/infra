@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`1743d4bf94a3f722648e206827da640980394613`, tree
-`1608979ac1c55903dad04cb26e9e3a6476b50611`, on the single rolling branch
+`cc1ae0e4bd961e60912311e88d394d0dbf424967`, tree
+`c8e6588db5f0939e8085ab3d1e9110cca49adc71`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -71,3 +71,19 @@ inactive`. After the first stable READY, code changes stop until exactly one
 product acceptance, takedown, ten-minute idle observation, controlled stop, and
 post-state verification are complete. Only then may the rolling branches be
 reviewed and merged.
+
+## First READY runtime recovery
+
+The first READY process later stopped at `2026-08-29T16:08:36Z` because the S3
+adapter classified an ordinary Telegram long-poll timeout/network interruption
+as a non-retryable generic failure. At that instant the same acceptance journey
+had completed only terms and synthetic creator verification: zero submissions,
+zero payments and zero publications existed. Restart remained disabled and
+`NRestarts=0`.
+
+The bounded correction maps only Telegram timeout, network and rate-limit safe
+codes to the existing retryable `TELEGRAM_API_UNAVAILABLE` result and logs the
+safe retry attempt. Unknown errors remain fail-closed. The already queued exact
+JPEG document may therefore be consumed after a fresh bound release start,
+continuing the same single journey; no second submission or second account is
+authorized.

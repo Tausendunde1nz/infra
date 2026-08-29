@@ -1,0 +1,61 @@
+Commercial S3.2 long-poll retry-classification diagnosis
+=========================================================
+
+Observed at: 2026-08-29T16:08:36Z
+Service: tu1nz-adult-commercial-s3.service
+Installed Application before correction:
+1743d4bf94a3f722648e206827da640980394613
+
+Safe symptom
+------------
+
+The service had reached startup phase 18 READY, produced GREEN health and
+processed the terms acceptance plus synthetic creator verification. The next
+Telegram long-poll transport failure terminated the process with exit status 2
+and safe code S3_TELEGRAM_FAILURE_BUDGET_EXHAUSTED. The final health record was
+RED for PROCESS and POLLING. Restart remained no and NRestarts remained zero.
+
+At failure time the durable product state contained zero submissions, zero
+payments and zero publications. A later image and the correctly selected JPEG
+document arrived only after the process was already inactive, so neither was
+processed by the Application.
+
+Proven root cause
+-----------------
+
+The shared Telegram wire reports an expired long-poll transport as
+TELEGRAM_TIMEOUT and a transient connection failure as TELEGRAM_NETWORK_ERROR.
+The Commercial S3 adapter mapped both safe codes to the generic
+S3_TELEGRAM_FAILURE. The supervisor treats that generic code as non-retryable,
+so the first ordinary transport interruption exhausted the failure budget
+immediately instead of using the already implemented bounded exponential retry.
+
+The timestamps are consistent with this exact path: the final successfully
+processed update and cursor save preceded the exit, and the exit followed one
+long-poll network interval. No product handler, database mutation, media import,
+payment or publisher error occurred.
+
+Correction boundary
+-------------------
+
+Only TELEGRAM_TIMEOUT, TELEGRAM_NETWORK_ERROR and TELEGRAM_RATE_LIMITED are
+normalized to the existing retryable TELEGRAM_API_UNAVAILABLE code. All other
+unknown Telegram errors remain fail-closed as S3_TELEGRAM_FAILURE. Each failed
+poll now emits only a safe code, retryable flag and bounded attempt count; no
+token, request/response body, chat identity or media is logged.
+
+Regression coverage drives the actual S3 Telegram client and runtime supervisor
+through each transient code, proves one-second bounded retry, a successful
+second poll and no restart. The full local Application suite passes 716/716.
+
+Rollback
+--------
+
+Application rollback coordinate:
+1743d4bf94a3f722648e206827da640980394613
+
+Rolling baseline recovery point remains:
+/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-56-54Z
+
+No schema, permanent product data, system path, credential or unit change is
+part of this correction.
