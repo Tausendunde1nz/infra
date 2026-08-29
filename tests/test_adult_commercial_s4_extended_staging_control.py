@@ -79,8 +79,24 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertEqual(payload["decision"], "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY")
         self.assertFalse(payload["single_bootstrap_authorized"])
         self.assertFalse(payload["boundaries"]["service_start_authorized"])
-        self.assertFalse(payload["boundaries"]["provider_credentials_present"])
-        self.assertFalse(payload["boundaries"]["provider_network_enabled"])
+        self.assertEqual(
+            payload["authorization_version"],
+            "tu1nz-commercial-s3-bootstrap-authorization-v1",
+        )
+        self.assertEqual(payload["boundaries"]["runtime_mode"], "STAGING")
+        self.assertEqual(
+            set(payload["boundaries"]),
+            {
+                "adult_media_enabled",
+                "avs_provider",
+                "external_publish_enabled",
+                "payment_provider",
+                "production_enabled",
+                "publisher_adapter",
+                "runtime_mode",
+                "service_start_authorized",
+            },
+        )
 
     def test_unit_has_static_six_hour_hard_ceiling_without_recovery(self) -> None:
         source = UNIT.read_text(encoding="utf-8")

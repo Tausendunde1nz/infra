@@ -2,7 +2,7 @@
   "active": true,
   "application_sha": "ffce727d8e1e45c93323bd805e77e5965e8b3941",
   "application_tree": "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a",
-  "authorization_version": "tu1nz-commercial-s4-runtime-release-authorization-v1",
+  "authorization_version": "tu1nz-commercial-s3-bootstrap-authorization-v1",
   "bootstrap_reference_sha256": "4fe06069d571fe1d6bbe8620b85bf4e360a4e6073d7d22a7586e41b26b656c4f",
   "boundaries": {
     "adult_media_enabled": false,
@@ -10,10 +10,8 @@
     "external_publish_enabled": false,
     "payment_provider": "MOCK",
     "production_enabled": false,
-    "provider_credentials_present": false,
-    "provider_network_enabled": false,
     "publisher_adapter": "SYNTHETIC",
-    "runtime_mode": "BOUNDED_STAGING",
+    "runtime_mode": "STAGING",
     "service_start_authorized": false
   },
   "database_name": "tu1nz_adult_commercial_s3",

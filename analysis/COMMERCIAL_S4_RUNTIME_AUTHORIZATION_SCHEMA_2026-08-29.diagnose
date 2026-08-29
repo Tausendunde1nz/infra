@@ -1,0 +1,26 @@
+# Commercial S4 runtime authorization schema mismatch
+
+## Safe code
+
+`S4_RUNTIME_AUTHORIZATION_EXACT_SCHEMA_MISMATCH`
+
+## Detection point
+
+The stopped server sync completed at the exact candidate App/Control commits. Before package installation, migration or unit replacement, a read-only review of `S3BootstrapAuthorization.load` showed that the initial S4 verify-only authorization would be rejected.
+
+## Cause
+
+The loader intentionally accepts the historical authorization version and an exact fixed boundary object. The first S4 Control draft used a new authorization-version label, added provider-specific fields and changed `runtime_mode` to `BOUNDED_STAGING`. Provider and bounded-window state belong to the separate S4 provider/staging contracts, not to this release-verification credential.
+
+## Corrective design
+
+Keep the runtime release authorization byte-compatible with the exact accepted schema:
+
+- historical authorization version;
+- `runtime_mode=STAGING`;
+- fixed mock/synthetic/no-production boundary object;
+- `single_bootstrap_authorized=false`;
+- `service_start_authorized=false`;
+- exact S4 application SHA/tree, schema 0018, bootstrap-reference hash and migration-chain hash.
+
+The S4 manifest, provider-readiness contract and active bounded staging contract continue to carry the new provider/network and time-window restrictions. No service, database, unit or configuration mutation occurred before this correction.
