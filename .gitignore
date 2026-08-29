@@ -49,6 +49,7 @@
 !scripts/tu1nz_adult_commercial_s3_2_probe.sh
 !scripts/tu1nz_adult_commercial_s4_control.sh
 !scripts/tu1nz_adult_commercial_s4_observe.py
+!scripts/tu1nz_adult_commercial_s4_backup.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -214,3 +215,4 @@
 !analysis/COMMERCIAL_S3_2_SYSTEMD_CREDENTIAL_ACL_2026-08-29.diagnose
 !analysis/COMMERCIAL_S3_2_ALLOWLIST_CREDENTIAL_MODE_2026-08-29.diagnose
 !analysis/COMMERCIAL_S3_2_PRESTART_LOOPBACK_DATABASE_2026-08-29.diagnose
+!analysis/COMMERCIAL_S4_BACKUP_CONFIG_ARCHIVE_2026-08-29.diagnose

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s4-extended-staging.json"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_commercial_s4_control.sh"
 OBSERVER = ROOT / "scripts/tu1nz_adult_commercial_s4_observe.py"
+BACKUP = ROOT / "scripts/tu1nz_adult_commercial_s4_backup.sh"
 UNIT = ROOT / "systemd/tu1nz-adult-commercial-s4.service"
 
 
@@ -130,6 +131,27 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertNotIn("sendMessage", source)
         self.assertNotIn("getUpdates", source)
         self.assertIsNone(re.search(r"[0-9]{7,12}:[A-Za-z0-9_-]{30,}", source))
+
+    def test_backup_is_stopped_bounded_and_strictly_verified(self) -> None:
+        source = BACKUP.read_text(encoding="utf-8")
+        completed = subprocess.run(
+            ["bash", "-n", BACKUP],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("find . -maxdepth 1 -type f -name 'adult-commercial-s3.*' -print0", source)
+        self.assertIn("tar --null -T -", source)
+        self.assertIn("chmod 0700", source)
+        self.assertIn("sha256sum --check --strict", source)
+        self.assertIn("bundle verify", source)
+        self.assertIn("pg_restore --list", source)
+        self.assertNotIn("systemctl start", source)
+        self.assertNotIn("systemctl restart", source)
+        self.assertNotIn("systemctl enable", source)
+        self.assertNotIn("rm -rf", source)
 
 
 if __name__ == "__main__":

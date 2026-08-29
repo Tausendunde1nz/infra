@@ -1,0 +1,25 @@
+# Commercial S4 backup configuration archive failure
+
+## Safe code
+
+`S4_BACKUP_CONFIG_ARCHIVE_PATTERN_NOT_EXPANDED`
+
+## Observed result
+
+The first Commercial S4 pre-mutation backup attempt stopped while creating `configuration-before.tar`. GNU tar create mode treated the quoted `adult-commercial-s3.*` selection as a literal member rather than expanding it against `/etc/tu1nz`.
+
+The attempted recovery-point directory is retained as incomplete evidence at:
+
+`/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T202100Z-pre-mutation`
+
+It has no `SHA256SUMS` and must never be used as a recovery point. The service remained inactive/dead/static with PID 0 and `NRestarts=0`. No Git sync, database migration, unit installation, contract activation or service start occurred.
+
+## Additional finding
+
+The backup parent carries the setgid bit, so a newly created child inherited mode `2700` despite the requested install mode. The S4 controller intentionally requires an exact `0700` recovery point. The corrected procedure must apply `chmod 0700` explicitly after directory creation.
+
+## Corrective design
+
+The versioned backup script uses `find -print0` and tar `--null -T -` from inside `/etc/tu1nz`, verifies that at least the seven expected Commercial S3 configuration files are present, and explicitly sets the recovery-point mode to `0700`. It creates a new path instead of modifying or reusing the incomplete attempt.
+
+The corrected transaction remains fail-closed: every backup member is root-only, Git bundles and the PostgreSQL custom dump are structurally verified, and a strict SHA-256 index is generated and checked before the path can be bound into the S4 manifest.
