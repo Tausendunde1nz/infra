@@ -88,7 +88,12 @@ class CommercialS32RollingDebugControlTests(unittest.TestCase):
         self.assertIn("--startup-probe", source)
         self.assertIn("fresh-prestart", source)
         self.assertIn("tu1nz-commercial-s3-prestart", source)
-        self.assertIn("RestrictAddressFamilies=AF_UNIX", source)
+        fresh_prestart = source.split("fresh_prestart() {", 1)[1].split("\n}\n\ncase", 1)[0]
+        self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", fresh_prestart)
+        self.assertIn("IPAddressDeny=any", fresh_prestart)
+        self.assertIn("IPAddressAllow=localhost", fresh_prestart)
+        self.assertNotIn("telegram-token", fresh_prestart)
+        self.assertIn('printf \'%s\\n\' "$output"', fresh_prestart)
         self.assertIn("LoadCredential=", source)
         self.assertIn("ProtectSystem=strict", source)
         self.assertIn("Restart=no", source)

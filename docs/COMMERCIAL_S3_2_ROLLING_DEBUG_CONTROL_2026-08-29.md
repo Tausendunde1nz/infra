@@ -44,10 +44,11 @@ The private evidence directory must be owned by `root:root` and may have mode
 access. No broader mode is accepted.
 
 After a green startup probe, `fresh-prestart` runs the shared prestart
-dependency graph in a second transient systemd sandbox. Its address-family
-boundary is AF_UNIX only, so it cannot contact Telegram or any provider. It
-must return `S3_PRESTART_READY` and explicitly prove that no service was
-started before a diagnostic start is allowed.
+dependency graph in a second transient systemd sandbox. It has no Telegram
+credential. Its IP policy denies every destination except localhost, which is
+required by the bound PostgreSQL loopback DSN; Telegram and all providers stay
+unreachable. It must return `S3_PRESTART_READY` and explicitly prove that no
+service was started before a diagnostic start is allowed.
 
 The window installs a separately versioned runtime-release authorization with
 `single_bootstrap_authorized=false` and

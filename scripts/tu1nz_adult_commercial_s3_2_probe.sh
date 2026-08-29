@@ -296,7 +296,8 @@ fresh_prestart() {
     --property=MemoryDenyWriteExecute=true --property=RestrictSUIDSGID=true \
     --property=RestrictRealtime=true --property=RestrictNamespaces=true \
     --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
-    --property=RestrictAddressFamilies=AF_UNIX \
+    --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
+    --property=IPAddressDeny=any --property=IPAddressAllow=localhost \
     --property="ReadOnlyPaths=$APPLICATION_ROOT $CONFIG_ROOT" \
     --property="ReadWritePaths=$STATE_ROOT /var/log/tausendunde1nz" \
     "$APPLICATION_ROOT/.venv/bin/tu1nz-commercial-s3-prestart" \
@@ -309,7 +310,10 @@ fresh_prestart() {
       --state-directory "$STATE_ROOT" 2>&1)"
   local status=$?
   set -e
-  [ "$status" -eq 0 ] || fail "FRESH_PRESTART_EXECUTION_FAILED"
+  if [ "$status" -ne 0 ]; then
+    printf '%s\n' "$output" >&2
+    fail "FRESH_PRESTART_EXECUTION_FAILED"
+  fi
   grep -q '"safe_code":"S3_PRESTART_READY"' <<<"$output" || fail "FRESH_PRESTART_NOT_READY"
   grep -q '"service_started":false' <<<"$output" || fail "FRESH_PRESTART_STARTED_SERVICE"
   require_stopped
