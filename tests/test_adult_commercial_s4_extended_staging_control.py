@@ -127,6 +127,12 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertIn("require_backup", source)
         self.assertIn("require_stopped", source)
         self.assertIn("close-window", source)
+        self.assertIn("fresh-prestart", source)
+        self.assertIn("systemd-run", source)
+        fresh = source.split("fresh_prestart() {", 1)[1].split("\n}\n\ncase", 1)[0]
+        self.assertIn("IPAddressDeny=any", fresh)
+        self.assertIn("IPAddressAllow=localhost", fresh)
+        self.assertNotIn("telegram-token", fresh)
         self.assertNotIn("systemctl start", source)
         self.assertNotIn("systemctl restart", source)
         self.assertNotIn("systemctl enable", source)

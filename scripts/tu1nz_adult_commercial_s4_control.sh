@@ -2,6 +2,8 @@
 set -euo pipefail
 
 readonly SERVICE="tu1nz-adult-commercial-s3.service"
+readonly PRESTART_SERVICE="tu1nz-adult-commercial-s4-prestart.service"
+readonly PRESTART_CREDENTIAL_ROOT="/run/credentials/$PRESTART_SERVICE"
 readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly CONFIG_ROOT="/etc/tu1nz"
@@ -119,11 +121,17 @@ from pathlib import Path
 value = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
 starts = datetime.fromisoformat(value["window_starts_at"].replace("Z", "+00:00"))
 ends = datetime.fromisoformat(value["window_ends_at"].replace("Z", "+00:00"))
+actual_duration = int((ends - starts).total_seconds())
+duration_valid = (
+    7200 <= actual_duration <= 21600
+    if sys.argv[2] == "bounded"
+    else actual_duration == int(sys.argv[2])
+)
 if not (
     value.get("active") is True
     and value.get("decision") == "GO_FOR_BOUNDED_SERVER_STAGING"
     and value.get("runtime_mode") == "BOUNDED_STAGING"
-    and int((ends - starts).total_seconds()) == int(sys.argv[2])
+    and duration_valid
     and value.get("application_sha") == "ffce727d8e1e45c93323bd805e77e5965e8b3941"
     and value.get("application_tree") == "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
     and value.get("telegram_intake", {}).get("enabled") is True
@@ -239,6 +247,58 @@ close_window() {
   printf '{"ok":true,"safe_code":"S4_EXTENDED_STAGING_WINDOW_CLOSED","service_started":false}\n'
 }
 
+fresh_prestart() {
+  require_root
+  require_stopped
+  require_release "$1" "$2"
+  require_backup "$3"
+  require_manifest_go "$3" || fail "MANIFEST_NOT_GO"
+  require_installed_release_files
+  require_active_contract bounded || fail "ACTIVE_CONTRACT_INVALID"
+  local output
+  set +e
+  output="$(systemd-run --quiet --wait --collect --pipe --unit="$PRESTART_SERVICE" \
+    --property=Type=exec \
+    --property=User=chatops --property=Group=chatops \
+    --property=WorkingDirectory="$APPLICATION_ROOT" \
+    --property=LoadCredential="postgres-dsn:$CONFIG_ROOT/adult-commercial-s3.postgres-dsn" \
+    --property=LoadCredential="subject-key:$CONFIG_ROOT/adult-commercial-s3.subject-key" \
+    --property=LoadCredential="staging-contract:$CONFIG_ROOT/adult-commercial-s3.contract.json" \
+    --property=LoadCredential="allowlist:$CONFIG_ROOT/adult-commercial-s3.allowlist.json" \
+    --property=LoadCredential="media-manifest:$CONFIG_ROOT/adult-commercial-s3.media-manifest.json" \
+    --property=LoadCredential="bootstrap-manifest:$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" \
+    --property=Restart=no --property=RuntimeMaxSec=120 \
+    --property=TimeoutStartSec=60 --property=TimeoutStopSec=30 \
+    --property=KillSignal=SIGTERM --property=UMask=0077 \
+    --property=NoNewPrivileges=true --property=PrivateDevices=true \
+    --property=PrivateTmp=true --property=ProtectHome=true \
+    --property=ProtectSystem=strict --property=ProtectControlGroups=true \
+    --property=ProtectKernelModules=true --property=ProtectKernelTunables=true \
+    --property=ProtectKernelLogs=true --property=LockPersonality=true \
+    --property=MemoryDenyWriteExecute=true --property=RestrictSUIDSGID=true \
+    --property=RestrictRealtime=true --property=RestrictNamespaces=true \
+    --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
+    --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
+    --property=IPAddressDeny=any --property=IPAddressAllow=localhost \
+    --property="ReadOnlyPaths=$APPLICATION_ROOT $CONFIG_ROOT" \
+    --property="ReadWritePaths=/var/lib/tausendunde1nz/adult-commercial-s3 /var/log/tausendunde1nz" \
+    "$APPLICATION_ROOT/.venv/bin/tu1nz-commercial-s3-prestart" \
+      --contract "$PRESTART_CREDENTIAL_ROOT/staging-contract" \
+      --allowlist "$PRESTART_CREDENTIAL_ROOT/allowlist" \
+      --media-manifest "$PRESTART_CREDENTIAL_ROOT/media-manifest" \
+      --bootstrap-manifest "$PRESTART_CREDENTIAL_ROOT/bootstrap-manifest" \
+      --bootstrap-reference "$APPLICATION_ROOT/config/commercial-s3-bootstrap-reference.json" \
+      --migration-directory "$APPLICATION_ROOT/migrations" \
+      --state-directory /var/lib/tausendunde1nz/adult-commercial-s3 2>&1)"
+  local status=$?
+  set -e
+  [ "$status" -eq 0 ] || { printf '%s\n' "$output" >&2; fail "FRESH_PRESTART_EXECUTION_FAILED"; }
+  grep -q '"safe_code":"S3_PRESTART_READY"' <<<"$output" || fail "FRESH_PRESTART_NOT_READY"
+  grep -q '"service_started":false' <<<"$output" || fail "FRESH_PRESTART_STARTED_SERVICE"
+  require_stopped
+  printf '%s\n' "$output"
+}
+
 case "${1:-}" in
   preflight)
     [ "$#" -eq 4 ] || fail "USAGE_PREFLIGHT"
@@ -251,6 +311,10 @@ case "${1:-}" in
   close-window)
     [ "$#" -eq 2 ] || fail "USAGE_CLOSE_WINDOW"
     close_window "$2"
+    ;;
+  fresh-prestart)
+    [ "$#" -eq 4 ] || fail "USAGE_FRESH_PRESTART"
+    fresh_prestart "$2" "$3" "$4"
     ;;
   *) fail "UNKNOWN_ACTION" ;;
 esac

@@ -45,6 +45,8 @@ A staging window is valid only when all of the following hold:
 
 Manual stop/start cycles inside the same valid window may be used to prove Telegram reconnection and cursor continuity. `restart`, `enable`, persistent operation and unattended recovery are forbidden.
 
+The versioned `fresh-prestart` controller action runs with loopback-only network policy and deliberately omits the Telegram token. It proves the same database, release, migration, configuration, state, audit, outbox and product-boundary dependencies without contacting Telegram or starting the main service.
+
 ## Provider decision record
 
 - AVS primary: Yoti, subject to a later contract/legal/data-protection gate and real-credential authorization.
