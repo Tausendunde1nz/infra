@@ -1,0 +1,15 @@
+# Commercial S4 server table query escaping failure
+
+## Safe code
+
+`S4_SERVER_TABLE_QUERY_ESCAPING_INVALID`
+
+## Result
+
+The stopped Control checkout advanced to the corrected candidate and the cross-repository release binding passed. The following read-only pre-migration query encoded SQL quote characters as the literal sequence `\x27`; PostgreSQL rejected the syntax before the migration command was reached.
+
+No migration, configuration installation, unit replacement, daemon reload, contract activation or service start occurred. The service remained inactive/dead.
+
+## Correction
+
+Use the psql read-only `\dt` meta-command to test exact table presence before and after migration. This avoids embedding SQL string literals through the SSH/shell boundary. The precondition is an empty result for both S4 tables; the postcondition is exactly both expected public-table entries with zero rows.
