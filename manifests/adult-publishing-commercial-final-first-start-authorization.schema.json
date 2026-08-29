@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tu1nz.invalid/schemas/adult-publishing-commercial-final-first-start-authorization.schema.json",
+  "title": "TU1NZ final first-start authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "active",
+    "approval",
+    "blockers",
+    "candidate",
+    "canonical_control",
+    "contract_version",
+    "database",
+    "decision",
+    "environment",
+    "evidence",
+    "first_start_window",
+    "no_swap_assessment",
+    "product_boundary",
+    "recovery",
+    "release",
+    "sprint"
+  ],
+  "properties": {
+    "active": {"type": "boolean"},
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_at", "first_start_approved", "no_swap_risk_accepted", "operator_accepted"],
+      "properties": {
+        "approved_at": {"type": ["string", "null"]},
+        "first_start_approved": {"type": "boolean"},
+        "no_swap_risk_accepted": {"type": "boolean"},
+        "operator_accepted": {"type": "boolean"}
+      }
+    },
+    "blockers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "candidate": {"type": "object"},
+    "canonical_control": {"type": "object"},
+    "contract_version": {"const": "tu1nz-commercial-final-first-start-authorization-v1"},
+    "database": {"type": "object"},
+    "decision": {"enum": ["NO_GO", "GO_FOR_ONE_CONTROLLED_NETWORK_FREE_FIRST_START"]},
+    "environment": {"const": "STAGING-S0-COMMERCIAL-CANDIDATE"},
+    "evidence": {"type": "object"},
+    "first_start_window": {"type": "object"},
+    "no_swap_assessment": {"type": "object"},
+    "product_boundary": {"type": "object"},
+    "recovery": {"type": "object"},
+    "release": {"type": "object"},
+    "sprint": {"const": "FINAL_FIRST_START_READINESS"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"active": {"const": false}}},
+      "then": {
+        "properties": {
+          "decision": {"const": "NO_GO"},
+          "approval": {
+            "properties": {
+              "approved_at": {"const": null},
+              "first_start_approved": {"const": false},
+              "no_swap_risk_accepted": {"const": false},
+              "operator_accepted": {"const": false}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

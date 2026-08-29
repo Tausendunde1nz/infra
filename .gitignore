@@ -33,6 +33,10 @@
 !scripts/tu1nz_adult_commercial_m4_27_gate.py
 !scripts/tu1nz_adult_commercial_m4_28_gate.py
 !scripts/tu1nz_adult_commercial_m4_29_gate.py
+!scripts/tu1nz_adult_commercial_final_first_start_gate.py
+!scripts/tu1nz_adult_commercial_final_first_start_contract.py
+!scripts/tu1nz_adult_commercial_s0_first_start_final.py
+!scripts/tu1nz_adult_commercial_final_prestart.py
 !scripts/tu1nz_sync_all.sh
 !scripts/tu1nz_agent_health.sh
 !scripts/tu1nz_require_sync.sh
@@ -83,6 +87,7 @@
 !manifests/adult-publishing-commercial-post-merge-sync-authorization.m4-29.json
 !manifests/tu1nz-agentmode-maintenance.m4-29-2.schema.json
 !manifests/tu1nz-agentmode-maintenance.m4-29-2.json
+!manifests/adult-publishing-commercial-final-first-start-authorization.schema.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -114,6 +119,7 @@
 !tests/test_adult_commercial_m4_28.py
 !tests/test_adult_commercial_m4_29.py
 !tests/test_m4_29_2_agentmode_maintenance.py
+!tests/test_adult_commercial_final_first_start.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
