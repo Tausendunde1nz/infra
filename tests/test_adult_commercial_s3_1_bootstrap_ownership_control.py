@@ -95,6 +95,7 @@ class CommercialS31BootstrapOwnershipControlTest(unittest.TestCase):
         self.assertIn("BOOTSTRAP_ALREADY_RECORDED", source)
         self.assertIn("S3_1_EVIDENCE_FINALIZED", source)
         self.assertIn("FINAL-SHA256SUMS", source)
+        self.assertIn("tar -C / --compare", source)
 
     def test_historical_failure_evidence_is_immutable_input(self) -> None:
         evidence = self.payload["historical_evidence"]

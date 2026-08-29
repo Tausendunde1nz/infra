@@ -104,7 +104,8 @@ snapshot() {
   runuser -u postgres -- pg_dump -Fc tu1nz_adult_commercial_s3 >"$recovery/database.dump"
   runuser -u postgres -- pg_dumpall --globals-only >"$recovery/postgresql-globals.sql"
   chmod 0600 "$recovery/database.dump" "$recovery/postgresql-globals.sql"
-  tar --compare --acls --xattrs --numeric-owner -zf "$recovery/recovery-delta.tar.gz" >"$recovery/tar-restore-proof.txt" 2>&1
+  tar -C / --compare --acls --xattrs --numeric-owner -zf \
+    "$recovery/recovery-delta.tar.gz" >"$recovery/tar-restore-proof.txt" 2>&1
   pg_restore --list "$recovery/database.dump" >"$recovery/database-restore-list.txt"
   chmod 0600 "$recovery/tar-restore-proof.txt" "$recovery/database-restore-list.txt"
   (
