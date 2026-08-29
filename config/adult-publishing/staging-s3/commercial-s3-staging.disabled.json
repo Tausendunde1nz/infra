@@ -1,0 +1,43 @@
+{
+  "activation_id": null,
+  "active": false,
+  "application_sha": null,
+  "application_tree": null,
+  "avs": {
+    "provider": "MOCK",
+    "real_provider_enabled": false
+  },
+  "contract_version": "tu1nz-commercial-s3-staging-v1",
+  "database_schema": "0017_commercial_s2_1_telegram_live_test_readiness",
+  "decision": "NO_GO",
+  "media": {
+    "adult_media_enabled": false,
+    "harmless_fixture_only": true
+  },
+  "payment": {
+    "provider": "MOCK",
+    "real_payment_enabled": false
+  },
+  "production_enabled": false,
+  "publishing": {
+    "external_publish_enabled": false,
+    "reddit": "SYNTHETIC",
+    "telegram": "SYNTHETIC",
+    "x": "SYNTHETIC"
+  },
+  "runtime_mode": "STAGING",
+  "telegram_environment": "STANDARD",
+  "telegram_intake": {
+    "dedicated_bot_only": true,
+    "enabled": false,
+    "expected_bot_id": null,
+    "expected_bot_username": null,
+    "private_chat_only": true
+  },
+  "users": {
+    "allowlist_required": true,
+    "public_registration": false
+  },
+  "window_ends_at": null,
+  "window_starts_at": null
+}

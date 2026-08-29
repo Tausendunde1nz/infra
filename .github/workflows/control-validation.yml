@@ -436,6 +436,48 @@ jobs:
           scripts/tu1nz_adult_commercial_final_first_start_contract.py
           scripts/tu1nz_adult_commercial_final_prestart.py
           scripts/tu1nz_adult_commercial_s0_first_start_final.py
+      - name: Compile and test Commercial S3 server-staging Control SSOT
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_s3_control_gate.py
+          tests/test_adult_commercial_s3_server_staging_control.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s3_server_staging_control
+      - name: Validate Commercial S3 server-staging manifest and gate
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s3-server-staging.json >/dev/null
+          && scripts/tu1nz_adult_commercial_s3_control_gate.py
+      - name: Validate Commercial S3 static bounded unit
+        shell: bash
+        run: |
+          unit=systemd/tu1nz-adult-commercial-s3.service
+          temporary_unit="$(mktemp --suffix=.service)"
+          sed 's|^ExecStart=.*$|ExecStart=/bin/true|' "$unit" >"$temporary_unit"
+          systemd-analyze verify "$temporary_unit"
+          ! grep -qx '\[Install\]' "$unit"
+          ! grep -q '^WantedBy=' "$unit"
+          grep -qx 'Restart=no' "$unit"
+          grep -qx 'RuntimeMaxSec=1800' "$unit"
+      - name: Reject committed Commercial S3 secrets and production activation
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s3-server-staging.json
+            systemd/tu1nz-adult-commercial-s3.service
+            config/adult-publishing/staging-s3/commercial-s3-staging.disabled.json
+            config/adult-publishing/staging-s3/commercial-s3-deployment-manifest.disabled.json
+            config/adult-publishing/staging-s3/commercial-s3-rollback-manifest.json
+            config/adult-publishing/staging-s3/commercial-s3-media-manifest.example.json
+            scripts/tu1nz_adult_commercial_s3_control_gate.py
+          )
+          if git grep -nE '[0-9]{8,12}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          then
+            echo "Telegram token-shaped value detected" >&2
+            exit 1
+          fi
+          grep -q '"production_enabled": false' manifests/adult-publishing-commercial-s3-server-staging.json
+          grep -q '"external_publish_enabled": false' manifests/adult-publishing-commercial-s3-server-staging.json
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile

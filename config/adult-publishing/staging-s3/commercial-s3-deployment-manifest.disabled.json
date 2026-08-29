@@ -1,0 +1,33 @@
+{
+  "active": false,
+  "application_sha": null,
+  "application_tree": null,
+  "control_sha": null,
+  "control_tree": null,
+  "decision": "NO_GO",
+  "install_approved": false,
+  "migration_chain_sha256": "24c116ae3f37eba0be1470f1b401fd4edcb03f8679dd0c95e9881ad20cafb42f",
+  "production_enabled": false,
+  "server_sync_approved": false,
+  "start_approved": false,
+  "steps": [
+    "SERVER_PREFLIGHT",
+    "PATH_AND_RIGHTS_CHECK",
+    "CONCURRENT_MUTATOR_CHECK",
+    "BACKUP",
+    "RESTORE_EVIDENCE",
+    "BIND_APPLICATION_SHA_TREE",
+    "BIND_CONTROL_SHA_TREE",
+    "MIGRATION_PLAN",
+    "INSTALL_APPLICATION",
+    "INSTALL_CONFIG_AND_UNIT",
+    "MIGRATE_ISOLATED_STAGING_DATABASE",
+    "DAEMON_RELOAD",
+    "CONTROLLED_START",
+    "HEALTH",
+    "OBSERVE",
+    "CONTROLLED_STOP",
+    "EVIDENCE"
+  ],
+  "version": "tu1nz-commercial-s3-deployment-v1"
+}
