@@ -82,12 +82,16 @@ require_evidence() {
   esac
 }
 
-require_installed_release_files() {
+require_installed_static_files() {
   [ "$(sha256sum "/etc/systemd/system/$SERVICE" | awk '{print $1}')" = "$UNIT_SHA" ] || fail "UNIT_DRIFT"
-  [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "DISABLED_CONTRACT_DRIFT"
   [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" | awk '{print $1}')" = "$RUNTIME_AUTHORIZATION_SHA" ] || fail "RUNTIME_AUTHORIZATION_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s4-provider-readiness.disabled.json" | awk '{print $1}')" = "$PROVIDER_READINESS_SHA" ] || fail "PROVIDER_READINESS_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s4-beta-readiness.disabled.json" | awk '{print $1}')" = "$BETA_READINESS_SHA" ] || fail "BETA_READINESS_DRIFT"
+}
+
+require_installed_release_files() {
+  require_installed_static_files
+  [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "DISABLED_CONTRACT_DRIFT"
 }
 
 require_manifest_go() {
@@ -253,7 +257,7 @@ fresh_prestart() {
   require_release "$1" "$2"
   require_backup "$3"
   require_manifest_go "$3" || fail "MANIFEST_NOT_GO"
-  require_installed_release_files
+  require_installed_static_files
   require_active_contract bounded || fail "ACTIVE_CONTRACT_INVALID"
   local output
   set +e

@@ -1,0 +1,20 @@
+# Commercial S4 prestart active-contract guard conflict
+
+## Safe code
+
+`S4_PRESTART_DISABLED_CONTRACT_GUARD_CONFLICT`
+
+## Result
+
+The exact stopped preflight passed and the first 8,100-second S4 staging window opened. The following fresh-prestart action stopped before launching its transient unit because it called the shared installed-file guard, which still required the disabled-contract hash. An active bounded contract is necessarily present at this point.
+
+The main service was never started. The window was closed with the versioned restore action; the disabled contract and verify-only authorization were restored exactly. Service state remained inactive/dead, PID 0, `NRestarts=0`.
+
+## Correction
+
+Split the guard into:
+
+- static installed artifacts: unit, verify-only authorization and disabled provider/beta contracts;
+- disabled release state: static artifacts plus the disabled staging contract.
+
+Preflight/open/close require disabled release state. Fresh prestart requires static artifacts and separately validates the active bounded contract. This preserves fail-closed behavior without imposing mutually exclusive states.
