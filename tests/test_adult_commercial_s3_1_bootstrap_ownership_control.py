@@ -122,7 +122,7 @@ class CommercialS31BootstrapOwnershipControlTest(unittest.TestCase):
         )
         self.assertEqual(
             repair["after_sha256"],
-            "4fdc4352c5fb57bf3dcea08ac141480c623d3b61328d2a6bf5494b217c1bd1ac",
+            "12b5c220c309128fd5607d75bbc066c69721d5e373b8f1e57fe4c108db7a222f",
         )
         self.assertTrue(repair["preserve_private_telegram_ids"])
         self.assertEqual(repair["maximum_mutations"], 1)

@@ -130,7 +130,7 @@ def validate(root: Path = ROOT) -> dict[str, object]:
 
     repair = payload["allowlist_repair"]
     require(repair["before_sha256"] == "2904a4c9aca0a5eda6c20a10c2fe506d92959959e457ccbc5bbfb8a0395cc8db", "allowlist source drift")
-    require(repair["after_sha256"] == "4fdc4352c5fb57bf3dcea08ac141480c623d3b61328d2a6bf5494b217c1bd1ac", "allowlist target drift")
+    require(repair["after_sha256"] == "12b5c220c309128fd5607d75bbc066c69721d5e373b8f1e57fe4c108db7a222f", "allowlist target drift")
     require(repair["preserve_private_telegram_ids"] is True, "private IDs are not preserved")
     require(repair["maximum_mutations"] == 1, "allowlist repair not single mutation")
 

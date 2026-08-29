@@ -15,7 +15,7 @@
     },
     "server_fix_controller": {
       "path": "scripts/tu1nz_adult_commercial_s3_1_server_fix.sh",
-      "sha256": "8a8e8a3dfed513feda5f902021c5cd9f5cab5e4c540d2ed0fe409a8a2a4a12bb"
+      "sha256": "2e93b005eb27f1b7ccab287fdd680ade41f7a4fb216e35069db4836aa06454fa"
     },
     "unit": {
       "path": "systemd/tu1nz-adult-commercial-s3-s3-1.service",
@@ -37,7 +37,7 @@
     "service_enable_authorized": false
   },
   "allowlist_repair": {
-    "after_sha256": "4fdc4352c5fb57bf3dcea08ac141480c623d3b61328d2a6bf5494b217c1bd1ac",
+    "after_sha256": "12b5c220c309128fd5607d75bbc066c69721d5e373b8f1e57fe4c108db7a222f",
     "before_sha256": "2904a4c9aca0a5eda6c20a10c2fe506d92959959e457ccbc5bbfb8a0395cc8db",
     "maximum_mutations": 1,
     "preserve_private_telegram_ids": true,
