@@ -478,6 +478,48 @@ jobs:
           fi
           grep -q '"production_enabled": false' manifests/adult-publishing-commercial-s3-server-staging.json
           grep -q '"external_publish_enabled": false' manifests/adult-publishing-commercial-s3-server-staging.json
+      - name: Compile and test Commercial S3.1 bootstrap ownership Control SSOT
+        run: >-
+          python3 -m py_compile
+          scripts/tu1nz_adult_commercial_s3_1_control_gate.py
+          tests/test_adult_commercial_s3_1_bootstrap_ownership_control.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s3_1_bootstrap_ownership_control
+      - name: Validate Commercial S3.1 manifest, controller and gate
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s3-1-bootstrap-ownership.json >/dev/null
+          && python3 -m json.tool
+          config/adult-publishing/staging-s3/commercial-s3-bootstrap-authorization.s3-1.json >/dev/null
+          && bash -n scripts/tu1nz_adult_commercial_s3_1_server_fix.sh
+          && scripts/tu1nz_adult_commercial_s3_1_control_gate.py
+      - name: Validate Commercial S3.1 static bounded unit
+        shell: bash
+        run: |
+          unit=systemd/tu1nz-adult-commercial-s3-s3-1.service
+          temporary_unit="$(mktemp --suffix=.service)"
+          sed 's|^ExecStart=.*$|ExecStart=/bin/true|' "$unit" >"$temporary_unit"
+          systemd-analyze verify "$temporary_unit"
+          ! grep -qx '\[Install\]' "$unit"
+          ! grep -q '^WantedBy=' "$unit"
+          grep -qx 'Restart=no' "$unit"
+          grep -qx 'RuntimeMaxSec=1800' "$unit"
+          grep -q '^LoadCredential=bootstrap-manifest:' "$unit"
+      - name: Reject Commercial S3.1 activation, unsafe takeover and secrets
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s3-1-bootstrap-ownership.json
+            config/adult-publishing/staging-s3/commercial-s3-bootstrap-authorization.s3-1.json
+            systemd/tu1nz-adult-commercial-s3-s3-1.service
+            scripts/tu1nz_adult_commercial_s3_1_control_gate.py
+            scripts/tu1nz_adult_commercial_s3_1_server_fix.sh
+          )
+          ! git grep -nE '[0-9]{8,12}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! grep -nE 'systemctl[[:space:]]+(start|restart|enable)' scripts/tu1nz_adult_commercial_s3_1_server_fix.sh
+          ! grep -nE '(rm[[:space:]]+-rf|chown)' scripts/tu1nz_adult_commercial_s3_1_server_fix.sh
+          grep -q '"service_start_authorized": false' manifests/adult-publishing-commercial-s3-1-bootstrap-ownership.json
+          grep -q '"production_enabled": false' manifests/adult-publishing-commercial-s3-1-bootstrap-ownership.json
       - name: Compile M3.9 persistent S1 artifacts
         run: >-
           python3 -m py_compile
