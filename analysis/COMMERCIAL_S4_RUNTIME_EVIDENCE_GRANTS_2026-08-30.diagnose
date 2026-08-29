@@ -1,0 +1,38 @@
+TU1NZ Commercial S4 runtime evidence grant diagnosis
+Date: 2026-08-30
+Status: APP FIX MERGED; CONTROL REBINDING IN REVIEW
+
+Finding
+-------
+The stopped post-merge verification used the dedicated runtime DSN and found
+that the role tu1nz_adult_commercial_s3_runtime had no privileges on the two
+S4 append-only evidence tables created by migration 0018. Both tables were
+empty. The completed two-hour acceptance remained valid because providers were
+disabled and the S4 evidence-write path was never exercised.
+
+Correction
+----------
+Application merge a745540b81a368b2e5f09d1fcdb49342b686ae0e adds reversible
+migration 0019. It grants only SELECT and INSERT when the dedicated runtime role
+exists. UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER remain ungranted. The
+bootstrap/prestart gate now counts both S4 tables, rejects every provider
+receipt while providers are disabled, and bounds beta metrics to the single
+validated synthetic submission context.
+
+Validation
+----------
+739 unit tests and the complete PostgreSQL 17.11/18.6 acceptance matrix are
+green locally and in PR/post-merge CI. The review finding that requested S4
+table inclusion in the start-state gate was resolved before merge.
+
+Rollback
+--------
+Migration 0019 down revokes exactly SELECT and INSERT. It deletes no evidence.
+Service start is not part of this correction. The existing S4 recovery point
+and stopped/static unit remain the operational rollback boundary.
+
+Safety
+------
+No provider credential, provider call, real identity data, real payment,
+adult media, external publication, open beta or production capability is
+introduced or authorized.

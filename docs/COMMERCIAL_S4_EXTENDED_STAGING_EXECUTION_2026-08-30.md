@@ -56,6 +56,14 @@ The final database aggregate also contained zero Telegram polling rows and revis
 
 The authorization digest above is the value used during the candidate acceptance. After the byte-identical application merge, the canonical verify-only authorization is rebound to merge SHA `d544a190ffb86ab49fd47e01067ff3750055a0a0` with digest `ec04090243f63e53fa3e7aa58c8b956418e46f32f690a90b6a6abe7a93e00282`; it still authorizes no start or provider.
 
+Post-acceptance verification found that migration 0018 had not granted the
+dedicated runtime role access to the two empty S4 evidence tables. App merge
+`a745540b81a368b2e5f09d1fcdb49342b686ae0e` adds reversible migration 0019,
+updates the chain to `2feab99548eae5c2ae571ec45974cd196dfc3a3d4a316011ee3e4abbd3f83802`,
+and includes both tables in the bounded prestart gate. This correction does not
+change the historical acceptance measurements and authorizes no service start
+or provider.
+
 ## Provider readiness decision
 
 - AVS primary: Yoti; fallback: VerifyMy.

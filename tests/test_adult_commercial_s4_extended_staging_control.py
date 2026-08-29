@@ -25,11 +25,11 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
     def test_release_and_recovery_point_are_exactly_bound(self) -> None:
         self.assertEqual(
             self.value["application"]["sha"],
-            "d544a190ffb86ab49fd47e01067ff3750055a0a0",
+            "a745540b81a368b2e5f09d1fcdb49342b686ae0e",
         )
         self.assertEqual(
             self.value["application"]["tree"],
-            "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a",
+            "6e7c869d1194b28baad67698a93ab2254b0d8739",
         )
         self.assertEqual(
             self.value["decision"],
@@ -46,7 +46,7 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertFalse(self.value["backup_and_rollback"]["server_activation_blocked_until_bound"])
         self.assertEqual(
             self.value["database"]["schema"],
-            "0018_commercial_s4_provider_beta_readiness",
+            "0019_commercial_s4_runtime_evidence_grants",
         )
 
     def test_provider_and_product_boundaries_are_closed(self) -> None:
@@ -98,7 +98,7 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertEqual(payload["application_tree"], self.value["application"]["tree"])
         self.assertEqual(
             payload["bootstrap_reference_sha256"],
-            "57c56623b210afaa713accf168ab12a45aa4a48ad5d8a13bfbf38876c5919dd3",
+            "71e6ae993c07ba8d383f14d54c71c9bb9bb122077d36b61d112494d5b70ef62d",
         )
         self.assertEqual(payload["decision"], "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY")
         self.assertFalse(payload["single_bootstrap_authorized"])
