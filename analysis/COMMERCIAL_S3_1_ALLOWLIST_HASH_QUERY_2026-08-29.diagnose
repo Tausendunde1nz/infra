@@ -1,0 +1,11 @@
+# Commercial S3.1 allowlist hash query diagnosis
+
+Date: 2026-08-29
+
+A read-only SSH revalidation correctly confirmed the allowlist metadata,
+inactive/dead service state, zero restart count, zero main PID and valid
+recovery checksums. The two displayed SHA-256 fields were empty because the
+local command over-escaped the remote awk field expression. No file, service,
+repository, database or evidence was changed. The hash-only query is repeated
+with fixed-width extraction and no secret or private Telegram identifier
+output.

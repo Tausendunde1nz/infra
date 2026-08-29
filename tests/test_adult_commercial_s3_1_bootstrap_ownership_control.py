@@ -48,6 +48,10 @@ class CommercialS31BootstrapOwnershipControlTest(unittest.TestCase):
         self.assertEqual(bootstrap["business_rows_after"], 0)
         self.assertEqual(bootstrap["external_targets_after"], 0)
         self.assertEqual(
+            bootstrap["consumed_application_sha"],
+            "2ff3af411ed58328ee4189255f13c7d5766552ad",
+        )
+        self.assertEqual(
             [item["name"] for item in bootstrap["destinations"]],
             ["REDDIT_TEST", "TELEGRAM_TEST", "X_TEST"],
         )
@@ -67,6 +71,7 @@ class CommercialS31BootstrapOwnershipControlTest(unittest.TestCase):
             set(self.payload["prestart"]["required_dependencies"]),
             {
                 "allowlist",
+                "allowlist_creator_binding",
                 "application_release",
                 "bootstrap_manifest",
                 "bootstrap_reference_data",
@@ -98,10 +103,35 @@ class CommercialS31BootstrapOwnershipControlTest(unittest.TestCase):
         self.assertIn("tar -C / --compare", source)
         self.assertIn("PARTIAL_OFFSET_EVIDENCE_DIVERGED", source)
         self.assertIn('chmod g-s "$STATE_ROOT"', source)
+        self.assertIn("repair-allowlist", source)
+        self.assertIn("S3_1_ALLOWLIST_REPAIRED", source)
+        self.assertIn("ALLOWLIST_RECOVERY_SOURCE_DRIFT", source)
+        self.assertIn("ALLOWLIST_AFTER_SHA", source)
+        self.assertIn("bootstrap-verify-consumed-release.json", source)
+        self.assertIn("prestart-attempt-1-result.json", source)
+        self.assertIn("prestart-attempt-1-error.json", source)
+
+    def test_bootstrap_is_consumed_and_allowlist_repair_is_hash_bound(self) -> None:
+        authorization = self.payload["authorization"]
+        self.assertTrue(authorization["bootstrap_consumed"])
+        self.assertEqual(authorization["maximum_additional_bootstrap_invocations"], 0)
+        repair = self.payload["allowlist_repair"]
+        self.assertEqual(
+            repair["before_sha256"],
+            "2904a4c9aca0a5eda6c20a10c2fe506d92959959e457ccbc5bbfb8a0395cc8db",
+        )
+        self.assertEqual(
+            repair["after_sha256"],
+            "4fdc4352c5fb57bf3dcea08ac141480c623d3b61328d2a6bf5494b217c1bd1ac",
+        )
+        self.assertTrue(repair["preserve_private_telegram_ids"])
+        self.assertEqual(repair["maximum_mutations"], 1)
 
     def test_historical_failure_evidence_is_immutable_input(self) -> None:
         evidence = self.payload["historical_evidence"]
         self.assertTrue(evidence["failure_evidence_immutable"])
+        self.assertTrue(evidence["failed_s3_1_prestart_preserved_before_retry"])
+        self.assertTrue(evidence["initial_s3_1_verify_preserved_before_refresh"])
         self.assertEqual(
             evidence["final_evidence_index_sha256"],
             "6d5606ebc293fef86f79a592930808a4ec324da6a615c631e9f5e72e233c2e27",

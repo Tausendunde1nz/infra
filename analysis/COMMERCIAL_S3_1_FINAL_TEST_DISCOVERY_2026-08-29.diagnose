@@ -1,0 +1,10 @@
+# Commercial S3.1 final test discovery diagnosis
+
+Date: 2026-08-29
+
+The repository-root invocation `python3 -m unittest -v` returned success with
+zero tests because this repository does not expose the tests package to default
+unittest discovery from that invocation. Gate, compilation and shell syntax
+checks had already passed. No repository or server state was changed. The full
+regression run uses explicit discovery rooted at `tests/` with the
+`test_*.py` pattern, matching the established Control validation method.

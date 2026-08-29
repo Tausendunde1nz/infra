@@ -7,8 +7,13 @@ readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-commercial-s3"
 readonly CONFIG_ROOT="/etc/tu1nz"
 readonly RECOVERY_PREFIX="/opt/tu1nz_repos/backups/commercial-s3-1-fix/"
-readonly APPLICATION_SHA="2ff3af411ed58328ee4189255f13c7d5766552ad"
-readonly APPLICATION_TREE="82b8f5f888309a3dce47f8609c78b96dd1bd2200"
+readonly APPLICATION_SHA="54372b6b4e02119b7a82a9bf14b417e2307fb38d"
+readonly APPLICATION_TREE="e1662cc9e373bf85b82cd4a280da87c367f86975"
+readonly ALLOWLIST_PATH="$CONFIG_ROOT/adult-commercial-s3.allowlist.json"
+readonly ALLOWLIST_BEFORE_SHA="2904a4c9aca0a5eda6c20a10c2fe506d92959959e457ccbc5bbfb8a0395cc8db"
+readonly ALLOWLIST_AFTER_SHA="4fdc4352c5fb57bf3dcea08ac141480c623d3b61328d2a6bf5494b217c1bd1ac"
+readonly LEGACY_CREATOR_ID="f99152f2-2a2e-49e0-b22c-c8c06da6699f"
+readonly SYNTHETIC_CREATOR_ID="73100000-0000-4000-8000-000000000001"
 readonly HISTORICAL_ROOT="/opt/tu1nz_repos/backups/commercial-s3-server-staging/20260829T12-48-21Z"
 readonly HISTORICAL_INDEX_SHA="6d5606ebc293fef86f79a592930808a4ec324da6a615c631e9f5e72e233c2e27"
 readonly HISTORICAL_RECOVERY_SHA="04421c79b292472b0f5a792cfd716d32044d31236693237cce0a498566b78888"
@@ -207,6 +212,77 @@ PY
   printf '{"ok":true,"safe_code":"S3_1_STATE_OWNERSHIP_READY","service_started":false}\n'
 }
 
+repair_allowlist() {
+  require_root
+  local recovery="$1"
+  require_recovery "$recovery"
+  require_stopped
+  require_historical_evidence
+  require_application_release
+  [ ! -L "$ALLOWLIST_PATH" ] || fail "ALLOWLIST_SYMLINK"
+  [ "$(stat -c '%U:%G:%a:%h' "$ALLOWLIST_PATH")" = "root:root:600:1" ] || fail "ALLOWLIST_METADATA_DIVERGED"
+  [ "$(sha256sum "$ALLOWLIST_PATH" | awk '{print $1}')" = "$ALLOWLIST_BEFORE_SHA" ] || fail "ALLOWLIST_SOURCE_DRIFT"
+  [ "$(tar -xOzf "$recovery/recovery-delta.tar.gz" etc/tu1nz/adult-commercial-s3.allowlist.json | sha256sum | awk '{print $1}')" = "$ALLOWLIST_BEFORE_SHA" ] || fail "ALLOWLIST_RECOVERY_SOURCE_DRIFT"
+  [ ! -e "$recovery/allowlist-repair.json" ] || fail "ALLOWLIST_REPAIR_ALREADY_RECORDED"
+  local temporary
+  temporary="$(mktemp "$CONFIG_ROOT/.adult-commercial-s3.allowlist.s3-1.XXXXXX")"
+  trap 'rm -f -- "$temporary"' EXIT
+  chmod 0600 "$temporary"
+  python3 - "$ALLOWLIST_PATH" "$temporary" "$LEGACY_CREATOR_ID" "$SYNTHETIC_CREATOR_ID" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+source, target = Path(sys.argv[1]), Path(sys.argv[2])
+old_creator, new_creator = sys.argv[3], sys.argv[4]
+raw = source.read_bytes()
+value = json.loads(raw.decode("ascii"))
+if set(value) != {
+    "bindings", "environment", "private_chat_only", "public_registration", "version"
+}:
+    raise SystemExit(2)
+if (
+    value["version"] != "tu1nz-commercial-s3-allowlist-v1"
+    or value["environment"] != "STAGING"
+    or value["private_chat_only"] is not True
+    or value["public_registration"] is not False
+    or not isinstance(value["bindings"], list)
+    or len(value["bindings"]) != 1
+):
+    raise SystemExit(2)
+binding = value["bindings"][0]
+if set(binding) != {"chat_id", "creator_id", "roles", "user_id"}:
+    raise SystemExit(2)
+user_id, chat_id = binding["user_id"], binding["chat_id"]
+if (
+    isinstance(user_id, bool)
+    or not isinstance(user_id, int)
+    or user_id != chat_id
+    or not 1 <= user_id <= 4503599627370495
+    or binding["roles"] != ["CREATOR", "MODERATOR"]
+    or binding["creator_id"] != old_creator
+    or raw.count(old_creator.encode("ascii")) != 1
+):
+    raise SystemExit(2)
+with target.open("wb") as handle:
+    handle.write(raw.replace(old_creator.encode("ascii"), new_creator.encode("ascii")))
+    handle.flush()
+    os.fsync(handle.fileno())
+PY
+  [ "$(sha256sum "$temporary" | awk '{print $1}')" = "$ALLOWLIST_AFTER_SHA" ] || fail "ALLOWLIST_TRANSFORM_DRIFT"
+  [ "$(stat -c '%U:%G:%a:%h' "$temporary")" = "root:root:600:1" ] || fail "ALLOWLIST_TEMP_METADATA_DIVERGED"
+  mv -T -- "$temporary" "$ALLOWLIST_PATH"
+  temporary=""
+  trap - EXIT
+  [ "$(sha256sum "$ALLOWLIST_PATH" | awk '{print $1}')" = "$ALLOWLIST_AFTER_SHA" ] || fail "ALLOWLIST_POSTCONDITION_FAILED"
+  [ "$(stat -c '%U:%G:%a:%h' "$ALLOWLIST_PATH")" = "root:root:600:1" ] || fail "ALLOWLIST_POST_METADATA_DIVERGED"
+  printf '{"after_sha256":"%s","before_sha256":"%s","ok":true,"safe_code":"S3_1_ALLOWLIST_REPAIRED","service_started":false}\n' \
+    "$ALLOWLIST_AFTER_SHA" "$ALLOWLIST_BEFORE_SHA" >"$recovery/allowlist-repair.json"
+  chmod 0600 "$recovery/allowlist-repair.json"
+  cat "$recovery/allowlist-repair.json"
+}
+
 private_credentials() {
   local recovery="$1"
   local contract_source="$2"
@@ -261,6 +337,11 @@ verify_bootstrap() {
   require_recovery "$recovery"
   require_stopped
   require_application_release
+  grep -q '"result":"CREATED"' "$recovery/bootstrap-result.json" || fail "BOOTSTRAP_CREATED_EVIDENCE_MISSING"
+  [ -f "$recovery/bootstrap-verify.json" ] || fail "PRIOR_BOOTSTRAP_VERIFY_MISSING"
+  [ ! -e "$recovery/bootstrap-verify-consumed-release.json" ] || fail "PRIOR_BOOTSTRAP_VERIFY_ALREADY_PRESERVED"
+  install -o root -g root -m 0600 "$recovery/bootstrap-verify.json" \
+    "$recovery/bootstrap-verify-consumed-release.json"
   local directory
   directory="$(private_credentials "$recovery" "$CONTROL_ROOT/config/adult-publishing/staging-s3/commercial-s3-staging.disabled.json")"
   set +e
@@ -287,6 +368,14 @@ dry_prestart() {
   require_recovery "$recovery"
   require_stopped
   require_application_release
+  [ -f "$recovery/prestart-result.json" ] || fail "PRIOR_PRESTART_RESULT_MISSING"
+  [ -f "$recovery/prestart-error.json" ] || fail "PRIOR_PRESTART_ERROR_MISSING"
+  [ ! -e "$recovery/prestart-attempt-1-result.json" ] || fail "PRIOR_PRESTART_RESULT_ALREADY_PRESERVED"
+  [ ! -e "$recovery/prestart-attempt-1-error.json" ] || fail "PRIOR_PRESTART_ERROR_ALREADY_PRESERVED"
+  install -o root -g root -m 0600 "$recovery/prestart-result.json" \
+    "$recovery/prestart-attempt-1-result.json"
+  install -o root -g root -m 0600 "$recovery/prestart-error.json" \
+    "$recovery/prestart-attempt-1-error.json"
   local directory
   directory="$(private_credentials "$recovery" "$CONTROL_ROOT/config/adult-publishing/staging-s3/commercial-s3-staging.disabled.json")"
   set +e
@@ -322,6 +411,11 @@ finalize_evidence() {
   grep -q '"result":"CREATED"' "$recovery/bootstrap-result.json" || fail "FINAL_BOOTSTRAP_EVIDENCE_MISSING"
   grep -q '"result":"S3_BOOTSTRAP_READY"' "$recovery/bootstrap-verify.json" || fail "FINAL_VERIFY_EVIDENCE_MISSING"
   grep -q '"safe_code":"S3_PRESTART_READY"' "$recovery/prestart-result.json" || fail "FINAL_PRESTART_EVIDENCE_MISSING"
+  [ -f "$recovery/bootstrap-verify-consumed-release.json" ] || fail "FINAL_PRIOR_VERIFY_EVIDENCE_MISSING"
+  [ -f "$recovery/prestart-attempt-1-result.json" ] || fail "FINAL_PRIOR_PRESTART_RESULT_MISSING"
+  [ -f "$recovery/prestart-attempt-1-error.json" ] || fail "FINAL_PRIOR_PRESTART_ERROR_MISSING"
+  grep -q '"safe_code":"S3_1_ALLOWLIST_REPAIRED"' "$recovery/allowlist-repair.json" || fail "FINAL_ALLOWLIST_EVIDENCE_MISSING"
+  [ "$(sha256sum "$ALLOWLIST_PATH" | awk '{print $1}')" = "$ALLOWLIST_AFTER_SHA" ] || fail "FINAL_ALLOWLIST_DRIFT"
   [ "$(sha256sum /etc/systemd/system/tu1nz-adult-commercial-s3.service | awk '{print $1}')" = \
     "b9059cea568086796d1d5cbbe98a8599a5822ba7d4eaf9de9eb387d0bf9c41b5" ] || fail "FINAL_UNIT_DRIFT"
   [ "$(stat -c '%U:%G:%a' "$STATE_ROOT")" = "chatops:chatops:700" ] || fail "FINAL_STATE_ROOT_DRIFT"
@@ -363,6 +457,10 @@ case "${1:-}" in
   repair-state)
     [ "$#" -eq 2 ] || fail "ARGUMENT_COUNT"
     repair_state "$2"
+    ;;
+  repair-allowlist)
+    [ "$#" -eq 2 ] || fail "ARGUMENT_COUNT"
+    repair_allowlist "$2"
     ;;
   bootstrap-once)
     [ "$#" -eq 2 ] || fail "ARGUMENT_COUNT"
