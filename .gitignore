@@ -46,6 +46,7 @@
 !scripts/tu1nz_adult_commercial_s3_control_gate.py
 !scripts/tu1nz_adult_commercial_s3_1_control_gate.py
 !scripts/tu1nz_adult_commercial_s3_1_server_fix.sh
+!scripts/tu1nz_adult_commercial_s3_2_probe.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -95,6 +96,7 @@
 !manifests/adult-publishing-commercial-final-first-start-authorization.schema.json
 !manifests/adult-publishing-commercial-s3-server-staging.json
 !manifests/adult-publishing-commercial-s3-1-bootstrap-ownership.json
+!manifests/adult-publishing-commercial-s3-2-rolling-debug.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -135,6 +137,7 @@
 !tests/test_adult_commercial_final_first_start.py
 !tests/test_adult_commercial_s3_server_staging_control.py
 !tests/test_adult_commercial_s3_1_bootstrap_ownership_control.py
+!tests/test_adult_commercial_s3_2_rolling_debug_control.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
