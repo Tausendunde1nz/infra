@@ -69,7 +69,11 @@ require_evidence() {
   esac
   [ -d "$1" ] || fail "EVIDENCE_PATH_MISSING"
   [ ! -L "$1" ] || fail "EVIDENCE_PATH_SYMLINK"
-  [ "$(stat -c '%U:%G:%a' "$1")" = "root:root:700" ] || fail "EVIDENCE_PATH_METADATA_DRIFT"
+  [ "$(stat -c '%U:%G' "$1")" = "root:root" ] || fail "EVIDENCE_PATH_OWNERSHIP_DRIFT"
+  case "$(stat -c '%a' "$1")" in
+    700|2700) ;;
+    *) fail "EVIDENCE_PATH_MODE_DRIFT" ;;
+  esac
 }
 
 require_active_contract() {

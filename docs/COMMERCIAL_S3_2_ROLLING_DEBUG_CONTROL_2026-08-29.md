@@ -39,6 +39,10 @@ private attempt evidence. `close-window` is permitted only while the service is
 inactive and restores the hash-bound disabled contract. Neither action changes
 the unit or enables a service.
 
+The private evidence directory must be owned by `root:root` and may have mode
+`0700` or inherited-setgid mode `2700`; both modes deny all group and other
+access. No broader mode is accepted.
+
 After a green startup probe, `fresh-prestart` runs the shared prestart
 dependency graph in a second transient systemd sandbox. Its address-family
 boundary is AF_UNIX only, so it cannot contact Telegram or any provider. It

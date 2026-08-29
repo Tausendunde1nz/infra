@@ -92,6 +92,7 @@ class CommercialS32RollingDebugControlTests(unittest.TestCase):
         self.assertIn("LoadCredential=", source)
         self.assertIn("ProtectSystem=strict", source)
         self.assertIn("Restart=no", source)
+        self.assertIn("700|2700", source)
         self.assertIn("open-window", source)
         self.assertIn("close-window", source)
         self.assertIn("DISABLED_CONTRACT_SHA", source)
