@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`9f82e3c682a0f59a4675cca568058a3779a4a4ed`, tree
-`759cc536298901ae1ee57fa9de3e7ec177d357c3`, on the single rolling branch
+`05fd8b44f533fa34c3baeeb0dd1db2ae2e679c0a`, tree
+`dbee2c924ce4964851bd499cbee92f96725630df`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -38,6 +38,13 @@ versioned disabled template, after preserving the exact prior contract in the
 private attempt evidence. `close-window` is permitted only while the service is
 inactive and restores the hash-bound disabled contract. Neither action changes
 the unit or enables a service.
+
+The window installs a separately versioned runtime-release authorization with
+`single_bootstrap_authorized=false` and
+`decision=GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY`. It binds the instrumented
+Application SHA/tree for migration/reference/database verification but is
+rejected by the bootstrap mutator before any database connection. Closing the
+window restores the prior consumed S3.1 bootstrap authorization exactly.
 
 ## Hard product boundary
 

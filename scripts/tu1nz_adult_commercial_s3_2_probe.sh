@@ -8,10 +8,12 @@ readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-commercial-s3"
 readonly CONFIG_ROOT="/etc/tu1nz"
 readonly BASELINE="/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-56-54Z"
-readonly APPLICATION_SHA="9f82e3c682a0f59a4675cca568058a3779a4a4ed"
-readonly APPLICATION_TREE="759cc536298901ae1ee57fa9de3e7ec177d357c3"
+readonly APPLICATION_SHA="05fd8b44f533fa34c3baeeb0dd1db2ae2e679c0a"
+readonly APPLICATION_TREE="dbee2c924ce4964851bd499cbee92f96725630df"
 readonly PROBE_CREDENTIAL_ROOT="/run/credentials/$PROBE_SERVICE"
 readonly DISABLED_CONTRACT_SHA="504cd844bba8fe733e2beb8c734f3757c22fea06e3958c8d5cb95f3f00672fef"
+readonly S3_1_BOOTSTRAP_AUTHORIZATION_SHA="a7907f27a52c5992ac30af1c32929b1c3ed2a10f2ba0e74e07577ca835c68fc5"
+readonly S3_2_RUNTIME_AUTHORIZATION_SHA="7fb38340eb00ca90f86bae67921741d83d23b551f9c4521022e79ef19dd3e0a2"
 readonly EVIDENCE_PREFIX="/opt/tu1nz_repos/backups/commercial-s3-server-staging/"
 
 fail() {
@@ -78,8 +80,8 @@ value = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
 if not (
     value.get("active") is True
     and value.get("decision") == "GO_FOR_BOUNDED_SERVER_STAGING"
-    and value.get("application_sha") == "9f82e3c682a0f59a4675cca568058a3779a4a4ed"
-    and value.get("application_tree") == "759cc536298901ae1ee57fa9de3e7ec177d357c3"
+    and value.get("application_sha") == "05fd8b44f533fa34c3baeeb0dd1db2ae2e679c0a"
+    and value.get("application_tree") == "dbee2c924ce4964851bd499cbee92f96725630df"
     and value.get("telegram_intake", {}).get("enabled") is True
     and value.get("telegram_intake", {}).get("expected_bot_id") == 8729546284
     and value.get("telegram_intake", {}).get("expected_bot_username") == "TU1NZ_Adult_Test_bot"
@@ -109,11 +111,21 @@ open_window() {
   local evidence="$3"
   require_evidence "$evidence"
   [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "DISABLED_CONTRACT_DRIFT"
+  [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" | awk '{print $1}')" = "$S3_1_BOOTSTRAP_AUTHORIZATION_SHA" ] || fail "BOOTSTRAP_AUTHORIZATION_DRIFT"
+  [ "$(sha256sum "$CONTROL_ROOT/config/adult-publishing/staging-s3/commercial-s3-runtime-release-authorization.s3-2.json" | awk '{print $1}')" = "$S3_2_RUNTIME_AUTHORIZATION_SHA" ] || fail "RUNTIME_AUTHORIZATION_SOURCE_DRIFT"
   [ ! -e "$evidence/contract-before.json" ] || fail "WINDOW_ALREADY_PREPARED"
   install -o root -g root -m 0600 "$CONFIG_ROOT/adult-commercial-s3.contract.json" "$evidence/contract-before.json"
+  install -o root -g root -m 0600 "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" "$evidence/bootstrap-authorization-before.json"
   local temporary
   temporary="$(mktemp "$CONFIG_ROOT/.adult-commercial-s3.s3-2.XXXXXX")"
-  trap 'rm -f -- "$temporary"' EXIT
+  restore_failed_window() {
+    local status=$?
+    rm -f -- "$temporary"
+    install -o root -g root -m 0600 "$evidence/contract-before.json" "$CONFIG_ROOT/adult-commercial-s3.contract.json"
+    install -o root -g root -m 0600 "$evidence/bootstrap-authorization-before.json" "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json"
+    exit "$status"
+  }
+  trap restore_failed_window EXIT
   python3 - "$CONTROL_ROOT/config/adult-publishing/staging-s3/commercial-s3-staging.disabled.json" "$temporary" "$(basename "$evidence")" <<'PY'
 import json
 import os
@@ -126,8 +138,8 @@ value = json.loads(source.read_text(encoding="ascii"))
 now = datetime.now(timezone.utc).replace(microsecond=0)
 value["activation_id"] = "s3-s32-" + identifier.lower()
 value["active"] = True
-value["application_sha"] = "9f82e3c682a0f59a4675cca568058a3779a4a4ed"
-value["application_tree"] = "759cc536298901ae1ee57fa9de3e7ec177d357c3"
+value["application_sha"] = "05fd8b44f533fa34c3baeeb0dd1db2ae2e679c0a"
+value["application_tree"] = "dbee2c924ce4964851bd499cbee92f96725630df"
 value["decision"] = "GO_FOR_BOUNDED_SERVER_STAGING"
 value["telegram_intake"]["enabled"] = True
 value["telegram_intake"]["expected_bot_id"] = 8729546284
@@ -144,12 +156,17 @@ PY
   chown root:root "$temporary"
   mv -T -- "$temporary" "$CONFIG_ROOT/adult-commercial-s3.contract.json"
   temporary=""
-  trap - EXIT
+  install -o root -g root -m 0600 \
+    "$CONTROL_ROOT/config/adult-publishing/staging-s3/commercial-s3-runtime-release-authorization.s3-2.json" \
+    "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json"
+  [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" | awk '{print $1}')" = "$S3_2_RUNTIME_AUTHORIZATION_SHA" ] || fail "RUNTIME_AUTHORIZATION_INSTALL_DRIFT"
   require_active_contract || fail "ACTIVE_CONTRACT_INVALID"
+  trap - EXIT
   {
     printf 'opened_at=%s\n' "$(date -u +%FT%TZ)"
     printf 'active_contract_sha256=%s\n' "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')"
     printf 'disabled_contract_sha256=%s\n' "$DISABLED_CONTRACT_SHA"
+    printf 'runtime_release_authorization_sha256=%s\n' "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" | awk '{print $1}')"
   } >"$evidence/window-open.txt"
   chmod 0600 "$evidence/window-open.txt"
   printf '{"ok":true,"safe_code":"S3_2_DIAGNOSTIC_WINDOW_OPEN","service_started":false}\n'
@@ -161,10 +178,15 @@ close_window() {
   local evidence="$1"
   require_evidence "$evidence"
   [ -f "$evidence/contract-before.json" ] || fail "CONTRACT_RECOVERY_MISSING"
+  [ -f "$evidence/bootstrap-authorization-before.json" ] || fail "BOOTSTRAP_AUTHORIZATION_RECOVERY_MISSING"
   [ "$(sha256sum "$evidence/contract-before.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "CONTRACT_RECOVERY_DRIFT"
+  [ "$(sha256sum "$evidence/bootstrap-authorization-before.json" | awk '{print $1}')" = "$S3_1_BOOTSTRAP_AUTHORIZATION_SHA" ] || fail "BOOTSTRAP_AUTHORIZATION_RECOVERY_DRIFT"
   install -o root -g root -m 0600 "$evidence/contract-before.json" "$CONFIG_ROOT/adult-commercial-s3.contract.json"
+  install -o root -g root -m 0600 "$evidence/bootstrap-authorization-before.json" "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json"
   [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "CONTRACT_RESTORE_FAILED"
-  printf 'closed_at=%s\nrestored_contract_sha256=%s\n' "$(date -u +%FT%TZ)" "$DISABLED_CONTRACT_SHA" >"$evidence/window-close.txt"
+  [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.bootstrap-manifest.json" | awk '{print $1}')" = "$S3_1_BOOTSTRAP_AUTHORIZATION_SHA" ] || fail "BOOTSTRAP_AUTHORIZATION_RESTORE_FAILED"
+  printf 'closed_at=%s\nrestored_contract_sha256=%s\nrestored_bootstrap_authorization_sha256=%s\n' \
+    "$(date -u +%FT%TZ)" "$DISABLED_CONTRACT_SHA" "$S3_1_BOOTSTRAP_AUTHORIZATION_SHA" >"$evidence/window-close.txt"
   chmod 0600 "$evidence/window-close.txt"
   printf '{"ok":true,"safe_code":"S3_2_DIAGNOSTIC_WINDOW_CLOSED","service_started":false}\n'
 }

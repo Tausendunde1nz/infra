@@ -113,6 +113,7 @@
 !config/adult-publishing/staging-s3/commercial-s3-rollback-manifest.json
 !config/adult-publishing/staging-s3/commercial-s3-media-manifest.example.json
 !config/adult-publishing/staging-s3/commercial-s3-bootstrap-authorization.s3-1.json
+!config/adult-publishing/staging-s3/commercial-s3-runtime-release-authorization.s3-2.json
 !config/postgresql/
 !config/postgresql/pgdg.sources
 !config/postgresql/adult-publishing-commercial-s0.pg_hba.rule

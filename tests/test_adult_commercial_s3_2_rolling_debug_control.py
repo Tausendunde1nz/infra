@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unittest
@@ -23,11 +24,11 @@ class CommercialS32RollingDebugControlTests(unittest.TestCase):
         )
         self.assertEqual(
             self.value["application"]["sha"],
-            "9f82e3c682a0f59a4675cca568058a3779a4a4ed",
+            "05fd8b44f533fa34c3baeeb0dd1db2ae2e679c0a",
         )
         self.assertEqual(
             self.value["application"]["tree"],
-            "759cc536298901ae1ee57fa9de3e7ec177d357c3",
+            "dbee2c924ce4964851bd499cbee92f96725630df",
         )
         self.assertEqual(self.value["application"]["branch"], "fix/commercial-s3-staging-recovery")
         self.assertEqual(self.value["control"]["branch"], "fix/commercial-s3-staging-recovery")
@@ -36,6 +37,22 @@ class CommercialS32RollingDebugControlTests(unittest.TestCase):
         self.assertEqual(authorization["maximum_product_acceptance_runs"], 1)
         self.assertFalse(authorization["restart_authorized"])
         self.assertFalse(authorization["enable_authorized"])
+        runtime_authorization = self.value["runtime_release_authorization"]
+        self.assertFalse(runtime_authorization["single_bootstrap_authorized"])
+        self.assertFalse(runtime_authorization["service_start_authorized"])
+        self.assertEqual(
+            runtime_authorization["decision"],
+            "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
+        )
+        payload = json.loads((ROOT / runtime_authorization["path"]).read_text(encoding="ascii"))
+        self.assertEqual(
+            hashlib.sha256((ROOT / runtime_authorization["path"]).read_bytes()).hexdigest(),
+            runtime_authorization["sha256"],
+        )
+        self.assertFalse(payload["single_bootstrap_authorized"])
+        self.assertFalse(payload["boundaries"]["service_start_authorized"])
+        self.assertEqual(payload["application_sha"], self.value["application"]["sha"])
+        self.assertEqual(payload["application_tree"], self.value["application"]["tree"])
 
     def test_all_eighteen_phases_are_exact_and_ordered(self) -> None:
         self.assertEqual(
