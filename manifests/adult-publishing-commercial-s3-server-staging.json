@@ -1,0 +1,125 @@
+{
+  "application": {
+    "branch": "main",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "sha": "aba69dfc706fc71e7b1ff12446e5a24f94642762",
+    "tree": "ad67864654c2a1c80b992960163696e20de9998b"
+  },
+  "artifacts": {
+    "disabled_contract": {
+      "path": "config/adult-publishing/staging-s3/commercial-s3-staging.disabled.json",
+      "sha256": "504cd844bba8fe733e2beb8c734f3757c22fea06e3958c8d5cb95f3f00672fef"
+    },
+    "disabled_deployment_manifest": {
+      "path": "config/adult-publishing/staging-s3/commercial-s3-deployment-manifest.disabled.json",
+      "sha256": "c5483ad456395a8b066a40861d92bee8e1d52b97a21d3573f4785ed1801b23aa"
+    },
+    "media_manifest_example": {
+      "path": "config/adult-publishing/staging-s3/commercial-s3-media-manifest.example.json",
+      "sha256": "5cc587e34f534c98dc7c2002ab96777c69551340d1b6b74107b672781c7e469d"
+    },
+    "rollback_manifest": {
+      "path": "config/adult-publishing/staging-s3/commercial-s3-rollback-manifest.json",
+      "sha256": "a9ec8ed6519d12ae0f865bd1a77630fabccb4e5fa56adb7280e92540df5105b3"
+    },
+    "unit": {
+      "path": "systemd/tu1nz-adult-commercial-s3.service",
+      "sha256": "e2dc04b2fa7afca17cd5b8b0127b3eb87a32c7f71bc7e99fb6f7a52170d2b282"
+    }
+  },
+  "authorization": {
+    "authorized_at": "2026-08-29T12:41:00Z",
+    "daemon_reload_after_verified_install": true,
+    "enable_authorized": false,
+    "install_authorized": true,
+    "maximum_window_seconds": 1800,
+    "restart_authorized": false,
+    "single_bounded_start_authorized": true,
+    "single_product_acceptance_authorized": true,
+    "stop_required": true
+  },
+  "control_binding": {
+    "branch": "control-main",
+    "exact_merge_sha_and_tree_required_in_external_contract": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "database": {
+    "business_rows_before_acceptance": 0,
+    "database": "tu1nz_adult_commercial_s3",
+    "isolated": true,
+    "migration_chain_sha256": "24c116ae3f37eba0be1470f1b401fd4edcb03f8679dd0c95e9881ad20cafb42f",
+    "schema": "0017_commercial_s2_1_telegram_live_test_readiness",
+    "service_role": "tu1nz_adult_commercial_s3_runtime"
+  },
+  "decision": "GO_CONTROLLED_SERVER_STAGING_WINDOW",
+  "paths": {
+    "application": "/opt/tu1nz_repos/adult-publishing-core",
+    "configuration": "/etc/tu1nz",
+    "evidence_root": "/opt/tu1nz_repos/backups/commercial-s3-server-staging",
+    "logs": "/var/log/tausendunde1nz",
+    "media": "/var/lib/tausendunde1nz/adult-commercial-s3/media",
+    "runtime_state": "/var/lib/tausendunde1nz/adult-commercial-s3",
+    "unit": "/etc/systemd/system/tu1nz-adult-commercial-s3.service"
+  },
+  "product_boundary": {
+    "adult_media_enabled": false,
+    "avs_provider": "MOCK",
+    "controlled_beta_enabled": false,
+    "external_publish_enabled": false,
+    "harmless_fixture_only": true,
+    "payment_provider": "MOCK",
+    "production_enabled": false,
+    "publishers": {
+      "reddit": "SYNTHETIC",
+      "telegram": "SYNTHETIC",
+      "x": "SYNTHETIC"
+    },
+    "public_registration": false
+  },
+  "protected_existing_state": {
+    "commercial_s0_evidence_unchanged": true,
+    "commercial_s0_unit": "tu1nz-adult-commercial-s0.service",
+    "commercial_s0_unit_unchanged": true,
+    "existing_databases_unchanged": true
+  },
+  "rollback": {
+    "automatic_database_delete": false,
+    "durable_evidence_preserved": true,
+    "fail_closed_if_database_rollback_is_unsafe": true,
+    "pre_mutation_recovery_point_required": true,
+    "restore_proof_required": true
+  },
+  "runtime_identity": {
+    "group": "chatops",
+    "user": "chatops"
+  },
+  "secret_boundary": {
+    "directory_mode": "0750",
+    "file_mode": "0600",
+    "files": [
+      "/etc/tu1nz/adult-commercial-s3.telegram-token",
+      "/etc/tu1nz/adult-commercial-s3.postgres-dsn",
+      "/etc/tu1nz/adult-commercial-s3.subject-key",
+      "/etc/tu1nz/adult-commercial-s3.contract.json",
+      "/etc/tu1nz/adult-commercial-s3.allowlist.json",
+      "/etc/tu1nz/adult-commercial-s3.media-manifest.json"
+    ],
+    "mechanism": "systemd LoadCredential",
+    "token_value_allowed_in_control": false
+  },
+  "service": {
+    "enabled": false,
+    "name": "tu1nz-adult-commercial-s3.service",
+    "restart": "no",
+    "runtime_maximum_seconds": 1800
+  },
+  "telegram": {
+    "allowlist_maximum_users": 1,
+    "bot_id": 8729546284,
+    "bot_username": "TU1NZ_Adult_Test_bot",
+    "environment": "STANDARD",
+    "private_chat_only": true,
+    "rotated_token_required": true
+  },
+  "version": "tu1nz-commercial-s3-server-staging-control-v1"
+}

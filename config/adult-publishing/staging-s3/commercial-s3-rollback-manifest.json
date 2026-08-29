@@ -1,0 +1,18 @@
+{
+  "active": false,
+  "automatic_database_delete": false,
+  "decision": "PREPARED_NOT_AUTHORIZED",
+  "durable_evidence_preserved": true,
+  "steps": [
+    "CONTROLLED_STOP",
+    "PRESERVE_EVIDENCE",
+    "RESTORE_APPLICATION",
+    "RESTORE_UNIT",
+    "RESTORE_CONFIG",
+    "GUARDED_DATABASE_ROLLBACK_OR_FAIL_CLOSED",
+    "ROTATE_OR_RESTORE_SECRETS",
+    "RECOVER_TELEGRAM_POLLING_STATE",
+    "VERIFY_HEALTH"
+  ],
+  "version": "tu1nz-commercial-s3-rollback-v1"
+}
