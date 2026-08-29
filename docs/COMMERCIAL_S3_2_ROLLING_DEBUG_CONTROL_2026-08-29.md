@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`a50331009d53e4bd6a07a4cf1d91040b5636ff12`, tree
-`683f827e81c306a9ca13e8baf22b0f642a956534`, on the single rolling branch
+`3761ab738bd48be411ac8c6db394cf43748e6dab`, tree
+`b1a977f35b0c8fec81dccc4c8930943c7d8adf21`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -124,3 +124,14 @@ and every business table exposing a submission or creator key must remain tied
 to that aggregate. Bootstrap and the default verifier still require an empty
 business state. Multiple submissions, a different creator, unsafe content,
 country, target or display shapes, and external destinations remain RED.
+
+The bounded reconstruction then reached the original partial core projection
+from the first moderation attempt. PostgreSQL contained only the successful
+prefix through publication-entitlement creation; no payment evidence, dispatch
+or publication existed. Retrying with a newly generated envelope correctly
+failed the exact receipt hash check. The release now resolves only a successful
+receipt's original whole-second timestamp by reproducing its stored SHA-256
+from an eight-second bounded search. It then replays the otherwise immutable
+command envelope. Rejected receipts, payload changes, actor/revision/key drift,
+and any non-exact hash stay RED. The recovery is read-only and never rewrites or
+deletes durable rows.
