@@ -2,7 +2,7 @@
   "application": {
     "branch": "fix/commercial-s3-staging-recovery",
     "repository": "Tausendunde1nz/adult-publishing-core",
-    "sha": "69c70b58814f19db5869bed458b180025060aeb3",
+    "sha": "1101b3204a994486def9656807c50157b30f5d5d",
     "tree": "b5bb4cf55ede2dc14987bcfc362e8079ecc21302"
   },
   "authorization": {
@@ -47,7 +47,7 @@
   "runtime_release_authorization": {
     "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
     "path": "config/adult-publishing/staging-s3/commercial-s3-runtime-release-authorization.s3-2.json",
-    "sha256": "cdd6c7e7c977cfafceebf110a1460300f944c6f926fcf473da8d3d1e4f6c9591",
+    "sha256": "6cea50e578e81bf191f2ec45ab3b67d54c9217846ac6d7a34c24d4064e6cd631",
     "service_start_authorized": false,
     "single_bootstrap_authorized": false
   },

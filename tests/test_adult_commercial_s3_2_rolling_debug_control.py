@@ -24,7 +24,7 @@ class CommercialS32RollingDebugControlTests(unittest.TestCase):
         )
         self.assertEqual(
             self.value["application"]["sha"],
-            "69c70b58814f19db5869bed458b180025060aeb3",
+            "1101b3204a994486def9656807c50157b30f5d5d",
         )
         self.assertEqual(
             self.value["application"]["tree"],
