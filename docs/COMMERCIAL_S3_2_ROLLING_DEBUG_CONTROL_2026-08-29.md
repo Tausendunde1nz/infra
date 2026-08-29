@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`cc1ae0e4bd961e60912311e88d394d0dbf424967`, tree
-`c8e6588db5f0939e8085ab3d1e9110cca49adc71`, on the single rolling branch
+`78aa5d62e6f1f0466c5f30c381a2a35c48ddfd9c`, tree
+`c8446c14c5893a87e41dda051f4a31fac0ae92c6`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -87,3 +87,12 @@ safe retry attempt. Unknown errors remain fail-closed. The already queued exact
 JPEG document may therefore be consumed after a fresh bound release start,
 continuing the same single journey; no second submission or second account is
 authorized.
+
+The next bound run proved the polling recovery but exposed a second pre-product
+gate: S3 required a fresh upload's Telegram reference to equal an older
+reconciled value before downloading it. S3 now follows the proven S2.2 order:
+bounded reference and metadata validation first, followed by an exact-size
+download, JPEG-boundary check and SHA-256 match. A new Telegram reference alone
+cannot authorize different content, and the internal media identity remains
+manifest-bound. At correction time the journey still contained zero
+submissions, zero payments and zero publications.

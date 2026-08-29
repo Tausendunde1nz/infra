@@ -1,0 +1,57 @@
+Commercial S3.2 document-reference reconciliation diagnosis
+===========================================================
+
+Observed at: 2026-08-29T16:27:40Z
+Installed Application before correction:
+cc1ae0e4bd961e60912311e88d394d0dbf424967
+
+Safe symptom
+------------
+
+The retry-corrected service reached phase 18 READY with GREEN health and
+NRestarts zero. It observed two queued Telegram updates and advanced its cursor
+by two, but product state remained at zero submissions. The first update was an
+expectedly blocked photo. The second was the explicitly selected JPEG document,
+but the S3 adapter rejected it before the Application and before media storage.
+
+The service was stopped while GREEN and the bounded window was closed. No
+payment, publisher, takedown, external post or production capability ran.
+
+Proven root cause
+-----------------
+
+Commercial S3 duplicated an older pre-download gate that required the incoming
+Telegram file_unique_id to equal the previously reconciled manifest value. A
+fresh upload of the same local document may carry a new Telegram reference even
+when its bytes are identical. The already proven S2.2 STANDARD reconciliation
+therefore validates the reference syntax, private identity, JPEG filename,
+declared size and MIME type, then downloads within the exact byte limit and
+binds the result by JPEG signature plus SHA-256. S3 incorrectly rejected before
+that stronger content proof could execute.
+
+Correction boundary
+-------------------
+
+S3 now follows the proven reconciliation order. A fresh Telegram reference is
+accepted only when it is syntactically bounded and all other metadata matches;
+the download remains capped to the manifest size and is accepted only when the
+exact SHA-256 and JPEG boundaries match. The normalized internal media identity
+continues to use the manifest-bound identifier.
+
+Malformed references, non-JPEG filenames, wrong MIME type, wrong size, wrong
+hash, forwarded content, photos, other media and non-allowlisted identities stay
+fail-closed. Rejected ingress now emits only a safe reason code and never an ID,
+filename, response body, token or media bytes.
+
+Regression coverage proves a fresh reference with exact bytes is accepted,
+unsafe metadata is rejected before download and the full local Application
+suite passes 717/717.
+
+Rollback
+--------
+
+Application rollback coordinate:
+cc1ae0e4bd961e60912311e88d394d0dbf424967
+
+No schema, permanent product data, system path, credential or unit change is
+part of this correction.
