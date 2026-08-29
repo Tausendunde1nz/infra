@@ -7,6 +7,7 @@ readonly PRESTART_CREDENTIAL_ROOT="/run/credentials/$PRESTART_SERVICE"
 readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly CONFIG_ROOT="/etc/tu1nz"
+readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-commercial-s3"
 readonly APPLICATION_SHA="ffce727d8e1e45c93323bd805e77e5965e8b3941"
 readonly APPLICATION_TREE="6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
 readonly DISABLED_CONTRACT_SHA="41e5682934cc632b8d00cd0afd542cd823ef3c99f1c9b418efcb01ccd1ad2f23"
@@ -37,6 +38,14 @@ require_stopped() {
   [ "$(systemctl show "$SERVICE" -p Restart --value)" = "no" ] || fail "SERVICE_RESTART_POLICY_DRIFT"
   [ "$(systemctl is-enabled "$SERVICE" 2>/dev/null || true)" = "static" ] || fail "SERVICE_ENABLEMENT_DRIFT"
   ! pgrep -f '[t]u1nz-commercial-s3-runtime' >/dev/null || fail "CANDIDATE_PROCESS_PRESENT"
+}
+
+require_active() {
+  [ "$(systemctl show "$SERVICE" -p ActiveState --value)" = "active" ] || fail "SERVICE_NOT_ACTIVE"
+  [ "$(systemctl show "$SERVICE" -p SubState --value)" = "running" ] || fail "SERVICE_NOT_RUNNING"
+  [ "$(systemctl show "$SERVICE" -p MainPID --value)" -gt 0 ] || fail "SERVICE_PROCESS_MISSING"
+  [ "$(systemctl show "$SERVICE" -p NRestarts --value)" = "0" ] || fail "SERVICE_RESTART_COUNT_NONZERO"
+  [ "$(systemctl show "$SERVICE" -p Restart --value)" = "no" ] || fail "SERVICE_RESTART_POLICY_DRIFT"
 }
 
 require_release() {
@@ -248,7 +257,91 @@ close_window() {
   printf 'closed_at=%s\nrestored_contract_sha256=%s\nrestored_runtime_authorization_sha256=%s\n' \
     "$(date -u +%FT%TZ)" "$DISABLED_CONTRACT_SHA" "$RUNTIME_AUTHORIZATION_SHA" >"$1/window-close.txt"
   chmod 0600 "$1/window-close.txt"
+  finalize_evidence "$1"
   printf '{"ok":true,"safe_code":"S4_EXTENDED_STAGING_WINDOW_CLOSED","service_started":false}\n'
+}
+
+finalize_evidence() {
+  require_root
+  require_stopped
+  require_evidence "$1"
+  [ -f "$1/window-close.txt" ] || fail "WINDOW_CLOSE_EVIDENCE_MISSING"
+  local temporary
+  temporary="$(mktemp /run/tu1nz-s4-evidence.XXXXXX)"
+  (
+    cd "$1"
+    find . -maxdepth 1 -type f ! -name EVIDENCE-SHA256SUMS -print0 \
+      | sort -z \
+      | xargs -0 sha256sum >"$temporary"
+  )
+  install -o root -g root -m 0600 "$temporary" "$1/EVIDENCE-SHA256SUMS"
+  rm -f -- "$temporary"
+  (cd "$1" && sha256sum --check --strict EVIDENCE-SHA256SUMS >/dev/null) \
+    || fail "EVIDENCE_HASH_INVALID"
+}
+
+await_readiness() {
+  require_root
+  require_release "$1" "$2"
+  require_backup "$3"
+  require_manifest_go "$3" || fail "MANIFEST_NOT_GO"
+  require_installed_static_files
+  require_active_contract bounded || fail "ACTIVE_CONTRACT_INVALID"
+  require_evidence "$4"
+  local maximum="$5"
+  [ "$maximum" -ge 30 ] 2>/dev/null || fail "READINESS_WAIT_TOO_SHORT"
+  [ "$maximum" -le 120 ] 2>/dev/null || fail "READINESS_WAIT_TOO_LONG"
+  local deadline=$((SECONDS + maximum))
+  local output status
+  while [ "$SECONDS" -le "$deadline" ]; do
+    require_active
+    set +e
+    output="$(python3 - "$STATE_ROOT/evidence" "$STATE_ROOT/status.json" "$4/window-open.txt" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+startup_root, health_path, marker_path = map(Path, sys.argv[1:])
+marker = marker_path.stat().st_mtime_ns
+candidates = [
+    path for path in startup_root.glob("startup-*.summary.json")
+    if path.stat().st_mtime_ns >= marker
+]
+if not candidates:
+    raise SystemExit(3)
+summary_path = max(candidates, key=lambda path: path.stat().st_mtime_ns)
+summary = json.loads(summary_path.read_text(encoding="ascii"))
+if not (
+    summary.get("state") == "READY"
+    and summary.get("ready") is True
+    and summary.get("last_completed_phase") == "18_READY"
+    and summary.get("failed_phase") is None
+):
+    raise SystemExit(3)
+health = json.loads(health_path.read_text(encoding="ascii"))
+components = health.get("components", {})
+if not (
+    health.get("state") == "GREEN"
+    and components.get("AVS_CONFIG") == "DISABLED_EXPECTED"
+    and components.get("AVS_NETWORK") == "DISABLED_EXPECTED"
+    and components.get("PAYMENT_CONFIG") == "DISABLED_EXPECTED"
+    and components.get("PAYMENT_NETWORK") == "DISABLED_EXPECTED"
+):
+    raise SystemExit(3)
+print('{"ok":true,"safe_code":"S4_RUNTIME_PHASE_18_READY","health":"GREEN"}')
+PY
+)"
+    status=$?
+    set -e
+    if [ "$status" -eq 0 ]; then
+      printf '%s\n' "$output" | tee "$4/readiness.txt"
+      chmod 0600 "$4/readiness.txt"
+      return 0
+    fi
+    [ "$status" -eq 3 ] || fail "READINESS_EVIDENCE_INVALID"
+    sleep 2
+  done
+  fail "READINESS_TIMEOUT"
 }
 
 fresh_prestart() {
@@ -319,6 +412,15 @@ case "${1:-}" in
   fresh-prestart)
     [ "$#" -eq 4 ] || fail "USAGE_FRESH_PRESTART"
     fresh_prestart "$2" "$3" "$4"
+    ;;
+  await-readiness)
+    [ "$#" -eq 6 ] || fail "USAGE_AWAIT_READINESS"
+    await_readiness "$2" "$3" "$4" "$5" "$6"
+    ;;
+  finalize-evidence)
+    [ "$#" -eq 2 ] || fail "USAGE_FINALIZE_EVIDENCE"
+    finalize_evidence "$2"
+    printf '{"ok":true,"safe_code":"S4_EVIDENCE_FINALIZED"}\n'
     ;;
   *) fail "UNKNOWN_ACTION" ;;
 esac

@@ -47,6 +47,8 @@ Manual stop/start cycles inside the same valid window may be used to prove Teleg
 
 The versioned `fresh-prestart` controller action runs with loopback-only network policy and deliberately omits the Telegram token. It proves the same database, release, migration, configuration, state, audit, outbox and product-boundary dependencies without contacting Telegram or starting the main service.
 
+After a controlled start, readiness must be proven by `await-readiness`; a fixed sleep is not evidence. It requires a new phase-18 `READY` startup summary and a fully `GREEN` health report while AVS/payment components remain `DISABLED_EXPECTED`. It waits no longer than 120 seconds and rejects any exit or restart. Window closure automatically creates a strict evidence index outside the indexed directory before atomically installing it.
+
 ## Provider decision record
 
 - AVS primary: Yoti, subject to a later contract/legal/data-protection gate and real-credential authorization.

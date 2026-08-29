@@ -1,0 +1,15 @@
+# Commercial S4 evidence index self-reference
+
+## Safe code
+
+`S4_EVIDENCE_INDEX_INCLUDED_ITSELF`
+
+## Result
+
+After the failed-readiness run was safely stopped and its window closed, an ad-hoc evidence-index command opened `EVIDENCE-SHA256SUMS` before enumerating files. The enumeration therefore included the index being written and the strict check correctly reported one mismatch.
+
+No service or product state was affected. All underlying evidence files remain private and unchanged.
+
+## Correction
+
+The versioned finalizer builds the index in a root-private temporary file outside the evidence directory, explicitly excludes `EVIDENCE-SHA256SUMS`, atomically installs the completed index, and then performs a strict verification. It is invoked automatically by future `close-window` actions and can re-finalize the closed failed-run evidence read-only with respect to its captured members.

@@ -133,6 +133,10 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertIn("require_installed_static_files", source)
         self.assertIn("close-window", source)
         self.assertIn("fresh-prestart", source)
+        self.assertIn("await-readiness", source)
+        self.assertIn("18_READY", source)
+        self.assertIn("EVIDENCE-SHA256SUMS", source)
+        self.assertIn("! -name EVIDENCE-SHA256SUMS", source)
         self.assertIn("systemd-run", source)
         fresh = source.split("fresh_prestart() {", 1)[1].split("\n}\n\ncase", 1)[0]
         self.assertIn("IPAddressDeny=any", fresh)
