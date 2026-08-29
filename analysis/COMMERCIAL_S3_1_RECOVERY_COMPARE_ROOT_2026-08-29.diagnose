@@ -1,0 +1,24 @@
+# Commercial S3.1 recovery compare-root abort
+
+Date: 2026-08-29
+
+The first S3.1 recovery-delta attempt stopped before repository synchronization,
+unit installation, state repair or database bootstrap. Archive creation strips
+the leading slash from absolute member names, while the following GNU tar
+comparison ran from the shell working directory. The comparison therefore
+looked for `etc/...` and `var/...` below the wrong directory and failed closed.
+
+Observed partial recovery directory:
+
+`/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-53-11Z`
+
+It contains the root-private archive, database dump, PostgreSQL globals and
+baseline but no completed `SHA256SUMS`; it is not an authorized recovery point
+and must remain as aborted diagnostic evidence. At abort, the candidate service
+was still inactive/dead with `NRestarts=0` and no process. Application, Control,
+unit, S3 state and database remained unchanged.
+
+The correction anchors comparison at `/` with `tar -C / --compare`. A focused
+test requires that exact restore-proof boundary. A new recovery directory must
+be used after this correction is reviewed, merged and its post-merge CI is
+green. The partial directory is never reused.

@@ -15,7 +15,7 @@
     },
     "server_fix_controller": {
       "path": "scripts/tu1nz_adult_commercial_s3_1_server_fix.sh",
-      "sha256": "1be35b70ce633bb17d6262a6269c43ee85a00616b405f71ffa0c25325217f52d"
+      "sha256": "b5def0f07c7207cb76fc0f9e8104dda334dfea05328f8f17c662320a780e2146"
     },
     "unit": {
       "path": "systemd/tu1nz-adult-commercial-s3-s3-1.service",
