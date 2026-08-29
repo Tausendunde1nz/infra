@@ -1,0 +1,30 @@
+# M4.29.2 stability command abort
+
+Date: 2026-08-28
+
+## Symptom
+
+The maintenance-window command successfully verified the Tailscale host and
+the never-started Adult Candidate, then stopped the three authorized services:
+
+- `tu1nz_agentmode.service`
+- `tu1nz_integrity.service`
+- `tu1nz_monitor.service`
+
+The following read-only stability section did not start because literal `+`
+patch markers were accidentally included in the remote shell text. Bash exited
+with a syntax error before the first snapshot or sleep iteration.
+
+## Impact
+
+- affected services: safely stopped/inactive;
+- installed scripts or units changed: no;
+- Control Git/files changed by this command: no;
+- Adult Candidate changed or started: no;
+- recovery archive changed: no.
+
+## Resolution
+
+Keep the affected services stopped. Re-run only the read-only Control snapshot
+and 11 x 30-second stability observation with the patch markers removed. Do not
+install any artifact until that full stability interval succeeds.

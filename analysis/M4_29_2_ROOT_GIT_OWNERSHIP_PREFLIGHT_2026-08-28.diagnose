@@ -1,0 +1,27 @@
+# M4.29.2 root Git ownership preflight
+
+Date: 2026-08-28
+
+## Symptom
+
+The literal remote transaction stopped during its first Control HEAD check with
+Git's `detected dubious ownership` protection.
+
+## Cause
+
+The administrative transaction runs as root, while the canonical Control
+checkout is owned and intentionally operated by `chatops`. Root Git therefore
+refused the checkout before the unit-install step.
+
+## Impact
+
+The staged unit was not installed and Agentmode was not started. The fail-closed
+trap issued idempotent stops for the three already-stopped maintenance units.
+Control and the Adult Candidate were unchanged.
+
+## Resolution
+
+Run every read-only Control Git query under the owning `chatops` identity with
+`runuser`. Do not add a global or system `safe.directory` exception. Keep
+privileged install and systemd operations under root and retain the same
+fail-closed stop behavior.

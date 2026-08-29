@@ -1,0 +1,26 @@
+[Unit]
+Description=TU1NZ Agentmode read-only Control observer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chatops
+Group=chatops
+ExecStart=/usr/local/bin/tu1nz_sync_all.sh --loop
+Restart=on-failure
+RestartSec=30s
+RuntimeDirectory=tu1nz-agentmode
+RuntimeDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectSystem=full
+ReadOnlyPaths=/opt/tu1nz_repos/control
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

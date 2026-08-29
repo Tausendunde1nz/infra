@@ -1,0 +1,112 @@
+{
+  "contract_version": "tu1nz-m4.29.2-agentmode-maintenance-v1",
+  "decision": "GO_MAINTENANCE_WINDOW_ONLY",
+  "maintenance_authorized": true,
+  "canonical_control": {
+    "path": "/opt/tu1nz_repos/control",
+    "branch": "control-main",
+    "automatic_mutation_allowed": false,
+    "remote_probe": "git-ls-remote-without-local-ref-update"
+  },
+  "runtime_state": {
+    "root": "/var/lib/tausendunde1nz/agentmode",
+    "log_root": "/var/log/tausendunde1nz/health",
+    "contains_secrets": false
+  },
+  "preflight": {
+    "captured_at": "2026-08-28T20:46:38Z",
+    "hostname": "ubuntu-8gb-nbg1-2",
+    "tailscale_ipv4": "100.121.130.51",
+    "control_head": "2c17ae00d9c9b6e057ba36a1766166f7f5549d4c",
+    "control_tree": "c9408b89f994f1f2fc6f57709bebfb11b767209b",
+    "control_refs_sha256": "49cd9e71791b8f5749409a84c4e96365f8251780b40f5e94f64843b14192560a",
+    "control_status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "control_tracked_bytes_sha256": "80e8650bc7136b613684b8f970a5c961c03a656277bbd647bd59733dadae2e89",
+    "control_full_files_sha256": "009c4d97bdc52b3b10e7f4c4a546c602788e743a3cc924e772c56a1cdd84b1b6",
+    "control_symlinks_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "control_file_count": 248,
+    "tracked_clean": true,
+    "known_mutators": [
+      "tu1nz_agentmode.service",
+      "/usr/local/bin/tu1nz_sync_all.sh",
+      "/usr/local/bin/tu1nz_agent_health.sh",
+      "tu1nz_integrity.service",
+      "/usr/local/bin/tu1nz_integrity_consolidation.sh",
+      "/usr/local/bin/tu1nz_require_sync.sh",
+      "tu1nz_monitor.service",
+      "/usr/local/bin/tu1nz_monitor_wrap.sh"
+    ]
+  },
+  "recovery": {
+    "path": "/var/log/tausendunde1nz/health/recovery/m4-29-2-20260828T204845Z/installed-before.tar.gz",
+    "sha256": "fb0c367282d5787cad1b8f1e4caeedf933666050f5ea1b50caf29fa296dbfb18",
+    "restore_policy": "restore-only-while-services-stopped-and-never-auto-restart-known-unsafe-agentmode"
+  },
+  "artifacts": {
+    "scripts/tu1nz_sync_all.sh": "96a03614f5c5eacc94576975a7d38251b5cc3da7c673a690914942b298d359df",
+    "scripts/tu1nz_agent_health.sh": "76476746122f97be5dce43bd7f3053d8b62a5b941b5fc212329c9830d0f79e23",
+    "scripts/tu1nz_require_sync.sh": "eb91971c3b5c1cbca7910d5277111780867dc9eb27869402ffaa31b4e08fc80c",
+    "scripts/tu1nz_integrity_consolidation.sh": "97cfcd27a13c66088f3dca1becc25417b4f9391223bd2f950415bb1f41214ef2",
+    "scripts/tu1nz_monitor_wrap.sh": "06d5d803282b9650c5671797639a4718233376206354f2006d2ad10e18699ed6",
+    "systemd/tu1nz_agentmode.service": "cc0ebe655f5fc843e8d8ded5ba321214aed58a8b1062b198606d1667dff356e1",
+    "systemd/tu1nz_integrity.service": "cdd3b055c90dcf41f7ba306849e37e4ee9a1b04d96e166753d06e85b5d948692",
+    "systemd/tu1nz_monitor.service": "00bbb6a449bda39bfa8fa6b818eb1648fab1ac3ed5bd7fb58451b296374a4547",
+    "systemd/tu1nz-adult-commercial-s0.service": "ff631c7722daf4bd1f1fd9f6a61a1008e10b67f7a683603bec834ecad8722e4d"
+  },
+  "installation": {
+    "status": "COMPLETE",
+    "commit": "d47bc32cda6f9615f2c1f6cb574d49b067c5b66a",
+    "ci_run": "https://github.com/Tausendunde1nz/infra/actions/runs/33213979520",
+    "installed_at": "2026-08-28T21:47:43Z",
+    "installed_hashes": {
+      "/usr/local/bin/tu1nz_sync_all.sh": "96a03614f5c5eacc94576975a7d38251b5cc3da7c673a690914942b298d359df",
+      "/usr/local/bin/tu1nz_agent_health.sh": "76476746122f97be5dce43bd7f3053d8b62a5b941b5fc212329c9830d0f79e23",
+      "/usr/local/bin/tu1nz_require_sync.sh": "eb91971c3b5c1cbca7910d5277111780867dc9eb27869402ffaa31b4e08fc80c",
+      "/usr/local/bin/tu1nz_integrity_consolidation.sh": "97cfcd27a13c66088f3dca1becc25417b4f9391223bd2f950415bb1f41214ef2",
+      "/usr/local/bin/tu1nz_monitor_wrap.sh": "06d5d803282b9650c5671797639a4718233376206354f2006d2ad10e18699ed6",
+      "/etc/systemd/system/tu1nz_agentmode.service": "cc0ebe655f5fc843e8d8ded5ba321214aed58a8b1062b198606d1667dff356e1",
+      "/etc/systemd/system/tu1nz_integrity.service": "cdd3b055c90dcf41f7ba306849e37e4ee9a1b04d96e166753d06e85b5d948692",
+      "/etc/systemd/system/tu1nz_monitor.service": "00bbb6a449bda39bfa8fa6b818eb1648fab1ac3ed5bd7fb58451b296374a4547"
+    }
+  },
+  "postinstall_validation": {
+    "status": "PASS",
+    "observation_started_at": "2026-08-28T21:31:16Z",
+    "observation_completed_at": "2026-08-28T21:43:13Z",
+    "duration_seconds": 660,
+    "sample_count": 23,
+    "distinct_observations": 3,
+    "observation_timestamps": [
+      "2026-08-28T21:31:16Z",
+      "2026-08-28T21:36:19Z",
+      "2026-08-28T21:41:22Z"
+    ],
+    "control_unchanged": true,
+    "candidate_unchanged": true,
+    "transition_only_notifications": true,
+    "transition_log_lines": 2,
+    "monitor_no_red_status": true,
+    "control_head": "2c17ae00d9c9b6e057ba36a1766166f7f5549d4c",
+    "control_tree": "c9408b89f994f1f2fc6f57709bebfb11b767209b",
+    "control_refs_sha256": "49cd9e71791b8f5749409a84c4e96365f8251780b40f5e94f64843b14192560a",
+    "control_status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "control_tracked_bytes_sha256": "80e8650bc7136b613684b8f970a5c961c03a656277bbd647bd59733dadae2e89",
+    "control_full_files_sha256": "009c4d97bdc52b3b10e7f4c4a546c602788e743a3cc924e772c56a1cdd84b1b6",
+    "control_symlinks_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "control_file_count": 248,
+    "agentmode_state": "active/running",
+    "integrity_state": "active/exited",
+    "monitor_state": "inactive/dead/success",
+    "service_restarts": 0
+  },
+  "adult_candidate_boundary": {
+    "unit": "tu1nz-adult-commercial-s0.service",
+    "active_state": "inactive",
+    "sub_state": "dead",
+    "unit_file_state": "static",
+    "n_restarts": 0,
+    "never_started": true,
+    "first_start_approved": false,
+    "production_approved": false
+  }
+}
