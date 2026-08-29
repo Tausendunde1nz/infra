@@ -126,15 +126,20 @@ def main() -> int:
             accept_no_swap_risk=arguments.accept_no_swap_risk,
             approved_at=arguments.approved_at,
         )
-        write_private(arguments.output, payload)
         gate.validate_contract(
-            gate.read_json(arguments.output),
+            payload,
             require_approved=arguments.approve_first_start,
             now=(
                 datetime.now(timezone.utc)
                 if arguments.approve_first_start
                 else None
             ),
+        )
+        write_private(arguments.output, payload)
+        gate.validate_contract(
+            gate.read_json(arguments.output),
+            require_approved=arguments.approve_first_start,
+            now=(datetime.now(timezone.utc) if arguments.approve_first_start else None),
         )
     except (gate.GateFailure, OSError, TypeError, ValueError) as error:
         print("FINAL_FIRST_START_CONTRACT_BLOCKED " + str(error))

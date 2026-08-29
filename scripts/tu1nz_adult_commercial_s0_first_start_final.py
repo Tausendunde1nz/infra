@@ -181,6 +181,9 @@ def create_evidence_directory() -> Path:
     if EVIDENCE_PARENT.exists():
         if EVIDENCE_PARENT.is_symlink() or not EVIDENCE_PARENT.is_dir():
             base.fail("EVIDENCE_ROOT_UNSAFE", str(EVIDENCE_PARENT))
+        metadata = EVIDENCE_PARENT.stat()
+        if metadata.st_uid != 0 or metadata.st_gid != 0:
+            base.fail("EVIDENCE_ROOT_OWNER_MISMATCH", str(EVIDENCE_PARENT))
     else:
         EVIDENCE_PARENT.mkdir(mode=0o700)
     os.chmod(EVIDENCE_PARENT, 0o700)
