@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`f80b92d78f710f764d65bec2ef4dd88007cad4e2`, tree
-`b1559ccf80c0044acb6a571fa3546ce93caac693`, on the single rolling branch
+`a50331009d53e4bd6a07a4cf1d91040b5636ff12`, tree
+`683f827e81c306a9ca13e8baf22b0f642a956534`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -115,3 +115,12 @@ legacy in-flight binding, maps the one-credit mock payment to the catalog-bound
 synthetic core evidence, and preserves `AWAITING_PAYMENT` as a presentation
 state over the core target-authorization gate. Arbitrary bindings, X in a paid
 bundle, real payment and external publishers remain rejected.
+
+The first restart probe against that in-flight aggregate then exposed the
+original bootstrap-only `business_rows_zero` condition in the shared runtime
+dependency graph. Runtime and prestart now use a separate bounded reconstruction
+check: exactly one submission owned by the fixed synthetic creator is allowed,
+and every business table exposing a submission or creator key must remain tied
+to that aggregate. Bootstrap and the default verifier still require an empty
+business state. Multiple submissions, a different creator, unsafe content,
+country, target or display shapes, and external destinations remain RED.
