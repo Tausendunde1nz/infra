@@ -1,0 +1,18 @@
+# Commercial S3.1 allowlist target-hash diagnosis
+
+Date: 2026-08-29
+
+The first execution of the hash-bound allowlist repair stopped before the live
+file exchange with `ALLOWLIST_TRANSFORM_DRIFT`. The configured target digest
+had been calculated from a different serialization assumption. The controller
+removed its temporary file on exit; the live allowlist retained its exact old
+SHA-256, no repair evidence was created, and the service remained inactive
+with zero restarts.
+
+A read-only server calculation, without outputting private Telegram IDs,
+confirmed exactly one legacy creator occurrence and one binding. Replacing
+only the equal-length creator UUID in the original bytes produces SHA-256
+`12b5c220c309128fd5607d75bbc066c69721d5e373b8f1e57fe4c108db7a222f`.
+This is the required target because it preserves every other byte, including
+private IDs, roles and formatting. Control, gate and tests bind this corrected
+digest before any retry.

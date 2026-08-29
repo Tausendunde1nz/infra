@@ -84,6 +84,8 @@ implicit takeover, symlink acceptance or broad deletion.
 6. Execute `repair-allowlist` exactly once. It requires the recovery archive and
    exact source SHA-256, preserves the private Telegram IDs and roles byte-for-byte,
    changes only the legacy creator UUID, and atomically installs the exact target hash.
+   The target hash is calculated over the byte-preserving replacement, not a
+   reformatted JSON serialization.
 7. Do not execute `bootstrap-once` again; its `CREATED` evidence is already present.
 8. Execute `verify`; require `S3_BOOTSTRAP_READY`, business rows 0 and external
    targets 0. Before refreshing the result file, preserve the verifier evidence
