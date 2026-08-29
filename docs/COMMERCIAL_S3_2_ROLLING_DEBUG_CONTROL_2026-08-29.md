@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`78aa5d62e6f1f0466c5f30c381a2a35c48ddfd9c`, tree
-`c8446c14c5893a87e41dda051f4a31fac0ae92c6`, on the single rolling branch
+`0f32866cf1d979fb8fd3cf2306767f52e0039194`, tree
+`43883993f6cde52d60a7dbd6dbafc5f1e23864ae`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -95,4 +95,12 @@ bounded reference and metadata validation first, followed by an exact-size
 download, JPEG-boundary check and SHA-256 match. A new Telegram reference alone
 cannot authorize different content, and the internal media identity remains
 manifest-bound. At correction time the journey still contained zero
+submissions, zero payments and zero publications.
+
+The first exact-document retry then reached the S3 metadata envelope and was
+rejected before download because Telegram supplied the backward-compatible
+`thumb` spelling in addition to the current `thumbnail` field. The bound repair
+accepts only those two ignored thumbnail spellings; arbitrary document fields
+remain blocked. Exact size, MIME, JPEG boundary and SHA-256 verification still
+gate the normalized product input. The rejection again created zero
 submissions, zero payments and zero publications.
