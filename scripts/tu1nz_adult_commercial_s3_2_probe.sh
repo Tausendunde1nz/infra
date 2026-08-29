@@ -11,6 +11,8 @@ readonly BASELINE="/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-56-5
 readonly APPLICATION_SHA="9f82e3c682a0f59a4675cca568058a3779a4a4ed"
 readonly APPLICATION_TREE="759cc536298901ae1ee57fa9de3e7ec177d357c3"
 readonly PROBE_CREDENTIAL_ROOT="/run/credentials/$PROBE_SERVICE"
+readonly DISABLED_CONTRACT_SHA="504cd844bba8fe733e2beb8c734f3757c22fea06e3958c8d5cb95f3f00672fef"
+readonly EVIDENCE_PREFIX="/opt/tu1nz_repos/backups/commercial-s3-server-staging/"
 
 fail() {
   printf 'S3_2_PROBE_RED %s\n' "$1" >&2
@@ -56,6 +58,16 @@ require_baseline() {
   (cd "$BASELINE" && sha256sum --check --strict FINAL-SHA256SUMS >/dev/null) || fail "BASELINE_FINAL_HASH_INVALID"
 }
 
+require_evidence() {
+  case "$1" in
+    "${EVIDENCE_PREFIX}"*) ;;
+    *) fail "EVIDENCE_PATH_OUTSIDE_BOUNDARY" ;;
+  esac
+  [ -d "$1" ] || fail "EVIDENCE_PATH_MISSING"
+  [ ! -L "$1" ] || fail "EVIDENCE_PATH_SYMLINK"
+  [ "$(stat -c '%U:%G:%a' "$1")" = "root:root:700" ] || fail "EVIDENCE_PATH_METADATA_DRIFT"
+}
+
 require_active_contract() {
   python3 - "$CONFIG_ROOT/adult-commercial-s3.contract.json" <<'PY' || return 1
 import json
@@ -87,6 +99,74 @@ preflight() {
   require_release "$1" "$2"
   [ ! -e "/run/systemd/transient/$PROBE_SERVICE" ] || fail "STALE_TRANSIENT_PROBE"
   printf '{"ok":true,"safe_code":"S3_2_PROBE_PREFLIGHT_GREEN","service_started":false}\n'
+}
+
+open_window() {
+  require_root
+  require_stopped
+  require_baseline
+  require_release "$1" "$2"
+  local evidence="$3"
+  require_evidence "$evidence"
+  [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "DISABLED_CONTRACT_DRIFT"
+  [ ! -e "$evidence/contract-before.json" ] || fail "WINDOW_ALREADY_PREPARED"
+  install -o root -g root -m 0600 "$CONFIG_ROOT/adult-commercial-s3.contract.json" "$evidence/contract-before.json"
+  local temporary
+  temporary="$(mktemp "$CONFIG_ROOT/.adult-commercial-s3.s3-2.XXXXXX")"
+  trap 'rm -f -- "$temporary"' EXIT
+  python3 - "$CONTROL_ROOT/config/adult-publishing/staging-s3/commercial-s3-staging.disabled.json" "$temporary" "$(basename "$evidence")" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+source, target, identifier = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+value = json.loads(source.read_text(encoding="ascii"))
+now = datetime.now(timezone.utc).replace(microsecond=0)
+value["activation_id"] = "s3-s32-" + identifier.lower()
+value["active"] = True
+value["application_sha"] = "9f82e3c682a0f59a4675cca568058a3779a4a4ed"
+value["application_tree"] = "759cc536298901ae1ee57fa9de3e7ec177d357c3"
+value["decision"] = "GO_FOR_BOUNDED_SERVER_STAGING"
+value["telegram_intake"]["enabled"] = True
+value["telegram_intake"]["expected_bot_id"] = 8729546284
+value["telegram_intake"]["expected_bot_username"] = "TU1NZ_Adult_Test_bot"
+value["window_starts_at"] = now.isoformat().replace("+00:00", "Z")
+value["window_ends_at"] = (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+material = (json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True) + "\n").encode("ascii")
+with target.open("wb") as handle:
+    handle.write(material)
+    handle.flush()
+    os.fsync(handle.fileno())
+PY
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T -- "$temporary" "$CONFIG_ROOT/adult-commercial-s3.contract.json"
+  temporary=""
+  trap - EXIT
+  require_active_contract || fail "ACTIVE_CONTRACT_INVALID"
+  {
+    printf 'opened_at=%s\n' "$(date -u +%FT%TZ)"
+    printf 'active_contract_sha256=%s\n' "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')"
+    printf 'disabled_contract_sha256=%s\n' "$DISABLED_CONTRACT_SHA"
+  } >"$evidence/window-open.txt"
+  chmod 0600 "$evidence/window-open.txt"
+  printf '{"ok":true,"safe_code":"S3_2_DIAGNOSTIC_WINDOW_OPEN","service_started":false}\n'
+}
+
+close_window() {
+  require_root
+  require_stopped
+  local evidence="$1"
+  require_evidence "$evidence"
+  [ -f "$evidence/contract-before.json" ] || fail "CONTRACT_RECOVERY_MISSING"
+  [ "$(sha256sum "$evidence/contract-before.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "CONTRACT_RECOVERY_DRIFT"
+  install -o root -g root -m 0600 "$evidence/contract-before.json" "$CONFIG_ROOT/adult-commercial-s3.contract.json"
+  [ "$(sha256sum "$CONFIG_ROOT/adult-commercial-s3.contract.json" | awk '{print $1}')" = "$DISABLED_CONTRACT_SHA" ] || fail "CONTRACT_RESTORE_FAILED"
+  printf 'closed_at=%s\nrestored_contract_sha256=%s\n' "$(date -u +%FT%TZ)" "$DISABLED_CONTRACT_SHA" >"$evidence/window-close.txt"
+  chmod 0600 "$evidence/window-close.txt"
+  printf '{"ok":true,"safe_code":"S3_2_DIAGNOSTIC_WINDOW_CLOSED","service_started":false}\n'
 }
 
 probe() {
@@ -163,6 +243,14 @@ case "${1:-}" in
   preflight)
     [ "$#" -eq 3 ] || fail "ARGUMENT_COUNT"
     preflight "$2" "$3"
+    ;;
+  open-window)
+    [ "$#" -eq 4 ] || fail "ARGUMENT_COUNT"
+    open_window "$2" "$3" "$4"
+    ;;
+  close-window)
+    [ "$#" -eq 2 ] || fail "ARGUMENT_COUNT"
+    close_window "$2"
     ;;
   probe)
     [ "$#" -eq 3 ] || fail "ARGUMENT_COUNT"

@@ -33,6 +33,12 @@ and state paths. It exits after phase 17 and never begins Telegram polling,
 submission handling, workers, publishing, or READY. It installs no persistent
 unit and performs no daemon reload.
 
+The same controller opens a bounded 30-minute active contract from the
+versioned disabled template, after preserving the exact prior contract in the
+private attempt evidence. `close-window` is permitted only while the service is
+inactive and restores the hash-bound disabled contract. Neither action changes
+the unit or enables a service.
+
 ## Hard product boundary
 
 - one internal allowlisted test account only
