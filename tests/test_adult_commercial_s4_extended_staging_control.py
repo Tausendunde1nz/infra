@@ -68,6 +68,26 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertTrue(all(item == "SYNTHETIC" for item in boundary["publishers"].values()))
         self.assertEqual(self.value["provider_readiness"]["avs"]["primary"], "YOTI")
         self.assertEqual(self.value["provider_readiness"]["payment"]["primary"], "SEGPAY")
+        gate = self.value["external_risk_gate"]
+        self.assertTrue(gate["separate_authorization_required"])
+        self.assertEqual(gate["status"], "STOP_REQUIRED")
+        self.assertIn("REAL_PROVIDER_CREDENTIALS", gate["blocked_capabilities"])
+        self.assertIn("PRODUCTION", gate["blocked_capabilities"])
+
+    def test_two_hour_acceptance_is_exact_and_green(self) -> None:
+        acceptance = self.value["acceptance"]
+        self.assertEqual(acceptance["status"], "GREEN_TWO_HOUR_BOUNDED_STAGING")
+        self.assertEqual(acceptance["sample_count"], 25)
+        self.assertEqual(acceptance["health_red_samples"], 0)
+        self.assertEqual(acceptance["health_yellow_samples"], 0)
+        self.assertEqual(acceptance["restarts_max"], 0)
+        self.assertEqual(acceptance["main_pid_changes"], 0)
+        self.assertEqual(acceptance["network_other_max"], 0)
+        self.assertEqual(acceptance["provider_event_rows"], 0)
+        self.assertEqual(
+            acceptance["evidence_index_sha256"],
+            "3548bc31f478aa7643f339954464814d551904857d408aa549e30bf3d6aa8569",
+        )
 
     def test_runtime_authorization_is_exact_verify_only(self) -> None:
         reference = self.value["runtime_release_authorization"]

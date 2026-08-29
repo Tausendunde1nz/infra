@@ -23,6 +23,11 @@ Current Adult Publishing infrastructure decisions:
   point is versioned before the bounded staging decision. Real provider
   credentials/calls, adult media, payment, publishing, beta and production stay
   closed.
+- `docs/COMMERCIAL_S4_EXTENDED_STAGING_EXECUTION_2026-08-30.md` records the
+  completed two-hour server acceptance: 25/25 GREEN observations, zero restart,
+  zero state growth, zero unexpected network destinations and a fully restored
+  stopped/static service. The next step is an external-risk gate, not provider
+  activation or beta.
 
 - `docs/M1_ADULT_PUBLISHING_PREFLIGHT_EXECUTION_2026-08-26.md` records the
   completed M1 repository/bootstrap preflight.

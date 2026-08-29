@@ -15,6 +15,26 @@
     "repeated_controlled_start_stop_within_window": true,
     "restart_authorized": false
   },
+  "acceptance": {
+    "completed_at": "2026-08-29T22:53:23Z",
+    "database_connections_max": 1,
+    "evidence_index_sha256": "3548bc31f478aa7643f339954464814d551904857d408aa549e30bf3d6aa8569",
+    "evidence_path": "/opt/tu1nz_repos/backups/commercial-s4-extended-staging/20260829T213000Z-s4-extended",
+    "file_descriptors_max": 5,
+    "health_red_samples": 0,
+    "health_yellow_samples": 0,
+    "journal_growth_bytes": 104,
+    "main_pid_changes": 0,
+    "network_other_max": 0,
+    "provider_event_rows": 0,
+    "restarts_max": 0,
+    "rss_kib_average": 64209.12,
+    "rss_kib_peak": 67788,
+    "sample_count": 25,
+    "started_at": "2026-08-29T20:53:23Z",
+    "state_growth_bytes": 0,
+    "status": "GREEN_TWO_HOUR_BOUNDED_STAGING"
+  },
   "backup_and_rollback": {
     "exact_pre_mutation_recovery_point_required": true,
     "index_sha256": "34b9d5019db0ad48df8f73bddd77e079eb515659b9e2fabbd0c49ee7753361d7",
@@ -51,6 +71,23 @@
     "service_restart_counter": true,
     "state_growth": true,
     "telegram_cursor_aggregate_only": true
+  },
+  "external_risk_gate": {
+    "blocked_capabilities": [
+      "ADULT_MEDIA",
+      "CONTROLLED_BETA",
+      "EXTERNAL_PUBLISHING",
+      "FIRST_REAL_AVS_CALL",
+      "FIRST_REAL_PAYMENT_CALL",
+      "IDENTITY_OR_BIOMETRIC_DATA",
+      "OPEN_REGISTRATION",
+      "PRODUCTION",
+      "REAL_MONEY_OR_PAYMENT_INSTRUMENT",
+      "REAL_PROVIDER_CREDENTIALS",
+      "TELEGRAM_STARS"
+    ],
+    "separate_authorization_required": true,
+    "status": "STOP_REQUIRED"
   },
   "product_boundary": {
     "adult_media_enabled": false,
