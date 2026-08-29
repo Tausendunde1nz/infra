@@ -5,8 +5,8 @@ authorized S3.2 window.** The first product acceptance remains limited to one
 harmless submission after `READY + HEALTH GREEN`.
 
 The application target is commit
-`3761ab738bd48be411ac8c6db394cf43748e6dab`, tree
-`b1a977f35b0c8fec81dccc4c8930943c7d8adf21`, on the single rolling branch
+`2132ce99f491048000fcaf137c33424017f255d0`, tree
+`563d65fd573f6ace9c5bb9673c7a6b8e62a90abe`, on the single rolling branch
 `fix/commercial-s3-staging-recovery`. Every installed server delta must bind the
 exact Control commit and tree as external execution inputs.
 
@@ -135,3 +135,11 @@ from an eight-second bounded search. It then replays the otherwise immutable
 command envelope. Rejected receipts, payload changes, actor/revision/key drift,
 and any non-exact hash stay RED. The recovery is read-only and never rewrites or
 deletes durable rows.
+
+The first mock-payment request then failed closed before credit consumption
+because the synthetic policy adapter derived a fingerprinted AVS expiry from
+each new evaluation time. The release now reconstructs that expiry from the
+sealed prior policy timestamp while still evaluating validity against the
+current time. Missing, malformed or future anchors and every actual evidence
+change remain RED. The failed request recorded zero payment, credit, dispatch
+and publication rows.

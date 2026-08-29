@@ -1,7 +1,7 @@
 {
   "active": true,
-  "application_sha": "3761ab738bd48be411ac8c6db394cf43748e6dab",
-  "application_tree": "b1a977f35b0c8fec81dccc4c8930943c7d8adf21",
+  "application_sha": "2132ce99f491048000fcaf137c33424017f255d0",
+  "application_tree": "563d65fd573f6ace9c5bb9673c7a6b8e62a90abe",
   "authorization_version": "tu1nz-commercial-s3-bootstrap-authorization-v1",
   "bootstrap_reference_sha256": "3f7ac26960ac29aea471d33cac634ca1f6e8d572724701cf7fd8268101c0442a",
   "boundaries": {

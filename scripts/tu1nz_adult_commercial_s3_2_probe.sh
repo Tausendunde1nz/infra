@@ -9,13 +9,13 @@ readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-commercial-s3"
 readonly CONFIG_ROOT="/etc/tu1nz"
 readonly BASELINE="/opt/tu1nz_repos/backups/commercial-s3-1-fix/20260829T13-56-54Z"
-readonly APPLICATION_SHA="3761ab738bd48be411ac8c6db394cf43748e6dab"
-readonly APPLICATION_TREE="b1a977f35b0c8fec81dccc4c8930943c7d8adf21"
+readonly APPLICATION_SHA="2132ce99f491048000fcaf137c33424017f255d0"
+readonly APPLICATION_TREE="563d65fd573f6ace9c5bb9673c7a6b8e62a90abe"
 readonly PROBE_CREDENTIAL_ROOT="/run/credentials/$PROBE_SERVICE"
 readonly PRESTART_CREDENTIAL_ROOT="/run/credentials/$PRESTART_SERVICE"
 readonly DISABLED_CONTRACT_SHA="504cd844bba8fe733e2beb8c734f3757c22fea06e3958c8d5cb95f3f00672fef"
 readonly S3_1_BOOTSTRAP_AUTHORIZATION_SHA="a7907f27a52c5992ac30af1c32929b1c3ed2a10f2ba0e74e07577ca835c68fc5"
-readonly S3_2_RUNTIME_AUTHORIZATION_SHA="244048945031def9c18c905b0d7c67c7e4b70708bc2473cd8aab118f2e750d3a"
+readonly S3_2_RUNTIME_AUTHORIZATION_SHA="9a06cfeb37428da15d1c22e0ff539e6f4bbf9eb8edbcac293f41b60eef6e3213"
 readonly EVIDENCE_PREFIX="/opt/tu1nz_repos/backups/commercial-s3-server-staging/"
 
 fail() {
@@ -86,8 +86,8 @@ value = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
 if not (
     value.get("active") is True
     and value.get("decision") == "GO_FOR_BOUNDED_SERVER_STAGING"
-    and value.get("application_sha") == "3761ab738bd48be411ac8c6db394cf43748e6dab"
-    and value.get("application_tree") == "b1a977f35b0c8fec81dccc4c8930943c7d8adf21"
+    and value.get("application_sha") == "2132ce99f491048000fcaf137c33424017f255d0"
+    and value.get("application_tree") == "563d65fd573f6ace9c5bb9673c7a6b8e62a90abe"
     and value.get("telegram_intake", {}).get("enabled") is True
     and value.get("telegram_intake", {}).get("expected_bot_id") == 8729546284
     and value.get("telegram_intake", {}).get("expected_bot_username") == "TU1NZ_Adult_Test_bot"
@@ -144,8 +144,8 @@ value = json.loads(source.read_text(encoding="ascii"))
 now = datetime.now(timezone.utc).replace(microsecond=0)
 value["activation_id"] = "s3-s32-" + identifier.lower()
 value["active"] = True
-value["application_sha"] = "3761ab738bd48be411ac8c6db394cf43748e6dab"
-value["application_tree"] = "b1a977f35b0c8fec81dccc4c8930943c7d8adf21"
+value["application_sha"] = "2132ce99f491048000fcaf137c33424017f255d0"
+value["application_tree"] = "563d65fd573f6ace9c5bb9673c7a6b8e62a90abe"
 value["decision"] = "GO_FOR_BOUNDED_SERVER_STAGING"
 value["telegram_intake"]["enabled"] = True
 value["telegram_intake"]["expected_bot_id"] = 8729546284
