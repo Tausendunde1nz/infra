@@ -8,10 +8,10 @@ readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly CONFIG_ROOT="/etc/tu1nz"
 readonly STATE_ROOT="/var/lib/tausendunde1nz/adult-commercial-s3"
-readonly APPLICATION_SHA="d544a190ffb86ab49fd47e01067ff3750055a0a0"
-readonly APPLICATION_TREE="6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
+readonly APPLICATION_SHA="a745540b81a368b2e5f09d1fcdb49342b686ae0e"
+readonly APPLICATION_TREE="6e7c869d1194b28baad67698a93ab2254b0d8739"
 readonly DISABLED_CONTRACT_SHA="41e5682934cc632b8d00cd0afd542cd823ef3c99f1c9b418efcb01ccd1ad2f23"
-readonly RUNTIME_AUTHORIZATION_SHA="ec04090243f63e53fa3e7aa58c8b956418e46f32f690a90b6a6abe7a93e00282"
+readonly RUNTIME_AUTHORIZATION_SHA="d4e38b9d4d07d539eef49dd2095646e905f00ca214c45095c0cf97eb057d810f"
 readonly PROVIDER_READINESS_SHA="8e3c4513315c5749ec01ec11a87c9adf057ad862631450a36a0319e6192b6bbc"
 readonly BETA_READINESS_SHA="4e43c8cd44969228c2ee8baf1f00d0fb08ed4a2c69047f5eff2c411b9c55ee3c"
 readonly UNIT_SHA="0a746cd03abc07e18e7193dbd00c246ead184717ea8bce83091a301279037cb9"
@@ -145,8 +145,8 @@ if not (
     and value.get("decision") == "GO_FOR_BOUNDED_SERVER_STAGING"
     and value.get("runtime_mode") == "BOUNDED_STAGING"
     and duration_valid
-    and value.get("application_sha") == "d544a190ffb86ab49fd47e01067ff3750055a0a0"
-    and value.get("application_tree") == "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
+    and value.get("application_sha") == "a745540b81a368b2e5f09d1fcdb49342b686ae0e"
+    and value.get("application_tree") == "6e7c869d1194b28baad67698a93ab2254b0d8739"
     and value.get("telegram_intake", {}).get("enabled") is True
     and value.get("telegram_intake", {}).get("expected_bot_id") == 8729546284
     and value.get("telegram_intake", {}).get("expected_bot_username") == "TU1NZ_Adult_Test_bot"
@@ -209,8 +209,8 @@ value = json.loads(source.read_text(encoding="ascii"))
 now = datetime.now(timezone.utc).replace(microsecond=0)
 value["activation_id"] = "s4-" + identifier.lower()
 value["active"] = True
-value["application_sha"] = "d544a190ffb86ab49fd47e01067ff3750055a0a0"
-value["application_tree"] = "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
+value["application_sha"] = "a745540b81a368b2e5f09d1fcdb49342b686ae0e"
+value["application_tree"] = "6e7c869d1194b28baad67698a93ab2254b0d8739"
 value["decision"] = "GO_FOR_BOUNDED_SERVER_STAGING"
 value["runtime_mode"] = "BOUNDED_STAGING"
 value["telegram_intake"]["enabled"] = True

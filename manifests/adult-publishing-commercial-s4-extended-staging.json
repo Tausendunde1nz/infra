@@ -1,9 +1,9 @@
 {
   "application": {
-    "branch": "feat/commercial-s4-provider-beta-readiness",
+    "branch": "main",
     "repository": "Tausendunde1nz/adult-publishing-core",
-    "sha": "d544a190ffb86ab49fd47e01067ff3750055a0a0",
-    "tree": "6492a0cc6efcfaca8d8c8fd19e38ccb770f9c85a"
+    "sha": "a745540b81a368b2e5f09d1fcdb49342b686ae0e",
+    "tree": "6e7c869d1194b28baad67698a93ab2254b0d8739"
   },
   "authorization": {
     "bounded_staging_authorized": true,
@@ -48,8 +48,8 @@
     "repository": "Tausendunde1nz/infra"
   },
   "database": {
-    "migration_chain_sha256": "2a7763b33834493ca612f06b9762a3b00fef9f6af042154bba7918f624c32dae",
-    "schema": "0018_commercial_s4_provider_beta_readiness"
+    "migration_chain_sha256": "2feab99548eae5c2ae571ec45974cd196dfc3a3d4a316011ee3e4abbd3f83802",
+    "schema": "0019_commercial_s4_runtime_evidence_grants"
   },
   "decision": "GO_FOR_BOUNDED_SERVER_STAGING",
   "evidence": {
@@ -123,7 +123,7 @@
   "runtime_release_authorization": {
     "decision": "GO_FOR_RUNTIME_RELEASE_VERIFY_ONLY",
     "path": "config/adult-publishing/staging-s3/commercial-s4-runtime-release-authorization.json",
-    "sha256": "ec04090243f63e53fa3e7aa58c8b956418e46f32f690a90b6a6abe7a93e00282",
+    "sha256": "d4e38b9d4d07d539eef49dd2095646e905f00ca214c45095c0cf97eb057d810f",
     "service_start_authorized": false,
     "single_bootstrap_authorized": false
   },
