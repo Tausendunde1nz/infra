@@ -116,7 +116,14 @@ Current Adult Publishing infrastructure decisions:
   maintenance scripts and three hardened units remove every known automatic
   Control mutator. Remote drift is observed without local ref updates, all
   runtime state lives outside Control, and the Adult Candidate remains
-  never-started. PR #38 remains Draft and unmerged.
+  never-started. PR #38 was integrated by merge commit and the server Control
+  checkout was advanced by the separately authorized Control-only fast-forward.
+- `docs/FINAL_FIRST_START_READINESS_2026-08-29.md`, the final contract builder,
+  validator and controller close the technical gap between historical M4.24
+  bindings and the installed M4.25 release. Runtime authorization is external,
+  root-private, evidence-bound and remains `NO_GO` until the operator atomically
+  accepts the bounded no-swap risk and approves exactly one network-free,
+  synthetic first start. No start is performed by the readiness sprint.
 - `docs/M3_9_PERSISTENT_TELEGRAM_STAGING_S1_2026-08-27.md` defines the dedicated
   synthetic-only persistent Telegram environment, immutable paths, backup,
   release gate, activation sequence and rollback.
