@@ -24,11 +24,11 @@ class CommercialS32RollingDebugControlTests(unittest.TestCase):
         )
         self.assertEqual(
             self.value["application"]["sha"],
-            "d7e78201f06ec493e7ecabcb4b624e5f92c9abf9",
+            "1743d4bf94a3f722648e206827da640980394613",
         )
         self.assertEqual(
             self.value["application"]["tree"],
-            "81f28d53b2595b88ad1a48cba68378e680b8abbd",
+            "1608979ac1c55903dad04cb26e9e3a6476b50611",
         )
         self.assertEqual(self.value["application"]["branch"], "fix/commercial-s3-staging-recovery")
         self.assertEqual(self.value["control"]["branch"], "fix/commercial-s3-staging-recovery")
