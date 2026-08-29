@@ -12,13 +12,19 @@ fail() {
 }
 
 [ "$(id -u)" -eq 0 ] || fail "ROOT_REQUIRED"
-[ "$#" -eq 1 ] || fail "USAGE"
-readonly BACKUP_PATH="$1"
+if [ "$#" -eq 2 ] && [ "$1" = "verify-existing" ]; then
+  readonly ACTION="verify-existing"
+  readonly BACKUP_PATH="$2"
+elif [ "$#" -eq 1 ]; then
+  readonly ACTION="create"
+  readonly BACKUP_PATH="$1"
+else
+  fail "USAGE"
+fi
 case "$BACKUP_PATH" in
   "${BACKUP_PREFIX}"*) ;;
   *) fail "BACKUP_PATH_OUTSIDE_BOUNDARY" ;;
 esac
-[ ! -e "$BACKUP_PATH" ] || fail "BACKUP_PATH_EXISTS"
 [ "$(systemctl show "$SERVICE" -p ActiveState --value)" = "inactive" ] || fail "SERVICE_NOT_INACTIVE"
 [ "$(systemctl show "$SERVICE" -p SubState --value)" = "dead" ] || fail "SERVICE_NOT_DEAD"
 [ "$(systemctl show "$SERVICE" -p MainPID --value)" = "0" ] || fail "SERVICE_PROCESS_PRESENT"
@@ -27,6 +33,28 @@ esac
 [ "$(systemctl is-enabled "$SERVICE" 2>/dev/null || true)" = "static" ] || fail "SERVICE_ENABLEMENT_DRIFT"
 [ -z "$(runuser -u chatops -- git -C "$APPLICATION_ROOT" status --porcelain)" ] || fail "APPLICATION_DIRTY"
 [ -z "$(runuser -u chatops -- git -C "$CONTROL_ROOT" status --porcelain)" ] || fail "CONTROL_DIRTY"
+
+if [ "$ACTION" = "verify-existing" ]; then
+  [ -d "$BACKUP_PATH" ] || fail "BACKUP_PATH_MISSING"
+  [ ! -L "$BACKUP_PATH" ] || fail "BACKUP_PATH_SYMLINK"
+  [ "$(stat -c '%U:%G' "$BACKUP_PATH")" = "root:root" ] || fail "BACKUP_OWNERSHIP_DRIFT"
+  case "$(stat -c '%a' "$BACKUP_PATH")" in
+    700|2700) ;;
+    *) fail "BACKUP_MODE_DRIFT" ;;
+  esac
+  [ -f "$BACKUP_PATH/SHA256SUMS" ] || fail "BACKUP_HASH_INDEX_MISSING"
+  (cd "$BACKUP_PATH" && sha256sum --check --strict SHA256SUMS >/dev/null) || fail "BACKUP_HASH_INVALID"
+  [ ! -s "$BACKUP_PATH/application-status.txt" ] || fail "APPLICATION_STATUS_NOT_CLEAN"
+  [ ! -s "$BACKUP_PATH/control-status.txt" ] || fail "CONTROL_STATUS_NOT_CLEAN"
+  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle verify "$BACKUP_PATH/application.bundle" >/dev/null
+  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle verify "$BACKUP_PATH/control.bundle" >/dev/null
+  pg_restore --list "$BACKUP_PATH/database-before.dump" >/dev/null
+  printf '{"ok":true,"safe_code":"S4_PRE_MUTATION_BACKUP_EXISTING_GREEN","path":"%s","index_sha256":"%s"}\n' \
+    "$BACKUP_PATH" "$(sha256sum "$BACKUP_PATH/SHA256SUMS" | awk '{print $1}')"
+  exit 0
+fi
+
+[ ! -e "$BACKUP_PATH" ] || fail "BACKUP_PATH_EXISTS"
 [ "$(find /etc/tu1nz -maxdepth 1 -type f -name 'adult-commercial-s3.*' | wc -l)" -ge 7 ] || fail "CONFIGURATION_SET_INCOMPLETE"
 
 install -d -o root -g root -m 0700 "${BACKUP_PATH%/*}" "$BACKUP_PATH"
@@ -73,6 +101,9 @@ git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle verify "
 git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle verify "$BACKUP_PATH/control.bundle" >/dev/null
 pg_restore --list "$BACKUP_PATH/database-before.dump" >/dev/null
 [ "$(stat -c '%U:%G' "$BACKUP_PATH")" = "root:root" ] || fail "BACKUP_OWNERSHIP_DRIFT"
-[ "$(stat -c '%a' "$BACKUP_PATH")" = "700" ] || fail "BACKUP_MODE_DRIFT"
+case "$(stat -c '%a' "$BACKUP_PATH")" in
+  700|2700) ;;
+  *) fail "BACKUP_MODE_DRIFT" ;;
+esac
 printf '{"ok":true,"safe_code":"S4_PRE_MUTATION_BACKUP_GREEN","path":"%s","index_sha256":"%s"}\n' \
   "$BACKUP_PATH" "$(sha256sum "$BACKUP_PATH/SHA256SUMS" | awk '{print $1}')"

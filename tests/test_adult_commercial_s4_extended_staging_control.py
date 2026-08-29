@@ -145,6 +145,8 @@ class CommercialS4ExtendedStagingControlTests(unittest.TestCase):
         self.assertIn("find . -maxdepth 1 -type f -name 'adult-commercial-s3.*' -print0", source)
         self.assertIn("tar --null -T -", source)
         self.assertIn("chmod 0700", source)
+        self.assertIn("verify-existing", source)
+        self.assertIn("700|2700", source)
         self.assertIn("sha256sum --check --strict", source)
         self.assertIn("bundle verify", source)
         self.assertIn("pg_restore --list", source)

@@ -22,9 +22,11 @@ The S4 installation source `systemd/tu1nz-adult-commercial-s4.service` replaces 
 
 ## Backup and rollback
 
-Before any server delta, create a root-owned `0700` recovery point below `/opt/tu1nz_repos/backups/commercial-s4-extended-staging/`. It must contain Git provenance/bundles, current configuration and unit copies, a PostgreSQL dump, state and log metadata, and strict SHA-256 indexes. Restore instructions must be verified without starting the service.
+Before any server delta, create a root-owned `0700` or setgid-only `2700` recovery point below `/opt/tu1nz_repos/backups/commercial-s4-extended-staging/`. Both accepted modes grant no group or other access. It must contain Git provenance/bundles, current configuration and unit copies, a PostgreSQL dump, state and log metadata, and strict SHA-256 indexes. Restore instructions must be verified without starting the service.
 
 The first attempt at `20260829T202100Z-pre-mutation` is intentionally retained as incomplete evidence and is not a recovery point. `analysis/COMMERCIAL_S4_BACKUP_CONFIG_ARCHIVE_2026-08-29.diagnose` records the fail-closed tar-pattern and inherited-mode findings. Only a fresh path produced by `scripts/tu1nz_adult_commercial_s4_backup.sh` and verified by its strict index may be bound into the manifest.
+
+The completed `20260829T202700Z-pre-mutation` attempt initially stopped only at the overly narrow `0700` final-mode assertion. `analysis/COMMERCIAL_S4_BACKUP_SETGID_MODE_2026-08-29.diagnose` records why root-owned `2700` is safe under this setgid backup hierarchy. The versioned read-only `verify-existing` action must revalidate it before binding.
 
 Rollback is: stop the static service; restore the previous unit, disabled contract and runtime authorization; restore the database dump only if migration rollback is required; restore the previous application and Control Git commits; run `daemon-reload`; verify inactive/dead/static, `Restart=no`, `NRestarts=0`, and the prior release hashes. Rollback never starts or enables the service.
 

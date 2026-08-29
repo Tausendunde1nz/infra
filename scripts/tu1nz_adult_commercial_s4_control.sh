@@ -58,7 +58,10 @@ require_backup() {
   [ -d "$1" ] || fail "BACKUP_PATH_MISSING"
   [ ! -L "$1" ] || fail "BACKUP_PATH_SYMLINK"
   [ "$(stat -c '%U:%G' "$1")" = "root:root" ] || fail "BACKUP_OWNERSHIP_DRIFT"
-  [ "$(stat -c '%a' "$1")" = "700" ] || fail "BACKUP_MODE_DRIFT"
+  case "$(stat -c '%a' "$1")" in
+    700|2700) ;;
+    *) fail "BACKUP_MODE_DRIFT" ;;
+  esac
   [ -f "$1/SHA256SUMS" ] || fail "BACKUP_HASH_INDEX_MISSING"
   (cd "$1" && sha256sum --check --strict SHA256SUMS >/dev/null) || fail "BACKUP_HASH_INVALID"
 }
@@ -71,7 +74,10 @@ require_evidence() {
   [ -d "$1" ] || fail "EVIDENCE_PATH_MISSING"
   [ ! -L "$1" ] || fail "EVIDENCE_PATH_SYMLINK"
   [ "$(stat -c '%U:%G' "$1")" = "root:root" ] || fail "EVIDENCE_OWNERSHIP_DRIFT"
-  [ "$(stat -c '%a' "$1")" = "700" ] || fail "EVIDENCE_MODE_DRIFT"
+  case "$(stat -c '%a' "$1")" in
+    700|2700) ;;
+    *) fail "EVIDENCE_MODE_DRIFT" ;;
+  esac
 }
 
 require_installed_release_files() {
