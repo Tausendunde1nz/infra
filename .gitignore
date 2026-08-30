@@ -51,6 +51,9 @@
 !scripts/tu1nz_adult_commercial_s4_observe.py
 !scripts/tu1nz_adult_commercial_s4_backup.sh
 !scripts/tu1nz_adult_commercial_s5_s6_offline_stage.sh
+!scripts/tu1nz_adult_public_s8_control.sh
+!scripts/tu1nz_adult_public_s8_backup.sh
+!scripts/tu1nz_adult_public_s8_health.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -66,6 +69,9 @@
 !systemd/tu1nz-adult-commercial-s3.service
 !systemd/tu1nz-adult-commercial-s3-s3-1.service
 !systemd/tu1nz-adult-commercial-s4.service
+!systemd/tu1nz-adult-public-s8-telegram.service
+!systemd/tu1nz-adult-public-s8-health.service
+!systemd/tu1nz-adult-public-s8-health.timer
 !systemd/tu1nz_agentmode.service
 !systemd/tu1nz_integrity.service
 !systemd/tu1nz_monitor.service
@@ -104,6 +110,7 @@
 !manifests/adult-publishing-commercial-s3-2-rolling-debug.json
 !manifests/adult-publishing-commercial-s4-extended-staging.json
 !manifests/adult-publishing-commercial-s5-s6-offline-staging.json
+!manifests/adult-publishing-commercial-s8-public-telegram-early-access.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -149,6 +156,7 @@
 !tests/test_adult_commercial_s3_2_rolling_debug_control.py
 !tests/test_adult_commercial_s4_extended_staging_control.py
 !tests/test_adult_commercial_s5_s6_offline_staging.py
+!tests/test_adult_commercial_s8_public_telegram_early_access.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose

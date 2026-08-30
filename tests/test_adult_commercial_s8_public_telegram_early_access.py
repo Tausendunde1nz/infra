@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import py_compile
+import re
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "manifests/adult-publishing-commercial-s8-public-telegram-early-access.json"
+CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s8_control.sh"
+BACKUP = ROOT / "scripts/tu1nz_adult_public_s8_backup.sh"
+HEALTH = ROOT / "scripts/tu1nz_adult_public_s8_health.py"
+UNIT = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service"
+HEALTH_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-health.service"
+HEALTH_TIMER = ROOT / "systemd/tu1nz-adult-public-s8-health.timer"
+
+
+class CommercialS8PublicTelegramControlTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.value = json.loads(MANIFEST.read_text(encoding="ascii"))
+
+    def test_release_is_exactly_bound(self) -> None:
+        application = self.value["application"]
+        self.assertRegex(application["commit"], r"^[0-9a-f]{40}$")
+        self.assertRegex(application["tree"], r"^[0-9a-f]{40}$")
+        self.assertEqual(application["schema"], "0022_commercial_s8_public_telegram_early_access")
+        self.assertEqual(
+            application["migration_chain_sha256"],
+            "536e243096edff47035aa01a650cb857aa2af2b0defb47e8c92749d2dabb2fc6",
+        )
+        controller = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn(f'readonly TARGET_SHA="{application["commit"]}"', controller)
+        self.assertIn(f'readonly TARGET_TREE="{application["tree"]}"', controller)
+
+    def test_product_boundary_and_state_cap_are_fail_closed(self) -> None:
+        self.assertTrue(all(value is False for value in self.value["product_boundary"].values()))
+        self.assertEqual(self.value["data"]["maximum_automated_state"], "WAITLISTED")
+        authorization = self.value["authorization"]
+        self.assertTrue(authorization["dedicated_public_bot_authorized"])
+        self.assertTrue(authorization["automated_waitlist_authorized"])
+        for key in (
+            "adult_media_authorized",
+            "avs_authorized",
+            "controlled_beta_authorized",
+            "creator_invite_authorized",
+            "payment_authorized",
+            "production_adult_workflow_authorized",
+            "publishing_authorized",
+            "real_submission_authorized",
+        ):
+            self.assertFalse(authorization[key])
+
+    def test_bot_is_dedicated_private_and_has_no_media_capability(self) -> None:
+        bot = self.value["bot"]
+        self.assertTrue(bot["dedicated"])
+        self.assertTrue(bot["private_chats_only"])
+        self.assertTrue(bot["group_joining_disabled_required"])
+        self.assertFalse(bot["media_download_capability"])
+        self.assertFalse(bot["webhook_allowed"])
+        self.assertEqual(bot["token_storage"], "SYSTEMD_LOAD_CREDENTIAL_ONLY")
+
+    def test_landing_and_legal_are_consistently_bound(self) -> None:
+        landing = self.value["landing"]
+        self.assertEqual(
+            landing["deep_link"],
+            f'https://t.me/{self.value["bot"]["username"]}?start=landing_s8_launch',
+        )
+        self.assertFalse(landing["legacy_web_waitlist_open"])
+        self.assertFalse(self.value["legal"]["age_declaration_is_avs"])
+        self.assertEqual(self.value["legal"]["privacy_version"], "s8-privacy-v1")
+        self.assertEqual(self.value["legal"]["terms_version"], "s8-terms-v1")
+
+    def test_notification_engine_is_opt_in_bounded_and_not_manual(self) -> None:
+        notifications = self.value["notifications"]
+        self.assertFalse(notifications["default_opt_in"])
+        self.assertFalse(notifications["manual_individual_delivery"])
+        self.assertTrue(notifications["opt_out_filtering"])
+        self.assertTrue(notifications["provider_neutral_queue"])
+        self.assertTrue(notifications["retry_after_bounded"])
+        self.assertLessEqual(notifications["maximum_attempts"], 5)
+
+    def test_all_installed_material_is_hash_bound(self) -> None:
+        expected = {
+            CONTROLLER: self.value["files"]["controller_sha256"],
+            BACKUP: self.value["files"]["backup_script_sha256"],
+            HEALTH: self.value["files"]["health_script_sha256"],
+            UNIT: self.value["files"]["service_unit_sha256"],
+            HEALTH_UNIT: self.value["files"]["health_service_sha256"],
+            HEALTH_TIMER: self.value["files"]["health_timer_sha256"],
+        }
+        for path, digest in expected.items():
+            with self.subTest(path=path):
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
+
+    def test_service_is_hardened_and_uses_loadcredential(self) -> None:
+        source = UNIT.read_text(encoding="utf-8")
+        self.assertIn("LoadCredential=s8_telegram_token:", source)
+        self.assertIn("LoadCredential=s8_database_dsn:", source)
+        self.assertIn("NoNewPrivileges=true", source)
+        self.assertIn("ProtectSystem=strict", source)
+        self.assertIn("MemoryDenyWriteExecute=true", source)
+        self.assertNotIn("Environment=", source)
+        self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
+
+    def test_health_is_automated_privacy_safe_and_has_no_cron(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            py_compile.compile(str(HEALTH), cfile=str(Path(temporary) / "health.pyc"), doraise=True)
+        source = HEALTH.read_text(encoding="utf-8")
+        timer = HEALTH_TIMER.read_text(encoding="utf-8")
+        health_unit = HEALTH_UNIT.read_text(encoding="utf-8")
+        self.assertIn("S8_PUBLIC_TELEGRAM_HEALTH_GREEN", source)
+        self.assertIn("queue_failed", source)
+        self.assertNotIn("telegram_user_id", source)
+        self.assertNotIn("private_chat_id", source)
+        self.assertIn("OnUnitActiveSec=5min", timer)
+        self.assertIn("Persistent=true", timer)
+        self.assertNotIn("cron", timer.lower())
+        self.assertIn("LoadCredential=s8_telegram_token:", health_unit)
+
+    def test_controller_is_backup_first_reversible_and_bounded(self) -> None:
+        source = CONTROLLER.read_text(encoding="utf-8")
+        completed = subprocess.run(["bash", "-n", CONTROLLER], capture_output=True, text=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        for expected in (
+            "require_backup",
+            "require_adult_runtime_closed",
+            "require_bot_secret",
+            "0022_commercial_s8_public_telegram_early_access.sql",
+            "systemd-analyze verify",
+            "configure_bot",
+            "kill-switch",
+            "set_runtime_control false",
+            "abort_deploy",
+            "rollback",
+            "waitlist_data_preserved",
+        ):
+            self.assertIn(expected, source)
+        self.assertNotIn("rm -rf", source)
+        self.assertNotIn("git reset", source)
+        self.assertNotIn("git clean", source)
+        self.assertNotIn("getFile", source)
+        self.assertNotIn("api.x.com", source)
+        self.assertNotIn("reddit.com", source)
+        self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
+
+    def test_backup_covers_repositories_database_units_and_secret_metadata_only(self) -> None:
+        source = BACKUP.read_text(encoding="utf-8")
+        completed = subprocess.run(["bash", "-n", BACKUP], capture_output=True, text=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        for expected in (
+            "application.bundle",
+            "control.bundle",
+            "database-before.dump",
+            "public-configuration-before.tar",
+            "public-units-before.tar",
+            "credential-metadata-before.txt",
+            "sha256sum --check --strict",
+            "pg_restore --list",
+        ):
+            self.assertIn(expected, source)
+        self.assertNotIn("adult-commercial-s8-telegram.token' -print0", source)
+        self.assertNotIn("rm -rf", source)
+
+    def test_kill_switch_needs_no_deployment_and_preserves_data(self) -> None:
+        switch = self.value["kill_switch"]
+        self.assertTrue(switch["database_backed"])
+        self.assertFalse(switch["deployment_required"])
+        self.assertTrue(switch["blocks_new_waitlist_joins"])
+        self.assertTrue(switch["blocks_new_broadcasts"])
+        self.assertTrue(switch["preserves_existing_waitlist"])
+
+
+if __name__ == "__main__":
+    unittest.main()

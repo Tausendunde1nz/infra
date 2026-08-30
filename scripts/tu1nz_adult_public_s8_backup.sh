@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
+readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
+readonly DATABASE="tu1nz_adult_commercial_s3"
+readonly S7_SERVICE="tu1nz-adult-public-s7.service"
+readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
+readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
+
+fail() {
+  printf 'S8_BACKUP_RED %s\n' "$1" >&2
+  exit 2
+}
+
+service_state() {
+  local service="$1"
+  systemctl show "$service" -p ActiveState --value 2>/dev/null || printf 'not-found\n'
+}
+
+verify_backup() {
+  local path="$1"
+  [ -d "$path" ] || fail "BACKUP_PATH_MISSING"
+  [ ! -L "$path" ] || fail "BACKUP_PATH_SYMLINK"
+  [ "$(stat -c '%U:%G' "$path")" = "root:root" ] || fail "BACKUP_OWNERSHIP_DRIFT"
+  case "$(stat -c '%a' "$path")" in
+    700|2700) ;;
+    *) fail "BACKUP_MODE_DRIFT" ;;
+  esac
+  [ -f "$path/SHA256SUMS" ] || fail "BACKUP_HASH_INDEX_MISSING"
+  (cd "$path" && sha256sum --check --strict SHA256SUMS >/dev/null) || fail "BACKUP_HASH_INVALID"
+  [ ! -s "$path/application-status.txt" ] || fail "APPLICATION_STATUS_NOT_CLEAN"
+  [ ! -s "$path/control-status.txt" ] || fail "CONTROL_STATUS_NOT_CLEAN"
+  [ -z "$(find "$path" -maxdepth 1 -type f -iname '*token*' -print -quit)" ] || fail "SECRET_MATERIAL_IN_BACKUP"
+  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle verify "$path/application.bundle" >/dev/null
+  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle verify "$path/control.bundle" >/dev/null
+  pg_restore --list "$path/database-before.dump" >/dev/null
+}
+
+[ "$(id -u)" -eq 0 ] || fail "ROOT_REQUIRED"
+if [ "$#" -eq 2 ] && [ "$1" = "verify-existing" ]; then
+  readonly ACTION="verify"
+  readonly BACKUP_PATH="$2"
+elif [ "$#" -eq 2 ] && [ "$1" = "create" ]; then
+  readonly ACTION="create"
+  readonly BACKUP_PATH="$2"
+else
+  fail "USAGE"
+fi
+case "$BACKUP_PATH" in
+  "${BACKUP_PREFIX}"*) ;;
+  *) fail "BACKUP_PATH_OUTSIDE_BOUNDARY" ;;
+esac
+[ -z "$(runuser -u chatops -- git -C "$APPLICATION_ROOT" status --porcelain)" ] || fail "APPLICATION_DIRTY"
+[ -z "$(runuser -u chatops -- git -C "$CONTROL_ROOT" status --porcelain)" ] || fail "CONTROL_DIRTY"
+
+if [ "$ACTION" = "verify" ]; then
+  verify_backup "$BACKUP_PATH"
+  printf '{"ok":true,"safe_code":"S8_BACKUP_EXISTING_GREEN","path":"%s","index_sha256":"%s"}\n' \
+    "$BACKUP_PATH" "$(sha256sum "$BACKUP_PATH/SHA256SUMS" | awk '{print $1}')"
+  exit 0
+fi
+
+[ "$(service_state "$S7_SERVICE")" = "active" ] || fail "S7_SERVICE_NOT_ACTIVE"
+[ ! -e "$BACKUP_PATH" ] || fail "BACKUP_PATH_EXISTS"
+install -d -o root -g root -m 0700 "${BACKUP_PATH%/*}" "$BACKUP_PATH"
+git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle create "$BACKUP_PATH/application.bundle" --all
+git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle create "$BACKUP_PATH/control.bundle" --all
+git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/application-provenance.txt"
+git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/control-provenance.txt"
+git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" status --porcelain=v1 >"$BACKUP_PATH/application-status.txt"
+git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" status --porcelain=v1 >"$BACKUP_PATH/control-status.txt"
+runuser -u postgres -- pg_dump -Fc "$DATABASE" >"$BACKUP_PATH/database-before.dump"
+cp --archive /etc/nginx/sites-enabled/tu1nz.conf "$BACKUP_PATH/nginx-enabled-before.conf"
+cp --archive /etc/nginx/sites-available/tu1nz.conf "$BACKUP_PATH/nginx-available-before.conf"
+(
+  cd /etc/tu1nz
+  find . -maxdepth 1 -type f \
+    \( -name 'adult-commercial-s7-public.json' -o -name 'adult-commercial-s8-public-telegram.json' -o -name 'adult-commercial-s8-copy.json' \) \
+    -print0 | sort -z | tar --null -T - -cpf "$BACKUP_PATH/public-configuration-before.tar"
+)
+(
+  cd /etc/systemd/system
+  find . -maxdepth 1 -type f \
+    \( -name 'tu1nz-adult-public-s7*' -o -name 'tu1nz-adult-public-s8*' \) \
+    -print0 | sort -z | tar --null -T - -cpf "$BACKUP_PATH/public-units-before.tar"
+)
+systemctl show "$S7_SERVICE" >"$BACKUP_PATH/s7-service-before.txt" 2>/dev/null || true
+systemctl show "$S8_SERVICE" >"$BACKUP_PATH/s8-service-before.txt" 2>/dev/null || true
+if [ -e /etc/tu1nz/adult-commercial-s8-telegram.token ]; then
+  stat --printf='owner=%U:%G\nmode=%a\nsize=%s\ntype=%F\nlinks=%h\n' \
+    /etc/tu1nz/adult-commercial-s8-telegram.token >"$BACKUP_PATH/credential-metadata-before.txt"
+else
+  printf 'absent=true\n' >"$BACKUP_PATH/credential-metadata-before.txt"
+fi
+printf '%s\n' \
+  "Close the database kill switch before rollback: public, joins and notifications false." \
+  "Stop and disable the S8 service and health timer; preserve S8 database records." \
+  "Verify SHA256SUMS before any restore." \
+  "Restore Git objects from the bundles to the recorded commits." \
+  "Restore the public configuration and units archive without restoring any credential." \
+  "Restore the database only after a separate destructive rollback decision." \
+  >"$BACKUP_PATH/RESTORE.txt"
+find "$BACKUP_PATH" -maxdepth 1 -type f -exec chmod 0600 {} +
+(
+  cd "$BACKUP_PATH"
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+    | sort -z | xargs -0 sha256sum >SHA256SUMS
+  chmod 0600 SHA256SUMS
+)
+verify_backup "$BACKUP_PATH"
+printf '{"ok":true,"safe_code":"S8_BACKUP_GREEN","path":"%s","index_sha256":"%s"}\n' \
+  "$BACKUP_PATH" "$(sha256sum "$BACKUP_PATH/SHA256SUMS" | awk '{print $1}')"
