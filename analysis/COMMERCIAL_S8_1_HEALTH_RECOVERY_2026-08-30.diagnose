@@ -1,0 +1,40 @@
+# Commercial S8.1 health diagnosis and recovery
+
+## Safe state after the first deploy
+
+- S7 remained active and healthy.
+- S8 was stopped and disabled by the fail-closed controller.
+- The Application checkout returned to `935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4`.
+- The verified pre-deploy backup remained available.
+- Adult media, AVS, payment, publishing and the production Adult workflow remained closed.
+
+## Instrumentation defect
+
+The first S8 health wrapper collapsed every subprocess, JSON, Telegram, database,
+polling and product-boundary failure into `S8_PUBLIC_TELEGRAM_HEALTH_RED`. This
+prevented an exact privacy-safe diagnosis and made bounded Telegram calls appear
+like an indefinite wait.
+
+## Locally reproduced root-cause candidate
+
+The S8 notification runtime locks and materializes a due broadcast and therefore
+executes `UPDATE commercial_s8_broadcasts`. Migration 0022 granted the runtime
+role only `SELECT` on that table. A PostgreSQL 17 acceptance using the actual
+`tu1nz_adult_commercial_s3_runtime` role reproduces the missing capability. A
+new reversible migration grants only the missing table-level `UPDATE` privilege.
+
+The server-side component probe must still prove the same failure before that
+migration is applied. Until that proof and a green post-migration probe exist,
+the exact server root cause remains pending and S8 remains closed.
+
+## Recovery controls
+
+- Every component emits status, timestamps, elapsed time, safe reason, safe
+  exception type, errno/SQLSTATE when available and retryability.
+- Telegram identity, webhook and command checks are bounded to six seconds and
+  run concurrently within one probe process.
+- Prestart uses rollback-only waitlist, analytics and kill-switch transactions.
+- Runtime readiness is emitted only after one complete polling, database,
+  notifier and queue cycle.
+- S8 uses inactive -> start -> health -> stop on failure. No restart is used.
+- S7 is not restarted during diagnosis or S8 recovery staging.

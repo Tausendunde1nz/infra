@@ -6,20 +6,24 @@ readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly S7_SERVICE="tu1nz-adult-public-s7.service"
 readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
+readonly PROBE_SERVICE="tu1nz-adult-public-s8-probe.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s8-health.service"
 readonly HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
 readonly APPLICATION_BRANCH="feat/commercial-s8-public-telegram-early-access"
 readonly SOURCE_SHA="935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4"
 readonly SOURCE_TREE="29679c2029d40eefce7dbd3857c5cf4e1f129013"
-readonly TARGET_SHA="383bb52a20cdb87c1b8d79a614e61e20e31e23a6"
-readonly TARGET_TREE="748b749523b2f15dfa6a87830f316f682bb5768f"
-readonly MIGRATION_CHAIN_SHA="536e243096edff47035aa01a650cb857aa2af2b0defb47e8c92749d2dabb2fc6"
+readonly TARGET_SHA="7acb426f8f63bde7eada0b388c6c6d19bc5d4e29"
+readonly TARGET_TREE="ef258a2d23e287854580b2b98171b2078ed3eafd"
+readonly MIGRATION_CHAIN_SHA="b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8"
 readonly MIGRATION_SHA="5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6"
+readonly RECOVERY_MIGRATION_SHA="feb157b5625113a3c4774b570d8a73265356a87c5fe70d491c36b5b7a25a6691"
 readonly S7_CONTRACT_SHA="a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802"
 readonly S8_CONTRACT_SHA="2a2bf47221b9ef708c07e30af7f3b726b402726e04e81f158585bf3052425e58"
 readonly COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"
 readonly UNIT_SHA="e17604818a7ca1e0eb37ca90f2602afb9650b0fe41c14b2fc32b878c16a058a1"
-readonly HEALTH_SCRIPT_SHA="285ec99c8f19a68dd94ea3b4b39c70497c5b5c13581eacf60f9faf72cfc38b98"
+readonly HEALTH_SCRIPT_SHA="d28c7270757c73017a3015b68fb741b33e8af98ab605dda9a32962613b193f4f"
+readonly HEALTH_UNIT_SHA="292284dde579f533bbbc7b6e7d0ed0304c6cedf9a3131040ff2bea0134af6767"
+readonly PROBE_UNIT_SHA="8135714e7c4ff952dd90fc9e4a66678138bf79fe2fb642781f4bed610d6d2665"
 readonly TOKEN_PATH="/etc/tu1nz/adult-commercial-s8-telegram.token"
 readonly DATABASE_DSN_PATH="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
@@ -111,11 +115,14 @@ PY
 
 require_source_hashes() {
   [ "$(sha256sum "$APPLICATION_ROOT/migrations/0022_commercial_s8_public_telegram_early_access.sql" | awk '{print $1}')" = "$MIGRATION_SHA" ] || fail "MIGRATION_0022_DRIFT"
+  [ "$(sha256sum "$APPLICATION_ROOT/migrations/0023_commercial_s8_health_recovery.sql" | awk '{print $1}')" = "$RECOVERY_MIGRATION_SHA" ] || fail "MIGRATION_0023_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s7-public-launch.sfw.json" | awk '{print $1}')" = "$S7_CONTRACT_SHA" ] || fail "S7_CONTRACT_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" | awk '{print $1}')" = "$S8_CONTRACT_SHA" ] || fail "S8_CONTRACT_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-copy.v1.json" | awk '{print $1}')" = "$COPY_SHA" ] || fail "S8_COPY_DRIFT"
   [ "$(sha256sum "$CONTROL_ROOT/systemd/$S8_SERVICE" | awk '{print $1}')" = "$UNIT_SHA" ] || fail "S8_UNIT_DRIFT"
   [ "$(sha256sum "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" | awk '{print $1}')" = "$HEALTH_SCRIPT_SHA" ] || fail "S8_HEALTH_DRIFT"
+  [ "$(sha256sum "$CONTROL_ROOT/systemd/$HEALTH_SERVICE" | awk '{print $1}')" = "$HEALTH_UNIT_SHA" ] || fail "S8_HEALTH_UNIT_DRIFT"
+  [ "$(sha256sum "$CONTROL_ROOT/systemd/$PROBE_SERVICE" | awk '{print $1}')" = "$PROBE_UNIT_SHA" ] || fail "S8_PROBE_UNIT_DRIFT"
   PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" - <<PY || fail "MIGRATION_CHAIN_DRIFT"
 from pathlib import Path
 from tu1nz_commercial_s3.migrations import inspect_migration_chain
@@ -180,6 +187,10 @@ install_database() {
   elif [ "$count" != "9" ]; then
     fail "MIGRATION_0022_PARTIAL_STATE"
   fi
+  if [ "$(runuser -u postgres -- psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 --dbname="$DATABASE" --command="SELECT has_table_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s8_broadcasts','UPDATE')::int;" | tr -d '[:space:]')" != "1" ]; then
+    runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+      <"$APPLICATION_ROOT/migrations/0023_commercial_s8_health_recovery.sql" >/dev/null
+  fi
 }
 
 install_files() {
@@ -187,10 +198,11 @@ install_files() {
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" /etc/tu1nz/adult-commercial-s8-public-telegram.json
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-copy.v1.json" /etc/tu1nz/adult-commercial-s8-copy.json
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$S8_SERVICE" "/etc/systemd/system/$S8_SERVICE"
+  install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$PROBE_SERVICE" "/etc/systemd/system/$PROBE_SERVICE"
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$HEALTH_SERVICE" "/etc/systemd/system/$HEALTH_SERVICE"
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$HEALTH_TIMER" "/etc/systemd/system/$HEALTH_TIMER"
   install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" /usr/local/bin/tu1nz_adult_public_s8_health.py
-  systemd-analyze verify "/etc/systemd/system/$S8_SERVICE" "/etc/systemd/system/$HEALTH_SERVICE" "/etc/systemd/system/$HEALTH_TIMER"
+  systemd-analyze verify "/etc/systemd/system/$S8_SERVICE" "/etc/systemd/system/$PROBE_SERVICE" "/etc/systemd/system/$HEALTH_SERVICE" "/etc/systemd/system/$HEALTH_TIMER"
 }
 
 configure_bot() {
@@ -202,13 +214,32 @@ configure_bot() {
     --configure-only >/dev/null
 }
 
-local_health() {
+unit_evidence() {
+  journalctl -u "$1" -n 20 --no-pager -o cat 2>/dev/null \
+    | grep -E '^\{"components":' | tail -n 1
+}
+
+diagnostic_probe() {
+  systemctl reset-failed "$PROBE_SERVICE" >/dev/null 2>&1 || true
+  systemctl start "$PROBE_SERVICE" >/dev/null 2>&1
+}
+
+runtime_health() {
+  systemctl reset-failed "$HEALTH_SERVICE" >/dev/null 2>&1 || true
+  systemctl start "$HEALTH_SERVICE" >/dev/null 2>&1
+}
+
+await_runtime_ready() {
+  local started_at="$1"
   local attempt
-  for attempt in $(seq 1 12); do
-    if systemctl start "$HEALTH_SERVICE" >/dev/null 2>&1; then
-      return
+  for attempt in $(seq 1 45); do
+    [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "active" ] || return 1
+    [ "$(systemctl show "$S8_SERVICE" -p NRestarts --value)" = "0" ] || return 1
+    if journalctl -u "$S8_SERVICE" --since "$started_at" --no-pager -o cat 2>/dev/null \
+      | grep -F '"event":"S8_PUBLIC_TELEGRAM_READY"' >/dev/null; then
+      return 0
     fi
-    sleep 5
+    sleep 2
   done
   return 1
 }
@@ -232,28 +263,76 @@ abort_deploy() {
   if [ -f "$backup/public-configuration-before.tar" ]; then
     tar -xpf "$backup/public-configuration-before.tar" -C /etc/tu1nz >/dev/null 2>&1 || true
   fi
-  systemctl restart "$S7_SERVICE" >/dev/null 2>&1 || true
+  if ! require_s7_green >/dev/null 2>&1; then
+    systemctl stop "$S7_SERVICE" >/dev/null 2>&1 || true
+    systemctl start "$S7_SERVICE" >/dev/null 2>&1 || true
+  fi
   printf 'S8_PUBLIC_TELEGRAM_CONTROL_RED DEPLOYMENT_ABORTED\n' >&2
   exit 2
 }
 
-deploy() {
+diagnose() {
   preflight "$1" "$2" "$3" >/dev/null
-  if ! install_release || ! install_database || ! install_files || ! configure_bot; then
+  if ! install_release || ! install_files; then
     abort_deploy "$3"
   fi
-  set_runtime_control true S8_PUBLIC_EARLY_ACCESS_ENABLED
   systemctl daemon-reload
-  if ! systemctl restart "$S7_SERVICE" || ! systemctl start "$S8_SERVICE"; then
+  set_runtime_control false S8_DIAGNOSTIC_KILL_SWITCH_CLOSED
+  if diagnostic_probe; then
+    fail "EXPECTED_PRE_RECOVERY_DIAGNOSTIC_RED"
+  fi
+  local evidence
+  evidence="$(unit_evidence "$PROBE_SERVICE")"
+  printf '%s\n' "$evidence"
+  printf '%s\n' "$evidence" | grep -F 'S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING' >/dev/null \
+    || fail "ROOT_CAUSE_NOT_PROVEN"
+  printf 'S8_HEALTH_ROOT_CAUSE=S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING\n'
+}
+
+recover() {
+  preflight "$1" "$2" "$3" >/dev/null
+  if ! install_release || ! install_files || ! install_database || ! configure_bot; then
     abort_deploy "$3"
   fi
-  if ! local_health || ! external_landing_health; then
+  systemctl daemon-reload
+  set_runtime_control false S8_RECOVERY_PRESTART_KILL_SWITCH_CLOSED
+  if ! diagnostic_probe; then
+    unit_evidence "$PROBE_SERVICE" >&2 || true
     abort_deploy "$3"
   fi
-  if ! systemctl enable "$S8_SERVICE" >/dev/null || ! systemctl enable --now "$HEALTH_TIMER" >/dev/null; then
+  local started_at
+  started_at="$(date -Is)"
+  if ! systemctl start "$S8_SERVICE" || ! await_runtime_ready "$started_at" || ! runtime_health; then
+    unit_evidence "$HEALTH_SERVICE" >&2 || true
     abort_deploy "$3"
   fi
-  printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_DEPLOY_GREEN","adult_content":false,"avs":false,"payments":false,"publishing":false}\n'
+  printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_RECOVERY_STAGING_GREEN","public_enabled":false,"adult_content":false,"avs":false,"payments":false,"publishing":false}\n'
+}
+
+open_acceptance() {
+  require_root
+  require_control "$1" "$2"
+  require_s7_green
+  [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_SERVICE_NOT_ACTIVE"
+  runtime_health || fail "S8_HEALTH_RED"
+  set_runtime_control true S8_INTERNAL_ACCEPTANCE_OPEN
+  printf '{"ok":true,"safe_code":"S8_INTERNAL_ACCEPTANCE_OPEN","adult_content":false,"avs":false,"payments":false,"publishing":false}\n'
+}
+
+activate_public() {
+  require_root
+  require_control "$1" "$2"
+  require_s7_green
+  [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_SERVICE_NOT_ACTIVE"
+  runtime_health || fail "S8_HEALTH_RED"
+  set_runtime_control true S8_PUBLIC_EARLY_ACCESS_ENABLED
+  systemctl stop "$S7_SERVICE"
+  systemctl start "$S7_SERVICE"
+  require_s7_green
+  external_landing_health || fail "S8_LANDING_RED"
+  systemctl enable "$S8_SERVICE" >/dev/null
+  systemctl enable --now "$HEALTH_TIMER" >/dev/null
+  printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_ACTIVATION_GREEN","adult_content":false,"avs":false,"payments":false,"publishing":false}\n'
 }
 
 verify() {
@@ -273,7 +352,7 @@ verify() {
   [ "$(systemctl is-enabled "$HEALTH_TIMER")" = "enabled" ] || fail "S8_HEALTH_TIMER_NOT_ENABLED"
   [ "$(sha256sum /etc/tu1nz/adult-commercial-s8-public-telegram.json | awk '{print $1}')" = "$S8_CONTRACT_SHA" ] || fail "INSTALLED_S8_CONTRACT_DRIFT"
   [ "$(sha256sum /etc/tu1nz/adult-commercial-s8-copy.json | awk '{print $1}')" = "$COPY_SHA" ] || fail "INSTALLED_S8_COPY_DRIFT"
-  local_health || fail "S8_HEALTH_RED"
+  runtime_health || fail "S8_HEALTH_RED"
   external_landing_health || fail "S8_LANDING_RED"
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_VERIFY_GREEN","waitlist":"READY","notifier":"READY","avs":"DISABLED_EXPECTED","payment":"DISABLED_EXPECTED","adult_workflow":"INACCESSIBLE"}\n'
 }
@@ -299,7 +378,8 @@ rollback() {
     --disable-pip-version-check --no-deps --no-build-isolation --editable "$APPLICATION_ROOT" >/dev/null
   tar -xpf "$3/public-configuration-before.tar" -C /etc/tu1nz
   systemctl daemon-reload
-  systemctl restart "$S7_SERVICE"
+  systemctl stop "$S7_SERVICE"
+  systemctl start "$S7_SERVICE"
   require_s7_green
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_ROLLBACK_GREEN","waitlist_data_preserved":true}\n'
 }
@@ -309,9 +389,21 @@ case "${1:-}" in
     [ "$#" -eq 4 ] || fail "USAGE"
     preflight "$2" "$3" "$4"
     ;;
-  deploy)
+  diagnose)
     [ "$#" -eq 4 ] || fail "USAGE"
-    deploy "$2" "$3" "$4"
+    diagnose "$2" "$3" "$4"
+    ;;
+  recover)
+    [ "$#" -eq 4 ] || fail "USAGE"
+    recover "$2" "$3" "$4"
+    ;;
+  open-acceptance)
+    [ "$#" -eq 3 ] || fail "USAGE"
+    open_acceptance "$2" "$3"
+    ;;
+  activate-public)
+    [ "$#" -eq 3 ] || fail "USAGE"
+    activate_public "$2" "$3"
     ;;
   verify)
     [ "$#" -eq 3 ] || fail "USAGE"

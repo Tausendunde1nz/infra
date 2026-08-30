@@ -28,10 +28,10 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         application = self.value["application"]
         self.assertRegex(application["commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(application["tree"], r"^[0-9a-f]{40}$")
-        self.assertEqual(application["schema"], "0022_commercial_s8_public_telegram_early_access")
+        self.assertEqual(application["schema"], "0023_commercial_s8_health_recovery")
         self.assertEqual(
             application["migration_chain_sha256"],
-            "536e243096edff47035aa01a650cb857aa2af2b0defb47e8c92749d2dabb2fc6",
+            "b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8",
         )
         controller = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn(f'readonly TARGET_SHA="{application["commit"]}"', controller)
@@ -92,6 +92,7 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             UNIT: self.value["files"]["service_unit_sha256"],
             HEALTH_UNIT: self.value["files"]["health_service_sha256"],
             HEALTH_TIMER: self.value["files"]["health_timer_sha256"],
+            ROOT / "systemd/tu1nz-adult-public-s8-probe.service": self.value["files"]["probe_service_sha256"],
         }
         for path, digest in expected.items():
             with self.subTest(path=path):
@@ -113,8 +114,9 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         source = HEALTH.read_text(encoding="utf-8")
         timer = HEALTH_TIMER.read_text(encoding="utf-8")
         health_unit = HEALTH_UNIT.read_text(encoding="utf-8")
-        self.assertIn("S8_PUBLIC_TELEGRAM_HEALTH_GREEN", source)
-        self.assertIn("queue_failed", source)
+        self.assertIn("S8_DIAGNOSTIC", source)
+        self.assertIn("elapsed_ms", source)
+        self.assertIn("sqlstate", source)
         self.assertNotIn("telegram_user_id", source)
         self.assertNotIn("private_chat_id", source)
         self.assertIn("OnUnitActiveSec=5min", timer)
@@ -133,6 +135,11 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "0022_commercial_s8_public_telegram_early_access.sql",
             "systemd-analyze verify",
             "configure_bot",
+            "diagnostic_probe",
+            "S8_HEALTH_ROOT_CAUSE",
+            "S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING",
+            "open-acceptance",
+            "activate-public",
             "kill-switch",
             "set_runtime_control false",
             "abort_deploy",

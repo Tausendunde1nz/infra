@@ -72,6 +72,7 @@
 !systemd/tu1nz-adult-public-s8-telegram.service
 !systemd/tu1nz-adult-public-s8-health.service
 !systemd/tu1nz-adult-public-s8-health.timer
+!systemd/tu1nz-adult-public-s8-probe.service
 !systemd/tu1nz_agentmode.service
 !systemd/tu1nz_integrity.service
 !systemd/tu1nz_monitor.service
@@ -238,3 +239,4 @@
 !analysis/COMMERCIAL_S5_S6_PREFLIGHT_TABLE_QUERY_2026-08-30.diagnose
 !analysis/COMMERCIAL_S8_CONTROL_EXECUTABLE_MODE_2026-08-30.diagnose
 !analysis/COMMERCIAL_S8_APPLICATION_FETCH_REFSPEC_2026-08-30.diagnose
+!analysis/COMMERCIAL_S8_1_HEALTH_RECOVERY_2026-08-30.diagnose
