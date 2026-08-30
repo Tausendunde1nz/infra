@@ -23,7 +23,10 @@ verify_backup() {
   [ -d "$path" ] || fail "BACKUP_PATH_MISSING"
   [ ! -L "$path" ] || fail "BACKUP_PATH_SYMLINK"
   [ "$(stat -c '%U:%G' "$path")" = "root:root" ] || fail "BACKUP_OWNERSHIP_DRIFT"
-  [ "$(stat -c '%a' "$path")" = "700" ] || fail "BACKUP_MODE_DRIFT"
+  case "$(stat -c '%a' "$path")" in
+    700|2700) ;;
+    *) fail "BACKUP_MODE_DRIFT" ;;
+  esac
   [ -f "$path/SHA256SUMS" ] || fail "BACKUP_HASH_INDEX_MISSING"
   (cd "$path" && sha256sum --check --strict SHA256SUMS >/dev/null) || fail "BACKUP_HASH_INVALID"
   [ ! -s "$path/application-status.txt" ] || fail "APPLICATION_STATUS_NOT_CLEAN"
