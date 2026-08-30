@@ -116,6 +116,8 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
         self.assertIn("require_other_adult_services_stopped", source)
         self.assertIn("merge --ff-only", source)
         self.assertIn("0021_commercial_s7_public_soft_launch.sql", source)
+        self.assertIn('<"$APPLICATION_ROOT/migrations/0021_commercial_s7_public_soft_launch.sql"', source)
+        self.assertNotIn('--file="$APPLICATION_ROOT/migrations/0021_commercial_s7_public_soft_launch.sql"', source)
         self.assertIn("systemctl start", source)
         self.assertIn("systemctl enable", source)
         self.assertIn("systemd-analyze verify", source)

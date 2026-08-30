@@ -1,0 +1,42 @@
+# Commercial S7 PostgreSQL migration-ingress diagnosis
+
+- Observed at: 2026-08-30T10:41:00Z
+- Scope: migration 0021 during the authorized S7 deployment
+- Result: fail-closed before migration, configuration installation, Nginx change, or service activity
+
+## Symptom
+
+After a green backup and preflight, the deployment stopped with:
+
+`psql: .../migrations/0021_commercial_s7_public_soft_launch.sql: Permission denied`
+
+## Evidence
+
+The reviewed application release had already fast-forwarded cleanly to:
+
+- commit: `3dd63f7a17626a4d8a8a3b58f317ae6917c33696`
+- tree: `e247b749ffa155a5ab8ea884ff77d205d5762dd7`
+
+Control remained clean. The S7 service was absent/inactive, port 8095 was free,
+and both installed Nginx files retained their pre-S7 hashes.
+
+The migration command changed identity to the unprivileged PostgreSQL system
+account before asking `psql` to open a file below the deliberately restricted
+TU1NZ repository path. The PostgreSQL account cannot traverse that path, so the
+read failed exactly as the filesystem boundary requires.
+
+## Resolution
+
+Keep the repository permissions unchanged. Have the root controller open the
+hash-verified migration file and provide it to `psql` over standard input while
+the database process still runs as the PostgreSQL account. This grants access to
+only the already reviewed SQL byte stream and does not broaden filesystem rights.
+
+Regression coverage requires standard-input ingress and rejects the previous
+direct `--file` access path.
+
+## Rollback
+
+Reverting this commit restores the previous migration invocation. No database,
+configuration, Nginx, systemd, provider, payment, media, or publishing state is
+changed by this patch.
