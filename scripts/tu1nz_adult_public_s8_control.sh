@@ -81,10 +81,36 @@ require_adult_runtime_closed() {
   done
 }
 
-require_s7_green() {
+is_s7_green() {
   [ "$(systemctl show "$S7_SERVICE" -p ActiveState --value)" = "active" ] || fail "S7_SERVICE_NOT_ACTIVE"
   [ "$(systemctl show "$S7_SERVICE" -p MainPID --value)" != "0" ] || fail "S7_PROCESS_MISSING"
-  /usr/local/bin/tu1nz_adult_public_s7_health.py >/dev/null || fail "S7_HEALTH_RED"
+  /usr/local/bin/tu1nz_adult_public_s7_health.py >/dev/null
+}
+
+require_s7_green() {
+  is_s7_green || fail "S7_HEALTH_RED"
+}
+
+await_s7_green() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if (is_s7_green) >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+await_external_landing_green() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if external_landing_health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
 }
 
 require_s8_inactive_or_absent() {
@@ -263,9 +289,10 @@ abort_deploy() {
   if [ -f "$backup/public-configuration-before.tar" ]; then
     tar -xpf "$backup/public-configuration-before.tar" -C /etc/tu1nz >/dev/null 2>&1 || true
   fi
-  if ! require_s7_green >/dev/null 2>&1; then
+  if ! (is_s7_green) >/dev/null 2>&1; then
     systemctl stop "$S7_SERVICE" >/dev/null 2>&1 || true
     systemctl start "$S7_SERVICE" >/dev/null 2>&1 || true
+    await_s7_green >/dev/null 2>&1 || true
   fi
   printf 'S8_PUBLIC_TELEGRAM_CONTROL_RED DEPLOYMENT_ABORTED\n' >&2
   exit 2
@@ -328,8 +355,8 @@ activate_public() {
   set_runtime_control true S8_PUBLIC_EARLY_ACCESS_ENABLED
   systemctl stop "$S7_SERVICE"
   systemctl start "$S7_SERVICE"
-  require_s7_green
-  external_landing_health || fail "S8_LANDING_RED"
+  await_s7_green || fail "S7_READINESS_TIMEOUT"
+  await_external_landing_green || fail "S8_LANDING_READINESS_TIMEOUT"
   systemctl enable "$S8_SERVICE" >/dev/null
   systemctl enable --now "$HEALTH_TIMER" >/dev/null
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_ACTIVATION_GREEN","adult_content":false,"avs":false,"payments":false,"publishing":false}\n'
@@ -380,7 +407,7 @@ rollback() {
   systemctl daemon-reload
   systemctl stop "$S7_SERVICE"
   systemctl start "$S7_SERVICE"
-  require_s7_green
+  await_s7_green || fail "S7_READINESS_TIMEOUT"
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_ROLLBACK_GREEN","waitlist_data_preserved":true}\n'
 }
 

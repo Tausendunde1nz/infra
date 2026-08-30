@@ -136,6 +136,10 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "systemd-analyze verify",
             "configure_bot",
             "diagnostic_probe",
+            "await_s7_green",
+            "S7_READINESS_TIMEOUT",
+            "await_external_landing_green",
+            "S8_LANDING_READINESS_TIMEOUT",
             "S8_HEALTH_ROOT_CAUSE",
             "S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING",
             "open-acceptance",
@@ -154,6 +158,20 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertNotIn("api.x.com", source)
         self.assertNotIn("reddit.com", source)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
+
+    def test_s7_restart_waits_for_bounded_readiness(self) -> None:
+        source = CONTROLLER.read_text(encoding="utf-8")
+        readiness = source.split("await_s7_green()", 1)[1].split("require_s8_inactive_or_absent()", 1)[0]
+        self.assertIn("seq 1 30", readiness)
+        self.assertIn("sleep 2", readiness)
+        activate = source.split("activate_public()", 1)[1].split("verify()", 1)[0]
+        rollback = source.split("rollback()", 1)[1].split('case "${1:-}"', 1)[0]
+        self.assertIn('systemctl start "$S7_SERVICE"', activate)
+        self.assertIn('await_s7_green || fail "S7_READINESS_TIMEOUT"', activate)
+        self.assertIn('await_external_landing_green || fail "S8_LANDING_READINESS_TIMEOUT"', activate)
+        self.assertIn('systemctl start "$S7_SERVICE"', rollback)
+        self.assertIn('await_s7_green || fail "S7_READINESS_TIMEOUT"', rollback)
+        self.assertNotIn("systemctl restart", source)
 
     def test_backup_covers_repositories_database_units_and_secret_metadata_only(self) -> None:
         source = BACKUP.read_text(encoding="utf-8")

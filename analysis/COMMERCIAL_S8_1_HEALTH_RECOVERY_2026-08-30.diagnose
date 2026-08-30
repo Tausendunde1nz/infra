@@ -42,6 +42,24 @@ ID placeholders explicitly as `BIGINT` and add a real runtime-role PostgreSQL
 acceptance for the empty-poll heartbeat. No schema or privilege expansion is
 required for this second fix.
 
+## Server-proven activation timing defect
+
+The complete internal DE/EN acceptance, duplicate join, leave/rejoin, clean S8
+stop/start and database-backed kill-switch proof all passed. Public SFW
+activation then stopped and started S7 to load the already-installed landing
+binding, but evaluated the local health probe immediately after `systemctl
+start`. The process was active with zero restarts and emitted
+`S7_PUBLIC_RUNTIME_READY` moments later; both local and external health were
+green after the bounded startup interval. The immediate probe therefore
+produced a deterministic readiness race rather than an S7 runtime failure.
+
+The controller remains fail-closed and now uses a bounded 30 x 2-second S7
+readiness wait after each controlled S7 start in activation and rollback paths.
+Activation also gives the external landing/deep-link health contract the same
+bounded convergence window. It still uses explicit stop then start and never
+`restart`. A timeout remains a hard failure and preserves the existing rollback
+boundary.
+
 ## Recovery controls
 
 - Every component emits status, timestamps, elapsed time, safe reason, safe
@@ -53,3 +71,5 @@ required for this second fix.
   notifier and queue cycle.
 - S8 uses inactive -> start -> health -> stop on failure. No restart is used.
 - S7 is not restarted during diagnosis or S8 recovery staging.
+- Public activation and rollback wait at most 60 seconds for S7 readiness after
+  an explicit clean stop/start.
