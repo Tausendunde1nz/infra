@@ -1,0 +1,37 @@
+[Unit]
+Description=TU1NZ Adult Publishing S7 public SFW soft launch
+After=network-online.target postgresql.service
+Wants=network-online.target
+StartLimitBurst=3
+StartLimitIntervalSec=15min
+
+[Service]
+Type=simple
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+LoadCredential=s7_form_secret:/etc/tu1nz/adult-commercial-s7-form.secret
+LoadCredential=s7_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
+ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s7 --contract /etc/tu1nz/adult-commercial-s7-public.json --form-secret %d/s7_form_secret --database-dsn %d/s7_database_dsn
+Restart=on-failure
+RestartSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
