@@ -42,6 +42,19 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn(f'readonly TARGET_SHA="{application["commit"]}"', controller)
         self.assertIn(f'readonly TARGET_TREE="{application["tree"]}"', controller)
 
+    def test_pinned_release_can_be_retrieved_after_canonical_main_advances(self) -> None:
+        controller = CONTROLLER.read_text(encoding="utf-8")
+        install_release = controller.split("install_release()", 1)[1].split("install_database()", 1)[0]
+        self.assertIn('cat-file -e "${TARGET_SHA}^{commit}"', install_release)
+        self.assertIn("merge-base --is-ancestor", install_release)
+        self.assertIn('"$TARGET_SHA" "origin/$APPLICATION_BRANCH"', install_release)
+        self.assertIn('"${TARGET_SHA}^{tree}"', install_release)
+        self.assertIn("PINNED_TARGET_TREE_MISMATCH", install_release)
+        self.assertNotIn(
+            '[ "$(git_value "$APPLICATION_ROOT" "origin/$APPLICATION_BRANCH")" = "$TARGET_SHA" ]',
+            install_release,
+        )
+
     def test_product_boundary_and_state_cap_are_fail_closed(self) -> None:
         self.assertTrue(all(value is False for value in self.value["product_boundary"].values()))
         self.assertEqual(self.value["data"]["maximum_automated_state"], "WAITLISTED")
