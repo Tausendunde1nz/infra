@@ -1,0 +1,73 @@
+TU1NZ Commercial S8.2 public observation and fail-closed rollback
+Date: 2026-08-30
+Decision: NO_GO_RETRY_REQUIRES_SEPARATE_REMEDIATION
+
+Scope
+
+- Public SFW Early Access only.
+- No Adult media, AVS, payment, publishing or production capability was enabled.
+- Observation evidence contains aggregate technical measurements only.
+
+Observation
+
+- Evidence directory:
+  /opt/tu1nz_repos/backups/commercial-s8-public-observation-20260830T174234Z
+- Started: 2026-08-30T17:42:34Z
+- Last complete sample: 2026-08-30T19:27:45Z
+- Complete samples: 22
+- Component states in all complete samples: GREEN
+- S7, S8 and S8 landing restart maximum: 0
+- S8 unexpected network class maximum: 0
+- S8 file descriptors: stable at 4
+- S8 average RSS: 43968 KiB
+- S8 peak RSS: 44032 KiB
+
+Fail-closed trigger
+
+Two retryable S8 runtime cycles reported:
+
+- 2026-08-30T18:38:52.016527Z
+- 2026-08-30T19:30:26.713684Z
+
+Safe classification:
+
+- safe_exception_type: TelegramApiError
+- safe_reason: S8_TELEGRAM_API_UNAVAILABLE
+- sqlstate: null
+
+Although later health probes were GREEN, the strict two-hour gate permits no runtime
+error. The observation therefore cannot pass and no automatic retry is authorized.
+
+Rollback execution
+
+The first rollback attempt stopped before mutation because the Control Git index mode
+was 0644. Ownership and both repositories were otherwise correct and clean. The mode
+had been recreated by a Git status refresh that did not set GIT_OPTIONAL_LOCKS=0.
+
+The already versioned normalize-index-modes action restored the narrow approved mode
+0660. The versioned rollback then completed successfully and reported:
+
+- S8_PUBLIC_TELEGRAM_ROLLBACK_GREEN
+- waitlist_data_preserved=true
+
+The observer subsequently stopped fail-closed with REPOSITORY_SHA_DRIFT because the
+rollback intentionally returned the application repository to the S7 release.
+
+Final verified server state
+
+- Application commit: 935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4
+- Application tree: 29679c2029d40eefce7dbd3857c5cf4e1f129013
+- Application and Control repositories: clean
+- Control Git index: chatops:chatops, mode 0660
+- S7: active, enabled, NRestarts=0, health GREEN
+- S8 Telegram: inactive and disabled
+- S8 landing: inactive and disabled
+- S8 health timer: inactive and disabled
+- nginx: active, NRestarts=0
+- External SFW health: GREEN; forbidden capabilities remain false
+
+Retry boundary
+
+No second public S8 observation or activation is authorized by this evidence. A later
+retry requires separately versioned remediation for bounded Telegram API outages,
+fresh tests and CI, a fresh backup, and a new explicit activation decision.

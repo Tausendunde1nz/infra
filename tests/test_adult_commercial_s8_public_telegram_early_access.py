@@ -283,16 +283,21 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertTrue(switch["blocks_new_broadcasts"])
         self.assertTrue(switch["preserves_existing_waitlist"])
 
-    def test_public_activation_is_green_while_two_hour_observation_remains_pending(self) -> None:
+    def test_failed_public_observation_is_rolled_back_fail_closed(self) -> None:
         execution = self.value["execution"]
         self.assertEqual(execution["live_acceptance"], "GREEN_INTERNAL_SFW")
-        self.assertEqual(execution["public_activation"], "GREEN")
-        self.assertEqual(execution["public_observation"], "PENDING_TWO_HOURS")
+        self.assertEqual(execution["public_activation"], "ROLLED_BACK_TO_S7")
+        self.assertEqual(execution["public_observation"], "RED_TELEGRAM_API_UNAVAILABLE")
+        self.assertEqual(execution["rollback"], "GREEN_WAITLIST_DATA_PRESERVED")
         self.assertEqual(
             execution["status"],
-            "S8_2_PUBLIC_SFW_ACTIVE_OBSERVATION_PENDING",
+            "S8_2_FAIL_CLOSED_ROLLBACK_GREEN",
         )
-        self.assertTrue(self.value["kill_switch"]["public_telegram_early_access_enabled"])
+        self.assertEqual(
+            self.value["decision"],
+            "NO_GO_RETRY_REQUIRES_SEPARATE_REMEDIATION",
+        )
+        self.assertFalse(self.value["kill_switch"]["public_telegram_early_access_enabled"])
         self.assertTrue(ACCEPTANCE_EVIDENCE.is_file())
         evidence = ACCEPTANCE_EVIDENCE.read_text(encoding="utf-8")
         # The acceptance report is immutable historical evidence from before activation.

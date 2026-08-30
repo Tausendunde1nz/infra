@@ -62,13 +62,14 @@
     ],
     "maximum_automated_state": "WAITLISTED"
   },
-  "decision": "GO_FOR_REVERSIBLE_PUBLIC_SFW_TELEGRAM_EARLY_ACCESS",
+  "decision": "NO_GO_RETRY_REQUIRES_SEPARATE_REMEDIATION",
   "execution": {
     "live_acceptance": "GREEN_INTERNAL_SFW",
     "observation_hours_required": 2,
-    "public_activation": "GREEN",
-    "public_observation": "PENDING_TWO_HOURS",
-    "status": "S8_2_PUBLIC_SFW_ACTIVE_OBSERVATION_PENDING"
+    "public_activation": "ROLLED_BACK_TO_S7",
+    "public_observation": "RED_TELEGRAM_API_UNAVAILABLE",
+    "rollback": "GREEN_WAITLIST_DATA_PRESERVED",
+    "status": "S8_2_FAIL_CLOSED_ROLLBACK_GREEN"
   },
   "files": {
     "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
@@ -110,7 +111,7 @@
     "database_backed": true,
     "deployment_required": false,
     "preserves_existing_waitlist": true,
-    "public_telegram_early_access_enabled": true,
+    "public_telegram_early_access_enabled": false,
     "blocks_new_broadcasts": true,
     "blocks_new_waitlist_joins": true
   },
