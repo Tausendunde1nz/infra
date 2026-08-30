@@ -1,0 +1,187 @@
+{
+  "application": {
+    "branch": "main",
+    "commit": "c82ad7daa0409cea0719f9749872d9c3e2f193fc",
+    "migration_chain_sha256": "b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "schema": "0023_commercial_s8_health_recovery",
+    "tree": "fa89f12c0eef27422997d17acad43260677df979"
+  },
+  "authorization": {
+    "automated_waitlist_authorized": true,
+    "dedicated_public_bot_authorized": true,
+    "landing_deep_link_authorized": true,
+    "notification_opt_in_authorized": true,
+    "public_sfw_activation_authorized": true,
+    "reversible_server_delta_authorized": true,
+    "adult_media_authorized": false,
+    "avs_authorized": false,
+    "controlled_beta_authorized": false,
+    "creator_invite_authorized": false,
+    "payment_authorized": false,
+    "production_adult_workflow_authorized": false,
+    "publishing_authorized": false,
+    "real_submission_authorized": false
+  },
+  "bot": {
+    "dedicated": true,
+    "display_name": "TU1NZ-Adult-Early-Access-Bot",
+    "private_chats_only": true,
+    "group_joining_disabled_required": true,
+    "media_download_capability": false,
+    "provider": "TELEGRAM_OFFICIAL_BOT_API",
+    "token_storage": "SYSTEMD_LOAD_CREDENTIAL_ONLY",
+    "username": "tu1nz_adult_early_access_bot",
+    "expected_bot_id": 8622690874,
+    "webhook_allowed": false
+  },
+  "control": {
+    "branch": "fix/commercial-s8-public-recovery",
+    "exact_commit_and_tree_required": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "data": {
+    "analytics_message_contents_stored": false,
+    "country_collected": false,
+    "database": "tu1nz_adult_commercial_s3",
+    "delete_early_access_data_automated": true,
+    "first_touch_attribution": true,
+    "raw_identity_fields": [
+      "telegram_user_id",
+      "private_chat_id"
+    ],
+    "unnecessary_profile_data_stored": false,
+    "waitlist_states_declared": [
+      "INTERESTED",
+      "WAITLISTED",
+      "UNSUBSCRIBED",
+      "INVITED",
+      "ONBOARDING",
+      "VERIFIED",
+      "CREATOR"
+    ],
+    "maximum_automated_state": "WAITLISTED"
+  },
+  "decision": "GO_S8_3_REVERSIBLE_STAGING_REACCEPTANCE",
+  "execution": {
+    "live_acceptance": "GREEN_INTERNAL_SFW",
+    "observation_hours_required": 2,
+    "public_activation": "ROLLED_BACK_TO_S7_AFTER_S8_2",
+    "public_observation": "S8_2_RED_REMEDIATED_AWAITING_S8_3_REACCEPTANCE",
+    "rollback": "GREEN_WAITLIST_DATA_PRESERVED",
+    "s8_3_offline_acceptance": "GREEN_819_TESTS",
+    "status": "S8_3_OFFLINE_GREEN_SERVER_REACCEPTANCE_PENDING"
+  },
+  "files": {
+    "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
+    "controller_sha256": "bdfe7a63d115f932ebb90a5ea175c1b768db4f619f6cd45299f1b33db835ad78",
+    "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
+    "health_script_sha256": "afa9fbdcbaadeaf55ba0bb3edbaff9b852ed14647fdfce879934bacc06677ea1",
+    "health_service_sha256": "75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855",
+    "health_timer_sha256": "42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005",
+    "landing_contract_sha256": "ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e",
+    "landing_service_sha256": "f2663c4f1e57e91aa938d67bc5533fa5324dd355282bdf6e52fe40102b7b994d",
+    "migration_0022_sha256": "5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6",
+    "migration_0023_sha256": "feb157b5625113a3c4774b570d8a73265356a87c5fe70d491c36b5b7a25a6691",
+    "observer_sha256": "1edccd254aa8d17c9ce4791716e819a13e3fc4b22d899327c579f1682008722c",
+    "probe_service_sha256": "7c0e1d03dfb89bc6397a1c49c90edc68d694b39395107c491e58bf9a58d4949c",
+    "proxy_activation_script_sha256": "7770a7c203e420c6dc4d7ae3504d8fe172597d5642937b2a56fdffbe60f9b086",
+    "public_proxy_sha256": "65c0bc9d12981a4532d5453c668f8b2f9a4ad32cf5a7a18b8ef4ed3b56a0f062",
+    "s7_contract_sha256": "a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802",
+    "s8_contract_sha256": "733a6e1bfae4514fc3f09b6ddc9c0e94406d8160eed8629519155f810a0f8498",
+    "service_unit_sha256": "b7aaa5049b73343111c9d7371b6500446d4e333a9dda98f35ebc3233f0b13313"
+  },
+  "health": {
+    "ANALYTICS": "GREEN_STAGING",
+    "AVS": "DISABLED_EXPECTED",
+    "BOT_PROCESS": "GREEN_STAGING",
+    "LANDING_INTEGRATION": "GREEN_LOOPBACK_STAGING",
+    "LOCAL_CONFIG_HEALTH": "GREEN_STAGING",
+    "DATABASE": "GREEN_STAGING",
+    "KILL_SWITCH": "GREEN_CLOSED_AFTER_ACCEPTANCE",
+    "NOTIFIER": "GREEN_STAGING",
+    "PAYMENT": "DISABLED_EXPECTED",
+    "POLLING": "GREEN_STAGING",
+    "PRODUCT_BOUNDARY": "GREEN_FAIL_CLOSED",
+    "QUEUE": "GREEN_STAGING",
+    "REMOTE_TELEGRAM_AVAILABILITY": "GREEN_STAGING",
+    "TELEGRAM_AUTH": "GREEN_STAGING",
+    "WAITLIST": "GREEN_STAGING"
+  },
+  "kill_switch": {
+    "database_backed": true,
+    "deployment_required": false,
+    "preserves_existing_waitlist": true,
+    "public_telegram_early_access_enabled": false,
+    "blocks_new_broadcasts": true,
+    "blocks_new_waitlist_joins": true
+  },
+  "landing": {
+    "canonical_url": "https://tu1nz.com/adult/",
+    "campaign": "s8_launch",
+    "deep_link": "https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch",
+    "legacy_web_waitlist_open": false,
+    "source": "landing"
+  },
+  "legal": {
+    "age_declaration_is_avs": false,
+    "minimum_age": 18,
+    "privacy_url": "https://tu1nz.com/adult/privacy",
+    "privacy_version": "s8-privacy-v1",
+    "terms_url": "https://tu1nz.com/adult/terms",
+    "terms_version": "s8-terms-v1"
+  },
+  "notifications": {
+    "default_opt_in": false,
+    "manual_individual_delivery": false,
+    "maximum_attempts": 3,
+    "opt_out_filtering": true,
+    "provider_neutral_queue": true,
+    "retry_after_bounded": true,
+    "versioned_approved_copy_only": true
+  },
+  "resilience": {
+    "circuit_breaker_failure_threshold": 3,
+    "circuit_breaker_open_seconds": 30,
+    "error_budget_maximum_failures": 8,
+    "error_budget_window_seconds": 900,
+    "hard_auth_identity_contract_failures": "RED",
+    "notification_ambiguous_delivery_policy": "AT_MOST_ONCE_FAIL_CLOSED",
+    "notification_sending_lease_seconds": 120,
+    "retry_after_honored": true,
+    "retry_base_seconds": 1,
+    "retry_jitter_seconds_maximum": 1.0,
+    "retry_maximum_seconds": 60,
+    "runtime_health_remote_probe_enabled": false,
+    "temporary_transport_failure_state": "YELLOW"
+  },
+  "product_boundary": {
+    "adult_content": false,
+    "adult_media": false,
+    "avs": false,
+    "controlled_beta": false,
+    "creator_invite": false,
+    "identity_data": false,
+    "media_intake": false,
+    "payment": false,
+    "production_adult_workflow": false,
+    "publishing": false,
+    "real_submission": false
+  },
+  "rollback": {
+    "backup_required": true,
+    "close_kill_switch_first": true,
+    "database_destructive_restore_automatic": false,
+    "preserve_waitlist_and_evidence": true,
+    "restore_s7_release": "935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4",
+    "stop_and_disable_s8": true
+  },
+  "server": {
+    "application_path": "/opt/tu1nz_repos/adult-publishing-core",
+    "control_path": "/opt/tu1nz_repos/control",
+    "health_timer": "tu1nz-adult-public-s8-health.timer",
+    "s7_service": "tu1nz-adult-public-s7.service",
+    "s8_service": "tu1nz-adult-public-s8-telegram.service"
+  },
+  "version": "tu1nz-commercial-s8-public-telegram-control-v2"
+}

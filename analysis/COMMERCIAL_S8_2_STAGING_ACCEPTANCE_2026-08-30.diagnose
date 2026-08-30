@@ -1,0 +1,103 @@
+# Commercial S8.2 staging acceptance evidence
+
+Status: GREEN_INTERNAL_SFW; KILL_SWITCH_CLOSED; PUBLIC_ACTIVATION_PENDING
+
+This record contains no token, DSN, message body beyond approved product copy,
+Telegram numeric identity, chat identity, waitlist subject identity, or media
+bytes.
+
+## Bound recovery state
+
+- Application commit: `9170b66a464f8a2cffa075360addb9aea755769b`
+- Application tree: `96f8a52d5b06c795cc819f7d8ae176d045aca6fd`
+- Control commit before this evidence update:
+  `9038abd62c6bb5ab93b570388e3870137d635994`
+- Control tree before this evidence update:
+  `9a291d9542466a91b88d3a91047fa3f3c70a78fe`
+- Verified rollback anchor:
+  `/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260830T161020Z-pre-s82-recovery`
+- Application tests: 814/814 GREEN
+- Control tests after versioning the public-activation guard: 334/334 GREEN
+- Application PR #79 CI: GREEN
+- Control PR #63 CI: GREEN
+
+## Staging health
+
+The installed Application and Control working trees were clean, exactly bound
+to the commits and trees above, and owned by `chatops`. The full S8 runtime
+diagnostic was GREEN for:
+
+- BOT_PROCESS
+- LOCAL_CONFIG_HEALTH
+- TELEGRAM_AUTH
+- REMOTE_TELEGRAM_AVAILABILITY
+- POLLING
+- DATABASE
+- WAITLIST
+- NOTIFIER
+- QUEUE
+- ANALYTICS
+- PRODUCT_BOUNDARY
+- KILL_SWITCH
+- LANDING_INTEGRATION
+
+The S8 landing listened only on `127.0.0.1:18096`. S7 remained the public
+listener on `127.0.0.1:8095` and stayed active with `NRestarts=0`.
+
+## Telegram live acceptance
+
+The dedicated public Early Access bot completed these internal SFW checks:
+
+1. `/start`: GREEN
+2. German selection: GREEN
+3. English selection: GREEN
+4. Join consent: GREEN
+5. Duplicate join: GREEN, no duplicate record
+6. Status: GREEN, WAITLISTED and no creator access
+7. Notification opt-in: GREEN
+8. Notification opt-out: GREEN
+9. Leave: GREEN
+10. Rejoin: GREEN
+11. Restart path: GREEN
+12. Duplicate update replay: GREEN in the committed exact-update idempotency
+    tests; a normal Telegram client cannot emit the same update ID twice
+13. Media hard block: GREEN
+
+The media check used only the harmless registered synthetic JPEG with SHA-256
+`7dbadcb1fe8130b087166b81b74a72222a00bd94591ec78555942aaecc0fb69b`.
+The live reply confirmed that uploads are not enabled and that the file was not
+downloaded or passed to the Adult workflow.
+
+## Kill-switch proof
+
+The acceptance helper wrote only safe aggregate events. It recorded:
+
+- `S8_INTERNAL_ACCEPTANCE_OPEN`
+- `S8_PUBLIC_TELEGRAM_KILL_SWITCH_CLOSED`
+- `data_preserved=true`
+
+After closure, a fresh `/join` returned the neutral Early Access paused response.
+No new join or broadcast capability remained open. The existing waitlist data
+was preserved.
+
+## S7 fallback proof
+
+After acceptance and kill-switch closure:
+
+- S7: active/running
+- S7 MainPID: unchanged during the acceptance window
+- S7 NRestarts: 0
+- loopback `/adult/health`: GREEN
+- external `https://tu1nz.com/adult/health`: GREEN
+- external `https://tu1nz.com/adult/`: HTTP 200
+- forbidden Adult content, payment, real AVS and creator publishing: false
+
+## Remaining public-activation gate
+
+The server nginx configuration still routes `/adult/` directly to S7 on port
+8095. The versioned S8 candidate routes to S8 on port 18096 and retains S7 on
+8095 as the automatic backup. Public S8 activation, nginx validation/reload,
+the two-hour observation window and final canonical merges have not occurred.
+
+Adult media, real AVS, payment, external Adult publishing, Controlled Beta and
+the Production Adult Workflow remain NO-GO.

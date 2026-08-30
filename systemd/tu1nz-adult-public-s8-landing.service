@@ -1,0 +1,35 @@
+[Unit]
+Description=TU1NZ Adult Publishing S8 SFW landing candidate
+After=tu1nz-adult-public-s7.service
+Requires=tu1nz-adult-public-s7.service
+StartLimitBurst=3
+StartLimitIntervalSec=15min
+
+[Service]
+Type=simple
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s8-landing --contract /etc/tu1nz/adult-commercial-s8-landing.json
+Restart=on-failure
+RestartSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

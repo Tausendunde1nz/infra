@@ -1,0 +1,62 @@
+# Commercial S8.3 transport resilience
+
+## Ausgangslage
+
+The strict S8.2 two-hour public observation was rolled back safely to S7 after
+two isolated, retryable `S8_TELEGRAM_API_UNAVAILABLE` polling failures. Service,
+resource, proxy, database and product-boundary evidence remained green. The
+failure therefore demonstrated an overly strict transport gate rather than a
+product-boundary or S7 stability failure.
+
+The verified recovery baseline remains:
+
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260830T172823Z-pre-public-activation`
+
+with index SHA-256:
+
+`9084222f4fceff61afe254999312f3c212c57d2785a67a8aa2f9d7ceb1ee08b3`
+
+No schema or durable-data change is part of S8.3. The existing baseline plus the
+exact Git release SHAs are therefore the approved rollback basis for the
+reversible staging delta.
+
+## S8.3 policy
+
+- Retryable Telegram timeout/connection/5xx and rate-limit failures are YELLOW
+  inside a rolling 8-failure/15-minute budget.
+- Retry uses 1-to-60-second bounded exponential backoff, up to one second of
+  jitter and a bounded provider `Retry-After`.
+- Three consecutive failures open the circuit for 30 seconds; a half-open probe
+  controls recovery.
+- The ninth failure inside the rolling window is RED.
+- Auth, identity, group, webhook, command and contract failures are immediately
+  RED.
+- Safety exit status 2 is not restarted by systemd.
+- Runtime health uses the fresh poll heartbeat and performs no separate long
+  Telegram request. Prestart remains a strict remote identity check.
+- Stale notification `SENDING` leases become terminal outcome-uncertain records
+  and are never automatically replayed because Telegram offers no caller
+  idempotency key for `sendMessage`.
+- S7 remains active and the nginx backup upstream throughout staging and public
+  observation.
+
+## Acceptance gate
+
+Offline application acceptance is GREEN with 819/819 tests, deterministic fault
+injection, compile validation, JSON validation and a clean secret scan. The
+observer now permits at most two temporary YELLOW health samples and at most
+eight verified retryable transport failures, while still requiring a GREEN final
+sample, zero RED events, zero restarts, stable S7/S8/landing/nginx processes,
+closed Adult/AVS/payment/publishing boundaries and clean exact repositories.
+
+Server re-acceptance remains a bounded STOP -> INSTALL -> VERIFY -> START ->
+OBSERVE flow. Any hard failure or exhausted budget is fail-closed and uses the
+versioned S8-to-S7 rollback. No Adult media, AVS, payment, publishing, creator
+invite, controlled beta or production workflow is authorized.
+
+The canonical Application integration is merge commit
+`c82ad7daa0409cea0719f9749872d9c3e2f193fc` with tree
+`fa89f12c0eef27422997d17acad43260677df979` and parents
+`935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4` and
+`dc1ababa277d975829eef3894211cc52caaa6841`. Control binds the server sync to
+that canonical merge commit, not to a feature-branch-only SHA.

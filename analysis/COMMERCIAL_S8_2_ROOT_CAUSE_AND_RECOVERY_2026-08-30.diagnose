@@ -1,0 +1,149 @@
+# Commercial S8.2 root-cause resolution
+
+Status: INTERNAL SFW ACCEPTANCE GREEN; PUBLIC ACTIVATION PENDING
+Baseline: S7_RECOVERY_GREEN_S8_CLOSED
+
+## Proven root-cause chain
+
+The earlier S8 deployment did not have one generic health failure. The retained
+component evidence proves this ordered chain:
+
+1. `S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING`, PostgreSQL SQLSTATE
+   `42501`: the S8 runtime role could read and insert notification state but did
+   not have the `UPDATE` privilege required by the notifier claim/materialize
+   transaction. Migration `0023_commercial_s8_health_recovery.sql` supplies the
+   missing least-privilege grant.
+2. `S8_POLLING_DATABASE_ERROR`, PostgreSQL SQLSTATE `42P18`: the nullable
+   polling-heartbeat placeholder was untyped in a conditional expression.
+   `PostgresS8Store.heartbeat` now binds it as `%s::BIGINT`, and real PostgreSQL
+   acceptance covers the empty-poll path.
+3. `start-limit-hit` on S7 was a recovery-orchestration defect, not an S7
+   application defect. Repeated stop/start cycles consumed the unit start
+   burst. S8.2 removes S7 stop/start from S8 activation and abort paths. A
+separately supervised S8 landing candidate on loopback port 18096 is used,
+   while the continuously running S7 listener on port 8095 remains the proxy
+   fallback.
+
+Therefore the exact summary is:
+
+`S8_ROOT_CAUSE=NOTIFIER_UPDATE_PRIVILEGE_42501_THEN_UNTYPED_POLLING_HEARTBEAT_42P18_COMPOUNDED_BY_S7_START_LIMIT_ORCHESTRATION`
+
+## Draft PR classification
+
+Control PR #63 and application PR #79 are classification **B**: their S8
+product boundary, PostgreSQL recovery migration, bounded concurrent Telegram
+verification, backup ownership fix and S7 recovery evidence are retained. They
+are not merge-ready because health did not yet separate local bot binding from
+remote availability, Landing Integration was absent from the dependency graph,
+and public activation still stopped S7.
+
+## S8.2 correction boundary
+
+- The dedicated bot ID is bound locally before remote API checks.
+- HTTP 401/403 is a non-retryable credential rejection, never YELLOW.
+- Temporary remote Telegram failure can be YELLOW only for a running instance
+  with the correct local bot binding and a fresh PostgreSQL polling heartbeat.
+- Prestart remains RED if remote identity cannot be freshly verified.
+- `LOCAL_CONFIG_HEALTH`, `REMOTE_TELEGRAM_AVAILABILITY`, and
+  `LANDING_INTEGRATION` join the shared prestart/runtime dependency graph.
+- S7 files, S7 contract, S7 service state and S7 credentials are not replaced
+  by S8 deployment.
+- No media download capability exists; `getFile` remains absent.
+
+Public activation remains fail-closed until the versioned proxy configuration,
+local landing candidate, S8 runtime, acceptance, kill switch, and observation
+window are all independently green.
+
+## Server recovery deviation: Git index mode
+
+The first S8.2 recovery attempt stopped before unit installation with
+`S8_BACKUP_RED GIT_INDEX_MODE_DRIFT`. Read-only inspection proved that only
+`/opt/tu1nz_repos/control/.git/index` had been recreated as mode `0644` by the
+preceding Git ref switch. Its owner remained `chatops:chatops`; both repositories
+were clean and bound to the reviewed commits and trees; S7 remained active with
+zero restarts and green local/external `/adult/health` evidence.
+
+The recovery is deliberately narrow: the backup tool accepts only a regular,
+non-symlink Git index owned by `chatops:chatops`, changes only the observed
+`0644` mode to `0660`, and then re-runs the strict `0600|0660` guard. All other
+modes fail closed. No repository content, ref, object, unit, database row,
+credential or S7 state is changed. The already verified pre-S8 backup is the
+rollback anchor; restoring the broader `0644` permission would be a security
+regression and therefore requires a separate documented decision.
+
+The first normalization retry also stopped before unit installation. It proved
+that `git status` can refresh the index through a lock/rename operation after
+the explicit mode correction; the root caller's inherited `0022` umask then
+recreated the index as `0644`. Both S8 control scripts therefore set `umask
+0007` before every delegated Git operation. Git refreshes can now create only
+group-private files, and the explicit owner/type/mode guard still runs before
+backup use. This is a permission-only recovery; the same verified backup and
+rollback boundary remain in force.
+
+## Dedicated public bot identity correction
+
+The next fail-closed prestart proved
+`S8_TELEGRAM_TOKEN_BOT_ID_MISMATCH` before any S8 service start. A bounded
+credential-safe identity check exposed no token and proved that the installed
+credential's local numeric prefix and Telegram `getMe` response both identify
+bot `8622690874`, username `tu1nz_adult_early_access_bot`. The S8 contract had
+incorrectly retained staging bot ID `8729546284`. The public S8 contract is now
+bound to the proven dedicated public identity; S3/S4 historical staging
+manifests remain unchanged.
+
+## Landing loopback port collision
+
+The first landing-candidate start stopped before S8 bot start because loopback
+port `8096` was already owned by the long-running Jellyfin Docker mapping
+`127.0.0.1:8096->8096`. Kestrel's deterministic HTTP 404 response and the
+`docker-proxy`/container inventory prove the collision; it was not an S8 or S7
+process. Jellyfin is unchanged. The S8 landing contract, readiness check and
+versioned proxy candidate now bind the separately inventoried free loopback
+port `18096`; S7 remains the backup upstream on `8095`.
+
+The following preflight correctly found the retained Landing unit in
+`ActiveState=failed` after the collision, with `MainPID=0` and the unit still
+disabled. Recovery now admits only that dead/disabled failed state (or ordinary
+inactive/not-found), resets the recorded failure immediately before one
+controlled `start`, and retains all journal evidence. Active, enabled or
+process-bearing units remain fail-closed; no `restart` path is introduced.
+
+The next probe proved all non-Landing S8 components GREEN and isolated a stale
+`8096` constant in the installed health wrapper. The application dependency
+graph itself was contract-correct, but the wrapper overwrote its
+`LANDING_INTEGRATION` evidence with a direct loopback request to the old port.
+The wrapper now shares the versioned `18096` binding, and tests prohibit the
+former Jellyfin port from reappearing in health evidence.
+
+## Internal SFW acceptance and closed kill switch
+
+The recovery branches, PostgreSQL migration, unit material, loopback landing,
+diagnostic graph and runtime were staged against the exact reviewed commits and
+trees. The full diagnostic report was GREEN for bot process, local config,
+Telegram auth and availability, polling, database, waitlist, notifier, queue,
+analytics, product boundary, kill switch and landing integration.
+
+The dedicated public bot then completed the internal SFW acceptance with an
+operator-controlled Telegram account: start, German/English selection, join,
+duplicate join, status, notification opt-in/out, leave, rejoin and restart all
+returned their bounded Early Access responses. Exact Telegram update replay is
+not reproducible from a normal client because Telegram assigns a new update ID;
+the identical-update path remains covered by the committed idempotency tests.
+
+The registered harmless synthetic JPEG with SHA-256
+`7dbadcb1fe8130b087166b81b74a72222a00bd94591ec78555942aaecc0fb69b`
+was submitted only to prove the hard media boundary. The live bot replied that
+uploads are unavailable and that the file was neither downloaded nor passed to
+the Adult workflow. No Adult media, AVS, payment or publishing capability was
+opened.
+
+After acceptance, the database-backed kill switch was closed automatically.
+The retained safe log records `S8_PUBLIC_TELEGRAM_KILL_SWITCH_CLOSED` with data
+preservation, and a subsequent `/join` received the neutral paused response.
+S7 remained active with the same PID, zero restarts, green loopback health,
+green external health and public HTTP 200 throughout.
+
+Public activation is not recorded by this evidence. The installed nginx site
+still points `/adult/` directly to the S7 listener on port 8095. The versioned
+S8 proxy candidate points to S8 on port 18096 with S7 as backup, but installing
+that candidate and reloading nginx remain separate, pending actions.

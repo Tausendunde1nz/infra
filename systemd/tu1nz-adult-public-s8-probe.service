@@ -1,0 +1,29 @@
+[Unit]
+Description=TU1NZ Adult Publishing S8 dependency diagnostic probe
+After=network-online.target postgresql.service tu1nz-adult-public-s8-landing.service
+Requires=tu1nz-adult-public-s8-landing.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s8-telegram.token
+LoadCredential=s8_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
+ExecStart=/usr/local/bin/tu1nz_adult_public_s8_health.py --contract /etc/tu1nz/adult-commercial-s8-public-telegram.json --copy /etc/tu1nz/adult-commercial-s8-copy.json --telegram-token %d/s8_telegram_token --database-dsn %d/s8_database_dsn --mode prestart
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077

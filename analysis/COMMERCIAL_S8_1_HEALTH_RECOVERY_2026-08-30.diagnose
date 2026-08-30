@@ -1,0 +1,135 @@
+# Commercial S8.1 health diagnosis and recovery
+
+## Safe state after the first deploy
+
+- S7 remained active and healthy.
+- S8 was stopped and disabled by the fail-closed controller.
+- The Application checkout returned to `935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4`.
+- The verified pre-deploy backup remained available.
+- Adult media, AVS, payment, publishing and the production Adult workflow remained closed.
+
+## Instrumentation defect
+
+The first S8 health wrapper collapsed every subprocess, JSON, Telegram, database,
+polling and product-boundary failure into `S8_PUBLIC_TELEGRAM_HEALTH_RED`. This
+prevented an exact privacy-safe diagnosis and made bounded Telegram calls appear
+like an indefinite wait.
+
+## Server-proven root cause 1
+
+The S8 notification runtime locks and materializes a due broadcast and therefore
+executes `UPDATE commercial_s8_broadcasts`. Migration 0022 granted the runtime
+role only `SELECT` on that table. A PostgreSQL 17 acceptance using the actual
+`tu1nz_adult_commercial_s3_runtime` role reproduces the missing capability. A
+new reversible migration grants only the missing table-level `UPDATE` privilege.
+The server probe reproduced this exact condition as
+`S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING`, SQLSTATE `42501`; all other
+nine probe components were green. After migration 0023, all ten prestart
+components were green.
+
+## Server-proven root cause 2
+
+The first complete runtime cycle then failed before readiness with SQLSTATE
+`42P18` (`IndeterminateDatatype`). An empty Telegram poll calls
+`heartbeat(None, ...)`. Its SQL used the same untyped null placeholder in an
+`IS NULL` condition, so PostgreSQL could not infer a type. Prestart probes did
+not exercise this runtime-only empty-poll heartbeat.
+
+The controller waited for readiness, then aborted exactly as designed: S8 was
+stopped, the Application checkout returned to the S7 release, and S7 remained
+active with zero restarts. The minimal recovery is to bind all nullable update
+ID placeholders explicitly as `BIGINT` and add a real runtime-role PostgreSQL
+acceptance for the empty-poll heartbeat. No schema or privilege expansion is
+required for this second fix.
+
+## Server-proven activation timing defect
+
+The complete internal DE/EN acceptance, duplicate join, leave/rejoin, clean S8
+stop/start and database-backed kill-switch proof all passed. Public SFW
+activation then stopped and started S7 to load the already-installed landing
+binding, but evaluated the local health probe immediately after `systemctl
+start`. The process was active with zero restarts and emitted
+`S7_PUBLIC_RUNTIME_READY` moments later; both local and external health were
+green after the bounded startup interval. The immediate probe therefore
+produced a deterministic readiness race rather than an S7 runtime failure.
+
+The controller remains fail-closed and now uses a bounded 30 x 2-second S7
+readiness wait after each controlled S7 start in activation and rollback paths.
+Activation also gives the external landing/deep-link health contract the same
+bounded convergence window. It still uses explicit stop then start and never
+`restart`. A timeout remains a hard failure and preserves the existing rollback
+boundary.
+
+## Server-proven rollback start-limit defect
+
+The bounded activation retry proved that S7 reached `S7_PUBLIC_RUNTIME_READY`
+after the controlled activation start and then remained healthy for 73 seconds.
+The activation gate nevertheless timed out and entered the fail-closed rollback.
+During that rollback, systemd rejected the next S7 start with
+`start-limit-hit`: the preceding S8.1 acceptance, kill-switch, activation and
+rollback sequence had exhausted the unit's existing start-rate allowance.
+
+This is not an S7 application crash. The last S7 process exited cleanly with
+status 0 when the rollback stopped it, and the subsequent start was never
+launched. The fail-closed result is S8 inactive and disabled, the Application
+checkout restored to `935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4`, Control at
+`7d9a5bc5ca5b8d4352b05de92e0a491a567100c9`, and S7 failed solely with
+`start-limit-hit`; the public landing consequently returns HTTP 502.
+
+Because an S7 disruption is an explicit hard stop, no automatic start recovery
+was attempted. The next separately authorized recovery must first preserve the
+current evidence, then clear only the S7 unit's failed/rate-limit state and
+perform exactly one S7 start followed by bounded local and external health
+checks. The controller must be corrected and tested so that every intentional
+S7 stop/start transition accounts for systemd rate limiting before any further
+S8 activation attempt.
+
+The controlled recovery completed successfully with S7 healthy internally and
+externally, zero restarts, and S8 still inactive and disabled. Its post-check
+then found that the root-owned backup process had refreshed only the Control
+repository index as `root:chatops` mode `0600`. The checkout commit and tree
+were correct, but `chatops` could no longer run `git status`. The backup now
+streams bundles produced by Git running as `chatops` into the root-only backup
+directory and checks both repository index owners and modes before and after
+every backup. Recovery of the existing index is limited to restoring the known
+`chatops:chatops` owner and mode `0660`; no runtime service transition is part
+of that rights repair.
+
+The first rights finalization proved that root-owned `git bundle verify` also
+refreshes the checkout index, so changing only bundle creation was insufficient.
+Verification now opens each root-only bundle as a root file descriptor and
+passes that already-open descriptor to Git running as `chatops`. This keeps the
+backup directory mode `0700` and bundle mode `0600`, gives no persistent file
+access to another identity, and prevents Git from recreating the working index
+as root. The post-backup owner/mode guard remains mandatory and fail-closed.
+
+The server execution proved that `runuser` closes the inherited descriptor, so
+that design correctly failed closed but could not finish verification. The
+final design never runs root Git inside a working checkout: bundle creation and
+all provenance reads run as `chatops`, while each root-only bundle is verified
+inside a short-lived empty bare repository under `/run`. The isolated repository
+contains no application data beyond transient Git verification metadata and is
+removed immediately after the check. Consequently root Git has no path to a
+working index, while bundles and their enclosing backup directory remain
+root-only throughout.
+
+The next server proof found two remaining root `git status` calls used only to
+write the clean-checkout evidence files. Those calls, not bundle verification,
+were the final source of index ownership replacement. They now run as `chatops`
+as well. The test contract explicitly rejects any `safe.directory` root Git
+invocation against either working checkout and requires bundle creation,
+provenance capture and status capture all to run as the working user.
+
+## Recovery controls
+
+- Every component emits status, timestamps, elapsed time, safe reason, safe
+  exception type, errno/SQLSTATE when available and retryability.
+- Telegram identity, webhook and command checks are bounded to six seconds and
+  run concurrently within one probe process.
+- Prestart uses rollback-only waitlist, analytics and kill-switch transactions.
+- Runtime readiness is emitted only after one complete polling, database,
+  notifier and queue cycle.
+- S8 uses inactive -> start -> health -> stop on failure. No restart is used.
+- S7 is not restarted during diagnosis or S8 recovery staging.
+- Public activation and rollback wait at most 60 seconds for S7 readiness after
+  an explicit clean stop/start.

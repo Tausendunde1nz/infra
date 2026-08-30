@@ -1,0 +1,21 @@
+# Commercial S8 Application fetch refspec diagnosis — 2026-08-30
+
+## Failure
+
+The corrected S8 deployment runner verified the pre-token recovery point, synchronized the exact Control candidate, created a fresh S8 pre-deploy backup and passed the server preflight. It then stopped with `REMOTE_TARGET_SHA_MISMATCH` during Application release installation.
+
+## Cause
+
+`git fetch origin <branch>` populated `FETCH_HEAD` but did not update the remote-tracking ref used by the following exact-SHA assertion. The target commit was fetched, but the assertion intentionally rejected the stale `origin/<branch>` value.
+
+## Impact
+
+The server Application remained exactly at S7 commit `935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4` and tree `29679c2029d40eefce7dbd3857c5cf4e1f129013`. S7 remained active with zero restarts. S8 remained not installed and inactive; migration 0022, configuration installation, daemon reload and service start were never reached. S0/S3 remained inactive. The fresh S8 backup created immediately before the preflight is valid recovery evidence.
+
+## Correction
+
+Fetch the exact Application branch through an explicit refspec from `refs/heads/<branch>` to `refs/remotes/origin/<branch>`, then retain the existing exact commit assertion before switching the detached Application checkout.
+
+## Rollback
+
+No rollback is required because no product or database mutation occurred after backup creation. If the next bounded attempt fails, close the S8 kill switch if migration 0022 exists and use the versioned abort/rollback path; never perform a destructive database restore automatically.
