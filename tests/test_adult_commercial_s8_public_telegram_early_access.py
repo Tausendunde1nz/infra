@@ -20,6 +20,7 @@ HEALTH_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-health.service"
 HEALTH_TIMER = ROOT / "systemd/tu1nz-adult-public-s8-health.timer"
 LANDING_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-landing.service"
 PUBLIC_PROXY = ROOT / "nginx/current/tu1nz.s8-public.conf"
+PROXY_ACTIVATION = ROOT / "scripts/tu1nz_adult_public_s8_activate_proxy.sh"
 ACCEPTANCE_EVIDENCE = ROOT / "analysis/COMMERCIAL_S8_2_STAGING_ACCEPTANCE_2026-08-30.diagnose"
 
 
@@ -97,6 +98,7 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             HEALTH_TIMER: self.value["files"]["health_timer_sha256"],
             ROOT / "systemd/tu1nz-adult-public-s8-probe.service": self.value["files"]["probe_service_sha256"],
             LANDING_UNIT: self.value["files"]["landing_service_sha256"],
+            PROXY_ACTIVATION: self.value["files"]["proxy_activation_script_sha256"],
             PUBLIC_PROXY: self.value["files"]["public_proxy_sha256"],
         }
         for path, digest in expected.items():
@@ -294,6 +296,29 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("PUBLIC_ACTIVATION_PENDING", evidence)
         self.assertIn("file was not", evidence)
         self.assertNotIn("GO_PUBLIC_OBSERVATION_GREEN", evidence)
+
+    def test_public_proxy_activation_is_backup_first_and_reversible(self) -> None:
+        source = PROXY_ACTIVATION.read_text(encoding="utf-8")
+        completed = subprocess.run(
+            ["bash", "-n", PROXY_ACTIVATION], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn('git -C "$1" rev-parse "$2"', source)
+        self.assertNotIn('git -C "$1" "$2"', source)
+        self.assertIn('"$BACKUP_TOOL" create "$BACKUP"', source)
+        self.assertIn('"$BACKUP_TOOL" verify-existing "$BACKUP"', source)
+        self.assertLess(
+            source.index('"$BACKUP_TOOL" verify-existing "$BACKUP"'),
+            source.index('install -o root -g root -m 0644 "$CANDIDATE_PROXY" "$ACTIVE_PROXY"'),
+        )
+        self.assertIn("rollback_public_attempt", source)
+        self.assertIn('install -o root -g root -m 0644 "$BACKUP/nginx-enabled-before.conf"', source)
+        self.assertIn('systemctl reload nginx.service', source)
+        self.assertIn('"$CONTROLLER" kill-switch', source)
+        self.assertIn('systemctl disable --now "$HEALTH_TIMER" "$S8_SERVICE" "$LANDING_SERVICE"', source)
+        self.assertNotIn("systemctl restart", source)
+        self.assertNotIn("rm -rf", source)
+        self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ bytes.
 - Verified rollback anchor:
   `/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260830T161020Z-pre-s82-recovery`
 - Application tests: 814/814 GREEN
-- Control tests after recording this evidence: 333/333 GREEN
+- Control tests after versioning the public-activation guard: 334/334 GREEN
 - Application PR #79 CI: GREEN
 - Control PR #63 CI: GREEN
 

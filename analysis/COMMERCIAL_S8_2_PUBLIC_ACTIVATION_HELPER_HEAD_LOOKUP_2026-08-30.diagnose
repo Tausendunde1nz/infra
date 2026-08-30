@@ -1,0 +1,29 @@
+# Commercial S8.2 public activation helper precheck failure
+
+Status: FAIL-CLOSED; NO SERVER MUTATION
+
+The first public-activation helper attempt stopped at its first Git provenance
+check. Its temporary `safe_git` wrapper passed `HEAD` as a Git subcommand
+instead of running `git rev-parse HEAD`. Git returned:
+
+`git: 'HEAD' is not a git command.`
+
+This occurred before backup creation, nginx installation, database control
+changes, unit enablement or nginx reload. Read-only post-state verification
+proved:
+
+- active nginx file SHA-256 remained
+  `ddf14f890cf9d991b631371102663e8984f9586e3a2ee2afb7dace3b30a27843`
+- nginx remained active with zero restarts
+- S7 remained active with its prior PID and zero restarts
+- S8 bot and landing remained active staging processes with zero restarts
+- S8 bot, landing and health timer remained disabled
+- the temporary helper removed itself
+
+The corrected implementation is now versioned as
+`scripts/tu1nz_adult_public_s8_activate_proxy.sh`. Its `git_value` helper uses
+`git rev-parse`, it creates and verifies the full versioned S8 backup before
+the authorized nginx write, and its post-backup failure path closes the
+database kill switch, disables S8, restores the exact saved nginx file, reloads
+nginx and revalidates S7. The previously verified S8.2 recovery backup remains
+an additional rollback anchor.
