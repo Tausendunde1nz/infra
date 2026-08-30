@@ -18,6 +18,12 @@ service_inactive() {
   [ "$(systemctl show "$SERVICE" -p MainPID --value)" = "0" ] || fail "S7_SERVICE_PROCESS_PRESENT"
 }
 
+service_active() {
+  [ "$(systemctl show "$SERVICE" -p LoadState --value 2>/dev/null || true)" = "loaded" ] || fail "S7_SERVICE_NOT_LOADED"
+  [ "$(systemctl show "$SERVICE" -p ActiveState --value)" = "active" ] || fail "S7_SERVICE_NOT_ACTIVE"
+  [ "$(systemctl show "$SERVICE" -p MainPID --value)" != "0" ] || fail "S7_SERVICE_PROCESS_MISSING"
+}
+
 verify_backup() {
   local path="$1"
   [ -d "$path" ] || fail "BACKUP_PATH_MISSING"
@@ -39,9 +45,19 @@ verify_backup() {
 [ "$(id -u)" -eq 0 ] || fail "ROOT_REQUIRED"
 if [ "$#" -eq 2 ] && [ "$1" = "verify-existing" ]; then
   readonly ACTION="verify"
+  readonly SERVICE_MODE="inactive"
+  readonly BACKUP_PATH="$2"
+elif [ "$#" -eq 2 ] && [ "$1" = "verify-live-existing" ]; then
+  readonly ACTION="verify"
+  readonly SERVICE_MODE="active"
+  readonly BACKUP_PATH="$2"
+elif [ "$#" -eq 2 ] && [ "$1" = "create-live" ]; then
+  readonly ACTION="create"
+  readonly SERVICE_MODE="active"
   readonly BACKUP_PATH="$2"
 elif [ "$#" -eq 1 ]; then
   readonly ACTION="create"
+  readonly SERVICE_MODE="inactive"
   readonly BACKUP_PATH="$1"
 else
   fail "USAGE"
@@ -50,7 +66,11 @@ case "$BACKUP_PATH" in
   "${BACKUP_PREFIX}"*) ;;
   *) fail "BACKUP_PATH_OUTSIDE_BOUNDARY" ;;
 esac
-service_inactive
+if [ "$SERVICE_MODE" = "active" ]; then
+  service_active
+else
+  service_inactive
+fi
 [ -z "$(runuser -u chatops -- git -C "$APPLICATION_ROOT" status --porcelain)" ] || fail "APPLICATION_DIRTY"
 [ -z "$(runuser -u chatops -- git -C "$CONTROL_ROOT" status --porcelain)" ] || fail "CONTROL_DIRTY"
 

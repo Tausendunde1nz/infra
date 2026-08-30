@@ -1,0 +1,40 @@
+# Commercial S7 live discovery refresh
+
+- Prepared at: 2026-08-30T11:21:00Z
+- Scope: public SFW HEAD and origin-level crawler discovery only
+- Existing public GET runtime: healthy and intentionally left running until the
+  versioned live backup, refresh and rollback controls pass review
+
+## Finding
+
+External launch verification found two narrow HTTP quality gaps:
+
+1. the application returned 404 to HEAD on otherwise healthy public GET
+   resources;
+2. `/robots.txt` and `/sitemap.xml` fell through to the legacy SPA document.
+
+No waitlist, health, legal-page, analytics or security-header failure was found.
+
+## Versioned resolution
+
+- bind the application to merge `935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4`
+  and tree `29679c2029d40eefce7dbd3857c5cf4e1f129013`;
+- serve explicit host-root robots and sitemap documents from Nginx;
+- exclude the Adult Publishing URLs from the disabled/kill-switch sitemap;
+- require a new root-owned live backup while the current S7 service is healthy;
+- allow refresh only from the exact current release and Nginx hash;
+- on failure, restore the exact previous release, editable installation and both
+  Nginx files before attempting to restore the prior public service.
+
+## Product boundary
+
+This refresh does not enable Telegram, X, Reddit, AVS, payments, Adult media,
+creator submissions, scheduling or publishing. It does not modify the database
+schema or public product contract.
+
+## Rollback
+
+The live backup contains both Git bundles, database dump, installed Nginx files,
+S7 configuration/unit archives, service state and a strict SHA-256 index. The
+controller additionally pins the only accepted rollback source to the current
+application SHA/tree and prior installed Nginx SHA.

@@ -28,8 +28,8 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
 
     def test_application_release_is_exactly_bound(self) -> None:
         application = self.value["application"]
-        self.assertEqual(application["merge_commit"], "79a9d88d51ba5747cdfb0b6400a61506d82ccc6b")
-        self.assertEqual(application["tree"], "f3ae60f4c690a3b023db4e5953ca14050a9272b3")
+        self.assertEqual(application["merge_commit"], "935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4")
+        self.assertEqual(application["tree"], "29679c2029d40eefce7dbd3857c5cf4e1f129013")
         self.assertEqual(application["schema"], "0021_commercial_s7_public_soft_launch")
         self.assertEqual(
             application["migration_chain_sha256"],
@@ -88,8 +88,14 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
         self.assertIn("location ^~ /adult/", active)
         self.assertIn("proxy_pass http://127.0.0.1:8095", active)
         self.assertIn("client_max_body_size 32k", active)
+        self.assertIn("location = /robots.txt", active)
+        self.assertIn("location = /sitemap.xml", active)
+        self.assertIn("<loc>https://tu1nz.com/adult/</loc>", active)
         self.assertNotIn("proxy_pass http://0.0.0.0", active)
         self.assertIn("location ^~ /adult/", disabled)
+        self.assertIn("location = /robots.txt", disabled)
+        self.assertIn("location = /sitemap.xml", disabled)
+        self.assertNotIn("<loc>https://tu1nz.com/adult/</loc>", disabled)
         self.assertIn("return 503", disabled)
         self.assertNotIn("proxy_pass", disabled)
 
@@ -115,8 +121,8 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
         self.assertIn("require_backup", source)
         self.assertIn("require_other_adult_services_stopped", source)
         self.assertIn("merge --ff-only", source)
-        self.assertIn('PREVIOUS_TARGET_SHA="3dd63f7a17626a4d8a8a3b58f317ae6917c33696"', source)
-        self.assertIn('PREVIOUS_TARGET_TREE="e247b749ffa155a5ab8ea884ff77d205d5762dd7"', source)
+        self.assertIn('PREVIOUS_TARGET_SHA="79a9d88d51ba5747cdfb0b6400a61506d82ccc6b"', source)
+        self.assertIn('PREVIOUS_TARGET_TREE="f3ae60f4c690a3b023db4e5953ca14050a9272b3"', source)
         self.assertIn('if [ "$(git_value "$APPLICATION_ROOT" HEAD)" != "$TARGET_SHA" ]', source)
         self.assertIn("0021_commercial_s7_public_soft_launch.sql", source)
         self.assertIn('<"$APPLICATION_ROOT/migrations/0021_commercial_s7_public_soft_launch.sql"', source)
@@ -126,6 +132,11 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
         self.assertIn("systemd-analyze verify", source)
         self.assertIn("kill-switch", source)
         self.assertIn("abort_public_deploy", source)
+        self.assertIn("live_refresh", source)
+        self.assertIn("rollback_live_refresh", source)
+        self.assertIn("verify-live-existing", source)
+        self.assertIn("git -C \"$APPLICATION_ROOT\" update-ref", source)
+        self.assertIn("git -C \"$APPLICATION_ROOT\" restore", source)
         self.assertIn("DISABLED_FOR_NOW", source)
         self.assertNotIn("api.x.com", source)
         self.assertNotIn("reddit.com", source)
@@ -152,6 +163,9 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
         ):
             self.assertIn(expected, source)
         self.assertIn("700|2700", source)
+        self.assertIn("create-live", source)
+        self.assertIn("verify-live-existing", source)
+        self.assertIn("service_active", source)
         self.assertNotIn("rm -rf", source)
 
 
