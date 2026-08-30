@@ -1,0 +1,76 @@
+{
+  "application": {
+    "branch": "main",
+    "merge_commit": "99a179990ae67aeab420eccef984915ae2aebfbd",
+    "migration_chain_sha256": "84fe9df14d3e37b45fde96bf541f8cdcc7cb8947a0ed3765699abdf4bdb2cf5b",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "schema": "0020_commercial_s6_payment_readiness",
+    "tree": "ecd67fa84fbd1248dd2b7b29a6cafba7bdc0d527"
+  },
+  "authorization": {
+    "application_fast_forward_authorized": true,
+    "database_migration_0020_authorized": true,
+    "dependency_install_from_hash_lock_authorized": true,
+    "disabled_contract_install_authorized": true,
+    "provider_call_authorized": false,
+    "service_start_authorized": false,
+    "systemd_change_authorized": false
+  },
+  "backup_and_rollback": {
+    "exact_pre_mutation_recovery_point_required": true,
+    "restore_proof_required": true,
+    "rollback_requires_separate_decision": true,
+    "service_must_remain_stopped": true
+  },
+  "control": {
+    "branch": "feat/commercial-s5-yoti-sandbox",
+    "exact_post_merge_sha_and_tree_required": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "decision": "GO_FOR_OFFLINE_STAGING_ONLY",
+  "health": {
+    "AVS_ADAPTER": "GREEN",
+    "AVS_AUTH": "DISABLED_EXPECTED",
+    "AVS_CONFIG": "GREEN",
+    "AVS_NETWORK": "DISABLED_EXPECTED",
+    "PAYMENT_CONFIG": "DISABLED_EXPECTED",
+    "PAYMENT_NETWORK": "DISABLED_EXPECTED"
+  },
+  "product_boundary": {
+    "adult_media_enabled": false,
+    "avs_credentials_present": false,
+    "avs_network_enabled": false,
+    "avs_provider_active": false,
+    "controlled_beta_enabled": false,
+    "external_publish_enabled": false,
+    "payment_credentials_present": false,
+    "payment_network_enabled": false,
+    "payment_provider_active": false,
+    "production_enabled": false,
+    "public_registration": false,
+    "real_identity_data_enabled": false,
+    "real_money_enabled": false
+  },
+  "providers": {
+    "segpay": {
+      "contract_sha256": "03bccf3c24a281eaffb4fdc530df7d57bf0b870ee5b2ee3e6ee5ebb02ed3ffb1",
+      "demo_or_sandbox": "WAITING_HUMAN_PROVIDER_GATE",
+      "engineering": "GO",
+      "production": "NO_GO"
+    },
+    "yoti": {
+      "contract_sha256": "a8933f970ae78d47fadba69ea831f559ce16c3c8234a652bb5939a53f9baa19d",
+      "engineering": "GO",
+      "live_sandbox": "WAITING_EXTERNAL_ORGANISATION_VERIFICATION",
+      "production": "NO_GO"
+    }
+  },
+  "server": {
+    "application_path": "/opt/tu1nz_repos/adult-publishing-core",
+    "control_path": "/opt/tu1nz_repos/control",
+    "database": "tu1nz_adult_commercial_s3",
+    "disabled_contract_directory": "/etc/tu1nz",
+    "service": "tu1nz-adult-commercial-s3.service"
+  },
+  "version": "tu1nz-commercial-s5-s6-offline-staging-control-v1"
+}

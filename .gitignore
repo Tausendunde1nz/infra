@@ -50,6 +50,7 @@
 !scripts/tu1nz_adult_commercial_s4_control.sh
 !scripts/tu1nz_adult_commercial_s4_observe.py
 !scripts/tu1nz_adult_commercial_s4_backup.sh
+!scripts/tu1nz_adult_commercial_s5_s6_offline_stage.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -102,6 +103,7 @@
 !manifests/adult-publishing-commercial-s3-1-bootstrap-ownership.json
 !manifests/adult-publishing-commercial-s3-2-rolling-debug.json
 !manifests/adult-publishing-commercial-s4-extended-staging.json
+!manifests/adult-publishing-commercial-s5-s6-offline-staging.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -146,6 +148,7 @@
 !tests/test_adult_commercial_s3_1_bootstrap_ownership_control.py
 !tests/test_adult_commercial_s3_2_rolling_debug_control.py
 !tests/test_adult_commercial_s4_extended_staging_control.py
+!tests/test_adult_commercial_s5_s6_offline_staging.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
