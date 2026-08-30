@@ -84,6 +84,17 @@ checks. The controller must be corrected and tested so that every intentional
 S7 stop/start transition accounts for systemd rate limiting before any further
 S8 activation attempt.
 
+The controlled recovery completed successfully with S7 healthy internally and
+externally, zero restarts, and S8 still inactive and disabled. Its post-check
+then found that the root-owned backup process had refreshed only the Control
+repository index as `root:chatops` mode `0600`. The checkout commit and tree
+were correct, but `chatops` could no longer run `git status`. The backup now
+streams bundles produced by Git running as `chatops` into the root-only backup
+directory and checks both repository index owners and modes before and after
+every backup. Recovery of the existing index is limited to restoring the known
+`chatops:chatops` owner and mode `0660`; no runtime service transition is part
+of that rights repair.
+
 ## Recovery controls
 
 - Every component emits status, timestamps, elapsed time, safe reason, safe

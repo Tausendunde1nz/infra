@@ -19,6 +19,16 @@ service_state() {
   systemctl show "$service" -p ActiveState --value 2>/dev/null || printf 'not-found\n'
 }
 
+require_git_index_safe() {
+  local repository="$1"
+  [ "$(stat -c '%U:%G' "$repository/.git/index")" = "chatops:chatops" ] \
+    || fail "GIT_INDEX_OWNERSHIP_DRIFT"
+  case "$(stat -c '%a' "$repository/.git/index")" in
+    600|660) ;;
+    *) fail "GIT_INDEX_MODE_DRIFT" ;;
+  esac
+}
+
 verify_backup() {
   local path="$1"
   [ -d "$path" ] || fail "BACKUP_PATH_MISSING"
@@ -57,6 +67,8 @@ case "$BACKUP_PATH" in
 esac
 [ -z "$(runuser -u chatops -- git -C "$APPLICATION_ROOT" status --porcelain)" ] || fail "APPLICATION_DIRTY"
 [ -z "$(runuser -u chatops -- git -C "$CONTROL_ROOT" status --porcelain)" ] || fail "CONTROL_DIRTY"
+require_git_index_safe "$APPLICATION_ROOT"
+require_git_index_safe "$CONTROL_ROOT"
 
 if [ "$ACTION" = "verify" ]; then
   verify_backup "$BACKUP_PATH"
@@ -83,8 +95,8 @@ else
 fi
 [ ! -e "$BACKUP_PATH" ] || fail "BACKUP_PATH_EXISTS"
 install -d -o root -g root -m 0700 "${BACKUP_PATH%/*}" "$BACKUP_PATH"
-git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle create "$BACKUP_PATH/application.bundle" --all
-git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle create "$BACKUP_PATH/control.bundle" --all
+runuser -u chatops -- git -C "$APPLICATION_ROOT" bundle create - --all >"$BACKUP_PATH/application.bundle"
+runuser -u chatops -- git -C "$CONTROL_ROOT" bundle create - --all >"$BACKUP_PATH/control.bundle"
 git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/application-provenance.txt"
 git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/control-provenance.txt"
 git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" status --porcelain=v1 >"$BACKUP_PATH/application-status.txt"
@@ -128,6 +140,8 @@ find "$BACKUP_PATH" -maxdepth 1 -type f -exec chmod 0600 {} +
   chmod 0600 SHA256SUMS
 )
 verify_backup "$BACKUP_PATH"
+require_git_index_safe "$APPLICATION_ROOT"
+require_git_index_safe "$CONTROL_ROOT"
 if [ "$ACTION" = "create-s7-recovery" ]; then
   readonly SAFE_CODE="S8_S7_RECOVERY_BACKUP_GREEN"
 else

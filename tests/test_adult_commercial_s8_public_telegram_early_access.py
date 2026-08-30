@@ -209,8 +209,13 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "credential-metadata-before.txt",
             "sha256sum --check --strict",
             "pg_restore --list",
+            "GIT_INDEX_OWNERSHIP_DRIFT",
+            "GIT_INDEX_MODE_DRIFT",
+            "bundle create - --all",
         ):
             self.assertIn(expected, source)
+        self.assertIn('runuser -u chatops -- git -C "$APPLICATION_ROOT" bundle create - --all', source)
+        self.assertIn('runuser -u chatops -- git -C "$CONTROL_ROOT" bundle create - --all', source)
         self.assertNotIn("adult-commercial-s8-telegram.token' -print0", source)
         self.assertNotIn("rm -rf", source)
 
