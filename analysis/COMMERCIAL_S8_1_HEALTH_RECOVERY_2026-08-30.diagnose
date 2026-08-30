@@ -15,17 +15,32 @@ polling and product-boundary failure into `S8_PUBLIC_TELEGRAM_HEALTH_RED`. This
 prevented an exact privacy-safe diagnosis and made bounded Telegram calls appear
 like an indefinite wait.
 
-## Locally reproduced root-cause candidate
+## Server-proven root cause 1
 
 The S8 notification runtime locks and materializes a due broadcast and therefore
 executes `UPDATE commercial_s8_broadcasts`. Migration 0022 granted the runtime
 role only `SELECT` on that table. A PostgreSQL 17 acceptance using the actual
 `tu1nz_adult_commercial_s3_runtime` role reproduces the missing capability. A
 new reversible migration grants only the missing table-level `UPDATE` privilege.
+The server probe reproduced this exact condition as
+`S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING`, SQLSTATE `42501`; all other
+nine probe components were green. After migration 0023, all ten prestart
+components were green.
 
-The server-side component probe must still prove the same failure before that
-migration is applied. Until that proof and a green post-migration probe exist,
-the exact server root cause remains pending and S8 remains closed.
+## Server-proven root cause 2
+
+The first complete runtime cycle then failed before readiness with SQLSTATE
+`42P18` (`IndeterminateDatatype`). An empty Telegram poll calls
+`heartbeat(None, ...)`. Its SQL used the same untyped null placeholder in an
+`IS NULL` condition, so PostgreSQL could not infer a type. Prestart probes did
+not exercise this runtime-only empty-poll heartbeat.
+
+The controller waited for readiness, then aborted exactly as designed: S8 was
+stopped, the Application checkout returned to the S7 release, and S7 remained
+active with zero restarts. The minimal recovery is to bind all nullable update
+ID placeholders explicitly as `BIGINT` and add a real runtime-role PostgreSQL
+acceptance for the empty-poll heartbeat. No schema or privilege expansion is
+required for this second fix.
 
 ## Recovery controls
 
