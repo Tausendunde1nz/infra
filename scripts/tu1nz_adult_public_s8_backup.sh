@@ -29,6 +29,20 @@ require_git_index_safe() {
   esac
 }
 
+normalize_git_index_mode() {
+  local repository="$1"
+  local index="$repository/.git/index"
+  [ -f "$index" ] && [ ! -L "$index" ] || fail "GIT_INDEX_UNSAFE_TYPE"
+  [ "$(stat -c '%U:%G' "$index")" = "chatops:chatops" ] \
+    || fail "GIT_INDEX_OWNERSHIP_DRIFT"
+  case "$(stat -c '%a' "$index")" in
+    600|660) ;;
+    644) chmod 0660 "$index" ;;
+    *) fail "GIT_INDEX_MODE_UNEXPECTED" ;;
+  esac
+  require_git_index_safe "$repository"
+}
+
 verify_bundle_isolated() {
   local bundle="$1"
   local verify_root
@@ -61,7 +75,12 @@ verify_backup() {
 }
 
 [ "$(id -u)" -eq 0 ] || fail "ROOT_REQUIRED"
-if [ "$#" -eq 2 ] && [ "$1" = "verify-existing" ]; then
+if [ "$#" -eq 1 ] && [ "$1" = "normalize-index-modes" ]; then
+  normalize_git_index_mode "$APPLICATION_ROOT"
+  normalize_git_index_mode "$CONTROL_ROOT"
+  printf '{"ok":true,"safe_code":"S8_GIT_INDEX_MODES_GREEN"}\n'
+  exit 0
+elif [ "$#" -eq 2 ] && [ "$1" = "verify-existing" ]; then
   readonly ACTION="verify"
   readonly BACKUP_PATH="$2"
 elif [ "$#" -eq 2 ] && [ "$1" = "create" ]; then

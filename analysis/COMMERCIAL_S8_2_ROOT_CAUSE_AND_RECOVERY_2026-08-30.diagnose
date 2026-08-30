@@ -53,3 +53,20 @@ and public activation still stopped S7.
 Public activation remains fail-closed until the versioned proxy configuration,
 local landing candidate, S8 runtime, acceptance, kill switch, and observation
 window are all independently green.
+
+## Server recovery deviation: Git index mode
+
+The first S8.2 recovery attempt stopped before unit installation with
+`S8_BACKUP_RED GIT_INDEX_MODE_DRIFT`. Read-only inspection proved that only
+`/opt/tu1nz_repos/control/.git/index` had been recreated as mode `0644` by the
+preceding Git ref switch. Its owner remained `chatops:chatops`; both repositories
+were clean and bound to the reviewed commits and trees; S7 remained active with
+zero restarts and green local/external `/adult/health` evidence.
+
+The recovery is deliberately narrow: the backup tool accepts only a regular,
+non-symlink Git index owned by `chatops:chatops`, changes only the observed
+`0644` mode to `0660`, and then re-runs the strict `0600|0660` guard. All other
+modes fail closed. No repository content, ref, object, unit, database row,
+credential or S7 state is changed. The already verified pre-S8 backup is the
+rollback anchor; restoring the broader `0644` permission would be a security
+regression and therefore requires a separate documented decision.

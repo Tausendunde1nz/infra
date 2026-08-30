@@ -244,6 +244,16 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertNotIn("adult-commercial-s8-telegram.token' -print0", source)
         self.assertNotIn("rm -rf", source)
 
+    def test_backup_has_narrow_idempotent_git_index_mode_recovery(self) -> None:
+        source = BACKUP.read_text(encoding="utf-8")
+        recovery = source.split("normalize_git_index_mode()", 1)[1].split("verify_bundle_isolated()", 1)[0]
+        self.assertIn('600|660) ;;', recovery)
+        self.assertIn('644) chmod 0660 "$index" ;;', recovery)
+        self.assertIn('GIT_INDEX_MODE_UNEXPECTED', recovery)
+        self.assertIn('[ -f "$index" ] && [ ! -L "$index" ]', recovery)
+        self.assertIn('normalize-index-modes', source)
+        self.assertIn('S8_GIT_INDEX_MODES_GREEN', source)
+
     def test_kill_switch_needs_no_deployment_and_preserves_data(self) -> None:
         switch = self.value["kill_switch"]
         self.assertTrue(switch["database_backed"])
