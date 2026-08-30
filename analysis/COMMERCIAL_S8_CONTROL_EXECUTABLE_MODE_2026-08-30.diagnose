@@ -1,0 +1,21 @@
+# Commercial S8 Control executable-mode diagnosis — 2026-08-30
+
+## Failure
+
+The first server deployment attempt stopped immediately after synchronizing the exact Control candidate. Invocation of `scripts/tu1nz_adult_public_s8_backup.sh` through sudo returned `command not found`.
+
+## Cause
+
+The S8 shell and health scripts were committed with Git mode `100644` instead of executable mode `100755`. File content, hashes, release binding and the pre-token S7 recovery point were intact.
+
+## Impact
+
+No S8 backup was created by the new script, no Application checkout changed, migration 0022 was not applied, no configuration or unit was installed, no service was started and no public behavior changed. The server Control checkout alone advanced to the reviewed S8 candidate and remained clean.
+
+## Correction
+
+Set executable mode `100755` on the S8 controller, backup and health scripts. Re-run the complete Control test suite and CI, bind the new exact Control commit/tree in the deployment runner, verify the existing pre-token S7 recovery point again and restart the sequence at S8 backup creation.
+
+## Rollback
+
+If the corrected runner fails, the existing S7 recovery point at `/opt/tu1nz_repos/backups/commercial-s7-public-soft-launch/20260830T130754Z-pre-s8-public-telegram` remains the authoritative pre-mutation restore source. No database rollback is warranted for this failure.
