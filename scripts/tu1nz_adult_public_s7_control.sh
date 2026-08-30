@@ -237,7 +237,9 @@ live_refresh() {
   [ "$(sha256sum /etc/nginx/sites-enabled/tu1nz.conf | awk '{print $1}')" = "$NGINX_PREVIOUS_ACTIVE_SHA" ] || fail "LIVE_REFRESH_NGINX_SOURCE_DRIFT"
   local_health || fail "LIVE_REFRESH_INITIAL_HEALTH_RED"
 
-  install_release
+  if ! (install_release); then
+    rollback_live_refresh "$3"
+  fi
   if ! install_active_nginx; then
     rollback_live_refresh "$3"
   fi
