@@ -90,3 +90,13 @@ bot `8622690874`, username `tu1nz_adult_early_access_bot`. The S8 contract had
 incorrectly retained staging bot ID `8729546284`. The public S8 contract is now
 bound to the proven dedicated public identity; S3/S4 historical staging
 manifests remain unchanged.
+
+## Landing loopback port collision
+
+The first landing-candidate start stopped before S8 bot start because loopback
+port `8096` was already owned by the long-running Jellyfin Docker mapping
+`127.0.0.1:8096->8096`. Kestrel's deterministic HTTP 404 response and the
+`docker-proxy`/container inventory prove the collision; it was not an S8 or S7
+process. Jellyfin is unchanged. The S8 landing contract, readiness check and
+versioned proxy candidate now bind the separately inventoried free loopback
+port `18096`; S7 remains the backup upstream on `8095`.

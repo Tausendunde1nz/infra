@@ -14,20 +14,20 @@ readonly HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
 readonly APPLICATION_BRANCH="fix/commercial-s8-public-recovery"
 readonly SOURCE_SHA="935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4"
 readonly SOURCE_TREE="29679c2029d40eefce7dbd3857c5cf4e1f129013"
-readonly TARGET_SHA="30b712ef3d3c351ee7c9af4f25eb01dc346018e1"
-readonly TARGET_TREE="7ee3ea2e3728b91716294948a66123f5cc55bb04"
+readonly TARGET_SHA="9170b66a464f8a2cffa075360addb9aea755769b"
+readonly TARGET_TREE="96f8a52d5b06c795cc819f7d8ae176d045aca6fd"
 readonly MIGRATION_CHAIN_SHA="b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8"
 readonly MIGRATION_SHA="5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6"
 readonly RECOVERY_MIGRATION_SHA="feb157b5625113a3c4774b570d8a73265356a87c5fe70d491c36b5b7a25a6691"
 readonly S8_CONTRACT_SHA="cb5fdca02192211850b6dd66943a1db5cd6ea7349770776c119fc1e60a1ca927"
-readonly S8_LANDING_CONTRACT_SHA="b1fa91212581d2956ba5a880e2d20d3dcbdb47f2031233d6500cb0b87d544a10"
+readonly S8_LANDING_CONTRACT_SHA="ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e"
 readonly COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"
 readonly UNIT_SHA="26fbb08113ecb6609806e549f980eecb94f0d90d4eae1b411e1208c9c16d1a69"
 readonly HEALTH_SCRIPT_SHA="e1b81bff8c27672dc65c8c53681e9bd59906ccaf6ebda603941f68d4fab2312f"
 readonly HEALTH_UNIT_SHA="75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855"
 readonly PROBE_UNIT_SHA="7c0e1d03dfb89bc6397a1c49c90edc68d694b39395107c491e58bf9a58d4949c"
 readonly LANDING_UNIT_SHA="f2663c4f1e57e91aa938d67bc5533fa5324dd355282bdf6e52fe40102b7b994d"
-readonly PUBLIC_PROXY_SHA="3f50b7b72068d61dd8990f4681f8d7bcb408620b9bac410be1ef469257cb71a4"
+readonly PUBLIC_PROXY_SHA="65c0bc9d12981a4532d5453c668f8b2f9a4ad32cf5a7a18b8ef4ed3b56a0f062"
 readonly TOKEN_PATH="/etc/tu1nz/adult-commercial-s8-telegram.token"
 readonly DATABASE_DSN_PATH="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
@@ -112,9 +112,9 @@ await_s7_green() {
 await_landing_green() {
   local attempt
   for attempt in $(seq 1 30); do
-    if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8096/adult/ \
+    if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:18096/adult/ \
       | grep -F 'https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch' >/dev/null \
-      && curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8096/adult/health \
+      && curl --fail --silent --show-error --max-time 5 http://127.0.0.1:18096/adult/health \
       | "$APPLICATION_ROOT/.venv/bin/python" -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] is True; assert not any(p["forbidden_capabilities"].values())'; then
       return 0
     fi

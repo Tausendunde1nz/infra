@@ -187,7 +187,7 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("adult-commercial-s8-landing.json", landing)
         self.assertIn("tu1nz-public-s8-landing", landing)
         self.assertNotIn("LoadCredential", landing)
-        self.assertIn("server 127.0.0.1:8096", proxy)
+        self.assertIn("server 127.0.0.1:18096", proxy)
         self.assertIn("server 127.0.0.1:8095 backup", proxy)
         self.assertIn("proxy_pass http://tu1nz_adult_public", proxy)
 
