@@ -26,6 +26,14 @@ The database-backed kill switch sets public access, new joins and notifications 
 
 ## Deployment sequence
 
+The S8 application release is a pinned, reviewed commit and does not move when
+the canonical application `main` advances with unrelated offline work. The
+controller fetches canonical `main`, requires the pinned commit to remain an
+ancestor of it, verifies the pinned tree exactly, and only then checks out that
+fixed release. It must never require the branch tip itself to equal the pinned
+release, because that would make an older audited release undeployable after a
+normal forward-only merge.
+
 1. Verify the exact application/control commits and trees and a fresh recovery point.
 2. Verify S7 green and S0/S3 inactive.
 3. Install the dedicated token through a non-echoing local-to-SSH prompt.
