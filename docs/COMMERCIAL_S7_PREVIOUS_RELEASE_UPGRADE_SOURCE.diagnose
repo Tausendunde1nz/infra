@@ -1,0 +1,38 @@
+# Commercial S7 previous-release upgrade-source diagnosis
+
+- Observed at: 2026-08-30T11:01:00Z
+- Scope: fresh S7 preflight after the credential-release refresh
+- Result: fail-closed before application sync, service start, or Nginx change
+
+## Symptom
+
+The fresh preflight stopped with `APPLICATION_RELEASE_UNEXPECTED`.
+
+## Evidence
+
+The server application was clean at the exact prior S7 release:
+
+- commit: `3dd63f7a17626a4d8a8a3b58f317ae6917c33696`
+- tree: `e247b749ffa155a5ab8ea884ff77d205d5762dd7`
+
+That release had been installed during the earlier authorized attempt before the
+runtime credential guard triggered the automatic service/Nginx rollback. It is
+neither drift nor an unreviewed state. Control and application worktrees remained
+clean, and the newly created pre-deployment backup verified successfully.
+
+## Resolution
+
+Add this one exact commit/tree pair as a permitted upgrade source. The controller
+may fast-forward it only to the newly reviewed target:
+
+- target commit: `79a9d88d51ba5747cdfb0b6400a61506d82ccc6b`
+- target tree: `f3ae60f4c690a3b023db4e5953ca14050a9272b3`
+
+All other application states remain rejected. Fast-forward-only synchronization,
+remote target equality, clean worktree, source hashes, backup, and preflight
+requirements remain mandatory.
+
+## Rollback
+
+Revert this commit and keep S7 disabled. The change contains no runtime or server
+activation and grants no wildcard or branch-based release acceptance.

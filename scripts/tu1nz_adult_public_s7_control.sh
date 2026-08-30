@@ -9,6 +9,8 @@ readonly HEALTH_SERVICE="tu1nz-adult-public-s7-health.service"
 readonly HEALTH_TIMER="tu1nz-adult-public-s7-health.timer"
 readonly BASELINE_SHA="99a179990ae67aeab420eccef984915ae2aebfbd"
 readonly BASELINE_TREE="ecd67fa84fbd1248dd2b7b29a6cafba7bdc0d527"
+readonly PREVIOUS_TARGET_SHA="3dd63f7a17626a4d8a8a3b58f317ae6917c33696"
+readonly PREVIOUS_TARGET_TREE="e247b749ffa155a5ab8ea884ff77d205d5762dd7"
 readonly TARGET_SHA="79a9d88d51ba5747cdfb0b6400a61506d82ccc6b"
 readonly TARGET_TREE="f3ae60f4c690a3b023db4e5953ca14050a9272b3"
 readonly MIGRATION_CHAIN_SHA="7db9b568bdb3439aa1d0d05990afb6c8230b750d710e9319f20e1a15cddd1a51"
@@ -78,6 +80,9 @@ require_application_baseline_or_target() {
   if [ "$sha" = "$BASELINE_SHA" ] && [ "$tree" = "$BASELINE_TREE" ]; then
     return
   fi
+  if [ "$sha" = "$PREVIOUS_TARGET_SHA" ] && [ "$tree" = "$PREVIOUS_TARGET_TREE" ]; then
+    return
+  fi
   [ "$sha" = "$TARGET_SHA" ] && [ "$tree" = "$TARGET_TREE" ] || fail "APPLICATION_RELEASE_UNEXPECTED"
 }
 
@@ -126,7 +131,8 @@ preflight() {
 }
 
 install_release() {
-  if [ "$(git_value "$APPLICATION_ROOT" HEAD)" = "$BASELINE_SHA" ]; then
+  if [ "$(git_value "$APPLICATION_ROOT" HEAD)" != "$TARGET_SHA" ]; then
+    require_application_baseline_or_target
     runuser -u chatops -- git -C "$APPLICATION_ROOT" fetch --no-tags origin main
     [ "$(git_value "$APPLICATION_ROOT" origin/main)" = "$TARGET_SHA" ] || fail "REMOTE_TARGET_SHA_MISMATCH"
     runuser -u chatops -- git -C "$APPLICATION_ROOT" merge --ff-only "$TARGET_SHA"
