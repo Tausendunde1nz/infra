@@ -6,6 +6,7 @@ readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly S7_SERVICE="tu1nz-adult-public-s7.service"
 readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
+readonly HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
 readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
 
 fail() {
@@ -44,6 +45,9 @@ if [ "$#" -eq 2 ] && [ "$1" = "verify-existing" ]; then
 elif [ "$#" -eq 2 ] && [ "$1" = "create" ]; then
   readonly ACTION="create"
   readonly BACKUP_PATH="$2"
+elif [ "$#" -eq 2 ] && [ "$1" = "create-s7-recovery" ]; then
+  readonly ACTION="create-s7-recovery"
+  readonly BACKUP_PATH="$2"
 else
   fail "USAGE"
 fi
@@ -61,7 +65,22 @@ if [ "$ACTION" = "verify" ]; then
   exit 0
 fi
 
-[ "$(service_state "$S7_SERVICE")" = "active" ] || fail "S7_SERVICE_NOT_ACTIVE"
+if [ "$ACTION" = "create" ]; then
+  [ "$(service_state "$S7_SERVICE")" = "active" ] || fail "S7_SERVICE_NOT_ACTIVE"
+else
+  [ "$(service_state "$S7_SERVICE")" = "failed" ] || fail "S7_RECOVERY_STATE_NOT_FAILED"
+  [ "$(systemctl show "$S7_SERVICE" -p Result --value)" = "start-limit-hit" ] \
+    || fail "S7_RECOVERY_RESULT_NOT_START_LIMIT_HIT"
+  [ "$(systemctl show "$S7_SERVICE" -p MainPID --value)" = "0" ] \
+    || fail "S7_RECOVERY_PROCESS_PRESENT"
+  [ "$(service_state "$S8_SERVICE")" = "inactive" ] || fail "S8_SERVICE_NOT_INACTIVE"
+  [ "$(systemctl is-enabled "$S8_SERVICE" 2>/dev/null || true)" = "disabled" ] \
+    || fail "S8_SERVICE_NOT_DISABLED"
+  case "$(service_state "$HEALTH_TIMER")" in
+    inactive|not-found) ;;
+    *) fail "S8_HEALTH_TIMER_ACTIVE" ;;
+  esac
+fi
 [ ! -e "$BACKUP_PATH" ] || fail "BACKUP_PATH_EXISTS"
 install -d -o root -g root -m 0700 "${BACKUP_PATH%/*}" "$BACKUP_PATH"
 git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle create "$BACKUP_PATH/application.bundle" --all
@@ -109,5 +128,10 @@ find "$BACKUP_PATH" -maxdepth 1 -type f -exec chmod 0600 {} +
   chmod 0600 SHA256SUMS
 )
 verify_backup "$BACKUP_PATH"
-printf '{"ok":true,"safe_code":"S8_BACKUP_GREEN","path":"%s","index_sha256":"%s"}\n' \
-  "$BACKUP_PATH" "$(sha256sum "$BACKUP_PATH/SHA256SUMS" | awk '{print $1}')"
+if [ "$ACTION" = "create-s7-recovery" ]; then
+  readonly SAFE_CODE="S8_S7_RECOVERY_BACKUP_GREEN"
+else
+  readonly SAFE_CODE="S8_BACKUP_GREEN"
+fi
+printf '{"ok":true,"safe_code":"%s","path":"%s","index_sha256":"%s"}\n' \
+  "$SAFE_CODE" "$BACKUP_PATH" "$(sha256sum "$BACKUP_PATH/SHA256SUMS" | awk '{print $1}')"

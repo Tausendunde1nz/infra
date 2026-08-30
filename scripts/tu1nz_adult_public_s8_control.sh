@@ -113,6 +113,33 @@ await_external_landing_green() {
   return 1
 }
 
+start_s7_once() {
+  systemctl reset-failed "$S7_SERVICE"
+  systemctl start "$S7_SERVICE"
+}
+
+require_s7_start_limit_failure() {
+  [ "$(systemctl show "$S7_SERVICE" -p ActiveState --value)" = "failed" ] \
+    || fail "S7_RECOVERY_STATE_NOT_FAILED"
+  [ "$(systemctl show "$S7_SERVICE" -p Result --value)" = "start-limit-hit" ] \
+    || fail "S7_RECOVERY_RESULT_NOT_START_LIMIT_HIT"
+  [ "$(systemctl show "$S7_SERVICE" -p MainPID --value)" = "0" ] \
+    || fail "S7_RECOVERY_PROCESS_PRESENT"
+  [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "inactive" ] \
+    || fail "S8_SERVICE_NOT_INACTIVE"
+  [ "$(systemctl is-enabled "$S8_SERVICE" 2>/dev/null || true)" = "disabled" ] \
+    || fail "S8_SERVICE_NOT_DISABLED"
+  case "$(systemctl show "$HEALTH_TIMER" -p ActiveState --value 2>/dev/null || true)" in
+    inactive|not-found|'') ;;
+    *) fail "S8_HEALTH_TIMER_ACTIVE" ;;
+  esac
+}
+
+external_s7_health() {
+  curl --fail --silent --show-error --max-time 10 https://tu1nz.com/adult/health \
+    | "$APPLICATION_ROOT/.venv/bin/python" -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] is True; assert not any(p["forbidden_capabilities"].values())'
+}
+
 require_s8_inactive_or_absent() {
   local loaded
   loaded="$(systemctl show "$S8_SERVICE" -p LoadState --value 2>/dev/null || true)"
@@ -291,7 +318,7 @@ abort_deploy() {
   fi
   if ! (is_s7_green) >/dev/null 2>&1; then
     systemctl stop "$S7_SERVICE" >/dev/null 2>&1 || true
-    systemctl start "$S7_SERVICE" >/dev/null 2>&1 || true
+    start_s7_once >/dev/null 2>&1 || true
     await_s7_green >/dev/null 2>&1 || true
   fi
   printf 'S8_PUBLIC_TELEGRAM_CONTROL_RED DEPLOYMENT_ABORTED\n' >&2
@@ -354,7 +381,7 @@ activate_public() {
   runtime_health || fail "S8_HEALTH_RED"
   set_runtime_control true S8_PUBLIC_EARLY_ACCESS_ENABLED
   systemctl stop "$S7_SERVICE"
-  systemctl start "$S7_SERVICE"
+  start_s7_once
   await_s7_green || fail "S7_READINESS_TIMEOUT"
   await_external_landing_green || fail "S8_LANDING_READINESS_TIMEOUT"
   systemctl enable "$S8_SERVICE" >/dev/null
@@ -406,9 +433,27 @@ rollback() {
   tar -xpf "$3/public-configuration-before.tar" -C /etc/tu1nz
   systemctl daemon-reload
   systemctl stop "$S7_SERVICE"
-  systemctl start "$S7_SERVICE"
+  start_s7_once
   await_s7_green || fail "S7_READINESS_TIMEOUT"
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_ROLLBACK_GREEN","waitlist_data_preserved":true}\n'
+}
+
+recover_s7_start_limit() {
+  require_root
+  require_control "$1" "$2"
+  require_backup "$3"
+  require_application_clean
+  require_application_source_or_target
+  require_adult_runtime_closed
+  require_s7_start_limit_failure
+  start_s7_once
+  await_s7_green || fail "S7_RECOVERY_READINESS_TIMEOUT"
+  external_s7_health || fail "S7_RECOVERY_EXTERNAL_HEALTH_RED"
+  [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "inactive" ] \
+    || fail "S8_SERVICE_BECAME_ACTIVE"
+  [ "$(systemctl is-enabled "$S8_SERVICE" 2>/dev/null || true)" = "disabled" ] \
+    || fail "S8_SERVICE_BECAME_ENABLED"
+  printf '{"ok":true,"safe_code":"S7_RECOVERY_GREEN","s8_active":false,"s8_enabled":false,"adult_content":false,"avs":false,"payments":false,"publishing":false}\n'
 }
 
 case "${1:-}" in
@@ -443,6 +488,10 @@ case "${1:-}" in
   rollback)
     [ "$#" -eq 4 ] || fail "USAGE"
     rollback "$2" "$3" "$4"
+    ;;
+  recover-s7-start-limit)
+    [ "$#" -eq 4 ] || fail "USAGE"
+    recover_s7_start_limit "$2" "$3" "$4"
     ;;
   *) fail "USAGE" ;;
 esac

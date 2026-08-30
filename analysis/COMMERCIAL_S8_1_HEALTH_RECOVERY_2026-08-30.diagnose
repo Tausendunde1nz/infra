@@ -60,6 +60,30 @@ bounded convergence window. It still uses explicit stop then start and never
 `restart`. A timeout remains a hard failure and preserves the existing rollback
 boundary.
 
+## Server-proven rollback start-limit defect
+
+The bounded activation retry proved that S7 reached `S7_PUBLIC_RUNTIME_READY`
+after the controlled activation start and then remained healthy for 73 seconds.
+The activation gate nevertheless timed out and entered the fail-closed rollback.
+During that rollback, systemd rejected the next S7 start with
+`start-limit-hit`: the preceding S8.1 acceptance, kill-switch, activation and
+rollback sequence had exhausted the unit's existing start-rate allowance.
+
+This is not an S7 application crash. The last S7 process exited cleanly with
+status 0 when the rollback stopped it, and the subsequent start was never
+launched. The fail-closed result is S8 inactive and disabled, the Application
+checkout restored to `935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4`, Control at
+`7d9a5bc5ca5b8d4352b05de92e0a491a567100c9`, and S7 failed solely with
+`start-limit-hit`; the public landing consequently returns HTTP 502.
+
+Because an S7 disruption is an explicit hard stop, no automatic start recovery
+was attempted. The next separately authorized recovery must first preserve the
+current evidence, then clear only the S7 unit's failed/rate-limit state and
+perform exactly one S7 start followed by bounded local and external health
+checks. The controller must be corrected and tested so that every intentional
+S7 stop/start transition accounts for systemd rate limiting before any further
+S8 activation attempt.
+
 ## Recovery controls
 
 - Every component emits status, timestamps, elapsed time, safe reason, safe

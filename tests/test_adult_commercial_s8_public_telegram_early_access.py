@@ -148,6 +148,8 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "set_runtime_control false",
             "abort_deploy",
             "rollback",
+            "recover-s7-start-limit",
+            "S7_RECOVERY_GREEN",
             "waitlist_data_preserved",
         ):
             self.assertIn(expected, source)
@@ -166,12 +168,33 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("sleep 2", readiness)
         activate = source.split("activate_public()", 1)[1].split("verify()", 1)[0]
         rollback = source.split("rollback()", 1)[1].split('case "${1:-}"', 1)[0]
-        self.assertIn('systemctl start "$S7_SERVICE"', activate)
+        self.assertIn("start_s7_once", activate)
         self.assertIn('await_s7_green || fail "S7_READINESS_TIMEOUT"', activate)
         self.assertIn('await_external_landing_green || fail "S8_LANDING_READINESS_TIMEOUT"', activate)
-        self.assertIn('systemctl start "$S7_SERVICE"', rollback)
+        self.assertIn("start_s7_once", rollback)
         self.assertIn('await_s7_green || fail "S7_READINESS_TIMEOUT"', rollback)
         self.assertNotIn("systemctl restart", source)
+
+    def test_s7_start_limit_recovery_is_exact_backup_bound_and_single_start(self) -> None:
+        source = CONTROLLER.read_text(encoding="utf-8")
+        recovery = source.split("recover_s7_start_limit()", 1)[1].split('case "${1:-}"', 1)[0]
+        self.assertIn("require_backup", recovery)
+        self.assertIn("require_s7_start_limit_failure", recovery)
+        self.assertIn("start_s7_once", recovery)
+        self.assertEqual(recovery.count("start_s7_once"), 1)
+        self.assertIn("await_s7_green", recovery)
+        self.assertIn("external_s7_health", recovery)
+        helper = source.split("start_s7_once()", 1)[1].split("require_s7_start_limit_failure()", 1)[0]
+        self.assertIn('systemctl reset-failed "$S7_SERVICE"', helper)
+        self.assertEqual(helper.count('systemctl start "$S7_SERVICE"'), 1)
+
+    def test_backup_supports_only_exact_failed_s7_recovery_state(self) -> None:
+        source = BACKUP.read_text(encoding="utf-8")
+        self.assertIn('"create-s7-recovery"', source)
+        self.assertIn("S7_RECOVERY_RESULT_NOT_START_LIMIT_HIT", source)
+        self.assertIn("S8_SERVICE_NOT_INACTIVE", source)
+        self.assertIn("S8_SERVICE_NOT_DISABLED", source)
+        self.assertIn("S8_S7_RECOVERY_BACKUP_GREEN", source)
 
     def test_backup_covers_repositories_database_units_and_secret_metadata_only(self) -> None:
         source = BACKUP.read_text(encoding="utf-8")
