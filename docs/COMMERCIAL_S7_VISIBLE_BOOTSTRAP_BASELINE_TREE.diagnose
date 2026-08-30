@@ -1,0 +1,41 @@
+# Commercial S7 visible bootstrap baseline-tree diagnosis
+
+- Observed at: 2026-08-30T10:24:00Z
+- Scope: pre-mutation visible SSH bootstrap only
+- Result: fail-closed before backup, Git synchronization, deployment, or service activity
+
+## Symptom
+
+The visible bootstrap stopped with `CONTROL_BASELINE_TREE_CHANGED` while the
+expected Control commit was still present.
+
+## Evidence
+
+Both the local canonical repository and the server repository reported:
+
+- commit: `8dae9e9f82d8a7ee8bf957e696c2a266e7fa1f52`
+- tree: `53f114b6e3d62cbd06ef77ab427f491fbb7c3865`
+- worktree: clean
+
+The one-shot bootstrap had an incorrectly transcribed expected tree
+(`53f114ee...`). No repository or server drift was found.
+
+The application repository also remained at its expected clean baseline:
+
+- commit: `99a179990ae67aeab420eccef984915ae2aebfbd`
+- tree: `ecd67fa84fbd1248dd2b7b29a6cafba7bdc0d527`
+
+The S7 service remained absent/inactive with `MainPID=0`.
+
+## Resolution
+
+Use the tree derived directly from the reviewed baseline commit:
+`53f114b6e3d62cbd06ef77ab427f491fbb7c3865`.
+
+Retain the exact commit, tree, clean-worktree, backup, preflight, deployment,
+and verification guards. Do not bypass or weaken the fail-closed check.
+
+## Rollback
+
+This diagnosis is documentation-only. Removing its commit restores the prior
+Control tree; it changes no runtime or server state.
