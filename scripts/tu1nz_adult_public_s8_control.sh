@@ -11,12 +11,12 @@ readonly HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
 readonly APPLICATION_BRANCH="feat/commercial-s8-public-telegram-early-access"
 readonly SOURCE_SHA="935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4"
 readonly SOURCE_TREE="29679c2029d40eefce7dbd3857c5cf4e1f129013"
-readonly TARGET_SHA="2cb922dcc59bc22050ea393ff9e7b28ed0476ce5"
-readonly TARGET_TREE="52e0701bef82cf43606a756c6ff638d5fe91b7ae"
+readonly TARGET_SHA="383bb52a20cdb87c1b8d79a614e61e20e31e23a6"
+readonly TARGET_TREE="748b749523b2f15dfa6a87830f316f682bb5768f"
 readonly MIGRATION_CHAIN_SHA="536e243096edff47035aa01a650cb857aa2af2b0defb47e8c92749d2dabb2fc6"
 readonly MIGRATION_SHA="5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6"
-readonly S7_CONTRACT_SHA="0b17452df5d37af778a58b3b1ffafbd62955471f9da4f4b9a53f346a50af51ef"
-readonly S8_CONTRACT_SHA="c76626adb5d4de734afe3970d36d77760b970c328f1096bf98d3b97a3b8b2fb5"
+readonly S7_CONTRACT_SHA="a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802"
+readonly S8_CONTRACT_SHA="2a2bf47221b9ef708c07e30af7f3b726b402726e04e81f158585bf3052425e58"
 readonly COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"
 readonly UNIT_SHA="e17604818a7ca1e0eb37ca90f2602afb9650b0fe41c14b2fc32b878c16a058a1"
 readonly HEALTH_SCRIPT_SHA="285ec99c8f19a68dd94ea3b4b39c70497c5b5c13581eacf60f9faf72cfc38b98"
@@ -214,7 +214,7 @@ local_health() {
 
 external_landing_health() {
   curl --fail --silent --show-error --max-time 10 https://tu1nz.com/adult/ \
-    | grep -F 'https://t.me/TU1NZ_Adult_Early_Access_bot?start=landing_s8_launch' >/dev/null
+    | grep -F 'https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch' >/dev/null
   curl --fail --silent --show-error --max-time 10 https://tu1nz.com/adult/health \
     | "$APPLICATION_ROOT/.venv/bin/python" -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] is True; assert not any(p["forbidden_capabilities"].values())'
 }

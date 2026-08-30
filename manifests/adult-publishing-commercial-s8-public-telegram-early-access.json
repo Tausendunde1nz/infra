@@ -1,11 +1,11 @@
 {
   "application": {
     "branch": "feat/commercial-s8-public-telegram-early-access",
-    "commit": "2cb922dcc59bc22050ea393ff9e7b28ed0476ce5",
+    "commit": "383bb52a20cdb87c1b8d79a614e61e20e31e23a6",
     "migration_chain_sha256": "536e243096edff47035aa01a650cb857aa2af2b0defb47e8c92749d2dabb2fc6",
     "repository": "Tausendunde1nz/adult-publishing-core",
     "schema": "0022_commercial_s8_public_telegram_early_access",
-    "tree": "52e0701bef82cf43606a756c6ff638d5fe91b7ae"
+    "tree": "748b749523b2f15dfa6a87830f316f682bb5768f"
   },
   "authorization": {
     "automated_waitlist_authorized": true,
@@ -25,13 +25,13 @@
   },
   "bot": {
     "dedicated": true,
-    "display_name": "TU1NZ Adult Publishing",
+    "display_name": "TU1NZ-Adult-Early-Access-Bot",
     "private_chats_only": true,
     "group_joining_disabled_required": true,
     "media_download_capability": false,
     "provider": "TELEGRAM_OFFICIAL_BOT_API",
     "token_storage": "SYSTEMD_LOAD_CREDENTIAL_ONLY",
-    "username": "TU1NZ_Adult_Early_Access_bot",
+    "username": "tu1nz_adult_early_access_bot",
     "webhook_allowed": false
   },
   "control": {
@@ -70,14 +70,14 @@
   },
   "files": {
     "backup_script_sha256": "16de59ae2ae49f2d204ee110f4b7c0372b6de43fa3ba7d92aa9c39c660bbe8f0",
-    "controller_sha256": "8af3066695858d08d554a9d7464878200e253e7d82a5a956824e72dd4e44b24f",
+    "controller_sha256": "fd173c6fc453c84dc9f1e546549b53456286f1532723d92b2b71b143d663e0a1",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "285ec99c8f19a68dd94ea3b4b39c70497c5b5c13581eacf60f9faf72cfc38b98",
     "health_service_sha256": "be20328cb87808e5aaf7544cb501420111a60ecd7cb8e70d860f4ede9dc7470e",
     "health_timer_sha256": "42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005",
     "migration_0022_sha256": "5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6",
-    "s7_contract_sha256": "0b17452df5d37af778a58b3b1ffafbd62955471f9da4f4b9a53f346a50af51ef",
-    "s8_contract_sha256": "c76626adb5d4de734afe3970d36d77760b970c328f1096bf98d3b97a3b8b2fb5",
+    "s7_contract_sha256": "a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802",
+    "s8_contract_sha256": "2a2bf47221b9ef708c07e30af7f3b726b402726e04e81f158585bf3052425e58",
     "service_unit_sha256": "e17604818a7ca1e0eb37ca90f2602afb9650b0fe41c14b2fc32b878c16a058a1"
   },
   "health": {
@@ -104,7 +104,7 @@
   "landing": {
     "canonical_url": "https://tu1nz.com/adult/",
     "campaign": "s8_launch",
-    "deep_link": "https://t.me/TU1NZ_Adult_Early_Access_bot?start=landing_s8_launch",
+    "deep_link": "https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch",
     "legacy_web_waitlist_open": false,
     "source": "landing"
   },
