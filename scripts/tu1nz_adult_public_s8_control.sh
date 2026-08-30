@@ -158,7 +158,8 @@ preflight() {
 
 install_release() {
   if [ "$(git_value "$APPLICATION_ROOT" HEAD)" != "$TARGET_SHA" ]; then
-    runuser -u chatops -- git -C "$APPLICATION_ROOT" fetch --no-tags origin "$APPLICATION_BRANCH"
+    runuser -u chatops -- git -C "$APPLICATION_ROOT" fetch --no-tags origin \
+      "refs/heads/$APPLICATION_BRANCH:refs/remotes/origin/$APPLICATION_BRANCH"
     [ "$(git_value "$APPLICATION_ROOT" "origin/$APPLICATION_BRANCH")" = "$TARGET_SHA" ] || fail "REMOTE_TARGET_SHA_MISMATCH"
     runuser -u chatops -- git -C "$APPLICATION_ROOT" switch --detach "$TARGET_SHA"
   fi

@@ -70,7 +70,7 @@
   },
   "files": {
     "backup_script_sha256": "16de59ae2ae49f2d204ee110f4b7c0372b6de43fa3ba7d92aa9c39c660bbe8f0",
-    "controller_sha256": "fd173c6fc453c84dc9f1e546549b53456286f1532723d92b2b71b143d663e0a1",
+    "controller_sha256": "a37b9bfa65810e3eb9fa3f5aebbcf5d6966c19bdd036a79676bd4472db0fc04d",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "285ec99c8f19a68dd94ea3b4b39c70497c5b5c13581eacf60f9faf72cfc38b98",
     "health_service_sha256": "be20328cb87808e5aaf7544cb501420111a60ecd7cb8e70d860f4ede9dc7470e",
