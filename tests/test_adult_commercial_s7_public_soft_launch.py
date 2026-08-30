@@ -146,6 +146,7 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
             "pg_restore --list",
         ):
             self.assertIn(expected, source)
+        self.assertIn("700|2700", source)
         self.assertNotIn("rm -rf", source)
 
 

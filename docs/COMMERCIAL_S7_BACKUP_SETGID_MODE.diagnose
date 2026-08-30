@@ -1,0 +1,45 @@
+# Commercial S7 backup setgid-mode diagnosis
+
+- Observed at: 2026-08-30T10:31:00Z
+- Scope: Commercial S7 pre-deployment backup verification
+- Result: fail-closed before application sync, migration, Nginx change, or service activity
+
+## Symptom
+
+The S7 backup completed its artifact creation but stopped during final
+verification with `S7_BACKUP_RED BACKUP_MODE_DRIFT`.
+
+## Evidence
+
+Before the stop:
+
+- the existing S4 pre-mutation backup completed successfully;
+- Control fast-forwarded cleanly to the reviewed canonical target;
+- the application remained at the clean S4 baseline;
+- the S7 service remained absent/inactive with `MainPID=0`;
+- Nginx remained active with its pre-S7 configuration hashes.
+
+Existing TU1NZ backup controllers already treat both root-private modes `0700`
+and `02700` as valid. A directory created below a setgid parent can inherit the
+setgid bit while retaining no group or other permissions. The S7 backup verifier
+accepted only `0700`, making its check inconsistent with the established Control
+contract and causing a false-negative stop.
+
+## Resolution
+
+Accept only `0700` or `02700`, while retaining all of the existing requirements:
+
+- root ownership;
+- no symlink;
+- no group or other access bits;
+- strict SHA-256 verification;
+- clean Git status;
+- valid Git bundles and PostgreSQL archive.
+
+Add a regression assertion that the S7 backup contract explicitly contains the
+same `700|2700` root-private boundary used by the reviewed S4 backup path.
+
+## Rollback
+
+Reverting this commit restores the previous exact-mode check. No runtime,
+application, database, Nginx, or service state is changed by this patch.
