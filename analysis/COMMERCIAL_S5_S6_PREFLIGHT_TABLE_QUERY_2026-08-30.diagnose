@@ -1,0 +1,50 @@
+Commercial S5/S6 offline staging — read-only preflight table query
+
+Timestamp: 2026-08-30T08:10Z
+Server: ubuntu-8gb-nbg1-2 over Tailscale SSH
+Mutation status: none
+Decision: corrected read-only probe permitted; staging remained stopped
+
+Observed error
+--------------
+
+The first manual PostgreSQL inventory query referenced
+`commercial_s4_provider_events` and `commercial_s4_runtime_evidence_grants`.
+PostgreSQL returned `relation "commercial_s4_provider_events" does not exist`
+and stopped the multi-statement read-only command. The earlier statements proved
+44 public tables and zero Commercial S6 payment tables.
+
+Cause
+-----
+
+The names were operator-side probe assumptions, not names from the canonical
+migrations. Migration 0018 defines:
+
+- `commercial_s4_provider_event_receipts`
+- `commercial_s4_beta_metric_events`
+
+Migration 0019 changes runtime-role grants on those two existing tables and
+does not create a table named `commercial_s4_runtime_evidence_grants`.
+
+Safety assessment
+-----------------
+
+The failed command contained `SELECT` statements only. It did not open an
+explicit transaction, create or alter objects, write rows, change roles, touch
+Git, start a service, or contact a provider. PostgreSQL failed closed at the
+first invalid relation. The Commercial service remained inactive/dead/static.
+
+Corrective read-only probe
+--------------------------
+
+The resumed probe must count only the canonical tables:
+
+- `commercial_s4_provider_event_receipts`
+- `commercial_s4_beta_metric_events`
+- `commercial_s6_payment_grants`
+- `commercial_s6_payment_reversals`
+- `commercial_s6_provider_payment_events`
+
+Expected pre-stage state is that the two S4 tables exist and contain no real
+provider/beta evidence, while all three S6 tables are absent. Any different
+result is a genuine deviation and must stop staging.
