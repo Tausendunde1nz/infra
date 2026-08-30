@@ -73,6 +73,7 @@
 !systemd/tu1nz-adult-public-s8-health.service
 !systemd/tu1nz-adult-public-s8-health.timer
 !systemd/tu1nz-adult-public-s8-probe.service
+!systemd/tu1nz-adult-public-s8-landing.service
 !systemd/tu1nz_agentmode.service
 !systemd/tu1nz_integrity.service
 !systemd/tu1nz_monitor.service
@@ -178,6 +179,7 @@
 !analysis/M4_22_PREFLIGHT_REPORT_WHITESPACE_2026-08-28.diagnose
 !analysis/M4_23_BACKUP_MONITOR_ZSH_STATUS_2026-08-28.diagnose
 !analysis/M4_23_PREINSTALL_BACKUP_DRIVE_QUOTA_2026-08-28.diagnose
+!analysis/COMMERCIAL_S8_2_ROOT_CAUSE_AND_RECOVERY_2026-08-30.diagnose
 !analysis/M4_23_PREINSTALL_REMOTE_ROW_QUERY_2026-08-28.diagnose
 !analysis/M4_23_LOCAL_UNIT_PATH_LOOKUP_2026-08-28.diagnose
 !analysis/M4_23_LOCAL_REPOSITORY_CONTEXT_2026-08-28.diagnose

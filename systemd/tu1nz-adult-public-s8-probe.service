@@ -1,6 +1,7 @@
 [Unit]
 Description=TU1NZ Adult Publishing S8 dependency diagnostic probe
-After=network-online.target postgresql.service
+After=network-online.target postgresql.service tu1nz-adult-public-s8-landing.service
+Requires=tu1nz-adult-public-s8-landing.service
 Wants=network-online.target
 
 [Service]

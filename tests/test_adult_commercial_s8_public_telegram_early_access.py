@@ -18,6 +18,8 @@ HEALTH = ROOT / "scripts/tu1nz_adult_public_s8_health.py"
 UNIT = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service"
 HEALTH_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-health.service"
 HEALTH_TIMER = ROOT / "systemd/tu1nz-adult-public-s8-health.timer"
+LANDING_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-landing.service"
+PUBLIC_PROXY = ROOT / "nginx/current/tu1nz.s8-public.conf"
 
 
 class CommercialS8PublicTelegramControlTests(unittest.TestCase):
@@ -93,6 +95,8 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             HEALTH_UNIT: self.value["files"]["health_service_sha256"],
             HEALTH_TIMER: self.value["files"]["health_timer_sha256"],
             ROOT / "systemd/tu1nz-adult-public-s8-probe.service": self.value["files"]["probe_service_sha256"],
+            LANDING_UNIT: self.value["files"]["landing_service_sha256"],
+            PUBLIC_PROXY: self.value["files"]["public_proxy_sha256"],
         }
         for path, digest in expected.items():
             with self.subTest(path=path):
@@ -137,11 +141,12 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "configure_bot",
             "diagnostic_probe",
             "await_s7_green",
-            "S7_READINESS_TIMEOUT",
             "await_external_landing_green",
             "S8_LANDING_READINESS_TIMEOUT",
-            "S8_HEALTH_ROOT_CAUSE",
-            "S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING",
+            "S8_LANDING_CONTRACT_DRIFT",
+            "S8_PUBLIC_PROXY_NOT_INSTALLED",
+            "S8_ROOT_CAUSE",
+            "NOTIFIER_UPDATE_PRIVILEGE_42501_THEN_UNTYPED_POLLING_HEARTBEAT_42P18_COMPOUNDED_BY_S7_START_LIMIT_ORCHESTRATION",
             "open-acceptance",
             "activate-public",
             "kill-switch",
@@ -161,19 +166,30 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertNotIn("reddit.com", source)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
 
-    def test_s7_restart_waits_for_bounded_readiness(self) -> None:
+    def test_public_activation_preserves_s7_and_uses_bounded_landing_readiness(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")
         readiness = source.split("await_s7_green()", 1)[1].split("require_s8_inactive_or_absent()", 1)[0]
         self.assertIn("seq 1 30", readiness)
         self.assertIn("sleep 2", readiness)
         activate = source.split("activate_public()", 1)[1].split("verify()", 1)[0]
-        rollback = source.split("rollback()", 1)[1].split('case "${1:-}"', 1)[0]
-        self.assertIn("start_s7_once", activate)
-        self.assertIn('await_s7_green || fail "S7_READINESS_TIMEOUT"', activate)
+        self.assertNotIn('systemctl stop "$S7_SERVICE"', activate)
+        self.assertNotIn("start_s7_once", activate)
+        self.assertIn("require_s7_green", activate)
+        self.assertIn("require_public_proxy_installed", activate)
+        self.assertIn("systemctl reload nginx.service", activate)
         self.assertIn('await_external_landing_green || fail "S8_LANDING_READINESS_TIMEOUT"', activate)
-        self.assertIn("start_s7_once", rollback)
-        self.assertIn('await_s7_green || fail "S7_READINESS_TIMEOUT"', rollback)
         self.assertNotIn("systemctl restart", source)
+
+    def test_s8_landing_candidate_keeps_s7_as_automatic_proxy_fallback(self) -> None:
+        landing = LANDING_UNIT.read_text(encoding="utf-8")
+        proxy = PUBLIC_PROXY.read_text(encoding="utf-8")
+        self.assertIn("tu1nz-adult-public-s7.service", landing)
+        self.assertIn("adult-commercial-s8-landing.json", landing)
+        self.assertIn("tu1nz-public-s8-landing", landing)
+        self.assertNotIn("LoadCredential", landing)
+        self.assertIn("server 127.0.0.1:8096", proxy)
+        self.assertIn("server 127.0.0.1:8095 backup", proxy)
+        self.assertIn("proxy_pass http://tu1nz_adult_public", proxy)
 
     def test_s7_start_limit_recovery_is_exact_backup_bound_and_single_start(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")

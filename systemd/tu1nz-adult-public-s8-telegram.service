@@ -1,6 +1,7 @@
 [Unit]
 Description=TU1NZ Adult Publishing S8 public Telegram Early Access
-After=network-online.target postgresql.service tu1nz-adult-public-s7.service
+After=network-online.target postgresql.service tu1nz-adult-public-s7.service tu1nz-adult-public-s8-landing.service
+Requires=tu1nz-adult-public-s8-landing.service
 Wants=network-online.target
 StartLimitBurst=3
 StartLimitIntervalSec=15min

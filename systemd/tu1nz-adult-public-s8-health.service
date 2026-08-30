@@ -1,6 +1,7 @@
 [Unit]
 Description=TU1NZ Adult Publishing S8 public Telegram health check
-After=tu1nz-adult-public-s8-telegram.service
+After=tu1nz-adult-public-s8-telegram.service tu1nz-adult-public-s8-landing.service
+Requires=tu1nz-adult-public-s8-landing.service
 
 [Service]
 Type=oneshot

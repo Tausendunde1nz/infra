@@ -5,28 +5,32 @@ readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly S7_SERVICE="tu1nz-adult-public-s7.service"
+readonly LANDING_SERVICE="tu1nz-adult-public-s8-landing.service"
 readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
 readonly PROBE_SERVICE="tu1nz-adult-public-s8-probe.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s8-health.service"
 readonly HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
-readonly APPLICATION_BRANCH="feat/commercial-s8-public-telegram-early-access"
+readonly APPLICATION_BRANCH="fix/commercial-s8-public-recovery"
 readonly SOURCE_SHA="935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4"
 readonly SOURCE_TREE="29679c2029d40eefce7dbd3857c5cf4e1f129013"
-readonly TARGET_SHA="210e80484edac1541bcb832d846ee4a324c2faee"
-readonly TARGET_TREE="7eda3fd4dbf4819d0c14c42d5f7b1be31a79eef3"
+readonly TARGET_SHA="1aa5e815fedd30ab0fcbe8c5c92e8e09140664dc"
+readonly TARGET_TREE="d68e19c527e52c8ba6f1a46c0a4552d6e666799b"
 readonly MIGRATION_CHAIN_SHA="b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8"
 readonly MIGRATION_SHA="5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6"
 readonly RECOVERY_MIGRATION_SHA="feb157b5625113a3c4774b570d8a73265356a87c5fe70d491c36b5b7a25a6691"
-readonly S7_CONTRACT_SHA="a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802"
-readonly S8_CONTRACT_SHA="2a2bf47221b9ef708c07e30af7f3b726b402726e04e81f158585bf3052425e58"
+readonly S8_CONTRACT_SHA="13baafc716dbc778d890d3ea28c6fee12a05c585c71e65cac4078c6f9bf8feed"
+readonly S8_LANDING_CONTRACT_SHA="b1fa91212581d2956ba5a880e2d20d3dcbdb47f2031233d6500cb0b87d544a10"
 readonly COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"
-readonly UNIT_SHA="e17604818a7ca1e0eb37ca90f2602afb9650b0fe41c14b2fc32b878c16a058a1"
-readonly HEALTH_SCRIPT_SHA="d28c7270757c73017a3015b68fb741b33e8af98ab605dda9a32962613b193f4f"
-readonly HEALTH_UNIT_SHA="292284dde579f533bbbc7b6e7d0ed0304c6cedf9a3131040ff2bea0134af6767"
-readonly PROBE_UNIT_SHA="8135714e7c4ff952dd90fc9e4a66678138bf79fe2fb642781f4bed610d6d2665"
+readonly UNIT_SHA="26fbb08113ecb6609806e549f980eecb94f0d90d4eae1b411e1208c9c16d1a69"
+readonly HEALTH_SCRIPT_SHA="e1b81bff8c27672dc65c8c53681e9bd59906ccaf6ebda603941f68d4fab2312f"
+readonly HEALTH_UNIT_SHA="75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855"
+readonly PROBE_UNIT_SHA="7c0e1d03dfb89bc6397a1c49c90edc68d694b39395107c491e58bf9a58d4949c"
+readonly LANDING_UNIT_SHA="f2663c4f1e57e91aa938d67bc5533fa5324dd355282bdf6e52fe40102b7b994d"
+readonly PUBLIC_PROXY_SHA="3f50b7b72068d61dd8990f4681f8d7bcb408620b9bac410be1ef469257cb71a4"
 readonly TOKEN_PATH="/etc/tu1nz/adult-commercial-s8-telegram.token"
 readonly DATABASE_DSN_PATH="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
+readonly ROOT_CAUSE="NOTIFIER_UPDATE_PRIVILEGE_42501_THEN_UNTYPED_POLLING_HEARTBEAT_42P18_COMPOUNDED_BY_S7_START_LIMIT_ORCHESTRATION"
 
 fail() {
   printf 'S8_PUBLIC_TELEGRAM_CONTROL_RED %s\n' "$1" >&2
@@ -85,6 +89,8 @@ is_s7_green() {
   [ "$(systemctl show "$S7_SERVICE" -p ActiveState --value)" = "active" ] || fail "S7_SERVICE_NOT_ACTIVE"
   [ "$(systemctl show "$S7_SERVICE" -p MainPID --value)" != "0" ] || fail "S7_PROCESS_MISSING"
   /usr/local/bin/tu1nz_adult_public_s7_health.py >/dev/null
+  curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8095/adult/health \
+    | "$APPLICATION_ROOT/.venv/bin/python" -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] is True; assert not any(p["forbidden_capabilities"].values())'
 }
 
 require_s7_green() {
@@ -95,6 +101,20 @@ await_s7_green() {
   local attempt
   for attempt in $(seq 1 30); do
     if (is_s7_green) >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+await_landing_green() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8096/adult/ \
+      | grep -F 'https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch' >/dev/null \
+      && curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8096/adult/health \
+      | "$APPLICATION_ROOT/.venv/bin/python" -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] is True; assert not any(p["forbidden_capabilities"].values())'; then
       return 0
     fi
     sleep 2
@@ -148,6 +168,14 @@ require_s8_inactive_or_absent() {
   [ "$(systemctl show "$S8_SERVICE" -p MainPID --value)" = "0" ] || fail "S8_PROCESS_PRESENT"
 }
 
+require_landing_inactive_or_absent() {
+  local loaded
+  loaded="$(systemctl show "$LANDING_SERVICE" -p LoadState --value 2>/dev/null || true)"
+  [ "$loaded" = "not-found" ] && return
+  [ "$(systemctl show "$LANDING_SERVICE" -p ActiveState --value)" = "inactive" ] || fail "S8_LANDING_ALREADY_ACTIVE"
+  [ "$(systemctl show "$LANDING_SERVICE" -p MainPID --value)" = "0" ] || fail "S8_LANDING_PROCESS_PRESENT"
+}
+
 require_bot_secret() {
   [ -f "$TOKEN_PATH" ] && [ ! -L "$TOKEN_PATH" ] || fail "S8_TOKEN_MISSING_OR_UNSAFE"
   [ "$(stat -c '%U:%G' "$TOKEN_PATH")" = "root:root" ] || fail "S8_TOKEN_OWNER_DRIFT"
@@ -169,13 +197,15 @@ PY
 require_source_hashes() {
   [ "$(sha256sum "$APPLICATION_ROOT/migrations/0022_commercial_s8_public_telegram_early_access.sql" | awk '{print $1}')" = "$MIGRATION_SHA" ] || fail "MIGRATION_0022_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/migrations/0023_commercial_s8_health_recovery.sql" | awk '{print $1}')" = "$RECOVERY_MIGRATION_SHA" ] || fail "MIGRATION_0023_DRIFT"
-  [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s7-public-launch.sfw.json" | awk '{print $1}')" = "$S7_CONTRACT_SHA" ] || fail "S7_CONTRACT_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" | awk '{print $1}')" = "$S8_CONTRACT_SHA" ] || fail "S8_CONTRACT_DRIFT"
+  [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-landing.sfw.json" | awk '{print $1}')" = "$S8_LANDING_CONTRACT_SHA" ] || fail "S8_LANDING_CONTRACT_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-copy.v1.json" | awk '{print $1}')" = "$COPY_SHA" ] || fail "S8_COPY_DRIFT"
   [ "$(sha256sum "$CONTROL_ROOT/systemd/$S8_SERVICE" | awk '{print $1}')" = "$UNIT_SHA" ] || fail "S8_UNIT_DRIFT"
   [ "$(sha256sum "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" | awk '{print $1}')" = "$HEALTH_SCRIPT_SHA" ] || fail "S8_HEALTH_DRIFT"
   [ "$(sha256sum "$CONTROL_ROOT/systemd/$HEALTH_SERVICE" | awk '{print $1}')" = "$HEALTH_UNIT_SHA" ] || fail "S8_HEALTH_UNIT_DRIFT"
   [ "$(sha256sum "$CONTROL_ROOT/systemd/$PROBE_SERVICE" | awk '{print $1}')" = "$PROBE_UNIT_SHA" ] || fail "S8_PROBE_UNIT_DRIFT"
+  [ "$(sha256sum "$CONTROL_ROOT/systemd/$LANDING_SERVICE" | awk '{print $1}')" = "$LANDING_UNIT_SHA" ] || fail "S8_LANDING_UNIT_DRIFT"
+  [ "$(sha256sum "$CONTROL_ROOT/nginx/current/tu1nz.s8-public.conf" | awk '{print $1}')" = "$PUBLIC_PROXY_SHA" ] || fail "S8_PUBLIC_PROXY_SSOT_DRIFT"
   PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" - <<PY || fail "MIGRATION_CHAIN_DRIFT"
 from pathlib import Path
 from tu1nz_commercial_s3.migrations import inspect_migration_chain
@@ -207,6 +237,7 @@ preflight() {
   require_adult_runtime_closed
   require_s7_green
   require_s8_inactive_or_absent
+  require_landing_inactive_or_absent
   require_bot_secret
   [ "$(systemctl show postgresql.service -p ActiveState --value)" = "active" ] || fail "POSTGRES_NOT_ACTIVE"
   [ "$(findmnt -rn -o TARGET / | head -n 1)" = "/" ] || fail "ROOT_FILESYSTEM_UNRESOLVED"
@@ -247,15 +278,16 @@ install_database() {
 }
 
 install_files() {
-  install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s7-public-launch.sfw.json" /etc/tu1nz/adult-commercial-s7-public.json
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" /etc/tu1nz/adult-commercial-s8-public-telegram.json
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-copy.v1.json" /etc/tu1nz/adult-commercial-s8-copy.json
+  install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-landing.sfw.json" /etc/tu1nz/adult-commercial-s8-landing.json
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$S8_SERVICE" "/etc/systemd/system/$S8_SERVICE"
+  install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$LANDING_SERVICE" "/etc/systemd/system/$LANDING_SERVICE"
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$PROBE_SERVICE" "/etc/systemd/system/$PROBE_SERVICE"
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$HEALTH_SERVICE" "/etc/systemd/system/$HEALTH_SERVICE"
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$HEALTH_TIMER" "/etc/systemd/system/$HEALTH_TIMER"
   install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" /usr/local/bin/tu1nz_adult_public_s8_health.py
-  systemd-analyze verify "/etc/systemd/system/$S8_SERVICE" "/etc/systemd/system/$PROBE_SERVICE" "/etc/systemd/system/$HEALTH_SERVICE" "/etc/systemd/system/$HEALTH_TIMER"
+  systemd-analyze verify "/etc/systemd/system/$S8_SERVICE" "/etc/systemd/system/$LANDING_SERVICE" "/etc/systemd/system/$PROBE_SERVICE" "/etc/systemd/system/$HEALTH_SERVICE" "/etc/systemd/system/$HEALTH_TIMER"
 }
 
 configure_bot() {
@@ -304,10 +336,16 @@ external_landing_health() {
     | "$APPLICATION_ROOT/.venv/bin/python" -c 'import json,sys; p=json.load(sys.stdin); assert p["ok"] is True; assert not any(p["forbidden_capabilities"].values())'
 }
 
+require_public_proxy_installed() {
+  [ "$(sha256sum /etc/nginx/sites-enabled/tu1nz.conf | awk '{print $1}')" = "$PUBLIC_PROXY_SHA" ] \
+    || fail "S8_PUBLIC_PROXY_NOT_INSTALLED"
+  nginx -t >/dev/null 2>&1 || fail "S8_PUBLIC_PROXY_CONFIG_INVALID"
+}
+
 abort_deploy() {
   local backup="$1"
   set_runtime_control false S8_PUBLIC_EARLY_ACCESS_ABORTED 2>/dev/null || true
-  systemctl disable --now "$HEALTH_TIMER" "$S8_SERVICE" >/dev/null 2>&1 || true
+  systemctl disable --now "$HEALTH_TIMER" "$S8_SERVICE" "$LANDING_SERVICE" >/dev/null 2>&1 || true
   if [ "$(git_value "$APPLICATION_ROOT" HEAD)" = "$TARGET_SHA" ]; then
     runuser -u chatops -- git -C "$APPLICATION_ROOT" switch --detach "$SOURCE_SHA" >/dev/null 2>&1 || true
     runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/pip" install \
@@ -316,31 +354,26 @@ abort_deploy() {
   if [ -f "$backup/public-configuration-before.tar" ]; then
     tar -xpf "$backup/public-configuration-before.tar" -C /etc/tu1nz >/dev/null 2>&1 || true
   fi
-  if ! (is_s7_green) >/dev/null 2>&1; then
-    systemctl stop "$S7_SERVICE" >/dev/null 2>&1 || true
-    start_s7_once >/dev/null 2>&1 || true
-    await_s7_green >/dev/null 2>&1 || true
-  fi
+  (is_s7_green) >/dev/null 2>&1 || printf 'S8_PUBLIC_TELEGRAM_CONTROL_RED S7_BASELINE_UNSTABLE\n' >&2
   printf 'S8_PUBLIC_TELEGRAM_CONTROL_RED DEPLOYMENT_ABORTED\n' >&2
   exit 2
 }
 
 diagnose() {
   preflight "$1" "$2" "$3" >/dev/null
-  if ! install_release || ! install_files; then
+  if ! install_release || ! install_files || ! install_database || ! configure_bot; then
     abort_deploy "$3"
   fi
   systemctl daemon-reload
   set_runtime_control false S8_DIAGNOSTIC_KILL_SWITCH_CLOSED
-  if diagnostic_probe; then
-    fail "EXPECTED_PRE_RECOVERY_DIAGNOSTIC_RED"
+  if ! systemctl start "$LANDING_SERVICE" || ! await_landing_green || ! diagnostic_probe; then
+    unit_evidence "$PROBE_SERVICE" >&2 || true
+    abort_deploy "$3"
   fi
-  local evidence
-  evidence="$(unit_evidence "$PROBE_SERVICE")"
-  printf '%s\n' "$evidence"
-  printf '%s\n' "$evidence" | grep -F 'S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING' >/dev/null \
-    || fail "ROOT_CAUSE_NOT_PROVEN"
-  printf 'S8_HEALTH_ROOT_CAUSE=S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING\n'
+  unit_evidence "$PROBE_SERVICE"
+  systemctl stop "$LANDING_SERVICE"
+  require_s7_green
+  printf 'S8_ROOT_CAUSE=%s\n' "$ROOT_CAUSE"
 }
 
 recover() {
@@ -350,6 +383,9 @@ recover() {
   fi
   systemctl daemon-reload
   set_runtime_control false S8_RECOVERY_PRESTART_KILL_SWITCH_CLOSED
+  if ! systemctl start "$LANDING_SERVICE" || ! await_landing_green; then
+    abort_deploy "$3"
+  fi
   if ! diagnostic_probe; then
     unit_evidence "$PROBE_SERVICE" >&2 || true
     abort_deploy "$3"
@@ -378,14 +414,16 @@ activate_public() {
   require_control "$1" "$2"
   require_s7_green
   [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_SERVICE_NOT_ACTIVE"
+  [ "$(systemctl show "$LANDING_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_LANDING_NOT_ACTIVE"
   runtime_health || fail "S8_HEALTH_RED"
+  require_public_proxy_installed
   set_runtime_control true S8_PUBLIC_EARLY_ACCESS_ENABLED
-  systemctl stop "$S7_SERVICE"
-  start_s7_once
-  await_s7_green || fail "S7_READINESS_TIMEOUT"
+  systemctl reload nginx.service
   await_external_landing_green || fail "S8_LANDING_READINESS_TIMEOUT"
   systemctl enable "$S8_SERVICE" >/dev/null
+  systemctl enable "$LANDING_SERVICE" >/dev/null
   systemctl enable --now "$HEALTH_TIMER" >/dev/null
+  require_s7_green
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_ACTIVATION_GREEN","adult_content":false,"avs":false,"payments":false,"publishing":false}\n'
 }
 
@@ -402,6 +440,7 @@ verify() {
   [ "$(s8_table_count)" = "9" ] || fail "MIGRATION_0022_NOT_INSTALLED"
   [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_SERVICE_NOT_ACTIVE"
   [ "$(systemctl show "$S8_SERVICE" -p MainPID --value)" != "0" ] || fail "S8_PROCESS_MISSING"
+  [ "$(systemctl show "$LANDING_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_LANDING_NOT_ACTIVE"
   [ "$(systemctl is-enabled "$S8_SERVICE")" = "enabled" ] || fail "S8_SERVICE_NOT_ENABLED"
   [ "$(systemctl is-enabled "$HEALTH_TIMER")" = "enabled" ] || fail "S8_HEALTH_TIMER_NOT_ENABLED"
   [ "$(sha256sum /etc/tu1nz/adult-commercial-s8-public-telegram.json | awk '{print $1}')" = "$S8_CONTRACT_SHA" ] || fail "INSTALLED_S8_CONTRACT_DRIFT"
@@ -425,16 +464,14 @@ rollback() {
   require_control "$1" "$2"
   require_backup "$3"
   set_runtime_control false S8_PUBLIC_EARLY_ACCESS_ROLLED_BACK
-  systemctl disable --now "$HEALTH_TIMER" "$S8_SERVICE" >/dev/null 2>&1 || true
+  systemctl disable --now "$HEALTH_TIMER" "$S8_SERVICE" "$LANDING_SERVICE" >/dev/null 2>&1 || true
   runuser -u chatops -- git -C "$APPLICATION_ROOT" switch --detach "$SOURCE_SHA"
   [ "$(git_value "$APPLICATION_ROOT" 'HEAD^{tree}')" = "$SOURCE_TREE" ] || fail "ROLLBACK_TREE_MISMATCH"
   runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/pip" install \
     --disable-pip-version-check --no-deps --no-build-isolation --editable "$APPLICATION_ROOT" >/dev/null
   tar -xpf "$3/public-configuration-before.tar" -C /etc/tu1nz
   systemctl daemon-reload
-  systemctl stop "$S7_SERVICE"
-  start_s7_once
-  await_s7_green || fail "S7_READINESS_TIMEOUT"
+  require_s7_green
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_ROLLBACK_GREEN","waitlist_data_preserved":true}\n'
 }
 

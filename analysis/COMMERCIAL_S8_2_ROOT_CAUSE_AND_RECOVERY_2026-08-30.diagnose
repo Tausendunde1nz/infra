@@ -1,0 +1,55 @@
+# Commercial S8.2 root-cause resolution
+
+Status: OFFLINE FIX IN PROGRESS
+Baseline: S7_RECOVERY_GREEN_S8_CLOSED
+
+## Proven root-cause chain
+
+The earlier S8 deployment did not have one generic health failure. The retained
+component evidence proves this ordered chain:
+
+1. `S8_NOTIFIER_BROADCAST_UPDATE_PRIVILEGE_MISSING`, PostgreSQL SQLSTATE
+   `42501`: the S8 runtime role could read and insert notification state but did
+   not have the `UPDATE` privilege required by the notifier claim/materialize
+   transaction. Migration `0023_commercial_s8_health_recovery.sql` supplies the
+   missing least-privilege grant.
+2. `S8_POLLING_DATABASE_ERROR`, PostgreSQL SQLSTATE `42P18`: the nullable
+   polling-heartbeat placeholder was untyped in a conditional expression.
+   `PostgresS8Store.heartbeat` now binds it as `%s::BIGINT`, and real PostgreSQL
+   acceptance covers the empty-poll path.
+3. `start-limit-hit` on S7 was a recovery-orchestration defect, not an S7
+   application defect. Repeated stop/start cycles consumed the unit start
+   burst. S8.2 removes S7 stop/start from S8 activation and abort paths. A
+   separately supervised S8 landing candidate on loopback port 8096 is used,
+   while the continuously running S7 listener on port 8095 remains the proxy
+   fallback.
+
+Therefore the exact summary is:
+
+`S8_ROOT_CAUSE=NOTIFIER_UPDATE_PRIVILEGE_42501_THEN_UNTYPED_POLLING_HEARTBEAT_42P18_COMPOUNDED_BY_S7_START_LIMIT_ORCHESTRATION`
+
+## Draft PR classification
+
+Control PR #63 and application PR #79 are classification **B**: their S8
+product boundary, PostgreSQL recovery migration, bounded concurrent Telegram
+verification, backup ownership fix and S7 recovery evidence are retained. They
+are not merge-ready because health did not yet separate local bot binding from
+remote availability, Landing Integration was absent from the dependency graph,
+and public activation still stopped S7.
+
+## S8.2 correction boundary
+
+- The dedicated bot ID is bound locally before remote API checks.
+- HTTP 401/403 is a non-retryable credential rejection, never YELLOW.
+- Temporary remote Telegram failure can be YELLOW only for a running instance
+  with the correct local bot binding and a fresh PostgreSQL polling heartbeat.
+- Prestart remains RED if remote identity cannot be freshly verified.
+- `LOCAL_CONFIG_HEALTH`, `REMOTE_TELEGRAM_AVAILABILITY`, and
+  `LANDING_INTEGRATION` join the shared prestart/runtime dependency graph.
+- S7 files, S7 contract, S7 service state and S7 credentials are not replaced
+  by S8 deployment.
+- No media download capability exists; `getFile` remains absent.
+
+Public activation remains fail-closed until the versioned proxy configuration,
+local landing candidate, S8 runtime, acceptance, kill switch, and observation
+window are all independently green.
