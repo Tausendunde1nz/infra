@@ -1,11 +1,11 @@
 {
   "application": {
     "branch": "fix/commercial-s8-public-recovery",
-    "commit": "a620df7464fc4182964e18a38bd68bcc31663cb7",
+    "commit": "dc1ababa277d975829eef3894211cc52caaa6841",
     "migration_chain_sha256": "b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8",
     "repository": "Tausendunde1nz/adult-publishing-core",
     "schema": "0023_commercial_s8_health_recovery",
-    "tree": "5f472e913e60044f2baefde2da39b8f06dc8fff0"
+    "tree": "fa89f12c0eef27422997d17acad43260677df979"
   },
   "authorization": {
     "automated_waitlist_authorized": true,
@@ -74,7 +74,7 @@
   },
   "files": {
     "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
-    "controller_sha256": "4eef1f37cd5d7f165c88a1902a3ab885a94be03820399a83c4c50f3c52fdb9fd",
+    "controller_sha256": "725db63db686dae7372cb67df572bdc9d4be5d4b67e79d0c45a8ada4c95a3221",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "afa9fbdcbaadeaf55ba0bb3edbaff9b852ed14647fdfce879934bacc06677ea1",
     "health_service_sha256": "75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855",
