@@ -204,6 +204,16 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn('systemctl reset-failed "$S7_SERVICE"', helper)
         self.assertEqual(helper.count('systemctl start "$S7_SERVICE"'), 1)
 
+    def test_s8_recovery_accepts_only_dead_failed_units_before_single_start(self) -> None:
+        source = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn('inactive|failed) ;;', source)
+        self.assertIn('S8_SERVICE_NOT_DISABLED', source)
+        self.assertIn('S8_LANDING_NOT_DISABLED', source)
+        self.assertIn('systemctl reset-failed "$LANDING_SERVICE"', source)
+        self.assertIn('systemctl reset-failed "$S8_SERVICE"', source)
+        self.assertNotIn('systemctl restart "$LANDING_SERVICE"', source)
+        self.assertNotIn('systemctl restart "$S8_SERVICE"', source)
+
     def test_backup_supports_only_exact_failed_s7_recovery_state(self) -> None:
         source = BACKUP.read_text(encoding="utf-8")
         self.assertIn('"create-s7-recovery"', source)

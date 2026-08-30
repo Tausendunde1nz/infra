@@ -100,3 +100,10 @@ port `8096` was already owned by the long-running Jellyfin Docker mapping
 process. Jellyfin is unchanged. The S8 landing contract, readiness check and
 versioned proxy candidate now bind the separately inventoried free loopback
 port `18096`; S7 remains the backup upstream on `8095`.
+
+The following preflight correctly found the retained Landing unit in
+`ActiveState=failed` after the collision, with `MainPID=0` and the unit still
+disabled. Recovery now admits only that dead/disabled failed state (or ordinary
+inactive/not-found), resets the recorded failure immediately before one
+controlled `start`, and retains all journal evidence. Active, enabled or
+process-bearing units remain fail-closed; no `restart` path is introduced.

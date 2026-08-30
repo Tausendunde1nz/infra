@@ -162,19 +162,31 @@ external_s7_health() {
 }
 
 require_s8_inactive_or_absent() {
-  local loaded
+  local loaded state
   loaded="$(systemctl show "$S8_SERVICE" -p LoadState --value 2>/dev/null || true)"
   [ "$loaded" = "not-found" ] && return
-  [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "inactive" ] || fail "S8_SERVICE_ALREADY_ACTIVE"
+  state="$(systemctl show "$S8_SERVICE" -p ActiveState --value)"
+  case "$state" in
+    inactive|failed) ;;
+    *) fail "S8_SERVICE_ALREADY_ACTIVE" ;;
+  esac
   [ "$(systemctl show "$S8_SERVICE" -p MainPID --value)" = "0" ] || fail "S8_PROCESS_PRESENT"
+  [ "$(systemctl is-enabled "$S8_SERVICE" 2>/dev/null || true)" = "disabled" ] \
+    || fail "S8_SERVICE_NOT_DISABLED"
 }
 
 require_landing_inactive_or_absent() {
-  local loaded
+  local loaded state
   loaded="$(systemctl show "$LANDING_SERVICE" -p LoadState --value 2>/dev/null || true)"
   [ "$loaded" = "not-found" ] && return
-  [ "$(systemctl show "$LANDING_SERVICE" -p ActiveState --value)" = "inactive" ] || fail "S8_LANDING_ALREADY_ACTIVE"
+  state="$(systemctl show "$LANDING_SERVICE" -p ActiveState --value)"
+  case "$state" in
+    inactive|failed) ;;
+    *) fail "S8_LANDING_ALREADY_ACTIVE" ;;
+  esac
   [ "$(systemctl show "$LANDING_SERVICE" -p MainPID --value)" = "0" ] || fail "S8_LANDING_PROCESS_PRESENT"
+  [ "$(systemctl is-enabled "$LANDING_SERVICE" 2>/dev/null || true)" = "disabled" ] \
+    || fail "S8_LANDING_NOT_DISABLED"
 }
 
 require_bot_secret() {
@@ -384,6 +396,7 @@ recover() {
   fi
   systemctl daemon-reload
   set_runtime_control false S8_RECOVERY_PRESTART_KILL_SWITCH_CLOSED
+  systemctl reset-failed "$LANDING_SERVICE" >/dev/null 2>&1 || true
   if ! systemctl start "$LANDING_SERVICE" || ! await_landing_green; then
     abort_deploy "$3"
   fi
@@ -393,6 +406,7 @@ recover() {
   fi
   local started_at
   started_at="$(date -Is)"
+  systemctl reset-failed "$S8_SERVICE" >/dev/null 2>&1 || true
   if ! systemctl start "$S8_SERVICE" || ! await_runtime_ready "$started_at" || ! runtime_health; then
     unit_evidence "$HEALTH_SERVICE" >&2 || true
     abort_deploy "$3"
