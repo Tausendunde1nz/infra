@@ -1,0 +1,76 @@
+# Commercial S7 public live discovery refresh evidence
+
+- Completed at: 2026-08-30T11:50:55Z
+- Host: `ubuntu-8gb-nbg1-2`
+- Decision: `S7_PUBLIC_LIVE_REFRESH_GREEN`
+- Independent verification: `S7_PUBLIC_VERIFY_GREEN`
+
+## Canonical releases
+
+- Application SHA: `935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4`
+- Application tree: `29679c2029d40eefce7dbd3857c5cf4e1f129013`
+- Application checkout: clean detached immutable release
+- Control SHA used for execution: `4efc3df707e9513f46926a21b1502c4237b89c3a`
+- Control tree used for execution: `2ff43999e2d99c36a664a5e7eb71937993f18aa6`
+
+## Recovery evidence
+
+- Pre-refresh snapshot:
+  `/opt/tu1nz_repos/backups/commercial-s7-public-soft-launch/20260830T114957Z-pre-detached-refresh-control-sync`
+- Pre-refresh SHA-256 index:
+  `24f3d59290fe3a7fcab1ca36babb194690e944abd6c5436dd68b62a3d5a7a1c7`
+- Post-refresh snapshot:
+  `/opt/tu1nz_repos/backups/commercial-s7-public-soft-launch/20260830T115441Z-post-live-discovery-refresh`
+- Post-refresh SHA-256 index:
+  `05857f9773ea19f88f322a9e3c03d1cc6218e1c9dab7c7ad9f38f377d8271ead`
+- Both snapshots passed strict file hashes, Git bundle verification and
+  PostgreSQL dump inspection.
+
+## Runtime verification
+
+- S7 service: loaded, enabled, active/running
+- S7 health timer: loaded, enabled, active/waiting
+- Failure restarts: 0
+- Bind: `127.0.0.1:8095` only
+- S0 and S3 services: inactive
+- Installed Nginx SHA-256:
+  `ddf14f890cf9d991b631371102663e8984f9586e3a2ee2afb7dace3b30a27843`
+- S7 service warnings after refresh: 0
+- S7 health warnings after refresh: 0
+
+Nginx syntax validation succeeded. It emitted the pre-existing unrelated warning
+that protocol options are repeated by `n8n.conf`; this did not block reload and
+did not originate from the S7 configuration.
+
+## Public verification
+
+- `GET https://tu1nz.com/adult/`: 200
+- `HEAD https://tu1nz.com/adult/`: 200, empty response body
+- `GET https://tu1nz.com/robots.txt`: canonical text discovery document
+- `GET https://tu1nz.com/sitemap.xml`: canonical XML including S7 public pages
+- `GET https://tu1nz.com/adult/privacy`: 200
+- `GET https://tu1nz.com/adult/terms`: 200
+- `GET https://tu1nz.com/adult/health`: `ok=true`
+- Security headers include no-store, nosniff, strict-origin referrer policy,
+  disabled camera/microphone/geolocation/payment permissions, CSP and frame deny.
+
+## Test evidence
+
+- Application local/server suite: 787/787
+- Control local/server suite: 314/314
+- Application PR #78 and post-merge CI: green
+- Control PRs #59, #60 and #61 and all post-merge CI: green
+
+## Product boundary
+
+- adult_content: false
+- payments: false
+- real_avs: false
+- real_creator_publishing: false
+- Telegram: disabled expected
+- X: disabled for now
+- Reddit: disabled for now
+- Scheduler and content queue: disabled expected
+
+No Adult media, creator submission, provider credential, payment or external
+publishing capability was enabled by this refresh.

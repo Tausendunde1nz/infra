@@ -48,6 +48,18 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
         self.assertFalse(authorization["reddit_activation_authorized"])
         self.assertEqual(self.value["decision"], "GO_FOR_AUTOMATED_PUBLIC_SFW_LANDING_WAITLIST")
 
+    def test_execution_evidence_is_bound_after_green_refresh(self) -> None:
+        execution = self.value["execution"]
+        self.assertEqual(execution["status"], "EXECUTED_GREEN")
+        self.assertEqual(execution["completed_at"], "2026-08-30T11:50:55Z")
+        evidence = ROOT / execution["evidence_path"]
+        self.assertTrue(evidence.is_file())
+        source = evidence.read_text(encoding="utf-8")
+        self.assertIn("S7_PUBLIC_LIVE_REFRESH_GREEN", source)
+        self.assertIn("S7_PUBLIC_VERIFY_GREEN", source)
+        self.assertIn("adult_content: false", source)
+        self.assertIn("payments: false", source)
+
     def test_channels_are_automated_or_disabled_without_manual_fallback(self) -> None:
         channels = self.value["channels"]
         self.assertEqual(channels["landing"], "AUTOMATED_SUPPORTED")

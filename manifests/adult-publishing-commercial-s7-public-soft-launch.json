@@ -59,9 +59,9 @@
   },
   "decision": "GO_FOR_AUTOMATED_PUBLIC_SFW_LANDING_WAITLIST",
   "execution": {
-    "completed_at": null,
-    "evidence_path": null,
-    "status": "NOT_EXECUTED"
+    "completed_at": "2026-08-30T11:50:55Z",
+    "evidence_path": "docs/COMMERCIAL_S7_PUBLIC_LIVE_REFRESH.evidence",
+    "status": "EXECUTED_GREEN"
   },
   "external_gates": {
     "reddit": "COMMERCIAL_API_AGREEMENT_REQUIRED",
