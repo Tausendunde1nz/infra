@@ -49,6 +49,12 @@ FORBIDDEN_EVIDENCE_KEYS = frozenset(
         "user_id",
     }
 )
+MAXIMUM_TRANSPORT_FAILURES = 8
+MAXIMUM_HEALTH_YELLOW_SAMPLES = 2
+MAXIMUM_CONSECUTIVE_HEALTH_YELLOW_SAMPLES = 2
+RETRYABLE_PROVIDER_SAFE_CODES = frozenset(
+    {"S8_TELEGRAM_API_UNAVAILABLE", "S8_TELEGRAM_RATE_LIMITED"}
+)
 
 
 class ObservationFailure(RuntimeError):
@@ -240,11 +246,50 @@ def host_capacity() -> dict[str, int]:
     }
 
 
-def journal_error_count(since: str) -> int:
+def journal_transport_evidence(since: str) -> dict[str, Any]:
     output = command(
         "journalctl", "-u", S8_SERVICE, "--since", since, "--no-pager", "-o", "cat"
     )
-    return sum('"event":"S8_RUNTIME_CYCLE_RED"' in line for line in output.splitlines())
+    runtime_red = 0
+    transport_red = 0
+    yellow = 0
+    recovered = 0
+    maximum_failures = 0
+    last_state = "GREEN"
+    for line in output.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        event = value.get("event")
+        if event == "S8_RUNTIME_CYCLE_RED":
+            runtime_red += 1
+        elif event == "S8_TRANSPORT_RED":
+            transport_red += 1
+            last_state = "RED"
+        elif event == "S8_TRANSPORT_YELLOW":
+            provider_code = value.get("provider_safe_reason")
+            failures = value.get("failures_in_window")
+            if provider_code not in RETRYABLE_PROVIDER_SAFE_CODES:
+                fail("TRANSPORT_YELLOW_CLASSIFICATION_RED")
+            if isinstance(failures, bool) or not isinstance(failures, int) or failures < 1:
+                fail("TRANSPORT_YELLOW_EVIDENCE_RED")
+            maximum_failures = max(maximum_failures, failures)
+            yellow += 1
+            last_state = "YELLOW"
+        elif event == "S8_TRANSPORT_RECOVERED":
+            recovered += 1
+            last_state = "GREEN"
+    return {
+        "last_state": last_state,
+        "maximum_failures_in_window": maximum_failures,
+        "recovered_count": recovered,
+        "runtime_red_count": runtime_red,
+        "transport_red_count": transport_red,
+        "yellow_transition_count": yellow,
+    }
 
 
 def safe_sample(arguments: argparse.Namespace, started_for_journal: str) -> dict[str, Any]:
@@ -276,7 +321,7 @@ def safe_sample(arguments: argparse.Namespace, started_for_journal: str) -> dict
     result: dict[str, Any] = {
         "checked_at": iso(now),
         "host": host_capacity(),
-        "journal_runtime_red_count": journal_error_count(started_for_journal),
+        "journal_transport": journal_transport_evidence(started_for_journal),
         "nginx": {
             "cpu_usage_nsec": int(nginx.get("CPUUsageNSec", "0") or 0),
             "main_pid": int(nginx["MainPID"]),
@@ -344,14 +389,33 @@ def summarize(samples: list[dict[str, Any]], started: datetime, completed: datet
         for item in samples
         for status in item["runtime_health"]["component_statuses"].values()
     ]
+    longest_yellow_run = 0
+    current_yellow_run = 0
+    for state in health_states:
+        if state == "YELLOW":
+            current_yellow_run += 1
+            longest_yellow_run = max(longest_yellow_run, current_yellow_run)
+        else:
+            current_yellow_run = 0
+    transport = samples[-1]["journal_transport"]
     return {
         "completed_at": iso(completed),
         "duration_seconds": round((completed - started).total_seconds()),
         "health_red_samples": health_states.count("RED"),
         "health_yellow_samples": health_states.count("YELLOW"),
+        "health_yellow_samples_maximum": MAXIMUM_HEALTH_YELLOW_SAMPLES,
+        "health_yellow_consecutive_max": longest_yellow_run,
+        "health_yellow_consecutive_maximum": MAXIMUM_CONSECUTIVE_HEALTH_YELLOW_SAMPLES,
+        "final_health_state": health_states[-1],
         "health_component_red_count": component_statuses.count("RED"),
         "health_component_yellow_count": component_statuses.count("YELLOW"),
-        "journal_runtime_red_count_max": max(item["journal_runtime_red_count"] for item in samples),
+        "journal_runtime_red_count_max": transport["runtime_red_count"],
+        "journal_transport_red_count": transport["transport_red_count"],
+        "journal_transport_yellow_transitions": transport["yellow_transition_count"],
+        "journal_transport_recovered_count": transport["recovered_count"],
+        "journal_transport_last_state": transport["last_state"],
+        "transport_failures_in_window_max": transport["maximum_failures_in_window"],
+        "transport_failures_in_window_maximum": MAXIMUM_TRANSPORT_FAILURES,
         "nginx_main_pid_changes": sum(
             left["nginx"]["main_pid"] != right["nginx"]["main_pid"]
             for left, right in zip(samples, samples[1:])
@@ -425,8 +489,10 @@ def main() -> int:
                 json.dumps(
                     {
                         "health": sample["runtime_health"]["state"],
-                        "ok": True,
-                        "safe_code": "S8_PUBLIC_OBSERVATION_SAMPLE_GREEN",
+                        "ok": sample["runtime_health"]["state"] in {"GREEN", "YELLOW"},
+                        "safe_code": "S8_PUBLIC_OBSERVATION_SAMPLE_{0}".format(
+                            sample["runtime_health"]["state"]
+                        ),
                         "sample": len(samples),
                     },
                     separators=(",", ":"),
@@ -444,10 +510,15 @@ def main() -> int:
         if (
             summary["duration_seconds"] < arguments.duration_seconds
             or summary["health_red_samples"]
-            or summary["health_yellow_samples"]
+            or summary["health_yellow_samples"] > MAXIMUM_HEALTH_YELLOW_SAMPLES
+            or summary["health_yellow_consecutive_max"] > MAXIMUM_CONSECUTIVE_HEALTH_YELLOW_SAMPLES
+            or summary["final_health_state"] != "GREEN"
             or summary["health_component_red_count"]
-            or summary["health_component_yellow_count"]
+            or summary["health_component_yellow_count"] > MAXIMUM_HEALTH_YELLOW_SAMPLES
             or summary["journal_runtime_red_count_max"]
+            or summary["journal_transport_red_count"]
+            or summary["journal_transport_last_state"] != "GREEN"
+            or summary["transport_failures_in_window_max"] > MAXIMUM_TRANSPORT_FAILURES
             or summary["nginx_main_pid_changes"]
             or summary["s7_main_pid_changes"]
             or summary["s7_restarts_max"]

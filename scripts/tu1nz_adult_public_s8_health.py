@@ -196,7 +196,8 @@ def main() -> int:
     payload["components"]["LANDING_INTEGRATION"] = _landing_component()
     _recompute(payload)
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
-    return 0 if payload["ok"] is True else 2
+    accepted = payload["state"] in ({"GREEN", "YELLOW"} if arguments.mode == "runtime" else {"GREEN"})
+    return 0 if accepted else 2
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s8-telegram.token
 LoadCredential=s8_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
 ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s8-telegram --contract /etc/tu1nz/adult-commercial-s8-public-telegram.json --copy /etc/tu1nz/adult-commercial-s8-copy.json --telegram-token %d/s8_telegram_token --database-dsn %d/s8_database_dsn
 Restart=on-failure
+RestartPreventExitStatus=2
 RestartSec=15s
 NoNewPrivileges=true
 PrivateTmp=true

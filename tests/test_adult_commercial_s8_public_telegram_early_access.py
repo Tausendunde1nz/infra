@@ -114,6 +114,7 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("NoNewPrivileges=true", source)
         self.assertIn("ProtectSystem=strict", source)
         self.assertIn("MemoryDenyWriteExecute=true", source)
+        self.assertIn("RestartPreventExitStatus=2", source)
         self.assertNotIn("Environment=", source)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
 
@@ -134,6 +135,8 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("LoadCredential=s8_telegram_token:", health_unit)
         self.assertIn('LANDING_URL = "http://127.0.0.1:18096/adult/"', source)
         self.assertIn('LANDING_HEALTH_URL = "http://127.0.0.1:18096/adult/health"', source)
+        self.assertIn('arguments.mode == "runtime"', source)
+        self.assertIn('{"GREEN", "YELLOW"}', source)
         self.assertNotIn("127.0.0.1:8096", source)
 
     def test_controller_is_backup_first_reversible_and_bounded(self) -> None:
@@ -283,19 +286,23 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertTrue(switch["blocks_new_broadcasts"])
         self.assertTrue(switch["preserves_existing_waitlist"])
 
-    def test_failed_public_observation_is_rolled_back_fail_closed(self) -> None:
+    def test_s8_2_failure_is_historical_and_s8_3_reacceptance_is_explicit(self) -> None:
         execution = self.value["execution"]
         self.assertEqual(execution["live_acceptance"], "GREEN_INTERNAL_SFW")
-        self.assertEqual(execution["public_activation"], "ROLLED_BACK_TO_S7")
-        self.assertEqual(execution["public_observation"], "RED_TELEGRAM_API_UNAVAILABLE")
+        self.assertEqual(execution["public_activation"], "ROLLED_BACK_TO_S7_AFTER_S8_2")
+        self.assertEqual(
+            execution["public_observation"],
+            "S8_2_RED_REMEDIATED_AWAITING_S8_3_REACCEPTANCE",
+        )
         self.assertEqual(execution["rollback"], "GREEN_WAITLIST_DATA_PRESERVED")
+        self.assertEqual(execution["s8_3_offline_acceptance"], "GREEN_819_TESTS")
         self.assertEqual(
             execution["status"],
-            "S8_2_FAIL_CLOSED_ROLLBACK_GREEN",
+            "S8_3_OFFLINE_GREEN_SERVER_REACCEPTANCE_PENDING",
         )
         self.assertEqual(
             self.value["decision"],
-            "NO_GO_RETRY_REQUIRES_SEPARATE_REMEDIATION",
+            "GO_S8_3_REVERSIBLE_STAGING_REACCEPTANCE",
         )
         self.assertFalse(self.value["kill_switch"]["public_telegram_early_access_enabled"])
         self.assertTrue(ACCEPTANCE_EVIDENCE.is_file())
@@ -305,6 +312,25 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("PUBLIC_ACTIVATION_PENDING", evidence)
         self.assertIn("file was not", evidence)
         self.assertNotIn("GO_PUBLIC_OBSERVATION_GREEN", evidence)
+
+    def test_s8_3_resilience_and_yellow_budget_are_exact_and_fail_closed(self) -> None:
+        resilience = self.value["resilience"]
+        self.assertEqual(resilience["error_budget_maximum_failures"], 8)
+        self.assertEqual(resilience["error_budget_window_seconds"], 900)
+        self.assertEqual(resilience["circuit_breaker_failure_threshold"], 3)
+        self.assertEqual(resilience["circuit_breaker_open_seconds"], 30)
+        self.assertFalse(resilience["runtime_health_remote_probe_enabled"])
+        self.assertEqual(
+            resilience["notification_ambiguous_delivery_policy"],
+            "AT_MOST_ONCE_FAIL_CLOSED",
+        )
+        observer = OBSERVER.read_text(encoding="utf-8")
+        self.assertIn("MAXIMUM_TRANSPORT_FAILURES = 8", observer)
+        self.assertIn("MAXIMUM_HEALTH_YELLOW_SAMPLES = 2", observer)
+        self.assertIn('final_health_state"] != "GREEN"', observer)
+        self.assertIn('journal_transport_last_state"] != "GREEN"', observer)
+        self.assertIn("TRANSPORT_YELLOW_CLASSIFICATION_RED", observer)
+        self.assertIn("S8_TRANSPORT_RED", observer)
 
     def test_public_proxy_activation_is_backup_first_and_reversible(self) -> None:
         source = PROXY_ACTIVATION.read_text(encoding="utf-8")
