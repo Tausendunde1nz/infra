@@ -1,0 +1,110 @@
+{
+  "application": {
+    "branch": "main",
+    "merge_commit": "3dd63f7a17626a4d8a8a3b58f317ae6917c33696",
+    "migration_chain_sha256": "7db9b568bdb3439aa1d0d05990afb6c8230b750d710e9319f20e1a15cddd1a51",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "schema": "0021_commercial_s7_public_soft_launch",
+    "tree": "e247b749ffa155a5ab8ea884ff77d205d5762dd7"
+  },
+  "authorization": {
+    "analytics_activation_authorized": true,
+    "application_fast_forward_authorized": true,
+    "database_migration_0021_authorized": true,
+    "https_public_activation_authorized": true,
+    "landing_activation_authorized": true,
+    "monitoring_activation_authorized": true,
+    "nginx_change_authorized": true,
+    "server_reversible_delta_authorized": true,
+    "systemd_public_runtime_authorized": true,
+    "telegram_activation_authorized": false,
+    "waitlist_activation_authorized": true,
+    "x_activation_authorized": false,
+    "reddit_activation_authorized": false
+  },
+  "backup_and_rollback": {
+    "exact_pre_mutation_recovery_point_required": true,
+    "kill_switch": "PUBLIC_SOFT_LAUNCH_ENABLED=false",
+    "nginx_restore_proof_required": true,
+    "postgres_restore_proof_required": true,
+    "repository_bundle_proof_required": true,
+    "rollback_requires_separate_database_decision": true
+  },
+  "brand": {
+    "canonical_url": "https://tu1nz.com/adult",
+    "current_price": "FREE_EARLY_ACCESS",
+    "message": "Upload once. Get seen everywhere.",
+    "public_status": "EARLY_ACCESS",
+    "support_contact": "tausendunde1nz@gmail.com"
+  },
+  "channels": {
+    "landing": "AUTOMATED_SUPPORTED",
+    "reddit": "DISABLED_FOR_NOW",
+    "telegram_bot": "DISABLED_EXPECTED",
+    "telegram_channel": "DISABLED_EXPECTED",
+    "x": "DISABLED_FOR_NOW"
+  },
+  "content": {
+    "categories": 5,
+    "minimum_calendar_days": 40,
+    "policy": "S7_PUBLIC_SFW_ONLY",
+    "scheduler_active": false,
+    "templates": 20,
+    "version": "s7-content-seed-v1"
+  },
+  "control": {
+    "branch": "feat/commercial-s7-public-soft-launch-control",
+    "exact_post_merge_sha_and_tree_required": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "decision": "GO_FOR_AUTOMATED_PUBLIC_SFW_LANDING_WAITLIST",
+  "execution": {
+    "completed_at": null,
+    "evidence_path": null,
+    "status": "NOT_EXECUTED"
+  },
+  "external_gates": {
+    "reddit": "COMMERCIAL_API_AGREEMENT_REQUIRED",
+    "telegram": "DEDICATED_PUBLIC_BOT_AND_CHANNEL_ADMIN_SETUP_REQUIRED",
+    "x": "PAID_API_CREDITS_AND_CREDENTIALS_REQUIRED"
+  },
+  "files": {
+    "active_contract_sha256": "f4e2b473905f6c82afe2ad6473989604e47f26eff70356db74da6fd49af50214",
+    "active_nginx_sha256": "e1a4c514f895d6b137e857adbe4b7811ca8915e389949ea24d14dbf96ccf6974",
+    "disabled_nginx_sha256": "a70f9ce7593a005a7228fae4b907be26da621d6790b3788458250a4a96bf1847",
+    "health_script_sha256": "66a895b6b4e3ae662970e561a638431d220aa6f4b94421a7c0082284114ea3a9",
+    "migration_0021_sha256": "a71350ae6d9ce544558ced38b0b032b28ac9885d0e3b4b9855e4c2db88d8b021",
+    "service_unit_sha256": "ad098f7533716f2e26f9aff500bc82a7b98c939b5b021a442f37d778edc7b692"
+  },
+  "health": {
+    "ANALYTICS": "READY_CANDIDATE",
+    "CONTENT_QUEUE": "DISABLED_EXPECTED",
+    "LANDING": "READY_CANDIDATE",
+    "REDDIT": "DISABLED_FOR_NOW",
+    "SCHEDULER": "DISABLED_EXPECTED",
+    "TELEGRAM_CHANNEL": "DISABLED_EXPECTED",
+    "TELEGRAM_ENTRY": "DISABLED_EXPECTED",
+    "WAITLIST": "READY_CANDIDATE",
+    "X": "DISABLED_FOR_NOW"
+  },
+  "product_boundary": {
+    "adult_content": false,
+    "controlled_beta": false,
+    "external_adult_publishing": false,
+    "payments": false,
+    "production_adult_workflow": false,
+    "real_avs": false,
+    "real_creator_publishing": false,
+    "real_creator_submissions": false
+  },
+  "server": {
+    "application_path": "/opt/tu1nz_repos/adult-publishing-core",
+    "bind": "127.0.0.1:8095",
+    "control_path": "/opt/tu1nz_repos/control",
+    "database": "tu1nz_adult_commercial_s3",
+    "health_timer": "tu1nz-adult-public-s7-health.timer",
+    "https_path": "/adult/",
+    "service": "tu1nz-adult-public-s7.service"
+  },
+  "version": "tu1nz-commercial-s7-public-soft-launch-control-v1"
+}
