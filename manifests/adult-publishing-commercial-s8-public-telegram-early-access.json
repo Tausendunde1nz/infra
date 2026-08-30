@@ -1,11 +1,11 @@
 {
   "application": {
     "branch": "fix/commercial-s8-public-recovery",
-    "commit": "1aa5e815fedd30ab0fcbe8c5c92e8e09140664dc",
+    "commit": "30b712ef3d3c351ee7c9af4f25eb01dc346018e1",
     "migration_chain_sha256": "b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8",
     "repository": "Tausendunde1nz/adult-publishing-core",
     "schema": "0023_commercial_s8_health_recovery",
-    "tree": "d68e19c527e52c8ba6f1a46c0a4552d6e666799b"
+    "tree": "7ee3ea2e3728b91716294948a66123f5cc55bb04"
   },
   "authorization": {
     "automated_waitlist_authorized": true,
@@ -32,7 +32,7 @@
     "provider": "TELEGRAM_OFFICIAL_BOT_API",
     "token_storage": "SYSTEMD_LOAD_CREDENTIAL_ONLY",
     "username": "tu1nz_adult_early_access_bot",
-    "expected_bot_id": 8729546284,
+    "expected_bot_id": 8622690874,
     "webhook_allowed": false
   },
   "control": {
@@ -71,7 +71,7 @@
   },
   "files": {
     "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
-    "controller_sha256": "2755deeec24c3118e5ed2b201c061ec3206395eb3988abe826c944ff1c34cba7",
+    "controller_sha256": "f34cc6e03a3ce84c346f2a2bf503036fbf4c9fb3f6836c34b39ef185bd287f65",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "e1b81bff8c27672dc65c8c53681e9bd59906ccaf6ebda603941f68d4fab2312f",
     "health_service_sha256": "75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855",
@@ -83,7 +83,7 @@
     "probe_service_sha256": "7c0e1d03dfb89bc6397a1c49c90edc68d694b39395107c491e58bf9a58d4949c",
     "public_proxy_sha256": "3f50b7b72068d61dd8990f4681f8d7bcb408620b9bac410be1ef469257cb71a4",
     "s7_contract_sha256": "a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802",
-    "s8_contract_sha256": "13baafc716dbc778d890d3ea28c6fee12a05c585c71e65cac4078c6f9bf8feed",
+    "s8_contract_sha256": "cb5fdca02192211850b6dd66943a1db5cd6ea7349770776c119fc1e60a1ca927",
     "service_unit_sha256": "26fbb08113ecb6609806e549f980eecb94f0d90d4eae1b411e1208c9c16d1a69"
   },
   "health": {

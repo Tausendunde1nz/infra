@@ -79,3 +79,14 @@ recreated the index as `0644`. Both S8 control scripts therefore set `umask
 group-private files, and the explicit owner/type/mode guard still runs before
 backup use. This is a permission-only recovery; the same verified backup and
 rollback boundary remain in force.
+
+## Dedicated public bot identity correction
+
+The next fail-closed prestart proved
+`S8_TELEGRAM_TOKEN_BOT_ID_MISMATCH` before any S8 service start. A bounded
+credential-safe identity check exposed no token and proved that the installed
+credential's local numeric prefix and Telegram `getMe` response both identify
+bot `8622690874`, username `tu1nz_adult_early_access_bot`. The S8 contract had
+incorrectly retained staging bot ID `8729546284`. The public S8 contract is now
+bound to the proven dedicated public identity; S3/S4 historical staging
+manifests remain unchanged.
