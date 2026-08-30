@@ -110,7 +110,9 @@ def require_running(unit: str) -> dict[str, str]:
 
 def require_timer() -> None:
     value = service_properties(HEALTH_TIMER)
-    if value.get("ActiveState") != "active" or value.get("SubState") != "waiting":
+    # A timer can move through a short trigger substate while its oneshot service runs.
+    # ActiveState plus the persisted enablement state are the stable safety contract.
+    if value.get("ActiveState") != "active":
         fail("HEALTH_TIMER_RED")
     if command("systemctl", "is-enabled", HEALTH_TIMER).strip() != "enabled":
         fail("HEALTH_TIMER_DISABLED")

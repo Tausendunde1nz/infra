@@ -1,0 +1,44 @@
+TU1NZ Commercial S8.2 public observer first-start diagnosis
+Date: 2026-08-30
+Decision: LOCAL_OBSERVER_CONTRACT_FIX_REQUIRED
+
+Observed failure
+
+- The first observer process exited before producing a sample.
+- Privacy-safe failure code: HEALTH_TIMER_RED.
+- Failed evidence directory:
+  /opt/tu1nz_repos/backups/commercial-s8-public-observation-20260830T173854Z
+- The failure happened at the exact health-timer trigger timestamp.
+
+Read-only verification
+
+- tu1nz-adult-public-s7.service remained active/running with NRestarts=0.
+- tu1nz-adult-public-s8-telegram.service remained active/running with NRestarts=0.
+- tu1nz-adult-public-s8-landing.service remained active/running with NRestarts=0.
+- nginx.service remained active/running with NRestarts=0.
+- tu1nz-adult-public-s8-health.timer remained active and enabled.
+- The triggered health service completed successfully and the timer returned to waiting.
+- The external SFW health endpoint remained GREEN with all forbidden capabilities false.
+
+Root cause
+
+The observer required the timer SubState to be exactly waiting. systemd can transiently
+move an active timer through a trigger substate while its oneshot target runs. The
+observer started on that same trigger second and therefore rejected a healthy timer.
+
+Correction
+
+Bind timer health to the stable contract only:
+
+- ActiveState=active
+- systemctl is-enabled returns enabled
+
+The observer remains fail-closed if the timer is inactive or disabled. No service,
+proxy, database, token, provider, media, payment or publishing state is changed by
+this correction.
+
+Rollback
+
+The previous Control commit remains available and the verified pre-activation backup
+continues to cover Control. The failed observer wrote only its dedicated evidence
+directory and performed no runtime mutation.

@@ -66,6 +66,15 @@ class CommercialS8PublicObserverTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
 
+    def test_timer_check_uses_stable_active_and_enabled_contract(self) -> None:
+        source = OBSERVER.read_text(encoding="utf-8")
+        timer_check = source.split("def require_timer()", 1)[1].split(
+            "def process_metrics", 1
+        )[0]
+        self.assertIn('value.get("ActiveState") != "active"', timer_check)
+        self.assertIn('systemctl", "is-enabled", HEALTH_TIMER', timer_check)
+        self.assertNotIn('value.get("SubState") != "waiting"', timer_check)
+
 
 if __name__ == "__main__":
     unittest.main()
