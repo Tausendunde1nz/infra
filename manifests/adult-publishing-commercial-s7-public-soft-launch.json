@@ -1,11 +1,11 @@
 {
   "application": {
     "branch": "main",
-    "merge_commit": "3dd63f7a17626a4d8a8a3b58f317ae6917c33696",
+    "merge_commit": "79a9d88d51ba5747cdfb0b6400a61506d82ccc6b",
     "migration_chain_sha256": "7db9b568bdb3439aa1d0d05990afb6c8230b750d710e9319f20e1a15cddd1a51",
     "repository": "Tausendunde1nz/adult-publishing-core",
     "schema": "0021_commercial_s7_public_soft_launch",
-    "tree": "e247b749ffa155a5ab8ea884ff77d205d5762dd7"
+    "tree": "f3ae60f4c690a3b023db4e5953ca14050a9272b3"
   },
   "authorization": {
     "analytics_activation_authorized": true,

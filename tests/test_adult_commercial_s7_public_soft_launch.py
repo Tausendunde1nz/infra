@@ -28,8 +28,8 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
 
     def test_application_release_is_exactly_bound(self) -> None:
         application = self.value["application"]
-        self.assertEqual(application["merge_commit"], "3dd63f7a17626a4d8a8a3b58f317ae6917c33696")
-        self.assertEqual(application["tree"], "e247b749ffa155a5ab8ea884ff77d205d5762dd7")
+        self.assertEqual(application["merge_commit"], "79a9d88d51ba5747cdfb0b6400a61506d82ccc6b")
+        self.assertEqual(application["tree"], "f3ae60f4c690a3b023db4e5953ca14050a9272b3")
         self.assertEqual(application["schema"], "0021_commercial_s7_public_soft_launch")
         self.assertEqual(
             application["migration_chain_sha256"],
