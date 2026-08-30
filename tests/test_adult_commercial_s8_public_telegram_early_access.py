@@ -21,6 +21,7 @@ HEALTH_TIMER = ROOT / "systemd/tu1nz-adult-public-s8-health.timer"
 LANDING_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-landing.service"
 PUBLIC_PROXY = ROOT / "nginx/current/tu1nz.s8-public.conf"
 PROXY_ACTIVATION = ROOT / "scripts/tu1nz_adult_public_s8_activate_proxy.sh"
+OBSERVER = ROOT / "scripts/tu1nz_adult_public_s8_observe.py"
 ACCEPTANCE_EVIDENCE = ROOT / "analysis/COMMERCIAL_S8_2_STAGING_ACCEPTANCE_2026-08-30.diagnose"
 
 
@@ -99,6 +100,7 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             ROOT / "systemd/tu1nz-adult-public-s8-probe.service": self.value["files"]["probe_service_sha256"],
             LANDING_UNIT: self.value["files"]["landing_service_sha256"],
             PROXY_ACTIVATION: self.value["files"]["proxy_activation_script_sha256"],
+            OBSERVER: self.value["files"]["observer_sha256"],
             PUBLIC_PROXY: self.value["files"]["public_proxy_sha256"],
         }
         for path, digest in expected.items():
@@ -281,17 +283,19 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertTrue(switch["blocks_new_broadcasts"])
         self.assertTrue(switch["preserves_existing_waitlist"])
 
-    def test_internal_acceptance_is_green_while_public_activation_remains_pending(self) -> None:
+    def test_public_activation_is_green_while_two_hour_observation_remains_pending(self) -> None:
         execution = self.value["execution"]
         self.assertEqual(execution["live_acceptance"], "GREEN_INTERNAL_SFW")
-        self.assertEqual(execution["public_activation"], "PENDING")
+        self.assertEqual(execution["public_activation"], "GREEN")
+        self.assertEqual(execution["public_observation"], "PENDING_TWO_HOURS")
         self.assertEqual(
             execution["status"],
-            "S8_2_INTERNAL_ACCEPTANCE_GREEN_KILL_SWITCH_CLOSED",
+            "S8_2_PUBLIC_SFW_ACTIVE_OBSERVATION_PENDING",
         )
-        self.assertFalse(self.value["kill_switch"]["public_telegram_early_access_enabled"])
+        self.assertTrue(self.value["kill_switch"]["public_telegram_early_access_enabled"])
         self.assertTrue(ACCEPTANCE_EVIDENCE.is_file())
         evidence = ACCEPTANCE_EVIDENCE.read_text(encoding="utf-8")
+        # The acceptance report is immutable historical evidence from before activation.
         self.assertIn("KILL_SWITCH_CLOSED", evidence)
         self.assertIn("PUBLIC_ACTIVATION_PENDING", evidence)
         self.assertIn("file was not", evidence)

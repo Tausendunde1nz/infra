@@ -66,8 +66,9 @@
   "execution": {
     "live_acceptance": "GREEN_INTERNAL_SFW",
     "observation_hours_required": 2,
-    "public_activation": "PENDING",
-    "status": "S8_2_INTERNAL_ACCEPTANCE_GREEN_KILL_SWITCH_CLOSED"
+    "public_activation": "GREEN",
+    "public_observation": "PENDING_TWO_HOURS",
+    "status": "S8_2_PUBLIC_SFW_ACTIVE_OBSERVATION_PENDING"
   },
   "files": {
     "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
@@ -80,6 +81,7 @@
     "landing_service_sha256": "f2663c4f1e57e91aa938d67bc5533fa5324dd355282bdf6e52fe40102b7b994d",
     "migration_0022_sha256": "5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6",
     "migration_0023_sha256": "feb157b5625113a3c4774b570d8a73265356a87c5fe70d491c36b5b7a25a6691",
+    "observer_sha256": "f8768f1241b2eefa6e2b1f4318abbc736f436e5ab758db2559e4c6ae61bd00c3",
     "probe_service_sha256": "7c0e1d03dfb89bc6397a1c49c90edc68d694b39395107c491e58bf9a58d4949c",
     "proxy_activation_script_sha256": "7770a7c203e420c6dc4d7ae3504d8fe172597d5642937b2a56fdffbe60f9b086",
     "public_proxy_sha256": "65c0bc9d12981a4532d5453c668f8b2f9a4ad32cf5a7a18b8ef4ed3b56a0f062",
@@ -108,7 +110,7 @@
     "database_backed": true,
     "deployment_required": false,
     "preserves_existing_waitlist": true,
-    "public_telegram_early_access_enabled": false,
+    "public_telegram_early_access_enabled": true,
     "blocks_new_broadcasts": true,
     "blocks_new_waitlist_joins": true
   },
