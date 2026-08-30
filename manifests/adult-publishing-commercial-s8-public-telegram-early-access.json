@@ -74,7 +74,7 @@
   },
   "files": {
     "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
-    "controller_sha256": "a660f7be8f1b37a71f98b27e12c220c46d8a03d8ddf31284383a334ff2aefb02",
+    "controller_sha256": "ce1287215030c2e8d94a2bc3e4f59563752ff0ac50c10c18d61daed0fd711f23",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "afa9fbdcbaadeaf55ba0bb3edbaff9b852ed14647fdfce879934bacc06677ea1",
     "health_service_sha256": "75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855",

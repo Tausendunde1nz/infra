@@ -45,11 +45,17 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
     def test_pinned_release_can_be_retrieved_after_canonical_main_advances(self) -> None:
         controller = CONTROLLER.read_text(encoding="utf-8")
         install_release = controller.split("install_release()", 1)[1].split("install_database()", 1)[0]
+        self.assertIn("if ! runuser -u chatops -- git", install_release)
+        self.assertIn("CANONICAL_APPLICATION_FETCH_FAILED", install_release)
         self.assertIn('cat-file -e "${TARGET_SHA}^{commit}"', install_release)
         self.assertIn("merge-base --is-ancestor", install_release)
         self.assertIn('"$TARGET_SHA" "origin/$APPLICATION_BRANCH"', install_release)
         self.assertIn('"${TARGET_SHA}^{tree}"', install_release)
         self.assertIn("PINNED_TARGET_TREE_MISMATCH", install_release)
+        self.assertLess(
+            install_release.index("merge-base --is-ancestor"),
+            install_release.index('if [ "$(git_value "$APPLICATION_ROOT" HEAD)" != "$TARGET_SHA" ]'),
+        )
         self.assertNotIn(
             '[ "$(git_value "$APPLICATION_ROOT" "origin/$APPLICATION_BRANCH")" = "$TARGET_SHA" ]',
             install_release,

@@ -261,16 +261,18 @@ preflight() {
 }
 
 install_release() {
+  if ! runuser -u chatops -- git -C "$APPLICATION_ROOT" fetch --no-tags origin \
+    "refs/heads/$APPLICATION_BRANCH:refs/remotes/origin/$APPLICATION_BRANCH"; then
+    fail "CANONICAL_APPLICATION_FETCH_FAILED"
+  fi
+  runuser -u chatops -- git -C "$APPLICATION_ROOT" cat-file -e "${TARGET_SHA}^{commit}" \
+    || fail "PINNED_TARGET_COMMIT_MISSING"
+  runuser -u chatops -- git -C "$APPLICATION_ROOT" merge-base --is-ancestor \
+    "$TARGET_SHA" "origin/$APPLICATION_BRANCH" \
+    || fail "PINNED_TARGET_NOT_IN_CANONICAL_HISTORY"
+  [ "$(git_value "$APPLICATION_ROOT" "${TARGET_SHA}^{tree}")" = "$TARGET_TREE" ] \
+    || fail "PINNED_TARGET_TREE_MISMATCH"
   if [ "$(git_value "$APPLICATION_ROOT" HEAD)" != "$TARGET_SHA" ]; then
-    runuser -u chatops -- git -C "$APPLICATION_ROOT" fetch --no-tags origin \
-      "refs/heads/$APPLICATION_BRANCH:refs/remotes/origin/$APPLICATION_BRANCH"
-    runuser -u chatops -- git -C "$APPLICATION_ROOT" cat-file -e "${TARGET_SHA}^{commit}" \
-      || fail "PINNED_TARGET_COMMIT_MISSING"
-    runuser -u chatops -- git -C "$APPLICATION_ROOT" merge-base --is-ancestor \
-      "$TARGET_SHA" "origin/$APPLICATION_BRANCH" \
-      || fail "PINNED_TARGET_NOT_IN_CANONICAL_HISTORY"
-    [ "$(git_value "$APPLICATION_ROOT" "${TARGET_SHA}^{tree}")" = "$TARGET_TREE" ] \
-      || fail "PINNED_TARGET_TREE_MISMATCH"
     runuser -u chatops -- git -C "$APPLICATION_ROOT" switch --detach "$TARGET_SHA"
   fi
   [ "$(git_value "$APPLICATION_ROOT" HEAD)" = "$TARGET_SHA" ] || fail "APPLICATION_SHA_MISMATCH"
