@@ -23,6 +23,8 @@ No waitlist, health, legal-page, analytics or security-header failure was found.
 - exclude the Adult Publishing URLs from the disabled/kill-switch sitemap;
 - require a new root-owned live backup while the current S7 service is healthy;
 - allow refresh only from the exact current release and Nginx hash;
+- preserve the server's deliberate detached-release checkout instead of moving
+  the stale local `main` branch;
 - execute release installation in a subshell so every partial release failure
   enters the bounded rollback handler;
 - on failure, restore the exact previous release, editable installation and both
@@ -39,4 +41,5 @@ schema or public product contract.
 The live backup contains both Git bundles, database dump, installed Nginx files,
 S7 configuration/unit archives, service state and a strict SHA-256 index. The
 controller additionally pins the only accepted rollback source to the current
-application SHA/tree and prior installed Nginx SHA.
+application SHA/tree and prior installed Nginx SHA. Rollback switches the clean
+detached checkout directly to that immutable prior release.

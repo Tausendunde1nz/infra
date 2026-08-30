@@ -209,8 +209,7 @@ rollback_live_refresh() {
   local backup="$1"
   systemctl stop "$SERVICE" >/dev/null 2>&1 || true
   if [ "$(git_value "$APPLICATION_ROOT" HEAD)" = "$TARGET_SHA" ]; then
-    runuser -u chatops -- git -C "$APPLICATION_ROOT" update-ref refs/heads/main "$PREVIOUS_TARGET_SHA" "$TARGET_SHA"
-    runuser -u chatops -- git -C "$APPLICATION_ROOT" restore --source="$PREVIOUS_TARGET_SHA" --staged --worktree -- .
+    runuser -u chatops -- git -C "$APPLICATION_ROOT" switch --detach "$PREVIOUS_TARGET_SHA"
     runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/pip" install \
       --disable-pip-version-check --no-deps --no-build-isolation --editable "$APPLICATION_ROOT" >/dev/null
   fi
@@ -230,7 +229,9 @@ live_refresh() {
   require_application_clean
   [ "$(git_value "$APPLICATION_ROOT" HEAD)" = "$PREVIOUS_TARGET_SHA" ] || fail "LIVE_REFRESH_SOURCE_SHA_MISMATCH"
   [ "$(git_value "$APPLICATION_ROOT" 'HEAD^{tree}')" = "$PREVIOUS_TARGET_TREE" ] || fail "LIVE_REFRESH_SOURCE_TREE_MISMATCH"
-  [ "$(runuser -u chatops -- git -C "$APPLICATION_ROOT" symbolic-ref -q HEAD)" = "refs/heads/main" ] || fail "APPLICATION_BRANCH_NOT_MAIN"
+  if runuser -u chatops -- git -C "$APPLICATION_ROOT" symbolic-ref -q HEAD >/dev/null; then
+    fail "APPLICATION_HEAD_NOT_DETACHED"
+  fi
   [ "$(systemctl show "$SERVICE" -p ActiveState --value)" = "active" ] || fail "S7_SERVICE_NOT_ACTIVE"
   [ "$(systemctl show "$SERVICE" -p MainPID --value)" != "0" ] || fail "S7_SERVICE_PROCESS_MISSING"
   [ "$(systemctl show "$HEALTH_TIMER" -p ActiveState --value)" = "active" ] || fail "S7_HEALTH_TIMER_NOT_ACTIVE"
