@@ -20,6 +20,7 @@ HEALTH_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-health.service"
 HEALTH_TIMER = ROOT / "systemd/tu1nz-adult-public-s8-health.timer"
 LANDING_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-landing.service"
 PUBLIC_PROXY = ROOT / "nginx/current/tu1nz.s8-public.conf"
+ACCEPTANCE_EVIDENCE = ROOT / "analysis/COMMERCIAL_S8_2_STAGING_ACCEPTANCE_2026-08-30.diagnose"
 
 
 class CommercialS8PublicTelegramControlTests(unittest.TestCase):
@@ -277,6 +278,22 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertTrue(switch["blocks_new_waitlist_joins"])
         self.assertTrue(switch["blocks_new_broadcasts"])
         self.assertTrue(switch["preserves_existing_waitlist"])
+
+    def test_internal_acceptance_is_green_while_public_activation_remains_pending(self) -> None:
+        execution = self.value["execution"]
+        self.assertEqual(execution["live_acceptance"], "GREEN_INTERNAL_SFW")
+        self.assertEqual(execution["public_activation"], "PENDING")
+        self.assertEqual(
+            execution["status"],
+            "S8_2_INTERNAL_ACCEPTANCE_GREEN_KILL_SWITCH_CLOSED",
+        )
+        self.assertFalse(self.value["kill_switch"]["public_telegram_early_access_enabled"])
+        self.assertTrue(ACCEPTANCE_EVIDENCE.is_file())
+        evidence = ACCEPTANCE_EVIDENCE.read_text(encoding="utf-8")
+        self.assertIn("KILL_SWITCH_CLOSED", evidence)
+        self.assertIn("PUBLIC_ACTIVATION_PENDING", evidence)
+        self.assertIn("file was not", evidence)
+        self.assertNotIn("GO_PUBLIC_OBSERVATION_GREEN", evidence)
 
 
 if __name__ == "__main__":

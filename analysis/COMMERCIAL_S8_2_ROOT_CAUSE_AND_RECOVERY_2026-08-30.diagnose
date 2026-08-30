@@ -1,6 +1,6 @@
 # Commercial S8.2 root-cause resolution
 
-Status: OFFLINE FIX IN PROGRESS
+Status: INTERNAL SFW ACCEPTANCE GREEN; PUBLIC ACTIVATION PENDING
 Baseline: S7_RECOVERY_GREEN_S8_CLOSED
 
 ## Proven root-cause chain
@@ -20,7 +20,7 @@ component evidence proves this ordered chain:
 3. `start-limit-hit` on S7 was a recovery-orchestration defect, not an S7
    application defect. Repeated stop/start cycles consumed the unit start
    burst. S8.2 removes S7 stop/start from S8 activation and abort paths. A
-   separately supervised S8 landing candidate on loopback port 8096 is used,
+separately supervised S8 landing candidate on loopback port 18096 is used,
    while the continuously running S7 listener on port 8095 remains the proxy
    fallback.
 
@@ -114,3 +114,36 @@ graph itself was contract-correct, but the wrapper overwrote its
 `LANDING_INTEGRATION` evidence with a direct loopback request to the old port.
 The wrapper now shares the versioned `18096` binding, and tests prohibit the
 former Jellyfin port from reappearing in health evidence.
+
+## Internal SFW acceptance and closed kill switch
+
+The recovery branches, PostgreSQL migration, unit material, loopback landing,
+diagnostic graph and runtime were staged against the exact reviewed commits and
+trees. The full diagnostic report was GREEN for bot process, local config,
+Telegram auth and availability, polling, database, waitlist, notifier, queue,
+analytics, product boundary, kill switch and landing integration.
+
+The dedicated public bot then completed the internal SFW acceptance with an
+operator-controlled Telegram account: start, German/English selection, join,
+duplicate join, status, notification opt-in/out, leave, rejoin and restart all
+returned their bounded Early Access responses. Exact Telegram update replay is
+not reproducible from a normal client because Telegram assigns a new update ID;
+the identical-update path remains covered by the committed idempotency tests.
+
+The registered harmless synthetic JPEG with SHA-256
+`7dbadcb1fe8130b087166b81b74a72222a00bd94591ec78555942aaecc0fb69b`
+was submitted only to prove the hard media boundary. The live bot replied that
+uploads are unavailable and that the file was neither downloaded nor passed to
+the Adult workflow. No Adult media, AVS, payment or publishing capability was
+opened.
+
+After acceptance, the database-backed kill switch was closed automatically.
+The retained safe log records `S8_PUBLIC_TELEGRAM_KILL_SWITCH_CLOSED` with data
+preservation, and a subsequent `/join` received the neutral paused response.
+S7 remained active with the same PID, zero restarts, green loopback health,
+green external health and public HTTP 200 throughout.
+
+Public activation is not recorded by this evidence. The installed nginx site
+still points `/adult/` directly to the S7 listener on port 8095. The versioned
+S8 proxy candidate points to S8 on port 18096 with S7 as backup, but installing
+that candidate and reloading nginx remain separate, pending actions.
