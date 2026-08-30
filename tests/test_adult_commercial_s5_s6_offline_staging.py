@@ -59,6 +59,34 @@ class CommercialS5S6OfflineStagingTests(unittest.TestCase):
             },
         )
 
+    def test_completed_execution_evidence_is_exact_and_provider_free(self) -> None:
+        execution = self.value["execution"]
+        self.assertEqual(execution["status"], "GREEN_OFFLINE_STAGING_COMPLETE")
+        self.assertEqual(execution["application_sha"], self.value["application"]["merge_commit"])
+        self.assertEqual(execution["application_tree"], self.value["application"]["tree"])
+        self.assertEqual(
+            execution["control_execution_sha"],
+            "de8342b9fb977f1a863bda7f87130068a68a9241",
+        )
+        self.assertEqual(
+            execution["backup_index_sha256"],
+            "b621f1c526559fea45a0f9fbc41d7d2564f5285c9f61b2b71bc0e41c290ba75c",
+        )
+        self.assertTrue(execution["application_clean"])
+        self.assertTrue(execution["control_clean"])
+        self.assertFalse(execution["service_started"])
+        self.assertFalse(execution["provider_called"])
+        for key in (
+            "provider_ledger_entries",
+            "s4_beta_metrics",
+            "s4_provider_receipts",
+            "s6_events",
+            "s6_grants",
+            "s6_reversals",
+        ):
+            self.assertEqual(execution[key], 0)
+        self.assertEqual(execution["server_tests"], "27/27")
+
     def test_controller_is_syntax_valid_and_fail_closed(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")
         completed = subprocess.run(
