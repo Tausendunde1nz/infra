@@ -221,6 +221,10 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn('runuser -u chatops -- git -C "$CONTROL_ROOT" bundle create - --all', source)
         self.assertIn('runuser -u chatops -- git -C "$APPLICATION_ROOT" rev-parse', source)
         self.assertIn('runuser -u chatops -- git -C "$CONTROL_ROOT" rev-parse', source)
+        self.assertIn('runuser -u chatops -- git -C "$APPLICATION_ROOT" status --porcelain=v1', source)
+        self.assertIn('runuser -u chatops -- git -C "$CONTROL_ROOT" status --porcelain=v1', source)
+        self.assertNotIn('git -c safe.directory="$APPLICATION_ROOT"', source)
+        self.assertNotIn('git -c safe.directory="$CONTROL_ROOT"', source)
         self.assertNotIn("adult-commercial-s8-telegram.token' -print0", source)
         self.assertNotIn("rm -rf", source)
 

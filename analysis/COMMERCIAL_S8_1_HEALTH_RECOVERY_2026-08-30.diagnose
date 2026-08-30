@@ -113,6 +113,13 @@ removed immediately after the check. Consequently root Git has no path to a
 working index, while bundles and their enclosing backup directory remain
 root-only throughout.
 
+The next server proof found two remaining root `git status` calls used only to
+write the clean-checkout evidence files. Those calls, not bundle verification,
+were the final source of index ownership replacement. They now run as `chatops`
+as well. The test contract explicitly rejects any `safe.directory` root Git
+invocation against either working checkout and requires bundle creation,
+provenance capture and status capture all to run as the working user.
+
 ## Recovery controls
 
 - Every component emits status, timestamps, elapsed time, safe reason, safe
