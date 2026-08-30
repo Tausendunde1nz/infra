@@ -1,0 +1,45 @@
+# Commercial S8.3 direct transport hardening
+
+Date: 2026-08-31  
+Scope: offline application and Control SSOT only  
+Server contact: none  
+Server activation: none
+
+## Finding
+
+The Python standard URL opener used by the S8 Telegram adapter could inherit
+ambient HTTP(S) proxy variables and could follow provider redirects. The
+dedicated bot credential is embedded in the Telegram Bot API request URL, so
+either behavior created an avoidable credential-routing boundary even though
+the configured origin itself was exactly allowlisted and TLS verified.
+
+## Remediation
+
+Application PR #82 was reviewed and merged by merge commit
+`2e8fdfd305ff8237fe78c8da232e63cbf591ec4b` with tree
+`67739e865473bc3e5a9e4dfdd18fbd305c5944b7`.
+
+The canonical client now:
+
+- rejects every HTTP redirect before any credential-bearing follow-up request;
+- ignores ambient proxy environment variables for Telegram API traffic;
+- preserves the exact `https://api.telegram.org` contract boundary; and
+- returns the non-retryable safe code `S8_TELEGRAM_REDIRECT_BLOCKED`.
+
+The application test suite is green at 838/838. Pull-request and post-merge CI
+are green on Python 3.10 and 3.13 and PostgreSQL 17.11 and 18.6.
+
+## Control binding
+
+This Control change binds the S8 deployment target to the canonical application
+merge above, records that provider redirects and ambient transport proxies are
+forbidden, and refreshes the controller digest. No schema, migration, systemd
+unit, credential, provider state, server file, service, or public route changes
+in this step.
+
+## Runtime decision
+
+The server remains on the previously verified S7 fallback. S8.3 server
+reacceptance and its required two-hour observation remain pending until a fresh
+authenticated Tailscale session is available. Adult media, identity data, AVS,
+payments, publishing, controlled beta, and production stay disabled.

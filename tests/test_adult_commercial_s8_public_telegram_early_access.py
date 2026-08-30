@@ -295,7 +295,7 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "S8_2_RED_REMEDIATED_AWAITING_S8_3_REACCEPTANCE",
         )
         self.assertEqual(execution["rollback"], "GREEN_WAITLIST_DATA_PRESERVED")
-        self.assertEqual(execution["s8_3_offline_acceptance"], "GREEN_819_TESTS")
+        self.assertEqual(execution["s8_3_offline_acceptance"], "GREEN_838_TESTS")
         self.assertEqual(
             execution["status"],
             "S8_3_OFFLINE_GREEN_SERVER_REACCEPTANCE_PENDING",
@@ -320,6 +320,8 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertEqual(resilience["circuit_breaker_failure_threshold"], 3)
         self.assertEqual(resilience["circuit_breaker_open_seconds"], 30)
         self.assertFalse(resilience["runtime_health_remote_probe_enabled"])
+        self.assertFalse(resilience["provider_redirect_allowed"])
+        self.assertFalse(resilience["ambient_transport_proxy_allowed"])
         self.assertEqual(
             resilience["notification_ambiguous_delivery_policy"],
             "AT_MOST_ONCE_FAIL_CLOSED",

@@ -1,11 +1,11 @@
 {
   "application": {
     "branch": "main",
-    "commit": "c82ad7daa0409cea0719f9749872d9c3e2f193fc",
+    "commit": "2e8fdfd305ff8237fe78c8da232e63cbf591ec4b",
     "migration_chain_sha256": "b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8",
     "repository": "Tausendunde1nz/adult-publishing-core",
     "schema": "0023_commercial_s8_health_recovery",
-    "tree": "fa89f12c0eef27422997d17acad43260677df979"
+    "tree": "67739e865473bc3e5a9e4dfdd18fbd305c5944b7"
   },
   "authorization": {
     "automated_waitlist_authorized": true,
@@ -36,7 +36,7 @@
     "webhook_allowed": false
   },
   "control": {
-    "branch": "fix/commercial-s8-public-recovery",
+    "branch": "control-main",
     "exact_commit_and_tree_required": true,
     "repository": "Tausendunde1nz/infra"
   },
@@ -69,12 +69,12 @@
     "public_activation": "ROLLED_BACK_TO_S7_AFTER_S8_2",
     "public_observation": "S8_2_RED_REMEDIATED_AWAITING_S8_3_REACCEPTANCE",
     "rollback": "GREEN_WAITLIST_DATA_PRESERVED",
-    "s8_3_offline_acceptance": "GREEN_819_TESTS",
+    "s8_3_offline_acceptance": "GREEN_838_TESTS",
     "status": "S8_3_OFFLINE_GREEN_SERVER_REACCEPTANCE_PENDING"
   },
   "files": {
     "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
-    "controller_sha256": "bdfe7a63d115f932ebb90a5ea175c1b768db4f619f6cd45299f1b33db835ad78",
+    "controller_sha256": "eb5147d7c562d2767fe08ed704b8e2b83d951b30e1ee56c38042a081614ae616",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "afa9fbdcbaadeaf55ba0bb3edbaff9b852ed14647fdfce879934bacc06677ea1",
     "health_service_sha256": "75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855",
@@ -141,6 +141,7 @@
     "versioned_approved_copy_only": true
   },
   "resilience": {
+    "ambient_transport_proxy_allowed": false,
     "circuit_breaker_failure_threshold": 3,
     "circuit_breaker_open_seconds": 30,
     "error_budget_maximum_failures": 8,
@@ -148,6 +149,7 @@
     "hard_auth_identity_contract_failures": "RED",
     "notification_ambiguous_delivery_policy": "AT_MOST_ONCE_FAIL_CLOSED",
     "notification_sending_lease_seconds": 120,
+    "provider_redirect_allowed": false,
     "retry_after_honored": true,
     "retry_base_seconds": 1,
     "retry_jitter_seconds_maximum": 1.0,
