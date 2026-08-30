@@ -53,3 +53,10 @@ Server re-acceptance remains a bounded STOP -> INSTALL -> VERIFY -> START ->
 OBSERVE flow. Any hard failure or exhausted budget is fail-closed and uses the
 versioned S8-to-S7 rollback. No Adult media, AVS, payment, publishing, creator
 invite, controlled beta or production workflow is authorized.
+
+The canonical Application integration is merge commit
+`c82ad7daa0409cea0719f9749872d9c3e2f193fc` with tree
+`fa89f12c0eef27422997d17acad43260677df979` and parents
+`935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4` and
+`dc1ababa277d975829eef3894211cc52caaa6841`. Control binds the server sync to
+that canonical merge commit, not to a feature-branch-only SHA.
