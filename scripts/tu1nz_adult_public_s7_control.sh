@@ -144,7 +144,7 @@ install_database() {
   count="$(s7_table_count)"
   if [ "$count" = "0" ]; then
     runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
-      --file="$APPLICATION_ROOT/migrations/0021_commercial_s7_public_soft_launch.sql" >/dev/null
+      <"$APPLICATION_ROOT/migrations/0021_commercial_s7_public_soft_launch.sql" >/dev/null
   elif [ "$count" != "5" ]; then
     fail "MIGRATION_0021_PARTIAL_STATE"
   fi
