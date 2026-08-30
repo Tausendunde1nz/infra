@@ -29,6 +29,15 @@ require_git_index_safe() {
   esac
 }
 
+verify_bundle_as_chatops() {
+  local repository="$1"
+  local bundle="$2"
+  (
+    exec 3<"$bundle"
+    runuser -u chatops -- git -C "$repository" bundle verify /proc/self/fd/3 >/dev/null
+  )
+}
+
 verify_backup() {
   local path="$1"
   [ -d "$path" ] || fail "BACKUP_PATH_MISSING"
@@ -43,8 +52,8 @@ verify_backup() {
   [ ! -s "$path/application-status.txt" ] || fail "APPLICATION_STATUS_NOT_CLEAN"
   [ ! -s "$path/control-status.txt" ] || fail "CONTROL_STATUS_NOT_CLEAN"
   [ -z "$(find "$path" -maxdepth 1 -type f -iname '*token*' -print -quit)" ] || fail "SECRET_MATERIAL_IN_BACKUP"
-  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle verify "$path/application.bundle" >/dev/null
-  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle verify "$path/control.bundle" >/dev/null
+  verify_bundle_as_chatops "$APPLICATION_ROOT" "$path/application.bundle"
+  verify_bundle_as_chatops "$CONTROL_ROOT" "$path/control.bundle"
   pg_restore --list "$path/database-before.dump" >/dev/null
 }
 

@@ -95,6 +95,14 @@ every backup. Recovery of the existing index is limited to restoring the known
 `chatops:chatops` owner and mode `0660`; no runtime service transition is part
 of that rights repair.
 
+The first rights finalization proved that root-owned `git bundle verify` also
+refreshes the checkout index, so changing only bundle creation was insufficient.
+Verification now opens each root-only bundle as a root file descriptor and
+passes that already-open descriptor to Git running as `chatops`. This keeps the
+backup directory mode `0700` and bundle mode `0600`, gives no persistent file
+access to another identity, and prevents Git from recreating the working index
+as root. The post-backup owner/mode guard remains mandatory and fail-closed.
+
 ## Recovery controls
 
 - Every component emits status, timestamps, elapsed time, safe reason, safe
