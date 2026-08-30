@@ -23,6 +23,8 @@ No waitlist, health, legal-page, analytics or security-header failure was found.
 - exclude the Adult Publishing URLs from the disabled/kill-switch sitemap;
 - require a new root-owned live backup while the current S7 service is healthy;
 - allow refresh only from the exact current release and Nginx hash;
+- execute release installation in a subshell so every partial release failure
+  enters the bounded rollback handler;
 - on failure, restore the exact previous release, editable installation and both
   Nginx files before attempting to restore the prior public service.
 

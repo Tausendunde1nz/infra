@@ -135,6 +135,7 @@ class CommercialS7PublicSoftLaunchTests(unittest.TestCase):
         self.assertIn("live_refresh", source)
         self.assertIn("rollback_live_refresh", source)
         self.assertIn("verify-live-existing", source)
+        self.assertIn("if ! (install_release); then", source)
         self.assertIn("git -C \"$APPLICATION_ROOT\" update-ref", source)
         self.assertIn("git -C \"$APPLICATION_ROOT\" restore", source)
         self.assertIn("DISABLED_FOR_NOW", source)
