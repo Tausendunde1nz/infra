@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 0007
 
 readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"

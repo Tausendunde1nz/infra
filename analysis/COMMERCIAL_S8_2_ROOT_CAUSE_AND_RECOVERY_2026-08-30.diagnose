@@ -70,3 +70,12 @@ modes fail closed. No repository content, ref, object, unit, database row,
 credential or S7 state is changed. The already verified pre-S8 backup is the
 rollback anchor; restoring the broader `0644` permission would be a security
 regression and therefore requires a separate documented decision.
+
+The first normalization retry also stopped before unit installation. It proved
+that `git status` can refresh the index through a lock/rename operation after
+the explicit mode correction; the root caller's inherited `0022` umask then
+recreated the index as `0644`. Both S8 control scripts therefore set `umask
+0007` before every delegated Git operation. Git refreshes can now create only
+group-private files, and the explicit owner/type/mode guard still runs before
+backup use. This is a permission-only recovery; the same verified backup and
+rollback boundary remain in force.

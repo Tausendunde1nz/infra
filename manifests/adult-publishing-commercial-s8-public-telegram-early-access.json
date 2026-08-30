@@ -70,8 +70,8 @@
     "status": "S8_2_OFFLINE_RECOVERY_REVIEWED_NOT_DEPLOYED"
   },
   "files": {
-    "backup_script_sha256": "48c36b06fe840583bea6e32aba28de6ddbc56e44b20ab59cf42f4f52a488cdda",
-    "controller_sha256": "fa75101c0d7c661f0a79de05799d33cadbc7dce1859f15a4728453825aed2444",
+    "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
+    "controller_sha256": "2755deeec24c3118e5ed2b201c061ec3206395eb3988abe826c944ff1c34cba7",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "e1b81bff8c27672dc65c8c53681e9bd59906ccaf6ebda603941f68d4fab2312f",
     "health_service_sha256": "75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855",

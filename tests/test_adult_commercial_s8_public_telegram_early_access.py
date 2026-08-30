@@ -246,7 +246,10 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
 
     def test_backup_has_narrow_idempotent_git_index_mode_recovery(self) -> None:
         source = BACKUP.read_text(encoding="utf-8")
+        controller = CONTROLLER.read_text(encoding="utf-8")
         recovery = source.split("normalize_git_index_mode()", 1)[1].split("verify_bundle_isolated()", 1)[0]
+        self.assertIn("umask 0007", source)
+        self.assertIn("umask 0007", controller)
         self.assertIn('600|660) ;;', recovery)
         self.assertIn('644) chmod 0660 "$index" ;;', recovery)
         self.assertIn('GIT_INDEX_MODE_UNEXPECTED', recovery)
