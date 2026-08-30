@@ -127,6 +127,9 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("Persistent=true", timer)
         self.assertNotIn("cron", timer.lower())
         self.assertIn("LoadCredential=s8_telegram_token:", health_unit)
+        self.assertIn('LANDING_URL = "http://127.0.0.1:18096/adult/"', source)
+        self.assertIn('LANDING_HEALTH_URL = "http://127.0.0.1:18096/adult/health"', source)
+        self.assertNotIn("127.0.0.1:8096", source)
 
     def test_controller_is_backup_first_reversible_and_bounded(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")

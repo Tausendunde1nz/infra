@@ -41,8 +41,8 @@ FIELDS = (
     "telegram_safe_status",
 )
 S8_SERVICE = "tu1nz-adult-public-s8-telegram.service"
-LANDING_URL = "http://127.0.0.1:8096/adult/"
-LANDING_HEALTH_URL = "http://127.0.0.1:8096/adult/health"
+LANDING_URL = "http://127.0.0.1:18096/adult/"
+LANDING_HEALTH_URL = "http://127.0.0.1:18096/adult/health"
 LANDING_DEEP_LINK = "https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch"
 MAXIMUM_LANDING_BYTES = 512 * 1024
 

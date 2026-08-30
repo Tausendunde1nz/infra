@@ -107,3 +107,10 @@ disabled. Recovery now admits only that dead/disabled failed state (or ordinary
 inactive/not-found), resets the recorded failure immediately before one
 controlled `start`, and retains all journal evidence. Active, enabled or
 process-bearing units remain fail-closed; no `restart` path is introduced.
+
+The next probe proved all non-Landing S8 components GREEN and isolated a stale
+`8096` constant in the installed health wrapper. The application dependency
+graph itself was contract-correct, but the wrapper overwrote its
+`LANDING_INTEGRATION` evidence with a direct loopback request to the old port.
+The wrapper now shares the versioned `18096` binding, and tests prohibit the
+former Jellyfin port from reappearing in health evidence.
