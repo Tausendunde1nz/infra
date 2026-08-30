@@ -1,11 +1,11 @@
 {
   "application": {
     "branch": "main",
-    "merge_commit": "79a9d88d51ba5747cdfb0b6400a61506d82ccc6b",
+    "merge_commit": "935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4",
     "migration_chain_sha256": "7db9b568bdb3439aa1d0d05990afb6c8230b750d710e9319f20e1a15cddd1a51",
     "repository": "Tausendunde1nz/adult-publishing-core",
     "schema": "0021_commercial_s7_public_soft_launch",
-    "tree": "f3ae60f4c690a3b023db4e5953ca14050a9272b3"
+    "tree": "29679c2029d40eefce7dbd3857c5cf4e1f129013"
   },
   "authorization": {
     "analytics_activation_authorized": true,
@@ -70,8 +70,8 @@
   },
   "files": {
     "active_contract_sha256": "f4e2b473905f6c82afe2ad6473989604e47f26eff70356db74da6fd49af50214",
-    "active_nginx_sha256": "e1a4c514f895d6b137e857adbe4b7811ca8915e389949ea24d14dbf96ccf6974",
-    "disabled_nginx_sha256": "a70f9ce7593a005a7228fae4b907be26da621d6790b3788458250a4a96bf1847",
+    "active_nginx_sha256": "ddf14f890cf9d991b631371102663e8984f9586e3a2ee2afb7dace3b30a27843",
+    "disabled_nginx_sha256": "312cdc7ea9181d79382e95eb6531b1b5e5c5f00131f99a5b84379eb4182b875e",
     "health_script_sha256": "66a895b6b4e3ae662970e561a638431d220aa6f4b94421a7c0082284114ea3a9",
     "migration_0021_sha256": "a71350ae6d9ce544558ced38b0b032b28ac9885d0e3b4b9855e4c2db88d8b021",
     "service_unit_sha256": "ad098f7533716f2e26f9aff500bc82a7b98c939b5b021a442f37d778edc7b692"
