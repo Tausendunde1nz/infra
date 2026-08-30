@@ -29,13 +29,16 @@ require_git_index_safe() {
   esac
 }
 
-verify_bundle_as_chatops() {
-  local repository="$1"
-  local bundle="$2"
-  (
-    exec 3<"$bundle"
-    runuser -u chatops -- git -C "$repository" bundle verify /proc/self/fd/3 >/dev/null
-  )
+verify_bundle_isolated() {
+  local bundle="$1"
+  local verify_root
+  verify_root="$(mktemp -d /run/tu1nz-s8-bundle-verify.XXXXXX)"
+  git init --bare --quiet "$verify_root/repository.git"
+  if ! git -C "$verify_root/repository.git" bundle verify "$bundle" >/dev/null; then
+    find "$verify_root" -depth -delete
+    return 1
+  fi
+  find "$verify_root" -depth -delete
 }
 
 verify_backup() {
@@ -52,8 +55,8 @@ verify_backup() {
   [ ! -s "$path/application-status.txt" ] || fail "APPLICATION_STATUS_NOT_CLEAN"
   [ ! -s "$path/control-status.txt" ] || fail "CONTROL_STATUS_NOT_CLEAN"
   [ -z "$(find "$path" -maxdepth 1 -type f -iname '*token*' -print -quit)" ] || fail "SECRET_MATERIAL_IN_BACKUP"
-  verify_bundle_as_chatops "$APPLICATION_ROOT" "$path/application.bundle"
-  verify_bundle_as_chatops "$CONTROL_ROOT" "$path/control.bundle"
+  verify_bundle_isolated "$path/application.bundle"
+  verify_bundle_isolated "$path/control.bundle"
   pg_restore --list "$path/database-before.dump" >/dev/null
 }
 
@@ -106,8 +109,8 @@ fi
 install -d -o root -g root -m 0700 "${BACKUP_PATH%/*}" "$BACKUP_PATH"
 runuser -u chatops -- git -C "$APPLICATION_ROOT" bundle create - --all >"$BACKUP_PATH/application.bundle"
 runuser -u chatops -- git -C "$CONTROL_ROOT" bundle create - --all >"$BACKUP_PATH/control.bundle"
-git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/application-provenance.txt"
-git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/control-provenance.txt"
+runuser -u chatops -- git -C "$APPLICATION_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/application-provenance.txt"
+runuser -u chatops -- git -C "$CONTROL_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BACKUP_PATH/control-provenance.txt"
 git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" status --porcelain=v1 >"$BACKUP_PATH/application-status.txt"
 git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" status --porcelain=v1 >"$BACKUP_PATH/control-status.txt"
 runuser -u postgres -- pg_dump -Fc "$DATABASE" >"$BACKUP_PATH/database-before.dump"

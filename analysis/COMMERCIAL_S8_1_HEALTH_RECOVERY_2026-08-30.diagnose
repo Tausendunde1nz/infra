@@ -103,6 +103,16 @@ backup directory mode `0700` and bundle mode `0600`, gives no persistent file
 access to another identity, and prevents Git from recreating the working index
 as root. The post-backup owner/mode guard remains mandatory and fail-closed.
 
+The server execution proved that `runuser` closes the inherited descriptor, so
+that design correctly failed closed but could not finish verification. The
+final design never runs root Git inside a working checkout: bundle creation and
+all provenance reads run as `chatops`, while each root-only bundle is verified
+inside a short-lived empty bare repository under `/run`. The isolated repository
+contains no application data beyond transient Git verification metadata and is
+removed immediately after the check. Consequently root Git has no path to a
+working index, while bundles and their enclosing backup directory remain
+root-only throughout.
+
 ## Recovery controls
 
 - Every component emits status, timestamps, elapsed time, safe reason, safe

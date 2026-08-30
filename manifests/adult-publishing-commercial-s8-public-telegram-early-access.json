@@ -69,7 +69,7 @@
     "status": "S8_1_RECOVERY_PREPARED_NOT_DEPLOYED"
   },
   "files": {
-    "backup_script_sha256": "8a3814f45256b68d0f6022495ee803ee93d6d5f83bf5e7b59317235af9895fcb",
+    "backup_script_sha256": "4c495a2739487e8e7fabfb77f1e416059533eaf75e2599ac8a62a4458f07368e",
     "controller_sha256": "d114986bf355ca5cf1b7b273aa1f0d1ae82c5b1e36b0f76b87d16ba7aa9d9998",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "d28c7270757c73017a3015b68fb741b33e8af98ab605dda9a32962613b193f4f",

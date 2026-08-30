@@ -212,12 +212,15 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "GIT_INDEX_OWNERSHIP_DRIFT",
             "GIT_INDEX_MODE_DRIFT",
             "bundle create - --all",
-            "verify_bundle_as_chatops",
-            "bundle verify /proc/self/fd/3",
+            "verify_bundle_isolated",
+            "git init --bare --quiet",
+            "tu1nz-s8-bundle-verify",
         ):
             self.assertIn(expected, source)
         self.assertIn('runuser -u chatops -- git -C "$APPLICATION_ROOT" bundle create - --all', source)
         self.assertIn('runuser -u chatops -- git -C "$CONTROL_ROOT" bundle create - --all', source)
+        self.assertIn('runuser -u chatops -- git -C "$APPLICATION_ROOT" rev-parse', source)
+        self.assertIn('runuser -u chatops -- git -C "$CONTROL_ROOT" rev-parse', source)
         self.assertNotIn("adult-commercial-s8-telegram.token' -print0", source)
         self.assertNotIn("rm -rf", source)
 
