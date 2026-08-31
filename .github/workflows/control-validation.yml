@@ -557,6 +557,8 @@ jobs:
         run: |
           temporary_units="$(mktemp -d)"
           cp systemd/tu1nz-adult-public-s9-* "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s7.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s8-telegram.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"
           cp -R systemd/tu1nz-adult-public-s8-landing.service.d "$temporary_units/"
           sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service
