@@ -560,7 +560,7 @@ jobs:
           cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"
           cp -R systemd/tu1nz-adult-public-s8-landing.service.d "$temporary_units/"
           sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service
-          sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service.d/*.conf
+          sed -i '/^ExecStart=$/! s|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service.d/*.conf
           systemd-analyze verify "$temporary_units"/*.service "$temporary_units"/*.timer
       - name: Reject Commercial S9 secrets cron and forbidden providers
         shell: bash
