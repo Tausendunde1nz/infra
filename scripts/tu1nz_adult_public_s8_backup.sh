@@ -73,6 +73,12 @@ verify_backup() {
   verify_bundle_isolated "$path/application.bundle"
   verify_bundle_isolated "$path/control.bundle"
   pg_restore --list "$path/database-before.dump" >/dev/null
+  pg_restore --schema-only --file=/dev/null "$path/database-before.dump"
+  [ -s "$path/database-schema-before.sql" ] || fail "DATABASE_SCHEMA_EVIDENCE_MISSING"
+  [ -s "$path/database-role-before.txt" ] || fail "DATABASE_ROLE_EVIDENCE_MISSING"
+  [ -s "$path/database-grants-before.txt" ] || fail "DATABASE_GRANTS_EVIDENCE_MISSING"
+  [ -s "$path/database-aggregate-before.txt" ] || fail "DATABASE_AGGREGATE_EVIDENCE_MISSING"
+  [ -s "$path/migration-binding-before.txt" ] || fail "MIGRATION_BINDING_EVIDENCE_MISSING"
 }
 
 [ "$(id -u)" -eq 0 ] || fail "ROOT_REQUIRED"
@@ -134,12 +140,37 @@ runuser -u chatops -- git -C "$CONTROL_ROOT" rev-parse HEAD 'HEAD^{tree}' >"$BAC
 runuser -u chatops -- git -C "$APPLICATION_ROOT" status --porcelain=v1 >"$BACKUP_PATH/application-status.txt"
 runuser -u chatops -- git -C "$CONTROL_ROOT" status --porcelain=v1 >"$BACKUP_PATH/control-status.txt"
 runuser -u postgres -- pg_dump -Fc "$DATABASE" >"$BACKUP_PATH/database-before.dump"
+runuser -u postgres -- pg_dump --schema-only --no-owner --no-privileges "$DATABASE" \
+  >"$BACKUP_PATH/database-schema-before.sql"
+runuser -u postgres -- psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+  --dbname=postgres --command="SELECT datname, pg_get_userbyid(datdba) FROM pg_database WHERE datname='${DATABASE}';" \
+  >"$BACKUP_PATH/database-role-before.txt"
+runuser -u postgres -- psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+  --dbname=postgres --command="SELECT rolname, rolcanlogin::int, rolsuper::int, rolcreatedb::int, rolcreaterole::int FROM pg_roles WHERE rolname IN ('tu1nz_adult_commercial_s3','tu1nz_adult_commercial_s3_runtime') ORDER BY rolname;" \
+  >>"$BACKUP_PATH/database-role-before.txt"
+runuser -u postgres -- psql --no-psqlrc --tuples-only --no-align --field-separator='|' --set=ON_ERROR_STOP=1 \
+  --dbname="$DATABASE" --command="SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants WHERE grantee='tu1nz_adult_commercial_s3_runtime' AND table_name LIKE 'commercial_s8_%' ORDER BY table_name, privilege_type;" \
+  >"$BACKUP_PATH/database-grants-before.txt"
+runuser -u postgres -- psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+  --dbname="$DATABASE" --command="SELECT json_build_object(
+    'users',(SELECT count(*) FROM commercial_s8_users),
+    'waitlisted',(SELECT count(*) FROM commercial_s8_users WHERE waitlist_status='WAITLISTED'),
+    'processed_updates',(SELECT count(*) FROM commercial_s8_processed_updates),
+    'analytics_events',(SELECT count(*) FROM commercial_s8_analytics_events),
+    'broadcasts',(SELECT count(*) FROM commercial_s8_broadcasts),
+    'deliveries',(SELECT count(*) FROM commercial_s8_notification_deliveries)
+  )::text;" >"$BACKUP_PATH/database-aggregate-before.txt"
+sha256sum \
+  "$APPLICATION_ROOT/migrations/0022_commercial_s8_public_telegram_early_access.sql" \
+  "$APPLICATION_ROOT/migrations/0023_commercial_s8_health_recovery.sql" \
+  "$APPLICATION_ROOT/migrations/0024_commercial_s8_runtime_least_privilege.sql" \
+  >"$BACKUP_PATH/migration-binding-before.txt"
 cp --archive /etc/nginx/sites-enabled/tu1nz.conf "$BACKUP_PATH/nginx-enabled-before.conf"
 cp --archive /etc/nginx/sites-available/tu1nz.conf "$BACKUP_PATH/nginx-available-before.conf"
 (
   cd /etc/tu1nz
   find . -maxdepth 1 -type f \
-    \( -name 'adult-commercial-s7-public.json' -o -name 'adult-commercial-s8-public-telegram.json' -o -name 'adult-commercial-s8-copy.json' \) \
+    \( -name 'adult-commercial-s7-public.json' -o -name 'adult-commercial-s8-public-telegram.json' -o -name 'adult-commercial-s8-copy.json' -o -name 'adult-commercial-s8-landing.json' \) \
     -print0 | sort -z | tar --null -T - -cpf "$BACKUP_PATH/public-configuration-before.tar"
 )
 (
@@ -162,6 +193,7 @@ printf '%s\n' \
   "Verify SHA256SUMS before any restore." \
   "Restore Git objects from the bundles to the recorded commits." \
   "Restore the public configuration and units archive without restoring any credential." \
+  "Use database-schema-before.sql, database-role-before.txt, database-grants-before.txt and database-aggregate-before.txt as the non-secret restore comparison." \
   "Restore the database only after a separate destructive rollback decision." \
   >"$BACKUP_PATH/RESTORE.txt"
 find "$BACKUP_PATH" -maxdepth 1 -type f -exec chmod 0600 {} +

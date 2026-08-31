@@ -1,0 +1,49 @@
+COMMERCIAL S8.4 CANONICAL SERVER RE-ACCEPTANCE
+Date: 2026-08-31
+
+Goal
+----
+Bind the server to Application ef19c7b2a6d0b42cfe55e1e090878f72b29c64c2
+(tree 250985b5464943b981a7654c39fa256ac7b695b4), apply migration 0024 exactly
+once, validate the least-privilege contract, and conduct the authorized public
+SFW re-acceptance while S7 remains healthy and available as fallback.
+
+Preflight result
+----------------
+The Tailscale host identity, repository ownership, clean worktrees, S7 internal
+and external health, PostgreSQL, resources, S8 inactive state, nginx, credential
+metadata, and repository mutator boundaries were checked read-only. No unknown
+Application/Control mutator or path collision was found. The server Application
+and Control repositories are behind the authorized canonical targets, as
+expected.
+
+Risk
+----
+Migration 0024 changes durable PostgreSQL triggers and runtime grants. The
+public activation changes only the already-approved S8 nginx target and starts
+the bounded SFW service. S7 stays active. No adult media, AVS, payment, creator
+activation, controlled beta, publishing, or production adult workflow is in
+scope.
+
+Backup and recovery gate
+------------------------
+Before migration 0024, create one fresh root-owned recovery point containing
+verified Application/Control bundles, a custom-format database dump, a
+schema-only dump, aggregate S8 counts, role/grant evidence, S8 configuration,
+units, nginx state, credential metadata only, and SHA-256 verification. The S8
+kill switch is the first rollback action. S8 and its timer are then stopped and
+disabled; S7 remains live. Database restore is reserved for an independently
+verified post-migration data or schema failure and must use the recorded dump.
+
+Fail-closed boundaries
+----------------------
+Migration apply is rejected unless the 0023 state is exact and 0024 is either
+fully absent or fully installed. Partial trigger/grant state is RED. Aggregate
+business counts must be identical before and after apply. The runtime role must
+not retain DELETE or TRUNCATE on notification deliveries and must pass the full
+per-table privilege matrix. Any public hard failure closes S8 and preserves the
+waitlist; no destructive data cleanup is permitted.
+
+Initial status
+--------------
+AUTHORIZED_IN_PROGRESS

@@ -33,10 +33,10 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         application = self.value["application"]
         self.assertRegex(application["commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(application["tree"], r"^[0-9a-f]{40}$")
-        self.assertEqual(application["schema"], "0023_commercial_s8_health_recovery")
+        self.assertEqual(application["schema"], "0024_commercial_s8_runtime_least_privilege")
         self.assertEqual(
             application["migration_chain_sha256"],
-            "b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8",
+            "05b8f011c5767d96e30a05b3087372b16be538ad67441a3fa014926febadf697",
         )
         controller = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn(f'readonly TARGET_SHA="{application["commit"]}"', controller)
@@ -167,6 +167,10 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "require_adult_runtime_closed",
             "require_bot_secret",
             "0022_commercial_s8_public_telegram_early_access.sql",
+            "0024_commercial_s8_runtime_least_privilege.sql",
+            "MIGRATION_0024_PARTIAL_STATE",
+            "MIGRATION_0024_DATA_COUNT_DRIFT",
+            "require_least_privilege_database",
             "systemd-analyze verify",
             "configure_bot",
             "diagnostic_probe",
@@ -260,6 +264,11 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
             "application.bundle",
             "control.bundle",
             "database-before.dump",
+            "database-schema-before.sql",
+            "database-role-before.txt",
+            "database-grants-before.txt",
+            "database-aggregate-before.txt",
+            "migration-binding-before.txt",
             "public-configuration-before.tar",
             "public-units-before.tar",
             "credential-metadata-before.txt",
@@ -305,23 +314,27 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertTrue(switch["blocks_new_broadcasts"])
         self.assertTrue(switch["preserves_existing_waitlist"])
 
-    def test_s8_2_failure_is_historical_and_s8_3_reacceptance_is_explicit(self) -> None:
+    def test_s8_2_failure_is_historical_and_s8_4_reacceptance_is_explicit(self) -> None:
         execution = self.value["execution"]
         self.assertEqual(execution["live_acceptance"], "GREEN_INTERNAL_SFW")
-        self.assertEqual(execution["public_activation"], "ROLLED_BACK_TO_S7_AFTER_S8_2")
+        self.assertEqual(execution["migration_0024"], "PENDING_SERVER_APPLY")
+        self.assertEqual(execution["public_activation"], "S8_4_CANONICAL_REACCEPTANCE_AUTHORIZED")
         self.assertEqual(
             execution["public_observation"],
-            "S8_2_RED_REMEDIATED_AWAITING_S8_3_REACCEPTANCE",
+            "S8_4_PUBLIC_REACCEPTANCE_PENDING",
         )
         self.assertEqual(execution["rollback"], "GREEN_WAITLIST_DATA_PRESERVED")
-        self.assertEqual(execution["s8_3_offline_acceptance"], "GREEN_838_TESTS")
+        self.assertEqual(
+            execution["s8_3_offline_acceptance"],
+            "GREEN_852_TESTS_NORMAL_AND_OPTIMIZED_POSTGRES_17_18",
+        )
         self.assertEqual(
             execution["status"],
-            "S8_3_OFFLINE_GREEN_SERVER_REACCEPTANCE_PENDING",
+            "S8_4_CANONICAL_SERVER_REACCEPTANCE_AUTHORIZED",
         )
         self.assertEqual(
             self.value["decision"],
-            "GO_S8_3_REVERSIBLE_STAGING_REACCEPTANCE",
+            "GO_S8_4_CANONICAL_SERVER_REACCEPTANCE",
         )
         self.assertFalse(self.value["kill_switch"]["public_telegram_early_access_enabled"])
         self.assertTrue(ACCEPTANCE_EVIDENCE.is_file())

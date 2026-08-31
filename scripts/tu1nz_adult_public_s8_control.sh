@@ -14,11 +14,12 @@ readonly HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
 readonly APPLICATION_BRANCH="main"
 readonly SOURCE_SHA="935518614d4e9e6ce302c75bf81d6e5ca2a4f1d4"
 readonly SOURCE_TREE="29679c2029d40eefce7dbd3857c5cf4e1f129013"
-readonly TARGET_SHA="2e8fdfd305ff8237fe78c8da232e63cbf591ec4b"
-readonly TARGET_TREE="67739e865473bc3e5a9e4dfdd18fbd305c5944b7"
-readonly MIGRATION_CHAIN_SHA="b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8"
+readonly TARGET_SHA="ef19c7b2a6d0b42cfe55e1e090878f72b29c64c2"
+readonly TARGET_TREE="250985b5464943b981a7654c39fa256ac7b695b4"
+readonly MIGRATION_CHAIN_SHA="05b8f011c5767d96e30a05b3087372b16be538ad67441a3fa014926febadf697"
 readonly MIGRATION_SHA="5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6"
 readonly RECOVERY_MIGRATION_SHA="feb157b5625113a3c4774b570d8a73265356a87c5fe70d491c36b5b7a25a6691"
+readonly LEAST_PRIVILEGE_MIGRATION_SHA="3152cfff48e48ccead115a8e3e56ef658f9e1d326d466dc7016ee9f89e998ac4"
 readonly S8_CONTRACT_SHA="733a6e1bfae4514fc3f09b6ddc9c0e94406d8160eed8629519155f810a0f8498"
 readonly S8_LANDING_CONTRACT_SHA="ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e"
 readonly COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"
@@ -210,6 +211,7 @@ PY
 require_source_hashes() {
   [ "$(sha256sum "$APPLICATION_ROOT/migrations/0022_commercial_s8_public_telegram_early_access.sql" | awk '{print $1}')" = "$MIGRATION_SHA" ] || fail "MIGRATION_0022_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/migrations/0023_commercial_s8_health_recovery.sql" | awk '{print $1}')" = "$RECOVERY_MIGRATION_SHA" ] || fail "MIGRATION_0023_DRIFT"
+  [ "$(sha256sum "$APPLICATION_ROOT/migrations/0024_commercial_s8_runtime_least_privilege.sql" | awk '{print $1}')" = "$LEAST_PRIVILEGE_MIGRATION_SHA" ] || fail "MIGRATION_0024_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" | awk '{print $1}')" = "$S8_CONTRACT_SHA" ] || fail "S8_CONTRACT_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-landing.sfw.json" | awk '{print $1}')" = "$S8_LANDING_CONTRACT_SHA" ] || fail "S8_LANDING_CONTRACT_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-copy.v1.json" | awk '{print $1}')" = "$COPY_SHA" ] || fail "S8_COPY_DRIFT"
@@ -226,6 +228,88 @@ from tu1nz_commercial_s3.migrations import inspect_migration_chain
 evidence = inspect_migration_chain(Path("$APPLICATION_ROOT/migrations"))
 raise SystemExit(0 if evidence.chain_sha256 == "$MIGRATION_CHAIN_SHA" else 2)
 PY
+}
+
+database_scalar() {
+  runuser -u postgres -- psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --dbname="$DATABASE" --command="$1" | tr -d '[:space:]'
+}
+
+s8_aggregate_fingerprint() {
+  database_scalar "SELECT json_build_object(
+    'users',(SELECT count(*) FROM commercial_s8_users),
+    'waitlisted',(SELECT count(*) FROM commercial_s8_users WHERE waitlist_status='WAITLISTED'),
+    'processed_updates',(SELECT count(*) FROM commercial_s8_processed_updates),
+    'analytics_events',(SELECT count(*) FROM commercial_s8_analytics_events),
+    'broadcasts',(SELECT count(*) FROM commercial_s8_broadcasts),
+    'deliveries',(SELECT count(*) FROM commercial_s8_notification_deliveries)
+  )::text;"
+}
+
+least_privilege_guard_count() {
+  database_scalar "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN (
+    'commercial_s8_users_identity_guard',
+    'commercial_s8_runtime_state_monotonic_guard',
+    'commercial_s8_runtime_control_authority_guard',
+    'commercial_s8_broadcasts_runtime_definition_guard',
+    'commercial_s8_notification_deliveries_identity_guard'
+  );"
+}
+
+require_table_privilege() {
+  local table="$1"
+  local privilege="$2"
+  local expected="$3"
+  local actual
+  actual="$(database_scalar "SELECT has_table_privilege('tu1nz_adult_commercial_s3_runtime','${table}','${privilege}')::int;")"
+  [ "$actual" = "$expected" ] || fail "RUNTIME_PRIVILEGE_${table}_${privilege}_DRIFT"
+}
+
+require_least_privilege_database() {
+  [ "$(least_privilege_guard_count)" = "5" ] || fail "MIGRATION_0024_GUARDS_INCOMPLETE"
+  require_table_privilege commercial_s8_users SELECT 1
+  require_table_privilege commercial_s8_users INSERT 1
+  require_table_privilege commercial_s8_users UPDATE 1
+  require_table_privilege commercial_s8_users DELETE 1
+  require_table_privilege commercial_s8_rate_limits SELECT 1
+  require_table_privilege commercial_s8_rate_limits INSERT 1
+  require_table_privilege commercial_s8_rate_limits UPDATE 1
+  require_table_privilege commercial_s8_rate_limits DELETE 1
+  require_table_privilege commercial_s8_processed_updates SELECT 1
+  require_table_privilege commercial_s8_processed_updates INSERT 1
+  require_table_privilege commercial_s8_processed_updates UPDATE 0
+  require_table_privilege commercial_s8_processed_updates DELETE 0
+  require_table_privilege commercial_s8_processed_updates TRUNCATE 0
+  require_table_privilege commercial_s8_analytics_events SELECT 1
+  require_table_privilege commercial_s8_analytics_events INSERT 1
+  require_table_privilege commercial_s8_analytics_events UPDATE 0
+  require_table_privilege commercial_s8_analytics_events DELETE 0
+  require_table_privilege commercial_s8_analytics_events TRUNCATE 0
+  require_table_privilege commercial_s8_runtime_control SELECT 1
+  require_table_privilege commercial_s8_runtime_control INSERT 0
+  require_table_privilege commercial_s8_runtime_control UPDATE 1
+  require_table_privilege commercial_s8_runtime_control DELETE 0
+  require_table_privilege commercial_s8_runtime_control TRUNCATE 0
+  require_table_privilege commercial_s8_runtime_state SELECT 1
+  require_table_privilege commercial_s8_runtime_state INSERT 0
+  require_table_privilege commercial_s8_runtime_state UPDATE 1
+  require_table_privilege commercial_s8_runtime_state DELETE 0
+  require_table_privilege commercial_s8_runtime_state TRUNCATE 0
+  require_table_privilege commercial_s8_notification_templates SELECT 1
+  require_table_privilege commercial_s8_notification_templates INSERT 0
+  require_table_privilege commercial_s8_notification_templates UPDATE 0
+  require_table_privilege commercial_s8_notification_templates DELETE 0
+  require_table_privilege commercial_s8_notification_templates TRUNCATE 0
+  require_table_privilege commercial_s8_broadcasts SELECT 1
+  require_table_privilege commercial_s8_broadcasts INSERT 0
+  require_table_privilege commercial_s8_broadcasts UPDATE 1
+  require_table_privilege commercial_s8_broadcasts DELETE 0
+  require_table_privilege commercial_s8_broadcasts TRUNCATE 0
+  require_table_privilege commercial_s8_notification_deliveries SELECT 1
+  require_table_privilege commercial_s8_notification_deliveries INSERT 1
+  require_table_privilege commercial_s8_notification_deliveries UPDATE 1
+  require_table_privilege commercial_s8_notification_deliveries DELETE 0
+  require_table_privilege commercial_s8_notification_deliveries TRUNCATE 0
 }
 
 s8_table_count() {
@@ -284,7 +368,7 @@ install_release() {
 }
 
 install_database() {
-  local count
+  local count before after guards delete_privilege
   count="$(s8_table_count)"
   if [ "$count" = "0" ]; then
     runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
@@ -296,6 +380,18 @@ install_database() {
     runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
       <"$APPLICATION_ROOT/migrations/0023_commercial_s8_health_recovery.sql" >/dev/null
   fi
+  before="$(s8_aggregate_fingerprint)"
+  guards="$(least_privilege_guard_count)"
+  delete_privilege="$(database_scalar "SELECT has_table_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s8_notification_deliveries','DELETE')::int;")"
+  if [ "$guards" = "0" ] && [ "$delete_privilege" = "1" ]; then
+    runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+      <"$APPLICATION_ROOT/migrations/0024_commercial_s8_runtime_least_privilege.sql" >/dev/null
+  elif [ "$guards" != "5" ] || [ "$delete_privilege" != "0" ]; then
+    fail "MIGRATION_0024_PARTIAL_STATE"
+  fi
+  require_least_privilege_database
+  after="$(s8_aggregate_fingerprint)"
+  [ "$after" = "$before" ] || fail "MIGRATION_0024_DATA_COUNT_DRIFT"
 }
 
 install_files() {
@@ -461,6 +557,7 @@ verify() {
   [ "$(git_value "$APPLICATION_ROOT" 'HEAD^{tree}')" = "$TARGET_TREE" ] || fail "APPLICATION_TREE_MISMATCH"
   require_source_hashes
   [ "$(s8_table_count)" = "9" ] || fail "MIGRATION_0022_NOT_INSTALLED"
+  require_least_privilege_database
   [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_SERVICE_NOT_ACTIVE"
   [ "$(systemctl show "$S8_SERVICE" -p MainPID --value)" != "0" ] || fail "S8_PROCESS_MISSING"
   [ "$(systemctl show "$LANDING_SERVICE" -p ActiveState --value)" = "active" ] || fail "S8_LANDING_NOT_ACTIVE"
@@ -478,6 +575,7 @@ kill_switch() {
   require_control "$1" "$2"
   require_backup "$3"
   [ "$(s8_table_count)" = "9" ] || fail "MIGRATION_0022_NOT_INSTALLED"
+  require_least_privilege_database
   set_runtime_control false S8_PUBLIC_EARLY_ACCESS_PAUSED
   printf '{"ok":true,"safe_code":"S8_PUBLIC_TELEGRAM_KILL_SWITCH_CLOSED","data_preserved":true}\n'
 }
