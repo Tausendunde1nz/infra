@@ -81,6 +81,8 @@ class CommercialS9ControlTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         for expected in (
             "require_backup",
+            "normalize_s9_control_index_mode",
+            "CONTROL_INDEX_MODE_UNEXPECTED",
             "require_adult_runtime_closed",
             "require_s8_green",
             "0025_commercial_s9_automated_growth.sql",
@@ -101,6 +103,10 @@ class CommercialS9ControlTests(unittest.TestCase):
         self.assertNotIn("api.x.com", source)
         self.assertNotIn("reddit.com", source)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
+
+        normalization = source.split("normalize_s9_control_index_mode()", 1)[1].split("require_application_clean()", 1)[0]
+        self.assertIn('640) chmod 0660 "$index" ;;', normalization)
+        self.assertNotIn("644)", normalization)
 
     def test_credentials_are_only_systemd_credentials(self) -> None:
         controller = CONTROLLER.read_text(encoding="utf-8")

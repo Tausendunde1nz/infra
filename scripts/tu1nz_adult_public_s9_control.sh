@@ -55,6 +55,18 @@ require_control() {
   [ "$(git_value "$CONTROL_ROOT" 'HEAD^{tree}')" = "$expected_tree" ] || fail "CONTROL_TREE_MISMATCH"
 }
 
+normalize_s9_control_index_mode() {
+  local index="$CONTROL_ROOT/.git/index"
+  [ -f "$index" ] && [ ! -L "$index" ] || fail "CONTROL_INDEX_UNSAFE_TYPE"
+  [ "$(stat -c '%U:%G' "$index")" = "chatops:chatops" ] || fail "CONTROL_INDEX_OWNER_DRIFT"
+  case "$(stat -c '%a' "$index")" in
+    660) ;;
+    640) chmod 0660 "$index" ;;
+    *) fail "CONTROL_INDEX_MODE_UNEXPECTED" ;;
+  esac
+  [ "$(stat -c '%a' "$index")" = "660" ] || fail "CONTROL_INDEX_MODE_DRIFT"
+}
+
 require_application_clean() {
   [ -d "$APPLICATION_ROOT/.git" ] && [ ! -L "$APPLICATION_ROOT" ] || fail "APPLICATION_PATH_UNSAFE"
   [ -z "$(runuser -u chatops -- git -C "$APPLICATION_ROOT" status --porcelain=v1)" ] || fail "APPLICATION_DIRTY"
@@ -260,6 +272,7 @@ deploy() {
   local control_tree="$2"
   local backup_path="$3"
   preflight "$control_sha" "$control_tree" >/dev/null
+  normalize_s9_control_index_mode
   require_backup "$backup_path"
   disable_s9
   systemctl disable --now "$S8_HEALTH_TIMER" >/dev/null
