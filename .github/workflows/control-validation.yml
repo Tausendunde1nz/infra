@@ -577,3 +577,20 @@ jobs:
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
           ! grep -nE 'systemctl[[:space:]]+restart' scripts/tu1nz_adult_public_s9_control.sh
+      - name: Validate Commercial S10 exposure repositioning Control SSOT
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s10-exposure-repositioning.json >/dev/null
+          && python3 -m py_compile
+          tests/test_adult_commercial_s10_exposure_repositioning.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s10_exposure_repositioning
+      - name: Reject Commercial S10 secrets and executable server capabilities
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s10-exposure-repositioning.json
+            docs/COMMERCIAL_S10_EXPOSURE_REPOSITIONING_CONTROL.md
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nEi '(systemctl|daemon-reload|(^|[^[:alnum:]_])ssh([^[:alnum:]_]|$)|git[[:space:]]+(fetch|pull|checkout|reset|clean)|https?://api\.|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN|(^|[[:space:]])crontab([[:space:]]|$))' -- "${files[@]}"

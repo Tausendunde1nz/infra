@@ -1,0 +1,29 @@
+# Commercial S10 – inherited S8 backup hash drift
+
+## Symptom
+
+The full Control regression suite failed in
+`test_all_installed_material_is_hash_bound`: the canonical
+`tu1nz_adult_public_s8_backup.sh` SHA-256 was
+`d2d38842bfbeab29d4d1a56bfd34b90fbda271925e259ad38fb09788225f8bc5`,
+while the S8 manifest still expected
+`7fdc50abdc25214f606712723538d1126d587f89de46f0df3b089c29f8d2d795`.
+
+## Cause
+
+Canonical Control commit `d63fd6b532a9b5a190d308505b04b843f8fab3e5`
+extended the shared S8 backup script so the later S9 configuration, migration,
+units and timers are included in the recovery surface. The historical S8 file
+binding was not refreshed in that commit. The script bytes in the working tree
+and `origin/control-main` are identical, proving this is inherited manifest
+drift rather than an uncommitted local modification.
+
+## Resolution and risk
+
+Only `files.backup_script_sha256` in the S8 manifest is updated to the SHA-256
+of the already canonical shared backup script. No script, unit, runtime,
+credential, server or product boundary changes. This restores fail-closed
+hash verification without changing the S8 or S9 operational surface.
+
+Rollback is the normal Git revert of this manifest-only correction. A server
+rollback is neither required nor authorized.

@@ -127,6 +127,7 @@
 !manifests/adult-publishing-commercial-s5-s6-offline-staging.json
 !manifests/adult-publishing-commercial-s8-public-telegram-early-access.json
 !manifests/adult-publishing-commercial-s9-automated-growth.json
+!manifests/adult-publishing-commercial-s10-exposure-repositioning.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -174,6 +175,7 @@
 !tests/test_adult_commercial_s5_s6_offline_staging.py
 !tests/test_adult_commercial_s8_public_telegram_early_access.py
 !tests/test_adult_commercial_s9_automated_growth.py
+!tests/test_adult_commercial_s10_exposure_repositioning.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -261,3 +263,4 @@
 !analysis/COMMERCIAL_S9_CREDENTIAL_BASELINE_DRIFT_2026-08-31.diagnose
 !analysis/COMMERCIAL_S9_GIT_INDEX_MODE_2026-08-31.diagnose
 !analysis/COMMERCIAL_S9_GUIDE_HEALTH_MARKER_2026-08-31.diagnose
+!analysis/COMMERCIAL_S10_S8_BACKUP_HASH_DRIFT_2026-08-31.diagnose
