@@ -228,6 +228,12 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("server 127.0.0.1:8095 backup", proxy)
         self.assertIn("proxy_pass http://tu1nz_adult_public", proxy)
 
+    def test_public_activation_accepts_only_known_s7_or_s8_proxy_baselines(self) -> None:
+        source = PROXY_ACTIVATION.read_text(encoding="utf-8")
+        baseline = source.split('current_proxy_sha=', 1)[1].split('nginx -t', 1)[0]
+        self.assertIn('"$OLD_PROXY_SHA"|"$NEW_PROXY_SHA"', baseline)
+        self.assertIn('fail "CURRENT_PROXY_DRIFT"', baseline)
+
     def test_s7_start_limit_recovery_is_exact_backup_bound_and_single_start(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")
         recovery = source.split("recover_s7_start_limit()", 1)[1].split('case "${1:-}"', 1)[0]
