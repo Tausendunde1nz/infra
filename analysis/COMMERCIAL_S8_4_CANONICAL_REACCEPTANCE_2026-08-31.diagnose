@@ -63,3 +63,24 @@ attempt. The activation helper previously accepted only the exact S7 proxy
 hash. It now accepts either of those two known hashes and continues to reject
 every unknown proxy state. The active file and candidate were byte-identical;
 the gate was closed and no nginx or public-state mutation occurred.
+
+Final result
+------------
+Migration 0024 was applied exactly once and the least-privilege matrix passed.
+The canonical internal SFW acceptance passed, including language selection,
+waitlist lifecycle, opt-in notification controls, kill-switch behavior and a
+harmless synthetic media rejection without download or Adult-workflow ingress.
+The public SFW landing page, deep link, Telegram waitlist and health endpoints
+were activated with S7 continuously available as fallback.
+
+The privacy-safe public observer completed 7,200 seconds with 25 samples. All
+samples ended GREEN; there were no RED or health-YELLOW samples, no service
+restart or PID changes, and no unexpected network class. Two bounded Telegram
+transport-YELLOW transitions recovered automatically; the maximum failure
+count observed was one against a budget of eight. Adult media, AVS, identity
+data, payment, creator activation, controlled beta, publishing and production
+remain disabled.
+
+Final status
+------------
+GO_S8_4_PUBLIC_SFW_WAITLIST

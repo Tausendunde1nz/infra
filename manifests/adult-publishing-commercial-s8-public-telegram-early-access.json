@@ -62,16 +62,16 @@
     ],
     "maximum_automated_state": "WAITLISTED"
   },
-  "decision": "GO_S8_4_CANONICAL_SERVER_REACCEPTANCE",
+  "decision": "GO_S8_4_PUBLIC_SFW_WAITLIST",
   "execution": {
-    "live_acceptance": "GREEN_INTERNAL_SFW",
+    "live_acceptance": "GREEN_INTERNAL_SFW_CANONICAL",
     "observation_hours_required": 2,
-    "migration_0024": "PENDING_SERVER_APPLY",
-    "public_activation": "S8_4_CANONICAL_REACCEPTANCE_AUTHORIZED",
-    "public_observation": "S8_4_PUBLIC_REACCEPTANCE_PENDING",
+    "migration_0024": "APPLIED_ONCE_AND_VERIFIED",
+    "public_activation": "GREEN_PUBLIC_SFW_WAITLIST",
+    "public_observation": "GREEN_7200_SECONDS_25_SAMPLES",
     "rollback": "GREEN_WAITLIST_DATA_PRESERVED",
     "s8_3_offline_acceptance": "GREEN_852_TESTS_NORMAL_AND_OPTIMIZED_POSTGRES_17_18",
-    "status": "S8_4_CANONICAL_SERVER_REACCEPTANCE_AUTHORIZED"
+    "status": "S8_4_PUBLIC_REACCEPTANCE_GREEN"
   },
   "files": {
     "backup_script_sha256": "7fdc50abdc25214f606712723538d1126d587f89de46f0df3b089c29f8d2d795",
@@ -94,31 +94,31 @@
     "service_unit_sha256": "b7aaa5049b73343111c9d7371b6500446d4e333a9dda98f35ebc3233f0b13313"
   },
   "health": {
-    "ANALYTICS": "GREEN_STAGING",
+    "ANALYTICS": "GREEN_PUBLIC_SFW",
     "AVS": "DISABLED_EXPECTED",
-    "BOT_PROCESS": "GREEN_STAGING",
-    "LANDING_INTEGRATION": "GREEN_LOOPBACK_STAGING",
-    "LOCAL_CONFIG_HEALTH": "GREEN_STAGING",
-    "DATABASE": "GREEN_STAGING",
-    "KILL_SWITCH": "GREEN_CLOSED_AFTER_ACCEPTANCE",
-    "NOTIFIER": "GREEN_STAGING",
+    "BOT_PROCESS": "GREEN_PUBLIC_SFW",
+    "LANDING_INTEGRATION": "GREEN_PUBLIC_SFW",
+    "LOCAL_CONFIG_HEALTH": "GREEN_CANONICAL",
+    "DATABASE": "GREEN_LEAST_PRIVILEGE",
+    "KILL_SWITCH": "GREEN_PUBLIC_WAITLIST_ONLY",
+    "NOTIFIER": "GREEN_PUBLIC_OPT_IN",
     "PAYMENT": "DISABLED_EXPECTED",
-    "POLLING": "GREEN_STAGING",
+    "POLLING": "GREEN_PUBLIC_SFW",
     "PRODUCT_BOUNDARY": "GREEN_FAIL_CLOSED",
-    "QUEUE": "GREEN_STAGING",
-    "REMOTE_TELEGRAM_AVAILABILITY": "GREEN_STAGING",
-    "TELEGRAM_AUTH": "GREEN_STAGING",
-    "TELEGRAM_TRANSPORT": "GREEN_OFFLINE_ACCEPTANCE_SERVER_PENDING",
+    "QUEUE": "GREEN_PUBLIC_BOUNDED",
+    "REMOTE_TELEGRAM_AVAILABILITY": "GREEN_PUBLIC_SFW",
+    "TELEGRAM_AUTH": "GREEN_PUBLIC_SFW",
+    "TELEGRAM_TRANSPORT": "GREEN_PUBLIC_RESILIENT",
     "YOTI": "DISABLED_EXPECTED",
     "SEGPAY": "DISABLED_EXPECTED",
     "ADULT_PUBLISHING": "DISABLED_EXPECTED",
-    "WAITLIST": "GREEN_STAGING"
+    "WAITLIST": "GREEN_PUBLIC_SFW"
   },
   "kill_switch": {
     "database_backed": true,
     "deployment_required": false,
     "preserves_existing_waitlist": true,
-    "public_telegram_early_access_enabled": false,
+    "public_telegram_early_access_enabled": true,
     "blocks_new_broadcasts": true,
     "blocks_new_waitlist_joins": true
   },
@@ -145,6 +145,24 @@
     "provider_neutral_queue": true,
     "retry_after_bounded": true,
     "versioned_approved_copy_only": true
+  },
+  "observation": {
+    "completed_at": "2026-08-31T06:38:01Z",
+    "duration_seconds": 7200,
+    "evidence_directory": "/opt/tu1nz_repos/backups/commercial-s8-public-observation-20260831T043801Z",
+    "final_health_state": "GREEN",
+    "health_red_samples": 0,
+    "health_yellow_samples": 0,
+    "journal_transport_red_count": 0,
+    "observations_sha256": "7e774a2ec6b633c4502e406d5d502083a738bfc4014dfe0b7533dc35049af640",
+    "result_sha256": "98e64d9d734f7f59971135918d297e838b26f30d1da3b77121d4331097419899",
+    "sample_count": 25,
+    "service_restarts_maximum": 0,
+    "started_at": "2026-08-31T04:38:01Z",
+    "summary_sha256": "fed4be647f595a7ff38edf7e31e4427d1de545be719d4f325dd5bc840226561f",
+    "transport_failures_in_window_maximum_observed": 1,
+    "transport_recovered_count": 2,
+    "transport_yellow_transitions": 2
   },
   "resilience": {
     "ambient_transport_proxy_allowed": false,

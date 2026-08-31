@@ -111,6 +111,22 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertTrue(notifications["retry_after_bounded"])
         self.assertLessEqual(notifications["maximum_attempts"], 5)
 
+    def test_s84_public_observation_is_exactly_bound_and_green(self) -> None:
+        self.assertEqual(self.value["decision"], "GO_S8_4_PUBLIC_SFW_WAITLIST")
+        self.assertEqual(self.value["execution"]["migration_0024"], "APPLIED_ONCE_AND_VERIFIED")
+        self.assertEqual(self.value["execution"]["status"], "S8_4_PUBLIC_REACCEPTANCE_GREEN")
+        observation = self.value["observation"]
+        self.assertEqual(observation["duration_seconds"], 7200)
+        self.assertEqual(observation["sample_count"], 25)
+        self.assertEqual(observation["final_health_state"], "GREEN")
+        self.assertEqual(observation["health_red_samples"], 0)
+        self.assertEqual(observation["health_yellow_samples"], 0)
+        self.assertEqual(observation["journal_transport_red_count"], 0)
+        self.assertEqual(observation["service_restarts_maximum"], 0)
+        self.assertRegex(observation["result_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(observation["summary_sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(observation["observations_sha256"], r"^[0-9a-f]{64}$")
+
     def test_all_installed_material_is_hash_bound(self) -> None:
         expected = {
             CONTROLLER: self.value["files"]["controller_sha256"],
@@ -323,14 +339,14 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertTrue(switch["blocks_new_broadcasts"])
         self.assertTrue(switch["preserves_existing_waitlist"])
 
-    def test_s8_2_failure_is_historical_and_s8_4_reacceptance_is_explicit(self) -> None:
+    def test_s8_2_failure_is_historical_and_s8_4_reacceptance_is_green(self) -> None:
         execution = self.value["execution"]
-        self.assertEqual(execution["live_acceptance"], "GREEN_INTERNAL_SFW")
-        self.assertEqual(execution["migration_0024"], "PENDING_SERVER_APPLY")
-        self.assertEqual(execution["public_activation"], "S8_4_CANONICAL_REACCEPTANCE_AUTHORIZED")
+        self.assertEqual(execution["live_acceptance"], "GREEN_INTERNAL_SFW_CANONICAL")
+        self.assertEqual(execution["migration_0024"], "APPLIED_ONCE_AND_VERIFIED")
+        self.assertEqual(execution["public_activation"], "GREEN_PUBLIC_SFW_WAITLIST")
         self.assertEqual(
             execution["public_observation"],
-            "S8_4_PUBLIC_REACCEPTANCE_PENDING",
+            "GREEN_7200_SECONDS_25_SAMPLES",
         )
         self.assertEqual(execution["rollback"], "GREEN_WAITLIST_DATA_PRESERVED")
         self.assertEqual(
@@ -339,13 +355,13 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         )
         self.assertEqual(
             execution["status"],
-            "S8_4_CANONICAL_SERVER_REACCEPTANCE_AUTHORIZED",
+            "S8_4_PUBLIC_REACCEPTANCE_GREEN",
         )
         self.assertEqual(
             self.value["decision"],
-            "GO_S8_4_CANONICAL_SERVER_REACCEPTANCE",
+            "GO_S8_4_PUBLIC_SFW_WAITLIST",
         )
-        self.assertFalse(self.value["kill_switch"]["public_telegram_early_access_enabled"])
+        self.assertTrue(self.value["kill_switch"]["public_telegram_early_access_enabled"])
         self.assertTrue(ACCEPTANCE_EVIDENCE.is_file())
         evidence = ACCEPTANCE_EVIDENCE.read_text(encoding="utf-8")
         # The acceptance report is immutable historical evidence from before activation.
