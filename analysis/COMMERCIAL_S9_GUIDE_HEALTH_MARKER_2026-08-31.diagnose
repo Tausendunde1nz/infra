@@ -1,0 +1,24 @@
+# Commercial S9 guide-health marker diagnosis
+
+## Observed
+
+The bounded S9 deployment reached the new health service, which returned
+`S9_GUIDE_PAGE_RED`. The controller then disabled S9 and restored S8 green.
+
+## Root cause
+
+The rendered English guide contains the versioned marker
+`SFW CREATOR GUIDE`, while the Control health probe compared it with the
+different mixed-case byte sequence `SFW creator guide`. The German marker was
+already exact.
+
+## Resolution
+
+Bind the health probe to the two exact versioned English and German markers.
+No page content, product behavior, network boundary or disabled capability is
+changed.
+
+## Rollback
+
+Revert this correction commit. The failed deployment already restored the
+exact S8 application release and green public runtime.

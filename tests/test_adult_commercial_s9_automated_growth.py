@@ -69,6 +69,8 @@ class CommercialS9ControlTests(unittest.TestCase):
             "controlled_beta",
             "sitemap_urls",
             "telegram_redirect",
+            'b"SFW CREATOR GUIDE"',
+            'b"SFW-CREATOR-GUIDE"',
         ):
             self.assertIn(expected, source)
         self.assertNotIn("telegram_user_id", source)
