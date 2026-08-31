@@ -56,3 +56,10 @@ before the helper ran. The helper is now bound to the S8.4 canonical
 Application commit/tree recorded above, and the release-binding test covers
 both the controller and public activation helper. No public or nginx mutation
 occurred before this correction.
+
+The subsequent public preflight also found the active proxy already matched
+the exact versioned S8 candidate hash from the earlier reversible staging
+attempt. The activation helper previously accepted only the exact S7 proxy
+hash. It now accepts either of those two known hashes and continues to reject
+every unknown proxy state. The active file and candidate were byte-identical;
+the gate was closed and no nginx or public-state mutation occurred.

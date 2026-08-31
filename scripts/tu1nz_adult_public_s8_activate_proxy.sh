@@ -98,8 +98,11 @@ require_service_green "$LANDING_SERVICE" || fail "S8_LANDING_RED"
   || fail "ADULT_S0_ACTIVE"
 [ "$(systemctl show tu1nz-adult-commercial-s3.service -p ActiveState --value)" = "inactive" ] \
   || fail "ADULT_S3_ACTIVE"
-[ "$(sha256sum "$ACTIVE_PROXY" | awk '{print $1}')" = "$OLD_PROXY_SHA" ] \
-  || fail "CURRENT_PROXY_DRIFT"
+current_proxy_sha="$(sha256sum "$ACTIVE_PROXY" | awk '{print $1}')"
+case "$current_proxy_sha" in
+  "$OLD_PROXY_SHA"|"$NEW_PROXY_SHA") ;;
+  *) fail "CURRENT_PROXY_DRIFT" ;;
+esac
 [ "$(sha256sum "$CANDIDATE_PROXY" | awk '{print $1}')" = "$NEW_PROXY_SHA" ] \
   || fail "CANDIDATE_PROXY_DRIFT"
 [ "$(runuser -u postgres -- psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
