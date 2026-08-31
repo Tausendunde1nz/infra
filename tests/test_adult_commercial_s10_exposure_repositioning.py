@@ -20,17 +20,18 @@ class CommercialS10ExposureControlTests(unittest.TestCase):
         self.assertFalse(self.value["active"])
         self.assertEqual(
             self.value["application"]["commit"],
-            "cc004c27ce52f4c5df8989ec8c166f6247117aa8",
+            "cacf431f74fb2eccfe22236e8f8bd01614392301",
         )
         self.assertEqual(
             self.value["application"]["tree"],
-            "7f911127765a167e750d862500ccc1c49587594b",
+            "7dd93a783028a2192e1cc868a5a1b5d0ccc74755",
         )
         self.assertEqual(
             self.value["control"]["expected_base_commit"],
-            "352b97c04b1841f17e21c246c1747fc3668bcfc1",
+            "70ef02af969406d61511a13d5c2b93a62ddb81d7",
         )
-        self.assertTrue(self.value["control"]["post_merge_binding_required"])
+        self.assertEqual(self.value["control"]["application_post_merge_binding"], "BOUND")
+        self.assertFalse(self.value["control"]["post_merge_binding_required"])
 
     def test_brand_is_provisional_and_all_external_actions_are_closed(self) -> None:
         brand = self.value["brand"]
@@ -52,10 +53,21 @@ class CommercialS10ExposureControlTests(unittest.TestCase):
             "LEGAL_TRADEMARK_CLEARANCE_REQUIRED",
             "DOMAIN_OWNERSHIP_REQUIRED",
             "SOCIAL_HANDLE_OWNERSHIP_REQUIRED",
-            "POST_MERGE_CONTROL_BINDING_REQUIRED",
             "SEPARATE_PUBLIC_ACTIVATION_AUTHORIZATION_REQUIRED",
         }
         self.assertTrue(required.issubset(self.value["blockers"]))
+
+    def test_privacy_review_is_bound_without_opening_real_destinations(self) -> None:
+        review = self.value["privacy_review"]
+        self.assertEqual(review["status"], "COMPLETE_OFFLINE")
+        self.assertEqual(review["findings_corrected"], 3)
+        self.assertTrue(review["analytics_dimensions_allowlisted"])
+        self.assertTrue(review["identifier_like_dimensions_blocked"])
+        self.assertTrue(review["consent_types_exact"])
+        self.assertTrue(review["synthetic_destination_only"])
+        self.assertTrue(review["persona_inputs_validated"])
+        self.assertFalse(review["sensitive_profile_storage"])
+        self.assertFalse(review["real_destinations_authorized"])
 
     def test_evidence_is_offline_only_and_preserves_current_surface(self) -> None:
         self.assertTrue(self.value["public_surface"]["current_s7_s8_s9_surface_preserved"])
@@ -68,7 +80,7 @@ class CommercialS10ExposureControlTests(unittest.TestCase):
 
     def test_source_hashes_are_complete_and_token_free(self) -> None:
         hashes = self.value["source_sha256"]
-        self.assertEqual(len(hashes), 6)
+        self.assertEqual(len(hashes), 12)
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes.values()))
         combined = MANIFEST.read_text(encoding="utf-8") + CONTROL_DOC.read_text(encoding="utf-8")
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", combined))

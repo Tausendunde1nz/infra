@@ -1,19 +1,21 @@
 {
-  "version": "tu1nz-commercial-s10-exposure-control-v1",
+  "version": "tu1nz-commercial-s10-exposure-control-v2",
   "decision": "NO_GO_PUBLIC_BRAND_ACTIVATION",
   "active": false,
-  "prepared_at": "2026-08-31T22:00:00+02:00",
+  "prepared_at": "2026-08-31T22:45:00+02:00",
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
     "branch": "main",
-    "commit": "cc004c27ce52f4c5df8989ec8c166f6247117aa8",
-    "tree": "7f911127765a167e750d862500ccc1c49587594b"
+    "commit": "cacf431f74fb2eccfe22236e8f8bd01614392301",
+    "tree": "7dd93a783028a2192e1cc868a5a1b5d0ccc74755"
   },
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "352b97c04b1841f17e21c246c1747fc3668bcfc1",
-    "post_merge_binding_required": true
+    "expected_base_commit": "70ef02af969406d61511a13d5c2b93a62ddb81d7",
+    "previous_control_merge": "70ef02af969406d61511a13d5c2b93a62ddb81d7",
+    "application_post_merge_binding": "BOUND",
+    "post_merge_binding_required": false
   },
   "brand": {
     "internal_product_name": "TU1NZ Adult Publishing",
@@ -61,6 +63,17 @@
     "consent_preview_contract": true,
     "payment_boundary_contract": true
   },
+  "privacy_review": {
+    "status": "COMPLETE_OFFLINE",
+    "findings_corrected": 3,
+    "analytics_dimensions_allowlisted": true,
+    "identifier_like_dimensions_blocked": true,
+    "consent_types_exact": true,
+    "synthetic_destination_only": true,
+    "persona_inputs_validated": true,
+    "sensitive_profile_storage": false,
+    "real_destinations_authorized": false
+  },
   "authorization": {
     "server_contact_approved": false,
     "server_sync_approved": false,
@@ -98,7 +111,6 @@
     "SOCIAL_HANDLE_OWNERSHIP_REQUIRED",
     "PUBLIC_CHANNEL_RENAME_PLAN_APPROVAL_REQUIRED",
     "IMPRINT_AND_PRIVACY_COPY_APPROVAL_REQUIRED",
-    "POST_MERGE_CONTROL_BINDING_REQUIRED",
     "SEPARATE_PUBLIC_ACTIVATION_AUTHORIZATION_REQUIRED"
   ],
   "source_sha256": {
@@ -107,7 +119,13 @@
     "brand_research": "97e94744c4db8ae190b5554c464b83ff226bfe48582c774d487c64fe28bdd0f9",
     "repositioning_document": "bc3b6c3f20b3a63bb8598943d9f5e527c797ff828ac23ca099ed798c52ff21e0",
     "legal_privacy_document": "5676d3a06191fa548b45aa0a05669862194505b48e368b43a1eba5f7fc7b6f7b",
-    "morning_checklist": "055e50401bd41684653d291cfc00284132a78ae719c8ee69d6795eebfa226ade"
+    "morning_checklist": "055e50401bd41684653d291cfc00284132a78ae719c8ee69d6795eebfa226ade",
+    "privacy_review": "a6fe6539c6c4e98a0be7a00fb5fddaff9e736c49b5c32888aaf767b5c3396c86",
+    "analytics_module": "9d60a203ee1df590f034233ea68f7e6ff49736f859bc168d197ccbde01b2a82d",
+    "contract_module": "0abc15a63f3ad561858b51ed79f79b90e6eaf380f26385a30bae6fc35992d5ab",
+    "experience_module": "e9363ce63b3c6b2c36ef756ed9603ee5249b6deb47047e2a8a30fbfceede49bf",
+    "modes_module": "d7db625653ae15757cc01d359990fdb9ff566125a9dc90663b095f94710e6727",
+    "persona_module": "3ef2799685b6c1fcd5e4153eb7697eba2e4e2ecec7d433be3850d5a412c8c922"
   },
   "rollback": {
     "server_delta_exists": false,

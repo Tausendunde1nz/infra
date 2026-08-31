@@ -20,12 +20,18 @@ The reviewed application state is:
 
 - repository: `Tausendunde1nz/adult-publishing-core`
 - branch: `main`
-- commit: `cc004c27ce52f4c5df8989ec8c166f6247117aa8`
-- tree: `7f911127765a167e750d862500ccc1c49587594b`
+- commit: `cacf431f74fb2eccfe22236e8f8bd01614392301`
+- tree: `7dd93a783028a2192e1cc868a5a1b5d0ccc74755`
 
 The source contract, central public-copy SSOT, brand research and three review
 documents are bound by SHA-256 in the Control manifest. Any application or
 hash drift invalidates this evidence.
+
+This v2 record is the separate post-merge binding required by v1. It is based
+on Control merge `70ef02af969406d61511a13d5c2b93a62ddb81d7`
+and binds the subsequent Application privacy-hardening merge. No additional
+self-referential Control binding is required because no server sync or
+activation is authorized.
 
 ## Prepared but inactive
 
@@ -37,6 +43,13 @@ referrals, aggregate-only analytics and synthetic future experience modes.
 The modes are deliberately not a live Adult workflow. The contract keeps real
 media, identity documents, AVS, payments, external publishing and real users
 closed. Consent preview and payment boundaries are design constraints only.
+
+The offline privacy review closed three concrete gaps before this binding:
+analytics dimensions are now allowlisted at event construction, consent flags
+and synthetic destinations are exact and fail-closed, and persona/mode inputs
+are validated before state is returned. The implementation modules and review
+evidence are individually SHA-256-bound in the manifest. Real destinations and
+sensitive preference profiles remain unavailable.
 
 ## Brand and legal gates
 
@@ -58,6 +71,5 @@ credential, provider call or server action. It does not contact the server and
 does not alter S7, S8 or S9. Rollback is limited to reverting this Control
 documentation merge; there is no server delta to undo.
 
-After merge, a new separately versioned post-merge Control binding is required
-before a later activation plan may even be evaluated. The later activation
-must still stop at every hard human gate.
+The later activation must still be planned separately and stop at every hard
+human gate. This post-merge evidence does not grant runtime authority.
