@@ -1,11 +1,11 @@
 {
   "application": {
     "branch": "main",
-    "commit": "2e8fdfd305ff8237fe78c8da232e63cbf591ec4b",
-    "migration_chain_sha256": "b793eb9c5200956f5de52cc536fb125d60df7c7fb8a567808ed47ad71ebd82b8",
+    "commit": "ef19c7b2a6d0b42cfe55e1e090878f72b29c64c2",
+    "migration_chain_sha256": "05b8f011c5767d96e30a05b3087372b16be538ad67441a3fa014926febadf697",
     "repository": "Tausendunde1nz/adult-publishing-core",
-    "schema": "0023_commercial_s8_health_recovery",
-    "tree": "67739e865473bc3e5a9e4dfdd18fbd305c5944b7"
+    "schema": "0024_commercial_s8_runtime_least_privilege",
+    "tree": "250985b5464943b981a7654c39fa256ac7b695b4"
   },
   "authorization": {
     "automated_waitlist_authorized": true,
@@ -62,19 +62,20 @@
     ],
     "maximum_automated_state": "WAITLISTED"
   },
-  "decision": "GO_S8_3_REVERSIBLE_STAGING_REACCEPTANCE",
+  "decision": "GO_S8_4_CANONICAL_SERVER_REACCEPTANCE",
   "execution": {
     "live_acceptance": "GREEN_INTERNAL_SFW",
     "observation_hours_required": 2,
-    "public_activation": "ROLLED_BACK_TO_S7_AFTER_S8_2",
-    "public_observation": "S8_2_RED_REMEDIATED_AWAITING_S8_3_REACCEPTANCE",
+    "migration_0024": "PENDING_SERVER_APPLY",
+    "public_activation": "S8_4_CANONICAL_REACCEPTANCE_AUTHORIZED",
+    "public_observation": "S8_4_PUBLIC_REACCEPTANCE_PENDING",
     "rollback": "GREEN_WAITLIST_DATA_PRESERVED",
-    "s8_3_offline_acceptance": "GREEN_838_TESTS",
-    "status": "S8_3_OFFLINE_GREEN_SERVER_REACCEPTANCE_PENDING"
+    "s8_3_offline_acceptance": "GREEN_852_TESTS_NORMAL_AND_OPTIMIZED_POSTGRES_17_18",
+    "status": "S8_4_CANONICAL_SERVER_REACCEPTANCE_AUTHORIZED"
   },
   "files": {
-    "backup_script_sha256": "0a0dfe2f38a3fec6c100c9c227ef3a20e3877ae040e822e46500771b932593cf",
-    "controller_sha256": "ce1287215030c2e8d94a2bc3e4f59563752ff0ac50c10c18d61daed0fd711f23",
+    "backup_script_sha256": "7fdc50abdc25214f606712723538d1126d587f89de46f0df3b089c29f8d2d795",
+    "controller_sha256": "b2dbf5b4751c0a2bcf4f61c6ed1bdd17d423bf9fbaaa7c214220bd235ef35a94",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "afa9fbdcbaadeaf55ba0bb3edbaff9b852ed14647fdfce879934bacc06677ea1",
     "health_service_sha256": "75546b697daea81328daf190f7475442b921d95439dd7b66e724d1de7ce5b855",
@@ -83,6 +84,7 @@
     "landing_service_sha256": "f2663c4f1e57e91aa938d67bc5533fa5324dd355282bdf6e52fe40102b7b994d",
     "migration_0022_sha256": "5d3abd9bb863d3001c6af9c8775799b3bde69d6079af6062d4d607f07f4e7ec6",
     "migration_0023_sha256": "feb157b5625113a3c4774b570d8a73265356a87c5fe70d491c36b5b7a25a6691",
+    "migration_0024_sha256": "3152cfff48e48ccead115a8e3e56ef658f9e1d326d466dc7016ee9f89e998ac4",
     "observer_sha256": "1edccd254aa8d17c9ce4791716e819a13e3fc4b22d899327c579f1682008722c",
     "probe_service_sha256": "7c0e1d03dfb89bc6397a1c49c90edc68d694b39395107c491e58bf9a58d4949c",
     "proxy_activation_script_sha256": "7770a7c203e420c6dc4d7ae3504d8fe172597d5642937b2a56fdffbe60f9b086",
@@ -106,6 +108,10 @@
     "QUEUE": "GREEN_STAGING",
     "REMOTE_TELEGRAM_AVAILABILITY": "GREEN_STAGING",
     "TELEGRAM_AUTH": "GREEN_STAGING",
+    "TELEGRAM_TRANSPORT": "GREEN_OFFLINE_ACCEPTANCE_SERVER_PENDING",
+    "YOTI": "DISABLED_EXPECTED",
+    "SEGPAY": "DISABLED_EXPECTED",
+    "ADULT_PUBLISHING": "DISABLED_EXPECTED",
     "WAITLIST": "GREEN_STAGING"
   },
   "kill_switch": {
@@ -185,5 +191,5 @@
     "s7_service": "tu1nz-adult-public-s7.service",
     "s8_service": "tu1nz-adult-public-s8-telegram.service"
   },
-  "version": "tu1nz-commercial-s8-public-telegram-control-v2"
+  "version": "tu1nz-commercial-s8-public-telegram-control-v3"
 }
