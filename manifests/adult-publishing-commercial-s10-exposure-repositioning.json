@@ -1,0 +1,118 @@
+{
+  "version": "tu1nz-commercial-s10-exposure-control-v1",
+  "decision": "NO_GO_PUBLIC_BRAND_ACTIVATION",
+  "active": false,
+  "prepared_at": "2026-08-31T22:00:00+02:00",
+  "application": {
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "branch": "main",
+    "commit": "cc004c27ce52f4c5df8989ec8c166f6247117aa8",
+    "tree": "7f911127765a167e750d862500ccc1c49587594b"
+  },
+  "control": {
+    "repository": "Tausendunde1nz/infra",
+    "branch": "control-main",
+    "expected_base_commit": "352b97c04b1841f17e21c246c1747fc3668bcfc1",
+    "post_merge_binding_required": true
+  },
+  "brand": {
+    "internal_product_name": "TU1NZ Adult Publishing",
+    "provisional_public_name": "Seen By Choice",
+    "tagline_en": "Be seen. By choice.",
+    "tagline_de": "Gesehen werden. Weil du es willst.",
+    "backup_names": [
+      "Chosen Gaze",
+      "Gazeora"
+    ],
+    "selection_status": "PROVISIONAL_ONLY",
+    "brand_activation_enabled": false,
+    "domain_acquired": false,
+    "social_handles_reserved": false,
+    "public_channel_rename_enabled": false,
+    "public_bot_rename_enabled": false
+  },
+  "research": {
+    "candidates_scored": 25,
+    "top_domain_rdap_result": "NO_ENTRY_NOT_A_RESERVATION_GUARANTEE",
+    "social_handle_result": "INCONCLUSIVE_NOT_RESERVED",
+    "manual_trademark_search_completed": false,
+    "legal_trademark_clearance_completed": false,
+    "imprint_and_privacy_copy_approved": false
+  },
+  "public_surface": {
+    "current_s7_s8_s9_surface_preserved": true,
+    "future_surface": "SFW_WAITLIST_ONLY",
+    "central_copy_ssot": true,
+    "script_free_landing": true,
+    "form_free_landing": true,
+    "noindex_until_activation": true,
+    "languages": [
+      "DE",
+      "EN"
+    ]
+  },
+  "prepared_offline_capabilities": {
+    "button_first_bot_persona": true,
+    "deterministic_12_week_content_inventory": true,
+    "opt_in_nurture_copy": true,
+    "opaque_referral_attribution": true,
+    "aggregate_only_analytics": true,
+    "synthetic_future_experience_modes": true,
+    "consent_preview_contract": true,
+    "payment_boundary_contract": true
+  },
+  "authorization": {
+    "server_contact_approved": false,
+    "server_sync_approved": false,
+    "public_brand_activation_approved": false,
+    "domain_purchase_approved": false,
+    "social_handle_reservation_approved": false,
+    "public_channel_rename_approved": false,
+    "public_bot_rename_approved": false,
+    "real_user_enrollment_approved": false,
+    "adult_media_approved": false,
+    "real_identity_data_approved": false,
+    "real_avs_approved": false,
+    "payment_approved": false,
+    "external_adult_publishing_approved": false,
+    "controlled_beta_approved": false,
+    "production_approved": false
+  },
+  "product_boundary": {
+    "adult_content": false,
+    "adult_media": false,
+    "media_intake": false,
+    "identity_documents": false,
+    "real_avs": false,
+    "payments": false,
+    "external_publishing": false,
+    "real_user_enrollment": false,
+    "creator_activation": false,
+    "controlled_beta": false,
+    "production": false
+  },
+  "blockers": [
+    "MANUAL_DPMA_EUIPO_WIPO_SIMILARITY_SEARCH_REQUIRED",
+    "LEGAL_TRADEMARK_CLEARANCE_REQUIRED",
+    "DOMAIN_OWNERSHIP_REQUIRED",
+    "SOCIAL_HANDLE_OWNERSHIP_REQUIRED",
+    "PUBLIC_CHANNEL_RENAME_PLAN_APPROVAL_REQUIRED",
+    "IMPRINT_AND_PRIVACY_COPY_APPROVAL_REQUIRED",
+    "POST_MERGE_CONTROL_BINDING_REQUIRED",
+    "SEPARATE_PUBLIC_ACTIVATION_AUTHORIZATION_REQUIRED"
+  ],
+  "source_sha256": {
+    "application_contract": "f42c77a3fe11a57b06fbebc058825f881be66d8e63837f15fb4db630fe49485e",
+    "copy_ssot": "a6f411ad147c36abdabd1fdb6a6d02134938e62d9e4d78394486aacf67b2406d",
+    "brand_research": "97e94744c4db8ae190b5554c464b83ff226bfe48582c774d487c64fe28bdd0f9",
+    "repositioning_document": "bc3b6c3f20b3a63bb8598943d9f5e527c797ff828ac23ca099ed798c52ff21e0",
+    "legal_privacy_document": "5676d3a06191fa548b45aa0a05669862194505b48e368b43a1eba5f7fc7b6f7b",
+    "morning_checklist": "055e50401bd41684653d291cfc00284132a78ae719c8ee69d6795eebfa226ade"
+  },
+  "rollback": {
+    "server_delta_exists": false,
+    "server_rollback_required": false,
+    "current_public_surface_changed": false,
+    "revert_control_merge_only": true
+  }
+}
