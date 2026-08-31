@@ -137,7 +137,7 @@ def _web_health() -> dict[str, object]:
     marker = b"/adult/go/telegram?campaign=s9_organic_launch&amp;source=organic_search"
     if marker not in local_body or marker not in public_body:
         raise ValueError("S9_INTERNAL_TELEGRAM_ROUTE_MISSING")
-    if b"SFW creator guide" not in guide_body and b"SFW-CREATOR-GUIDE" not in guide_body:
+    if b"SFW CREATOR GUIDE" not in guide_body and b"SFW-CREATOR-GUIDE" not in guide_body:
         raise ValueError("S9_GUIDE_PAGE_RED")
     if b"Sitemap: https://tu1nz.com/adult/sitemap.xml" not in robots_body or sitemap_body.count(b"<url>") != 9:
         raise ValueError("S9_DISCOVERY_METADATA_RED")
