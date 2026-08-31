@@ -47,3 +47,12 @@ waitlist; no destructive data cleanup is permitted.
 Initial status
 --------------
 AUTHORIZED_IN_PROGRESS
+
+Public activation preflight correction
+--------------------------------------
+Before any public proxy change, the versioned activation helper was found to
+still bind the superseded S8.3 Application commit/tree. Execution was stopped
+before the helper ran. The helper is now bound to the S8.4 canonical
+Application commit/tree recorded above, and the release-binding test covers
+both the controller and public activation helper. No public or nginx mutation
+occurred before this correction.
