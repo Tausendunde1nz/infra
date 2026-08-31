@@ -1,0 +1,27 @@
+# Commercial S9 Git-index mode preflight diagnosis
+
+## Observed
+
+After canonical Control sync, the S9 deployment stopped before service mutation
+with `S8_BACKUP_RED GIT_INDEX_MODE_DRIFT` while re-verifying the already green
+recovery point.
+
+## Root cause
+
+The server's secure `0027` umask caused Git to replace the Control index with
+mode `0640`. The existing bounded index normalizer accepted a newly-created
+`0644` index but not the equally non-world-readable `0640` variant.
+
+## Resolution
+
+Add a strictly S9-scoped Control-index normalization before recovery-point
+verification. It accepts only the observed `0640` mode and the already-normal
+`0660` mode, normalizing `0640` to `0660`. The historical S8 backup artifact and
+its hash stay byte-exact. Ownership, regular-file and non-symlink guards remain
+unchanged. No repository content, credential, database or service state is
+modified by normalization.
+
+## Rollback
+
+Revert this correction commit. S8 remained active and unchanged because the
+controller failed before the first service mutation.
