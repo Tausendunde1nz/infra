@@ -54,6 +54,8 @@
 !scripts/tu1nz_adult_public_s8_control.sh
 !scripts/tu1nz_adult_public_s8_backup.sh
 !scripts/tu1nz_adult_public_s8_health.py
+!scripts/tu1nz_adult_public_s9_control.sh
+!scripts/tu1nz_adult_public_s9_health.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -74,6 +76,17 @@
 !systemd/tu1nz-adult-public-s8-health.timer
 !systemd/tu1nz-adult-public-s8-probe.service
 !systemd/tu1nz-adult-public-s8-landing.service
+!systemd/tu1nz-adult-public-s8-landing.service.d/
+!systemd/tu1nz-adult-public-s8-landing.service.d/s9-growth.conf
+!systemd/tu1nz-adult-public-s9-seed.service
+!systemd/tu1nz-adult-public-s9-audience.service
+!systemd/tu1nz-adult-public-s9-audience.timer
+!systemd/tu1nz-adult-public-s9-nurture.service
+!systemd/tu1nz-adult-public-s9-nurture.timer
+!systemd/tu1nz-adult-public-s9-report.service
+!systemd/tu1nz-adult-public-s9-report.timer
+!systemd/tu1nz-adult-public-s9-health.service
+!systemd/tu1nz-adult-public-s9-health.timer
 !systemd/tu1nz_agentmode.service
 !systemd/tu1nz_integrity.service
 !systemd/tu1nz_monitor.service
@@ -113,6 +126,7 @@
 !manifests/adult-publishing-commercial-s4-extended-staging.json
 !manifests/adult-publishing-commercial-s5-s6-offline-staging.json
 !manifests/adult-publishing-commercial-s8-public-telegram-early-access.json
+!manifests/adult-publishing-commercial-s9-automated-growth.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -159,6 +173,7 @@
 !tests/test_adult_commercial_s4_extended_staging_control.py
 !tests/test_adult_commercial_s5_s6_offline_staging.py
 !tests/test_adult_commercial_s8_public_telegram_early_access.py
+!tests/test_adult_commercial_s9_automated_growth.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose

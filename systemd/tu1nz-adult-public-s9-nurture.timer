@@ -1,0 +1,12 @@
+[Unit]
+Description=TU1NZ Adult Publishing S9 opt-in nurture every fifteen minutes
+
+[Timer]
+OnBootSec=8min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Persistent=true
+Unit=tu1nz-adult-public-s9-nurture.service
+
+[Install]
+WantedBy=timers.target

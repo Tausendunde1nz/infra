@@ -1,0 +1,101 @@
+{
+  "application": {
+    "branch": "main",
+    "commit": "d3ae2764cc1623bfcc32d2c3f15264ca74fb2e79",
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "schema": "0025_commercial_s9_automated_growth",
+    "tree": "c9fa052bceb1e7ec3b84a5254d399acde9ff0989"
+  },
+  "audience": {
+    "audience_seeding_enabled": false,
+    "organic_search": "AUTOMATED_SUPPORTED",
+    "reddit": "DISABLED_FOR_NOW",
+    "telegram_channel": "DISABLED_FOR_NOW",
+    "x": "DISABLED_FOR_NOW"
+  },
+  "authorization": {
+    "automated_sfw_growth_authorized": true,
+    "creator_invite_authorized": false,
+    "public_sfw_deployment_authorized": true,
+    "reversible_server_delta_authorized": true,
+    "adult_media_authorized": false,
+    "avs_authorized": false,
+    "controlled_beta_authorized": false,
+    "external_adult_publishing_authorized": false,
+    "payment_authorized": false,
+    "production_adult_workflow_authorized": false
+  },
+  "content": {
+    "categories": 5,
+    "languages": ["DE", "EN"],
+    "posts_per_week": 3,
+    "public_policy_check_required": true,
+    "templates_versioned": true,
+    "weeks": 12
+  },
+  "control": {
+    "branch": "control-main",
+    "exact_commit_and_tree_required": true,
+    "post_merge_binding_required": true,
+    "repository": "Tausendunde1nz/infra"
+  },
+  "decision": "GO_S9_PUBLIC_SFW_ORGANIC_ONLY",
+  "deployment": {
+    "baseline": "S8_4_PUBLIC_SFW_GREEN",
+    "canonical_server_binding": "PENDING_POST_MERGE",
+    "recovery_point_required": true,
+    "status": "PREPARED_NOT_DEPLOYED"
+  },
+  "files": {
+    "landing_contract_sha256": "ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e",
+    "migration_0025_down_sha256": "4c45973a570e12ca8727cf80261b5669ee8b9d16b53a68309ea5afa879183c99",
+    "migration_0025_sha256": "b0b64bc6ca8d549f15b423fed66172ec16d764fbd5b7c97c129f9be03da583a1",
+    "s8_contract_sha256": "fe20aea4b80206a5eaa79b94d2b74c85d2883240ea68b6d4734618daadac452d",
+    "s9_contract_sha256": "12022dbc0c6dd8c748db91d526b374a690c6bb9f43c7ac89ea525aef7c9b28a0"
+  },
+  "funnel": {
+    "aggregate_only_landing_metrics": true,
+    "allowed_sources": ["direct", "landing", "organic_search", "telegram_channel", "x"],
+    "attribution_allowlisted": true,
+    "cookie_free": true,
+    "daily_report_automated": true,
+    "nurture_opt_in_only": true,
+    "visitor_identifiers_stored": false
+  },
+  "invite_readiness": {
+    "beta_creator_cap": 20,
+    "eligibility_computation_enabled": true,
+    "invite_automation_enabled": false,
+    "maximum_automated_state": "ELIGIBLE",
+    "pricing_mode": "FREE_EARLY_ACCESS",
+    "payment_outcome": "PAYMENT_NOT_REQUIRED"
+  },
+  "product_boundary": {
+    "adult_content": false,
+    "adult_media": false,
+    "avs": false,
+    "controlled_beta": false,
+    "creator_invite": false,
+    "external_adult_publishing": false,
+    "identity_data": false,
+    "media_intake": false,
+    "payment": false,
+    "production_adult_workflow": false,
+    "real_submission": false
+  },
+  "providers": {
+    "reddit": "DISABLED_COMMERCIAL_APPROVAL_MISSING",
+    "segpay": "WAITING_EXTERNAL_PROVIDER_ACCOUNT_AND_CONTRACT",
+    "telegram_channel": "WAITING_ONE_TIME_CHANNEL_SETUP",
+    "x": "DISABLED_COST_AND_CREDENTIAL_GATE_CLOSED",
+    "yoti": "WAITING_EXTERNAL_ORGANISATION_VERIFICATION"
+  },
+  "recovery": {
+    "automatic_database_destructive_restore": false,
+    "backup_before_server_delta": true,
+    "preserve_s9_database_evidence": true,
+    "rollback_target_commit": "ef19c7b2a6d0b42cfe55e1e090878f72b29c64c2",
+    "s8_remains_available": true
+  },
+  "version": "tu1nz-commercial-s9-automated-growth-control-v1"
+}

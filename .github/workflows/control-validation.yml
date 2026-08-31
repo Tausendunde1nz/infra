@@ -541,3 +541,37 @@ jobs:
           scripts/tu1nz_encrypted_backup.sh
           systemd/tu1nz-adult-publishing-s1.service
           config/adult-publishing/staging-s1/runtime.env.example
+      - name: Validate Commercial S9 manifest and compile runtime checks
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s9-automated-growth.json >/dev/null
+          && python3 -m py_compile
+          scripts/tu1nz_adult_public_s9_health.py
+          tests/test_adult_commercial_s9_automated_growth.py
+      - name: Run Commercial S9 control contract tests
+        run: python3 -m unittest -v tests.test_adult_commercial_s9_automated_growth
+      - name: Validate Commercial S9 control shell
+        run: bash -n scripts/tu1nz_adult_public_s9_control.sh
+      - name: Validate Commercial S9 systemd units
+        shell: bash
+        run: |
+          temporary_units="$(mktemp -d)"
+          cp systemd/tu1nz-adult-public-s9-* "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"
+          cp -R systemd/tu1nz-adult-public-s8-landing.service.d "$temporary_units/"
+          sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service
+          sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service.d/*.conf
+          systemd-analyze verify "$temporary_units"/*.service "$temporary_units"/*.timer
+      - name: Reject Commercial S9 secrets cron and forbidden providers
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s9-automated-growth.json
+            scripts/tu1nz_adult_public_s9_control.sh
+            scripts/tu1nz_adult_public_s9_health.py
+            systemd/tu1nz-adult-public-s9-*.service
+            systemd/tu1nz-adult-public-s9-*.timer
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
+          ! grep -nE 'systemctl[[:space:]]+restart' scripts/tu1nz_adult_public_s9_control.sh

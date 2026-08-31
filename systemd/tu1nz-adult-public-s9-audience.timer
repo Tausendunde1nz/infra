@@ -1,0 +1,12 @@
+[Unit]
+Description=TU1NZ Adult Publishing S9 audience scheduler every fifteen minutes
+
+[Timer]
+OnBootSec=7min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Persistent=true
+Unit=tu1nz-adult-public-s9-audience.service
+
+[Install]
+WantedBy=timers.target

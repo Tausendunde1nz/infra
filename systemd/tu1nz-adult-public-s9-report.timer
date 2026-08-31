@@ -1,0 +1,11 @@
+[Unit]
+Description=TU1NZ Adult Publishing S9 daily aggregate growth report
+
+[Timer]
+OnCalendar=*-*-* 04:20:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+Unit=tu1nz-adult-public-s9-report.service
+
+[Install]
+WantedBy=timers.target
