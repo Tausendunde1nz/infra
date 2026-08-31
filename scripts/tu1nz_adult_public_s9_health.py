@@ -102,9 +102,42 @@ def _application_health(contract: Path, database_dsn: Path) -> dict[str, object]
     components = payload.get("components", {})
     if components.get("X") != "DISABLED_EXPECTED" or components.get("REDDIT") != "DISABLED_EXPECTED":
         raise ValueError("S9_DISABLED_CHANNEL_STATE_DIVERGED")
-    if components.get("TELEGRAM_CHANNEL") != "DISABLED_EXPECTED":
+    if components.get("TELEGRAM_CHANNEL") != "GREEN":
         raise ValueError("S9_TELEGRAM_CHANNEL_GATE_DIVERGED")
     return payload
+
+
+def _channel_health(
+    contract: Path,
+    database_dsn: Path,
+    s8_contract: Path,
+    telegram_token: Path,
+    telegram_channel: str,
+) -> dict[str, object]:
+    completed = _run([
+        str(RUNTIME),
+        "--contract", str(contract),
+        "--database-dsn", str(database_dsn),
+        "--channel-health",
+        "--s8-contract", str(s8_contract),
+        "--telegram-token", str(telegram_token),
+        "--telegram-channel", telegram_channel,
+    ])
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        raise ValueError("S9_TELEGRAM_CHANNEL_HEALTH_ENVELOPE_INVALID") from None
+    if (
+        completed.returncode != 0
+        or payload != {
+            "bot_can_post": True,
+            "channel_bound": True,
+            "ok": True,
+            "safe_code": "S9_TELEGRAM_CHANNEL_GREEN",
+        }
+    ):
+        raise ValueError("S9_TELEGRAM_CHANNEL_PROVIDER_RED")
+    return {"identity": "GREEN", "bot_can_post": True}
 
 
 def _system_health() -> dict[str, object]:
@@ -161,9 +194,19 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--database-dsn", type=Path, required=True)
+    parser.add_argument("--s8-contract", type=Path, required=True)
+    parser.add_argument("--telegram-token", type=Path, required=True)
+    parser.add_argument("--telegram-channel", required=True)
     arguments = parser.parse_args()
     try:
         application = _application_health(arguments.contract, arguments.database_dsn)
+        channel = _channel_health(
+            arguments.contract,
+            arguments.database_dsn,
+            arguments.s8_contract,
+            arguments.telegram_token,
+            arguments.telegram_channel,
+        )
         system = _system_health()
         web = _web_health()
         payload = {
@@ -172,6 +215,7 @@ def main() -> int:
             "state": "GREEN",
             "components": application["components"],
             "runtime": application["runtime"],
+            "telegram_channel": channel,
             "system": system,
             "web": web,
             "adult_content": False,
