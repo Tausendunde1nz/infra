@@ -21,11 +21,15 @@ UNITS = tuple(sorted((ROOT / "systemd").glob("tu1nz-adult-public-s9-*")))
 class CommercialS9ControlTests(unittest.TestCase):
     def test_manifest_is_exactly_bound_and_fail_closed(self) -> None:
         value = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(value["application"]["commit"], "d3ae2764cc1623bfcc32d2c3f15264ca74fb2e79")
-        self.assertEqual(value["application"]["tree"], "c9fa052bceb1e7ec3b84a5254d399acde9ff0989")
-        self.assertEqual(value["decision"], "GO_S9_PUBLIC_SFW_ORGANIC_ONLY")
+        self.assertEqual(value["application"]["commit"], "8ea16db18c683c89bf38c9b2b02e920d3da84e4f")
+        self.assertEqual(value["application"]["tree"], "b446b84c5d9d23a7ac10b052892a275febd7fb2c")
+        self.assertEqual(value["application"]["schema"], "0026_commercial_s9_telegram_channel")
+        self.assertEqual(value["decision"], "GO_S9_PUBLIC_SFW_ORGANIC_AND_TELEGRAM")
         self.assertEqual(value["audience"]["organic_search"], "AUTOMATED_SUPPORTED")
-        self.assertFalse(value["audience"]["audience_seeding_enabled"])
+        self.assertTrue(value["audience"]["audience_seeding_enabled"])
+        self.assertEqual(value["audience"]["telegram_channel"], "AUTOMATED_SUPPORTED")
+        self.assertEqual(value["audience"]["x"], "DISABLED_FOR_NOW")
+        self.assertEqual(value["audience"]["reddit"], "DISABLED_FOR_NOW")
         self.assertFalse(value["invite_readiness"]["invite_automation_enabled"])
         self.assertEqual(value["invite_readiness"]["maximum_automated_state"], "ELIGIBLE")
         self.assertEqual(value["invite_readiness"]["payment_outcome"], "PAYMENT_NOT_REQUIRED")
@@ -62,6 +66,8 @@ class CommercialS9ControlTests(unittest.TestCase):
         for expected in (
             "S9_PUBLIC_SFW_GROWTH_GREEN",
             "DISABLED_EXPECTED",
+            "S9_TELEGRAM_CHANNEL_GREEN",
+            "bot_can_post",
             "adult_content",
             "real_avs",
             "payments",
@@ -83,19 +89,32 @@ class CommercialS9ControlTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         for expected in (
             "require_backup",
+            "BACKUP_S9_CONFIGURATION_MISSING",
+            "BACKUP_S9_AUDIENCE_UNIT_MISSING",
+            "BACKUP_S9_HEALTH_UNIT_MISSING",
+            "BACKUP_S9_LANDING_DROP_IN_MISSING",
+            "BACKUP_S9_MIGRATION_BINDING_MISSING",
             "normalize_s9_control_index_mode",
             "CONTROL_INDEX_MODE_UNEXPECTED",
             "require_adult_runtime_closed",
+            "SOURCE_CONTROL_COMMIT_MISSING",
+            "SOURCE_HEALTH_SCRIPT_MISSING",
             "require_s8_green",
-            "0025_commercial_s9_automated_growth.sql",
-            "MIGRATION_0025_PARTIAL_STATE",
+            "0026_commercial_s9_telegram_channel.sql",
+            "0026_commercial_s9_telegram_channel.down.sql",
+            "MIGRATION_0026_STATE_DIVERGED",
             "S8_DATA_FINGERPRINT_DRIFT",
+            "S9_EVIDENCE_FINGERPRINT_DRIFT",
             "systemd-analyze verify",
             "disable_s9",
-            "restore_baseline",
-            "DEPLOYMENT_ABORTED_S8_STABLE",
-            "S9_ROLLBACK_TO_S8_GREEN",
+            "restore_organic_baseline",
+            "CHANNEL_ACTIVATION_ABORTED_ORGANIC_S9_STABLE",
+            "S9_CHANNEL_ROLLBACK_TO_ORGANIC_GREEN",
             "s9_database_evidence_preserved",
+            "channel-preflight",
+            "activate-channel",
+            "verify-channel",
+            "rollback-channel",
         ):
             self.assertIn(expected, source)
         self.assertNotIn("rm -rf", source)
@@ -113,6 +132,8 @@ class CommercialS9ControlTests(unittest.TestCase):
     def test_credentials_are_only_systemd_credentials(self) -> None:
         controller = CONTROLLER.read_text(encoding="utf-8")
         nurture = (ROOT / "systemd/tu1nz-adult-public-s9-nurture.service").read_text(encoding="utf-8")
+        audience = (ROOT / "systemd/tu1nz-adult-public-s9-audience.service").read_text(encoding="utf-8")
+        health = (ROOT / "systemd/tu1nz-adult-public-s9-health.service").read_text(encoding="utf-8")
         self.assertIn('= "root:root"', controller)
         self.assertIn('= "600"', controller)
         self.assertNotIn('= "root:chatops"', controller)
@@ -121,6 +142,18 @@ class CommercialS9ControlTests(unittest.TestCase):
         self.assertIn("LoadCredential=s9_database_dsn:", nurture)
         self.assertIn("%d/s8_telegram_token", nurture)
         self.assertNotIn("Environment=", nurture)
+        for unit in (audience, health):
+            self.assertIn("LoadCredential=s8_telegram_token:", unit)
+            self.assertIn("%d/s8_telegram_token", unit)
+            self.assertIn("@tu1nz_adult_publishing", unit)
+            self.assertNotIn("Environment=", unit)
+
+    def test_backup_captures_the_organic_s9_rollback_surface(self) -> None:
+        source = (ROOT / "scripts/tu1nz_adult_public_s8_backup.sh").read_text(encoding="utf-8")
+        self.assertIn("adult-commercial-s9-growth.json", source)
+        self.assertIn("tu1nz-adult-public-s9*", source)
+        self.assertIn("0025_commercial_s9_automated_growth.sql", source)
+        self.assertIn("s9-timers-before.txt", source)
 
 
 if __name__ == "__main__":

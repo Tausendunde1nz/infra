@@ -1,16 +1,16 @@
 {
   "application": {
     "branch": "main",
-    "commit": "d3ae2764cc1623bfcc32d2c3f15264ca74fb2e79",
+    "commit": "8ea16db18c683c89bf38c9b2b02e920d3da84e4f",
     "repository": "Tausendunde1nz/adult-publishing-core",
-    "schema": "0025_commercial_s9_automated_growth",
-    "tree": "c9fa052bceb1e7ec3b84a5254d399acde9ff0989"
+    "schema": "0026_commercial_s9_telegram_channel",
+    "tree": "b446b84c5d9d23a7ac10b052892a275febd7fb2c"
   },
   "audience": {
-    "audience_seeding_enabled": false,
+    "audience_seeding_enabled": true,
     "organic_search": "AUTOMATED_SUPPORTED",
     "reddit": "DISABLED_FOR_NOW",
-    "telegram_channel": "DISABLED_FOR_NOW",
+    "telegram_channel": "AUTOMATED_SUPPORTED",
     "x": "DISABLED_FOR_NOW"
   },
   "authorization": {
@@ -39,7 +39,7 @@
     "post_merge_binding_required": true,
     "repository": "Tausendunde1nz/infra"
   },
-  "decision": "GO_S9_PUBLIC_SFW_ORGANIC_ONLY",
+  "decision": "GO_S9_PUBLIC_SFW_ORGANIC_AND_TELEGRAM",
   "deployment": {
     "baseline": "S8_4_PUBLIC_SFW_GREEN",
     "canonical_server_binding": "PENDING_POST_MERGE",
@@ -50,8 +50,10 @@
     "landing_contract_sha256": "ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e",
     "migration_0025_down_sha256": "4c45973a570e12ca8727cf80261b5669ee8b9d16b53a68309ea5afa879183c99",
     "migration_0025_sha256": "b0b64bc6ca8d549f15b423fed66172ec16d764fbd5b7c97c129f9be03da583a1",
+    "migration_0026_down_sha256": "35cb7182bcaa038bc47fd3b1246d8616fd31f446540de9ace5202825ad241ef4",
+    "migration_0026_sha256": "0b5e4ff8d6073cf4a23ea3136962c43a6dc6cbfadd1066a7b446f0ea488c760f",
     "s8_contract_sha256": "fe20aea4b80206a5eaa79b94d2b74c85d2883240ea68b6d4734618daadac452d",
-    "s9_contract_sha256": "12022dbc0c6dd8c748db91d526b374a690c6bb9f43c7ac89ea525aef7c9b28a0"
+    "s9_contract_sha256": "b09b6917d076bc5a0bd3de6f224aac4fd5db326919c3c2ee82ef7d8fa41ac681"
   },
   "funnel": {
     "aggregate_only_landing_metrics": true,
@@ -86,7 +88,7 @@
   "providers": {
     "reddit": "DISABLED_COMMERCIAL_APPROVAL_MISSING",
     "segpay": "WAITING_EXTERNAL_PROVIDER_ACCOUNT_AND_CONTRACT",
-    "telegram_channel": "WAITING_ONE_TIME_CHANNEL_SETUP",
+    "telegram_channel": "ACTIVE_PUBLIC_SFW_ONLY",
     "x": "DISABLED_COST_AND_CREDENTIAL_GATE_CLOSED",
     "yoti": "WAITING_EXTERNAL_ORGANISATION_VERIFICATION"
   },
@@ -94,8 +96,8 @@
     "automatic_database_destructive_restore": false,
     "backup_before_server_delta": true,
     "preserve_s9_database_evidence": true,
-    "rollback_target_commit": "ef19c7b2a6d0b42cfe55e1e090878f72b29c64c2",
+    "rollback_target_commit": "d3ae2764cc1623bfcc32d2c3f15264ca74fb2e79",
     "s8_remains_available": true
   },
-  "version": "tu1nz-commercial-s9-automated-growth-control-v1"
+  "version": "tu1nz-commercial-s9-automated-growth-control-v2"
 }

@@ -164,23 +164,26 @@ sha256sum \
   "$APPLICATION_ROOT/migrations/0022_commercial_s8_public_telegram_early_access.sql" \
   "$APPLICATION_ROOT/migrations/0023_commercial_s8_health_recovery.sql" \
   "$APPLICATION_ROOT/migrations/0024_commercial_s8_runtime_least_privilege.sql" \
+  "$APPLICATION_ROOT/migrations/0025_commercial_s9_automated_growth.sql" \
   >"$BACKUP_PATH/migration-binding-before.txt"
 cp --archive /etc/nginx/sites-enabled/tu1nz.conf "$BACKUP_PATH/nginx-enabled-before.conf"
 cp --archive /etc/nginx/sites-available/tu1nz.conf "$BACKUP_PATH/nginx-available-before.conf"
 (
   cd /etc/tu1nz
   find . -maxdepth 1 -type f \
-    \( -name 'adult-commercial-s7-public.json' -o -name 'adult-commercial-s8-public-telegram.json' -o -name 'adult-commercial-s8-copy.json' -o -name 'adult-commercial-s8-landing.json' \) \
+    \( -name 'adult-commercial-s7-public.json' -o -name 'adult-commercial-s8-public-telegram.json' -o -name 'adult-commercial-s8-copy.json' -o -name 'adult-commercial-s8-landing.json' -o -name 'adult-commercial-s9-growth.json' \) \
     -print0 | sort -z | tar --null -T - -cpf "$BACKUP_PATH/public-configuration-before.tar"
 )
 (
   cd /etc/systemd/system
-  find . -maxdepth 1 -type f \
-    \( -name 'tu1nz-adult-public-s7*' -o -name 'tu1nz-adult-public-s8*' \) \
+  find . -maxdepth 2 -type f \
+    \( -name 'tu1nz-adult-public-s7*' -o -name 'tu1nz-adult-public-s8*' -o -name 'tu1nz-adult-public-s9*' -o -path './tu1nz-adult-public-s8-landing.service.d/s9-growth.conf' \) \
     -print0 | sort -z | tar --null -T - -cpf "$BACKUP_PATH/public-units-before.tar"
 )
 systemctl show "$S7_SERVICE" >"$BACKUP_PATH/s7-service-before.txt" 2>/dev/null || true
 systemctl show "$S8_SERVICE" >"$BACKUP_PATH/s8-service-before.txt" 2>/dev/null || true
+systemctl list-timers 'tu1nz-adult-public-s9-*' --all --no-pager \
+  >"$BACKUP_PATH/s9-timers-before.txt" 2>/dev/null || true
 if [ -e /etc/tu1nz/adult-commercial-s8-telegram.token ]; then
   stat --printf='owner=%U:%G\nmode=%a\nsize=%s\ntype=%F\nlinks=%h\n' \
     /etc/tu1nz/adult-commercial-s8-telegram.token >"$BACKUP_PATH/credential-metadata-before.txt"

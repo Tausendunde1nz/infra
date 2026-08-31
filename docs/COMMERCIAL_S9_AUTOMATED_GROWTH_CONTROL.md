@@ -7,9 +7,11 @@ runtime. Organic discovery, curated DE/EN guide pages, cookie-free aggregate
 landing counters, daily reports and opt-in nurture run automatically. S8 stays
 the waitlist and Telegram entry point.
 
-The first active acquisition path is organic search. Telegram channel
-publishing is technically supported but remains disabled until the one-time
-public channel setup is complete. X is disabled because productive API cost and
+The active acquisition paths are organic search and the dedicated public SFW
+Telegram channel `@tu1nz_adult_publishing`. The channel publisher accepts only
+versioned SFW templates plus a fixed first-party attribution URL. Before the
+first post and during every health run, it verifies the exact public username
+and the Early Access bot's administrator post permission. X is disabled because productive API cost and
 credential approval are not authorized. Reddit is disabled because commercial
 API approval is absent. No manual posting fallback is permitted.
 
@@ -29,15 +31,17 @@ fabricated success.
   cookies, IP addresses, browser IDs or visitor identifiers.
 - The deterministic content seed creates twelve weeks of approved DE/EN SFW
   content without free-form public LLM generation.
-- The audience timer is installed but its global and Telegram channel kill
-  switches remain closed.
+- The audience timer publishes only due, reviewed SFW templates to the bound
+  Telegram channel. Durable leases, retry budgets and uncertain-outcome fencing
+  prevent duplicate replay.
 - The nurture timer sends only approved copy to users who explicitly opted in.
   Opt-out and waitlist leave are checked again immediately before claiming a
   delivery.
 - The daily report stores aggregate funnel results in PostgreSQL and emits a
   privacy-safe operational envelope.
-- The five-minute health timer treats deliberately disabled channels as
-  `DISABLED_EXPECTED` and fails on any opened product boundary.
+- The five-minute health timer requires Telegram channel identity and bot post
+  permission to remain green, treats X and Reddit as `DISABLED_EXPECTED`, and
+  fails on any opened product boundary.
 
 All periodic automation is implemented with systemd timers. Cron and manual
 routine operation are prohibited.
@@ -47,16 +51,18 @@ routine operation are prohibited.
 The S9 controller requires an exact Control SHA/tree, a clean application
 baseline, S7/S8/landing/nginx with zero restarts, closed Adult runtimes and a
 verified backup. It fetches only canonical application `main`, pins the reviewed
-S9 merge commit/tree, validates source hashes, applies migration 0025 exactly
-once, installs hardened units and performs local and external health checks.
+S9 merge commit/tree, validates source hashes, applies the dedicated migration
+0026 exactly once, installs hardened units and performs local, Telegram and
+external health checks before the first SFW channel publication.
 
 The two inherited S8 credential files remain bound to the established
 `root:root` / `0600` baseline. S9 reads them only through systemd
 `LoadCredential`; it does not widen ownership or permissions for `chatops`.
 
-Failure disables all S9 timers, restores the pinned S8 application release and
-the backed-up S8 public configuration/units, then proves S8 green. S9 database
-evidence is preserved; an automatic destructive database restore is forbidden.
+Failure disables all S9 timers, deactivates the Telegram channel gate, restores
+the pinned organic-only S9 application release and backed-up S9 configuration
+and units, then proves organic S9 and S8 green. Publication and funnel evidence
+is preserved; an automatic destructive database restore is forbidden.
 
 ## Provider decisions
 
