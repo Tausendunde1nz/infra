@@ -1,0 +1,27 @@
+[Unit]
+Description=TU1NZ Adult Publishing S9 deterministic SFW content seed
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+LoadCredential=s9_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
+ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-commercial-s9-growth --contract /etc/tu1nz/adult-commercial-s9-growth.json --database-dsn %d/s9_database_dsn --seed-content
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
