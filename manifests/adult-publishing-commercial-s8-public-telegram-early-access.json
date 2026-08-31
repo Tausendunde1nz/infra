@@ -87,7 +87,7 @@
     "migration_0024_sha256": "3152cfff48e48ccead115a8e3e56ef658f9e1d326d466dc7016ee9f89e998ac4",
     "observer_sha256": "1edccd254aa8d17c9ce4791716e819a13e3fc4b22d899327c579f1682008722c",
     "probe_service_sha256": "7c0e1d03dfb89bc6397a1c49c90edc68d694b39395107c491e58bf9a58d4949c",
-    "proxy_activation_script_sha256": "7770a7c203e420c6dc4d7ae3504d8fe172597d5642937b2a56fdffbe60f9b086",
+    "proxy_activation_script_sha256": "d0cf53fa243437d9a05581d9d172387bf9952c67d07d1711177b0e09abddd79a",
     "public_proxy_sha256": "65c0bc9d12981a4532d5453c668f8b2f9a4ad32cf5a7a18b8ef4ed3b56a0f062",
     "s7_contract_sha256": "a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802",
     "s8_contract_sha256": "733a6e1bfae4514fc3f09b6ddc9c0e94406d8160eed8629519155f810a0f8498",

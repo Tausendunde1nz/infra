@@ -41,6 +41,9 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         controller = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn(f'readonly TARGET_SHA="{application["commit"]}"', controller)
         self.assertIn(f'readonly TARGET_TREE="{application["tree"]}"', controller)
+        proxy_activation = PROXY_ACTIVATION.read_text(encoding="utf-8")
+        self.assertIn(f'readonly APPLICATION_SHA="{application["commit"]}"', proxy_activation)
+        self.assertIn(f'readonly APPLICATION_TREE="{application["tree"]}"', proxy_activation)
 
     def test_pinned_release_can_be_retrieved_after_canonical_main_advances(self) -> None:
         controller = CONTROLLER.read_text(encoding="utf-8")
