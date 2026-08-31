@@ -50,6 +50,10 @@ verified backup. It fetches only canonical application `main`, pins the reviewed
 S9 merge commit/tree, validates source hashes, applies migration 0025 exactly
 once, installs hardened units and performs local and external health checks.
 
+The two inherited S8 credential files remain bound to the established
+`root:root` / `0600` baseline. S9 reads them only through systemd
+`LoadCredential`; it does not widen ownership or permissions for `chatops`.
+
 Failure disables all S9 timers, restores the pinned S8 application release and
 the backed-up S8 public configuration/units, then proves S8 green. S9 database
 evidence is preserved; an automatic destructive database restore is forbidden.

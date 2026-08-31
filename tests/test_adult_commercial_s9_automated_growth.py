@@ -103,7 +103,12 @@ class CommercialS9ControlTests(unittest.TestCase):
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
 
     def test_credentials_are_only_systemd_credentials(self) -> None:
+        controller = CONTROLLER.read_text(encoding="utf-8")
         nurture = (ROOT / "systemd/tu1nz-adult-public-s9-nurture.service").read_text(encoding="utf-8")
+        self.assertIn('= "root:root"', controller)
+        self.assertIn('= "600"', controller)
+        self.assertNotIn('= "root:chatops"', controller)
+        self.assertNotIn('= "640"', controller)
         self.assertIn("LoadCredential=s8_telegram_token:", nurture)
         self.assertIn("LoadCredential=s9_database_dsn:", nurture)
         self.assertIn("%d/s8_telegram_token", nurture)

@@ -110,8 +110,8 @@ require_credentials_metadata() {
   local secret_file
   for secret_file in "$DATABASE_DSN_PATH" "$TOKEN_PATH"; do
     [ -f "$secret_file" ] && [ ! -L "$secret_file" ] || fail "CREDENTIAL_PATH_UNSAFE"
-    [ "$(stat -c '%U:%G' "$secret_file")" = "root:chatops" ] || fail "CREDENTIAL_OWNER_DRIFT"
-    [ "$(stat -c '%a' "$secret_file")" = "640" ] || fail "CREDENTIAL_MODE_DRIFT"
+    [ "$(stat -c '%U:%G' "$secret_file")" = "root:root" ] || fail "CREDENTIAL_OWNER_DRIFT"
+    [ "$(stat -c '%a' "$secret_file")" = "600" ] || fail "CREDENTIAL_MODE_DRIFT"
     [ "$(stat -c '%h' "$secret_file")" = "1" ] || fail "CREDENTIAL_LINK_DRIFT"
   done
 }
