@@ -1,0 +1,29 @@
+[Unit]
+Description=Want Me Seen S10.1 public pre-growth SFW health gate
+After=network-online.target postgresql.service tu1nz-adult-public-s10-wms.service nginx.service
+Requires=postgresql.service tu1nz-adult-public-s10-wms.service nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+LoadCredential=s9_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
+LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s8-telegram.token
+ExecStart=/usr/local/bin/tu1nz_adult_public_s10_1_health.py --contract /etc/tu1nz/adult-commercial-s10-wms.json --copy /etc/tu1nz/adult-commercial-s10-wms-copy.json --s8-contract /etc/tu1nz/adult-commercial-s8-public-telegram.json --s9-contract /etc/tu1nz/adult-commercial-s9-growth.json --database-dsn %d/s9_database_dsn --telegram-token %d/s8_telegram_token --telegram-channel @tu1nz_adult_publishing --pre-growth
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077

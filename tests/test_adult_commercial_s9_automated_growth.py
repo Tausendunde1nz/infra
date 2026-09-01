@@ -15,7 +15,13 @@ CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s9_control.sh"
 HEALTH = ROOT / "scripts/tu1nz_adult_public_s9_health.py"
 LANDING = ROOT / "systemd/tu1nz-adult-public-s8-landing.service"
 LANDING_DROP_IN = ROOT / "systemd/tu1nz-adult-public-s8-landing.service.d/s9-growth.conf"
-UNITS = tuple(sorted((ROOT / "systemd").glob("tu1nz-adult-public-s9-*")))
+UNITS = tuple(
+    sorted(
+        path
+        for path in (ROOT / "systemd").glob("tu1nz-adult-public-s9-*")
+        if path.is_file()
+    )
+)
 
 
 class CommercialS9ControlTests(unittest.TestCase):

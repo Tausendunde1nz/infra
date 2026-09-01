@@ -1,0 +1,141 @@
+{
+  "version": "tu1nz-commercial-s10-1-wms-public-activation-control-v1",
+  "decision": "GO_PUBLIC_SFW_ACTIVATION_WITH_EXTERNAL_GATES",
+  "active": true,
+  "application": {
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "branch": "main",
+    "commit": "cdeab77c17c28f4ade46c27975f1c20e74cb8737",
+    "tree": "88d8869fbbb9931b16451f7bb1483e1fa6d483df",
+    "schema": "0028_commercial_s10_1_wms_public_growth",
+    "post_merge_ci": 33553805658
+  },
+  "control": {
+    "repository": "Tausendunde1nz/infra",
+    "branch": "control-main",
+    "expected_base_commit": "75fa40d2e8e96fe2d1cdbb4a06d282256a1c9245",
+    "runtime_requires_exact_head_and_tree_arguments": true
+  },
+  "brand": {
+    "internal_name": "TU1NZ",
+    "public_name": "Want Me Seen",
+    "claim": "Exposed on purpose. Always by choice.",
+    "operator_selected_brand": true,
+    "primary_domain": "wantmeseen.com",
+    "redirect_domain": "wantmeseen.de",
+    "public_email": "contact@wantmeseen.com"
+  },
+  "brand_screening": {
+    "scope": ["DPMA", "EUIPO/TMview", "WIPO", "open_web"],
+    "query_names": ["Want Me Seen", "WantMeSeen"],
+    "result": "NO_OBVIOUS_KNOCKOUT_FOUND_PRELIMINARY_ONLY",
+    "operator_selected_brand": true,
+    "legal_clearance": false
+  },
+  "legal": {
+    "imprint_name": "Want Me Seen",
+    "imprint_service": "ZERODOX CORE + 18+",
+    "imprint_variant": "CREATOR_NAME_ONLY_OPERATOR_DECISION",
+    "legal_final_review_required": true,
+    "adult_publication_legal_clearance": false,
+    "public_contact": "contact@wantmeseen.com"
+  },
+  "telegram": {
+    "expected_bot_id": 8622690874,
+    "current_bot_username": "tu1nz_adult_early_access_bot",
+    "future_bot_username": "WantMeSeenBot",
+    "bot_rename_enabled": false,
+    "current_channel": "@tu1nz_adult_publishing",
+    "future_channel": "@WantMeSeen",
+    "channel_rename_enabled": false,
+    "minimum_channel_admin_rights": ["post_messages"]
+  },
+  "growth": {
+    "content_weeks": 12,
+    "posts_per_week": 3,
+    "languages": ["DE", "EN"],
+    "categories": ["EXPOSURE", "DARE", "ATTENTION", "BOUNDARIES", "PRIVACY", "PRODUCT", "EARLY_ACCESS"],
+    "nurture_opt_in_only": true,
+    "referrals_sfw_only": true,
+    "analytics_aggregate_only": true,
+    "x": "X_DISABLED_FOR_NOW",
+    "reddit": "REDDIT_DISABLED_FOR_NOW"
+  },
+  "authorization": {
+    "reversible_public_sfw_deployment": true,
+    "domain_cutover": true,
+    "telegram_branding": true,
+    "automated_sfw_growth": true,
+    "adult_media": false,
+    "real_avs": false,
+    "payments": false,
+    "external_adult_publishing": false,
+    "creator_invite": false,
+    "controlled_beta": false,
+    "production_adult_workflow": false
+  },
+  "product_boundary": {
+    "adult_content": false,
+    "adult_media": false,
+    "media_intake": false,
+    "identity_documents": false,
+    "real_avs": false,
+    "payments": false,
+    "external_publishing": false,
+    "creator_activation": false,
+    "controlled_beta": false,
+    "production": false
+  },
+  "deployment": {
+    "source_application_commit": "d3ae2764cc1623bfcc32d2c3f15264ca74fb2e79",
+    "source_application_tree": "c9fa052bceb1e7ec3b84a5254d399acde9ff0989",
+    "target_application_commit": "cdeab77c17c28f4ade46c27975f1c20e74cb8737",
+    "target_application_tree": "88d8869fbbb9931b16451f7bb1483e1fa6d483df",
+    "backup_before_delta": true,
+    "two_hour_observation_required": true,
+    "legacy_tu1nz_fallback_preserved_until_observation_green": true,
+    "status": "PREPARED_NOT_DEPLOYED"
+  },
+  "files": {
+    "s10_contract_sha256": "cf0dd7f72b9501fef98a640ee7f48faefa69a6de014c9a21c1c510f827079856",
+    "s10_copy_sha256": "a7a4a79cdd2dd3795d0603d8c9976242403805a0b14557ad17bc2824cb59b24f",
+    "s8_copy_sha256": "28fe75b7ff10d121e59dba30e09b8c90278df706956015fec5b7120b2653a124",
+    "s8_contract_sha256": "cea242a0c749f5e10b15c527248a60a9c429ad7a3f3d655ca0a71e61d7ff6193",
+    "s9_contract_sha256": "274677854b3067cf970f103fc3f541f31e4244df017f9bbcaa0da0c707aa2bf5",
+    "migration_0028_sha256": "6dc77fd37ee65a1d8f67eb47dd75869b265289d007b1b8986a0474dadd449edc",
+    "migration_0028_down_sha256": "6e18a45f9d2a202be268f4636a9d00abc82ed549de3b422551939e06e908311d"
+  },
+  "control_files": {
+    "backup_script_sha256": "29bd5b9ba2d773b4e792216b585c95be15319c0e1be1a6bb8fda9fdc2b61cfaf",
+    "controller_sha256": "a8f03fecfc50116ebdbfa6fddf7408de9f5161c2ed9bf79a2c23a2d9bf81a549",
+    "health_script_sha256": "b7609c8916d1433543cce740fd20b67d8e0ef9c156f20b8e54c78da95408cec9",
+    "observer_sha256": "fba80650a45f0744080dedab1ef8bbd69f6b06c286648ce121ea2358c5fc93f3",
+    "legacy_prearm_script_sha256": "9628adebd3c7bfdf18f3aeb89fb3465adba60ddec5472af0147b953b06370dd0",
+    "wms_service_sha256": "b2931ee3649ee686ab4a5ddd09709fbd343d9493f922ee00a12d0ba027f5da07",
+    "local_health_service_sha256": "0f8cb4e70765d71d0490bee881f1cc184555167324458c6cf4c6339cfb14d9c5",
+    "pre_growth_health_service_sha256": "60c169c4470df8205cba9df59de06f8d06829063c9cd0d49dd1a690fd612c243",
+    "legacy_prearm_service_sha256": "cacb751880c39bab98fa9de7361ac49f0a96838bbcd8cc5e05302fe983a28140",
+    "health_service_sha256": "cb42562d9bf2a2988e311f8fe3168b8b55561a6460c902a739297576df5bd7a7",
+    "health_timer_sha256": "e68b164313f492e896f7fd70a8e4c8ec997a9516e161a22fb0b154f1c93f5155",
+    "s8_drop_in_sha256": "2eaa68ace7a2ed4259be422cb7908eb5994735691c265d20935ca4d354d9565a",
+    "seed_drop_in_sha256": "91f572d05f0959b1cd1462335f56f1386475738b3af14a51698192ac220374ab",
+    "audience_drop_in_sha256": "672c36e89ab576905a6e9bcbe51bef34ca27b34a01cbd6436620825df7a12536",
+    "nurture_drop_in_sha256": "450a5f341c1b038077d43edaca327dc4d917543e0fd995ae2dad6f0d1ddade1d",
+    "report_drop_in_sha256": "e77d3f4d7c61bcd6340ec76e05a03d255825fc577ee0145eecbadc40bff4c443",
+    "acme_nginx_sha256": "c0e93690fdab003e0b3d7de2dea128567630aaa61a941c4d378547f56dd1cf11",
+    "public_nginx_sha256": "fc2ac06c77b2c0388633af94570fce67f08a746e903355add155d173fa509f57",
+    "final_nginx_sha256": "cba472a56bb57d52721430a9b01eeb3f5bd3930a784b8e13e90c8a05ff4ab97c"
+  },
+  "external_gates": [
+    "DNS_A_RECORDS_MUST_RESOLVE_TO_VERIFIED_SERVER",
+    "TLS_CERTIFICATES_MUST_BE_ISSUED_AND_VERIFIED",
+    "TELEGRAM_HANDLE_RENAMES_REMAIN_ONE_TIME_OPERATOR_ACTIONS",
+    "EXACT_ZERODOX_PUBLIC_URL_OPTIONAL_REPLACEMENT_PENDING"
+  ],
+  "rollback": {
+    "target": "S7_S8_S9_PUBLIC_SFW_BASELINE",
+    "preserve_database_evidence": true,
+    "automatic_destructive_database_restore": false,
+    "legacy_domain_remains_available": true
+  }
+}

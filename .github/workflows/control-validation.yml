@@ -556,7 +556,8 @@ jobs:
         shell: bash
         run: |
           temporary_units="$(mktemp -d)"
-          cp systemd/tu1nz-adult-public-s9-* "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s9-*.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s9-*.timer "$temporary_units/"
           cp systemd/tu1nz-adult-public-s7.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-telegram.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"
@@ -594,3 +595,58 @@ jobs:
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nEi '(systemctl|daemon-reload|(^|[^[:alnum:]_])ssh([^[:alnum:]_]|$)|git[[:space:]]+(fetch|pull|checkout|reset|clean)|https?://api\.|TELEGRAM_TOKEN|X_TOKEN|REDDIT_TOKEN|PAYMENT_TOKEN|AVS_TOKEN|(^|[[:space:]])crontab([[:space:]]|$))' -- "${files[@]}"
+      - name: Validate Commercial S10.1 WMS public activation Control SSOT
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s10-1-wms-public-activation.json >/dev/null
+          && python3 -m py_compile
+          scripts/tu1nz_adult_public_s10_1_health.py
+          scripts/tu1nz_adult_public_s10_1_observer.py
+          tests/test_adult_commercial_s10_1_wms_public_activation.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s10_1_wms_public_activation
+      - name: Validate Commercial S10.1 WMS shells
+        run: >-
+          bash -n scripts/tu1nz_adult_public_s10_1_control.sh
+          && bash -n scripts/tu1nz_adult_public_s10_1_backup.sh
+      - name: Validate Commercial S10.1 WMS systemd units
+        shell: bash
+        run: |
+          temporary_units="$(mktemp -d)"
+          cp systemd/tu1nz-adult-public-s10-* "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s7.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s8-telegram.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s9-*.service "$temporary_units/"
+          cp -R systemd/tu1nz-adult-public-s8-telegram.service.d "$temporary_units/"
+          cp -R systemd/tu1nz-adult-public-s8-landing.service.d "$temporary_units/"
+          for directory in systemd/tu1nz-adult-public-s9-*.service.d; do
+            cp -R "$directory" "$temporary_units/"
+          done
+          sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service
+          sed -i '/^ExecStart=$/! s|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service.d/*.conf
+          systemd-analyze verify "$temporary_units"/*.service "$temporary_units"/*.timer
+      - name: Reject Commercial S10.1 secrets cron and forbidden providers
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s10-1-wms-public-activation.json
+            docs/COMMERCIAL_S10_1_WMS_PUBLIC_ACTIVATION_CONTROL.md
+            scripts/tu1nz_adult_public_s10_1_backup.sh
+            scripts/tu1nz_adult_public_s10_1_control.sh
+            scripts/tu1nz_adult_public_s10_1_health.py
+            scripts/tu1nz_adult_public_s10_1_observer.py
+            nginx/current/wantmeseen.s10-1-acme.conf
+            nginx/current/wantmeseen.s10-1-final.conf
+            nginx/current/wantmeseen.s10-1-public.conf
+            systemd/tu1nz-adult-public-s10-local-health.service
+            systemd/tu1nz-adult-public-s10-pre-growth-health.service
+            systemd/tu1nz-adult-public-s10-health.service
+            systemd/tu1nz-adult-public-s10-health.timer
+            systemd/tu1nz-adult-public-s10-wms.service
+            systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf
+            systemd/tu1nz-adult-public-s9-*.service.d/s10-wms.conf
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
+          ! grep -nE '(systemctl[[:space:]]+restart|rm[[:space:]]+-rf|git[[:space:]]+(reset|clean))' scripts/tu1nz_adult_public_s10_1_control.sh
