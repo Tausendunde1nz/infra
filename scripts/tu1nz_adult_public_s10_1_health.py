@@ -112,9 +112,10 @@ def _web(origin: str) -> dict[str, object]:
             raise ValueError("S10_PUBLIC_HTTP_STATUS_RED")
         bodies[path] = body
     page = bodies["/"]
-    if b"Want Me Seen" not in page or b"Exposed on purpose" not in page:
+    normalized_page = page.lower()
+    if b"want me seen" not in normalized_page or b"exposed on purpose" not in normalized_page:
         raise ValueError("S10_PUBLIC_BRAND_RED")
-    if b"TU1NZ" in page or b"Seen By Choice" in page or b"Seen-By-Choice" in page:
+    if b"tu1nz" in normalized_page or b"seen by choice" in normalized_page or b"seen-by-choice" in normalized_page:
         raise ValueError("S10_PUBLIC_LEGACY_BRAND_LEAK")
     legal_expectations = {
         "/privacy?lang=en": (b"<title>Privacy ", b'href="https://wantmeseen.com/privacy"'),

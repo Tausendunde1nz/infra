@@ -151,6 +151,9 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "S10_1_WMS_LOCAL_SFW_GREEN",
             "S10_1_WMS_PRE_GROWTH_SFW_GREEN",
             "S10_PUBLIC_LEGACY_BRAND_LEAK",
+            "normalized_page = page.lower()",
+            'b"want me seen"',
+            'b"exposed on purpose"',
             "S10_PRODUCT_BOUNDARY_RED",
             "S10_GROWTH_BOUNDARY_RED",
             "S9_FORBIDDEN_CAPABILITIES",
@@ -203,6 +206,10 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "require_s9_restored_green",
             "ROLLBACK_S9_RUNTIME_BOUNDARY_RED",
             "ROLLBACK_S9_CHANNEL_BOUNDARY_RED",
+            "ROLLBACK_S8_COPY_DRIFT",
+            'SOURCE_S8_COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"',
+            'SOURCE_S8_CONTRACT_SHA="fe20aea4b80206a5eaa79b94d2b74c85d2883240ea68b6d4734618daadac452d"',
+            'SOURCE_S9_CONTRACT_SHA="12022dbc0c6dd8c748db91d526b374a690c6bb9f43c7ac89ea525aef7c9b28a0"',
             "ROLLBACK_S9_PREARM_HEALTH_RED",
             "ROLLBACK_S9_TIMER_ENABLE_RED",
             "ROLLBACK_S9_TIMER_STATE_DIVERGED",
@@ -299,6 +306,12 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(activate_public.index('systemctl reload nginx.service'), activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'))
         self.assertLess(activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'), activate_public.index("start_growth"))
         rollback = source.split("rollback() {", 1)[1].split('case "${1:-}"', 1)[0]
+        restored = source.split("require_s9_restored_green() {", 1)[1].split("require_paths_unshared() {", 1)[0]
+        self.assertIn('$SOURCE_S8_CONTRACT_SHA', restored)
+        self.assertIn('$SOURCE_S8_COPY_SHA', restored)
+        self.assertIn('$SOURCE_S9_CONTRACT_SHA', restored)
+        self.assertNotIn('= "$S8_CONTRACT_SHA"', restored)
+        self.assertNotIn('= "$S9_CONTRACT_SHA"', restored)
         self.assertIn('install -o chatops -g chatops -m 0400 "$3/application.bundle" "$rollback_bundle"', rollback)
         self.assertLess(rollback.index('bundle unbundle "$rollback_bundle"'), rollback.index("stop_growth"))
         self.assertLess(rollback.index('unlink "$rollback_bundle" || fail'), rollback.index("stop_growth"))

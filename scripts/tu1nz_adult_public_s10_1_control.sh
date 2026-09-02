@@ -17,6 +17,9 @@ readonly S10_COPY_SHA="a7a4a79cdd2dd3795d0603d8c9976242403805a0b14557ad17bc2824c
 readonly S8_COPY_SHA="28fe75b7ff10d121e59dba30e09b8c90278df706956015fec5b7120b2653a124"
 readonly S8_CONTRACT_SHA="cea242a0c749f5e10b15c527248a60a9c429ad7a3f3d655ca0a71e61d7ff6193"
 readonly S9_CONTRACT_SHA="274677854b3067cf970f103fc3f541f31e4244df017f9bbcaa0da0c707aa2bf5"
+readonly SOURCE_S8_COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"
+readonly SOURCE_S8_CONTRACT_SHA="fe20aea4b80206a5eaa79b94d2b74c85d2883240ea68b6d4734618daadac452d"
+readonly SOURCE_S9_CONTRACT_SHA="12022dbc0c6dd8c748db91d526b374a690c6bb9f43c7ac89ea525aef7c9b28a0"
 readonly MIGRATION_SHA="6dc77fd37ee65a1d8f67eb47dd75869b265289d007b1b8986a0474dadd449edc"
 readonly MIGRATION_DOWN_SHA="6e18a45f9d2a202be268f4636a9d00abc82ed549de3b422551939e06e908311d"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
@@ -116,9 +119,11 @@ require_base_green() {
 require_s9_restored_green() {
   local runtime_state channels
   require_base_green
-  [ "$(sha256sum /etc/tu1nz/adult-commercial-s8-public-telegram.json | awk '{print $1}')" = "$S8_CONTRACT_SHA" ] \
+  [ "$(sha256sum /etc/tu1nz/adult-commercial-s8-public-telegram.json | awk '{print $1}')" = "$SOURCE_S8_CONTRACT_SHA" ] \
     || fail "ROLLBACK_S8_CONTRACT_DRIFT"
-  [ "$(sha256sum /etc/tu1nz/adult-commercial-s9-growth.json | awk '{print $1}')" = "$S9_CONTRACT_SHA" ] \
+  [ "$(sha256sum /etc/tu1nz/adult-commercial-s8-copy.json | awk '{print $1}')" = "$SOURCE_S8_COPY_SHA" ] \
+    || fail "ROLLBACK_S8_COPY_DRIFT"
+  [ "$(sha256sum /etc/tu1nz/adult-commercial-s9-growth.json | awk '{print $1}')" = "$SOURCE_S9_CONTRACT_SHA" ] \
     || fail "ROLLBACK_S9_CONTRACT_DRIFT"
   runtime_state="$(database_scalar "SELECT (public_sfw_growth_enabled AND audience_seeding_enabled AND telegram_channel_enabled AND NOT x_enabled AND NOT reddit_enabled AND organic_discovery_enabled AND nurture_enabled AND NOT invite_automation_enabled)::int FROM commercial_s9_runtime_control WHERE singleton;")"
   [ "$runtime_state" = "1" ] || fail "ROLLBACK_S9_RUNTIME_BOUNDARY_RED"
