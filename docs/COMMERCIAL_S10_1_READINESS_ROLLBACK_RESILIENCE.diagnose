@@ -131,3 +131,11 @@ state immediately before each already-authorized bounded start.  It does not
 add retries, start new services or weaken health checks.  Target activation and
 rollback are therefore independent of earlier diagnostic counters while all
 existing fail-closed gates remain intact.
+
+The first execution of that correction exposed systemd's separate behavior
+for a newly installed one-shot unit that has a valid unit file but has never
+been loaded: `reset-failed` reports the unit as not loaded even though the
+following start is valid.  Start-limit clearing now accepts only that exact
+combination (`LoadState=not-found` plus a regular unit file at the approved
+systemd path) as an expected no-op.  A missing file or every other unexpected
+load state still fails closed before the start.
