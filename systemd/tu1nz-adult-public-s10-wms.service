@@ -10,7 +10,7 @@ Type=simple
 User=chatops
 Group=chatops
 WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
-ExecStart=/usr/bin/env PYTHONPATH=/opt/tu1nz_repos/adult-publishing-core/src /opt/tu1nz_repos/adult-publishing-core/.venv/bin/python -m tu1nz_exposure_s10.runtime --contract /etc/tu1nz/adult-commercial-s10-wms.json --copy /etc/tu1nz/adult-commercial-s10-wms-copy.json --bot-contract /etc/tu1nz/adult-commercial-s8-public-telegram.json --aggregate-state /var/lib/tu1nz-adult-public-s9/landing-aggregates.json
+ExecStart=/usr/bin/env PYTHONPATH=/opt/tu1nz_repos/adult-publishing-core/src /opt/tu1nz_repos/adult-publishing-core/.venv/bin/python -m tu1nz_exposure_s10.runtime --contract /etc/tu1nz/adult-commercial-s10-wms.json --copy /etc/tu1nz/adult-commercial-s10-wms-copy.json --bot-contract /etc/tu1nz/adult-commercial-s10-wms-bot-identity.json --aggregate-state /var/lib/tu1nz-adult-public-s9/landing-aggregates.json
 Restart=on-failure
 RestartSec=15s
 StateDirectory=tu1nz-adult-public-s9
