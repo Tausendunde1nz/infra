@@ -207,6 +207,9 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "ROLLBACK_S9_TIMER_ENABLE_RED",
             "ROLLBACK_S9_TIMER_STATE_DIVERGED",
             "restore_s9_timer_state",
+            "wait_http_ready",
+            "WMS_LOCAL_READINESS_RED",
+            "ROLLBACK_S7_READINESS_RED",
             'systemctl disable --now "${S9_TIMERS[@]}"',
             "S9_HEALTH_TIMER_STOP_RED",
             "S9_GROWTH_TIMER_STOP_RED",
@@ -268,6 +271,14 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         install_local = source.split("install_local() {", 1)[1].split("dns_preflight() {", 1)[0]
         self.assertLess(install_local.index("require_backup \"$3\""), install_local.index("install_release"))
         self.assertNotIn('systemctl stop "$WMS_SERVICE" >/dev/null 2>&1 || true', install_local)
+        self.assertLess(
+            install_local.index('systemctl start "$WMS_SERVICE"'),
+            install_local.index('wait_http_ready "http://127.0.0.1:18110/health"'),
+        )
+        self.assertLess(
+            install_local.index('wait_http_ready "http://127.0.0.1:18110/health"'),
+            install_local.index("local_health"),
+        )
         local_configuration = source.split("install_local_configuration() {", 1)[1].split("install_public_configuration() {", 1)[0]
         self.assertIn('/etc/tu1nz/adult-commercial-s10-wms-bot-identity.json', local_configuration)
         self.assertIn('commercial-s8-public-telegram-early-access.sfw.json', local_configuration)
@@ -296,6 +307,14 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(rollback.index("require_s9_restored_green"), rollback.index("restore_s9_timer_state"))
         self.assertLess(rollback.index('run_health_gate "$LEGACY_PREARM_SERVICE"'), rollback.index("restore_s9_timer_state"))
         self.assertNotIn('systemctl enable --now "${S9_TIMERS[@]}"', rollback)
+        self.assertLess(
+            rollback.index('systemctl start "$S7_SERVICE"'),
+            rollback.index('wait_http_ready "http://127.0.0.1:8095/adult/health"'),
+        )
+        self.assertLess(
+            rollback.index('wait_http_ready "http://127.0.0.1:8095/adult/health"'),
+            rollback.index("require_s9_restored_green"),
+        )
         for forbidden in ("rm -rf", "git reset", "git clean", "systemctl restart", "api.x.com", "reddit.com"):
             self.assertNotIn(forbidden, source)
         self.assertNotIn('$APPLICATION_ROOT/.venv/bin/python', source)

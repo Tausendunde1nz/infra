@@ -1,0 +1,43 @@
+# Commercial S10.1 readiness and rollback diagnosis
+
+Date: 2026-09-02
+
+## Scope
+
+This diagnosis covers the failed, public-SFW-only S10.1 activation attempt. It
+does not authorize Adult media, AVS, payment, publishing, creator access,
+controlled beta or production.
+
+## Observed failure
+
+The canonical S10.1 WMS process reached its ready event, but the one-shot local
+health gate was launched in the same second as the `Type=simple` service. Its
+first loopback request raced the listener and returned
+`S10_PUBLIC_ENDPOINT_RED`, which the controller correctly converted to
+`LOCAL_HEALTH_RED` and a fail-closed rollback.
+
+During rollback, the three legacy services were also started as `Type=simple`
+units and the external legacy health assertion followed immediately. The
+listener was not ready yet, Nginx returned 502, and rollback reported
+`LEGACY_PUBLIC_HEALTH_RED`. The legacy processes subsequently became healthy
+without another mutation: S7, S8 Telegram, S8 landing and Nginx were active
+with zero restarts, and the local legacy health endpoint returned HTTP 200.
+
+DNS was not the cause of this attempt. The controller recorded
+`S10_1_WMS_DNS_GREEN` before installation.
+
+## Correction
+
+The controller now waits up to 30 seconds for the exact loopback health
+endpoint after starting the WMS listener and after starting the legacy S7
+listener. Only then may it run the full health envelope. Exhausting the bound
+still fails closed; no second process start or restart is performed.
+
+## Risk and rollback
+
+The change only makes readiness ordering deterministic. It does not weaken any
+health assertion, product boundary or credential check. The verified
+pre-S10.1 backup at
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260902T045348Z-pre-s10-1-local-install`
+remains the server rollback basis. Reverting this commit restores the previous
+controller implementation.

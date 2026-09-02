@@ -287,6 +287,17 @@ run_health_gate() {
   [ "$(service_value "$unit" ExecMainStatus)" = "0" ] || fail "$failure"
 }
 
+wait_http_ready() {
+  local url="$1" failure="$2" attempt
+  for attempt in {1..30}; do
+    if curl --fail --silent --show-error --output /dev/null --max-time 2 "$url"; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "$failure"
+}
+
 restore_s9_timer_state() {
   local state_file="$1" unit expected_enabled expected_active actual_enabled actual_active count
   count="$(wc -l <"$state_file" | tr -d '[:space:]')"
@@ -345,6 +356,7 @@ install_local() {
   apply_migration
   systemctl daemon-reload
   systemctl start "$WMS_SERVICE" || fail "WMS_LOCAL_START_RED"
+  wait_http_ready "http://127.0.0.1:18110/health" "WMS_LOCAL_READINESS_RED"
   local_health
   printf '{"ok":true,"safe_code":"S10_1_WMS_LOCAL_INSTALL_GREEN","public_cutover":false,"adult_media":false,"avs":false,"payments":false,"publishing":false}\n'
 }
@@ -689,6 +701,7 @@ rollback() {
   systemctl start "$S7_SERVICE" || fail "ROLLBACK_S7_RED"
   systemctl start "$S8_LANDING_SERVICE" || fail "ROLLBACK_S8_LANDING_RED"
   systemctl start "$S8_SERVICE" || fail "ROLLBACK_S8_RED"
+  wait_http_ready "http://127.0.0.1:8095/adult/health" "ROLLBACK_S7_READINESS_RED"
   require_s9_restored_green
   run_health_gate "$LEGACY_PREARM_SERVICE" "ROLLBACK_S9_PREARM_HEALTH_RED"
   unlink "/etc/systemd/system/$LEGACY_PREARM_SERVICE" || fail "ROLLBACK_PREARM_UNIT_CLEANUP_RED"
