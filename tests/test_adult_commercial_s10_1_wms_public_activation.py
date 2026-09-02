@@ -282,6 +282,10 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "ROLLBACK_S9_TIMER_ENABLE_RED",
             "ROLLBACK_S9_TIMER_STATE_DIVERGED",
             "restore_s9_timer_state",
+            "configure_bot_profile",
+            "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED",
+            "ROLLBACK_TELEGRAM_PROFILE_CONFIGURATION_RED",
+            "--configure-only",
             "wait_http_ready",
             "WMS_LOCAL_READINESS_RED",
             "ROLLBACK_S7_READINESS_RED",
@@ -374,6 +378,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(activate_public.index('systemctl reload nginx.service'), activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'))
         self.assertLess(activate_public.index("stop_growth"), activate_public.index("activate_s9_public_channel_database"))
         self.assertLess(activate_public.index("activate_s9_public_channel_database"), activate_public.index('systemctl stop "$S8_SERVICE"'))
+        self.assertLess(activate_public.index('systemctl stop "$S8_SERVICE"'), activate_public.index('configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"'))
+        self.assertLess(activate_public.index('configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"'), activate_public.index('systemctl start "$S8_SERVICE"'))
         self.assertLess(activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'), activate_public.index("start_growth"))
         rollback = source.split("rollback() {", 1)[1].split('case "${1:-}"', 1)[0]
         restored = source.split("require_s9_restored_green() {", 1)[1].split("require_paths_unshared() {", 1)[0]
@@ -405,6 +411,10 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(
             rollback.index('wait_http_ready "http://127.0.0.1:8095/adult/health"'),
             rollback.index("require_s9_restored_green"),
+        )
+        self.assertLess(
+            rollback.index('configure_bot_profile "ROLLBACK_TELEGRAM_PROFILE_CONFIGURATION_RED"'),
+            rollback.index('systemctl start "$S8_SERVICE"'),
         )
         for forbidden in ("rm -rf", "git reset", "git clean", "systemctl restart", "api.x.com", "reddit.com"):
             self.assertNotIn(forbidden, source)
