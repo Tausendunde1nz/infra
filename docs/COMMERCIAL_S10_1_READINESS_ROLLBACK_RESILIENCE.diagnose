@@ -80,3 +80,8 @@ The corrective contract now:
 - reverses those migrations before restoring the source application; and
 - validates the actual source S9 channel and privilege boundary during
   rollback before restoring the recorded timer state.
+
+The privilege boundary is tri-state: exactly zero grants is the source state,
+all five required column grants is the target state, and every partial grant
+set is rejected as drift.  A partial privilege mutation can therefore never
+be mistaken for a clean rollback.
