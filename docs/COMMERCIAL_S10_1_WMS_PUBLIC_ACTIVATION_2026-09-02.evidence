@@ -1,0 +1,24 @@
+# Commercial S10.1 public-SFW activation evidence
+
+- State: `PUBLIC_SFW_OBSERVATION_GREEN`
+- Observation: `2026-09-02T18:40:04.615423Z` to `2026-09-02T20:40:07.678958Z`
+- Duration: `7203` seconds
+- Samples: `25`
+- Safe result SHA-256: `56eb540abaecdb2820307769c926cdee39f816497b9be75466a2fda7f6167392`
+- Application commit: `cdeab77c17c28f4ade46c27975f1c20e74cb8737`
+- Application tree: `88d8869fbbb9931b16451f7bb1483e1fa6d483df`
+- Activation Control commit: `5717dd6fdc0757bd9e92e319ceef3b7d3eaad972`
+- Activation Control tree: `48f0f9fa43f3e91f92e7a2824a2d89aef94455f0`
+- Server evidence: `/opt/tu1nz_repos/backups/commercial-s10-1-wms-observation-20260902T184001Z`
+- Final `wantmeseen.de` redirect: `GREEN`
+- Primary Want Me Seen health: `GREEN`
+- Legacy TU1NZ fallback health: `GREEN`
+- Adult media: `false`
+- Real AVS: `false`
+- Payments: `false`
+- External Adult publishing: `false`
+
+The observation evidence is aggregate-only. It contains no token, message,
+media, visitor identifier or personal data. S10.1 authorizes only the public
+SFW surface and automated SFW growth. Adult publication, creator activation,
+Controlled Beta and production remain closed.

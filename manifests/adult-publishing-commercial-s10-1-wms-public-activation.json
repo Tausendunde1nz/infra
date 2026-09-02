@@ -94,7 +94,22 @@
     "backup_before_delta": true,
     "two_hour_observation_required": true,
     "legacy_tu1nz_fallback_preserved_until_observation_green": true,
-    "status": "PREPARED_NOT_DEPLOYED"
+    "status": "PUBLIC_SFW_OBSERVATION_GREEN"
+  },
+  "execution": {
+    "state": "PUBLIC_SFW_OBSERVATION_GREEN",
+    "observation_evidence": "docs/COMMERCIAL_S10_1_WMS_PUBLIC_ACTIVATION_2026-09-02.evidence",
+    "observation_evidence_sha256": "858fc4f7df438656a1eebb8869feb418b7e81d53afdb30fe1ab8342775e01149",
+    "observation_path": "/opt/tu1nz_repos/backups/commercial-s10-1-wms-observation-20260902T184001Z",
+    "started_at": "2026-09-02T18:40:04.615423Z",
+    "completed_at": "2026-09-02T20:40:07.678958Z",
+    "duration_seconds": 7203,
+    "sample_count": 25,
+    "result_sha256": "56eb540abaecdb2820307769c926cdee39f816497b9be75466a2fda7f6167392",
+    "activation_control_commit": "5717dd6fdc0757bd9e92e319ceef3b7d3eaad972",
+    "activation_control_tree": "48f0f9fa43f3e91f92e7a2824a2d89aef94455f0",
+    "final_de_redirect_green": true,
+    "legacy_tu1nz_fallback_preserved": true
   },
   "files": {
     "s10_contract_sha256": "cf0dd7f72b9501fef98a640ee7f48faefa69a6de014c9a21c1c510f827079856",
@@ -107,7 +122,7 @@
   },
   "control_files": {
     "backup_script_sha256": "29bd5b9ba2d773b4e792216b585c95be15319c0e1be1a6bb8fda9fdc2b61cfaf",
-    "controller_sha256": "b8d2c6bfb10fb586149dbc55b5d0d216d695b01238d6cdb93d25dc4a70d1b139",
+    "controller_sha256": "0a89cba773d7a2b767c20c1d9eada9fe3bb5fb6a7ceb51450c2d98eaf34f2604",
     "health_script_sha256": "9415a901bb022006ea4b262f03f98a7069967e248e09e7df63b4c1d91182c51c",
     "observer_sha256": "fba80650a45f0744080dedab1ef8bbd69f6b06c286648ce121ea2358c5fc93f3",
     "legacy_prearm_script_sha256": "4a2d4f359f7324c99131202727c884c2b8713670c1cbdd5c18809a4807324753",
