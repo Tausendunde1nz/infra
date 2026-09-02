@@ -53,6 +53,11 @@ S9_COMPONENTS = {
     "NUDGE_QUEUE": "GREEN",
     "INVITE_ENGINE": "DISABLED_EXPECTED",
 }
+SOURCE_S9_COMPONENTS = {
+    **S9_COMPONENTS,
+    "SCHEDULER": "DISABLED_EXPECTED",
+    "TELEGRAM_CHANNEL": "DISABLED_EXPECTED",
+}
 S9_RUNTIME_FLAGS = {
     "public_sfw_growth_enabled": True,
     "audience_seeding_enabled": True,
@@ -63,10 +68,19 @@ S9_RUNTIME_FLAGS = {
     "nurture_enabled": True,
     "invite_automation_enabled": False,
 }
+SOURCE_S9_RUNTIME_FLAGS = {
+    **S9_RUNTIME_FLAGS,
+    "audience_seeding_enabled": False,
+    "telegram_channel_enabled": False,
+}
 S9_CHANNELS = {
     "telegram_channel": "AUTOMATED_SUPPORTED",
     "x": "DISABLED_FOR_NOW",
     "reddit": "DISABLED_FOR_NOW",
+}
+SOURCE_S9_CHANNELS = {
+    **S9_CHANNELS,
+    "telegram_channel": "DISABLED_FOR_NOW",
 }
 
 
@@ -194,14 +208,17 @@ def _growth(arguments: argparse.Namespace) -> dict[str, object]:
     forbidden = payload.get("forbidden_capabilities")
     components = payload.get("components")
     runtime = payload.get("runtime")
+    expected_components = SOURCE_S9_COMPONENTS if arguments.local_only else S9_COMPONENTS
+    expected_runtime = SOURCE_S9_RUNTIME_FLAGS if arguments.local_only else S9_RUNTIME_FLAGS
+    expected_channels = SOURCE_S9_CHANNELS if arguments.local_only else S9_CHANNELS
     if (
         not isinstance(forbidden, dict)
         or set(forbidden) != S9_FORBIDDEN_CAPABILITIES
         or any(forbidden[key] is not False for key in S9_FORBIDDEN_CAPABILITIES)
-        or components != S9_COMPONENTS
+        or components != expected_components
         or not isinstance(runtime, dict)
-        or any(runtime.get(key) is not expected for key, expected in S9_RUNTIME_FLAGS.items())
-        or runtime.get("channels") != S9_CHANNELS
+        or any(runtime.get(key) is not expected for key, expected in expected_runtime.items())
+        or runtime.get("channels") != expected_channels
     ):
         raise ValueError("S10_GROWTH_BOUNDARY_RED")
     if arguments.local_only:

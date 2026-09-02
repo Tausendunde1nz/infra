@@ -20,6 +20,10 @@ readonly S9_CONTRACT_SHA="274677854b3067cf970f103fc3f541f31e4244df017f9bbcaa0da0
 readonly SOURCE_S8_COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"
 readonly SOURCE_S8_CONTRACT_SHA="fe20aea4b80206a5eaa79b94d2b74c85d2883240ea68b6d4734618daadac452d"
 readonly SOURCE_S9_CONTRACT_SHA="12022dbc0c6dd8c748db91d526b374a690c6bb9f43c7ac89ea525aef7c9b28a0"
+readonly MIGRATION_0026_SHA="0b5e4ff8d6073cf4a23ea3136962c43a6dc6cbfadd1066a7b446f0ea488c760f"
+readonly MIGRATION_0026_DOWN_SHA="35cb7182bcaa038bc47fd3b1246d8616fd31f446540de9ace5202825ad241ef4"
+readonly MIGRATION_0027_SHA="148753478cfd57a0e9e0e7235849d83dd0587e054a96a85d411eac5c7ac7b9ab"
+readonly MIGRATION_0027_DOWN_SHA="2d72e8fb5de5b7cd9e1824cfcb465b59d815a69394e4340277435ae245b7241e"
 readonly MIGRATION_SHA="6dc77fd37ee65a1d8f67eb47dd75869b265289d007b1b8986a0474dadd449edc"
 readonly MIGRATION_DOWN_SHA="6e18a45f9d2a202be268f4636a9d00abc82ed549de3b422551939e06e908311d"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
@@ -125,11 +129,12 @@ require_s9_restored_green() {
     || fail "ROLLBACK_S8_COPY_DRIFT"
   [ "$(sha256sum /etc/tu1nz/adult-commercial-s9-growth.json | awk '{print $1}')" = "$SOURCE_S9_CONTRACT_SHA" ] \
     || fail "ROLLBACK_S9_CONTRACT_DRIFT"
-  runtime_state="$(database_scalar "SELECT (public_sfw_growth_enabled AND audience_seeding_enabled AND telegram_channel_enabled AND NOT x_enabled AND NOT reddit_enabled AND organic_discovery_enabled AND nurture_enabled AND NOT invite_automation_enabled)::int FROM commercial_s9_runtime_control WHERE singleton;")"
+  runtime_state="$(database_scalar "SELECT (public_sfw_growth_enabled AND NOT audience_seeding_enabled AND NOT telegram_channel_enabled AND NOT x_enabled AND NOT reddit_enabled AND organic_discovery_enabled AND nurture_enabled AND NOT invite_automation_enabled)::int FROM commercial_s9_runtime_control WHERE singleton;")"
   [ "$runtime_state" = "1" ] || fail "ROLLBACK_S9_RUNTIME_BOUNDARY_RED"
   channels="$(database_scalar "SELECT string_agg(platform || '=' || status, ',' ORDER BY platform) FROM commercial_s9_channel_state WHERE platform IN ('telegram_channel','x','reddit');")"
-  [ "$channels" = "reddit=DISABLED_FOR_NOW,telegram_channel=AUTOMATED_SUPPORTED,x=DISABLED_FOR_NOW" ] \
+  [ "$channels" = "reddit=DISABLED_FOR_NOW,telegram_channel=DISABLED_FOR_NOW,x=DISABLED_FOR_NOW" ] \
     || fail "ROLLBACK_S9_CHANNEL_BOUNDARY_RED"
+  [ "$(s9_publication_grant_state)" = "0" ] || fail "ROLLBACK_S9_PUBLICATION_GRANT_RED"
 }
 
 require_paths_unshared() {
@@ -147,6 +152,10 @@ require_source_hashes() {
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-copy.v1.json" | awk '{print $1}')" = "$S8_COPY_SHA" ] || fail "S8_COPY_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" | awk '{print $1}')" = "$S8_CONTRACT_SHA" ] || fail "S8_CONTRACT_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/config/commercial-s9-growth.sfw.json" | awk '{print $1}')" = "$S9_CONTRACT_SHA" ] || fail "S9_CONTRACT_DRIFT"
+  [ "$(sha256sum "$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.sql" | awk '{print $1}')" = "$MIGRATION_0026_SHA" ] || fail "MIGRATION_0026_DRIFT"
+  [ "$(sha256sum "$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.down.sql" | awk '{print $1}')" = "$MIGRATION_0026_DOWN_SHA" ] || fail "MIGRATION_0026_DOWN_DRIFT"
+  [ "$(sha256sum "$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.sql" | awk '{print $1}')" = "$MIGRATION_0027_SHA" ] || fail "MIGRATION_0027_DRIFT"
+  [ "$(sha256sum "$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" | awk '{print $1}')" = "$MIGRATION_0027_DOWN_SHA" ] || fail "MIGRATION_0027_DOWN_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/migrations/0028_commercial_s10_1_wms_public_growth.sql" | awk '{print $1}')" = "$MIGRATION_SHA" ] || fail "MIGRATION_0028_DRIFT"
   [ "$(sha256sum "$APPLICATION_ROOT/migrations/0028_commercial_s10_1_wms_public_growth.down.sql" | awk '{print $1}')" = "$MIGRATION_DOWN_SHA" ] || fail "MIGRATION_0028_DOWN_DRIFT"
 }
@@ -253,6 +262,61 @@ apply_migration() {
   elif [ "$installed" != "1" ]; then
     fail "MIGRATION_0028_STATE_DIVERGED"
   fi
+}
+
+s9_channel_database_state() {
+  database_scalar "SELECT CASE WHEN r.audience_seeding_enabled AND r.telegram_channel_enabled AND c.status='AUTOMATED_SUPPORTED' THEN 'target' WHEN NOT r.audience_seeding_enabled AND NOT r.telegram_channel_enabled AND c.status='DISABLED_FOR_NOW' THEN 'source' ELSE 'diverged' END FROM commercial_s9_runtime_control r JOIN commercial_s9_channel_state c ON c.platform='telegram_channel' WHERE r.singleton;"
+}
+
+s9_publication_grant_state() {
+  database_scalar "SELECT (has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','status','UPDATE') AND has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','consecutive_failures','UPDATE') AND has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','last_safe_code','UPDATE') AND has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','paused_at','UPDATE') AND has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','updated_at','UPDATE'))::int;"
+}
+
+activate_s9_public_channel_database() {
+  case "$(s9_channel_database_state)" in
+    source)
+      runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+        <"$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.sql" >/dev/null \
+        || fail "S9_TELEGRAM_CHANNEL_MIGRATION_RED"
+      ;;
+    target) ;;
+    *) fail "S9_TELEGRAM_CHANNEL_BASELINE_DIVERGED" ;;
+  esac
+  if [ "$(s9_publication_grant_state)" = "0" ]; then
+    runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+      <"$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.sql" >/dev/null \
+      || fail "S9_PUBLICATION_GRANT_RED"
+  fi
+  [ "$(s9_channel_database_state):$(s9_publication_grant_state)" = "target:1" ] \
+    || fail "S9_TELEGRAM_CHANNEL_ACTIVATION_DIVERGED"
+}
+
+restore_s9_public_channel_database() {
+  case "$(s9_channel_database_state)" in
+    target)
+      [ -f "$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.down.sql" ] \
+        && [ -f "$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" ] \
+        || fail "ROLLBACK_S9_MIGRATION_SOURCE_MISSING"
+      runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+        <"$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" >/dev/null \
+        || fail "ROLLBACK_S9_PUBLICATION_GRANT_RED"
+      runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+        <"$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.down.sql" >/dev/null \
+        || fail "ROLLBACK_S9_TELEGRAM_CHANNEL_RED"
+      ;;
+    source)
+      if [ "$(s9_publication_grant_state)" = "1" ]; then
+        [ -f "$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" ] \
+          || fail "ROLLBACK_S9_MIGRATION_SOURCE_MISSING"
+        runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+          <"$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" >/dev/null \
+          || fail "ROLLBACK_S9_PUBLICATION_GRANT_RED"
+      fi
+      ;;
+    *) fail "ROLLBACK_S9_TELEGRAM_CHANNEL_DIVERGED" ;;
+  esac
+  [ "$(s9_channel_database_state):$(s9_publication_grant_state)" = "source:0" ] \
+    || fail "ROLLBACK_S9_TELEGRAM_CHANNEL_RED"
 }
 
 stop_growth() {
@@ -472,6 +536,7 @@ activate_public() {
     ln -sfn /etc/nginx/sites-available/wantmeseen.conf /etc/nginx/sites-enabled/wantmeseen.conf
     nginx -t || fail "NGINX_PUBLIC_VERIFY_RED"
     stop_growth
+    activate_s9_public_channel_database
     systemctl stop "$S8_SERVICE"
     systemctl daemon-reload
     systemctl start "$S8_SERVICE" || fail "S8_WMS_START_RED"
@@ -646,6 +711,7 @@ rollback() {
   [ "$(git_value "$APPLICATION_ROOT" "${recorded_sha}^{tree}")" = "$recorded_tree" ] \
     || fail "ROLLBACK_APPLICATION_TREE_DIVERGED"
   stop_growth
+  restore_s9_public_channel_database
   systemctl stop "$S8_SERVICE" "$S8_LANDING_SERVICE" "$S7_SERVICE" \
     || fail "ROLLBACK_LEGACY_SERVICE_STOP_RED"
   case "$(service_value "$HEALTH_TIMER" LoadState)" in

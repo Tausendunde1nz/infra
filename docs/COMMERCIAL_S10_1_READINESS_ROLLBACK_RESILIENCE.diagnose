@@ -55,3 +55,28 @@ The same run also showed that rollback restored the exact source-era S8/S9
 configuration, but the verifier compared those files to the S10.1 target
 hashes. Separate immutable source hashes are now bound for rollback, including
 the S8 copy. Target installation continues to use the existing target hashes.
+
+## 2026-09-02 third fail-closed activation
+
+The third controlled attempt stopped at `LOCAL_HEALTH_RED` with the safe
+diagnostic `S10_GROWTH_BOUNDARY_RED`.  The loopback WMS was ready; the local
+gate was incorrectly comparing the still-live S9 source contract/database
+boundary (Telegram channel and audience seeding disabled) with the future S10
+target boundary.  No public cutover occurred.
+
+The automatic rollback restored the source application, source S8/S9
+contracts, S7, S8 Telegram, S8 landing, nginx and both legacy health endpoints.
+It then stopped fail-closed before restoring the recorded S9 timers because
+`require_s9_restored_green` incorrectly required the target S9 channel state.
+The recorded timers therefore remained disabled pending the next controlled
+maintenance window.  There was no adult-media, AVS, payment, creator-beta or
+publishing activation.
+
+The corrective contract now:
+
+- validates the source S9 boundary during the loopback-only local gate;
+- hash-binds and applies the already-reviewed 0026/0027 S9 Telegram activation
+  migrations only inside the public cutover transaction window;
+- reverses those migrations before restoring the source application; and
+- validates the actual source S9 channel and privilege boundary during
+  rollback before restoring the recorded timer state.

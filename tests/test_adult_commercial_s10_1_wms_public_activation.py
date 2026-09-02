@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import hashlib
+import importlib.util
 import py_compile
 import re
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -158,8 +161,14 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "S10_GROWTH_BOUNDARY_RED",
             "S9_FORBIDDEN_CAPABILITIES",
             "S9_COMPONENTS",
+            "SOURCE_S9_COMPONENTS",
             "S9_RUNTIME_FLAGS",
+            "SOURCE_S9_RUNTIME_FLAGS",
             "S9_CHANNELS",
+            "SOURCE_S9_CHANNELS",
+            "expected_components = SOURCE_S9_COMPONENTS if arguments.local_only else S9_COMPONENTS",
+            "expected_runtime = SOURCE_S9_RUNTIME_FLAGS if arguments.local_only else S9_RUNTIME_FLAGS",
+            "expected_channels = SOURCE_S9_CHANNELS if arguments.local_only else S9_CHANNELS",
             '"bot_can_post": True',
             '"channel_bound": True',
             "S10_PUBLIC_ROBOTS_RED",
@@ -191,6 +200,51 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertNotIn("message_text", observer)
         self.assertNotIn("telegram_user_id", observer)
 
+    def test_local_health_accepts_only_the_closed_source_growth_boundary(self) -> None:
+        spec = importlib.util.spec_from_file_location("s10_health_regression", HEALTH)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        payload = {
+            "ok": True,
+            "state": "GREEN",
+            "forbidden_capabilities": {
+                name: False for name in module.S9_FORBIDDEN_CAPABILITIES
+            },
+            "components": module.SOURCE_S9_COMPONENTS,
+            "runtime": {
+                **module.SOURCE_S9_RUNTIME_FLAGS,
+                "channels": module.SOURCE_S9_CHANNELS,
+                "publication_total": 0,
+                "publication_failed": 0,
+            },
+        }
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps(payload), stderr=""
+        )
+        arguments = SimpleNamespace(
+            s9_contract=Path("/source-s9.json"),
+            database_dsn=Path("/database.dsn"),
+            contract=Path("/s10.json"),
+            local_only=True,
+        )
+        with mock.patch.object(module, "_run", return_value=completed):
+            self.assertEqual(
+                module._growth(arguments),
+                {"application": "GREEN", "telegram": "NOT_PROBED_LOCAL_ONLY"},
+            )
+        payload["runtime"] = {
+            **module.S9_RUNTIME_FLAGS,
+            "channels": module.S9_CHANNELS,
+            "publication_total": 0,
+            "publication_failed": 0,
+        }
+        completed.stdout = json.dumps(payload)
+        with mock.patch.object(module, "_run", return_value=completed):
+            with self.assertRaisesRegex(ValueError, "S10_GROWTH_BOUNDARY_RED"):
+                module._growth(arguments)
+
     def test_controller_is_exact_backup_first_bounded_and_reversible(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")
         completed = subprocess.run(["bash", "-n", CONTROLLER], capture_output=True, text=True, check=False)
@@ -210,6 +264,15 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             'SOURCE_S8_COPY_SHA="95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093"',
             'SOURCE_S8_CONTRACT_SHA="fe20aea4b80206a5eaa79b94d2b74c85d2883240ea68b6d4734618daadac452d"',
             'SOURCE_S9_CONTRACT_SHA="12022dbc0c6dd8c748db91d526b374a690c6bb9f43c7ac89ea525aef7c9b28a0"',
+            'MIGRATION_0026_SHA="0b5e4ff8d6073cf4a23ea3136962c43a6dc6cbfadd1066a7b446f0ea488c760f"',
+            'MIGRATION_0026_DOWN_SHA="35cb7182bcaa038bc47fd3b1246d8616fd31f446540de9ace5202825ad241ef4"',
+            'MIGRATION_0027_SHA="148753478cfd57a0e9e0e7235849d83dd0587e054a96a85d411eac5c7ac7b9ab"',
+            'MIGRATION_0027_DOWN_SHA="2d72e8fb5de5b7cd9e1824cfcb465b59d815a69394e4340277435ae245b7241e"',
+            "activate_s9_public_channel_database",
+            "restore_s9_public_channel_database",
+            "S9_TELEGRAM_CHANNEL_MIGRATION_RED",
+            "S9_PUBLICATION_GRANT_RED",
+            "ROLLBACK_S9_PUBLICATION_GRANT_RED",
             "ROLLBACK_S9_PREARM_HEALTH_RED",
             "ROLLBACK_S9_TIMER_ENABLE_RED",
             "ROLLBACK_S9_TIMER_STATE_DIVERGED",
@@ -304,6 +367,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         stop_growth = source.split("stop_growth() {", 1)[1].split("start_growth() {", 1)[0]
         self.assertNotIn("|| true", stop_growth)
         self.assertLess(activate_public.index('systemctl reload nginx.service'), activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'))
+        self.assertLess(activate_public.index("stop_growth"), activate_public.index("activate_s9_public_channel_database"))
+        self.assertLess(activate_public.index("activate_s9_public_channel_database"), activate_public.index('systemctl stop "$S8_SERVICE"'))
         self.assertLess(activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'), activate_public.index("start_growth"))
         rollback = source.split("rollback() {", 1)[1].split('case "${1:-}"', 1)[0]
         restored = source.split("require_s9_restored_green() {", 1)[1].split("require_paths_unshared() {", 1)[0]
@@ -316,6 +381,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(rollback.index('bundle unbundle "$rollback_bundle"'), rollback.index("stop_growth"))
         self.assertLess(rollback.index('unlink "$rollback_bundle" || fail'), rollback.index("stop_growth"))
         self.assertLess(rollback.index("ROLLBACK_APPLICATION_TREE_DIVERGED"), rollback.index("stop_growth"))
+        self.assertLess(rollback.index("stop_growth"), rollback.index("restore_s9_public_channel_database"))
+        self.assertLess(rollback.index("restore_s9_public_channel_database"), rollback.index('systemctl stop "$S8_SERVICE"'))
         self.assertNotIn('systemctl stop "$S8_SERVICE" "$S8_LANDING_SERVICE" "$S7_SERVICE" >/dev/null 2>&1 || true', rollback)
         self.assertLess(rollback.index("require_s9_restored_green"), rollback.index("restore_s9_timer_state"))
         self.assertLess(rollback.index('run_health_gate "$LEGACY_PREARM_SERVICE"'), rollback.index("restore_s9_timer_state"))
