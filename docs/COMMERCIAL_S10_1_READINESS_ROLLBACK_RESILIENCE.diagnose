@@ -41,3 +41,17 @@ pre-S10.1 backup at
 `/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260902T045348Z-pre-s10-1-local-install`
 remains the server rollback basis. Reverting this commit restores the previous
 controller implementation.
+
+## Follow-up evidence
+
+The bounded readiness correction proved that the listener itself became ready.
+The next local gate then exposed a separate deterministic mismatch:
+`S10_PUBLIC_BRAND_RED`. The landing renders the approved slogan in uppercase,
+while the health script compared mixed-case bytes. Brand and legacy-name checks
+now normalize the rendered page before comparison; the required words and all
+legacy-brand rejection rules remain unchanged.
+
+The same run also showed that rollback restored the exact source-era S8/S9
+configuration, but the verifier compared those files to the S10.1 target
+hashes. Separate immutable source hashes are now bound for rollback, including
+the S8 copy. Target installation continues to use the existing target hashes.
