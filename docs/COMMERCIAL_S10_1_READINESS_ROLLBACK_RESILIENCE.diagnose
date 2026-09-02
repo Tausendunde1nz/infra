@@ -148,3 +148,32 @@ the approved path and whose `FragmentPath` is exactly that path. For the
 pre-load case it still requires `LoadState=not-found`, an empty `FragmentPath`
 and the same regular file. Failed, activating, deactivating, missing, generated,
 transient or path-divergent units remain fail-closed.
+
+## 2026-09-02 legacy publication lease reconciliation
+
+The next controlled attempt reached the WMS content seed and then stopped as
+`S9_LEGACY_CAMPAIGN_IN_FLIGHT`. One legacy SFW Telegram queue row remained in
+the first-attempt `PUBLISHING` state. Replaying it would risk a duplicate
+public message because Telegram does not accept the internal idempotency key.
+The campaign transition therefore correctly committed no partial WMS seed and
+the controller restored the public S7/S8 baseline.
+
+The public Telegram channel contains exactly one post whose normalized text
+has the deterministic SHA-256 expected for that exact legacy content item and
+whose provider post ID is `2`. The correction adds a credential-free,
+read-only public-evidence verifier and invokes the application's existing
+fail-closed reconciliation transaction through a hardened, loopback-only
+one-shot service. Reconciliation is allowed only while the legacy publication
+gate is closed, only for one exact first-attempt lease, and only after the
+public post digest matches. It records the already-public result; it cannot
+send a new Telegram message. A missing, additional or different lease, page,
+post ID or text digest stops activation.
+
+Rollback health also exposed a provenance mismatch: the server intentionally
+retains the legacy S9 health helper while Control contains the channel-enabled
+target helper. S10.1 now leaves the legacy helper untouched, uses a separate
+hash-bound target launcher through an activation-only systemd drop-in, and
+removes that drop-in during rollback. The pre-arm verifier is bound to the
+observed legacy helper hash. This preserves exact source behavior after
+rollback and exact target behavior after cutover without replacing the shared
+baseline executable.

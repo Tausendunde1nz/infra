@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 S9_HEALTH = Path("/usr/local/bin/tu1nz_adult_public_s9_health.py")
-S9_HEALTH_SHA256 = "3a7257caba4f4144b0d61f10b4c21d288e68f9decc6ee62cccbe45627abcd259"
+S9_HEALTH_SHA256 = "56e04474cdabdd5b80b5f19ffadb76c57f5c0036e3214795dd66d164f081c0fc"
 
 
 def main() -> int:
