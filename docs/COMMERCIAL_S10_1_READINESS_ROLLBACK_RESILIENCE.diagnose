@@ -139,3 +139,12 @@ following start is valid.  Start-limit clearing now accepts only that exact
 combination (`LoadState=not-found` plus a regular unit file at the approved
 systemd path) as an expected no-op.  A missing file or every other unexpected
 load state still fails closed before the start.
+
+The following controlled attempt proved a second, equally safe systemd no-op
+case: after `daemon-reload`, the same never-started unit is already
+`LoadState=loaded`, while `reset-failed` can still report that no failed unit is
+known. The guard now accepts only an inactive unit whose regular file exists at
+the approved path and whose `FragmentPath` is exactly that path. For the
+pre-load case it still requires `LoadState=not-found`, an empty `FragmentPath`
+and the same regular file. Failed, activating, deactivating, missing, generated,
+transient or path-divergent units remain fail-closed.
