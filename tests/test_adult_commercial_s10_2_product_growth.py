@@ -90,6 +90,9 @@ class CommercialS102ProductGrowthTests(unittest.TestCase):
         self.assertNotIn("psql ", self.controller)
         self.assertNotIn("pg_restore", self.controller)
         self.assertNotIn("adult-commercial-s8-telegram.token", self.controller)
+        self.assertNotIn('p.get("forbidden_capabilities")', self.controller)
+        self.assertIn('p.get("mode")=="SFW_PUBLIC_EARLY_ACCESS"', self.controller)
+        self.assertIn('p.get("brand")=="Want Me Seen"', self.controller)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.controller))
 
     def test_product_boundary_accepts_source_and_requires_target_intro(self) -> None:
