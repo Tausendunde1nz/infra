@@ -272,21 +272,38 @@ s9_publication_grant_state() {
   database_scalar "SELECT CASE privilege_count WHEN 0 THEN 'source' WHEN 5 THEN 'target' ELSE 'diverged' END FROM (SELECT has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','status','UPDATE')::int + has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','consecutive_failures','UPDATE')::int + has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','last_safe_code','UPDATE')::int + has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','paused_at','UPDATE')::int + has_column_privilege('tu1nz_adult_commercial_s3_runtime','commercial_s9_channel_state','updated_at','UPDATE')::int AS privilege_count) state;"
 }
 
+run_bound_target_migration() {
+  local path="$1" expected_hash="$2" failure="$3" actual_hash
+  runuser -u chatops -- git -C "$APPLICATION_ROOT" cat-file -e "${TARGET_SHA}^{commit}" \
+    || fail "TARGET_COMMIT_MISSING"
+  [ "$(git_value "$APPLICATION_ROOT" "${TARGET_SHA}^{tree}")" = "$TARGET_TREE" ] \
+    || fail "TARGET_TREE_MISMATCH"
+  actual_hash="$(
+    runuser -u chatops -- git -C "$APPLICATION_ROOT" show "${TARGET_SHA}:$path" \
+      | sha256sum | awk '{print $1}'
+  )"
+  [ "$actual_hash" = "$expected_hash" ] || fail "BOUND_MIGRATION_HASH_DIVERGED"
+  if ! runuser -u chatops -- git -C "$APPLICATION_ROOT" show "${TARGET_SHA}:$path" \
+    | runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" >/dev/null; then
+    fail "$failure"
+  fi
+}
+
 activate_s9_public_channel_database() {
   case "$(s9_channel_database_state)" in
     source)
-      runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
-        <"$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.sql" >/dev/null \
-        || fail "S9_TELEGRAM_CHANNEL_MIGRATION_RED"
+      run_bound_target_migration \
+        migrations/0026_commercial_s9_telegram_channel.sql "$MIGRATION_0026_SHA" \
+        "S9_TELEGRAM_CHANNEL_MIGRATION_RED"
       ;;
     target) ;;
     *) fail "S9_TELEGRAM_CHANNEL_BASELINE_DIVERGED" ;;
   esac
   case "$(s9_publication_grant_state)" in
     source)
-      runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
-        <"$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.sql" >/dev/null \
-        || fail "S9_PUBLICATION_GRANT_RED"
+      run_bound_target_migration \
+        migrations/0027_commercial_s9_publication_completion.sql "$MIGRATION_0027_SHA" \
+        "S9_PUBLICATION_GRANT_RED"
       ;;
     target) ;;
     *) fail "S9_PUBLICATION_GRANT_DIVERGED" ;;
@@ -298,24 +315,19 @@ activate_s9_public_channel_database() {
 restore_s9_public_channel_database() {
   case "$(s9_channel_database_state)" in
     target)
-      [ -f "$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.down.sql" ] \
-        && [ -f "$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" ] \
-        || fail "ROLLBACK_S9_MIGRATION_SOURCE_MISSING"
-      runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
-        <"$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" >/dev/null \
-        || fail "ROLLBACK_S9_PUBLICATION_GRANT_RED"
-      runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
-        <"$APPLICATION_ROOT/migrations/0026_commercial_s9_telegram_channel.down.sql" >/dev/null \
-        || fail "ROLLBACK_S9_TELEGRAM_CHANNEL_RED"
+      run_bound_target_migration \
+        migrations/0027_commercial_s9_publication_completion.down.sql "$MIGRATION_0027_DOWN_SHA" \
+        "ROLLBACK_S9_PUBLICATION_GRANT_RED"
+      run_bound_target_migration \
+        migrations/0026_commercial_s9_telegram_channel.down.sql "$MIGRATION_0026_DOWN_SHA" \
+        "ROLLBACK_S9_TELEGRAM_CHANNEL_RED"
       ;;
     source)
       case "$(s9_publication_grant_state)" in
         target)
-          [ -f "$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" ] \
-            || fail "ROLLBACK_S9_MIGRATION_SOURCE_MISSING"
-          runuser -u postgres -- psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
-            <"$APPLICATION_ROOT/migrations/0027_commercial_s9_publication_completion.down.sql" >/dev/null \
-            || fail "ROLLBACK_S9_PUBLICATION_GRANT_RED"
+          run_bound_target_migration \
+            migrations/0027_commercial_s9_publication_completion.down.sql "$MIGRATION_0027_DOWN_SHA" \
+            "ROLLBACK_S9_PUBLICATION_GRANT_RED"
           ;;
         source) ;;
         *) fail "ROLLBACK_S9_PUBLICATION_GRANT_DIVERGED" ;;

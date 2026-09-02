@@ -85,3 +85,9 @@ The privilege boundary is tri-state: exactly zero grants is the source state,
 all five required column grants is the target state, and every partial grant
 set is rejected as drift.  A partial privilege mutation can therefore never
 be mistaken for a clean rollback.
+
+All four S9 transition migrations are streamed from the pinned S10.1 target
+commit rather than read from the mutable application worktree.  The target
+commit tree and the individual migration SHA-256 are checked immediately
+before PostgreSQL receives the migration.  This keeps both forward activation
+and recovery independent of the current checkout.

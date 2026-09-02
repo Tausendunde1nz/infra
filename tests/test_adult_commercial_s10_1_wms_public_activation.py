@@ -270,6 +270,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             'MIGRATION_0027_DOWN_SHA="2d72e8fb5de5b7cd9e1824cfcb465b59d815a69394e4340277435ae245b7241e"',
             "activate_s9_public_channel_database",
             "restore_s9_public_channel_database",
+            "run_bound_target_migration",
+            "BOUND_MIGRATION_HASH_DIVERGED",
             "S9_TELEGRAM_CHANNEL_MIGRATION_RED",
             "S9_PUBLICATION_GRANT_RED",
             "S9_PUBLICATION_GRANT_DIVERGED",
@@ -386,6 +388,12 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(rollback.index("ROLLBACK_APPLICATION_TREE_DIVERGED"), rollback.index("stop_growth"))
         self.assertLess(rollback.index("stop_growth"), rollback.index("restore_s9_public_channel_database"))
         self.assertLess(rollback.index("restore_s9_public_channel_database"), rollback.index('systemctl stop "$S8_SERVICE"'))
+        migration_runner = source.split("run_bound_target_migration() {", 1)[1].split("activate_s9_public_channel_database() {", 1)[0]
+        self.assertIn('git -C "$APPLICATION_ROOT" show "${TARGET_SHA}:$path"', migration_runner)
+        self.assertIn('actual_hash=', migration_runner)
+        self.assertIn('sha256sum', migration_runner)
+        self.assertIn('"${TARGET_SHA}^{tree}"', migration_runner)
+        self.assertNotIn('<"$APPLICATION_ROOT/migrations/', rollback)
         self.assertNotIn('systemctl stop "$S8_SERVICE" "$S8_LANDING_SERVICE" "$S7_SERVICE" >/dev/null 2>&1 || true', rollback)
         self.assertLess(rollback.index("require_s9_restored_green"), rollback.index("restore_s9_timer_state"))
         self.assertLess(rollback.index('run_health_gate "$LEGACY_PREARM_SERVICE"'), rollback.index("restore_s9_timer_state"))
