@@ -60,9 +60,16 @@ service_value() {
 }
 
 reset_start_limits() {
-  local failure="$1"
+  local failure="$1" unit load_state
   shift
-  systemctl reset-failed "$@" || fail "$failure"
+  for unit in "$@"; do
+    if systemctl reset-failed "$unit" >/dev/null 2>&1; then
+      continue
+    fi
+    load_state="$(service_value "$unit" LoadState)"
+    [ "$load_state" = "not-found" ] && [ -f "/etc/systemd/system/$unit" ] \
+      || fail "$failure"
+  done
 }
 
 require_root() {

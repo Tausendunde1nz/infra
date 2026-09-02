@@ -107,7 +107,7 @@
   },
   "control_files": {
     "backup_script_sha256": "29bd5b9ba2d773b4e792216b585c95be15319c0e1be1a6bb8fda9fdc2b61cfaf",
-    "controller_sha256": "809cb8a819479f69a7744fd618b0d2337f0de9e886273b9b5ccaa414dccd5cba",
+    "controller_sha256": "e0505d6b6582b1bed33f7bc3f937ed9bd0298184d230b4961ff10e44e47b987c",
     "health_script_sha256": "9415a901bb022006ea4b262f03f98a7069967e248e09e7df63b4c1d91182c51c",
     "observer_sha256": "fba80650a45f0744080dedab1ef8bbd69f6b06c286648ce121ea2358c5fc93f3",
     "legacy_prearm_script_sha256": "9628adebd3c7bfdf18f3aeb89fb3465adba60ddec5472af0147b953b06370dd0",
