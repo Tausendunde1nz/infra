@@ -115,3 +115,19 @@ reconciles the source profile before restarting the source S8 worker.  A
 failed forward or inverse reconciliation remains fail-closed.  Bot username,
 token, channel rights and every Adult/AVS/payment/publishing boundary are
 unchanged.
+
+## 2026-09-02 systemd start-limit recovery
+
+The next controlled attempt reached the target S8 start after the Telegram
+profile reconciliation, but systemd rejected the start because earlier
+diagnostic attempts were still counted inside the unit's 15-minute rate-limit
+window.  The rollback restored the source files and repository provenance, but
+the same stale counters then rejected the otherwise-correct legacy starts.
+The separately prepared baseline recovery cleared only those unit counters and
+restored S7, S8 landing, S8 Telegram, nginx and public health to green.
+
+The controller now clears only the explicitly named unit failed/start-limit
+state immediately before each already-authorized bounded start.  It does not
+add retries, start new services or weaken health checks.  Target activation and
+rollback are therefore independent of earlier diagnostic counters while all
+existing fail-closed gates remain intact.

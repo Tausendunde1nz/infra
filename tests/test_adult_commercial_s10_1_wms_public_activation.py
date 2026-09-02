@@ -285,6 +285,10 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "configure_bot_profile",
             "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED",
             "ROLLBACK_TELEGRAM_PROFILE_CONFIGURATION_RED",
+            "reset_start_limits",
+            "WMS_START_LIMIT_RESET_RED",
+            "S8_WMS_START_LIMIT_RESET_RED",
+            "ROLLBACK_LEGACY_START_LIMIT_RESET_RED",
             "--configure-only",
             "wait_http_ready",
             "WMS_LOCAL_READINESS_RED",
@@ -380,6 +384,7 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(activate_public.index("activate_s9_public_channel_database"), activate_public.index('systemctl stop "$S8_SERVICE"'))
         self.assertLess(activate_public.index('systemctl stop "$S8_SERVICE"'), activate_public.index('configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"'))
         self.assertLess(activate_public.index('configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"'), activate_public.index('systemctl start "$S8_SERVICE"'))
+        self.assertLess(activate_public.index('reset_start_limits "S8_WMS_START_LIMIT_RESET_RED"'), activate_public.index('systemctl start "$S8_SERVICE"'))
         self.assertLess(activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'), activate_public.index("start_growth"))
         rollback = source.split("rollback() {", 1)[1].split('case "${1:-}"', 1)[0]
         restored = source.split("require_s9_restored_green() {", 1)[1].split("require_paths_unshared() {", 1)[0]
@@ -415,6 +420,10 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(
             rollback.index('configure_bot_profile "ROLLBACK_TELEGRAM_PROFILE_CONFIGURATION_RED"'),
             rollback.index('systemctl start "$S8_SERVICE"'),
+        )
+        self.assertLess(
+            rollback.index('reset_start_limits "ROLLBACK_LEGACY_START_LIMIT_RESET_RED"'),
+            rollback.index('systemctl start "$S7_SERVICE"'),
         )
         for forbidden in ("rm -rf", "git reset", "git clean", "systemctl restart", "api.x.com", "reddit.com"):
             self.assertNotIn(forbidden, source)
