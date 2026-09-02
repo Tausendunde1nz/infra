@@ -59,6 +59,12 @@ service_value() {
   systemctl show "$1" -p "$2" --value 2>/dev/null || true
 }
 
+reset_start_limits() {
+  local failure="$1"
+  shift
+  systemctl reset-failed "$@" || fail "$failure"
+}
+
 require_root() {
   [ "$(id -u)" -eq 0 ] || fail "ROOT_REQUIRED"
 }
@@ -374,19 +380,23 @@ fail_after_growth_cleanup() {
 }
 
 start_growth() {
+  reset_start_limits "S9_SEED_START_LIMIT_RESET_RED" "$S9_SEED_SERVICE"
   systemctl start "$S9_SEED_SERVICE" || fail "WMS_CONTENT_SEED_RED"
   systemctl enable "${S9_TIMERS[@]}" >/dev/null \
     || fail_after_growth_cleanup "S9_TIMER_ENABLE_RED"
+  reset_start_limits "S9_TIMER_START_LIMIT_RESET_RED" "${S9_TIMERS[@]}"
   systemctl start "${S9_TIMERS[@]}" \
     || fail_after_growth_cleanup "S9_TIMER_START_RED"
   systemctl enable "$S9_HEALTH_TIMER" >/dev/null \
     || fail_after_growth_cleanup "S9_HEALTH_TIMER_ENABLE_RED"
+  reset_start_limits "S9_HEALTH_TIMER_START_LIMIT_RESET_RED" "$S9_HEALTH_TIMER"
   systemctl start "$S9_HEALTH_TIMER" \
     || fail_after_growth_cleanup "S9_HEALTH_TIMER_START_RED"
 }
 
 run_health_gate() {
   local unit="$1" failure="$2"
+  reset_start_limits "$failure" "$unit"
   systemctl start "$unit" || fail "$failure"
   [ "$(service_value "$unit" Result)" = "success" ] || fail "$failure"
   [ "$(service_value "$unit" ExecMainStatus)" = "0" ] || fail "$failure"
@@ -460,6 +470,7 @@ install_local() {
   install_local_units
   apply_migration
   systemctl daemon-reload
+  reset_start_limits "WMS_START_LIMIT_RESET_RED" "$WMS_SERVICE"
   systemctl start "$WMS_SERVICE" || fail "WMS_LOCAL_START_RED"
   wait_http_ready "http://127.0.0.1:18110/health" "WMS_LOCAL_READINESS_RED"
   local_health
@@ -576,6 +587,7 @@ activate_public() {
     systemctl stop "$S8_SERVICE"
     configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"
     systemctl daemon-reload
+    reset_start_limits "S8_WMS_START_LIMIT_RESET_RED" "$S8_SERVICE"
     systemctl start "$S8_SERVICE" || fail "S8_WMS_START_RED"
     systemctl reload nginx.service || fail "NGINX_PUBLIC_RELOAD_RED"
     run_health_gate "$PRE_GROWTH_HEALTH_SERVICE" "WMS_PRE_GROWTH_HEALTH_RED"
@@ -806,6 +818,8 @@ rollback() {
   systemctl daemon-reload
   nginx -t || fail "ROLLBACK_NGINX_VERIFY_RED"
   systemctl reload nginx.service
+  reset_start_limits "ROLLBACK_LEGACY_START_LIMIT_RESET_RED" \
+    "$S7_SERVICE" "$S8_LANDING_SERVICE" "$S8_SERVICE"
   systemctl start "$S7_SERVICE" || fail "ROLLBACK_S7_RED"
   systemctl start "$S8_LANDING_SERVICE" || fail "ROLLBACK_S8_LANDING_RED"
   configure_bot_profile "ROLLBACK_TELEGRAM_PROFILE_CONFIGURATION_RED"
