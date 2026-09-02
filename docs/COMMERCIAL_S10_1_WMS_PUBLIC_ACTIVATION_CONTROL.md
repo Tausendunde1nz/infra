@@ -68,6 +68,16 @@ still disabled and inactive. The controller then restores and verifies the
 exact enabled/disabled and active/inactive state captured for every S9 timer;
 it never re-arms a timer that was intentionally disabled before S10.1.
 
+Before the S10.1 campaign seed, the controller also resolves one specifically
+bound legacy SFW Telegram lease only when the public channel independently
+proves the exact expected post ID and text SHA-256. The hardened reconciliation
+one-shot has database access over loopback but no Telegram token and no
+external network access. It can record an already-public result through the
+application's idempotent reconciliation API; it cannot publish a new message.
+Every other in-flight shape remains a fail-closed activation blocker. Target
+S9 health uses an activation-only, hash-bound launcher and systemd drop-in;
+rollback removes both and validates the unchanged legacy S9 health helper.
+
 ## Telegram state
 
 The existing bot remains bound to ID `8622690874`. Its public display copy is

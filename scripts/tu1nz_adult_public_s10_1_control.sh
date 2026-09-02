@@ -30,10 +30,13 @@ readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly LOCAL_HEALTH_SERVICE="tu1nz-adult-public-s10-local-health.service"
 readonly PRE_GROWTH_HEALTH_SERVICE="tu1nz-adult-public-s10-pre-growth-health.service"
 readonly LEGACY_PREARM_SERVICE="tu1nz-adult-public-s10-rollback-prearm-health.service"
+readonly LEGACY_RECONCILE_SERVICE="tu1nz-adult-public-s10-legacy-reconcile.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly HEALTH_TIMER="tu1nz-adult-public-s10-health.timer"
 readonly OBSERVER="/usr/local/bin/tu1nz_adult_public_s10_1_observer.py"
 readonly LEGACY_PREARM="/usr/local/bin/tu1nz_adult_public_s10_1_s9_prearm.py"
+readonly LEGACY_PUBLICATION_EVIDENCE="/usr/local/bin/tu1nz_adult_public_s10_1_legacy_publication_evidence.py"
+readonly TARGET_S9_HEALTH="/usr/local/bin/tu1nz_adult_public_s10_1_s9_health.py"
 readonly ACTIVATION_STATE="/etc/tu1nz/adult-commercial-s10-wms-activation.json"
 readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
 readonly S8_LANDING_SERVICE="tu1nz-adult-public-s8-landing.service"
@@ -249,17 +252,20 @@ configure_bot_profile() {
 
 install_local_units() {
   local unit
-  for unit in "$WMS_SERVICE" "$LOCAL_HEALTH_SERVICE" "$PRE_GROWTH_HEALTH_SERVICE" "$LEGACY_PREARM_SERVICE" "$HEALTH_SERVICE" "$HEALTH_TIMER"; do
+  for unit in "$WMS_SERVICE" "$LOCAL_HEALTH_SERVICE" "$PRE_GROWTH_HEALTH_SERVICE" "$LEGACY_PREARM_SERVICE" "$LEGACY_RECONCILE_SERVICE" "$HEALTH_SERVICE" "$HEALTH_TIMER"; do
     install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$unit" "/etc/systemd/system/$unit"
   done
   install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_health.py" /usr/local/bin/tu1nz_adult_public_s10_1_health.py
   install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_observer.py" "$OBSERVER"
   install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_s9_prearm.py" "$LEGACY_PREARM"
+  install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_legacy_publication_evidence.py" "$LEGACY_PUBLICATION_EVIDENCE"
+  install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_s9_health.py" "$TARGET_S9_HEALTH"
   systemd-analyze verify \
     "/etc/systemd/system/$WMS_SERVICE" \
     "/etc/systemd/system/$LOCAL_HEALTH_SERVICE" \
     "/etc/systemd/system/$PRE_GROWTH_HEALTH_SERVICE" \
     "/etc/systemd/system/$LEGACY_PREARM_SERVICE" \
+    "/etc/systemd/system/$LEGACY_RECONCILE_SERVICE" \
     "/etc/systemd/system/$HEALTH_SERVICE" \
     "/etc/systemd/system/$HEALTH_TIMER" \
     || fail "SYSTEMD_LOCAL_VERIFY_RED"
@@ -276,6 +282,10 @@ install_public_drop_ins() {
   install -o root -g root -m 0644 \
     "$CONTROL_ROOT/systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf" \
     /etc/systemd/system/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf
+  install -d -o root -g root -m 0755 /etc/systemd/system/tu1nz-adult-public-s9-health.service.d
+  install -o root -g root -m 0644 \
+    "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-health.service.d/s10-wms.conf" \
+    /etc/systemd/system/tu1nz-adult-public-s9-health.service.d/s10-wms.conf
   systemd-analyze verify \
     "/etc/systemd/system/$WMS_SERVICE" \
     "/etc/systemd/system/$LOCAL_HEALTH_SERVICE" \
@@ -287,6 +297,7 @@ install_public_drop_ins() {
     /etc/systemd/system/tu1nz-adult-public-s9-audience.service \
     /etc/systemd/system/tu1nz-adult-public-s9-nurture.service \
     /etc/systemd/system/tu1nz-adult-public-s9-report.service \
+    /etc/systemd/system/tu1nz-adult-public-s9-health.service \
     || fail "SYSTEMD_VERIFY_RED"
 }
 
@@ -385,6 +396,31 @@ stop_growth() {
     tu1nz-adult-public-s9-nurture.service \
     tu1nz-adult-public-s9-report.service \
     || fail "S9_GROWTH_WORKER_STOP_RED"
+}
+
+reconcile_legacy_publication() {
+  local in_flight exact_lease reconciled
+  [ "$(s9_channel_database_state):$(s9_publication_grant_state)" = "source:source" ] \
+    || fail "S9_LEGACY_RECONCILIATION_GATE_OPEN"
+  in_flight="$(database_scalar "SELECT count(*) FROM commercial_s9_publication_queue WHERE platform='telegram_channel' AND campaign_id='s9_organic_launch' AND status='PUBLISHING';")"
+  case "$in_flight" in
+    0) return 0 ;;
+    1) ;;
+    *) fail "S9_LEGACY_RECONCILIATION_LEASE_DIVERGED" ;;
+  esac
+  exact_lease="$(database_scalar "SELECT count(*) FROM commercial_s9_publication_queue WHERE platform='telegram_channel' AND campaign_id='s9_organic_launch' AND content_id='s9-en-01-c68f5972c9f7' AND status='PUBLISHING' AND attempts=1;")"
+  [ "$exact_lease" = "1" ] || fail "S9_LEGACY_RECONCILIATION_LEASE_DIVERGED"
+  "$LEGACY_PUBLICATION_EVIDENCE" >/dev/null \
+    || fail "S9_LEGACY_PUBLICATION_EVIDENCE_RED"
+  reset_start_limits "S9_LEGACY_RECONCILIATION_START_LIMIT_RESET_RED" "$LEGACY_RECONCILE_SERVICE"
+  systemctl start "$LEGACY_RECONCILE_SERVICE" \
+    || fail "S9_LEGACY_RECONCILIATION_RED"
+  [ "$(service_value "$LEGACY_RECONCILE_SERVICE" Result)" = "success" ] \
+    || fail "S9_LEGACY_RECONCILIATION_RED"
+  [ "$(service_value "$LEGACY_RECONCILE_SERVICE" ExecMainStatus)" = "0" ] \
+    || fail "S9_LEGACY_RECONCILIATION_RED"
+  reconciled="$(database_scalar "SELECT (((SELECT count(*) FROM commercial_s9_publication_queue WHERE platform='telegram_channel' AND campaign_id='s9_organic_launch' AND content_id='s9-en-01-c68f5972c9f7' AND status='PUBLISHED' AND attempts=1 AND last_safe_code='S9_PUBLICATION_RECONCILED' AND provider_post_digest='d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35' AND safe_response_digest='3e5957afc1c88315629e0dc8b2c47e81b7e134b7de6f784142979ceb6e9ea7f4' AND published_at IS NOT NULL)=1) AND ((SELECT count(*) FROM commercial_s9_publication_queue WHERE platform='telegram_channel' AND campaign_id='s9_organic_launch' AND status='PUBLISHING')=0))::int;")"
+  [ "$reconciled" = "1" ] || fail "S9_LEGACY_RECONCILIATION_STATE_DIVERGED"
 }
 
 fail_after_growth_cleanup() {
@@ -597,6 +633,7 @@ activate_public() {
     ln -sfn /etc/nginx/sites-available/wantmeseen.conf /etc/nginx/sites-enabled/wantmeseen.conf
     nginx -t || fail "NGINX_PUBLIC_VERIFY_RED"
     stop_growth
+    reconcile_legacy_publication
     activate_s9_public_channel_database
     systemctl stop "$S8_SERVICE"
     configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"
@@ -796,6 +833,7 @@ rollback() {
   unlink /etc/systemd/system/tu1nz-adult-public-s9-audience.service.d/s10-wms.conf 2>/dev/null || true
   unlink /etc/systemd/system/tu1nz-adult-public-s9-nurture.service.d/s10-wms.conf 2>/dev/null || true
   unlink /etc/systemd/system/tu1nz-adult-public-s9-report.service.d/s10-wms.conf 2>/dev/null || true
+  unlink /etc/systemd/system/tu1nz-adult-public-s9-health.service.d/s10-wms.conf 2>/dev/null || true
   unlink /etc/systemd/system/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf 2>/dev/null || true
   unlink /etc/tu1nz/adult-commercial-s10-wms.json 2>/dev/null || true
   unlink /etc/tu1nz/adult-commercial-s10-wms-copy.json 2>/dev/null || true
@@ -803,6 +841,9 @@ rollback() {
   unlink "$ACTIVATION_STATE" 2>/dev/null || true
   unlink /usr/local/bin/tu1nz_adult_public_s10_1_health.py 2>/dev/null || true
   unlink "$OBSERVER" 2>/dev/null || true
+  unlink "$LEGACY_PUBLICATION_EVIDENCE" 2>/dev/null || true
+  unlink "$TARGET_S9_HEALTH" 2>/dev/null || true
+  unlink "/etc/systemd/system/$LEGACY_RECONCILE_SERVICE" 2>/dev/null || true
   tar -xpf "$3/public-configuration-before.tar" -C /etc/tu1nz
   tar -xpf "$3/public-units-before.tar" -C /etc/systemd/system
   tar -xpf "$3/s10-configuration-before.tar" -C /etc/tu1nz

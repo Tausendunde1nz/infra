@@ -26,11 +26,18 @@ WMS_SERVICE = ROOT / "systemd/tu1nz-adult-public-s10-wms.service"
 LOCAL_HEALTH_SERVICE = ROOT / "systemd/tu1nz-adult-public-s10-local-health.service"
 PRE_GROWTH_HEALTH_SERVICE = ROOT / "systemd/tu1nz-adult-public-s10-pre-growth-health.service"
 LEGACY_PREARM_SERVICE = ROOT / "systemd/tu1nz-adult-public-s10-rollback-prearm-health.service"
+LEGACY_RECONCILE_SERVICE = ROOT / "systemd/tu1nz-adult-public-s10-legacy-reconcile.service"
 HEALTH_SERVICE = ROOT / "systemd/tu1nz-adult-public-s10-health.service"
 HEALTH_TIMER = ROOT / "systemd/tu1nz-adult-public-s10-health.timer"
-DROP_INS = tuple(sorted((ROOT / "systemd").glob("tu1nz-adult-public-s9-*.service.d/s10-wms.conf")))
+DROP_INS = tuple(sorted(
+    path for path in (ROOT / "systemd").glob("tu1nz-adult-public-s9-*.service.d/s10-wms.conf")
+    if "s9-health" not in str(path)
+))
+S9_HEALTH_DROP_IN = ROOT / "systemd/tu1nz-adult-public-s9-health.service.d/s10-wms.conf"
 S8_DROP_IN = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf"
 LEGACY_PREARM = ROOT / "scripts/tu1nz_adult_public_s10_1_s9_prearm.py"
+LEGACY_PUBLICATION_EVIDENCE = ROOT / "scripts/tu1nz_adult_public_s10_1_legacy_publication_evidence.py"
+TARGET_S9_HEALTH = ROOT / "scripts/tu1nz_adult_public_s10_1_s9_health.py"
 
 
 class CommercialS101WmsPublicActivationTests(unittest.TestCase):
@@ -81,6 +88,7 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             LOCAL_HEALTH_SERVICE: hashes["local_health_service_sha256"],
             PRE_GROWTH_HEALTH_SERVICE: hashes["pre_growth_health_service_sha256"],
             LEGACY_PREARM_SERVICE: hashes["legacy_prearm_service_sha256"],
+            LEGACY_RECONCILE_SERVICE: hashes["legacy_reconcile_service_sha256"],
             HEALTH_SERVICE: hashes["health_service_sha256"],
             HEALTH_TIMER: hashes["health_timer_sha256"],
             S8_DROP_IN: hashes["s8_drop_in_sha256"],
@@ -92,6 +100,9 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             PUBLIC_NGINX: hashes["public_nginx_sha256"],
             FINAL_NGINX: hashes["final_nginx_sha256"],
             LEGACY_PREARM: hashes["legacy_prearm_script_sha256"],
+            LEGACY_PUBLICATION_EVIDENCE: hashes["legacy_publication_evidence_script_sha256"],
+            TARGET_S9_HEALTH: hashes["target_s9_health_script_sha256"],
+            S9_HEALTH_DROP_IN: hashes["s9_health_drop_in_sha256"],
         }
         for path, digest in expected.items():
             with self.subTest(path=path):
@@ -105,7 +116,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         health = HEALTH_SERVICE.read_text(encoding="utf-8")
         timer = HEALTH_TIMER.read_text(encoding="utf-8")
         legacy_prearm_service = LEGACY_PREARM_SERVICE.read_text(encoding="utf-8")
-        for source in (service, local_health, pre_growth_health, legacy_prearm_service, health):
+        legacy_reconcile_service = LEGACY_RECONCILE_SERVICE.read_text(encoding="utf-8")
+        for source in (service, local_health, pre_growth_health, legacy_prearm_service, legacy_reconcile_service, health):
             self.assertIn("NoNewPrivileges=true", source)
             self.assertIn("ProtectSystem=strict", source)
             self.assertIn("MemoryDenyWriteExecute=true", source)
@@ -118,6 +130,11 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertIn("--local-only", local_health)
         self.assertIn("--pre-growth", pre_growth_health)
         self.assertIn("tu1nz_adult_public_s10_1_s9_prearm.py", legacy_prearm_service)
+        self.assertNotIn("telegram-token", legacy_prearm_service)
+        self.assertIn("--reconcile-publication", legacy_reconcile_service)
+        self.assertIn("IPAddressDeny=any", legacy_reconcile_service)
+        self.assertIn("IPAddressAllow=localhost", legacy_reconcile_service)
+        self.assertNotIn("telegram-token", legacy_reconcile_service)
         self.assertIn("WantedBy=timers.target", timer)
         self.assertIn("Persistent=true", timer)
         combined = "\n".join(path.read_text(encoding="utf-8") for path in DROP_INS)
@@ -129,6 +146,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         s8_drop_in = S8_DROP_IN.read_text(encoding="utf-8")
         self.assertIn("PYTHONPATH=/opt/tu1nz_repos/adult-publishing-core/src", s8_drop_in)
         self.assertIn("-m tu1nz_public_s8.runtime", s8_drop_in)
+        s9_health_drop_in = S9_HEALTH_DROP_IN.read_text(encoding="utf-8")
+        self.assertIn("tu1nz_adult_public_s10_1_s9_health.py", s9_health_drop_in)
 
     def test_nginx_is_canonical_small_and_reversible(self) -> None:
         public = PUBLIC_NGINX.read_text(encoding="utf-8")
@@ -148,6 +167,9 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             py_compile.compile(str(HEALTH), cfile=str(Path(temporary) / "health.pyc"), doraise=True)
             py_compile.compile(str(OBSERVER), cfile=str(Path(temporary) / "observer.pyc"), doraise=True)
+            py_compile.compile(str(LEGACY_PREARM), cfile=str(Path(temporary) / "prearm.pyc"), doraise=True)
+            py_compile.compile(str(LEGACY_PUBLICATION_EVIDENCE), cfile=str(Path(temporary) / "evidence.pyc"), doraise=True)
+            py_compile.compile(str(TARGET_S9_HEALTH), cfile=str(Path(temporary) / "s9-health.pyc"), doraise=True)
         source = HEALTH.read_text(encoding="utf-8")
         for expected in (
             "S10_1_WMS_PUBLIC_SFW_GREEN",
@@ -199,6 +221,16 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertNotIn('str(HEALTH)', observer)
         self.assertNotIn("message_text", observer)
         self.assertNotIn("telegram_user_id", observer)
+
+        evidence = LEGACY_PUBLICATION_EVIDENCE.read_text(encoding="utf-8")
+        self.assertIn("S10_1_LEGACY_PUBLICATION_EVIDENCE_GREEN", evidence)
+        self.assertIn("EXPECTED_POST = \"2\"", evidence)
+        self.assertIn("EXPECTED_TEXT_SHA256", evidence)
+        self.assertNotIn("telegram-token", evidence)
+        self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", evidence))
+
+        prearm = LEGACY_PREARM.read_text(encoding="utf-8")
+        self.assertIn("56e04474cdabdd5b80b5f19ffadb76c57f5c0036e3214795dd66d164f081c0fc", prearm)
 
     def test_local_health_accepts_only_the_closed_source_growth_boundary(self) -> None:
         spec = importlib.util.spec_from_file_location("s10_health_regression", HEALTH)
@@ -282,6 +314,13 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "ROLLBACK_S9_TIMER_ENABLE_RED",
             "ROLLBACK_S9_TIMER_STATE_DIVERGED",
             "restore_s9_timer_state",
+            "reconcile_legacy_publication",
+            "S9_LEGACY_RECONCILIATION_LEASE_DIVERGED",
+            "S9_LEGACY_PUBLICATION_EVIDENCE_RED",
+            "S9_LEGACY_RECONCILIATION_STATE_DIVERGED",
+            "S9_PUBLICATION_RECONCILED",
+            "tu1nz_adult_public_s10_1_s9_health.py",
+            "tu1nz-adult-public-s9-health.service.d/s10-wms.conf",
             "configure_bot_profile",
             "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED",
             "ROLLBACK_TELEGRAM_PROFILE_CONFIGURATION_RED",
@@ -384,6 +423,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertNotIn("|| true", stop_growth)
         self.assertLess(activate_public.index('systemctl reload nginx.service'), activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'))
         self.assertLess(activate_public.index("stop_growth"), activate_public.index("activate_s9_public_channel_database"))
+        self.assertLess(activate_public.index("stop_growth"), activate_public.index("reconcile_legacy_publication"))
+        self.assertLess(activate_public.index("reconcile_legacy_publication"), activate_public.index("activate_s9_public_channel_database"))
         self.assertLess(activate_public.index("activate_s9_public_channel_database"), activate_public.index('systemctl stop "$S8_SERVICE"'))
         self.assertLess(activate_public.index('systemctl stop "$S8_SERVICE"'), activate_public.index('configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"'))
         self.assertLess(activate_public.index('configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"'), activate_public.index('systemctl start "$S8_SERVICE"'))
