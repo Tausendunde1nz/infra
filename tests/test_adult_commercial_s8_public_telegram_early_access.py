@@ -325,7 +325,7 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn("umask 0007", source)
         self.assertIn("umask 0007", controller)
         self.assertIn('600|660) ;;', recovery)
-        self.assertIn('644) chmod 0660 "$index" ;;', recovery)
+        self.assertIn('640|644) chmod 0660 "$index" ;;', recovery)
         self.assertIn('GIT_INDEX_MODE_UNEXPECTED', recovery)
         self.assertIn('[ -f "$index" ] && [ ! -L "$index" ]', recovery)
         self.assertIn('normalize-index-modes', source)
