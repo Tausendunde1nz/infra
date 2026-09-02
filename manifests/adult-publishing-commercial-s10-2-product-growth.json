@@ -1,0 +1,67 @@
+{
+  "version": "tu1nz-commercial-s10-2-product-growth-v1",
+  "decision": "GO_REVERSIBLE_PUBLIC_SFW_PRODUCT_GROWTH",
+  "active": true,
+  "application": {
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "branch": "main",
+    "source_commit": "cdeab77c17c28f4ade46c27975f1c20e74cb8737",
+    "source_tree": "88d8869fbbb9931b16451f7bb1483e1fa6d483df",
+    "target_commit": "deeb38c30427066989eb85e1c115d2aeccf140cf",
+    "target_tree": "3619e7dc557b49c632efa713bb0bc4214fd83fca",
+    "post_merge_ci": 33686246719
+  },
+  "control": {
+    "repository": "Tausendunde1nz/infra",
+    "branch": "control-main",
+    "expected_base_commit": "0a13ee2e4d05f4d3d1a1d4d3ff91f4859415c067",
+    "exact_post_merge_commit_and_tree_required": true,
+    "controller_sha256": "6071602cb6bd2d39480c42c24b061cdf239f9b16579056653e9db5cd3de11da4"
+  },
+  "product_journey": {
+    "public_name": "Want Me Seen",
+    "landing_to_private_telegram_seconds_target": 30,
+    "guided_steps": ["INTRO_COMPLETED", "BOUNDARIES_SHOWN", "WAITLIST_JOINED"],
+    "funnel_events": ["LANDING_VIEW", "TELEGRAM_CTA", "BOT_START", "INTRO_COMPLETED", "WAITLIST_JOINED", "OPT_IN", "OPT_OUT"],
+    "referral_mode": "COHORT_ONLY_NO_PERSONAL_CODE",
+    "referral_reward": false,
+    "nurture_opt_in_only": true
+  },
+  "content_engine": {
+    "duration_weeks": 12,
+    "posts_per_week": 3,
+    "purposes": ["AWARENESS", "CURIOSITY", "TRUST", "CONVERSION", "RETENTION"],
+    "duplicate_prevention": true,
+    "cooldown_and_kill_switch_preserved": true,
+    "x": "DISABLED_FOR_NOW",
+    "reddit": "DISABLED_FOR_NOW"
+  },
+  "analytics": {
+    "aggregate_only": true,
+    "personal_referral_codes": false,
+    "sensitive_preferences": false,
+    "database_schema_change": false
+  },
+  "deployment": {
+    "mode": "REVERSIBLE_PUBLIC_SFW_DELTA",
+    "backup_required": true,
+    "database_migration": false,
+    "quiesce_growth_timers": true,
+    "restart_services": ["tu1nz-adult-public-s8-telegram.service", "tu1nz-adult-public-s10-wms.service"],
+    "enable_or_disable_units": false,
+    "two_hour_observation_required": false,
+    "automatic_rollback_to_source_on_failure": true
+  },
+  "product_boundary": {
+    "adult_media": false,
+    "identity_documents": false,
+    "real_avs": false,
+    "real_money": false,
+    "payments": false,
+    "external_adult_publishing": false,
+    "real_creator_access": false,
+    "controlled_beta": false,
+    "production": false,
+    "new_credentials": false
+  }
+}
