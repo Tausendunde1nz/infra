@@ -25,7 +25,7 @@ require_git_index_safe() {
   [ "$(stat -c '%U:%G' "$repository/.git/index")" = "chatops:chatops" ] \
     || fail "GIT_INDEX_OWNERSHIP_DRIFT"
   case "$(stat -c '%a' "$repository/.git/index")" in
-    600|660) ;;
+    600|640|660) ;;
     *) fail "GIT_INDEX_MODE_DRIFT" ;;
   esac
 }
