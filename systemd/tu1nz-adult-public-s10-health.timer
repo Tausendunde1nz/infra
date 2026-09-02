@@ -1,0 +1,12 @@
+[Unit]
+Description=Want Me Seen S10.1 public SFW health every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=tu1nz-adult-public-s10-health.service
+
+[Install]
+WantedBy=timers.target
