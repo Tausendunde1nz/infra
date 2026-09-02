@@ -60,15 +60,22 @@ service_value() {
 }
 
 reset_start_limits() {
-  local failure="$1" unit load_state
+  local failure="$1" unit load_state active_state fragment_path unit_path
   shift
   for unit in "$@"; do
     if systemctl reset-failed "$unit" >/dev/null 2>&1; then
       continue
     fi
+    unit_path="/etc/systemd/system/$unit"
     load_state="$(service_value "$unit" LoadState)"
-    [ "$load_state" = "not-found" ] && [ -f "/etc/systemd/system/$unit" ] \
-      || fail "$failure"
+    active_state="$(service_value "$unit" ActiveState)"
+    fragment_path="$(service_value "$unit" FragmentPath)"
+    [ "$active_state" = "inactive" ] || fail "$failure"
+    case "$load_state:$fragment_path" in
+      "not-found:") [ -f "$unit_path" ] || fail "$failure" ;;
+      "loaded:$unit_path") [ -f "$unit_path" ] || fail "$failure" ;;
+      *) fail "$failure" ;;
+    esac
   done
 }
 

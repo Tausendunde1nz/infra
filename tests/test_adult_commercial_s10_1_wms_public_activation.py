@@ -289,7 +289,9 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "WMS_START_LIMIT_RESET_RED",
             "S8_WMS_START_LIMIT_RESET_RED",
             "ROLLBACK_LEGACY_START_LIMIT_RESET_RED",
-            '[ -f "/etc/systemd/system/$unit" ]',
+            'unit_path="/etc/systemd/system/$unit"',
+            'service_value "$unit" ActiveState',
+            'service_value "$unit" FragmentPath',
             "--configure-only",
             "wait_http_ready",
             "WMS_LOCAL_READINESS_RED",
@@ -388,9 +390,12 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertLess(activate_public.index('reset_start_limits "S8_WMS_START_LIMIT_RESET_RED"'), activate_public.index('systemctl start "$S8_SERVICE"'))
         reset_limits = source.split("reset_start_limits() {", 1)[1].split("require_root() {", 1)[0]
         self.assertIn('systemctl reset-failed "$unit"', reset_limits)
-        self.assertIn('[ "$load_state" = "not-found" ]', reset_limits)
-        self.assertIn('[ -f "/etc/systemd/system/$unit" ]', reset_limits)
-        self.assertLess(reset_limits.index('service_value "$unit" LoadState'), reset_limits.index('[ -f "/etc/systemd/system/$unit" ]'))
+        self.assertIn('[ "$active_state" = "inactive" ]', reset_limits)
+        self.assertIn('"not-found:") [ -f "$unit_path" ]', reset_limits)
+        self.assertIn('"loaded:$unit_path") [ -f "$unit_path" ]', reset_limits)
+        self.assertIn('service_value "$unit" FragmentPath', reset_limits)
+        self.assertLess(reset_limits.index('service_value "$unit" LoadState'), reset_limits.index('case "$load_state:$fragment_path"'))
+        self.assertNotIn('"loaded:"', reset_limits)
         self.assertLess(activate_public.index('run_health_gate "$PRE_GROWTH_HEALTH_SERVICE"'), activate_public.index("start_growth"))
         rollback = source.split("rollback() {", 1)[1].split('case "${1:-}"', 1)[0]
         restored = source.split("require_s9_restored_green() {", 1)[1].split("require_paths_unshared() {", 1)[0]
