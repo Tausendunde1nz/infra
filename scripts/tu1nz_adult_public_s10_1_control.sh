@@ -211,6 +211,22 @@ install_public_configuration() {
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s9-growth.sfw.json" /etc/tu1nz/adult-commercial-s9-growth.json
 }
 
+configure_bot_profile() {
+  local failure="$1" attempt
+  for attempt in 1 2 3; do
+    if "$APPLICATION_ROOT/.venv/bin/tu1nz-public-s8-telegram" \
+      --contract /etc/tu1nz/adult-commercial-s8-public-telegram.json \
+      --copy /etc/tu1nz/adult-commercial-s8-copy.json \
+      --telegram-token "$TOKEN_PATH" \
+      --database-dsn "$DATABASE_DSN_PATH" \
+      --configure-only >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  fail "$failure"
+}
+
 install_local_units() {
   local unit
   for unit in "$WMS_SERVICE" "$LOCAL_HEALTH_SERVICE" "$PRE_GROWTH_HEALTH_SERVICE" "$LEGACY_PREARM_SERVICE" "$HEALTH_SERVICE" "$HEALTH_TIMER"; do
@@ -558,6 +574,7 @@ activate_public() {
     stop_growth
     activate_s9_public_channel_database
     systemctl stop "$S8_SERVICE"
+    configure_bot_profile "WMS_TELEGRAM_PROFILE_CONFIGURATION_RED"
     systemctl daemon-reload
     systemctl start "$S8_SERVICE" || fail "S8_WMS_START_RED"
     systemctl reload nginx.service || fail "NGINX_PUBLIC_RELOAD_RED"
@@ -791,6 +808,7 @@ rollback() {
   systemctl reload nginx.service
   systemctl start "$S7_SERVICE" || fail "ROLLBACK_S7_RED"
   systemctl start "$S8_LANDING_SERVICE" || fail "ROLLBACK_S8_LANDING_RED"
+  configure_bot_profile "ROLLBACK_TELEGRAM_PROFILE_CONFIGURATION_RED"
   systemctl start "$S8_SERVICE" || fail "ROLLBACK_S8_RED"
   wait_http_ready "http://127.0.0.1:8095/adult/health" "ROLLBACK_S7_READINESS_RED"
   require_s9_restored_green

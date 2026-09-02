@@ -91,3 +91,27 @@ commit rather than read from the mutable application worktree.  The target
 commit tree and the individual migration SHA-256 are checked immediately
 before PostgreSQL receives the migration.  This keeps both forward activation
 and recovery independent of the current checkout.
+
+## 2026-09-02 Telegram profile transaction
+
+The next controlled attempt passed backup verification, preflight, local WMS
+readiness and TLS, then stopped at the pre-growth health gate.  Telegram
+authenticated the expected immutable bot ID and username, but its provider
+profile still carried the legacy display name.  The target contract correctly
+rejected that state as `S8_TELEGRAM_IDENTITY_MISMATCH`; no growth timer or
+observation was activated.  The automatic recovery restored the source
+application and the public legacy services.
+
+The S10.1 controller previously installed the new WMS bot contract but omitted
+the existing bounded `--configure-only` reconciliation before starting the
+worker.  It now stops the worker, applies the exact target display name,
+description, short description and commands through that idempotent path, and
+only then starts and probes the worker.  The call has a three-attempt bounded
+retry and suppresses provider output so credentials cannot enter evidence.
+
+Because Telegram profile state is external, rollback now performs the inverse
+transaction: after restoring the source application and configuration it
+reconciles the source profile before restarting the source S8 worker.  A
+failed forward or inverse reconciliation remains fail-closed.  Bot username,
+token, channel rights and every Adult/AVS/payment/publishing boundary are
+unchanged.
