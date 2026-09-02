@@ -16,7 +16,7 @@
     "branch": "control-main",
     "expected_base_commit": "0a13ee2e4d05f4d3d1a1d4d3ff91f4859415c067",
     "exact_post_merge_commit_and_tree_required": true,
-    "controller_sha256": "b63837595a037a0afae1f5b5a7ce5d22ee6d381da478b54f36da0617c2386495"
+    "controller_sha256": "eebd8b102a632978f0cc805ef7137e0c3f9172cd22a904d816d167a998b1ff6f"
   },
   "product_journey": {
     "public_name": "Want Me Seen",

@@ -191,7 +191,7 @@ require_public_green() {
   require_adult_runtime_closed
   require_product_boundary
   curl --fail --silent --show-error --max-time 10 https://wantmeseen.com/health \
-    | /usr/bin/python3 -c 'import json,sys; p=json.load(sys.stdin); f=p.get("forbidden_capabilities"); sys.exit(0 if p.get("ok") is True and isinstance(f,dict) and all(v is False for v in f.values()) else 2)' \
+    | /usr/bin/python3 -c 'import json,sys; p=json.load(sys.stdin); risk_keys={"adult_content","media_intake","identity_documents","real_avs","payments","external_publishing","controlled_beta","production"}; valid=p.get("ok") is True and p.get("brand")=="Want Me Seen" and p.get("mode")=="SFW_PUBLIC_EARLY_ACCESS" and all(p.get(k) is False for k in risk_keys); sys.exit(0 if valid else 2)' \
     || fail "PUBLIC_HEALTH_RED"
   curl --fail --silent --show-error --max-time 10 https://wantmeseen.com/ \
     | grep -Fq 'Want Me Seen' || fail "PUBLIC_PAGE_RED"
