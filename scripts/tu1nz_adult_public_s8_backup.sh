@@ -38,7 +38,7 @@ normalize_git_index_mode() {
     || fail "GIT_INDEX_OWNERSHIP_DRIFT"
   case "$(stat -c '%a' "$index")" in
     600|660) ;;
-    644) chmod 0660 "$index" ;;
+    640|644) chmod 0660 "$index" ;;
     *) fail "GIT_INDEX_MODE_UNEXPECTED" ;;
   esac
   require_git_index_safe "$repository"

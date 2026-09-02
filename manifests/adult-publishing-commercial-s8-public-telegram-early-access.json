@@ -74,7 +74,7 @@
     "status": "S8_4_PUBLIC_REACCEPTANCE_GREEN"
   },
   "files": {
-    "backup_script_sha256": "d2d38842bfbeab29d4d1a56bfd34b90fbda271925e259ad38fb09788225f8bc5",
+    "backup_script_sha256": "669dc8dadd0e3b672f4f7843334e6668c5fae2c4c5a43700754c4eb50e44d75c",
     "controller_sha256": "b2dbf5b4751c0a2bcf4f61c6ed1bdd17d423bf9fbaaa7c214220bd235ef35a94",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
     "health_script_sha256": "afa9fbdcbaadeaf55ba0bb3edbaff9b852ed14647fdfce879934bacc06677ea1",
