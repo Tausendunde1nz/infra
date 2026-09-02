@@ -140,11 +140,25 @@ require_product_boundary() {
   /usr/bin/python3 - \
     /etc/tu1nz/adult-commercial-s8-public-telegram.json \
     /etc/tu1nz/adult-commercial-s9-growth.json \
-    /etc/tu1nz/adult-commercial-s10-wms.json <<'PY' || fail "PRODUCT_BOUNDARY_RED"
+    /etc/tu1nz/adult-commercial-s10-wms.json \
+    "$SOURCE_S10_CONTRACT_SHA" \
+    "$TARGET_S10_CONTRACT_SHA" <<'PY' || fail "PRODUCT_BOUNDARY_RED"
+import hashlib
 import json
 import sys
 
-s8, s9, s10 = (json.load(open(path, encoding="utf-8")) for path in sys.argv[1:])
+s8, s9, s10 = (json.load(open(path, encoding="utf-8")) for path in sys.argv[1:4])
+s10_path = sys.argv[3]
+s10_hash = hashlib.sha256(open(s10_path, "rb").read()).hexdigest()
+source_hash, target_hash = sys.argv[4:6]
+required_events = {
+    "LANDING_VIEW", "TELEGRAM_CTA", "BOT_START", "WAITLIST_JOINED",
+    "OPT_IN", "OPT_OUT",
+}
+if s10_hash == target_hash:
+    required_events.add("INTRO_COMPLETED")
+elif s10_hash != source_hash:
+    raise SystemExit(2)
 checks = (
     all(s8[name] is False for name in (
         "invite_automation_enabled", "adult_content", "media_intake",
@@ -161,8 +175,7 @@ checks = (
         "payments", "external_publishing", "creator_activation",
         "controlled_beta", "production",
     )),
-    set(("LANDING_VIEW", "TELEGRAM_CTA", "BOT_START", "INTRO_COMPLETED",
-         "WAITLIST_JOINED", "OPT_IN", "OPT_OUT")).issubset(s10["allowed_events"]),
+    required_events.issubset(s10["allowed_events"]),
 )
 raise SystemExit(0 if all(checks) else 2)
 PY
