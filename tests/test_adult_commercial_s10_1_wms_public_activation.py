@@ -110,6 +110,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertIn("IPAddressDeny=any", service)
         self.assertIn("IPAddressAllow=localhost", service)
         self.assertIn(".venv/bin/python -m tu1nz_exposure_s10.runtime", service)
+        self.assertIn("--bot-contract /etc/tu1nz/adult-commercial-s10-wms-bot-identity.json", service)
+        self.assertNotIn("--bot-contract /etc/tu1nz/adult-commercial-s8-public-telegram.json", service)
         self.assertIn("--local-only", local_health)
         self.assertIn("--pre-growth", pre_growth_health)
         self.assertIn("tu1nz_adult_public_s10_1_s9_prearm.py", legacy_prearm_service)
@@ -266,6 +268,9 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         install_local = source.split("install_local() {", 1)[1].split("dns_preflight() {", 1)[0]
         self.assertLess(install_local.index("require_backup \"$3\""), install_local.index("install_release"))
         self.assertNotIn('systemctl stop "$WMS_SERVICE" >/dev/null 2>&1 || true', install_local)
+        local_configuration = source.split("install_local_configuration() {", 1)[1].split("install_public_configuration() {", 1)[0]
+        self.assertIn('/etc/tu1nz/adult-commercial-s10-wms-bot-identity.json', local_configuration)
+        self.assertIn('commercial-s8-public-telegram-early-access.sfw.json', local_configuration)
         for forbidden_local_action in (
             "stop_growth",
             'systemctl stop "$S8_SERVICE"',

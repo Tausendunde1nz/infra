@@ -185,6 +185,10 @@ install_release() {
 install_local_configuration() {
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s10-1-wms-public.sfw.json" /etc/tu1nz/adult-commercial-s10-wms.json
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s10-1-wms-copy.v1.json" /etc/tu1nz/adult-commercial-s10-wms-copy.json
+  # The loopback-only WMS process needs only the future public bot identity.
+  # Keep this bound copy separate so the live S8 worker retains its current
+  # legal contract until activate_public performs the atomic re-consent cutover.
+  install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" /etc/tu1nz/adult-commercial-s10-wms-bot-identity.json
 }
 
 install_public_configuration() {
@@ -649,6 +653,7 @@ rollback() {
   unlink /etc/systemd/system/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf 2>/dev/null || true
   unlink /etc/tu1nz/adult-commercial-s10-wms.json 2>/dev/null || true
   unlink /etc/tu1nz/adult-commercial-s10-wms-copy.json 2>/dev/null || true
+  unlink /etc/tu1nz/adult-commercial-s10-wms-bot-identity.json 2>/dev/null || true
   unlink "$ACTIVATION_STATE" 2>/dev/null || true
   unlink /usr/local/bin/tu1nz_adult_public_s10_1_health.py 2>/dev/null || true
   unlink "$OBSERVER" 2>/dev/null || true

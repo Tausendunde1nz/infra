@@ -36,7 +36,10 @@ the running S7/S8/S9 baseline, credential metadata, path ownership and the
 versioned file hashes before mutation. It then requires a verified backup,
 installs migration 0028, WMS configuration and hardened health units, and first
 starts the WMS listener on loopback only. Local acceptance runs as the
-unprivileged `chatops` service identity. This local step does not reload the
+unprivileged `chatops` service identity. The listener reads its future bot
+identity from a separate, hash-bound S10 configuration copy. The live S8 bot
+contract and its legal versions remain untouched until the atomic public
+cutover, and every application validator remains strict-current. This local step does not reload the
 S8/S9 WMS drop-ins and cannot publish links to an unresolved domain. Public
 cutover is a separate backup-bound action after DNS and TLS validation. Nginx
 is reloaded and a separate unprivileged public pre-growth gate must pass before
