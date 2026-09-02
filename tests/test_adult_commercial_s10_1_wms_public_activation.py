@@ -496,11 +496,16 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             rollback.index('systemctl start "$S7_SERVICE"'),
         )
         finalize_redirect = source.split("finalize_de_redirect() {", 1)[1].split("rollback() {", 1)[0]
+        redirect_wait = source.split("wait_redirect_ready() {", 1)[1].split("require_observation_path() {", 1)[0]
         self.assertLess(
             finalize_redirect.index("systemctl reload nginx.service"),
             finalize_redirect.index('wait_redirect_ready "308|https://wantmeseen.com/"'),
         )
         self.assertNotIn('[ "$(redirect_state)" = "308|https://wantmeseen.com/" ]', finalize_redirect)
+        self.assertIn("deadline=$((SECONDS + 30))", redirect_wait)
+        self.assertIn('redirect_state "$max_time"', redirect_wait)
+        self.assertIn("while ((SECONDS < deadline))", redirect_wait)
+        self.assertNotIn("for attempt in {1..30}", redirect_wait)
         for forbidden in ("rm -rf", "git reset", "git clean", "systemctl restart", "api.x.com", "reddit.com"):
             self.assertNotIn(forbidden, source)
         self.assertNotIn('$APPLICATION_ROOT/.venv/bin/python', source)

@@ -675,17 +675,26 @@ verify_public() {
 }
 
 redirect_state() {
-  curl --silent --show-error --max-time 10 --output /dev/null \
+  local max_time="${1:-10}"
+  curl --silent --show-error --max-time "$max_time" --output /dev/null \
     --write-out '%{http_code}|%{redirect_url}' https://wantmeseen.de/
 }
 
 wait_redirect_ready() {
-  local expected="$1" failure="$2" attempt
-  for attempt in {1..30}; do
-    if [ "$(redirect_state)" = "$expected" ]; then
+  local expected="$1" failure="$2" deadline remaining max_time state
+  deadline=$((SECONDS + 30))
+  while ((SECONDS < deadline)); do
+    remaining=$((deadline - SECONDS))
+    max_time=2
+    if ((remaining < max_time)); then
+      max_time="$remaining"
+    fi
+    if state="$(redirect_state "$max_time" 2>/dev/null)" && [ "$state" = "$expected" ]; then
       return 0
     fi
-    sleep 1
+    if ((SECONDS < deadline)); then
+      sleep 1
+    fi
   done
   fail "$failure"
 }
