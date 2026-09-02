@@ -177,3 +177,18 @@ removes that drop-in during rollback. The pre-arm verifier is bound to the
 observed legacy helper hash. This preserves exact source behavior after
 rollback and exact target behavior after cutover without replacing the shared
 baseline executable.
+
+## 2026-09-02 final redirect readiness
+
+The complete public-SFW observation finished `GREEN` after 7,203 seconds and
+25 successful samples. The first final `.de` redirect assertion ran
+immediately after the successful Nginx reload and observed the previous
+redirect for one transient probe. The installed configuration already had the
+exact final hash and both `.de` hosts returned the required permanent redirect
+on the following read-only checks. Re-running the idempotent finalizer then
+completed green without changing any product boundary.
+
+The controller now gives only that exact post-reload redirect up to 30 seconds
+to become externally observable. Every other status, destination or exhausted
+bound still fails closed. This changes neither TLS, Nginx content, application
+state nor authorization scope.

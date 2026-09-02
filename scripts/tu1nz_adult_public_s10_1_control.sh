@@ -679,6 +679,17 @@ redirect_state() {
     --write-out '%{http_code}|%{redirect_url}' https://wantmeseen.de/
 }
 
+wait_redirect_ready() {
+  local expected="$1" failure="$2" attempt
+  for attempt in {1..30}; do
+    if [ "$(redirect_state)" = "$expected" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "$failure"
+}
+
 require_observation_path() {
   local canonical name
   canonical="$(readlink -m -- "$1")"
@@ -782,7 +793,7 @@ finalize_de_redirect() {
   install -o root -g root -m 0644 "$CONTROL_ROOT/nginx/current/wantmeseen.s10-1-final.conf" /etc/nginx/sites-available/wantmeseen.conf
   nginx -t || fail "NGINX_FINAL_VERIFY_RED"
   systemctl reload nginx.service || fail "NGINX_FINAL_RELOAD_RED"
-  [ "$(redirect_state)" = "308|https://wantmeseen.com/" ] || fail "WMS_DE_FINAL_REDIRECT_RED"
+  wait_redirect_ready "308|https://wantmeseen.com/" "WMS_DE_FINAL_REDIRECT_RED"
   printf '{"ok":true,"safe_code":"S10_1_WMS_DE_REDIRECT_FINAL_GREEN","legacy_tu1nz_fallback":"PRESERVED"}\n'
 }
 

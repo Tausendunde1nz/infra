@@ -58,6 +58,23 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "c9fa052bceb1e7ec3b84a5254d399acde9ff0989",
         )
         self.assertEqual(self.value["decision"], "GO_PUBLIC_SFW_ACTIVATION_WITH_EXTERNAL_GATES")
+        execution = self.value["execution"]
+        self.assertEqual(execution["state"], "PUBLIC_SFW_OBSERVATION_GREEN")
+        self.assertEqual(execution["duration_seconds"], 7203)
+        self.assertEqual(execution["sample_count"], 25)
+        self.assertEqual(
+            execution["result_sha256"],
+            "56eb540abaecdb2820307769c926cdee39f816497b9be75466a2fda7f6167392",
+        )
+        evidence_path = ROOT / execution["observation_evidence"]
+        self.assertEqual(
+            hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+            execution["observation_evidence_sha256"],
+        )
+        self.assertEqual(execution["activation_control_commit"], "5717dd6fdc0757bd9e92e319ceef3b7d3eaad972")
+        self.assertEqual(execution["activation_control_tree"], "48f0f9fa43f3e91f92e7a2824a2d89aef94455f0")
+        self.assertTrue(execution["final_de_redirect_green"])
+        self.assertTrue(execution["legacy_tu1nz_fallback_preserved"])
         self.assertEqual(self.value["brand"]["public_name"], "Want Me Seen")
         self.assertEqual(self.value["brand"]["primary_domain"], "wantmeseen.com")
         self.assertFalse(self.value["legal"]["adult_publication_legal_clearance"])
@@ -333,6 +350,7 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             'service_value "$unit" FragmentPath',
             "--configure-only",
             "wait_http_ready",
+            "wait_redirect_ready",
             "WMS_LOCAL_READINESS_RED",
             "ROLLBACK_S7_READINESS_RED",
             'systemctl disable --now "${S9_TIMERS[@]}"',
@@ -477,6 +495,12 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             rollback.index('reset_start_limits "ROLLBACK_LEGACY_START_LIMIT_RESET_RED"'),
             rollback.index('systemctl start "$S7_SERVICE"'),
         )
+        finalize_redirect = source.split("finalize_de_redirect() {", 1)[1].split("rollback() {", 1)[0]
+        self.assertLess(
+            finalize_redirect.index("systemctl reload nginx.service"),
+            finalize_redirect.index('wait_redirect_ready "308|https://wantmeseen.com/"'),
+        )
+        self.assertNotIn('[ "$(redirect_state)" = "308|https://wantmeseen.com/" ]', finalize_redirect)
         for forbidden in ("rm -rf", "git reset", "git clean", "systemctl restart", "api.x.com", "reddit.com"):
             self.assertNotIn(forbidden, source)
         self.assertNotIn('$APPLICATION_ROOT/.venv/bin/python', source)
