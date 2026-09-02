@@ -650,3 +650,22 @@ jobs:
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
           ! grep -nE '(systemctl[[:space:]]+restart|rm[[:space:]]+-rf|git[[:space:]]+(reset|clean))' scripts/tu1nz_adult_public_s10_1_control.sh
+      - name: Validate Commercial S10.2 product growth Control SSOT
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s10-2-product-growth.json >/dev/null
+          && bash -n scripts/tu1nz_adult_public_s10_2_control.sh
+          && python3 -m py_compile
+          tests/test_adult_commercial_s10_2_product_growth.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s10_2_product_growth
+      - name: Reject Commercial S10.2 secrets cron and forbidden providers
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s10-2-product-growth.json
+            scripts/tu1nz_adult_public_s10_2_control.sh
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
+          ! grep -nE '(systemctl[[:space:]]+restart|rm[[:space:]]+-rf|git[[:space:]]+(reset|clean))' scripts/tu1nz_adult_public_s10_2_control.sh
