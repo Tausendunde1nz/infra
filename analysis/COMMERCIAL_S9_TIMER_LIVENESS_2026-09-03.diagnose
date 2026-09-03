@@ -50,3 +50,10 @@ database rollback is required.
 The fix is safe to version and review. Server installation remains pending one
 privileged maintenance window with pre-check, existing recovery verification,
 daemon reload, timer re-arm, next-elapse verification and public health check.
+
+## Review tooling note
+
+The first read-only PR inspection omitted the required PR selector while using
+the repository flag. GitHub rejected only that inspection command; PR #93 had
+already been created successfully and no repository content changed. The
+inspection was repeated with the explicit PR number.
