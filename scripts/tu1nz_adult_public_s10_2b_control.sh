@@ -20,8 +20,7 @@ readonly OLD_BOT_ID="8622690874"
 readonly NEW_BOT_ID="8861935205"
 readonly CHANNEL="@WantMeSeen"
 
-readonly SOURCE_S7_SHA="f75eb7b1b16fe3cf82c16a64cf443ed364081cd03b4a2f590f04d7406f8def3b"
-readonly TARGET_S7_SHA="4f440dc69c58352158efb58097de97bb00c802782ea071658e86a24a20f0ae88"
+readonly PROTECTED_S7_SHA="f4e2b473905f6c82afe2ad6473989604e47f26eff70356db74da6fd49af50214"
 readonly SOURCE_S8_LANDING_SHA="ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e"
 readonly TARGET_S8_LANDING_SHA="f8b7215b35d7d871cbc775f5b35c0469dfb047a29c1cf56789373a70dad76469"
 readonly SOURCE_S8_CONTRACT_SHA="cea242a0c749f5e10b15c527248a60a9c429ad7a3f3d655ca0a71e61d7ff6193"
@@ -38,13 +37,13 @@ readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
 readonly S10_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly NGINX_SERVICE="nginx.service"
 readonly TIMERS=(
-  tu1nz-adult-public-s8-health.timer
   tu1nz-adult-public-s9-audience.timer
   tu1nz-adult-public-s9-nurture.timer
   tu1nz-adult-public-s9-report.timer
   tu1nz-adult-public-s9-health.timer
   tu1nz-adult-public-s10-health.timer
 )
+readonly RETIRED_S8_HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
 readonly WORKERS=(
   tu1nz-adult-public-s8-health.service
   tu1nz-adult-public-s8-probe.service
@@ -156,6 +155,18 @@ require_timers_green() {
   done
 }
 
+require_s8_health_timer_retired() {
+  [ "$(systemctl is-enabled "$RETIRED_S8_HEALTH_TIMER" 2>/dev/null || true)" = "disabled" ] \
+    || fail "S8_HEALTH_TIMER_NOT_RETIRED"
+  [ "$(unit_value "$RETIRED_S8_HEALTH_TIMER" ActiveState)" = "inactive" ] \
+    || fail "S8_HEALTH_TIMER_UNEXPECTEDLY_ACTIVE"
+  [ "$(unit_value "$RETIRED_S8_HEALTH_TIMER" SubState)" = "dead" ] \
+    || fail "S8_HEALTH_TIMER_UNEXPECTED_SUBSTATE"
+  cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER" \
+    "/etc/systemd/system/$RETIRED_S8_HEALTH_TIMER" \
+    || fail "S8_HEALTH_TIMER_UNIT_DRIFT"
+}
+
 require_adult_runtime_closed() {
   local unit
   for unit in \
@@ -177,6 +188,7 @@ require_public_green() {
   require_service_green "$S8_SERVICE" "S8_TELEGRAM"
   require_service_green "$S10_SERVICE" "S10_WMS"
   require_service_green "$NGINX_SERVICE" "NGINX"
+  require_s8_health_timer_retired
   require_timers_green
   require_adult_runtime_closed
   curl --fail --silent --show-error --max-time 10 https://wantmeseen.com/health \
@@ -190,7 +202,7 @@ require_hash() {
 }
 
 require_source_configuration() {
-  require_hash /etc/tu1nz/adult-commercial-s7-public.json "$SOURCE_S7_SHA" "S7_CONTRACT"
+  require_hash /etc/tu1nz/adult-commercial-s7-public.json "$PROTECTED_S7_SHA" "S7_PROTECTED_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-landing.json "$SOURCE_S8_LANDING_SHA" "S8_LANDING_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-public-telegram.json "$SOURCE_S8_CONTRACT_SHA" "S8_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-copy.json "$S8_COPY_SHA" "S8_COPY"
@@ -200,7 +212,7 @@ require_source_configuration() {
 }
 
 require_target_configuration() {
-  require_hash /etc/tu1nz/adult-commercial-s7-public.json "$TARGET_S7_SHA" "S7_CONTRACT"
+  require_hash /etc/tu1nz/adult-commercial-s7-public.json "$PROTECTED_S7_SHA" "S7_PROTECTED_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-landing.json "$TARGET_S8_LANDING_SHA" "S8_LANDING_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-public-telegram.json "$TARGET_S8_CONTRACT_SHA" "S8_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-copy.json "$S8_COPY_SHA" "S8_COPY"
@@ -323,7 +335,6 @@ PY
 }
 
 install_target_configuration() {
-  install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s7-public-launch.sfw.json" /etc/tu1nz/adult-commercial-s7-public.json
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-landing.sfw.json" /etc/tu1nz/adult-commercial-s8-landing.json
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" /etc/tu1nz/adult-commercial-s8-public-telegram.json
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-copy.v1.json" /etc/tu1nz/adult-commercial-s8-copy.json
