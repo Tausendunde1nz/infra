@@ -13,9 +13,9 @@ readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_backup.sh
 
 readonly SOURCE_SHA="deeb38c30427066989eb85e1c115d2aeccf140cf"
 readonly SOURCE_TREE="3619e7dc557b49c632efa713bb0bc4214fd83fca"
-readonly TARGET_SHA="4a6c42f389cbf6caca738c48ae32ebe1856dd674"
-readonly TARGET_TREE="f66b70452ab423c232bd529936f8e07950c138ad"
-readonly APPLICATION_POST_MERGE_CI="33803097418"
+readonly TARGET_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
+readonly TARGET_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
+readonly APPLICATION_POST_MERGE_CI="33809025595"
 readonly OLD_BOT_ID="8622690874"
 readonly NEW_BOT_ID="8861935205"
 readonly CHANNEL="@WantMeSeen"

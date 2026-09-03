@@ -1,0 +1,108 @@
+{
+  "version": "tu1nz-night-shift-iv-product-loop-v1",
+  "decision": "GO_SOURCE_NO_GO_PRIVILEGED_DEPLOYMENT",
+  "active": true,
+  "application": {
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "branch": "main",
+    "previous_canonical_commit": "4a6c42f389cbf6caca738c48ae32ebe1856dd674",
+    "canonical_commit": "f9747088a31ec6c671e82de24e293ebdec99f717",
+    "canonical_tree": "7defedef032f6af38bbce0165eb6c2bdec327df7",
+    "pull_request": 106,
+    "merge_mode": "MERGE_COMMIT",
+    "post_merge_ci": 33809025595,
+    "local_unit_tests": 959
+  },
+  "control": {
+    "repository": "Tausendunde1nz/infra",
+    "branch": "control-main",
+    "expected_base_commit": "732b1de453029c90a330232ecf2fd8cfd21aba5a",
+    "exact_post_merge_commit_and_tree_required": true
+  },
+  "phase_zero": {
+    "s7_contract_state": "INTENTIONAL_HISTORICAL_PROTECTED_FALLBACK",
+    "s8_health_timer_state": "RETIRED_DISABLED_INACTIVE",
+    "recurring_health_authority": [
+      "S9",
+      "S10"
+    ],
+    "control_commit": "732b1de453029c90a330232ecf2fd8cfd21aba5a",
+    "control_tree": "7aec91d19f375bf5d04ec2481977d254b5c751a0",
+    "post_merge_ci": 33807140980
+  },
+  "product_loop": {
+    "mode": "ONE_EVIDENCE_BACKED_ACTION",
+    "priorities": [
+      "REACH",
+      "CONVERSION",
+      "WAITLIST",
+      "ENGAGEMENT",
+      "REFERRAL",
+      "AVS_READINESS",
+      "CONTROLLED_BETA_READINESS",
+      "REPEAT_USAGE",
+      "MONETIZATION",
+      "INFRASTRUCTURE"
+    ],
+    "funnel_events": [
+      "LANDING_VIEW",
+      "TELEGRAM_CTA",
+      "BOT_START",
+      "INTRO_COMPLETED",
+      "WAITLIST_JOINED",
+      "OPT_IN",
+      "REFERRAL"
+    ],
+    "aggregate_only": true,
+    "attribution_allowlisted": true,
+    "autonomous_task_generation": false,
+    "p3_p4_require_product_impact": true,
+    "ape_state": "ABSENT"
+  },
+  "experience": {
+    "public_name": "Want Me Seen",
+    "claim": "Exposed on purpose. Always by choice.",
+    "primary_language": "EN",
+    "german_available_by_explicit_choice": true,
+    "primary_cta": "I want to be seen",
+    "single_primary_cta": true,
+    "mobile_viewport_verified": "390x844",
+    "remote_media": false,
+    "remote_scripts": false,
+    "form": false,
+    "legal_copy_changed": false
+  },
+  "telegram_cutover": {
+    "state": "WAITING_OPERATOR_SUDO_PREFLIGHT",
+    "preflight_mutation_performed": false,
+    "credential_requested_or_bypassed": false,
+    "controller_rebound_to_canonical_application": true,
+    "legacy_public_path_preserved": true
+  },
+  "deployment": {
+    "state": "SOURCE_GREEN_WAITING_OPERATOR",
+    "source_only": true,
+    "partial_server_sync_forbidden": true,
+    "backup_first": true,
+    "database_migration": false,
+    "public_runtime_expected_unchanged": true
+  },
+  "files": {
+    "business_loop_contract_sha256": "c6fe9d82ebb929cb55a5a798c44070a4e2aee19035af77ee7ab65e1dca87b947",
+    "wms_copy_sha256": "f995929dd9fe037fcc469e2c0573607f1d90fc757a76df89ef51d0f59c899fdc",
+    "telegram_copy_sha256": "35050d02636630c23b7c97ae0184945b4587695f9a121e908f5f638bd668bd01",
+    "application_audit_sha256": "a3b3b0d94fdcdfd0cb82713582c5e354338d52fb89c0345badbbb3843a679cb1"
+  },
+  "product_boundary": {
+    "adult_media": false,
+    "identity_documents": false,
+    "real_avs": false,
+    "payments": false,
+    "external_adult_publishing": false,
+    "real_creator_access": false,
+    "controlled_beta": false,
+    "production": false,
+    "new_paid_service": false,
+    "credential_bypass": false
+  }
+}

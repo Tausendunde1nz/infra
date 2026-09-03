@@ -10,9 +10,9 @@ source of truth. Referral attribution, aggregate analytics, nurture automation,
 services, timers and internal TU1NZ component names remain in place.
 
 The versioned cutover state is `GO_CUTOVER_RECOVERY_PREFLIGHT`. Application
-commit `4a6c42f389cbf6caca738c48ae32ebe1856dd674` and tree
-`f66b70452ab423c232bd529936f8e07950c138ad` passed post-merge CI run
-`33803097418`. The new token was installed through the interactive secret
+commit `f9747088a31ec6c671e82de24e293ebdec99f717` and tree
+`7defedef032f6af38bbce0165eb6c2bdec327df7` passed post-merge CI run
+`33809025595`. The new token was installed through the interactive secret
 installer, without appearing in Git, chat, logs or evidence. Both bots are
 present as restricted channel administrators. Exact rights are still verified
 through the official Bot API by every cutover preflight.
