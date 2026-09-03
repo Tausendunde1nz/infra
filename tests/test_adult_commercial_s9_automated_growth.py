@@ -56,6 +56,18 @@ class CommercialS9ControlTests(unittest.TestCase):
             self.assertIn("Persistent=true", source)
             self.assertIn("WantedBy=timers.target", source)
 
+    def test_recurring_timers_keep_a_calendar_anchor(self) -> None:
+        schedules = {
+            "tu1nz-adult-public-s9-audience.timer": "OnCalendar=*:0/15",
+            "tu1nz-adult-public-s9-nurture.timer": "OnCalendar=*:3/15",
+            "tu1nz-adult-public-s9-health.timer": "OnCalendar=*:0/5",
+        }
+        for name, schedule in schedules.items():
+            source = (ROOT / "systemd" / name).read_text(encoding="utf-8")
+            self.assertIn(schedule, source)
+            self.assertNotIn("OnUnitActiveSec=", source)
+            self.assertNotIn("OnBootSec=", source)
+
     def test_landing_uses_private_aggregate_state(self) -> None:
         historical = LANDING.read_text(encoding="utf-8")
         source = LANDING_DROP_IN.read_text(encoding="utf-8")

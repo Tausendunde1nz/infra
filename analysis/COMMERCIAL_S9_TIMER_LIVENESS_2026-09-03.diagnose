@@ -1,0 +1,52 @@
+# Commercial S9 timer liveness — 2026-09-03
+
+## Scope
+
+Read-only Night Shift III verification found that the S9 audience, nurture and
+health timers were `active` and `enabled`, but each exposed an empty
+`NextElapseUSecRealtime` and `NextElapseUSecMonotonic=infinity`. Their most
+recent triggers were 2026-09-02 15:24:38 UTC, 2026-08-31 18:19:38 UTC and
+2026-09-02 15:33:54 UTC respectively. The daily report timer, which already
+uses `OnCalendar`, retained a future trigger.
+
+No token, message, media, Telegram identity or personal data was read. The
+public posting path was not invoked.
+
+## Cause and correction
+
+The three affected timers used `OnUnitActiveSec`. That monotonic anchor is no
+longer present in the loaded service state, so systemd has no future elapse to
+schedule even though the timer units remain active. This is a silent liveness
+failure that the prior active/enabled-only checks did not detect.
+
+The SSOT timers now use persistent calendar anchors:
+
+- audience: every 15 minutes at minutes 00, 15, 30 and 45;
+- nurture: every 15 minutes at minutes 03, 18, 33 and 48;
+- health: every 5 minutes.
+
+The stagger preserves bounded one-shot execution while removing dependence on
+the backing service's volatile activation timestamp. `systemd-analyze
+calendar` on the target host validated all three expressions and produced
+successive future elapses.
+
+## Risk and rollback
+
+Risk is low and limited to the existing public-SFW automation. The change does
+not alter service commands, Telegram credentials, content, rate limits,
+product gates, adult-media boundaries, AVS, payment or publishing providers.
+Installing it requires a controlled daemon reload and timer re-arm, which is
+not performed during the unattended window because privileged access is not
+available non-interactively.
+
+Rollback is the previous canonical Control commit plus restoration of the
+three prior timer files from the existing public-runtime recovery point. No
+database rollback is required.
+
+## Current decision
+
+`WAITING_OPERATOR_S9_TIMER_LIVENESS_DEPLOY`
+
+The fix is safe to version and review. Server installation remains pending one
+privileged maintenance window with pre-check, existing recovery verification,
+daemon reload, timer re-arm, next-elapse verification and public health check.

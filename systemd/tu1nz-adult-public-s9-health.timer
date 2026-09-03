@@ -2,8 +2,7 @@
 Description=TU1NZ Adult Publishing S9 health every five minutes
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=5min
+OnCalendar=*:0/5
 AccuracySec=15s
 Persistent=true
 Unit=tu1nz-adult-public-s9-health.service
