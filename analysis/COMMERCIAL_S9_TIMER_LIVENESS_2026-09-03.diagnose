@@ -64,6 +64,21 @@ the final canonical Control revision has been synchronized to the server. No
 credential prompt or server mutation is attempted during the unattended
 window.
 
+## S10.2A fail-closed installation finding
+
+The first controlled S10.2A installation attempt reached the versioned health
+gate and was rolled back automatically. The installed S9 health unit predated
+the S8 Telegram credential binding already present in Control SSOT. The repair
+entrypoint refreshed the hash-bound health scripts but not their base health
+unit, so the service could not provide `s8_telegram_token` to the existing S10
+drop-in. The Control checkout returned to its verified pre-attempt commit and
+the captured systemd files were restored byte-for-byte.
+
+The bounded correction adds that single S9 health unit to the same source
+validation, backup, installation and rollback surfaces as the three timers and
+health scripts. It introduces no new runtime, credential, provider or product
+capability.
+
 ## Review tooling note
 
 The first read-only PR inspection omitted the required PR selector while using
