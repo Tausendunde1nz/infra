@@ -28,9 +28,9 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         application = self.manifest["application"]
         self.assertEqual(application["source_commit"], "deeb38c30427066989eb85e1c115d2aeccf140cf")
         self.assertEqual(application["source_tree"], "3619e7dc557b49c632efa713bb0bc4214fd83fca")
-        self.assertEqual(application["target_commit"], "4a6c42f389cbf6caca738c48ae32ebe1856dd674")
-        self.assertEqual(application["target_tree"], "f66b70452ab423c232bd529936f8e07950c138ad")
-        self.assertEqual(application["post_merge_ci"], 33803097418)
+        self.assertEqual(application["target_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
+        self.assertEqual(application["target_tree"], "7defedef032f6af38bbce0165eb6c2bdec327df7")
+        self.assertEqual(application["post_merge_ci"], 33809025595)
         self.assertTrue(application["identity_binding_complete"])
         identity = self.manifest["public_identity"]
         self.assertEqual(identity["channel"], "@WantMeSeen")

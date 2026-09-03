@@ -7,9 +7,9 @@
     "branch": "main",
     "source_commit": "deeb38c30427066989eb85e1c115d2aeccf140cf",
     "source_tree": "3619e7dc557b49c632efa713bb0bc4214fd83fca",
-    "target_commit": "4a6c42f389cbf6caca738c48ae32ebe1856dd674",
-    "target_tree": "f66b70452ab423c232bd529936f8e07950c138ad",
-    "post_merge_ci": 33803097418,
+    "target_commit": "f9747088a31ec6c671e82de24e293ebdec99f717",
+    "target_tree": "7defedef032f6af38bbce0165eb6c2bdec327df7",
+    "post_merge_ci": 33809025595,
     "identity_binding_complete": true,
     "database_migration": false
   },
@@ -18,7 +18,7 @@
     "branch": "control-main",
     "expected_base_commit": "15a9c087f863212ab9ad6688ab39dcb117cee316",
     "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
-    "controller_sha256": "43a0c7360d9fe79b09f8f858df8dd9ee342abde242ddb62805e7419b7c7b7015",
+    "controller_sha256": "57668d7910a654daf0cb456c26456ddac74950e916f9dc92e825582210abd57c",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
     "exact_post_merge_commit_and_tree_required": true
   },

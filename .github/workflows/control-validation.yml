@@ -669,3 +669,27 @@ jobs:
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
           ! grep -nE '(systemctl[[:space:]]+restart|rm[[:space:]]+-rf|git[[:space:]]+(reset|clean))' scripts/tu1nz_adult_public_s10_2_control.sh
+      - name: Validate Night Shift IV product-loop Control SSOT
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-night-shift-iv-product-loop.json >/dev/null
+          && python3 -m json.tool
+          manifests/adult-publishing-commercial-s10-2b-public-telegram-brand-migration.json >/dev/null
+          && python3 -m py_compile
+          tests/test_adult_night_shift_iv_product_loop.py
+          tests/test_adult_commercial_s10_2b_public_telegram_brand_migration.py
+          && python3 -m unittest -v
+          tests.test_adult_night_shift_iv_product_loop
+          tests.test_adult_commercial_s10_2b_public_telegram_brand_migration
+      - name: Reject Night Shift IV secrets cron and boundary expansion
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-night-shift-iv-product-loop.json
+            manifests/adult-publishing-commercial-s10-2b-public-telegram-brand-migration.json
+            docs/NIGHT_SHIFT_IV_PRODUCT_LOOP_CONTROL_2026-09-03.md
+            docs/COMMERCIAL_S10_2B_PUBLIC_TELEGRAM_BRAND_MIGRATION.md
+            scripts/tu1nz_adult_public_s10_2b_control.sh
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
