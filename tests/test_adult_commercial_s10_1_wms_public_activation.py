@@ -44,6 +44,17 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.value = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
+    def test_health_rejects_timer_without_future_elapse(self) -> None:
+        specification = importlib.util.spec_from_file_location("s10_health_under_test", HEALTH)
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        with mock.patch.object(module, "_systemctl", side_effect=["", "infinity"]):
+            self.assertFalse(module._timer_has_future("example.timer"))
+        with mock.patch.object(module, "_systemctl", side_effect=["", "10month 1d 4h"]):
+            self.assertTrue(module._timer_has_future("example.timer"))
+
     def test_manifest_is_exactly_bound_and_public_sfw_only(self) -> None:
         application = self.value["application"]
         self.assertEqual(application["commit"], "cdeab77c17c28f4ade46c27975f1c20e74cb8737")
@@ -217,6 +228,9 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "contact@wantmeseen.com",
             "health.get(key) is not False",
             "tu1nz-adult-public-s9-health.timer",
+            "S10_TIMER_LIVENESS_RED",
+            "NextElapseUSecRealtime",
+            "NextElapseUSecMonotonic",
         ):
             self.assertIn(expected, source)
         for forbidden in ("message_text", "telegram_user_id", "private_chat_id", "identity_document"):
