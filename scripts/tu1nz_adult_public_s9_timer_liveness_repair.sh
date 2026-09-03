@@ -119,9 +119,9 @@ require_sources() {
   for file in "${RUNTIME_UNITS[@]}"; do
     [ -f "$CONTROL_ROOT/systemd/$file" ] && [ ! -L "$CONTROL_ROOT/systemd/$file" ] || fail "SOURCE_RUNTIME_UNIT_UNSAFE"
   done
-  grep -Fq 'LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s8-telegram.token' \
+  grep -Fq 'LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.token' \
     "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-audience.service" || fail "SOURCE_AUDIENCE_CREDENTIAL_BINDING_MISSING"
-  grep -Fq 'LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s8-telegram.token' \
+  grep -Fq 'LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.token' \
     "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-health.service" || fail "SOURCE_HEALTH_CREDENTIAL_BINDING_MISSING"
   for file in "${HEALTH_SCRIPTS[@]}"; do
     [ -f "$CONTROL_ROOT/scripts/$file" ] && [ ! -L "$CONTROL_ROOT/scripts/$file" ] || fail "SOURCE_HEALTH_SCRIPT_UNSAFE"
