@@ -17,7 +17,8 @@ readonly WORKERS=(
   tu1nz-adult-public-s9-nurture.service
   tu1nz-adult-public-s9-health.service
 )
-readonly HEALTH_UNITS=(
+readonly RUNTIME_UNITS=(
+  tu1nz-adult-public-s9-audience.service
   tu1nz-adult-public-s9-health.service
 )
 readonly SERVICES=(
@@ -114,16 +115,18 @@ require_sources() {
   done
   grep -Fq 'OnCalendar=*:0/15' "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-audience.timer" || fail "AUDIENCE_CALENDAR_MISSING"
   grep -Fq 'OnCalendar=*:3/15' "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-nurture.timer" || fail "NUDGE_CALENDAR_MISSING"
-  grep -Fq 'OnCalendar=*:0/5' "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-health.timer" || fail "HEALTH_CALENDAR_MISSING"
-  for file in "${HEALTH_UNITS[@]}"; do
-    [ -f "$CONTROL_ROOT/systemd/$file" ] && [ ! -L "$CONTROL_ROOT/systemd/$file" ] || fail "SOURCE_HEALTH_UNIT_UNSAFE"
+  grep -Fq 'OnCalendar=*:4/5' "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-health.timer" || fail "HEALTH_CALENDAR_MISSING"
+  for file in "${RUNTIME_UNITS[@]}"; do
+    [ -f "$CONTROL_ROOT/systemd/$file" ] && [ ! -L "$CONTROL_ROOT/systemd/$file" ] || fail "SOURCE_RUNTIME_UNIT_UNSAFE"
   done
+  grep -Fq 'LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s8-telegram.token' \
+    "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-audience.service" || fail "SOURCE_AUDIENCE_CREDENTIAL_BINDING_MISSING"
   grep -Fq 'LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s8-telegram.token' \
     "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-health.service" || fail "SOURCE_HEALTH_CREDENTIAL_BINDING_MISSING"
   for file in "${HEALTH_SCRIPTS[@]}"; do
     [ -f "$CONTROL_ROOT/scripts/$file" ] && [ ! -L "$CONTROL_ROOT/scripts/$file" ] || fail "SOURCE_HEALTH_SCRIPT_UNSAFE"
   done
-  systemd-analyze verify "${TIMERS[@]/#/$CONTROL_ROOT/systemd/}" "${HEALTH_UNITS[@]/#/$CONTROL_ROOT/systemd/}" \
+  systemd-analyze verify "${TIMERS[@]/#/$CONTROL_ROOT/systemd/}" "${RUNTIME_UNITS[@]/#/$CONTROL_ROOT/systemd/}" \
     >/dev/null || fail "SOURCE_TIMER_VERIFY_RED"
 }
 
@@ -140,8 +143,8 @@ capture_backup() {
     systemctl show "$file" -p ActiveState -p SubState -p UnitFileState -p LastTriggerUSec -p NextElapseUSecRealtime -p NextElapseUSecMonotonic \
       >"$backup_path/$file.state"
   done
-  for file in "${HEALTH_UNITS[@]}"; do
-    [ -f "$SYSTEMD_ROOT/$file" ] && [ ! -L "$SYSTEMD_ROOT/$file" ] || fail "INSTALLED_HEALTH_UNIT_UNSAFE"
+  for file in "${RUNTIME_UNITS[@]}"; do
+    [ -f "$SYSTEMD_ROOT/$file" ] && [ ! -L "$SYSTEMD_ROOT/$file" ] || fail "INSTALLED_RUNTIME_UNIT_UNSAFE"
     cp -p "$SYSTEMD_ROOT/$file" "$backup_path/$file"
   done
   for file in "${HEALTH_SCRIPTS[@]}"; do
@@ -180,7 +183,7 @@ apply_repair() {
   for file in "${TIMERS[@]}"; do
     install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$file" "$SYSTEMD_ROOT/$file"
   done
-  for file in "${HEALTH_UNITS[@]}"; do
+  for file in "${RUNTIME_UNITS[@]}"; do
     install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$file" "$SYSTEMD_ROOT/$file"
   done
   for file in "${HEALTH_SCRIPTS[@]}"; do
@@ -198,7 +201,7 @@ restore_backup() {
   for file in "${TIMERS[@]}"; do
     install -o root -g root -m 0644 "$backup_path/$file" "$SYSTEMD_ROOT/$file"
   done
-  for file in "${HEALTH_UNITS[@]}"; do
+  for file in "${RUNTIME_UNITS[@]}"; do
     install -o root -g root -m 0644 "$backup_path/$file" "$SYSTEMD_ROOT/$file"
   done
   for file in "${HEALTH_SCRIPTS[@]}"; do

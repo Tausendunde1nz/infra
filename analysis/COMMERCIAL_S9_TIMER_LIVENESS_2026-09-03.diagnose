@@ -79,6 +79,16 @@ validation, backup, installation and rollback surfaces as the three timers and
 health scripts. It introduces no new runtime, credential, provider or product
 capability.
 
+The first natural S10.2A audience trigger then exposed a second stale installed
+unit: the server's audience service predated its already-versioned S8 Telegram
+credential binding, while the nurture service matched SSOT and completed its
+natural run successfully. The recovery surface now includes the audience unit
+as well. The natural health trigger also proved that a timer can temporarily
+report no next elapse while its own service is running. The S9 health timer is
+therefore offset from audience and nurture, and its self-trigger is identified
+without weakening the independent S10 health guard, which continues to reject
+any S9 timer without a future elapse.
+
 ## Review tooling note
 
 The first read-only PR inspection omitted the required PR selector while using

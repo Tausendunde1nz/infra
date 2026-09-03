@@ -39,6 +39,36 @@ class CommercialS9ControlTests(unittest.TestCase):
         with mock.patch.object(module, "_systemctl", side_effect=["Thu 2026-09-03 04:15:00 UTC", "0"]):
             self.assertTrue(module._timer_has_future("example.timer"))
 
+    def test_health_tolerates_own_transient_only_while_timer_is_running(self) -> None:
+        specification = importlib.util.spec_from_file_location("s9_health_self_timer_under_test", HEALTH)
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        with (
+            mock.patch.object(module, "SERVICES", ()),
+            mock.patch.object(module, "TIMERS", (module.SELF_HEALTH_TIMER,)),
+            mock.patch.object(
+                module,
+                "_systemctl",
+                side_effect=["active", "enabled", "running", "", "infinity"],
+            ),
+        ):
+            timer = module._system_health()["timers"][module.SELF_HEALTH_TIMER]
+            self.assertFalse(timer["future_elapse"])
+            self.assertTrue(timer["self_triggered"])
+        with (
+            mock.patch.object(module, "SERVICES", ()),
+            mock.patch.object(module, "TIMERS", (module.SELF_HEALTH_TIMER,)),
+            mock.patch.object(
+                module,
+                "_systemctl",
+                side_effect=["active", "enabled", "waiting", "", "infinity"],
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "S9_TIMER_LIVENESS_RED"):
+                module._system_health()
+
     def test_manifest_is_exactly_bound_and_fail_closed(self) -> None:
         value = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(value["application"]["commit"], "8ea16db18c683c89bf38c9b2b02e920d3da84e4f")
@@ -74,7 +104,7 @@ class CommercialS9ControlTests(unittest.TestCase):
         schedules = {
             "tu1nz-adult-public-s9-audience.timer": "OnCalendar=*:0/15",
             "tu1nz-adult-public-s9-nurture.timer": "OnCalendar=*:3/15",
-            "tu1nz-adult-public-s9-health.timer": "OnCalendar=*:0/5",
+            "tu1nz-adult-public-s9-health.timer": "OnCalendar=*:4/5",
         }
         for name, schedule in schedules.items():
             source = (ROOT / "systemd" / name).read_text(encoding="utf-8")
@@ -108,9 +138,12 @@ class CommercialS9ControlTests(unittest.TestCase):
             "sitemap_urls",
             "telegram_redirect",
             "S9_TIMER_LIVENESS_RED",
+            "SELF_HEALTH_TIMER",
+            '"self_triggered"',
+            'substate == "running"',
             "NextElapseUSecRealtime",
             "NextElapseUSecMonotonic",
-            '"future_elapse": True',
+            '"future_elapse": future_elapse',
             'b"SFW CREATOR GUIDE"',
             'b"SFW-CREATOR-GUIDE"',
         ):
@@ -130,6 +163,8 @@ class CommercialS9ControlTests(unittest.TestCase):
             "require_adult_runtime_closed",
             "systemd-analyze verify",
             "tu1nz-adult-public-s9-health.service",
+            "tu1nz-adult-public-s9-audience.service",
+            "SOURCE_AUDIENCE_CREDENTIAL_BINDING_MISSING",
             "SOURCE_HEALTH_CREDENTIAL_BINDING_MISSING",
             '"$backup_path"/*.service',
             "NextElapseUSecRealtime",
