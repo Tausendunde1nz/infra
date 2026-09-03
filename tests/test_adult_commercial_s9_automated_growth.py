@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import py_compile
@@ -16,6 +17,7 @@ MANIFEST = ROOT / "manifests/adult-publishing-commercial-s9-automated-growth.jso
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s9_control.sh"
 HEALTH = ROOT / "scripts/tu1nz_adult_public_s9_health.py"
 TIMER_REPAIR = ROOT / "scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh"
+S10_HEALTH_LAUNCHER = ROOT / "scripts/tu1nz_adult_public_s10_1_s9_health.py"
 LANDING = ROOT / "systemd/tu1nz-adult-public-s8-landing.service"
 LANDING_DROP_IN = ROOT / "systemd/tu1nz-adult-public-s8-landing.service.d/s9-growth.conf"
 UNITS = tuple(
@@ -68,6 +70,11 @@ class CommercialS9ControlTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "S9_TIMER_LIVENESS_RED"):
                 module._system_health()
+
+    def test_s10_health_launcher_is_bound_to_current_s9_health(self) -> None:
+        target_hash = hashlib.sha256(HEALTH.read_bytes()).hexdigest()
+        launcher = S10_HEALTH_LAUNCHER.read_text(encoding="utf-8")
+        self.assertIn(f'TARGET_HEALTH_SHA256 = "{target_hash}"', launcher)
 
     def test_manifest_is_exactly_bound_and_fail_closed(self) -> None:
         value = json.loads(MANIFEST.read_text(encoding="utf-8"))
