@@ -94,4 +94,3 @@ temporary=""
 [ "$(stat -c '%a %U:%G %F %h' "$TARGET")" = "600 root:root regular file 1" ] \
   || fail "TARGET_METADATA_INVALID"
 printf '{"ok":true,"safe_code":"S10_2B_TOKEN_INSTALLED","bot_id":%s}\n' "$bot_id"
-

@@ -83,4 +83,3 @@ back to the old bot, restarts the same services and timers, and verifies the
 same PostgreSQL waitlist without a database restore. The renamed channel may
 remain `@WantMeSeen`; the old bot can continue to post there. A database
 rollback is out of scope unless a separate destructive decision is made.
-
