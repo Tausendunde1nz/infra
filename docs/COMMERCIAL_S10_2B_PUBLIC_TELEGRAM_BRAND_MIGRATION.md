@@ -10,7 +10,7 @@ identity documents, real AVS, payments, external Adult publishing, creator
 activation, Controlled Beta and production remain closed.
 
 The initial prepared state is `GO_PREPARE_WAITING_BOTFATHER`. No public cutover
-may occur until the new `@WantMeSeenBot` identity is bound to an exact bot ID,
+may occur until the new canonical `@wantmeseenbot` identity is bound to an exact bot ID,
 the token has been installed through the interactive secret installer, and the
 application and control changes have passed review and CI.
 
@@ -30,8 +30,9 @@ The new token is accepted only through
 `scripts/tu1nz_adult_public_s10_2b_secret_install.sh` running as root in one
 interactive TTY. Input echo is disabled. The token is never accepted as a
 command argument and is never printed. Before installation the script verifies
-through the official Telegram Bot API that the bot is exactly
-`WantMeSeenBot`, is displayed as `Want Me Seen`, and cannot join groups. The
+through the official Telegram Bot API that the bot username is case-insensitively
+equal to the Telegram-canonical `wantmeseenbot`, is displayed as `Want Me Seen`,
+and cannot join groups. The
 installed secret is a regular root-owned `0600` file outside Git at
 `/etc/tu1nz/adult-commercial-s10-2b-telegram.token`.
 
@@ -61,7 +62,7 @@ The cutover sequence is fixed:
    official Bot API.
 9. Start S10 WMS and S8 Telegram, resume the existing timers and run S8, S9 and
    S10 health gates.
-10. Verify website, channel and referral deep links use `WantMeSeenBot`, run the
+10. Verify website, channel and referral deep links use `wantmeseenbot`, run the
     harmless SFW smoke and observe health before marking the old bot
     `FALLBACK_ONLY`.
 

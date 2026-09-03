@@ -24,7 +24,7 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.assertFalse(self.manifest["active"])
         self.assertTrue(self.manifest["application"]["identity_binding_required_after_bot_creation"])
         self.assertEqual(self.manifest["public_identity"]["preferred_channel"], "@WantMeSeen")
-        self.assertEqual(self.manifest["public_identity"]["preferred_bot"], "@WantMeSeenBot")
+        self.assertEqual(self.manifest["public_identity"]["preferred_bot"], "@wantmeseenbot")
 
     def test_secret_installer_is_tty_only_root_only_and_does_not_accept_arguments(self) -> None:
         subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
@@ -36,6 +36,7 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
             "TARGET_ALREADY_EXISTS",
             "BOT_IDENTITY_VALIDATION_FAILED",
             "can_join_groups",
+            ".casefold() == expected_username.casefold()",
             "ProxyHandler({})",
             "RejectRedirect",
             "install -o root -g root -m 0600",

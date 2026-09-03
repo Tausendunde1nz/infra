@@ -3,7 +3,7 @@ set -euo pipefail
 umask 0077
 
 readonly TARGET="/etc/tu1nz/adult-commercial-s10-2b-telegram.token"
-readonly EXPECTED_USERNAME="WantMeSeenBot"
+readonly EXPECTED_USERNAME="wantmeseenbot"
 
 fail() {
   printf 'S10_2B_SECRET_INSTALL_RED %s\n' "$1" >&2
@@ -75,7 +75,8 @@ if not isinstance(result, dict):
 bot_id = result.get("id")
 checks = (
     isinstance(bot_id, int) and not isinstance(bot_id, bool),
-    result.get("username") == expected_username,
+    isinstance(result.get("username"), str)
+    and result["username"].casefold() == expected_username.casefold(),
     result.get("first_name") == "Want Me Seen",
     result.get("can_join_groups") is False,
 )
