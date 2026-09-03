@@ -123,11 +123,11 @@
   "control_files": {
     "backup_script_sha256": "29bd5b9ba2d773b4e792216b585c95be15319c0e1be1a6bb8fda9fdc2b61cfaf",
     "controller_sha256": "0a89cba773d7a2b767c20c1d9eada9fe3bb5fb6a7ceb51450c2d98eaf34f2604",
-    "health_script_sha256": "9415a901bb022006ea4b262f03f98a7069967e248e09e7df63b4c1d91182c51c",
+    "health_script_sha256": "aa09bdddd9ec31b18fb5e2221ca76eb53cfd2a3bd9fd26efdadb04607a22dd24",
     "observer_sha256": "fba80650a45f0744080dedab1ef8bbd69f6b06c286648ce121ea2358c5fc93f3",
     "legacy_prearm_script_sha256": "4a2d4f359f7324c99131202727c884c2b8713670c1cbdd5c18809a4807324753",
     "legacy_publication_evidence_script_sha256": "603ba3df2207fa4072826aae1ab5c709758e1d197afb38032ae23d6eb550948d",
-    "target_s9_health_script_sha256": "da4f3ec486a4153b99f49489304628e75b8542f30d60d9e178a001d67b0aa748",
+    "target_s9_health_script_sha256": "265345c9d89a7c81f1fcf18e67ba95c7cc75ee142c9f10b6e758a8a506c04f0c",
     "wms_service_sha256": "7016f1b110d5b87ec9455d588bf9ca502be419b3b95162a4441fc0d6187a3939",
     "local_health_service_sha256": "0f8cb4e70765d71d0490bee881f1cc184555167324458c6cf4c6339cfb14d9c5",
     "pre_growth_health_service_sha256": "60c169c4470df8205cba9df59de06f8d06829063c9cd0d49dd1a690fd612c243",

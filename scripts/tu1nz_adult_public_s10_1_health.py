@@ -105,6 +105,14 @@ def _systemctl(*arguments: str) -> str:
     return result.stdout.strip()
 
 
+def _timer_has_future(unit: str) -> bool:
+    values = (
+        _systemctl("show", unit, "-p", "NextElapseUSecRealtime", "--value"),
+        _systemctl("show", unit, "-p", "NextElapseUSecMonotonic", "--value"),
+    )
+    return any(value not in {"", "0", "infinity"} for value in values)
+
+
 def _read(url: str) -> tuple[int, bytes]:
     request = Request(url, headers={"User-Agent": "WMS-S10-Health/1"}, method="GET")
     try:
@@ -187,6 +195,8 @@ def _system(local_only: bool, require_timers: bool) -> dict[str, object]:
                 raise ValueError("S10_TIMER_STATE_RED")
             if _systemctl("is-enabled", unit) != "enabled":
                 raise ValueError("S10_TIMER_STATE_RED")
+            if not _timer_has_future(unit):
+                raise ValueError("S10_TIMER_LIVENESS_RED")
     return services
 
 

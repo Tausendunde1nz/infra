@@ -55,6 +55,14 @@ def _systemctl(*arguments: str) -> str:
     return completed.stdout.strip()
 
 
+def _timer_has_future(unit: str) -> bool:
+    values = (
+        _systemctl("show", unit, "-p", "NextElapseUSecRealtime", "--value"),
+        _systemctl("show", unit, "-p", "NextElapseUSecMonotonic", "--value"),
+    )
+    return any(value not in {"", "0", "infinity"} for value in values)
+
+
 def _read(url: str) -> tuple[int, dict[str, str], bytes]:
     request = Request(url, headers={"User-Agent": "TU1NZ-S9-Health/1"}, method="GET")
     try:
@@ -154,7 +162,9 @@ def _system_health() -> dict[str, object]:
         enabled = _systemctl("is-enabled", unit)
         if active != "active" or enabled != "enabled":
             raise ValueError("S9_TIMER_STATE_RED")
-        timers[unit] = {"active": True, "enabled": True}
+        if not _timer_has_future(unit):
+            raise ValueError("S9_TIMER_LIVENESS_RED")
+        timers[unit] = {"active": True, "enabled": True, "future_elapse": True}
     return {"services": services, "timers": timers}
 
 

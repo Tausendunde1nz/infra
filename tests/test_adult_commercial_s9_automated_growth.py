@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import py_compile
 import re
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -13,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s9-automated-growth.json"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s9_control.sh"
 HEALTH = ROOT / "scripts/tu1nz_adult_public_s9_health.py"
+TIMER_REPAIR = ROOT / "scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh"
 LANDING = ROOT / "systemd/tu1nz-adult-public-s8-landing.service"
 LANDING_DROP_IN = ROOT / "systemd/tu1nz-adult-public-s8-landing.service.d/s9-growth.conf"
 UNITS = tuple(
@@ -25,6 +28,17 @@ UNITS = tuple(
 
 
 class CommercialS9ControlTests(unittest.TestCase):
+    def test_health_rejects_timer_without_future_elapse(self) -> None:
+        specification = importlib.util.spec_from_file_location("s9_health_under_test", HEALTH)
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        with mock.patch.object(module, "_systemctl", side_effect=["", "infinity"]):
+            self.assertFalse(module._timer_has_future("example.timer"))
+        with mock.patch.object(module, "_systemctl", side_effect=["Thu 2026-09-03 04:15:00 UTC", "0"]):
+            self.assertTrue(module._timer_has_future("example.timer"))
+
     def test_manifest_is_exactly_bound_and_fail_closed(self) -> None:
         value = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(value["application"]["commit"], "8ea16db18c683c89bf38c9b2b02e920d3da84e4f")
@@ -93,12 +107,43 @@ class CommercialS9ControlTests(unittest.TestCase):
             "controlled_beta",
             "sitemap_urls",
             "telegram_redirect",
+            "S9_TIMER_LIVENESS_RED",
+            "NextElapseUSecRealtime",
+            "NextElapseUSecMonotonic",
+            '"future_elapse": True',
             'b"SFW CREATOR GUIDE"',
             'b"SFW-CREATOR-GUIDE"',
         ):
             self.assertIn(expected, source)
         self.assertNotIn("telegram_user_id", source)
         self.assertNotIn("private_chat_id", source)
+        self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
+
+    def test_timer_liveness_repair_is_backup_first_bounded_and_reversible(self) -> None:
+        source = TIMER_REPAIR.read_text(encoding="utf-8")
+        completed = subprocess.run(["bash", "-n", TIMER_REPAIR], capture_output=True, text=True, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        for expected in (
+            "capture_backup",
+            "require_expected_revision",
+            "require_public_baseline",
+            "require_adult_runtime_closed",
+            "systemd-analyze verify",
+            "NextElapseUSecRealtime",
+            "NextElapseUSecMonotonic",
+            "restore_backup",
+            "APPLY_FAILED_ROLLED_BACK",
+            "S9_TIMER_LIVENESS_REPAIR_GREEN",
+        ):
+            self.assertIn(expected, source)
+        main = source.split("main()", 1)[1]
+        self.assertLess(main.index("capture_backup"), main.index("apply_repair"))
+        self.assertNotIn("systemctl restart", source)
+        self.assertNotIn("rm -rf", source)
+        self.assertNotIn("git reset", source)
+        self.assertNotIn("git clean", source)
+        self.assertNotIn("api.x.com", source)
+        self.assertNotIn("reddit.com", source)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", source))
 
     def test_controller_is_backup_first_bounded_and_reversible(self) -> None:
