@@ -1,0 +1,71 @@
+{
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v1",
+  "decision": "GO_PREPARE_WAITING_BOTFATHER",
+  "active": false,
+  "application": {
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "branch": "main",
+    "canonical_preparation_required": true,
+    "identity_binding_required_after_bot_creation": true,
+    "database_migration": false
+  },
+  "control": {
+    "repository": "Tausendunde1nz/infra",
+    "branch": "control-main",
+    "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
+    "exact_post_merge_commit_and_tree_required": true
+  },
+  "public_identity": {
+    "public_name": "Want Me Seen",
+    "claim": "Exposed on purpose. Always by choice.",
+    "channel_display_name": "Want Me Seen",
+    "preferred_channel": "@WantMeSeen",
+    "bot_display_name": "Want Me Seen",
+    "preferred_bot": "@WantMeSeenBot",
+    "legacy_channel": "@tu1nz_adult_publishing",
+    "legacy_bot": "@tu1nz_adult_early_access_bot"
+  },
+  "secret_handling": {
+    "target": "/etc/tu1nz/adult-commercial-s10-2b-telegram.token",
+    "mode": "0600",
+    "owner": "root:root",
+    "chat_forbidden": true,
+    "git_forbidden": true,
+    "logs_forbidden": true,
+    "history_forbidden": true,
+    "legacy_secret_preserved_for_fallback": true
+  },
+  "continuity": {
+    "existing_channel_preserved": true,
+    "existing_channel_id_preserved": true,
+    "postgres_waitlist_ssot_preserved": true,
+    "database_schema_change": false,
+    "referral_codes_preserved": true,
+    "analytics_dimensions_preserved": true,
+    "nurture_engine_preserved": true,
+    "old_bot_mode": "FALLBACK_ONLY"
+  },
+  "cutover": {
+    "backup_required": true,
+    "quiesce_growth_timers": true,
+    "configure_new_bot_before_public_cta": true,
+    "isolated_sfw_smoke_required": true,
+    "channel_handle_operator_checkpoint_if_required": true,
+    "new_bot_minimal_channel_admin_required": true,
+    "website_cta_after_bot_smoke": true,
+    "automatic_rollback_on_failure": true
+  },
+  "product_boundary": {
+    "adult_media": false,
+    "identity_documents": false,
+    "real_avs": false,
+    "real_money": false,
+    "payments": false,
+    "external_adult_publishing": false,
+    "real_creator_access": false,
+    "controlled_beta": false,
+    "production": false,
+    "mass_direct_messages": false
+  }
+}
+
