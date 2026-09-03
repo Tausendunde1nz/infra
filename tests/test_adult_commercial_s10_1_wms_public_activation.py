@@ -55,6 +55,34 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         with mock.patch.object(module, "_systemctl", side_effect=["", "10month 1d 4h"]):
             self.assertTrue(module._timer_has_future("example.timer"))
 
+    def test_health_tolerates_own_transient_only_while_timer_is_running(self) -> None:
+        specification = importlib.util.spec_from_file_location("s10_health_self_timer_under_test", HEALTH)
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        with (
+            mock.patch.object(module, "SERVICES", ()),
+            mock.patch.object(module, "TIMERS", (module.SELF_HEALTH_TIMER,)),
+            mock.patch.object(
+                module,
+                "_systemctl",
+                side_effect=["active", "enabled", "running", "", "infinity"],
+            ),
+        ):
+            self.assertEqual(module._system(False, True), {})
+        with (
+            mock.patch.object(module, "SERVICES", ()),
+            mock.patch.object(module, "TIMERS", (module.SELF_HEALTH_TIMER,)),
+            mock.patch.object(
+                module,
+                "_systemctl",
+                side_effect=["active", "enabled", "waiting", "", "infinity"],
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "S10_TIMER_LIVENESS_RED"):
+                module._system(False, True)
+
     def test_manifest_is_exactly_bound_and_public_sfw_only(self) -> None:
         application = self.value["application"]
         self.assertEqual(application["commit"], "cdeab77c17c28f4ade46c27975f1c20e74cb8737")
@@ -228,6 +256,8 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             "contact@wantmeseen.com",
             "health.get(key) is not False",
             "tu1nz-adult-public-s9-health.timer",
+            "SELF_HEALTH_TIMER",
+            'substate == "running"',
             "S10_TIMER_LIVENESS_RED",
             "NextElapseUSecRealtime",
             "NextElapseUSecMonotonic",

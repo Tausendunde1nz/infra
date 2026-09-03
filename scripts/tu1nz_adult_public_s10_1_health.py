@@ -33,6 +33,7 @@ TIMERS = (
     "tu1nz-adult-public-s9-health.timer",
     "tu1nz-adult-public-s10-health.timer",
 )
+SELF_HEALTH_TIMER = "tu1nz-adult-public-s10-health.timer"
 S9_FORBIDDEN_CAPABILITIES = {
     "adult_content",
     "media_intake",
@@ -195,7 +196,10 @@ def _system(local_only: bool, require_timers: bool) -> dict[str, object]:
                 raise ValueError("S10_TIMER_STATE_RED")
             if _systemctl("is-enabled", unit) != "enabled":
                 raise ValueError("S10_TIMER_STATE_RED")
-            if not _timer_has_future(unit):
+            substate = _systemctl("show", unit, "-p", "SubState", "--value")
+            future_elapse = _timer_has_future(unit)
+            self_triggered = unit == SELF_HEALTH_TIMER and substate == "running"
+            if not future_elapse and not self_triggered:
                 raise ValueError("S10_TIMER_LIVENESS_RED")
     return services
 
