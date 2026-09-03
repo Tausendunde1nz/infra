@@ -29,6 +29,7 @@ TIMERS = (
     "tu1nz-adult-public-s9-report.timer",
     "tu1nz-adult-public-s9-health.timer",
 )
+SELF_HEALTH_TIMER = "tu1nz-adult-public-s9-health.timer"
 MAXIMUM_BYTES = 768 * 1024
 
 
@@ -162,9 +163,18 @@ def _system_health() -> dict[str, object]:
         enabled = _systemctl("is-enabled", unit)
         if active != "active" or enabled != "enabled":
             raise ValueError("S9_TIMER_STATE_RED")
-        if not _timer_has_future(unit):
+        substate = _systemctl("show", unit, "-p", "SubState", "--value")
+        future_elapse = _timer_has_future(unit)
+        self_triggered = unit == SELF_HEALTH_TIMER and substate == "running"
+        if not future_elapse and not self_triggered:
             raise ValueError("S9_TIMER_LIVENESS_RED")
-        timers[unit] = {"active": True, "enabled": True, "future_elapse": True}
+        timers[unit] = {
+            "active": True,
+            "enabled": True,
+            "future_elapse": future_elapse,
+            "substate": substate,
+            "self_triggered": self_triggered,
+        }
     return {"services": services, "timers": timers}
 
 
