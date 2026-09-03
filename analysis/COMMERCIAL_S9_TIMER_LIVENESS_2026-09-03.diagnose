@@ -43,7 +43,7 @@ Rollback is the previous canonical Control commit plus restoration of the
 three prior timer files from the existing public-runtime recovery point. No
 database rollback is required.
 
-## Current decision
+## Initial deployment decision
 
 `WAITING_OPERATOR_S9_TIMER_LIVENESS_DEPLOY`
 
@@ -110,3 +110,15 @@ The first read-only PR inspection omitted the required PR selector while using
 the repository flag. GitHub rejected only that inspection command; PR #93 had
 already been created successfully and no repository content changed. The
 inspection was repeated with the explicit PR number.
+
+## Final S10.2A decision
+
+`AUTOMATED_WMS_SFW_GROWTH = GO`
+
+The backup-first repair and final self-timer correction were installed from
+canonical Control. Audience, nurture, S9 health and S10 health each completed a
+natural successful run, and every recurring timer exposed a future elapse.
+Public WMS health remained green, baseline services retained `NRestarts=0`,
+Adult runtimes remained inactive and both server repositories were clean.
+The aggregated, token-free operational record is versioned in
+`docs/COMMERCIAL_S10_2A_S9_TIMER_RECOVERY_2026-09-03.evidence`.
