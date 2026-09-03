@@ -95,6 +95,15 @@ previous S9 health implementation. The launcher binding is refreshed to the
 reviewed S9 health SHA-256, and a regression test now requires both artifacts
 to remain cryptographically aligned.
 
+The subsequent bounded acceptance exposed the equivalent transient in the S10
+health timer itself: while its service was running, the `OnUnitActiveSec`
+schedule correctly reported no next elapse until service completion, causing
+the health envelope to reject its own healthy in-flight invocation. The S10
+health envelope now applies the same narrow self-trigger exception: only its
+own timer, only while systemd reports `SubState=running`. A waiting timer with
+no future elapse remains a hard failure. This does not relax checks for any S9
+timer or for the S10 timer outside its own active health invocation.
+
 ## Review tooling note
 
 The first read-only PR inspection omitted the required PR selector while using
