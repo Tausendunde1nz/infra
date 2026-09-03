@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 TARGET_HEALTH = Path("/opt/tu1nz_repos/control/scripts/tu1nz_adult_public_s9_health.py")
-TARGET_HEALTH_SHA256 = "f6fb908c6fcd66daafb41449b62a8218edb78737e8cc45b6ed4996becd39705f"
+TARGET_HEALTH_SHA256 = "06d39a7253d66c7e67c76675746fbe591b8971ab51c86685076a1531c1ddd172"
 
 
 def main() -> int:

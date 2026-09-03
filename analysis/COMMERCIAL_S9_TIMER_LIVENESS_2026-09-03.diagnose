@@ -89,6 +89,12 @@ therefore offset from audience and nurture, and its self-trigger is identified
 without weakening the independent S10 health guard, which continues to reject
 any S9 timer without a future elapse.
 
+The first installation attempt of that natural-run correction then failed
+closed before acceptance because the S10 health launcher still hash-bound the
+previous S9 health implementation. The launcher binding is refreshed to the
+reviewed S9 health SHA-256, and a regression test now requires both artifacts
+to remain cryptographically aligned.
+
 ## Review tooling note
 
 The first read-only PR inspection omitted the required PR selector while using
