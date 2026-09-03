@@ -1,17 +1,24 @@
 {
-  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v1",
-  "decision": "GO_PREPARE_WAITING_BOTFATHER",
-  "active": false,
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v2",
+  "decision": "GO_CUTOVER_WAITING_CHANNEL_ADMIN",
+  "active": true,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
     "branch": "main",
-    "canonical_preparation_required": true,
-    "identity_binding_required_after_bot_creation": true,
+    "source_commit": "deeb38c30427066989eb85e1c115d2aeccf140cf",
+    "source_tree": "3619e7dc557b49c632efa713bb0bc4214fd83fca",
+    "target_commit": "4a6c42f389cbf6caca738c48ae32ebe1856dd674",
+    "target_tree": "f66b70452ab423c232bd529936f8e07950c138ad",
+    "post_merge_ci": 33803097418,
+    "identity_binding_complete": true,
     "database_migration": false
   },
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
+    "expected_base_commit": "9b89bf636bdbda44ddb9bb82f84070514d29782b",
+    "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
+    "controller_sha256": "14853a5efb1bc85d6aba198b7539547190fc456ddbad86020724fe967af7ba26",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
     "exact_post_merge_commit_and_tree_required": true
   },
@@ -19,21 +26,30 @@
     "public_name": "Want Me Seen",
     "claim": "Exposed on purpose. Always by choice.",
     "channel_display_name": "Want Me Seen",
-    "preferred_channel": "@WantMeSeen",
+    "channel": "@WantMeSeen",
     "bot_display_name": "Want Me Seen",
-    "preferred_bot": "@wantmeseenbot",
+    "bot": "@wantmeseenbot",
+    "bot_id": 8861935205,
     "legacy_channel": "@tu1nz_adult_publishing",
-    "legacy_bot": "@tu1nz_adult_early_access_bot"
+    "legacy_bot": "@tu1nz_adult_early_access_bot",
+    "legacy_bot_id": 8622690874
   },
   "secret_handling": {
     "target": "/etc/tu1nz/adult-commercial-s10-2b-telegram.token",
     "mode": "0600",
     "owner": "root:root",
+    "installed": true,
     "chat_forbidden": true,
     "git_forbidden": true,
     "logs_forbidden": true,
     "history_forbidden": true,
     "legacy_secret_preserved_for_fallback": true
+  },
+  "backup": {
+    "path": "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260903T202834Z-pre-s10-2b-public-telegram",
+    "verified": true,
+    "index_sha256": "c398bd8e084b56f93a9f16ae71c0bc46139193fd0dcdafed7b7c7ae28d7f81bc",
+    "contains_secret_material": false
   },
   "continuity": {
     "existing_channel_preserved": true,
@@ -47,13 +63,28 @@
   },
   "cutover": {
     "backup_required": true,
+    "backup_verified": true,
     "quiesce_growth_timers": true,
     "configure_new_bot_before_public_cta": true,
-    "isolated_sfw_smoke_required": true,
-    "channel_handle_operator_checkpoint_if_required": true,
     "new_bot_minimal_channel_admin_required": true,
+    "legacy_bot_channel_admin_required_for_rollback": true,
+    "required_channel_admin_rights": [
+      "change_channel_info",
+      "post_messages",
+      "edit_messages"
+    ],
+    "forbidden_channel_admin_rights": [
+      "anonymous_admin",
+      "delete_messages",
+      "invite_subscribers",
+      "manage_video_chats",
+      "add_administrators",
+      "manage_stories",
+      "manage_direct_messages"
+    ],
     "website_cta_after_bot_smoke": true,
-    "automatic_rollback_on_failure": true
+    "automatic_rollback_on_failure": true,
+    "two_hour_observation_required": true
   },
   "product_boundary": {
     "adult_media": false,

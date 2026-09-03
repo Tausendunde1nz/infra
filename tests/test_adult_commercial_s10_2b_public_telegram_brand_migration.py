@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import subprocess
 import unittest
@@ -10,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2b-public-telegram-brand-migration.json"
 INSTALLER = ROOT / "scripts/tu1nz_adult_public_s10_2b_secret_install.sh"
+CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s10_2b_control.sh"
 CONTROL = ROOT / "docs/COMMERCIAL_S10_2B_PUBLIC_TELEGRAM_BRAND_MIGRATION.md"
 
 
@@ -17,14 +19,23 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.installer = INSTALLER.read_text(encoding="utf-8")
+        self.controller = CONTROLLER.read_text(encoding="utf-8")
         self.control = CONTROL.read_text(encoding="utf-8")
 
-    def test_prepared_state_requires_identity_binding_before_activation(self) -> None:
-        self.assertEqual(self.manifest["decision"], "GO_PREPARE_WAITING_BOTFATHER")
-        self.assertFalse(self.manifest["active"])
-        self.assertTrue(self.manifest["application"]["identity_binding_required_after_bot_creation"])
-        self.assertEqual(self.manifest["public_identity"]["preferred_channel"], "@WantMeSeen")
-        self.assertEqual(self.manifest["public_identity"]["preferred_bot"], "@wantmeseenbot")
+    def test_cutover_state_binds_the_reviewed_application_and_identity(self) -> None:
+        self.assertEqual(self.manifest["decision"], "GO_CUTOVER_WAITING_CHANNEL_ADMIN")
+        self.assertTrue(self.manifest["active"])
+        application = self.manifest["application"]
+        self.assertEqual(application["source_commit"], "deeb38c30427066989eb85e1c115d2aeccf140cf")
+        self.assertEqual(application["source_tree"], "3619e7dc557b49c632efa713bb0bc4214fd83fca")
+        self.assertEqual(application["target_commit"], "4a6c42f389cbf6caca738c48ae32ebe1856dd674")
+        self.assertEqual(application["target_tree"], "f66b70452ab423c232bd529936f8e07950c138ad")
+        self.assertEqual(application["post_merge_ci"], 33803097418)
+        self.assertTrue(application["identity_binding_complete"])
+        identity = self.manifest["public_identity"]
+        self.assertEqual(identity["channel"], "@WantMeSeen")
+        self.assertEqual(identity["bot"], "@wantmeseenbot")
+        self.assertEqual(identity["bot_id"], 8861935205)
 
     def test_secret_installer_is_tty_only_root_only_and_does_not_accept_arguments(self) -> None:
         subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
@@ -44,14 +55,61 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
             self.assertIn(value, self.installer)
         self.assertNotRegex(self.installer, r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}")
 
+    def test_controller_is_hash_bound_backup_first_and_fail_closed(self) -> None:
+        self.assertEqual(
+            hashlib.sha256(CONTROLLER.read_bytes()).hexdigest(),
+            self.manifest["control"]["controller_sha256"],
+        )
+        subprocess.run(["bash", "-n", str(CONTROLLER)], check=True)
+        for value in (
+            self.manifest["application"]["source_commit"],
+            self.manifest["application"]["source_tree"],
+            self.manifest["application"]["target_commit"],
+            self.manifest["application"]["target_tree"],
+            "BACKUP_APPLICATION_SHA_MISMATCH",
+            "REMOTE_TARGET_SHA_MISMATCH",
+            "NEW_BOT_CHANNEL_PERMISSION_MISSING",
+            "OLD_BOT_FALLBACK_PERMISSION_MISSING",
+            'member.get("can_change_info") is True',
+            '"can_promote_members"',
+            "PRODUCT_BOUNDARY_RED",
+            "DATABASE_CONTINUITY_RED",
+            "DEPLOY_ROLLED_BACK",
+            "restore_fallback_channel",
+            "--configure-bot",
+            "--configure-channel",
+            "--verify-bot",
+            "--verify-channel",
+        ):
+            self.assertIn(str(value), self.controller)
+        self.assertIn("fetch --no-tags origin main", self.controller)
+        self.assertIn("switch --detach", self.controller)
+        self.assertNotIn("systemctl enable", self.controller)
+        self.assertNotIn("systemctl disable", self.controller)
+        self.assertNotIn("pg_restore", self.controller)
+        self.assertNotIn("telegram_user_id", self.controller)
+        self.assertNotIn("private_chat_id", self.controller)
+        self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.controller))
+
     def test_secret_policy_is_outside_git_and_preserves_legacy_fallback(self) -> None:
         secret = self.manifest["secret_handling"]
         self.assertEqual(secret["target"], "/etc/tu1nz/adult-commercial-s10-2b-telegram.token")
         self.assertEqual(secret["mode"], "0600")
         self.assertEqual(secret["owner"], "root:root")
         self.assertTrue(secret["legacy_secret_preserved_for_fallback"])
+        self.assertTrue(secret["installed"])
         for key in ("chat_forbidden", "git_forbidden", "logs_forbidden", "history_forbidden"):
             self.assertTrue(secret[key])
+
+    def test_backup_is_verified_and_contains_no_secret_material(self) -> None:
+        backup = self.manifest["backup"]
+        self.assertEqual(
+            backup["path"],
+            "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260903T202834Z-pre-s10-2b-public-telegram",
+        )
+        self.assertTrue(backup["verified"])
+        self.assertFalse(backup["contains_secret_material"])
+        self.assertRegex(backup["index_sha256"], r"^[0-9a-f]{64}$")
 
     def test_continuity_and_rollback_preserve_the_existing_product_state(self) -> None:
         continuity = self.manifest["continuity"]
@@ -60,13 +118,21 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.assertTrue(continuity["postgres_waitlist_ssot_preserved"])
         self.assertFalse(continuity["database_schema_change"])
         self.assertEqual(continuity["old_bot_mode"], "FALLBACK_ONLY")
-        self.assertIn("without a database restore", self.control)
-        self.assertIn("The renamed channel may", self.control)
+        self.assertIn("without a", self.control)
+        self.assertIn("database restore", self.control)
+        self.assertIn("channel, subscribers and history", self.control)
+        self.assertIn("legacy bot restores the channel CTA", self.control)
 
     def test_all_new_risk_boundaries_remain_closed(self) -> None:
         self.assertTrue(all(value is False for value in self.manifest["product_boundary"].values()))
         self.assertFalse(self.manifest["application"]["database_migration"])
         self.assertTrue(self.manifest["cutover"]["automatic_rollback_on_failure"])
+        self.assertTrue(self.manifest["cutover"]["two_hour_observation_required"])
+        self.assertEqual(
+            self.manifest["cutover"]["required_channel_admin_rights"],
+            ["change_channel_info", "post_messages", "edit_messages"],
+        )
+        self.assertIn("add_administrators", self.manifest["cutover"]["forbidden_channel_admin_rights"])
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.control))
 
 

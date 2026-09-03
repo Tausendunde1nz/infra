@@ -253,7 +253,7 @@ class CommercialS9ControlTests(unittest.TestCase):
         for unit in (audience, health):
             self.assertIn("LoadCredential=s8_telegram_token:", unit)
             self.assertIn("%d/s8_telegram_token", unit)
-            self.assertIn("@tu1nz_adult_publishing", unit)
+            self.assertIn("@WantMeSeen", unit)
             self.assertNotIn("Environment=", unit)
 
     def test_backup_captures_the_organic_s9_rollback_surface(self) -> None:
