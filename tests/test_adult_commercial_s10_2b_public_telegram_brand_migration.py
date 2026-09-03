@@ -23,7 +23,7 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.control = CONTROL.read_text(encoding="utf-8")
 
     def test_cutover_state_binds_the_reviewed_application_and_identity(self) -> None:
-        self.assertEqual(self.manifest["decision"], "GO_CUTOVER_WAITING_CHANNEL_ADMIN")
+        self.assertEqual(self.manifest["decision"], "GO_CUTOVER_RECOVERY_PREFLIGHT")
         self.assertTrue(self.manifest["active"])
         application = self.manifest["application"]
         self.assertEqual(application["source_commit"], "deeb38c30427066989eb85e1c115d2aeccf140cf")
@@ -80,6 +80,11 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
             "--configure-channel",
             "--verify-bot",
             "--verify-channel",
+            self.manifest["recovery_baseline"]["s7_contract_sha256"],
+            '"S7_PROTECTED_CONTRACT"',
+            "S8_HEALTH_TIMER_NOT_RETIRED",
+            "S8_HEALTH_TIMER_UNIT_DRIFT",
+            "require_s8_health_timer_retired",
         ):
             self.assertIn(str(value), self.controller)
         self.assertIn("fetch --no-tags origin main", self.controller)
@@ -87,6 +92,10 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.assertNotIn("systemctl enable", self.controller)
         self.assertNotIn("systemctl disable", self.controller)
         self.assertNotIn("pg_restore", self.controller)
+        self.assertNotIn(
+            'install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s7-public-launch.sfw.json"',
+            self.controller,
+        )
         self.assertNotIn("telegram_user_id", self.controller)
         self.assertNotIn("private_chat_id", self.controller)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.controller))
@@ -127,13 +136,29 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.assertTrue(all(value is False for value in self.manifest["product_boundary"].values()))
         self.assertFalse(self.manifest["application"]["database_migration"])
         self.assertTrue(self.manifest["cutover"]["automatic_rollback_on_failure"])
-        self.assertTrue(self.manifest["cutover"]["two_hour_observation_required"])
+        self.assertFalse(self.manifest["cutover"]["two_hour_observation_required"])
+        self.assertTrue(self.manifest["cutover"]["risk_based_transport_observation_required"])
         self.assertEqual(
             self.manifest["cutover"]["required_channel_admin_rights"],
             ["change_channel_info", "post_messages", "edit_messages"],
         )
         self.assertIn("add_administrators", self.manifest["cutover"]["forbidden_channel_admin_rights"])
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.control))
+
+    def test_recovery_baseline_preserves_s7_and_retires_duplicate_s8_monitoring(self) -> None:
+        recovery = self.manifest["recovery_baseline"]
+        self.assertEqual(recovery["s7_classification"], "INTENTIONAL_HISTORICAL_PROTECTED_FALLBACK")
+        self.assertEqual(
+            recovery["s7_contract_origin_commit"],
+            "3613970c29af20351e09b157f0484f42d2525d3e",
+        )
+        self.assertTrue(recovery["s7_contract_preserved_during_cutover"])
+        self.assertEqual(recovery["s8_health_timer_state"], "RETIRED_DISABLED_INACTIVE")
+        self.assertTrue(recovery["s8_one_shot_health_gate_retained"])
+        self.assertEqual(recovery["recurring_health_authority"], ["S9", "S10"])
+        timer_block = re.search(r"readonly TIMERS=\((.*?)\n\)", self.controller, re.DOTALL)
+        self.assertIsNotNone(timer_block)
+        self.assertNotIn("tu1nz-adult-public-s8-health.timer", timer_block.group(1))
 
 
 if __name__ == "__main__":

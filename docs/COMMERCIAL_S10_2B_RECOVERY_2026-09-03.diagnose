@@ -1,0 +1,98 @@
+# Commercial S10.2B recovery diagnosis — 2026-09-03
+
+## Scope and decision
+
+Night Shift IV investigated only the two fail-closed findings from the first
+S10.2B preflight: `S7_CONTRACT_DRIFT` and the disabled/inactive S8 health
+timer. No Telegram cutover or application deployment occurred before this
+diagnosis.
+
+The evidence classifies both findings as intentional historical runtime state,
+not an unknown server mutation:
+
+- S7 contract: `B. intentional historical state`.
+- S8 health timer: intentionally retired after S9 channel activation and
+  superseded by the active S9 and S10 health envelopes.
+
+The S10.2B controller must preserve these states. It must not rewrite the S7
+fallback contract and must not reactivate duplicate recurring S8 monitoring.
+
+## S7 protected fallback evidence
+
+The installed file `/etc/tu1nz/adult-commercial-s7-public.json` is a regular
+root-owned `0644` file. Its SHA-256 is:
+
+`f4e2b473905f6c82afe2ad6473989604e47f26eff70356db74da6fd49af50214`
+
+That digest exactly matches
+`config/commercial-s7-public-launch.sfw.json` at application commit
+`3613970c29af20351e09b157f0484f42d2525d3e` (`M4: add automated SFW
+public soft launch`). Its recorded file modification time is
+`2026-08-30 11:12:52 UTC`. The later inode change is consistent with a
+backup-preserving restore; the bytes remain the original S7 contract.
+
+The newer application checkout contains later S8/S10 transport bindings for
+the same source path. Those later file versions are not proof that the
+installed S7 recovery contract should have been overwritten. S9 activation
+and S10.1 public activation deliberately retained the established S7 fallback
+while S8 landing and Telegram carried the current public entry path.
+
+At diagnosis time S7 was active/running with `NRestarts=0`; the WMS public
+surface and the legacy recovery surface were healthy. Product boundaries
+remained closed. The installed S7 state is therefore a protected fallback
+baseline, not a live product defect.
+
+Controller consequence:
+
+- bind both S10.2B source and target verification to the protected S7 digest;
+- do not install the current application S7 file during S10.2B;
+- continue to capture and restore S7 through the verified backup path;
+- fail closed if the protected digest, ownership, mode or runtime health later
+  changes.
+
+## S8 health timer evidence
+
+`tu1nz-adult-public-s8-health.timer` is loaded from the reviewed Control unit
+and its installed SHA-256 matches Control:
+
+`42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005`
+
+The timer is `disabled`, `inactive/dead` and has no future elapse. Systemd
+journal evidence shows that it was stopped at `2026-08-31 16:33:35 UTC`.
+The versioned S9 channel activation explicitly executes
+`systemctl disable --now tu1nz-adult-public-s8-health.timer` before moving the
+public growth health responsibility to S9. S10.1 subsequently added its own
+public WMS health envelope and preserved existing timer states.
+
+At diagnosis time the S9 audience, nurture, report and health timers were
+enabled/active with future runs. The S10 health timer was enabled,
+active/waiting with a finite monotonic next elapse. S7, S8 landing, S8
+Telegram, S10 WMS and nginx were active with zero restarts.
+
+Controller consequence:
+
+- require the S8 timer to remain installed, hash-matched, disabled and
+  inactive;
+- exclude it from recurring timers quiesced and resumed by S10.2B;
+- retain the S8 health service as an explicit one-shot cutover gate;
+- continue to require green S9 and S10 recurring health.
+
+This avoids duplicate monitoring without weakening rollback verification.
+
+## Backup and rollback
+
+The existing pre-cutover backup remains authoritative:
+
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260903T202834Z-pre-s10-2b-public-telegram`
+
+Verified index SHA-256:
+
+`c398bd8e084b56f93a9f16ae71c0bc46139193fd0dcdafed7b7c7ae28d7f81bc`
+
+Before this source correction, Control commit
+`15a9c087f863212ab9ad6688ab39dcb117cee316` was captured in the verified local
+Git bundle `/tmp/tu1nz-night-shift-iv-pre-phase0-control-15a9c08.bundle`, SHA-256
+`c9a1aa464f1cf094830de45c4ae58bf60081cb57fb1001f3991de8c3e64c7661`.
+
+No credential values, Telegram messages, media, visitor identifiers or
+personal data are included in this diagnosis.

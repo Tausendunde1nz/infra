@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v2",
-  "decision": "GO_CUTOVER_WAITING_CHANNEL_ADMIN",
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v3",
+  "decision": "GO_CUTOVER_RECOVERY_PREFLIGHT",
   "active": true,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
@@ -16,9 +16,9 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "9b89bf636bdbda44ddb9bb82f84070514d29782b",
+    "expected_base_commit": "15a9c087f863212ab9ad6688ab39dcb117cee316",
     "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
-    "controller_sha256": "14853a5efb1bc85d6aba198b7539547190fc456ddbad86020724fe967af7ba26",
+    "controller_sha256": "43a0c7360d9fe79b09f8f858df8dd9ee342abde242ddb62805e7419b7c7b7015",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
     "exact_post_merge_commit_and_tree_required": true
   },
@@ -61,6 +61,19 @@
     "nurture_engine_preserved": true,
     "old_bot_mode": "FALLBACK_ONLY"
   },
+  "recovery_baseline": {
+    "s7_classification": "INTENTIONAL_HISTORICAL_PROTECTED_FALLBACK",
+    "s7_contract_sha256": "f4e2b473905f6c82afe2ad6473989604e47f26eff70356db74da6fd49af50214",
+    "s7_contract_origin_commit": "3613970c29af20351e09b157f0484f42d2525d3e",
+    "s7_contract_preserved_during_cutover": true,
+    "s8_health_timer_state": "RETIRED_DISABLED_INACTIVE",
+    "s8_health_timer_unit_sha256": "42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005",
+    "s8_one_shot_health_gate_retained": true,
+    "recurring_health_authority": [
+      "S9",
+      "S10"
+    ]
+  },
   "cutover": {
     "backup_required": true,
     "backup_verified": true,
@@ -84,7 +97,8 @@
     ],
     "website_cta_after_bot_smoke": true,
     "automatic_rollback_on_failure": true,
-    "two_hour_observation_required": true
+    "two_hour_observation_required": false,
+    "risk_based_transport_observation_required": true
   },
   "product_boundary": {
     "adult_media": false,

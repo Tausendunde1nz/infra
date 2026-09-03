@@ -9,12 +9,13 @@ history are not recreated. The active private bot changes to
 source of truth. Referral attribution, aggregate analytics, nurture automation,
 services, timers and internal TU1NZ component names remain in place.
 
-The versioned cutover state is `GO_CUTOVER_WAITING_CHANNEL_ADMIN`. Application
+The versioned cutover state is `GO_CUTOVER_RECOVERY_PREFLIGHT`. Application
 commit `4a6c42f389cbf6caca738c48ae32ebe1856dd674` and tree
 `f66b70452ab423c232bd529936f8e07950c138ad` passed post-merge CI run
 `33803097418`. The new token was installed through the interactive secret
-installer, without appearing in Git, chat, logs or evidence. The only remaining
-cloud prerequisite is the minimal Telegram channel-admin assignment.
+installer, without appearing in Git, chat, logs or evidence. Both bots are
+present as restricted channel administrators. Exact rights are still verified
+through the official Bot API by every cutover preflight.
 
 Adult media, identity documents, real AVS, payments, external Adult publishing,
 creator activation, Controlled Beta, production and mass direct messages remain
@@ -82,6 +83,29 @@ is:
 
 The cutover applies no schema migration and does not create a channel, waitlist
 or referral store.
+
+## Night Shift IV recovery binding
+
+The first live preflight correctly stopped before mutation, but its source
+assumptions were newer than the intentionally preserved runtime baseline.
+`docs/COMMERCIAL_S10_2B_RECOVERY_2026-09-03.diagnose` records the exact
+classification and evidence.
+
+The original S7 contract with SHA-256
+`f4e2b473905f6c82afe2ad6473989604e47f26eff70356db74da6fd49af50214`
+is the protected fallback state. S10.2B verifies and preserves it; the cutover
+does not install the newer transport-bound S7 source file.
+
+The S8 recurring health timer is intentionally retired. S9 channel activation
+disabled it when S9 assumed recurring growth health, and S10.1 added the WMS
+health envelope. S10.2B requires the reviewed S8 timer unit to remain installed
+but disabled/inactive, executes the S8 health service only as a one-shot gate,
+and resumes only the active S9/S10 timers. This avoids duplicate monitoring.
+
+Observation is risk-based. A Telegram transport cutover receives stricter
+smoke and health observation than copy/CSS changes, but a new fixed two-hour
+window is not mandatory when state continuity, rollback, service health and
+transport checks remain green.
 
 ## Tests and evidence
 
