@@ -1,0 +1,91 @@
+# Commercial S10.2A — S9 timer recovery evidence
+
+Date: 2026-09-03
+Decision: AUTOMATED_WMS_SFW_GROWTH = GO
+
+## Scope and boundaries
+
+This evidence covers the backup-first restoration of the existing public-SFW
+S9 audience, nurture and health schedules. No Adult media, identity document,
+real AVS, payment, external Adult publishing, creator activation, controlled
+beta or production capability was opened. No token, message, media or personal
+data was captured in this evidence.
+
+## Provenance
+
+- Canonical application: `4c1d4d8eb72155c3eb28bf228096eb3cdfd18d1e`
+  (tree `290b28bb2560d77e4282431785fa34c16f41a927`).
+- Deployed application release intentionally unchanged:
+  `deeb38c30427066989eb85e1c115d2aeccf140cf`
+  (tree `3619e7dc557b49c632efa713bb0bc4214fd83fca`).
+- Operational Control accepted before this evidence-only integration:
+  `23257227b2c70ef1639d051393e67b03903d78e8`
+  (tree `07039ddb8635522e36b01f18f5dc2dabbd829aa6`).
+- Operational Control CI: run `33770768136`, success.
+- Full local Control suite: 378/378 green.
+- Final Control and application checkouts were clean.
+
+## Before
+
+The audience, nurture and S9 health timers were active and enabled but had no
+future elapse. They used stale `OnUnitActiveSec` anchors whose backing service
+activation timestamps no longer provided a live schedule.
+
+## Backup and rollback
+
+- Pre-final-sync Control bundle:
+  `/opt/tu1nz_repos/backups/commercial-s9-timer-liveness/20260903T150943Z-pre-control-sync-final`
+- Pre-final-repair systemd/script surface:
+  `/opt/tu1nz_repos/backups/commercial-s9-timer-liveness/20260903T150946Z-pre-repair`
+- Both SHA-256 indexes verified.
+- The Control bundle passed `git bundle verify`.
+- The versioned repair retained automatic file restoration, timer stop and
+  Control rollback on failure. No final rollback was invoked.
+
+## Installed correction
+
+- Audience: persistent calendar anchor every 15 minutes at minute 00/15/30/45.
+- Nurture: persistent calendar anchor every 15 minutes at minute 03/18/33/48.
+- S9 health: persistent calendar anchor every five minutes at minute 04/09/14/etc.
+- Stale S9 audience and S9 health service definitions were refreshed from SSOT.
+- S9 health and S10 health envelopes reject timers without a future elapse.
+- Each health envelope narrowly tolerates only its own actively running timer,
+  because systemd calculates the next `OnUnitActiveSec` elapse after the
+  service completes. Waiting timers without a future elapse remain RED.
+- Installed S10 health SHA-256 matched Control SSOT:
+  `d9e15f44c6d0708d7e692cf13ce44699b3c0477815609fe50893d88b3c3f4f72`.
+
+## Natural run evidence
+
+- Audience: success, status 0, completed 2026-09-03 15:15:02 UTC.
+- Nurture: success, status 0, completed 2026-09-03 15:03:01 UTC.
+- S9 health: success, status 0, completed 2026-09-03 15:14:23 UTC.
+- S10 public health: success, status 0, completed 2026-09-03 15:14:54 UTC.
+- Daily S9 report: success, status 0, last completed 2026-09-03 04:24:29 UTC.
+
+## Timer state after recovery
+
+All five public-SFW timers were enabled, active, waiting and had a future run:
+
+- Nurture: 2026-09-03 15:18:00 UTC.
+- S9 health: 2026-09-03 15:19:00 UTC.
+- S10 health: 2026-09-03 15:19:51 UTC.
+- Audience: 2026-09-03 15:30:00 UTC.
+- Daily report: 2026-09-04 04:23:00 UTC.
+
+## Final health
+
+- S7, S8 landing, S8 Telegram, S10 WMS and nginx: active, `NRestarts=0`.
+- `wantmeseen.com`, health, privacy, terms and imprint: HTTP 200.
+- `wantmeseen.de`: HTTP 308 to `https://wantmeseen.com/`.
+- Public health retained all Adult/identity/AVS/payment/publishing/beta/production
+  boundaries as false.
+- Adult S0, S3, S3.1 and S4 runtimes: inactive.
+- Control and application repository ownership: `chatops:chatops`, mode 2770.
+
+## Outcome
+
+Audience, nurture and health automation is recurring again and protected by
+future-elapse guards. The next product focus may collect the already approved
+SFW funnel events from landing through referral. Yoti remains technically
+ready but waiting on its external organization status.
