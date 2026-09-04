@@ -53,3 +53,39 @@ the controller before mutation because its descriptive suffix was outside the
 existing exact deployment-name allowlist. Replacement backup
 `20260904T114648Z-pre-s10-2b-public-telegram` was then created by the extended
 versioned script with the allowlisted name and verified before deployment.
+
+## Second fail-closed recovery finding
+
+The next deployment attempt reached the target health sequence and stopped at
+`S9_HEALTH_RED`. Automatic rollback completed successfully: the Application
+returned to the exact source commit and tree, Control remained exact and clean,
+all public services and nginx were active with zero restarts, and the public
+SFW endpoints remained available. Safe journal evidence reduced the target
+failure to `S9_TELEGRAM_CHANNEL_PROVIDER_RED`; no provider payload or personal
+data was retained.
+
+The channel rights were then corrected manually for both the target and
+fallback bots. The versioned controller preflight subsequently returned GREEN,
+confirming the exact minimal rights for both identities directly with Telegram.
+
+The remaining deterministic cause is the target S9 health drop-in: it invokes
+the legacy S9 health envelope, whose channel-health request intentionally uses
+the legacy TU1NZ public-origin contract unless an S10 contract is supplied.
+The target channel is therefore rejected as contract divergence and the outer
+wrapper maps that fail-closed result to the provider RED code. If only that
+gate were changed, the unchanged S10 health unit would still use the fallback
+bot credential against the target S8 identity contract.
+
+## Minimal target-health repair
+
+1. Reuse the existing versioned S10.1 health executable for the target S9
+   health drop-in. That executable already validates S9 growth, the WMS public
+   origin, Telegram channel identity, timers, services and closed boundaries.
+2. Bind the S10 health unit to the new token credential and `@WantMeSeen`.
+3. Add the S10 health unit to the existing controller install, comparison and
+   systemd verification set.
+4. Preserve rollback unchanged: the verified backup already archives the S9
+   target drop-in and every S10 unit, so it restores the fallback health units
+   exactly. No runtime executable changes and no database changes are needed.
+5. Require local tests, syntax validation, secret scan, CI and merge-commit
+   integration before any further deployment attempt.

@@ -62,6 +62,7 @@ readonly UNIT_FILES=(
   tu1nz-adult-public-s9-audience.service
   tu1nz-adult-public-s9-nurture.service
   tu1nz-adult-public-s9-health.service
+  tu1nz-adult-public-s10-health.service
 )
 
 fail() {
@@ -388,6 +389,7 @@ install_target_units() {
     /etc/systemd/system/tu1nz-adult-public-s9-audience.service \
     /etc/systemd/system/tu1nz-adult-public-s9-nurture.service \
     /etc/systemd/system/tu1nz-adult-public-s9-health.service \
+    /etc/systemd/system/tu1nz-adult-public-s10-health.service \
     >/dev/null || fail "SYSTEMD_VERIFY_RED"
 }
 

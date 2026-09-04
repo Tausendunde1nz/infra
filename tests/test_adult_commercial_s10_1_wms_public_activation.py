@@ -203,7 +203,10 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
         self.assertIn("PYTHONPATH=/opt/tu1nz_repos/adult-publishing-core/src", s8_drop_in)
         self.assertIn("-m tu1nz_public_s8.runtime", s8_drop_in)
         s9_health_drop_in = S9_HEALTH_DROP_IN.read_text(encoding="utf-8")
-        self.assertIn("tu1nz_adult_public_s10_1_s9_health.py", s9_health_drop_in)
+        self.assertIn("tu1nz_adult_public_s10_1_health.py", s9_health_drop_in)
+        self.assertIn("--contract /etc/tu1nz/adult-commercial-s10-wms.json", s9_health_drop_in)
+        self.assertIn("--s9-contract /etc/tu1nz/adult-commercial-s9-growth.json", s9_health_drop_in)
+        self.assertIn("--telegram-channel @WantMeSeen", s9_health_drop_in)
 
     def test_nginx_is_canonical_small_and_reversible(self) -> None:
         public = PUBLIC_NGINX.read_text(encoding="utf-8")

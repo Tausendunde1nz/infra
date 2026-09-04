@@ -1,5 +1,5 @@
 {
-  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v7",
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v8",
   "decision": "GO_CUTOVER_RECOVERY_PREFLIGHT",
   "active": true,
   "application": {
@@ -16,9 +16,9 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "ecec9ff456282522ce0296d946e16469a09b75e4",
+    "expected_base_commit": "c07a6af2a5367115fff9f75933983845b9d027f7",
     "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
-    "controller_sha256": "fa8de47209730fd5bce936c052d03113e4dc2b3687129ca8a03f0040b2ca7b09",
+    "controller_sha256": "9cabe174511ee545a3d5d749f8b57ab5c35b8acfba2d76814425cf9ae038da8d",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
     "exact_post_merge_commit_and_tree_required": true
   },
