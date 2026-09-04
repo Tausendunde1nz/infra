@@ -37,13 +37,17 @@ endpoint were healthy.
 1. Bind source and target S8/S10 copy files to separate exact hashes.
 2. Make the existing S8 health wrapper validate the internal tracked route and
    its redirect against the active contract's bot identity.
-3. Install and compare that wrapper through the existing S10.2B controller.
-4. Extend the existing backup to archive the pre-cutover installed wrapper and
-   restore it during automatic rollback.
+3. Install and compare that wrapper through the existing S10.2B controller
+   before quiescing, so every subsequent failure can use the compatible guard.
+4. Extend the existing backup to archive the pre-cutover installed wrapper.
+   Keep the repaired, source-compatible wrapper during automatic rollback; the
+   archive permits an exact manual executable restore if separately required.
 5. Add regression tests for both target copy hashes, the current bot redirect
    and rejection of a legacy-bot redirect.
 6. Keep deployment disabled until a replacement backup made by the extended
    versioned backup script is verified and recorded.
 
 No second deployment attempt is authorized from an old backup that lacks the
-runtime-executable archive.
+runtime-executable archive. Replacement backup
+`20260904T113915Z-pre-s10-2b-public-telegram-guard-v2` was created by the
+extended versioned script and verified before the cutover gate was reopened.

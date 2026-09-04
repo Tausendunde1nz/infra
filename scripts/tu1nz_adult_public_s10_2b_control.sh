@@ -359,11 +359,16 @@ install_target_configuration() {
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s8-public-telegram-early-access.sfw.json" /etc/tu1nz/adult-commercial-s10-wms-bot-identity.json
 }
 
-install_target_units() {
-  local unit
+install_target_health_script() {
   install -o root -g root -m 0755 \
     "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" \
     /usr/local/bin/tu1nz_adult_public_s8_health.py
+  cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" \
+    /usr/local/bin/tu1nz_adult_public_s8_health.py || fail "INSTALLED_HEALTH_SCRIPT_DRIFT"
+}
+
+install_target_units() {
+  local unit
   for unit in "${UNIT_FILES[@]}"; do
     install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$unit" "/etc/systemd/system/$unit"
   done
@@ -475,7 +480,6 @@ restore_technical_state() {
   tar -xpf "$backup/s10-configuration-before.tar" -C /etc/tu1nz
   tar -xpf "$backup/public-units-before.tar" -C /etc/systemd/system
   tar -xpf "$backup/s10-units-before.tar" -C /etc/systemd/system
-  tar -xpf "$backup/s10-runtime-executables-before.tar" -C /usr/local/bin
   systemctl daemon-reload
 }
 
@@ -554,6 +558,9 @@ deploy() {
   require_backup "$3"
   before="$(database_floor)"
   if ! (
+    # Install the source-compatible health guard first so every later failure
+    # can execute the versioned rollback health gate successfully.
+    install_target_health_script
     quiesce
     runuser -u chatops -- git -C "$APPLICATION_ROOT" switch --detach "$TARGET_SHA"
     install_target_configuration
