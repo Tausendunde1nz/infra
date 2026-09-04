@@ -1,5 +1,5 @@
 {
-  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v6",
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v7",
   "decision": "GO_CUTOVER_RECOVERY_PREFLIGHT",
   "active": true,
   "application": {
@@ -16,7 +16,7 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "c1aa8c46dd095a9f9909da7fb27ea46853225fe2",
+    "expected_base_commit": "ecec9ff456282522ce0296d946e16469a09b75e4",
     "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
     "controller_sha256": "fa8de47209730fd5bce936c052d03113e4dc2b3687129ca8a03f0040b2ca7b09",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
@@ -46,9 +46,9 @@
     "legacy_secret_preserved_for_fallback": true
   },
   "backup": {
-    "path": "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T113915Z-pre-s10-2b-public-telegram-guard-v2",
+    "path": "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T114648Z-pre-s10-2b-public-telegram",
     "verified": true,
-    "index_sha256": "f047fc5379c4bb14dfb8a8cf0ccd5e74f80aa39a7bfc89229a3865a5518f1111",
+    "index_sha256": "d668a08e7c0800f9f64e6eb177fa9302f1d82ea79b51e4e945967541b187340b",
     "contains_secret_material": false,
     "reusable_by_current_controller": true,
     "replacement_required": false

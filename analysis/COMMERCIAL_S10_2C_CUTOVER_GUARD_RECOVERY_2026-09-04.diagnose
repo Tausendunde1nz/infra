@@ -48,6 +48,8 @@ endpoint were healthy.
    versioned backup script is verified and recorded.
 
 No second deployment attempt is authorized from an old backup that lacks the
-runtime-executable archive. Replacement backup
-`20260904T113915Z-pre-s10-2b-public-telegram-guard-v2` was created by the
-extended versioned script and verified before the cutover gate was reopened.
+runtime-executable archive. The first extended backup was safely rejected by
+the controller before mutation because its descriptive suffix was outside the
+existing exact deployment-name allowlist. Replacement backup
+`20260904T114648Z-pre-s10-2b-public-telegram` was then created by the extended
+versioned script with the allowlisted name and verified before deployment.

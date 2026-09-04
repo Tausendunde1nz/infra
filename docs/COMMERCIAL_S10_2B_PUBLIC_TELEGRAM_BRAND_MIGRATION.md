@@ -115,8 +115,9 @@ the source fallback and target contracts, so automatic rollback deliberately
 keeps it while restoring the existing configuration and unit archives. The
 archive retains the exact previous executable for a separately authorized
 manual restore. Replacement backup
-`20260904T113915Z-pre-s10-2b-public-telegram-guard-v2` was created and verified;
-the earlier backup must not be reused for deployment.
+`20260904T114648Z-pre-s10-2b-public-telegram` was created with the exact
+controller-allowlisted name and verified; earlier backups must not be reused
+for deployment.
 
 ## Night Shift IV recovery binding
 

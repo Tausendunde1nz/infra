@@ -120,7 +120,7 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         backup = self.manifest["backup"]
         self.assertEqual(
             backup["path"],
-            "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T113915Z-pre-s10-2b-public-telegram-guard-v2",
+            "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T114648Z-pre-s10-2b-public-telegram",
         )
         self.assertTrue(backup["verified"])
         self.assertFalse(backup["contains_secret_material"])
