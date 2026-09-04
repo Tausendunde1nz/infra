@@ -71,6 +71,8 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
             "NEW_BOT_CHANNEL_PERMISSION_MISSING",
             "OLD_BOT_FALLBACK_PERMISSION_MISSING",
             'member.get("can_change_info") is True',
+            'chat.get("type") == "channel"',
+            'type(member.get("can_restrict_members")) is bool',
             '"can_promote_members"',
             "PRODUCT_BOUNDARY_RED",
             "DATABASE_CONTINUITY_RED",
@@ -98,6 +100,10 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         )
         self.assertNotIn("telegram_user_id", self.controller)
         self.assertNotIn("private_chat_id", self.controller)
+        self.assertNotIn(
+            '"can_restrict_members", "can_manage_video_chats"',
+            self.controller,
+        )
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.controller))
 
     def test_secret_policy_is_outside_git_and_preserves_legacy_fallback(self) -> None:
@@ -114,7 +120,7 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         backup = self.manifest["backup"]
         self.assertEqual(
             backup["path"],
-            "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260903T202834Z-pre-s10-2b-public-telegram",
+            "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T110654Z-pre-s10-2b-public-telegram",
         )
         self.assertTrue(backup["verified"])
         self.assertFalse(backup["contains_secret_material"])
@@ -143,6 +149,15 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
             ["change_channel_info", "post_messages", "edit_messages"],
         )
         self.assertIn("add_administrators", self.manifest["cutover"]["forbidden_channel_admin_rights"])
+        semantics = self.manifest["cutover"]["channel_admin_rights_semantics"]
+        self.assertEqual(semantics["chat_type"], "channel")
+        self.assertEqual(
+            semantics["can_restrict_members"],
+            "TELEGRAM_CHANNEL_PROMOTION_BACKWARD_COMPATIBILITY_BOOLEAN",
+        )
+        self.assertFalse(semantics["independent_desktop_toggle_available"])
+        self.assertTrue(semantics["subscriber_invites_forbidden"])
+        self.assertTrue(semantics["administrator_promotion_forbidden"])
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.control))
 
     def test_recovery_baseline_preserves_s7_and_retires_duplicate_s8_monitoring(self) -> None:

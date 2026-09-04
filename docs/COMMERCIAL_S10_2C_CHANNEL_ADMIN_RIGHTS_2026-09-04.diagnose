@@ -1,0 +1,51 @@
+# Commercial S10.2C Telegram channel administrator-rights diagnosis
+
+## Finding
+
+The first live S10.2B cutover preflight on 2026-09-04 stopped before quiescing
+or changing any public service. Both the new and legacy bots had exactly the
+three rights exposed and selected in Telegram Desktop for the existing
+`@WantMeSeen` broadcast channel: change channel information, post messages and
+edit messages. Delete, invite, story, video-chat, direct-message and
+administrator-promotion controls were disabled.
+
+The Bot API nevertheless returned `can_restrict_members=true` for both channel
+administrators. Telegram documents that `promoteChatMember` defaults this field
+to true for promotions of channel administrators for backward compatibility.
+Telegram Desktop exposes no independent broadcast-channel switch for the
+field, so repeating the same operator action cannot produce the controller's
+previously required value.
+
+## Classification
+
+This is a narrow Control-contract defect, not operator error, repository drift,
+runtime drift or a product-boundary violation. The public runtime remained on
+the unchanged source application throughout the failed preflight.
+
+## Correction
+
+The controller now:
+
+- proves through `getChat` that the fixed target is a broadcast `channel`;
+- requires the compatibility field to be present as a boolean;
+- accepts either boolean value only for that channel type;
+- continues to require change-info, post and edit rights;
+- continues to reject anonymous administration, deletion, invitations,
+  video-chat management, administrator promotion, stories and direct-message
+  management.
+
+No group or supergroup is accepted. No new Telegram capability, product route,
+runtime service or data store is introduced.
+
+## Recovery evidence
+
+Before any server source or runtime mutation, a fresh scoped backup was created
+at:
+
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T110654Z-pre-s10-2b-public-telegram`
+
+Its verified checksum-index SHA-256 is
+`e096fd678a021ac9aae5d6a6c68c62187afe42743ca85bb5ee982b3190f8252f`.
+It contains no Telegram token values.
+
+Reference: `https://core.telegram.org/bots/api#promotechatmember`.

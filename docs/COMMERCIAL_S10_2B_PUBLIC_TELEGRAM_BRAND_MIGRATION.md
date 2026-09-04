@@ -23,12 +23,12 @@ closed.
 
 ## Verified backup and secret handling
 
-The pre-cutover backup is:
+The current pre-cutover backup is:
 
-`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260903T202834Z-pre-s10-2b-public-telegram`
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T110654Z-pre-s10-2b-public-telegram`
 
 Its index SHA-256 is
-`c398bd8e084b56f93a9f16ae71c0bc46139193fd0dcdafed7b7c7ae28d7f81bc`.
+`e096fd678a021ac9aae5d6a6c68c62187afe42743ca85bb5ee982b3190f8252f`.
 It contains verified application/control Git bundles, a database dump,
 aggregate evidence, public configuration, systemd units and unit state. It does
 not contain token values.
@@ -51,6 +51,16 @@ automation:
 - no right to add administrators;
 - no subscriber, story, video-chat, direct-message or delete rights;
 - no ownership transfer.
+
+Telegram's Bot API documents a channel-only backward-compatibility default for
+`can_restrict_members`: channel administrator promotions may report this field
+as `true` even though the Telegram Desktop broadcast-channel UI exposes no
+independent switch. The controller therefore first proves that the target chat
+type is exactly `channel`, requires this compatibility field to be a boolean,
+and continues to reject every exposed subscriber-invite, deletion, story,
+video-chat, direct-message and administrator-promotion right. This exception is
+not accepted for a group or supergroup and does not authorize member-management
+automation.
 
 Keeping the legacy bot as a restricted administrator is a rollback requirement,
 not a second active runtime. The controller verifies both assignments through

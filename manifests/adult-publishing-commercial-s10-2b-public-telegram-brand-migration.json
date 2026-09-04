@@ -1,5 +1,5 @@
 {
-  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v3",
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v4",
   "decision": "GO_CUTOVER_RECOVERY_PREFLIGHT",
   "active": true,
   "application": {
@@ -16,9 +16,9 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "15a9c087f863212ab9ad6688ab39dcb117cee316",
+    "expected_base_commit": "ba7ac51834ceb09b1120bbf75abb0291d9717059",
     "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
-    "controller_sha256": "57668d7910a654daf0cb456c26456ddac74950e916f9dc92e825582210abd57c",
+    "controller_sha256": "391171afb2241de2da106f31415bbee2968be267486da40f0c139107745794f4",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
     "exact_post_merge_commit_and_tree_required": true
   },
@@ -46,9 +46,9 @@
     "legacy_secret_preserved_for_fallback": true
   },
   "backup": {
-    "path": "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260903T202834Z-pre-s10-2b-public-telegram",
+    "path": "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T110654Z-pre-s10-2b-public-telegram",
     "verified": true,
-    "index_sha256": "c398bd8e084b56f93a9f16ae71c0bc46139193fd0dcdafed7b7c7ae28d7f81bc",
+    "index_sha256": "e096fd678a021ac9aae5d6a6c68c62187afe42743ca85bb5ee982b3190f8252f",
     "contains_secret_material": false
   },
   "continuity": {
@@ -95,6 +95,14 @@
       "manage_stories",
       "manage_direct_messages"
     ],
+    "channel_admin_rights_semantics": {
+      "chat_type": "channel",
+      "can_restrict_members": "TELEGRAM_CHANNEL_PROMOTION_BACKWARD_COMPATIBILITY_BOOLEAN",
+      "independent_desktop_toggle_available": false,
+      "subscriber_invites_forbidden": true,
+      "administrator_promotion_forbidden": true,
+      "group_or_supergroup_acceptance": false
+    },
     "website_cta_after_bot_smoke": true,
     "automatic_rollback_on_failure": true,
     "two_hour_observation_required": false,
