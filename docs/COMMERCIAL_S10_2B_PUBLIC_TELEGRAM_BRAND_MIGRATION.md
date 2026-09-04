@@ -25,13 +25,13 @@ closed.
 
 The current pre-cutover backup is:
 
-`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T110654Z-pre-s10-2b-public-telegram`
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T123032Z-pre-s10-2b-public-telegram`
 
 Its index SHA-256 is
-`e096fd678a021ac9aae5d6a6c68c62187afe42743ca85bb5ee982b3190f8252f`.
+`d1e271e4ff97887f3569fbc5b4a475d91fc036cd6bea6f646344bc356c3cd7c1`.
 It contains verified application/control Git bundles, a database dump,
-aggregate evidence, public configuration, systemd units and unit state. It does
-not contain token values.
+aggregate evidence, public configuration, systemd units, unit state and both
+health executables affected by the cutover. It does not contain token values.
 
 The active candidate secret is a regular root-owned `0600` file at
 `/etc/tu1nz/adult-commercial-s10-2b-telegram.token`. The legacy secret remains
@@ -170,9 +170,9 @@ growth contract instead of applying the legacy TU1NZ channel contract to
 `@WantMeSeen`. The S10 health unit is also installed and compared by the
 cutover controller with the same target identity.
 
-The existing verified backup already contains both affected unit surfaces, so
-automatic rollback restores the fallback health bindings without changing the
-database or any runtime executable.
+The replacement verified backup contains both affected unit surfaces and both
+health executables, so automatic rollback restores the complete fallback health
+binding without changing the database.
 
 When the comprehensive WMS health executable is shared by the S9 and S10
 health units, either corresponding timer may be the currently executing
