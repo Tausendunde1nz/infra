@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import py_compile
 import re
@@ -8,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -176,6 +178,94 @@ class CommercialS8PublicTelegramControlTests(unittest.TestCase):
         self.assertIn('arguments.mode == "runtime"', source)
         self.assertIn('{"GREEN", "YELLOW"}', source)
         self.assertNotIn("127.0.0.1:8096", source)
+
+    def test_health_resolves_the_versioned_tracked_route_to_the_contract_bot(self) -> None:
+        spec = importlib.util.spec_from_file_location("tu1nz_s8_health_test", HEALTH)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        landing = (
+            '<a href="/adult/go/telegram?campaign=s8_launch&amp;source=landing">Join</a>'
+        ).encode("utf-8")
+        public_health = json.dumps({"ok": True, "forbidden_capabilities": {}}).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            contract = Path(temporary) / "contract.json"
+            contract.write_text(json.dumps({"bot_username": "wantmeseenbot"}), encoding="utf-8")
+
+            def read(url: str) -> bytes:
+                return public_health if url == module.LANDING_HEALTH_URL else landing
+
+            with mock.patch.object(module, "_read", side_effect=read), mock.patch.object(
+                module,
+                "_redirect_location",
+                return_value="https://t.me/wantmeseenbot?start=landing_s8_launch",
+            ) as redirect:
+                result = module._landing_component(contract)
+
+        self.assertEqual(result["status"], "GREEN")
+        redirect.assert_called_once_with(
+            "http://127.0.0.1:18096/adult/go/telegram?campaign=s8_launch&source=landing"
+        )
+
+    def test_health_rejects_a_tracked_route_that_targets_the_legacy_bot(self) -> None:
+        spec = importlib.util.spec_from_file_location("tu1nz_s8_health_legacy_test", HEALTH)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        landing = (
+            '<a href="/adult/go/telegram?campaign=s8_launch&amp;source=landing">Join</a>'
+        ).encode("utf-8")
+        public_health = json.dumps({"ok": True, "forbidden_capabilities": {}}).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            contract = Path(temporary) / "contract.json"
+            contract.write_text(json.dumps({"bot_username": "wantmeseenbot"}), encoding="utf-8")
+
+            def read(url: str) -> bytes:
+                return public_health if url == module.LANDING_HEALTH_URL else landing
+
+            with mock.patch.object(module, "_read", side_effect=read), mock.patch.object(
+                module,
+                "_redirect_location",
+                return_value="https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch",
+            ):
+                result = module._landing_component(contract)
+
+        self.assertEqual(result["status"], "RED")
+        self.assertEqual(result["safe_reason"], "S8_LANDING_DEEP_LINK_MISMATCH")
+
+    def test_health_keeps_the_versioned_direct_link_fallback_compatible(self) -> None:
+        spec = importlib.util.spec_from_file_location("tu1nz_s8_health_direct_test", HEALTH)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        landing = (
+            '<a href="https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch">Join</a>'
+        ).encode("utf-8")
+        public_health = json.dumps({"ok": True, "forbidden_capabilities": {}}).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            contract = Path(temporary) / "contract.json"
+            contract.write_text(
+                json.dumps({"bot_username": "tu1nz_adult_early_access_bot"}),
+                encoding="utf-8",
+            )
+
+            def read(url: str) -> bytes:
+                return public_health if url == module.LANDING_HEALTH_URL else landing
+
+            with mock.patch.object(module, "_read", side_effect=read), mock.patch.object(
+                module,
+                "_redirect_location",
+            ) as redirect:
+                result = module._landing_component(contract)
+
+        self.assertEqual(result["status"], "GREEN")
+        redirect.assert_not_called()
 
     def test_controller_is_backup_first_reversible_and_bounded(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")

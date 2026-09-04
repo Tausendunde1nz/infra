@@ -25,11 +25,13 @@ readonly SOURCE_S8_LANDING_SHA="ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab2136
 readonly TARGET_S8_LANDING_SHA="f8b7215b35d7d871cbc775f5b35c0469dfb047a29c1cf56789373a70dad76469"
 readonly SOURCE_S8_CONTRACT_SHA="cea242a0c749f5e10b15c527248a60a9c429ad7a3f3d655ca0a71e61d7ff6193"
 readonly TARGET_S8_CONTRACT_SHA="7879bf2ddb503d4b16d5095773166bbeb6d7ffc507f18da5502394c8c7a71d55"
-readonly S8_COPY_SHA="6da055fa206ae3705c07051901cdc6e5d7ff3c83e0afe1568e2f24cc00f70e09"
+readonly SOURCE_S8_COPY_SHA="6da055fa206ae3705c07051901cdc6e5d7ff3c83e0afe1568e2f24cc00f70e09"
+readonly TARGET_S8_COPY_SHA="35050d02636630c23b7c97ae0184945b4587695f9a121e908f5f638bd668bd01"
 readonly S9_CONTRACT_SHA="274677854b3067cf970f103fc3f541f31e4244df017f9bbcaa0da0c707aa2bf5"
 readonly SOURCE_S10_CONTRACT_SHA="dfdd3a5f6e90ce25e96ff6d4f8f895bb473d3d0bb9f072b7959be2a006c7b28b"
 readonly TARGET_S10_CONTRACT_SHA="675fdb138014b06094549183a55f916829a0ba5a8fb6c999039278ded1fe5698"
-readonly S10_COPY_SHA="7b0f8e286894a3ad1b5f014cb140db4a672564277bd66ad456965baf4b22b9c2"
+readonly SOURCE_S10_COPY_SHA="7b0f8e286894a3ad1b5f014cb140db4a672564277bd66ad456965baf4b22b9c2"
+readonly TARGET_S10_COPY_SHA="f995929dd9fe037fcc469e2c0573607f1d90fc757a76df89ef51d0f59c899fdc"
 
 readonly S7_SERVICE="tu1nz-adult-public-s7.service"
 readonly S8_LANDING_SERVICE="tu1nz-adult-public-s8-landing.service"
@@ -205,20 +207,20 @@ require_source_configuration() {
   require_hash /etc/tu1nz/adult-commercial-s7-public.json "$PROTECTED_S7_SHA" "S7_PROTECTED_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-landing.json "$SOURCE_S8_LANDING_SHA" "S8_LANDING_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-public-telegram.json "$SOURCE_S8_CONTRACT_SHA" "S8_CONTRACT"
-  require_hash /etc/tu1nz/adult-commercial-s8-copy.json "$S8_COPY_SHA" "S8_COPY"
+  require_hash /etc/tu1nz/adult-commercial-s8-copy.json "$SOURCE_S8_COPY_SHA" "S8_COPY"
   require_hash /etc/tu1nz/adult-commercial-s9-growth.json "$S9_CONTRACT_SHA" "S9_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s10-wms.json "$SOURCE_S10_CONTRACT_SHA" "S10_CONTRACT"
-  require_hash /etc/tu1nz/adult-commercial-s10-wms-copy.json "$S10_COPY_SHA" "S10_COPY"
+  require_hash /etc/tu1nz/adult-commercial-s10-wms-copy.json "$SOURCE_S10_COPY_SHA" "S10_COPY"
 }
 
 require_target_configuration() {
   require_hash /etc/tu1nz/adult-commercial-s7-public.json "$PROTECTED_S7_SHA" "S7_PROTECTED_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-landing.json "$TARGET_S8_LANDING_SHA" "S8_LANDING_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s8-public-telegram.json "$TARGET_S8_CONTRACT_SHA" "S8_CONTRACT"
-  require_hash /etc/tu1nz/adult-commercial-s8-copy.json "$S8_COPY_SHA" "S8_COPY"
+  require_hash /etc/tu1nz/adult-commercial-s8-copy.json "$TARGET_S8_COPY_SHA" "S8_COPY"
   require_hash /etc/tu1nz/adult-commercial-s9-growth.json "$S9_CONTRACT_SHA" "S9_CONTRACT"
   require_hash /etc/tu1nz/adult-commercial-s10-wms.json "$TARGET_S10_CONTRACT_SHA" "S10_CONTRACT"
-  require_hash /etc/tu1nz/adult-commercial-s10-wms-copy.json "$S10_COPY_SHA" "S10_COPY"
+  require_hash /etc/tu1nz/adult-commercial-s10-wms-copy.json "$TARGET_S10_COPY_SHA" "S10_COPY"
   require_hash /etc/tu1nz/adult-commercial-s10-wms-bot-identity.json "$TARGET_S8_CONTRACT_SHA" "S10_BOT_IDENTITY"
 }
 
@@ -359,6 +361,9 @@ install_target_configuration() {
 
 install_target_units() {
   local unit
+  install -o root -g root -m 0755 \
+    "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" \
+    /usr/local/bin/tu1nz_adult_public_s8_health.py
   for unit in "${UNIT_FILES[@]}"; do
     install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/$unit" "/etc/systemd/system/$unit"
   done
@@ -383,6 +388,8 @@ install_target_units() {
 
 require_target_units() {
   local unit
+  cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" \
+    /usr/local/bin/tu1nz_adult_public_s8_health.py || fail "INSTALLED_HEALTH_SCRIPT_DRIFT"
   for unit in "${UNIT_FILES[@]}"; do
     cmp -s "$CONTROL_ROOT/systemd/$unit" "/etc/systemd/system/$unit" || fail "INSTALLED_UNIT_DRIFT"
   done
@@ -468,6 +475,7 @@ restore_technical_state() {
   tar -xpf "$backup/s10-configuration-before.tar" -C /etc/tu1nz
   tar -xpf "$backup/public-units-before.tar" -C /etc/systemd/system
   tar -xpf "$backup/s10-units-before.tar" -C /etc/systemd/system
+  tar -xpf "$backup/s10-runtime-executables-before.tar" -C /usr/local/bin
   systemctl daemon-reload
 }
 

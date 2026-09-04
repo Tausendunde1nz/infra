@@ -1,0 +1,49 @@
+# Commercial S10.2C cutover guard recovery — 2026-09-04
+
+## Safe observation
+
+The authorized S10.2B/S10.2C controller preflight completed GREEN against
+Control commit `b0808b349c5d8c4cb2203c191f1800dc4442343a`. The first deployment attempt
+then stopped fail-closed at `S8_COPY_DRIFT`. Its automatic rollback returned
+the Application repository to source commit
+`deeb38c30427066989eb85e1c115d2aeccf140cf`; Application and Control remained
+clean, the public S7/S8/S10/nginx services were active with zero restarts, and
+the public SFW endpoints returned their expected successful status codes.
+
+The rollback's retired S8 one-shot health gate subsequently returned
+`S8_LANDING_DEEP_LINK_MISSING`. This did not stop a recurring health timer: the
+S8 health timer is intentionally retired, while S9 and S10 remain the recurring
+health authorities.
+
+No token, message, media, user identifier or other personal data is recorded in
+this evidence. Adult media, AVS, payments and publishing remained closed.
+
+## Root cause
+
+The controller used the source S8 and S10 copy hashes for both the source and
+target Application commits, although the reviewed target intentionally contains
+the English-first WMS copy. The target files therefore could never pass the
+post-install hash gate.
+
+The versioned S8 one-shot health wrapper also still searched the landing HTML
+for the historical direct Telegram deep link. The current versioned product
+loop exposes an internal, allowlisted tracking route and redirects that route
+to the bot identity from the active S8 contract. The wrapper therefore rejected
+the current source landing after rollback even though its service and public
+endpoint were healthy.
+
+## Repair and rollback plan
+
+1. Bind source and target S8/S10 copy files to separate exact hashes.
+2. Make the existing S8 health wrapper validate the internal tracked route and
+   its redirect against the active contract's bot identity.
+3. Install and compare that wrapper through the existing S10.2B controller.
+4. Extend the existing backup to archive the pre-cutover installed wrapper and
+   restore it during automatic rollback.
+5. Add regression tests for both target copy hashes, the current bot redirect
+   and rejection of a legacy-bot redirect.
+6. Keep deployment disabled until a replacement backup made by the extended
+   versioned backup script is verified and recorded.
+
+No second deployment attempt is authorized from an old backup that lacks the
+runtime-executable archive.

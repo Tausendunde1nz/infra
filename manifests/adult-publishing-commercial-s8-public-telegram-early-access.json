@@ -75,9 +75,9 @@
   },
   "files": {
     "backup_script_sha256": "502e7c4904053dd9836d710b9cdd07f600896bc3ed5ad58b8e640c95d8af6d06",
-    "controller_sha256": "b2dbf5b4751c0a2bcf4f61c6ed1bdd17d423bf9fbaaa7c214220bd235ef35a94",
+    "controller_sha256": "dfdb45ac25f1a47571fd99f9d9ce47e6caa1c20dfb4c865f61469be2b81e2a21",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
-    "health_script_sha256": "afa9fbdcbaadeaf55ba0bb3edbaff9b852ed14647fdfce879934bacc06677ea1",
+    "health_script_sha256": "2f3f82209c4c61fb617f74c9a094ab095af5eee2c3007fc19d2b3b68d9e02f4f",
     "health_service_sha256": "24c6d544bd12a93b8631da8fa017cc50e45432f5c9ca736359fe5f8c304f4d88",
     "health_timer_sha256": "42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005",
     "landing_contract_sha256": "ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e",

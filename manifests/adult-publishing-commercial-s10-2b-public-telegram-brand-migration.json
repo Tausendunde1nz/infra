@@ -1,7 +1,7 @@
 {
-  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v4",
-  "decision": "GO_CUTOVER_RECOVERY_PREFLIGHT",
-  "active": true,
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v5",
+  "decision": "WAITING_REPLACEMENT_BACKUP_AFTER_GUARD_RECOVERY",
+  "active": false,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
     "branch": "main",
@@ -16,9 +16,9 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "ba7ac51834ceb09b1120bbf75abb0291d9717059",
+    "expected_base_commit": "b0808b349c5d8c4cb2203c191f1800dc4442343a",
     "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
-    "controller_sha256": "391171afb2241de2da106f31415bbee2968be267486da40f0c139107745794f4",
+    "controller_sha256": "8f0ca6c0155de51d84db0f5535bf520c198d37a6f4f2fc248206e271ce7bebf7",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
     "exact_post_merge_commit_and_tree_required": true
   },
@@ -49,7 +49,10 @@
     "path": "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T110654Z-pre-s10-2b-public-telegram",
     "verified": true,
     "index_sha256": "e096fd678a021ac9aae5d6a6c68c62187afe42743ca85bb5ee982b3190f8252f",
-    "contains_secret_material": false
+    "contains_secret_material": false,
+    "reusable_by_current_controller": false,
+    "replacement_required": true,
+    "replacement_reason": "S10_RUNTIME_EXECUTABLES_BACKUP_MISSING"
   },
   "continuity": {
     "existing_channel_preserved": true,
@@ -76,7 +79,7 @@
   },
   "cutover": {
     "backup_required": true,
-    "backup_verified": true,
+    "backup_verified": false,
     "quiesce_growth_timers": true,
     "configure_new_bot_before_public_cta": true,
     "new_bot_minimal_channel_admin_required": true,
