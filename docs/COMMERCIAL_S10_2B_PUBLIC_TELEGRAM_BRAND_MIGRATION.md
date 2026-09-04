@@ -161,3 +161,15 @@ configuration and systemd units from the verified backup, resumes the same
 services/timers and verifies the unchanged PostgreSQL waitlist without a
 database restore. The legacy bot is `FALLBACK_ONLY`; it must never poll at the
 same time as the new bot.
+
+## S10.2C target-health recovery
+
+The target S9 health drop-in reuses the existing WMS-aware S10.1 health
+executable and the new bot credential. It therefore validates the WMS S9
+growth contract instead of applying the legacy TU1NZ channel contract to
+`@WantMeSeen`. The S10 health unit is also installed and compared by the
+cutover controller with the same target identity.
+
+The existing verified backup already contains both affected unit surfaces, so
+automatic rollback restores the fallback health bindings without changing the
+database or any runtime executable.

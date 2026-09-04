@@ -13,6 +13,8 @@ MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2b-public-telegram-
 INSTALLER = ROOT / "scripts/tu1nz_adult_public_s10_2b_secret_install.sh"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s10_2b_control.sh"
 CONTROL = ROOT / "docs/COMMERCIAL_S10_2B_PUBLIC_TELEGRAM_BRAND_MIGRATION.md"
+S9_TARGET_HEALTH = ROOT / "systemd/tu1nz-adult-public-s9-health.service.d/s10-wms.conf"
+S10_HEALTH = ROOT / "systemd/tu1nz-adult-public-s10-health.service"
 
 
 class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
@@ -198,6 +200,26 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.assertIn("S10_RUNTIME_EXECUTABLES_BACKUP_MISSING", backup)
         self.assertIn("S10_RUNTIME_EXECUTABLE_UNSAFE", backup)
         self.assertIn("./tu1nz_adult_public_s8_health.py", backup)
+
+    def test_target_health_gates_use_the_new_identity_and_wms_growth_context(self) -> None:
+        s9_target = S9_TARGET_HEALTH.read_text(encoding="utf-8")
+        s10_health = S10_HEALTH.read_text(encoding="utf-8")
+        for source in (s9_target, s10_health):
+            self.assertIn("/usr/local/bin/tu1nz_adult_public_s10_1_health.py", source)
+            self.assertIn("--telegram-channel @WantMeSeen", source)
+            self.assertIn("--contract /etc/tu1nz/adult-commercial-s10-wms.json", source)
+            self.assertIn("--s9-contract /etc/tu1nz/adult-commercial-s9-growth.json", source)
+        self.assertIn(
+            "LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.token",
+            s10_health,
+        )
+        unit_block = re.search(r"readonly UNIT_FILES=\((.*?)\n\)", self.controller, re.DOTALL)
+        self.assertIsNotNone(unit_block)
+        self.assertIn("tu1nz-adult-public-s10-health.service", unit_block.group(1))
+        self.assertIn(
+            "/etc/systemd/system/tu1nz-adult-public-s10-health.service",
+            self.controller,
+        )
 
 
 if __name__ == "__main__":
