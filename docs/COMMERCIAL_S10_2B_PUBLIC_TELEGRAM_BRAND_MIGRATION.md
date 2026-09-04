@@ -180,3 +180,28 @@ oneshot trigger. The health check accepts that narrow transient only for those
 two timers while systemd reports `running`; all waiting timers still require a
 future elapse. The extended executable backup now archives both the S8 health
 wrapper and the shared S10.1 health executable before replacement.
+
+## S10.2C completion and learning mode
+
+The public SFW cutover to `@WantMeSeen` and `@wantmeseenbot` was verified at
+`2026-09-04T12:40:17Z`. A 33-minute risk-based observation completed at
+`2026-09-04T13:13:41Z` with zero target error entries, successful natural S9
+growth and S9/S10 health runs, no restart regression and all product boundaries
+closed. The exact pre-cutover backup remains verified by SHA-256.
+
+The privacy-safe composite live smoke covered the public website, measured CTA
+redirect, Telegram bot/channel identity and minimal permissions, live poller,
+PostgreSQL health, timers and the fully tested application journey without
+creating synthetic production users. Since the baseline, the canonical store
+has recorded only aggregate `direct` / `organic` activity: 2 bot starts, 2 intro
+completions, 1 waitlist join and 1 opt-in. Landing/CTA and referral counters are
+still zero; no conversion rate is asserted from this small initial sample.
+
+`WMS_FUNNEL_LEARNING_MODE` is `ACTIVE` from the cutover timestamp. Noncritical
+public copy or infrastructure changes and automatic copy experiments remain
+blocked through `2026-09-07T12:40:17Z`. The historical, non-running rollback
+prearm one-shot failure was reset to inactive/success after the observation.
+Missing HSTS is retained as a nonblocking P2 hardening follow-up after the
+learning window. Legal final review remains required. Adult media, identity
+documents/AVS, payments, external publishing, real creator access, controlled
+beta and production remain closed.

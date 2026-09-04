@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v10",
-  "decision": "GO_CUTOVER_RECOVERY_PREFLIGHT",
+  "version": "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v11",
+  "decision": "GO_PUBLIC_WMS_SFW_72H_LEARNING",
   "active": true,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
@@ -20,7 +20,10 @@
     "controller": "scripts/tu1nz_adult_public_s10_2b_control.sh",
     "controller_sha256": "44cbe120d49838d22353de2bef11bd77d41ef569e08ec6c302e1774a2edd43d1",
     "secret_installer": "scripts/tu1nz_adult_public_s10_2b_secret_install.sh",
-    "exact_post_merge_commit_and_tree_required": true
+    "exact_post_merge_commit_and_tree_required": true,
+    "cutover_commit": "1bcb8771b62209362ff8e063c993fc77aed367ab",
+    "cutover_tree": "7663d33d2283e475deac9c909db3cf58d9854144",
+    "cutover_post_merge_ci": 33873484630
   },
   "public_identity": {
     "public_name": "Want Me Seen",
@@ -109,6 +112,34 @@
     "automatic_rollback_on_failure": true,
     "two_hour_observation_required": false,
     "risk_based_transport_observation_required": true
+  },
+  "completion": {
+    "cutover_verified_at_utc": "2026-09-04T12:40:17Z",
+    "observation_completed_at_utc": "2026-09-04T13:13:41Z",
+    "observation_minutes": 33,
+    "WMS_REAL_FUNNEL_BASELINE_START": "2026-09-04T12:40:17Z",
+    "WMS_FUNNEL_LEARNING_MODE": "ACTIVE",
+    "noncritical_public_changes_blocked_until_utc": "2026-09-07T12:40:17Z",
+    "automatic_public_copy_experiments": false,
+    "privacy_safe_composite_funnel_smoke": true,
+    "organic_post_cutover_sample_available": true,
+    "organic_source": "direct",
+    "organic_campaign": "organic",
+    "post_cutover_aggregate": {
+      "landing_view": 0,
+      "telegram_cta": 0,
+      "bot_start": 2,
+      "intro_completed": 2,
+      "waitlist_joined": 1,
+      "opt_in": 1,
+      "opt_out": 0,
+      "referral_events": 0
+    },
+    "post_cutover_target_error_entries": 0,
+    "natural_growth_and_health_runs_observed": true,
+    "historical_failed_oneshot_reset": true,
+    "hsts_follow_up": "P2_AFTER_72H_LEARNING_WINDOW",
+    "legal_final_review_required": true
   },
   "product_boundary": {
     "adult_media": false,
