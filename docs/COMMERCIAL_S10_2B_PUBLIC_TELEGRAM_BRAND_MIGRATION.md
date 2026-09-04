@@ -173,3 +173,10 @@ cutover controller with the same target identity.
 The existing verified backup already contains both affected unit surfaces, so
 automatic rollback restores the fallback health bindings without changing the
 database or any runtime executable.
+
+When the comprehensive WMS health executable is shared by the S9 and S10
+health units, either corresponding timer may be the currently executing
+oneshot trigger. The health check accepts that narrow transient only for those
+two timers while systemd reports `running`; all waiting timers still require a
+future elapse. The extended executable backup now archives both the S8 health
+wrapper and the shared S10.1 health executable before replacement.

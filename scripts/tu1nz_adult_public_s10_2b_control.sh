@@ -364,8 +364,13 @@ install_target_health_script() {
   install -o root -g root -m 0755 \
     "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" \
     /usr/local/bin/tu1nz_adult_public_s8_health.py
+  install -o root -g root -m 0755 \
+    "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_health.py" \
+    /usr/local/bin/tu1nz_adult_public_s10_1_health.py
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" \
     /usr/local/bin/tu1nz_adult_public_s8_health.py || fail "INSTALLED_HEALTH_SCRIPT_DRIFT"
+  cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_health.py" \
+    /usr/local/bin/tu1nz_adult_public_s10_1_health.py || fail "INSTALLED_S10_HEALTH_SCRIPT_DRIFT"
 }
 
 install_target_units() {
@@ -397,6 +402,8 @@ require_target_units() {
   local unit
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" \
     /usr/local/bin/tu1nz_adult_public_s8_health.py || fail "INSTALLED_HEALTH_SCRIPT_DRIFT"
+  cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_health.py" \
+    /usr/local/bin/tu1nz_adult_public_s10_1_health.py || fail "INSTALLED_S10_HEALTH_SCRIPT_DRIFT"
   for unit in "${UNIT_FILES[@]}"; do
     cmp -s "$CONTROL_ROOT/systemd/$unit" "/etc/systemd/system/$unit" || fail "INSTALLED_UNIT_DRIFT"
   done

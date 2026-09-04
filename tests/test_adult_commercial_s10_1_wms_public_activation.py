@@ -83,6 +83,31 @@ class CommercialS101WmsPublicActivationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "S10_TIMER_LIVENESS_RED"):
                 module._system(False, True)
 
+    def test_shared_health_envelope_accepts_either_triggering_health_timer(self) -> None:
+        specification = importlib.util.spec_from_file_location("s10_shared_health_timer_under_test", HEALTH)
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        self.assertEqual(
+            module.SHARED_HEALTH_TIMERS,
+            frozenset({
+                "tu1nz-adult-public-s9-health.timer",
+                "tu1nz-adult-public-s10-health.timer",
+            }),
+        )
+        for timer in module.SHARED_HEALTH_TIMERS:
+            with (
+                mock.patch.object(module, "SERVICES", ()),
+                mock.patch.object(module, "TIMERS", (timer,)),
+                mock.patch.object(
+                    module,
+                    "_systemctl",
+                    side_effect=["active", "enabled", "running", "", "infinity"],
+                ),
+            ):
+                self.assertEqual(module._system(False, True), {})
+
     def test_manifest_is_exactly_bound_and_public_sfw_only(self) -> None:
         application = self.value["application"]
         self.assertEqual(application["commit"], "cdeab77c17c28f4ade46c27975f1c20e74cb8737")
