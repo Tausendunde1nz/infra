@@ -110,10 +110,13 @@ works for both the source fallback and `@wantmeseenbot` target without embedding
 either identity in the executable.
 
 The extended backup now includes the previously installed S8 health wrapper.
-Automatic rollback restores that exact executable together with the existing
-configuration and unit archives. A replacement backup from this extended
-versioned script is mandatory before the next deployment attempt; the earlier
-backup must not be reused for deployment.
+The repaired wrapper is installed before quiescing and is compatible with both
+the source fallback and target contracts, so automatic rollback deliberately
+keeps it while restoring the existing configuration and unit archives. The
+archive retains the exact previous executable for a separately authorized
+manual restore. Replacement backup
+`20260904T113915Z-pre-s10-2b-public-telegram-guard-v2` was created and verified;
+the earlier backup must not be reused for deployment.
 
 ## Night Shift IV recovery binding
 
