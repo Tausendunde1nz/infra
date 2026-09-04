@@ -291,19 +291,32 @@ try:
     token = open(token_path, encoding="utf-8").read().strip()
     if not token or any(ch.isspace() for ch in token):
         raise ValueError
-    url = f"https://api.telegram.org/bot{token}/getChatMember"
-    request = Request(url, data=urlencode({"chat_id": channel, "user_id": expected_id}).encode(), method="POST")
-    with build_opener(ProxyHandler({}), RejectRedirect(), HTTPSHandler()).open(request, timeout=10) as response:
-        payload = json.load(response)
-    member = payload.get("result", {}) if payload.get("ok") is True else {}
+
+    def telegram(method, data):
+        url = f"https://api.telegram.org/bot{token}/{method}"
+        request = Request(url, data=urlencode(data).encode(), method="POST")
+        with build_opener(ProxyHandler({}), RejectRedirect(), HTTPSHandler()).open(request, timeout=10) as response:
+            payload = json.load(response)
+        return payload.get("result", {}) if payload.get("ok") is True else {}
+
+    chat = telegram("getChat", {"chat_id": channel})
+    member = telegram("getChatMember", {"chat_id": channel, "user_id": expected_id})
+
+    # Bot API channel promotions default can_restrict_members to true for
+    # backward compatibility even though Telegram's broadcast-channel admin UI
+    # exposes no independent switch. Accept that compatibility boolean only for
+    # the exact broadcast channel; every exposed subscriber and promotion right
+    # remains fail-closed below.
     valid = (
-        member.get("status") in {"administrator", "creator"}
+        chat.get("type") == "channel"
+        and member.get("status") in {"administrator", "creator"}
         and member.get("can_change_info") is True
         and member.get("can_post_messages") is True
         and member.get("can_edit_messages") is True
+        and type(member.get("can_restrict_members")) is bool
         and all(member.get(name, False) is False for name in (
             "is_anonymous", "can_delete_messages", "can_invite_users",
-            "can_restrict_members", "can_manage_video_chats",
+            "can_manage_video_chats",
             "can_promote_members", "can_post_stories", "can_edit_stories",
             "can_delete_stories", "can_manage_direct_messages",
         ))
