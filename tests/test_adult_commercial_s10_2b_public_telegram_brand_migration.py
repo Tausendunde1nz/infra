@@ -25,8 +25,8 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.control = CONTROL.read_text(encoding="utf-8")
 
     def test_cutover_state_binds_the_reviewed_application_and_identity(self) -> None:
-        self.assertEqual(self.manifest["decision"], "WAITING_FRESH_BACKUP_FOR_SHARED_HEALTH_GUARD")
-        self.assertFalse(self.manifest["active"])
+        self.assertEqual(self.manifest["decision"], "GO_CUTOVER_RECOVERY_PREFLIGHT")
+        self.assertTrue(self.manifest["active"])
         application = self.manifest["application"]
         self.assertEqual(application["source_commit"], "deeb38c30427066989eb85e1c115d2aeccf140cf")
         self.assertEqual(application["source_tree"], "3619e7dc557b49c632efa713bb0bc4214fd83fca")
@@ -122,12 +122,13 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         backup = self.manifest["backup"]
         self.assertEqual(
             backup["path"],
-            "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T114648Z-pre-s10-2b-public-telegram",
+            "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260904T123032Z-pre-s10-2b-public-telegram",
         )
         self.assertTrue(backup["verified"])
         self.assertFalse(backup["contains_secret_material"])
-        self.assertFalse(backup["reusable_by_current_controller"])
-        self.assertTrue(backup["replacement_required"])
+        self.assertTrue(backup["reusable_by_current_controller"])
+        self.assertFalse(backup["replacement_required"])
+        self.assertTrue(self.manifest["cutover"]["backup_verified"])
         self.assertRegex(backup["index_sha256"], r"^[0-9a-f]{64}$")
 
     def test_continuity_and_rollback_preserve_the_existing_product_state(self) -> None:
