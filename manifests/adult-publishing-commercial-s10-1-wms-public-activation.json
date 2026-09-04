@@ -121,7 +121,7 @@
     "migration_0028_down_sha256": "6e18a45f9d2a202be268f4636a9d00abc82ed549de3b422551939e06e908311d"
   },
   "control_files": {
-    "backup_script_sha256": "29bd5b9ba2d773b4e792216b585c95be15319c0e1be1a6bb8fda9fdc2b61cfaf",
+    "backup_script_sha256": "87146ebc9f53c92540730613e28bb9239e411ea3b3dbda7a6daef020cc1db2e7",
     "controller_sha256": "0a89cba773d7a2b767c20c1d9eada9fe3bb5fb6a7ceb51450c2d98eaf34f2604",
     "health_script_sha256": "d9e15f44c6d0708d7e692cf13ce44699b3c0477815609fe50893d88b3c3f4f72",
     "observer_sha256": "fba80650a45f0744080dedab1ef8bbd69f6b06c286648ce121ea2358c5fc93f3",

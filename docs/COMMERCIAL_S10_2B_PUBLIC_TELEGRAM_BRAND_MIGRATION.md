@@ -94,6 +94,27 @@ is:
 The cutover applies no schema migration and does not create a channel, waitlist
 or referral store.
 
+## 2026-09-04 cutover-guard recovery
+
+The first authorized deployment attempt stopped fail-closed before public
+activation because the controller incorrectly reused the source S8/S10 copy
+hashes for the reviewed English-first target copy. The automatic rollback
+returned the Application repository, configuration and units to the source
+state; all public SFW services and endpoints remained available.
+
+The same audit found that the retained S8 one-shot health wrapper still expected
+the historical direct Telegram link in landing HTML. The current product loop
+uses the versioned internal tracking route. The repaired wrapper validates that
+route and its redirect against the bot username in the active contract, so it
+works for both the source fallback and `@wantmeseenbot` target without embedding
+either identity in the executable.
+
+The extended backup now includes the previously installed S8 health wrapper.
+Automatic rollback restores that exact executable together with the existing
+configuration and unit archives. A replacement backup from this extended
+versioned script is mandatory before the next deployment attempt; the earlier
+backup must not be reused for deployment.
+
 ## Night Shift IV recovery binding
 
 The first live preflight correctly stopped before mutation, but its source

@@ -28,6 +28,10 @@ require_s10_surface() {
   [ -f "$path/s10-migration-binding-before.txt" ] || fail "S10_MIGRATION_BINDING_MISSING"
   [ -f "$path/s10-configuration-before.tar" ] || fail "S10_CONFIGURATION_BACKUP_MISSING"
   [ -f "$path/s10-units-before.tar" ] || fail "S10_UNITS_BACKUP_MISSING"
+  [ -f "$path/s10-runtime-executables-before.tar" ] || fail "S10_RUNTIME_EXECUTABLES_BACKUP_MISSING"
+  tar -tf "$path/s10-runtime-executables-before.tar" \
+    | grep -qx './tu1nz_adult_public_s8_health.py' \
+    || fail "S10_RUNTIME_EXECUTABLES_BACKUP_INCOMPLETE"
   [ -f "$path/s10-nginx-state-before.txt" ] || fail "S10_NGINX_STATE_MISSING"
   [ -f "$path/s10-s9-timer-state-before.txt" ] || fail "S10_S9_TIMER_STATE_MISSING"
   [ "$(wc -l <"$path/s10-s9-timer-state-before.txt" | tr -d '[:space:]')" = "4" ] \
@@ -97,6 +101,11 @@ done
     \( -name 'tu1nz-adult-public-s10*' -o -path './tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf' -o -path './tu1nz-adult-public-s9-*.service.d/s10-wms.conf' \) \
     -print0 | sort -z | tar --null -T - -cpf "$BACKUP_PATH/s10-units-before.tar"
 )
+[ -f /usr/local/bin/tu1nz_adult_public_s8_health.py ] \
+  && [ ! -L /usr/local/bin/tu1nz_adult_public_s8_health.py ] \
+  || fail "S10_RUNTIME_EXECUTABLE_UNSAFE"
+tar -C /usr/local/bin -cpf "$BACKUP_PATH/s10-runtime-executables-before.tar" \
+  ./tu1nz_adult_public_s8_health.py
 
 {
   if [ -e /etc/nginx/sites-available/wantmeseen.conf ]; then

@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 
 COMPONENTS = (
@@ -43,7 +43,8 @@ FIELDS = (
 S8_SERVICE = "tu1nz-adult-public-s8-telegram.service"
 LANDING_URL = "http://127.0.0.1:18096/adult/"
 LANDING_HEALTH_URL = "http://127.0.0.1:18096/adult/health"
-LANDING_DEEP_LINK = "https://t.me/tu1nz_adult_early_access_bot?start=landing_s8_launch"
+LANDING_TRACKED_ROUTE = "/adult/go/telegram?campaign=s8_launch&source=landing"
+LANDING_TRACKED_MARKER = "/adult/go/telegram?campaign=s8_launch&amp;source=landing"
 MAXIMUM_LANDING_BYTES = 512 * 1024
 
 
@@ -143,19 +144,49 @@ def _read(url: str) -> bytes:
     return body
 
 
-def _landing_component() -> dict[str, object]:
+class _RejectRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def _redirect_location(url: str) -> str:
+    request = Request(url, headers={"User-Agent": "TU1NZ-S8-Health/1"}, method="GET")
+    try:
+        with build_opener(_RejectRedirect()).open(request, timeout=6):
+            raise ValueError("S8_LANDING_REDIRECT_MISSING")
+    except HTTPError as error:
+        if error.code not in {301, 302, 303, 307, 308}:
+            raise ValueError("S8_LANDING_REDIRECT_INVALID") from None
+        location = error.headers.get("Location")
+    except (URLError, OSError, TimeoutError):
+        raise ValueError("S8_LANDING_CANDIDATE_UNAVAILABLE") from None
+    if not isinstance(location, str) or not location:
+        raise ValueError("S8_LANDING_REDIRECT_INVALID")
+    return location
+
+
+def _landing_component(contract_path: Path) -> dict[str, object]:
     started = datetime.now(timezone.utc)
     try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        bot_username = contract.get("bot_username") if isinstance(contract, dict) else None
+        if not isinstance(bot_username, str) or not bot_username.casefold().endswith("bot"):
+            raise ValueError("S8_LANDING_BOT_IDENTITY_INVALID")
         landing = _read(LANDING_URL).decode("utf-8", errors="strict")
         health = json.loads(_read(LANDING_HEALTH_URL).decode("utf-8", errors="strict"))
-        if LANDING_DEEP_LINK not in landing:
-            raise ValueError("S8_LANDING_DEEP_LINK_MISSING")
+        expected_deep_link = "https://t.me/{0}?start=landing_s8_launch".format(bot_username)
+        if LANDING_TRACKED_MARKER in landing:
+            local_route = "http://127.0.0.1:18096" + LANDING_TRACKED_ROUTE
+            if _redirect_location(local_route) != expected_deep_link:
+                raise ValueError("S8_LANDING_DEEP_LINK_MISMATCH")
+        elif expected_deep_link not in landing:
+            raise ValueError("S8_LANDING_ENTRY_MISSING")
         if not isinstance(health, dict) or health.get("ok") is not True:
             raise ValueError("S8_LANDING_HEALTH_RED")
         if any(health.get("forbidden_capabilities", {}).values()):
             raise ValueError("S8_LANDING_PRODUCT_BOUNDARY_RED")
         result = _component("GREEN", "S8_LANDING_CANDIDATE_INTEGRATION_GREEN")
-    except (ValueError, UnicodeError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as error:
         reason = str(error) if str(error).startswith("S8_") else "S8_LANDING_RESPONSE_INVALID"
         result = _component("RED", reason, type(error).__name__)
     completed = datetime.now(timezone.utc)
@@ -193,7 +224,7 @@ def main() -> int:
             components["BOT_PROCESS"] = _component("GREEN", "S8_RUNTIME_SYSTEMD_PROCESS_ACTIVE")
         else:
             components["BOT_PROCESS"] = _component("RED", "S8_RUNTIME_SYSTEMD_PROCESS_INACTIVE")
-    payload["components"]["LANDING_INTEGRATION"] = _landing_component()
+    payload["components"]["LANDING_INTEGRATION"] = _landing_component(arguments.contract)
     _recompute(payload)
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     accepted = payload["state"] in ({"GREEN", "YELLOW"} if arguments.mode == "runtime" else {"GREEN"})
