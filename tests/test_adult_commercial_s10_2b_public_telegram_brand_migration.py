@@ -25,8 +25,8 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.control = CONTROL.read_text(encoding="utf-8")
 
     def test_cutover_state_binds_the_reviewed_application_and_identity(self) -> None:
-        self.assertEqual(self.manifest["decision"], "GO_CUTOVER_RECOVERY_PREFLIGHT")
-        self.assertTrue(self.manifest["active"])
+        self.assertEqual(self.manifest["decision"], "WAITING_FRESH_BACKUP_FOR_SHARED_HEALTH_GUARD")
+        self.assertFalse(self.manifest["active"])
         application = self.manifest["application"]
         self.assertEqual(application["source_commit"], "deeb38c30427066989eb85e1c115d2aeccf140cf")
         self.assertEqual(application["source_tree"], "3619e7dc557b49c632efa713bb0bc4214fd83fca")
@@ -126,8 +126,8 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         )
         self.assertTrue(backup["verified"])
         self.assertFalse(backup["contains_secret_material"])
-        self.assertTrue(backup["reusable_by_current_controller"])
-        self.assertFalse(backup["replacement_required"])
+        self.assertFalse(backup["reusable_by_current_controller"])
+        self.assertTrue(backup["replacement_required"])
         self.assertRegex(backup["index_sha256"], r"^[0-9a-f]{64}$")
 
     def test_continuity_and_rollback_preserve_the_existing_product_state(self) -> None:
@@ -200,6 +200,8 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.assertIn("S10_RUNTIME_EXECUTABLES_BACKUP_MISSING", backup)
         self.assertIn("S10_RUNTIME_EXECUTABLE_UNSAFE", backup)
         self.assertIn("./tu1nz_adult_public_s8_health.py", backup)
+        self.assertIn("./tu1nz_adult_public_s10_1_health.py", backup)
+        self.assertIn("INSTALLED_S10_HEALTH_SCRIPT_DRIFT", self.controller)
 
     def test_target_health_gates_use_the_new_identity_and_wms_growth_context(self) -> None:
         s9_target = S9_TARGET_HEALTH.read_text(encoding="utf-8")

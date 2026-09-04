@@ -89,3 +89,28 @@ bot credential against the target S8 identity contract.
    exactly. No runtime executable changes and no database changes are needed.
 5. Require local tests, syntax validation, secret scan, CI and merge-commit
    integration before any further deployment attempt.
+
+## Natural-run health finding
+
+The repaired deployment passed the immediate S8, S9 and S10 health gates and
+completed its controller transaction. The first natural S9 health timer run
+then returned `S10_TIMER_LIVENESS_RED`. Public services, repositories, WMS
+endpoints and the new deep link remained green, but the agreed fail-closed rule
+required an immediate versioned rollback. Rollback completed successfully and
+restored the fallback Application, channel CTA and units without a database
+restore.
+
+The S9 target drop-in and S10 unit deliberately share the comprehensive S10.1
+health executable. That executable treated only the S10 health timer as its own
+currently executing timer. During a natural S9-triggered run, systemd correctly
+reported the S9 timer as running with no future timestamp until the oneshot
+finished; the health executable misclassified that transient state as missing
+liveness.
+
+The bounded correction recognizes exactly the S9 and S10 health timers as
+permitted self-triggered transients, only while their substate is `running`.
+Every other timer and either health timer while waiting must still expose a
+future elapse. The controller installs and compares the updated health
+executable before quiescing. The backup is extended to archive both affected
+health executables; therefore another deployment remains disabled until a new
+verified backup is created and bound.
