@@ -25,7 +25,11 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.control = CONTROL.read_text(encoding="utf-8")
 
     def test_cutover_state_binds_the_reviewed_application_and_identity(self) -> None:
-        self.assertEqual(self.manifest["decision"], "GO_CUTOVER_RECOVERY_PREFLIGHT")
+        self.assertEqual(
+            self.manifest["version"],
+            "tu1nz-commercial-s10-2b-public-telegram-brand-migration-v11",
+        )
+        self.assertEqual(self.manifest["decision"], "GO_PUBLIC_WMS_SFW_72H_LEARNING")
         self.assertTrue(self.manifest["active"])
         application = self.manifest["application"]
         self.assertEqual(application["source_commit"], "deeb38c30427066989eb85e1c115d2aeccf140cf")
@@ -38,6 +42,44 @@ class CommercialS102BPublicTelegramBrandMigrationTests(unittest.TestCase):
         self.assertEqual(identity["channel"], "@WantMeSeen")
         self.assertEqual(identity["bot"], "@wantmeseenbot")
         self.assertEqual(identity["bot_id"], 8861935205)
+
+    def test_cutover_completion_starts_the_bounded_real_funnel_learning_window(self) -> None:
+        completion = self.manifest["completion"]
+        self.assertEqual(completion["cutover_verified_at_utc"], "2026-09-04T12:40:17Z")
+        self.assertEqual(completion["WMS_REAL_FUNNEL_BASELINE_START"], "2026-09-04T12:40:17Z")
+        self.assertEqual(completion["WMS_FUNNEL_LEARNING_MODE"], "ACTIVE")
+        self.assertEqual(
+            completion["noncritical_public_changes_blocked_until_utc"],
+            "2026-09-07T12:40:17Z",
+        )
+        self.assertGreaterEqual(completion["observation_minutes"], 30)
+        self.assertFalse(completion["automatic_public_copy_experiments"])
+        self.assertTrue(completion["privacy_safe_composite_funnel_smoke"])
+        self.assertTrue(completion["organic_post_cutover_sample_available"])
+        self.assertEqual(completion["organic_source"], "direct")
+        self.assertEqual(completion["organic_campaign"], "organic")
+        self.assertEqual(
+            completion["post_cutover_aggregate"],
+            {
+                "landing_view": 0,
+                "telegram_cta": 0,
+                "bot_start": 2,
+                "intro_completed": 2,
+                "waitlist_joined": 1,
+                "opt_in": 1,
+                "opt_out": 0,
+                "referral_events": 0,
+            },
+        )
+        self.assertEqual(completion["post_cutover_target_error_entries"], 0)
+        self.assertTrue(completion["natural_growth_and_health_runs_observed"])
+        self.assertTrue(completion["historical_failed_oneshot_reset"])
+        self.assertEqual(completion["hsts_follow_up"], "P2_AFTER_72H_LEARNING_WINDOW")
+        self.assertTrue(completion["legal_final_review_required"])
+        control = self.manifest["control"]
+        self.assertEqual(control["cutover_commit"], "1bcb8771b62209362ff8e063c993fc77aed367ab")
+        self.assertEqual(control["cutover_tree"], "7663d33d2283e475deac9c909db3cf58d9854144")
+        self.assertEqual(control["cutover_post_merge_ci"], 33873484630)
 
     def test_secret_installer_is_tty_only_root_only_and_does_not_accept_arguments(self) -> None:
         subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
