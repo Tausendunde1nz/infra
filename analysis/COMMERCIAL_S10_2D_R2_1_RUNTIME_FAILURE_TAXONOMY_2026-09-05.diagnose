@@ -1,0 +1,161 @@
+TU1NZ / WANT ME SEEN — S10.2D-R2.1 RUNTIME FAILURE TAXONOMY
+DATE: 2026-09-05
+CLASSIFICATION: P1_CUTOVER_CONSISTENCY_GATE
+STATUS: ROOT_CAUSE_PROVEN_REPAIR_NOT_DEPLOYED
+
+SCOPE
+
+This record is privacy-safe and aggregate-only. It contains no token, DSN,
+message, media, user identifier, personal data, SQL text or page content. R2.1
+does not authorize a Community cutover, target deployment, migration 0029,
+BotFather change, observation window or real acquisition.
+
+RETAINED LIVE FAILURE
+
+Unit: tu1nz-adult-public-s10-2d-rotate.service
+Safe code: S9_RUNTIME_FAILED
+Exit status: 2
+Observed: 2026-09-05T13:16:21Z
+Post-failure recovery: GREEN S8/S10 SFW baseline
+
+EXACT EXECUTION PATH
+
+systemd oneshot
+  -> User/Group chatops
+  -> fixed Application working directory
+  -> fixed Python 3.12 virtual-environment interpreter
+  -> module tu1nz_growth_s9.runtime
+  -> absolute S9 contract and systemd database credential paths
+  -> rotate-content action
+  -> absolute S10 copy and contract paths
+  -> canonical WMS public origin
+  -> S9 contract validation
+  -> protected database credential validation
+  -> S10 contract/copy validation
+  -> PostgreSQL connection
+  -> atomic queue rotation
+
+ROOT CAUSE
+
+The protected database credential was classified without exposing its value.
+It selects an explicit AF_INET PostgreSQL endpoint. The rotation unit allows
+only AF_UNIX. systemd therefore blocks the socket family required by the
+configured database transport before PostgreSQL can observe the connection.
+
+This is consistent with every R2 exclusion: no PostgreSQL server error, green
+runtime-role privileges, green rollback-only lock probe, no publication lease,
+no queue/digest conflict and a green isolated PostgreSQL 17 rotation. The
+failure is not caused by content, queue state, schema, SQL locking, runtime
+role grants, timers, Telegram or any Adult boundary.
+
+MINIMAL REPAIR
+
+Align only the existing rotation unit's address-family allowlist with the
+already operating S9 database units: AF_UNIX, AF_INET and AF_INET6. Preserve
+all other hardening, the same user, group, working directory, credential,
+interpreter, module, arguments and fail-closed controller gates.
+
+DIAGNOSTIC REPAIR
+
+Replace S9_RUNTIME_FAILED-only output with a deterministic bounded taxonomy.
+The diagnostic envelope is restricted to stable allowlisted fields and a
+fingerprint calculated only from those fields. Exception messages and raw
+values remain suppressed. Configuration, contract, database-connect,
+database-operation, state, permission, timeout, dependency, CLI and unexpected
+failures receive distinct classes and process exit classes.
+
+ROLLBACK
+
+Before merge, abandon the feature branches. After merge, use reviewed Git
+reverts. No server rollback is required because R2.1 performs no deployment or
+server mutation.
+
+BOUNDARIES
+
+Community external activation: false
+Real acquisition: false
+Adult media: closed
+Real AVS: closed
+Payments: closed
+External publishing: closed
+Controlled Beta: closed
+Production: closed
+
+DECISION
+
+R2.1 root-cause identification: GO
+R2.1 implementation/verification: IN_PROGRESS
+R3 cutover authorization: NO-GO
+S10_2D_R3_CUTOVER_TECHNICALLY_READY=false
+
+LOCAL ACCEPTANCE HARNESS NOTE
+
+The first disposable PostgreSQL 17 matrix invocation used a randomly assigned
+host port. It stopped in the historical M2 command harness with a connection
+timeout before reaching any S9 or S10 test. The container was removed by the
+pre-registered cleanup trap. No product, repository or server state changed.
+The R2.1 acceptance is repeated with an explicit isolated port and a host-side
+readiness probe before the S9/S10-only migration and full-CLI path are run.
+
+The first targeted S9/S10 full-path invocation reached the new bounded runtime
+envelope but returned nonzero. Its raw output was intentionally not emitted.
+The disposable database was removed by the cleanup trap and no external state
+changed. The acceptance now reports only safe code, stage and exit class on a
+failure so the remaining synthetic-fixture difference can be resolved without
+exposing the credential or driver message.
+
+The safe envelope classified that targeted attempt as database-connect at the
+rotation database stage. The shortened fixture had applied migrations without
+first creating the historical NOLOGIN runtime role that the full acceptance
+runner creates before its grant migrations. Consequently the intended
+connection-time SET ROLE failed. This was a fixture-construction error, not a
+product failure. The disposable database was again removed without external
+state change.
+
+After creating the synthetic runtime role before applying the migrations, the
+PostgreSQL 17 full-path acceptance completed green. It used the reviewed module
+entrypoint, absolute contract and copy paths, fixed working directory, bounded
+environment, runtime role and synthetic database. The successful rotation was
+followed by two controlled unreachable-database runs. Both returned the same
+database-connect class, rotation database stage, exit class 22 and deterministic
+fingerprint; credential content was absent from stdout and stderr.
+
+The identical full-path acceptance completed green on PostgreSQL 18. The full
+Application suite completed with 999 passing tests. PR 109 was reviewed at
+implementation commit 6f5e2c1be41c59359fff76473a2b3d4ea84cafcb; its four CI
+jobs passed on run 33976148365. It was integrated only by merge commit as
+3617a6c50abeaeb061a8f1b89352178acb6eac94, tree
+343c6bee5a34e42be80ab50e8e1478420c739272. Post-merge CI 33976297037
+passed all Python 3.10/3.13 and PostgreSQL 17/18 jobs.
+
+TEST-VS-LIVE DIFFERENCE MATRIX
+
+Executable/runtime: same reviewed Python module; no material difference.
+CLI arguments: same rotation action and absolute contract/copy paths; isolated
+safe paths replace server paths only where state must not be mutated.
+Working directory: same fixed Application checkout shape.
+User/group: live uses chatops; isolated acceptance exercises the same bounded
+filesystem and runtime-role contract without requiring privilege escalation.
+Environment: same named credential/config contract; synthetic value only.
+Database: isolated PostgreSQL 17/18 rather than production PostgreSQL.
+Filesystem permissions: required reads/execution proven; no new write surface.
+Locale/timezone: no rotation decision depends on host locale or local timezone.
+Hardening: the previously missing AF_INET/AF_INET6 allowance is the only proven
+material difference; all other unit hardening remains unchanged.
+Network: synthetic TCP database endpoint; no Telegram send and no public post.
+Migration state: S9/S10-only synthetic schema; migration 0029 is not applied.
+Config version/startup order: reviewed contracts loaded before DB rotation, as
+in the live entrypoint; systemd PID 1 itself is not used in the isolated test.
+
+FINAL DIAGNOSTIC EVIDENCE
+
+Safe taxonomy: GREEN
+Masked output and credential suppression: GREEN
+Deterministic fingerprint: GREEN
+Successful CLI full path on PostgreSQL 17 and 18: GREEN
+Controlled database-connect failure classification: GREEN
+Server mutation: NONE
+Community cutover: NOT PERFORMED
+Application merge and post-merge CI: GREEN
+Control implementation review: PENDING
+R3 cutover authorization: NO-GO

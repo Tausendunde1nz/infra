@@ -101,6 +101,70 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         subprocess.run(["bash", "-n", str(CONTROLLER)], check=True)
         subprocess.run(["python3", "-m", "py_compile", str(S8_HEALTH), str(S10_HEALTH)], check=True)
 
+    def test_r2_1_root_cause_and_runtime_diagnostics_remain_fail_closed(self) -> None:
+        diagnosis = self.manifest["runtime_failure_diagnosis_r2_1"]
+        self.assertEqual(
+            diagnosis["root_cause"],
+            "ROTATION_UNIT_BLOCKED_CONFIGURED_AF_INET_DATABASE_TRANSPORT",
+        )
+        self.assertEqual(diagnosis["database_transport"], "AF_INET")
+        self.assertEqual(diagnosis["rotation_unit_address_families_before"], ["AF_UNIX"])
+        self.assertEqual(
+            diagnosis["rotation_unit_address_families_required"],
+            ["AF_UNIX", "AF_INET", "AF_INET6"],
+        )
+        self.assertFalse(diagnosis["server_mutation"])
+        self.assertFalse(diagnosis["community_cutover_authorized"])
+        self.assertFalse(diagnosis["migration_0029_authorized"])
+        self.assertFalse(diagnosis["botfather_change_authorized"])
+        self.assertFalse(diagnosis["real_acquisition_ready"])
+        self.assertFalse(diagnosis["r3_cutover_technically_ready"])
+        self.assertTrue(diagnosis["application_taxonomy_merged"])
+        self.assertEqual(diagnosis["application_tests_green"], 999)
+        self.assertEqual(diagnosis["postgresql_full_path_acceptance"], [17, 18])
+        self.assertTrue(diagnosis["systemd_like_cli_green"])
+        self.assertEqual(diagnosis["controlled_failure_reason_code"], "S9_RUNTIME_DATABASE_CONNECT")
+        self.assertEqual(diagnosis["controlled_failure_stage"], "ROTATION_DATABASE")
+        self.assertEqual(diagnosis["controlled_failure_exit_class"], 22)
+        self.assertTrue(diagnosis["controlled_failure_fingerprint_deterministic"])
+        self.assertTrue(diagnosis["credential_redaction_green"])
+        self.assertEqual(diagnosis["controller_retry_policy"], "NO_RETRY_FAIL_CLOSED")
+        self.assertEqual(diagnosis["rollback_decision"], "NOT_REQUIRED_NO_SERVER_MUTATION")
+
+    def test_rotation_unit_allows_the_configured_database_transport_only_as_needed(self) -> None:
+        unit = ROTATE_UNIT.read_text(encoding="utf-8")
+        self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", unit)
+        self.assertNotIn("RestrictAddressFamilies=AF_UNIX\n", unit)
+        self.assertIn("NoNewPrivileges=true", unit)
+        self.assertIn("ProtectSystem=strict", unit)
+        self.assertIn("PrivateDevices=true", unit)
+
+    def test_controller_maps_runtime_and_systemd_exit_classes(self) -> None:
+        classifier = self.controller.split("rotation_failure_code() {", 1)[1].split(
+            "run_rotation() {", 1
+        )[0]
+        for status, safe_code in (
+            (20, "PUBLICATION_ROTATION_CONFIG_ERROR"),
+            (21, "PUBLICATION_ROTATION_STATE_ERROR"),
+            (22, "PUBLICATION_ROTATION_DATABASE_ERROR"),
+            (23, "PUBLICATION_ROTATION_PERMISSION_ERROR"),
+            (24, "PUBLICATION_ROTATION_TEMPORARY_EXTERNAL_ERROR"),
+            (25, "PUBLICATION_ROTATION_UNEXPECTED_ERROR"),
+            (200, "PUBLICATION_ROTATION_WORKDIR_ERROR"),
+            (203, "PUBLICATION_ROTATION_EXEC_NOT_FOUND"),
+        ):
+            self.assertIn(f"{status})", classifier)
+            self.assertIn(safe_code, classifier)
+        run_rotation = self.controller.split("run_rotation() {", 1)[1].split(
+            "restore_technical_state() {", 1
+        )[0]
+        self.assertIn("rotation_failure_code", run_rotation)
+        self.assertNotIn('systemctl start "$ROTATE_SERVICE" || fail "PUBLICATION_ROTATION_RED"', run_rotation)
+        self.assertNotIn("for ", run_rotation)
+        self.assertNotIn("while ", run_rotation)
+        self.assertNotIn("sleep ", run_rotation)
+        self.assertIn('fail "$(rotation_failure_code)"', run_rotation)
+
     def test_controller_is_backup_first_version_bound_and_fail_closed(self) -> None:
         for value in (
             self.manifest["application"]["source_commit"],
