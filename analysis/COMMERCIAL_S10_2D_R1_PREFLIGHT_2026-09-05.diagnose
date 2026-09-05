@@ -1,0 +1,21 @@
+# S10.2D-R1 Community preflight command diagnosis — 2026-09-05
+
+## Safe result
+
+The read-only BotFather capability check completed green. The following
+temporary target-archive verification stopped before provider verification
+because the manually composed archive extraction command named a nonexistent
+executable. `set -e` stopped immediately and the exact `mktemp` directory had
+an EXIT cleanup trap. No repository, configuration, service, database,
+Telegram or public state was changed.
+
+## Root cause and bounded correction
+
+This was a command transcription error, not a product or infrastructure
+failure. The correction is to reuse the already reviewed sequence from
+`target_community_verify`: create one exact `/run` scratch directory, stream
+the exact target Git archive into standard `tar -x -C`, execute the official
+read-only Community verifier, and delete only that scratch directory through
+the existing `find "$scratch" -depth -delete` pattern.
+
+No deployment, retry or new architecture is authorized by this diagnosis.
