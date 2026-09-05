@@ -1,0 +1,65 @@
+# S10.2D deployment gap diagnosis — 2026-09-05
+
+## Scope and safety state
+
+The authorized backup-first S10.2D deployment stopped at the first target S8
+health gate and executed the version-bound rollback. No target application,
+migration 0029, Adult media, AVS, payment or publishing state remained active.
+The source application was restored and its public services were returned to
+green after the external BotFather group capability was restored to the source
+contract value.
+
+Verified deployment backup:
+
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T094523Z-pre-s10-2d-community`
+
+Backup index digest:
+
+`6e3b02205167a4c7c6b1a6cb4ff172fb9d078a1f99f4a00492ef17bba5d53054`
+
+## Observed safe evidence
+
+- Target diagnostic: `S8_TELEGRAM_COMMANDS_MISMATCH`.
+- Source diagnostic after technical rollback: `S8_TELEGRAM_GROUPS_ENABLED`.
+- Controller result: `S10_2D_COMMUNITY_CONTROL_RED HEALTH_GATE_START_RED`,
+  followed by `S10_2D_COMMUNITY_CONTROL_RED DEPLOY_ROLLED_BACK`.
+- Migration 0029 table state after rollback: absent.
+- Application after recovery: source commit/tree, clean.
+- Control after recovery: canonical Control commit/tree, clean.
+- S7, S8 Landing, S8 Telegram, S10 WMS and nginx: active with zero restarts.
+
+## Root cause
+
+The target application adds the `/community` command. The original controller
+installed the target contracts and units but did not transition the official
+Bot API default/localized command profile before running the target S8 health
+gate. The target therefore rejected the still-source command profile.
+
+The source rollback contract intentionally requires BotFather group joining to
+be disabled. That setting had already been enabled for the S10.2D operator
+checkpoint and cannot be changed through the official Bot API. The prior
+rollback restored files and the application but did not restore the bot profile
+or explicitly park on this external capability mismatch.
+
+## Reviewed correction
+
+The existing controller is extended without a new deployment architecture:
+
+1. Preflight verifies the target bot identity and enabled group capability
+   before any quiesce or deployment mutation.
+2. The existing versioned `tu1nz_public_s8.brand_migration` entrypoint configures
+   and verifies the target default/localized profile before migration and start.
+3. Rollback invokes the same entrypoint from the restored source application to
+   restore the source profile before source service start.
+4. If BotFather group joining is still enabled during rollback, S8 remains
+   stopped and recovery reports
+   `SOURCE_BOTFATHER_GROUPS_OPERATOR_REQUIRED`. The operator disables the flag
+   and reruns the same exact-SHA/tree rollback.
+
+## Retry gate
+
+A new attempt requires a merged Control change with green CI, clean canonical
+repositories, BotFather privacy enabled, BotFather group joining enabled for
+the target, the existing Community provider verifier green, a fresh verified
+backup and a new controller preflight green. No uncontrolled second attempt is
+allowed.

@@ -62,9 +62,12 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
             "BACKUP_APPLICATION_SHA_MISMATCH",
             "BACKUP_CONTROL_SHA_MISMATCH",
             "REMOTE_TARGET_SHA_MISMATCH",
+            "TARGET_BOT_GROUP_CAPABILITY_RED",
+            "TARGET_BOT_PROFILE_CONFIGURE_RED",
             "COMMUNITY_OPERATOR_PREFLIGHT_RED",
             "MIGRATION_0029_RED",
             "DEPLOY_AND_ROLLBACK_RED",
+            "SOURCE_BOTFATHER_GROUPS_OPERATOR_REQUIRED",
             "PRODUCT_SURFACE_CHANGED_BEFORE_ACTIVE_ACQUISITION",
             "OBSERVATION_WINDOW_INCOMPLETE",
             "LATENCY_SAMPLE_FLOOR_MISSING",
@@ -75,6 +78,8 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertLess(deploy.index("preflight"), deploy.index("quiesce"))
         preflight = self.controller.split("preflight() {", 1)[1].split("rollback() {", 1)[0]
         self.assertIn("require_backup", preflight)
+        self.assertLess(preflight.index("target_group_capability_verify"), preflight.index("target_community_verify"))
+        self.assertLess(deploy.index("configure_current_bot_profile"), deploy.index("apply_migration"))
         self.assertLess(deploy.index("apply_migration"), deploy.index("start_target"))
         self.assertLess(deploy.index("verify_target"), deploy.index("run_rotation"))
         self.assertIn("run_bound_migration migrations/0029", self.controller)
@@ -82,6 +87,14 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertNotIn("pg_restore", self.controller)
         self.assertNotIn("telegram_user_id", self.controller)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.controller))
+
+    def test_bot_profile_transition_is_symmetric_and_fail_closed(self) -> None:
+        self.assertIn("-m tu1nz_public_s8.brand_migration", self.controller)
+        self.assertIn("--configure-bot", self.controller)
+        rollback = self.controller.split("rollback() {", 1)[1].split("deploy() {", 1)[0]
+        self.assertLess(rollback.index("restore_technical_state"), rollback.index("restore_source_bot_profile"))
+        self.assertLess(rollback.index("restore_source_bot_profile"), rollback.index("systemctl start"))
+        self.assertIn("S8_TELEGRAM_GROUPS_ENABLED", self.controller)
 
     def test_community_identity_rights_permissions_and_privacy_are_exact(self) -> None:
         identity = self.manifest["public_identity"]
