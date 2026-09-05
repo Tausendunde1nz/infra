@@ -118,7 +118,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertFalse(diagnosis["migration_0029_authorized"])
         self.assertFalse(diagnosis["botfather_change_authorized"])
         self.assertFalse(diagnosis["real_acquisition_ready"])
-        self.assertFalse(diagnosis["r3_cutover_technically_ready"])
+        self.assertTrue(diagnosis["r3_cutover_technically_ready"])
         self.assertTrue(diagnosis["application_taxonomy_merged"])
         self.assertEqual(diagnosis["application_tests_green"], 999)
         self.assertEqual(diagnosis["postgresql_full_path_acceptance"], [17, 18])
@@ -130,6 +130,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertTrue(diagnosis["credential_redaction_green"])
         self.assertEqual(diagnosis["controller_retry_policy"], "NO_RETRY_FAIL_CLOSED")
         self.assertEqual(diagnosis["rollback_decision"], "NOT_REQUIRED_NO_SERVER_MUTATION")
+        self.assertEqual(diagnosis["control_tests_green"], 415)
+        self.assertTrue(diagnosis["same_sha_reviews_green"])
+        self.assertTrue(diagnosis["fixes_merged"])
 
     def test_rotation_unit_allows_the_configured_database_transport_only_as_needed(self) -> None:
         unit = ROTATE_UNIT.read_text(encoding="utf-8")

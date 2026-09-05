@@ -370,3 +370,20 @@ remain aligned. The Control layer does not retry rotation in R2.1: known exit
 classes are translated to bounded reason codes and every failure remains
 fail-closed. No rollback is required because this phase performs no server
 mutation. Deployment and R3 remain separate and unauthorized.
+
+Control implementation commit
+`38c3944f1b04bb0f5f8474fc4b2d3971c39cbd9d` passed 415 local tests,
+the targeted 18-test R2.1 contract, syntax validation and the bounded secret
+scan. PR 129 CI 33976748716 passed at that exact SHA. Same-SHA review found
+only the expected seven files and no boundary expansion. The change was
+integrated by merge commit `e26eeedb3294ea6ca0e122c78c2928eca7241622`,
+tree `bb34ade75acbbd0aab2fea6b9faf450d39ed1e20`; post-merge CI
+33976820622 is green.
+
+All R2.1 technical readiness gates are therefore complete: root cause proven,
+minimal fixes merged, full CLI and systemd-like isolated paths green,
+deterministic safe taxonomy and redaction green, both full suites green, both
+CI chains green and both Same-SHA reviews green. This makes a separately
+authorized R3 cutover technically ready. It does not authorize or perform R3,
+deploy either repository, enable BotFather group joining, apply migration 0029
+or activate real acquisition.

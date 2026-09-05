@@ -236,7 +236,7 @@
   "runtime_failure_diagnosis_r2_1": {
     "authorized": true,
     "scope": "DIAGNOSIS_AND_REPAIR_READINESS_ONLY",
-    "status": "ROOT_CAUSE_PROVEN_FIX_REVIEW_PENDING_NO_DEPLOYMENT",
+    "status": "GREEN_ROOT_CAUSE_PROVEN_FIX_MERGED_FULL_PATH_GREEN_NO_DEPLOYMENT",
     "retained_live_safe_code": "S9_RUNTIME_FAILED",
     "retained_live_exit_status": 2,
     "root_cause": "ROTATION_UNIT_BLOCKED_CONFIGURED_AF_INET_DATABASE_TRANSPORT",
@@ -274,6 +274,15 @@
     "controller_retry_policy": "NO_RETRY_FAIL_CLOSED",
     "rollback_decision": "NOT_REQUIRED_NO_SERVER_MUTATION",
     "remaining_execution_difference": "ISOLATED_SYNTHETIC_DATABASE_AND_NO_SYSTEMD_PID1",
+    "control_implementation_commit": "38c3944f1b04bb0f5f8474fc4b2d3971c39cbd9d",
+    "control_merge_commit": "e26eeedb3294ea6ca0e122c78c2928eca7241622",
+    "control_merge_tree": "bb34ade75acbbd0aab2fea6b9faf450d39ed1e20",
+    "control_pr": 129,
+    "control_pr_ci": 33976748716,
+    "control_post_merge_ci": 33976820622,
+    "control_tests_green": 415,
+    "same_sha_reviews_green": true,
+    "fixes_merged": true,
     "raw_exception_messages_forbidden": true,
     "deterministic_fingerprint_required": true,
     "server_mutation": false,
@@ -281,7 +290,7 @@
     "migration_0029_authorized": false,
     "botfather_change_authorized": false,
     "real_acquisition_ready": false,
-    "r3_cutover_technically_ready": false
+    "r3_cutover_technically_ready": true
   },
   "future_media_contract": {
     "test_only": true,
