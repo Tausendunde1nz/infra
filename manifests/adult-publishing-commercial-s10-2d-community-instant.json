@@ -21,7 +21,7 @@
     "branch": "control-main",
     "expected_base_commit": "5a28ddfb2d2d43cdfd5c3f5353221c3f276702e1",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
-    "controller_sha256": "c0549bb98287c241cf151e0a7fa6b2b664c0f46b07a57170634db8727db6f7be",
+    "controller_sha256": "340a271edb7fe097d6b9c46d9e9f4468a8e09ad90ab4af3bbd47505e67d4b4fc",
     "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
     "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
     "exact_post_merge_commit_and_tree_required": true
@@ -131,8 +131,10 @@
     "database_restore_automatic": false,
     "automatic_technical_rollback": true,
     "target_bot_profile_transition_before_start": true,
+    "source_profile_reconciliation_release": "TARGET_SHA",
     "source_bot_profile_restore_before_restart": true,
     "botfather_group_capability_operator_gate_on_rollback": true,
+    "community_redirect_contract_verified": true,
     "risk_based_observation_required": true,
     "minimum_observation_minutes": 30,
     "readiness_separate_after_observation": true
