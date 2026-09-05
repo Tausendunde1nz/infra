@@ -320,7 +320,7 @@ root = Path(sys.argv[1])
 token_path = Path(sys.argv[2])
 contract = S8Contract.load(root / "config/commercial-s8-public-telegram-early-access.sfw.json")
 client = S8TelegramClient(_token(token_path), contract)
-identity = client.call_profile("getMe", {})
+identity = client._call("getMe", {}, 20)
 valid = (
     isinstance(identity, dict)
     and identity.get("id") == contract.expected_bot_id

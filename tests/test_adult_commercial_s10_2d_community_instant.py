@@ -91,6 +91,8 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
     def test_bot_profile_transition_is_symmetric_and_fail_closed(self) -> None:
         self.assertIn("-m tu1nz_public_s8.brand_migration", self.controller)
         self.assertIn("--configure-bot", self.controller)
+        self.assertIn('client._call("getMe", {}, 20)', self.controller)
+        self.assertNotIn('client.call_profile("getMe"', self.controller)
         rollback = self.controller.split("rollback() {", 1)[1].split("deploy() {", 1)[0]
         self.assertLess(rollback.index("restore_technical_state"), rollback.index("restore_source_bot_profile"))
         self.assertLess(rollback.index("restore_source_bot_profile"), rollback.index("systemctl start"))
