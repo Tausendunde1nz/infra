@@ -19,3 +19,23 @@ read-only Community verifier, and delete only that scratch directory through
 the existing `find "$scratch" -depth -delete` pattern.
 
 No deployment, retry or new architecture is authorized by this diagnosis.
+
+## Fresh-backup wrapper diagnosis
+
+The versioned backup creator completed and its own checks reported both Git
+bundles valid. A separately composed wrapper then exited non-zero because it
+looked for `manifest.sha256`; the versioned backup format uses `SHA256SUMS`.
+No deployment or runtime change had started.
+
+Two subsequent read-only verification attempts also stopped without mutation:
+the first invoked `git bundle verify` without a repository, and the second used
+the wrong Application repository path and a user that cannot traverse the
+root-owned backup directory. The bounded final verification used the actual
+Application repository `/opt/tu1nz_repos/adult-publishing-core`, explicit Git
+safe-directory declarations, and root read access only. `SHA256SUMS` verified,
+both bundles verified, the backup remained root-owned with mode `2700`, and all
+30 expected top-level evidence files were present.
+
+The accepted fresh pre-cutover backup is:
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T120531Z-pre-s10-2d-r1-community`.
+No second backup or deployment retry was started.
