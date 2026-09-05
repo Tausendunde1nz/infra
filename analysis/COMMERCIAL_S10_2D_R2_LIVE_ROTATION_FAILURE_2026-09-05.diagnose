@@ -126,3 +126,8 @@ or identity was emitted and no server mutation occurred.
 The first stage-check wrapper reused zsh's reserved `status` variable and
 aborted before its VPN query. It was corrected with task-specific variable
 names; no connection or mutation occurred.
+
+The first Same-SHA wrapper for the diagnostic-only follow-up PR used an
+incorrectly expanded full commit identifier and stopped before review. The
+actual local and GitHub head identifiers were then read directly and matched;
+no repository or server state changed in the failed check.
