@@ -54,3 +54,34 @@ The bounded correction is documentation-first integration of this stop,
 followed by Control synchronization and one new backup created with the exact
 versioned suffix. The earlier backups remain immutable evidence; no deployment
 attempt or rollback has occurred.
+
+## Single cutover failure and fail-closed recovery — 2026-09-05
+
+The subsequent exact-path preflight passed. The single authorized deployment
+attempt switched to the bound target but failed during the publication-rotation
+health sequence after the local S8 endpoint on port 18110 was unavailable and
+the rotation service exited non-zero. The controller immediately invoked its
+versioned rollback. It restored the Application repository to the source commit,
+restored the database without migration 0029, and restored the source files.
+
+The rollback then stopped before restarting public services and timers because
+the current public bot still had BotFather group membership enabled. The source
+contract requires it disabled, and Telegram does not expose this capability as
+an ordinary bot-API mutation. The controller therefore returned
+`SOURCE_BOTFATHER_GROUPS_OPERATOR_REQUIRED` and left the public S8/S10 services
+and S9/S10 timers inactive, while S7 and nginx remained active. Public WMS
+returned 502; the legacy redirect remained 308. Both repositories were clean,
+Application was back at the source commit, and migration 0029 was absent.
+
+### Approved recovery plan
+
+1. The operator sets BotFather Join Groups to Disabled for `@wantmeseenbot`.
+2. Run the existing versioned `rollback` action with Control commit
+   `8f4dc153a8d9a6997e7c63a3aecff6504c8d3588`, tree
+   `07e52e069d7fe4023c7bb38f495ae3624e8e1cc0`, and the exact pre-cutover backup
+   `/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T121330Z-pre-s10-2d-community`.
+3. Verify source Application/Control provenance, migration absence, all source
+   services and timers, public 200/308 endpoints, zero restarts, and closed Adult
+   boundaries read-only.
+4. Do not attempt S10.2D deployment again. Keep real acquisition NO-GO and
+   version this diagnosis only after the safe source state is restored.
