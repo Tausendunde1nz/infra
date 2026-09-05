@@ -33,13 +33,25 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
         self.assertEqual(
             self.manifest["decision"],
-            "NO_GO_RETRY_REQUIRED_SOURCE_RECOVERY_GREEN",
+            "GO_BACKUP_FIRST_S10_2D_R1_AUTHORIZED",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
         self.assertFalse(recovery["migration_0029_present"])
         self.assertFalse(recovery["real_acquisition_ready"])
-        self.assertFalse(recovery["target_retry_authorized"])
+        self.assertTrue(recovery["target_retry_authorized"])
+        retry = self.manifest["retry_r1"]
+        self.assertTrue(retry["authorized"])
+        self.assertTrue(retry["source_recovery_green"])
+        self.assertEqual(
+            retry["botfather_group_joining"],
+            "ENABLED_OPERATOR_CONFIRMED_AND_API_VERIFIED",
+        )
+        self.assertEqual(retry["community_provider_precheck"], "GREEN")
+        self.assertEqual(retry["fresh_backup"], "PENDING")
+        self.assertEqual(retry["deployment"], "PENDING")
+        self.assertFalse(retry["real_acquisition_ready"])
+        self.assertFalse(retry["adult_gates_opened"])
         self.assertFalse(self.manifest["active"])
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")

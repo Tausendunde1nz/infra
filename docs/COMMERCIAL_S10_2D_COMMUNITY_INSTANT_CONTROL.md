@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `SOURCE_RECOVERY_GREEN_TARGET_RETRY_NOT_AUTHORIZED`
+Status: `S10_2D_R1_AUTHORIZED_PENDING_FRESH_BACKUP`
 
 ## Authorized outcome
 
@@ -178,3 +178,20 @@ safe endpoint code. The next natural timer invocation at
 growth and health surface. No target retry occurred. S10.2D activation,
 observation, readiness and real acquisition remain NO-GO until a separately
 authorized retry starts from a fresh backup and green preflight.
+
+## S10.2D-R1 authorization and provider precheck
+
+The owner separately authorized the S10.2D-R1 retry after confirming the
+written plan, risk, fresh-backup and rollback controls. The recovered source
+runtime remains green. BotFather group joining for `@wantmeseenbot` was enabled
+through the single operator checkpoint and independently verified through the
+official Bot API. Privacy mode remains enabled. The existing
+`@WantMeSeenCommunity` provider configuration passed the reviewed read-only
+identity, rules, permissions and least-privilege administrator verifier.
+
+This SSOT transition authorizes exactly one backup-first R1 cutover using the
+already reviewed Application target. It authorizes no new architecture, second
+automatic cutover, Adult media, real AVS, payment, external Adult publishing,
+Controlled Beta or production. Deployment remains pending until this Control
+change is merged with green CI, synchronized exactly and a new verified backup
+is bound to the resulting Control commit and tree.

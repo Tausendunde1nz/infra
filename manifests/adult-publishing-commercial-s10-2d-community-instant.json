@@ -1,6 +1,6 @@
 {
   "version": "tu1nz-commercial-s10-2d-community-instant-v1",
-  "decision": "NO_GO_RETRY_REQUIRED_SOURCE_RECOVERY_GREEN",
+  "decision": "GO_BACKUP_FIRST_S10_2D_R1_AUTHORIZED",
   "active": false,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
@@ -155,7 +155,20 @@
     "growth_and_health_timers": "GREEN_FUTURE_RUNS",
     "natural_s10_health_run": "GREEN_2026-09-05T11:37:12Z",
     "real_acquisition_ready": false,
-    "target_retry_authorized": false
+    "target_retry_authorized": true
+  },
+  "retry_r1": {
+    "authorized": true,
+    "authorization": "USER_CONFIRMED_PLAN_RISK_BACKUP_ROLLBACK",
+    "source_recovery_green": true,
+    "botfather_group_joining": "ENABLED_OPERATOR_CONFIRMED_AND_API_VERIFIED",
+    "botfather_privacy_mode": "ENABLED_PRIOR_CONFIRMED_UNCHANGED",
+    "community_provider_precheck": "GREEN",
+    "fresh_backup": "PENDING",
+    "deployment": "PENDING",
+    "minimum_observation_seconds": 1800,
+    "real_acquisition_ready": false,
+    "adult_gates_opened": false
   },
   "future_media_contract": {
     "test_only": true,
