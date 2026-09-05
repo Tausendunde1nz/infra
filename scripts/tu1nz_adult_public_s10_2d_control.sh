@@ -430,6 +430,24 @@ configure_current_bot_profile() {
     --telegram-token "$TOKEN_PATH"
 }
 
+configure_bound_bot_profile() {
+  local root status=0
+  root="$(mktemp -d /run/tu1nz-s10-2d-profile.XXXXXX)" || return 1
+  if ! runuser -u chatops -- git -C "$APPLICATION_ROOT" archive "$TARGET_SHA" | tar -x -C "$root"; then
+    find "$root" -depth -delete
+    return 1
+  fi
+  PYTHONPATH="$root/src" "$APPLICATION_ROOT/.venv/bin/python" \
+    -m tu1nz_public_s8.brand_migration \
+    --configure-bot \
+    --bot-contract /etc/tu1nz/adult-commercial-s8-public-telegram.json \
+    --brand-contract /etc/tu1nz/adult-commercial-s10-wms.json \
+    --brand-copy /etc/tu1nz/adult-commercial-s10-wms-copy.json \
+    --telegram-token "$TOKEN_PATH" || status=$?
+  find "$root" -depth -delete
+  return "$status"
+}
+
 verify_current_bot_profile() {
   PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" \
     -m tu1nz_public_s8.brand_migration \
@@ -448,7 +466,7 @@ restore_source_bot_profile() {
     && [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUP_CAPABILITY_MISMATCH"}' ] \
     && return 3
   status=0
-  result="$(configure_current_bot_profile)" || status=$?
+  result="$(configure_bound_bot_profile)" || status=$?
   [ "$status" -eq 0 ] && return 0
   [ "$status" -eq 2 ] \
     && { [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUPS_ENABLED"}' ] \
@@ -556,8 +574,10 @@ verify_target() {
   require_product_boundary
   current_community_verify
   require_system_green
-  curl --fail --silent --show-error --max-time 10 https://wantmeseen.com/ \
-    | grep -Fq 'Want Me Seen Community' || fail "PUBLIC_COMMUNITY_CTA_RED"
+  [ "$(curl --head --silent --show-error --max-time 10 --output /dev/null \
+      --write-out '%{http_code}|%{redirect_url}' \
+      'https://wantmeseen.com/go/community?campaign=s10_wms_launch&source=organic_search')" \
+    = "302|https://t.me/WantMeSeenCommunity" ] || fail "PUBLIC_COMMUNITY_CTA_RED"
   printf '{"ok":true,"safe_code":"S10_2D_COMMUNITY_GREEN","application_ci":%s,"community":"%s","channel":"%s","adult_media":false,"avs":false,"payments":false,"publishing":false}\n' \
     "$APPLICATION_POST_MERGE_CI" "$COMMUNITY" "$CHANNEL"
 }

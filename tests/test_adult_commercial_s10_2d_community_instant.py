@@ -98,9 +98,22 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertLess(rollback.index("restore_technical_state"), rollback.index("restore_source_bot_profile"))
         self.assertLess(rollback.index("restore_source_bot_profile"), rollback.index("systemctl start"))
         restore = self.controller.split("restore_source_bot_profile() {", 1)[1].split("require_target_control() {", 1)[0]
-        self.assertLess(restore.index("verify_current_bot_profile"), restore.index("configure_current_bot_profile"))
+        self.assertLess(restore.index("verify_current_bot_profile"), restore.index("configure_bound_bot_profile"))
+        self.assertIn("configure_bound_bot_profile", restore)
         self.assertIn("S8_TELEGRAM_GROUP_CAPABILITY_MISMATCH", restore)
         self.assertIn("S8_TELEGRAM_GROUPS_ENABLED", self.controller)
+
+        bound = self.controller.split("configure_bound_bot_profile() {", 1)[1].split(
+            "verify_current_bot_profile() {", 1
+        )[0]
+        self.assertIn('git -C "$APPLICATION_ROOT" archive "$TARGET_SHA"', bound)
+        self.assertIn("-m tu1nz_public_s8.brand_migration", bound)
+
+    def test_public_community_contract_uses_the_live_redirect_not_page_copy(self) -> None:
+        verify = self.controller.split("verify_target() {", 1)[1].split("preflight() {", 1)[0]
+        self.assertIn("https://wantmeseen.com/go/community?campaign=s10_wms_launch&source=organic_search", verify)
+        self.assertIn("302|https://t.me/WantMeSeenCommunity", verify)
+        self.assertNotIn("grep -Fq 'Want Me Seen Community'", verify)
 
     def test_landing_is_quiesced_and_restarted_with_the_version_switch(self) -> None:
         quiesce = self.controller.split("quiesce() {", 1)[1].split("run_health_gates() {", 1)[0]

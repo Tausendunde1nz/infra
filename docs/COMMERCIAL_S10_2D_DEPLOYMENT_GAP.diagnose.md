@@ -121,3 +121,32 @@ No target migration or runtime remained active. A new attempt still requires
 this Control correction to be merged with green CI, synchronized exactly, the
 source state formally verified, a fresh backup bound to the new Control
 commit/tree, BotFather group joining enabled, and a fully green preflight.
+
+## Fourth controlled attempt diagnosis
+
+The preflight bound to Control `b13295d6a1f64c5261bd73411efa650b822e3e53`
+and backup
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T110800Z-pre-s10-2d-community`
+passed. The target profile transition completed with only the three drifted
+command scopes written. Target migration and services started, but the final
+public Community assertion stopped at `PUBLIC_COMMUNITY_CTA_RED`.
+
+The asserted literal provider display name is not part of the reviewed WMS
+page contract. The public surface exposes the Community through the reviewed
+`/go/community` route. The controller now verifies the route as an exact HTTP
+302 to `https://t.me/WantMeSeenCommunity`, which tests the deployed public
+contract without depending on presentation copy.
+
+Technical rollback restored the clean source application, configuration and
+removed migration 0029. Source profile inspection found exactly three command
+scopes still on the target profile. The source commit's historical configure
+path attempts every profile setter and therefore cannot safely reconcile those
+three fields inside the provider limit. Source recovery now invokes the
+idempotent profile reconciler from the exact `TARGET_SHA` archive against the
+restored source contracts. It writes only actual drift, performs the same
+strict final verification and deletes its bounded temporary archive.
+
+This is a recovery correction, not authorization for another deployment. It
+must be merged with green CI and synchronized before the existing versioned
+rollback may resume. A new deployment remains prohibited unless source
+recovery is fully green, a new backup is created and a new preflight passes.
