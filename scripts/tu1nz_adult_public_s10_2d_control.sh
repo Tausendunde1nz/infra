@@ -12,9 +12,9 @@ readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_backup.sh
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
-readonly TARGET_SHA="963d80f626a197b564201f92d5164090cf49d102"
-readonly TARGET_TREE="03e25deaba0ec3c3250310f8a4c1bf1cadae87c5"
-readonly APPLICATION_POST_MERGE_CI="33962072767"
+readonly TARGET_SHA="3617a6c50abeaeb061a8f1b89352178acb6eac94"
+readonly TARGET_TREE="343c6bee5a34e42be80ab50e8e1478420c739272"
+readonly APPLICATION_POST_MERGE_CI="33976297037"
 readonly COMMUNITY="@WantMeSeenCommunity"
 readonly CHANNEL="@WantMeSeen"
 readonly BOT_ID="8861935205"
