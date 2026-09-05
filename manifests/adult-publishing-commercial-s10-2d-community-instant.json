@@ -1,0 +1,161 @@
+{
+  "version": "tu1nz-commercial-s10-2d-community-instant-v1",
+  "decision": "GO_BACKUP_FIRST_PENDING_OPERATOR_CHECKPOINT",
+  "active": false,
+  "application": {
+    "repository": "Tausendunde1nz/adult-publishing-core",
+    "branch": "main",
+    "source_commit": "f9747088a31ec6c671e82de24e293ebdec99f717",
+    "source_tree": "7defedef032f6af38bbce0165eb6c2bdec327df7",
+    "target_commit": "58425156e8e16d05a2cf6bfc6d3c31b72a5a0bd3",
+    "target_tree": "2ac46feed56578740101b559d37219c8ba31e9b1",
+    "post_merge_ci": 33953570191,
+    "unit_tests_green": 986,
+    "postgresql_acceptance": [17, 18],
+    "migration": "0029_commercial_s10_2d_community",
+    "migration_sha256": "66eae1c5022e5e005b278984d3b5580928fdd4133a0cfe9653e63957bb933d20",
+    "migration_down_sha256": "0ad0f0983a1a36965b31de85c8a4296d58cce8a9baa1309cf643cc457b96400a"
+  },
+  "control": {
+    "repository": "Tausendunde1nz/infra",
+    "branch": "control-main",
+    "expected_base_commit": "d5ea145c0a0ade103923cda0ee30569f06348680",
+    "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
+    "controller_sha256": "57fb15ead49b7185f3bcbb0fe01e82ae84b0bd8812048bfece90ab40cc88fe95",
+    "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
+    "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
+    "exact_post_merge_commit_and_tree_required": true
+  },
+  "operator_checkpoint": {
+    "maximum_bundled_checkpoints": 1,
+    "tailscale_reauthentication_pending": true,
+    "server_sudo_may_be_required": true,
+    "community_creation_pending": true,
+    "botfather_join_groups_must_be_enabled": true,
+    "credentials_in_chat": false,
+    "credential_bypass": false
+  },
+  "public_identity": {
+    "website": "https://wantmeseen.com",
+    "channel": "@WantMeSeen",
+    "bot": "@wantmeseenbot",
+    "bot_id": 8861935205,
+    "community_display_name": "Want Me Seen Community",
+    "community": "@WantMeSeenCommunity",
+    "community_type": "supergroup"
+  },
+  "community": {
+    "adult_self_attestation_required": true,
+    "self_attestation_is_avs": false,
+    "welcome_immediate": true,
+    "rules_pinned": true,
+    "text_only_default_permissions": true,
+    "media_publishing_enabled": false,
+    "botfather_privacy_mode": "ENABLED",
+    "steady_state_bot_rights": [
+      "delete_messages",
+      "restrict_members"
+    ],
+    "forbidden_bot_rights": [
+      "anonymous_admin",
+      "change_info",
+      "pin_messages",
+      "promote_members",
+      "manage_video_chats",
+      "manage_topics"
+    ],
+    "strike_policy": {
+      "strike_1_restrict_seconds": 3600,
+      "strike_2_restrict_seconds": 86400,
+      "strike_3": "BAN",
+      "severe": "IMMEDIATE_BAN",
+      "one_normal_strike_decay_days": 90
+    },
+    "moderation_evidence": "REASON_CODE_ONLY_NO_MESSAGE_BODY_OR_MEDIA",
+    "moderation_retention_days": 180
+  },
+  "navigation": {
+    "website_primary": "BOT",
+    "website_secondary": "COMMUNITY",
+    "channel": ["BOT", "COMMUNITY"],
+    "community": ["BOT", "FULL_WMS_EARLY_ACCESS"],
+    "bot": ["CHANNEL", "COMMUNITY", "FULL_WMS_EARLY_ACCESS"],
+    "waitlist_meaning": "FULL_WMS_EARLY_ACCESS"
+  },
+  "latency": {
+    "provider_timestamp_start": true,
+    "privacy_safe_components": ["poll_lag", "handler", "send_ack", "response"],
+    "minimum_samples": 5,
+    "p50_strictly_less_than_ms": 1000,
+    "p95_strictly_less_than_ms": 2000,
+    "p99_strictly_less_than_ms": 5000
+  },
+  "content_rotation": {
+    "mode": "ONE_SHOT_REVIEWED_SFW_QUEUE",
+    "items_en": 36,
+    "in_flight_lease_forbidden": true,
+    "published_and_failed_evidence_preserved": true,
+    "idempotent": true
+  },
+  "baseline": {
+    "prior_phase_end_reason": "PRODUCT_SURFACE_CHANGED_BEFORE_ACTIVE_ACQUISITION",
+    "counts_preserved": true,
+    "pre_acquisition_readiness": "PENDING",
+    "wms_real_acquisition_ready": false,
+    "minimum_green_observation_seconds": 1800,
+    "real_acquisition_baseline_start": null
+  },
+  "business_loop": {
+    "single_evidence_backed_action": true,
+    "priorities": [
+      "BOT_LATENCY",
+      "REACH",
+      "COMMUNITY_JOINS",
+      "CONVERSION",
+      "COMMUNITY_ENGAGEMENT",
+      "WAITLIST",
+      "RETENTION",
+      "REFERRAL",
+      "AVS_READINESS",
+      "REVENUE_READINESS",
+      "INFRASTRUCTURE"
+    ],
+    "autonomous_task_generation": false,
+    "fake_users_or_content": false
+  },
+  "deployment": {
+    "backup_required": true,
+    "backup_path": null,
+    "backup_index_sha256": null,
+    "quiesce_growth_timers": true,
+    "database_restore_automatic": false,
+    "automatic_technical_rollback": true,
+    "risk_based_observation_required": true,
+    "minimum_observation_minutes": 30,
+    "readiness_separate_after_observation": true
+  },
+  "future_media_contract": {
+    "test_only": true,
+    "synthetic_only": true,
+    "avs_required": true,
+    "identity_binding_required": true,
+    "all_depicted_consent_required": true,
+    "destination_consent_required": true,
+    "moderation_required": true,
+    "final_confirmation_required": true,
+    "withdrawal_queues_takedown": true
+  },
+  "product_boundary": {
+    "adult_media": false,
+    "identity_documents": false,
+    "real_avs": false,
+    "real_money": false,
+    "payments": false,
+    "external_adult_publishing": false,
+    "real_creator_access": false,
+    "controlled_beta": false,
+    "production": false,
+    "mass_direct_messages": false,
+    "new_paid_services": false
+  }
+}

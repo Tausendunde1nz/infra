@@ -85,7 +85,8 @@ done
 for migration in \
   0026_commercial_s9_telegram_channel \
   0027_commercial_s9_publication_completion \
-  0028_commercial_s10_1_wms_public_growth
+  0028_commercial_s10_1_wms_public_growth \
+  0029_commercial_s10_2d_community
 do
   for suffix in sql down.sql; do
     path="$APPLICATION_ROOT/migrations/${migration}.${suffix}"
@@ -98,7 +99,7 @@ done
 (
   cd /etc/tu1nz
   find . -maxdepth 1 -type f \
-    -name 'adult-commercial-s10-wms*.json' \
+    \( -name 'adult-commercial-s10-wms*.json' -o -name 'adult-commercial-s10-*.json' \) \
     -print0 | sort -z | tar --null -T - -cpf "$BACKUP_PATH/s10-configuration-before.tar"
 )
 (
