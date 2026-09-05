@@ -95,3 +95,29 @@ mismatch. A group-capability mismatch remains an explicit operator gate.
 No further deployment attempt is permitted until this correction is merged
 with green CI, synchronized to the server, source recovery is fully green, a
 fresh verified backup exists and a new exact-state preflight passes.
+
+## Third controlled attempt diagnosis
+
+The next exact-state preflight again passed. The controlled deployment stopped
+before migration and service activation at `TARGET_BOT_PROFILE_CONFIGURE_RED`.
+The target profile reconciliation was still issuing the complete setter set
+even when most provider fields already matched, which exhausted the provider's
+write limit. The Application correction at commit
+`963d80f626a197b564201f92d5164090cf49d102`, tree
+`03e25deaba0ec3c3250310f8a4c1bf1cadae87c5`, now reads every default and
+localized profile field first and writes only actual drift. Its post-merge CI
+`33962072767` is green with 989 unit tests.
+
+The versioned source rollback restored the clean source application,
+configuration and services. A health timer naturally fired immediately after
+re-arming, so the final controller check observed a transient non-waiting timer
+state and returned `TIMER_NOT_WAITING` despite the timer remaining active and
+enabled. The controller now waits at most 90 seconds for that narrow transient
+state to settle while still failing immediately if any timer is disabled or
+inactive. Persistent lack of a waiting state or future run fails closed as
+`TIMER_NOT_SETTLED`.
+
+No target migration or runtime remained active. A new attempt still requires
+this Control correction to be merged with green CI, synchronized exactly, the
+source state formally verified, a fresh backup bound to the new Control
+commit/tree, BotFather group joining enabled, and a fully green preflight.

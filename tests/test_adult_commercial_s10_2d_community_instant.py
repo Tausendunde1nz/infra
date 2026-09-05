@@ -36,10 +36,10 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
         self.assertEqual(app["source_tree"], "7defedef032f6af38bbce0165eb6c2bdec327df7")
-        self.assertEqual(app["target_commit"], "58425156e8e16d05a2cf6bfc6d3c31b72a5a0bd3")
-        self.assertEqual(app["target_tree"], "2ac46feed56578740101b559d37219c8ba31e9b1")
-        self.assertEqual(app["post_merge_ci"], 33953570191)
-        self.assertEqual(app["unit_tests_green"], 986)
+        self.assertEqual(app["target_commit"], "963d80f626a197b564201f92d5164090cf49d102")
+        self.assertEqual(app["target_tree"], "03e25deaba0ec3c3250310f8a4c1bf1cadae87c5")
+        self.assertEqual(app["post_merge_ci"], 33962072767)
+        self.assertEqual(app["unit_tests_green"], 989)
         self.assertEqual(app["postgresql_acceptance"], [17, 18])
         self.assertEqual(app["migration"], "0029_commercial_s10_2d_community")
 
@@ -109,6 +109,16 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn('systemctl stop "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE"', quiesce)
         self.assertIn('systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE"', start)
         self.assertIn('systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE"', rollback)
+
+    def test_timer_verification_waits_only_for_bounded_transient_settling(self) -> None:
+        check = self.controller.split("require_timers_green() {", 1)[1].split(
+            "require_adult_runtime_closed() {", 1
+        )[0]
+        self.assertIn("for attempt in {1..90}", check)
+        self.assertIn('fail "TIMER_NOT_ENABLED"', check)
+        self.assertIn('fail "TIMER_NOT_ACTIVE"', check)
+        self.assertIn('fail "TIMER_NOT_SETTLED"', check)
+        self.assertNotIn("TIMER_NOT_WAITING", check)
 
     def test_community_identity_rights_permissions_and_privacy_are_exact(self) -> None:
         identity = self.manifest["public_identity"]
