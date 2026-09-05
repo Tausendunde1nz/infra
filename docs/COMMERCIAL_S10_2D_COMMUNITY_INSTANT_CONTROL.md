@@ -39,6 +39,29 @@ and preserved; no automatic database restore or user-data deletion occurs.
 The reviewed queue rotation is transactional and refuses any `PUBLISHING`
 lease. Published and failed evidence is never rewritten.
 
+The Telegram bot profile is part of the reversible release surface. Deployment
+configures and verifies the target default and localized command menus before
+the target runtime starts. Rollback restores the source profile before the
+source runtime starts. BotFather's group-join capability has no official Bot API
+write method: if a rollback occurs after the operator enabled it, recovery stops
+the S8 poller fail-closed with `SOURCE_BOTFATHER_GROUPS_OPERATOR_REQUIRED`. The
+operator must disable group joining and rerun the same version-bound rollback;
+the controller never claims a green source runtime while that external setting
+still contradicts the source contract.
+
+## 2026-09-05 fail-closed deployment diagnosis
+
+The first S10.2D deployment attempt stopped before readiness and used the
+versioned rollback. The target S8 health gate reported
+`S8_TELEGRAM_COMMANDS_MISMATCH` because the target adds `/community`, while the
+controller had not transitioned the Bot API command profile before starting the
+new runtime. After rollback, the source diagnostic correctly reported
+`S8_TELEGRAM_GROUPS_ENABLED`, because the operator checkpoint had already
+enabled group joining for S10.2D. No migration 0029 state or target runtime was
+left active. The corrected controller adds a read-only target capability gate,
+a target profile transition before migration/start, and a symmetric source
+profile restore with explicit operator parking for the non-API BotFather flag.
+
 ## Single bundled operator checkpoint
 
 One checkpoint may contain all unavoidable human/cloud actions:
@@ -67,14 +90,16 @@ Its sequence is:
 
 1. Verify the unchanged source application/configuration/control surface,
    active services with zero restarts, future S9/S10 timer runs, public WMS and
-   German redirect, closed Adult runtimes, token metadata and canonical target.
+   German redirect, closed Adult runtimes, token metadata, enabled target bot
+   group capability and canonical target.
 2. Verify the Community through the official Telegram Bot API and verify the
    backup provenance.
 3. Stop only S8/S10 plus affected S9/S10 workers and timers.
 4. Switch to the reviewed application target and install exact-hash S8/S10,
    Community, copy and business-loop contracts.
-5. Install the reviewed service/health bindings; apply hash-bound migration
-   0029 and confirm its pending pre-acquisition gate.
+5. Install the reviewed service/health bindings; configure and verify the exact
+   target default/localized bot profile; apply hash-bound migration 0029 and
+   confirm its pending pre-acquisition gate.
 6. Start S8/S10, resume the existing timers and execute S8/S9/S10 health gates.
 7. Rotate only unpublished SFW queue entries once through the reviewed
    transaction, then repeat all provider/system/public health gates.

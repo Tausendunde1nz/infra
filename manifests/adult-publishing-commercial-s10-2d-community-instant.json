@@ -19,9 +19,9 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "d5ea145c0a0ade103923cda0ee30569f06348680",
+    "expected_base_commit": "df421504418bb662b194aa589f30f2ed996c56fe",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
-    "controller_sha256": "57fb15ead49b7185f3bcbb0fe01e82ae84b0bd8812048bfece90ab40cc88fe95",
+    "controller_sha256": "a019a4031afc9a08704a3239aecc2ca21cf1af49d314a66b9668acd19285de23",
     "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
     "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
     "exact_post_merge_commit_and_tree_required": true
@@ -130,6 +130,9 @@
     "quiesce_growth_timers": true,
     "database_restore_automatic": false,
     "automatic_technical_rollback": true,
+    "target_bot_profile_transition_before_start": true,
+    "source_bot_profile_restore_before_restart": true,
+    "botfather_group_capability_operator_gate_on_rollback": true,
     "risk_based_observation_required": true,
     "minimum_observation_minutes": 30,
     "readiness_separate_after_observation": true

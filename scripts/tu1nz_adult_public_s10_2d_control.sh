@@ -301,6 +301,40 @@ target_community_verify() {
   return "$status"
 }
 
+target_group_capability_verify() {
+  local root status
+  root="$(mktemp -d /run/tu1nz-s10-2d-capability.XXXXXX)" || return 1
+  if ! runuser -u chatops -- git -C "$APPLICATION_ROOT" archive "$TARGET_SHA" | tar -x -C "$root"; then
+    find "$root" -depth -delete
+    return 1
+  fi
+  PYTHONPATH="$root/src" "$APPLICATION_ROOT/.venv/bin/python" - "$root" "$TOKEN_PATH" <<'PY'
+import sys
+from pathlib import Path
+
+from tu1nz_public_s8.contract import S8Contract
+from tu1nz_public_s8.runtime import _token
+from tu1nz_public_s8.telegram import S8TelegramClient
+
+root = Path(sys.argv[1])
+token_path = Path(sys.argv[2])
+contract = S8Contract.load(root / "config/commercial-s8-public-telegram-early-access.sfw.json")
+client = S8TelegramClient(_token(token_path), contract)
+identity = client.call_profile("getMe", {})
+valid = (
+    isinstance(identity, dict)
+    and identity.get("id") == contract.expected_bot_id
+    and identity.get("username") == contract.bot_username
+    and identity.get("first_name") == contract.bot_display_name
+    and identity.get("can_join_groups") is True
+)
+raise SystemExit(0 if valid else 2)
+PY
+  status=$?
+  find "$root" -depth -delete
+  return "$status"
+}
+
 current_community_verify() {
   PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" -m tu1nz_public_s8.community_admin \
     --verify \
@@ -377,6 +411,26 @@ install_target_control() {
   systemd-analyze verify "${UNIT_FILES[@]/#//etc/systemd/system/}" \
     /etc/systemd/system/tu1nz-adult-public-s9-health.service >/dev/null \
     || fail "SYSTEMD_VERIFY_RED"
+}
+
+configure_current_bot_profile() {
+  PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" \
+    -m tu1nz_public_s8.brand_migration \
+    --configure-bot \
+    --bot-contract /etc/tu1nz/adult-commercial-s8-public-telegram.json \
+    --brand-contract /etc/tu1nz/adult-commercial-s10-wms.json \
+    --brand-copy /etc/tu1nz/adult-commercial-s10-wms-copy.json \
+    --telegram-token "$TOKEN_PATH"
+}
+
+restore_source_bot_profile() {
+  local result status=0
+  result="$(configure_current_bot_profile)" || status=$?
+  [ "$status" -eq 0 ] && return 0
+  [ "$status" -eq 2 ] \
+    && [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUPS_ENABLED"}' ] \
+    && return 3
+  fail "SOURCE_BOT_PROFILE_RESTORE_RED"
 }
 
 require_target_control() {
@@ -496,6 +550,7 @@ preflight() {
   require_system_green
   [ "$(migration_state)" = "0" ] || fail "MIGRATION_0029_ALREADY_PRESENT"
   fetch_target
+  target_group_capability_verify || fail "TARGET_BOT_GROUP_CAPABILITY_RED"
   target_community_verify || fail "COMMUNITY_OPERATOR_PREFLIGHT_RED"
   require_backup "$1" "$2" "$3"
   printf '{"ok":true,"safe_code":"S10_2D_PREFLIGHT_GREEN","application_ci":%s,"community":"%s","adult_media":false,"avs":false,"payments":false,"publishing":false}\n' \
@@ -509,6 +564,10 @@ rollback() {
   quiesce
   rollback_migration_if_unused
   restore_technical_state "$3"
+  if ! restore_source_bot_profile; then
+    systemctl stop "$S8_SERVICE" >/dev/null || true
+    fail "SOURCE_BOTFATHER_GROUPS_OPERATOR_REQUIRED"
+  fi
   systemctl reset-failed "$S8_SERVICE" "$S10_SERVICE" >/dev/null || true
   systemctl start "$S8_SERVICE" "$S10_SERVICE" || fail "ROLLBACK_PUBLIC_START_RED"
   systemctl start "${TIMERS[@]}" || fail "ROLLBACK_TIMER_START_RED"
@@ -526,6 +585,7 @@ deploy() {
     runuser -u chatops -- git -C "$APPLICATION_ROOT" switch --detach "$TARGET_SHA"
     install_target_configuration
     install_target_control
+    configure_current_bot_profile >/dev/null || fail "TARGET_BOT_PROFILE_CONFIGURE_RED"
     apply_migration
     start_target
     verify_target "$1" "$2" >/dev/null
