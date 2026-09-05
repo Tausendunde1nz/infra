@@ -12,9 +12,9 @@ readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_backup.sh
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
-readonly TARGET_SHA="58425156e8e16d05a2cf6bfc6d3c31b72a5a0bd3"
-readonly TARGET_TREE="2ac46feed56578740101b559d37219c8ba31e9b1"
-readonly APPLICATION_POST_MERGE_CI="33953570191"
+readonly TARGET_SHA="963d80f626a197b564201f92d5164090cf49d102"
+readonly TARGET_TREE="03e25deaba0ec3c3250310f8a4c1bf1cadae87c5"
+readonly APPLICATION_POST_MERGE_CI="33962072767"
 readonly COMMUNITY="@WantMeSeenCommunity"
 readonly CHANNEL="@WantMeSeen"
 readonly BOT_ID="8861935205"
@@ -240,13 +240,20 @@ timer_has_future() {
 }
 
 require_timers_green() {
-  local timer
-  for timer in "${TIMERS[@]}"; do
-    [ "$(systemctl is-enabled "$timer" 2>/dev/null || true)" = "enabled" ] || fail "TIMER_NOT_ENABLED"
-    [ "$(unit_value "$timer" ActiveState)" = "active" ] || fail "TIMER_NOT_ACTIVE"
-    [ "$(unit_value "$timer" SubState)" = "waiting" ] || fail "TIMER_NOT_WAITING"
-    timer_has_future "$timer" || fail "TIMER_FUTURE_RUN_MISSING"
+  local timer attempt all_waiting
+  for attempt in {1..90}; do
+    all_waiting=1
+    for timer in "${TIMERS[@]}"; do
+      [ "$(systemctl is-enabled "$timer" 2>/dev/null || true)" = "enabled" ] || fail "TIMER_NOT_ENABLED"
+      [ "$(unit_value "$timer" ActiveState)" = "active" ] || fail "TIMER_NOT_ACTIVE"
+      if [ "$(unit_value "$timer" SubState)" != "waiting" ] || ! timer_has_future "$timer"; then
+        all_waiting=0
+      fi
+    done
+    [ "$all_waiting" -eq 1 ] && return 0
+    [ "$attempt" -eq 90 ] || sleep 1
   done
+  fail "TIMER_NOT_SETTLED"
 }
 
 require_adult_runtime_closed() {
