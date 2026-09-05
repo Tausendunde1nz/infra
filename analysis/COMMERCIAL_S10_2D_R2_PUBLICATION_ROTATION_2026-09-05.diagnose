@@ -1,0 +1,66 @@
+# S10.2D-R2 publication rotation root cause — 2026-09-05
+
+## Observed failure
+
+The single R1 cutover reached the versioned S10.2D publication-rotation
+one-shot and exited with status 2. The privacy-safe journal evidence contains
+the exact Application safe code `S9_WMS_CONTRACT_REQUIRED`.
+
+## Proven root cause
+
+The S9 runtime derives the trusted Telegram channel before executing the
+selected action. For `https://wantmeseen.com`, `_trusted_public_channel`
+requires a loaded S10 exposure contract. The S10.2D rotation unit supplied the
+WMS copy and WMS public origin but omitted `--s10-contract`; therefore the
+runtime deterministically stopped before opening a database connection or
+entering `rotate_queued_publication_content`.
+
+Publication rotation, migration 0029, the scheduler, queue state, content
+inventory, clock and startup timing were not the cause. This is a Control
+systemd argument/contract mismatch, not a transient readiness race.
+
+## Red reproduction
+
+The existing Application test proves that WMS origin without an S10 contract
+raises `S9_WMS_CONTRACT_REQUIRED`. A new Control regression requires the
+rotation unit to pair `--public-origin https://wantmeseen.com` with
+`--s10-contract /etc/tu1nz/adult-commercial-s10-wms.json`; it fails against the
+current canonical unit because that argument is absent.
+
+## Minimal correction and risk
+
+Add only the missing read-only contract argument to the existing one-shot
+unit. Do not change Application code, queue logic, scheduler architecture,
+health severity, timers, migration or content. The contract file is already
+installed by the reviewed S10.2D controller and is already used by the WMS
+runtime/health surface.
+
+The risk is limited to the one-shot reading one additional root-owned public
+JSON contract before using the existing database transaction. Existing unit
+hardening and `AF_UNIX` restriction remain unchanged.
+
+## Validation and rollback
+
+The previously red Control regression must turn green; all Application and
+Control tests, PostgreSQL 17/18 acceptance, syntax, secret scan, CI and
+same-SHA review must remain green. A synthetic PostgreSQL acceptance must run
+the exact target rotation command with the S10 contract and prove the queue
+transition without sending a Telegram post.
+
+Rollback is deletion of the single added argument through the normal Git
+revert/merge path. No server installation or R2 cutover is allowed until the
+fix is merged, CI green, synchronized, and a fresh backup is verified.
+
+## Local test invocation note
+
+An initial unchanged-Application test invocation omitted the repository's
+required `PYTHONPATH=src` setting and therefore produced import errors before
+test execution. The canonical CI workflow and README both require that import
+path. This is a local command-environment error, not an Application regression;
+the suite must be rerun with the repository-owned invocation before approval.
+
+The corrected import-path run under the macOS system Python then stopped at
+the absent local `psycopg` dependency. The repository's existing `.venv`
+contains the reviewed dependency version (`psycopg` 3.3.4) and is the required
+local interpreter for the final rerun. No global package installation or
+Application change is warranted.

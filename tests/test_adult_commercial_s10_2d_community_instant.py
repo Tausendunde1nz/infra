@@ -33,13 +33,13 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
         self.assertEqual(
             self.manifest["decision"],
-            "NO_GO_S10_2D_R1_FAILED_RECOVERED_SOURCE_GREEN",
+            "GO_BACKUP_FIRST_S10_2D_R2_AUTHORIZED",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
         self.assertFalse(recovery["migration_0029_present"])
         self.assertFalse(recovery["real_acquisition_ready"])
-        self.assertFalse(recovery["target_retry_authorized"])
+        self.assertTrue(recovery["target_retry_authorized"])
         retry = self.manifest["retry_r1"]
         self.assertTrue(retry["authorized"])
         self.assertTrue(retry["source_recovery_green"])
@@ -58,6 +58,19 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(retry["observation"], "NOT_STARTED_AFTER_FAILED_CUTOVER")
         self.assertFalse(retry["real_acquisition_ready"])
         self.assertFalse(retry["adult_gates_opened"])
+        retry_r2 = self.manifest["retry_r2"]
+        self.assertTrue(retry_r2["authorized"])
+        self.assertTrue(retry_r2["root_cause_identified"])
+        self.assertTrue(retry_r2["root_cause_reproduced"])
+        self.assertEqual(retry_r2["runtime_safe_code"], "S9_WMS_CONTRACT_REQUIRED")
+        self.assertTrue(retry_r2["failure_before_database_or_rotation"])
+        self.assertFalse(retry_r2["race_condition"])
+        self.assertFalse(retry_r2["scheduler_failure"])
+        self.assertEqual(retry_r2["fresh_preflight"], "PENDING")
+        self.assertEqual(retry_r2["fresh_backup"], "PENDING")
+        self.assertEqual(retry_r2["deployment"], "PENDING")
+        self.assertFalse(retry_r2["real_acquisition_ready"])
+        self.assertFalse(retry_r2["adult_gates_opened"])
         self.assertFalse(self.manifest["active"])
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
@@ -72,6 +85,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
     def test_all_new_control_material_is_hash_bound_and_syntax_valid(self) -> None:
         control = self.manifest["control"]
         self.assertEqual(hashlib.sha256(CONTROLLER.read_bytes()).hexdigest(), control["controller_sha256"])
+        self.assertEqual(hashlib.sha256(ROTATE_UNIT.read_bytes()).hexdigest(), control["rotation_unit_sha256"])
         self.assertEqual(hashlib.sha256(S8_HEALTH.read_bytes()).hexdigest(), control["s8_health_sha256"])
         self.assertEqual(hashlib.sha256(S10_HEALTH.read_bytes()).hexdigest(), control["s10_health_sha256"])
         subprocess.run(["bash", "-n", str(CONTROLLER)], check=True)
@@ -214,6 +228,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn("Type=oneshot", unit)
         self.assertIn("--rotate-content", unit)
         self.assertIn("--s10-copy /etc/tu1nz/adult-commercial-s10-wms-copy.json", unit)
+        self.assertIn("--s10-contract /etc/tu1nz/adult-commercial-s10-wms.json", unit)
         self.assertIn("--public-origin https://wantmeseen.com", unit)
         self.assertIn("NoNewPrivileges=true", unit)
         self.assertIn("ProtectSystem=strict", unit)
