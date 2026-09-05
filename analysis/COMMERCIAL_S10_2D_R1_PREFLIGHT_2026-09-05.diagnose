@@ -39,3 +39,18 @@ both bundles verified, the backup remained root-owned with mode `2700`, and all
 The accepted fresh pre-cutover backup is:
 `/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T120531Z-pre-s10-2d-r1-community`.
 No second backup or deployment retry was started.
+
+## Controller backup-path boundary stop
+
+After this diagnosis was integrated, the Control commit changed, so the
+controller correctly required a newly bound backup. That backup verified
+successfully but was named with the suffix `-pre-s10-2d-r1-final`. The
+versioned controller accepts only paths ending exactly in
+`-pre-s10-2d-community`; its read-only preflight therefore stopped with
+`BACKUP_PATH_OUTSIDE_BOUNDARY` before any quiesce, migration, deployment or
+runtime mutation.
+
+The bounded correction is documentation-first integration of this stop,
+followed by Control synchronization and one new backup created with the exact
+versioned suffix. The earlier backups remain immutable evidence; no deployment
+attempt or rollback has occurred.
