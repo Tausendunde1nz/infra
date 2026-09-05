@@ -112,3 +112,17 @@ The first post-edit secret-scan shell invocation did not start because its
 credential-pattern quoting was syntactically invalid. It exited before scanning
 or changing any file and emitted no matched content. The scan was repeated with
 a fixed literal pattern and its aggregate result is the authoritative result.
+
+The first read-only Tailscale server-discovery wrapper was rejected before
+execution because it included a temporary-file removal command. No connection
+or mutation occurred. Discovery was repeated without a temporary file.
+
+The replacement read-only discovery initially reported no eligible target
+because its probe required the Control path and a guessed Application checkout
+name. The online Linux peer and VPN were green; the exact Control-only path
+probe then succeeded with the existing non-interactive SSH identity. No address
+or identity was emitted and no server mutation occurred.
+
+The first stage-check wrapper reused zsh's reserved `status` variable and
+aborted before its VPN query. It was corrected with task-specific variable
+names; no connection or mutation occurred.
