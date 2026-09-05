@@ -63,3 +63,35 @@ repositories, BotFather privacy enabled, BotFather group joining enabled for
 the target, the existing Community provider verifier green, a fresh verified
 backup and a new controller preflight green. No uncontrolled second attempt is
 allowed.
+
+## Second controlled attempt diagnosis
+
+After the first correction had been merged and synchronized, a new exact-state
+preflight passed. The controlled deployment then stopped at
+`PUBLIC_COMMUNITY_CTA_RED` and executed the bound rollback. The technical
+source state and database rollback completed; the public S8 Telegram and S10
+services remained stopped fail-closed while source bot-profile recovery was
+confirmed. The verified backup for this attempt is:
+
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T101905Z-pre-s10-2d-community`
+
+Backup index digest:
+
+`f4b1d0c72cdaf9b1855cb5f140aab08708a7d8ee2278d8085ea8ca1d09f812dd`
+
+The target Application switch did not restart the separately deployed S8
+Landing service, so the externally served process retained the source product
+surface and the exact CTA verifier correctly rejected it. The controller now
+quiesces and restarts S8 Landing in the same bounded service set as S8 Telegram
+and S10 WMS, for both deployment and rollback.
+
+The profile restore had already completed its writes before a provider rate
+limit interrupted the final verification reads. Reissuing the full profile
+write set would consume more provider quota without changing state. Source
+recovery therefore verifies the current source profile first and only invokes
+the existing configuration path when verification shows a real profile
+mismatch. A group-capability mismatch remains an explicit operator gate.
+
+No further deployment attempt is permitted until this correction is merged
+with green CI, synchronized to the server, source recovery is fully green, a
+fresh verified backup exists and a new exact-state preflight passes.

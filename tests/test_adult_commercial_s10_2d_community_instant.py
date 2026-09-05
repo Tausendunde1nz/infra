@@ -91,12 +91,24 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
     def test_bot_profile_transition_is_symmetric_and_fail_closed(self) -> None:
         self.assertIn("-m tu1nz_public_s8.brand_migration", self.controller)
         self.assertIn("--configure-bot", self.controller)
+        self.assertIn("--verify-bot", self.controller)
         self.assertIn('client._call("getMe", {}, 20)', self.controller)
         self.assertNotIn('client.call_profile("getMe"', self.controller)
         rollback = self.controller.split("rollback() {", 1)[1].split("deploy() {", 1)[0]
         self.assertLess(rollback.index("restore_technical_state"), rollback.index("restore_source_bot_profile"))
         self.assertLess(rollback.index("restore_source_bot_profile"), rollback.index("systemctl start"))
+        restore = self.controller.split("restore_source_bot_profile() {", 1)[1].split("require_target_control() {", 1)[0]
+        self.assertLess(restore.index("verify_current_bot_profile"), restore.index("configure_current_bot_profile"))
+        self.assertIn("S8_TELEGRAM_GROUP_CAPABILITY_MISMATCH", restore)
         self.assertIn("S8_TELEGRAM_GROUPS_ENABLED", self.controller)
+
+    def test_landing_is_quiesced_and_restarted_with_the_version_switch(self) -> None:
+        quiesce = self.controller.split("quiesce() {", 1)[1].split("run_health_gates() {", 1)[0]
+        start = self.controller.split("start_target() {", 1)[1].split("run_rotation() {", 1)[0]
+        rollback = self.controller.split("rollback() {", 1)[1].split("deploy() {", 1)[0]
+        self.assertIn('systemctl stop "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE"', quiesce)
+        self.assertIn('systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE"', start)
+        self.assertIn('systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE"', rollback)
 
     def test_community_identity_rights_permissions_and_privacy_are_exact(self) -> None:
         identity = self.manifest["public_identity"]
