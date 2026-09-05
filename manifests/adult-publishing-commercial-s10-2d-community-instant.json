@@ -1,6 +1,6 @@
 {
   "version": "tu1nz-commercial-s10-2d-community-instant-v1",
-  "decision": "NO_GO_S10_2D_R1_FAILED_RECOVERED_SOURCE_GREEN",
+  "decision": "GO_BACKUP_FIRST_S10_2D_R2_AUTHORIZED",
   "active": false,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
@@ -22,6 +22,7 @@
     "expected_base_commit": "5a28ddfb2d2d43cdfd5c3f5353221c3f276702e1",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
     "controller_sha256": "0d5737b17c500ae573c874c5cb21b8da34c0290e6b188150d068cc3d61a6e4b6",
+    "rotation_unit_sha256": "6e3343887b29a65d630042529bf3f2652f6bdd4cc57f9f3c13c634671e0b5e47",
     "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
     "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
     "exact_post_merge_commit_and_tree_required": true
@@ -155,7 +156,7 @@
     "growth_and_health_timers": "GREEN_FUTURE_RUNS",
     "natural_s10_health_run": "GREEN_2026-09-05T11:37:12Z",
     "real_acquisition_ready": false,
-    "target_retry_authorized": false
+    "target_retry_authorized": true
   },
   "retry_r1": {
     "authorized": true,
@@ -180,6 +181,29 @@
     "community": "EXTERNAL_INACTIVE",
     "minimum_observation_seconds": 1800,
     "observation": "NOT_STARTED_AFTER_FAILED_CUTOVER",
+    "real_acquisition_ready": false,
+    "adult_gates_opened": false
+  },
+  "retry_r2": {
+    "authorized": true,
+    "authorization": "USER_CONFIRMED_ROOT_CAUSE_FIX_TEST_REVIEW_BACKUP_SINGLE_CUTOVER",
+    "source_recovery_green": true,
+    "root_cause_identified": true,
+    "root_cause": "ROTATION_UNIT_OMITTED_REQUIRED_S10_CONTRACT_ARGUMENT",
+    "runtime_safe_code": "S9_WMS_CONTRACT_REQUIRED",
+    "root_cause_reproduced": true,
+    "failure_before_database_or_rotation": true,
+    "race_condition": false,
+    "scheduler_failure": false,
+    "rotation_state_failure": false,
+    "severity": "P1_CUTOVER_CONSISTENCY_GATE_P2_STANDALONE_GROWTH_AUTOMATION",
+    "minimal_fix": "ADD_S10_CONTRACT_TO_EXISTING_ROTATION_UNIT",
+    "application_change_required": false,
+    "botfather_group_joining": "DISABLED_SOURCE_CONTRACT_UNTIL_IMMEDIATE_CUTOVER_CHECKPOINT",
+    "fresh_preflight": "PENDING",
+    "fresh_backup": "PENDING",
+    "deployment": "PENDING",
+    "minimum_observation_seconds": 1800,
     "real_acquisition_ready": false,
     "adult_gates_opened": false
   },

@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `S10_2D_R1_FAILED_RECOVERED_SOURCE_GREEN_NO_GO`
+Status: `S10_2D_R2_AUTHORIZED_PENDING_CANONICAL_FIX_PREFLIGHT_BACKUP`
 
 ## Authorized outcome
 
@@ -223,3 +223,38 @@ and every Adult/AVS/payment/publishing/beta/production gate remains closed.
 
 No further S10.2D cutover is authorized. A future attempt requires a new plan,
 root-cause fix, review, tests, backup and explicit owner authorization.
+
+## 2026-09-05 S10.2D-R2 publication-rotation root cause and authorization
+
+The owner separately authorized R2 only after root-cause proof, red-to-green
+reproduction, full tests, CI and same-SHA review. The R1 journal records
+`S9_WMS_CONTRACT_REQUIRED` with exit status 2. The exact target Application
+derives its trusted public Telegram channel before entering the selected
+runtime action. For the WMS origin that derivation requires the S10 exposure
+contract. The rotation unit supplied WMS copy and origin but omitted the
+required `--s10-contract` argument.
+
+The failure therefore occurred before a database connection, migration-state
+read, queue mutation, scheduler call or publication-rotation transaction. It
+was not a readiness race, clock problem, migration initialization issue,
+scheduler fault, queue-state fault or content-engine failure. The existing
+Application regression already proves that WMS origin without the contract
+fails with this exact code. The new Control regression was red against the R1
+unit and green only after the argument was added.
+
+The correction adds exactly
+`--s10-contract /etc/tu1nz/adult-commercial-s10-wms.json` to the existing
+one-shot. No Application code, scheduler, queue, migration, timer, health
+severity or content is changed. The rotation unit digest is bound in the
+manifest. Standalone rotation is P2 growth/content automation; during the
+single bundled Community cutover it remains a P1 consistency gate so that the
+public channel campaign and product navigation cannot diverge. The gate is not
+removed or bypassed.
+
+R2 authorizes exactly one new cutover only after the Control fix is merged with
+green CI, the unchanged Application target receives same-SHA review, the exact
+Control is synchronized, BotFather group joining is enabled at the immediate
+operator checkpoint, and a fresh exact-boundary backup and preflight pass.
+Failure requires the existing versioned rollback and no automatic second
+attempt. Real acquisition and every Adult/AVS/payment/publishing/beta/
+production boundary remain closed until the full observation gate passes.
