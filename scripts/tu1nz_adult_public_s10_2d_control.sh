@@ -423,12 +423,29 @@ configure_current_bot_profile() {
     --telegram-token "$TOKEN_PATH"
 }
 
+verify_current_bot_profile() {
+  PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" \
+    -m tu1nz_public_s8.brand_migration \
+    --verify-bot \
+    --bot-contract /etc/tu1nz/adult-commercial-s8-public-telegram.json \
+    --brand-contract /etc/tu1nz/adult-commercial-s10-wms.json \
+    --brand-copy /etc/tu1nz/adult-commercial-s10-wms-copy.json \
+    --telegram-token "$TOKEN_PATH"
+}
+
 restore_source_bot_profile() {
   local result status=0
+  result="$(verify_current_bot_profile)" || status=$?
+  [ "$status" -eq 0 ] && return 0
+  [ "$status" -eq 2 ] \
+    && [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUP_CAPABILITY_MISMATCH"}' ] \
+    && return 3
+  status=0
   result="$(configure_current_bot_profile)" || status=$?
   [ "$status" -eq 0 ] && return 0
   [ "$status" -eq 2 ] \
-    && [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUPS_ENABLED"}' ] \
+    && { [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUPS_ENABLED"}' ] \
+      || [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUP_CAPABILITY_MISMATCH"}' ]; } \
     && return 3
   fail "SOURCE_BOT_PROFILE_RESTORE_RED"
 }
@@ -452,7 +469,7 @@ quiesce() {
     not-found|"") ;;
     *) fail "ROTATE_UNIT_STATE_UNEXPECTED" ;;
   esac
-  systemctl stop "$S8_SERVICE" "$S10_SERVICE" || fail "PUBLIC_SERVICE_QUIESCE_RED"
+  systemctl stop "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" || fail "PUBLIC_SERVICE_QUIESCE_RED"
 }
 
 run_health_gates() {
@@ -466,8 +483,8 @@ run_health_gates() {
 }
 
 start_target() {
-  systemctl reset-failed "$S8_SERVICE" "$S10_SERVICE" >/dev/null || true
-  systemctl start "$S8_SERVICE" "$S10_SERVICE" || fail "PUBLIC_SERVICE_START_RED"
+  systemctl reset-failed "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" >/dev/null || true
+  systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" || fail "PUBLIC_SERVICE_START_RED"
   local attempt
   for attempt in {1..30}; do
     curl --fail --silent --show-error --output /dev/null --max-time 2 http://127.0.0.1:18110/health && break
@@ -568,8 +585,8 @@ rollback() {
     systemctl stop "$S8_SERVICE" >/dev/null || true
     fail "SOURCE_BOTFATHER_GROUPS_OPERATOR_REQUIRED"
   fi
-  systemctl reset-failed "$S8_SERVICE" "$S10_SERVICE" >/dev/null || true
-  systemctl start "$S8_SERVICE" "$S10_SERVICE" || fail "ROLLBACK_PUBLIC_START_RED"
+  systemctl reset-failed "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" >/dev/null || true
+  systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" || fail "ROLLBACK_PUBLIC_START_RED"
   systemctl start "${TIMERS[@]}" || fail "ROLLBACK_TIMER_START_RED"
   require_source_green
   printf '{"ok":true,"safe_code":"S10_2D_ROLLBACK_GREEN","database_restored":false,"community":"EXTERNAL_INACTIVE","adult_media":false}\n'

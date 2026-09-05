@@ -21,7 +21,7 @@
     "branch": "control-main",
     "expected_base_commit": "e0222f2ad42e3ff78f1875c07002ddb1d6a3d287",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
-    "controller_sha256": "55ab900a242b1b66f4509ed6c237dd1818f13558d63b816498a2cd3bcca078a7",
+    "controller_sha256": "c7cc5f9446c0332335039a0b496149550f8aded5a5b0bde7d61e14f4bb48c4f9",
     "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
     "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
     "exact_post_merge_commit_and_tree_required": true
