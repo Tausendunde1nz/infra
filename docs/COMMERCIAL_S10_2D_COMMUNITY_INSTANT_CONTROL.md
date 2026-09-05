@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `S10_2D_R1_AUTHORIZED_PENDING_FRESH_BACKUP`
+Status: `S10_2D_R1_FAILED_RECOVERED_SOURCE_GREEN_NO_GO`
 
 ## Authorized outcome
 
@@ -195,3 +195,31 @@ automatic cutover, Adult media, real AVS, payment, external Adult publishing,
 Controlled Beta or production. Deployment remains pending until this Control
 change is merged with green CI, synchronized exactly and a new verified backup
 is bound to the resulting Control commit and tree.
+
+## 2026-09-05 S10.2D-R1 outcome
+
+The exact R1 preflight passed against Control
+`8f4dc153a8d9a6997e7c63a3aecff6504c8d3588`, tree
+`07e52e069d7fe4023c7bb38f495ae3624e8e1cc0`, and fresh backup
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T121330Z-pre-s10-2d-community`.
+The backup checksum-index digest is
+`81202d08a7a1f4b0eea5926349b48dfc0b9e0f79c7613355f5578dc0b682eeff`.
+
+The single authorized cutover attempt failed during the publication-rotation
+health sequence. The controller immediately restored the source Application
+and removed migration 0029 because no target data had been accepted. Source
+restart then paused fail-closed until the owner restored BotFather Join Groups
+to Disabled for `@wantmeseenbot`. Re-running only the version-bound rollback
+completed green; this was recovery, not a second deployment attempt.
+
+Application is restored to `f9747088a31ec6c671e82de24e293ebdec99f717`,
+tree `7defedef032f6af38bbce0165eb6c2bdec327df7`. S7, S8 Landing,
+S8 Telegram, S10 WMS and nginx are active and enabled with zero restarts. All
+S9 timers and the S10 health timer are active, enabled and have future runs.
+The WMS root and health endpoints return 200; the legacy domain returns the
+canonical 308 redirect. Both repositories are clean. The Community remains
+externally inactive, observation did not start, real acquisition remains false,
+and every Adult/AVS/payment/publishing/beta/production gate remains closed.
+
+No further S10.2D cutover is authorized. A future attempt requires a new plan,
+root-cause fix, review, tests, backup and explicit owner authorization.

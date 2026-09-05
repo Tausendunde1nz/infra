@@ -33,23 +33,29 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
         self.assertEqual(
             self.manifest["decision"],
-            "GO_BACKUP_FIRST_S10_2D_R1_AUTHORIZED",
+            "NO_GO_S10_2D_R1_FAILED_RECOVERED_SOURCE_GREEN",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
         self.assertFalse(recovery["migration_0029_present"])
         self.assertFalse(recovery["real_acquisition_ready"])
-        self.assertTrue(recovery["target_retry_authorized"])
+        self.assertFalse(recovery["target_retry_authorized"])
         retry = self.manifest["retry_r1"]
         self.assertTrue(retry["authorized"])
         self.assertTrue(retry["source_recovery_green"])
+        self.assertEqual(retry["status"], "FAILED_RECOVERED_SOURCE_GREEN")
         self.assertEqual(
             retry["botfather_group_joining"],
-            "ENABLED_OPERATOR_CONFIRMED_AND_API_VERIFIED",
+            "DISABLED_SOURCE_CONTRACT_AFTER_OPERATOR_RECOVERY",
         )
         self.assertEqual(retry["community_provider_precheck"], "GREEN")
-        self.assertEqual(retry["fresh_backup"], "PENDING")
-        self.assertEqual(retry["deployment"], "PENDING")
+        self.assertTrue(retry["fresh_backup"].endswith("-pre-s10-2d-community"))
+        self.assertRegex(retry["backup_index_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(retry["preflight"], "GREEN")
+        self.assertEqual(retry["deployment"], "FAILED_PUBLICATION_ROTATION_RED")
+        self.assertEqual(retry["rollback"], "GREEN_AFTER_BOTFATHER_OPERATOR_RECOVERY")
+        self.assertFalse(retry["migration_0029_present"])
+        self.assertEqual(retry["observation"], "NOT_STARTED_AFTER_FAILED_CUTOVER")
         self.assertFalse(retry["real_acquisition_ready"])
         self.assertFalse(retry["adult_gates_opened"])
         self.assertFalse(self.manifest["active"])
