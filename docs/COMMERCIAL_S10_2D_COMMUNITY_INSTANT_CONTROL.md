@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `S10_2D_R2_AUTHORIZED_PENDING_CANONICAL_FIX_PREFLIGHT_BACKUP`
+Status: `S10_2D_R2_FAILED_RECOVERED_SOURCE_GREEN_NO_GO`
 
 ## Authorized outcome
 
@@ -258,3 +258,55 @@ operator checkpoint, and a fresh exact-boundary backup and preflight pass.
 Failure requires the existing versioned rollback and no automatic second
 attempt. Real acquisition and every Adult/AVS/payment/publishing/beta/
 production boundary remain closed until the full observation gate passes.
+
+## 2026-09-05 S10.2D-R2 outcome
+
+The minimal rotation-unit correction was committed as
+`da296f11579d31c2f991c08b044cfae5aea912f5`, reviewed in Control PR `#126`,
+and merged as `7fbd28d17ee8ab949f7606ba7fe7bf204a0fe81c`, tree
+`ac888eea4db5fc983de6eec83702c2c981aa81f8`. PR CI `33967247447` and
+post-merge CI `33967293016` were green. The unchanged Application target
+`963d80f626a197b564201f92d5164090cf49d102`, tree
+`03e25deaba0ec3c3250310f8a4c1bf1cadae87c5`, passed 989 tests and its
+post-merge CI `33962072767` remained green.
+
+The fresh preflight passed and the exact cutover boundary was backed up at
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T125900Z-pre-s10-2d-community`.
+The checksum-index digest is
+`ffcd125d6cb88f518d2bb77f426bf46635cd2ad7ad6bcca1319d795e0302391c`.
+BotFather group joining was enabled only for the immediate cutover checkpoint.
+
+The single authorized R2 cutover failed at the publication-rotation gate. The
+live service emitted only the privacy-safe code `S9_RUNTIME_FAILED` at
+`2026-09-05T13:16:21Z` and exited with status 2. The immediately preceding
+Audience timer completed with `S9_SCHEDULER_IDLE`, so no timer race or active
+publication lease was present. Read-only checks found no queue/digest conflict,
+database privilege failure, PostgreSQL error, resource denial or product-boundary
+violation. An isolated PostgreSQL 17 production-shape fixture executed the same
+rotation logic successfully with 38 inserts, 18 filtered items and 19 queued
+items. This excludes an intrinsic queue-rotation, schema, data-shape or SQL-lock
+failure, but does not identify the exact live exception.
+
+The Application entrypoint intentionally collapses non-public runtime details
+into `S9_RUNTIME_FAILED`. Consequently the remaining live-only exception cannot
+be distinguished from the retained evidence without changing the reviewed
+runtime diagnostics and executing another deployment. Neither action is part of
+the one-cutover authorization. The exact second failure root cause therefore
+remains unresolved and S10.2D stays NO-GO.
+
+The controller automatically restored the source Application and then stopped
+at the expected BotFather recovery gate. After the owner disabled group joining,
+only the version-bound rollback was resumed. It completed
+`S10_2D_ROLLBACK_GREEN`; migration 0029 is absent and no database restore or
+target-data deletion was needed. Application
+`f9747088a31ec6c671e82de24e293ebdec99f717`, tree
+`7defedef032f6af38bbce0165eb6c2bdec327df7`, is restored. S7, S8 Landing,
+S8 Telegram, S10 WMS and nginx are active with zero restarts; S9/S10 timers have
+future runs; the public WMS endpoints are green and the legacy domain redirects
+with 308. Both server repositories are clean.
+
+The Community remains externally inactive. The 30-minute observation did not
+start, no live latency acceptance samples were collected, and real acquisition
+was not enabled. Adult media, real AVS, payment, external publishing, real
+creator/member access, Controlled Beta and production remain closed. No further
+S10.2D retry is authorized.

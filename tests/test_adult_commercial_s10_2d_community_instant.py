@@ -33,13 +33,13 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
         self.assertEqual(
             self.manifest["decision"],
-            "GO_BACKUP_FIRST_S10_2D_R2_AUTHORIZED",
+            "NO_GO_S10_2D_R2_FAILED_RECOVERED_SOURCE_GREEN",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
         self.assertFalse(recovery["migration_0029_present"])
         self.assertFalse(recovery["real_acquisition_ready"])
-        self.assertTrue(recovery["target_retry_authorized"])
+        self.assertFalse(recovery["target_retry_authorized"])
         retry = self.manifest["retry_r1"]
         self.assertTrue(retry["authorized"])
         self.assertTrue(retry["source_recovery_green"])
@@ -60,17 +60,27 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertFalse(retry["adult_gates_opened"])
         retry_r2 = self.manifest["retry_r2"]
         self.assertTrue(retry_r2["authorized"])
-        self.assertTrue(retry_r2["root_cause_identified"])
-        self.assertTrue(retry_r2["root_cause_reproduced"])
-        self.assertEqual(retry_r2["runtime_safe_code"], "S9_WMS_CONTRACT_REQUIRED")
-        self.assertTrue(retry_r2["failure_before_database_or_rotation"])
-        self.assertFalse(retry_r2["race_condition"])
-        self.assertFalse(retry_r2["scheduler_failure"])
-        self.assertEqual(retry_r2["fresh_preflight"], "PENDING")
-        self.assertEqual(retry_r2["fresh_backup"], "PENDING")
-        self.assertEqual(retry_r2["deployment"], "PENDING")
+        self.assertEqual(retry_r2["status"], "FAILED_RECOVERED_SOURCE_GREEN")
+        self.assertTrue(retry_r2["r1_root_cause_identified"])
+        self.assertTrue(retry_r2["r1_root_cause_reproduced"])
+        self.assertEqual(retry_r2["r1_runtime_safe_code"], "S9_WMS_CONTRACT_REQUIRED")
+        self.assertTrue(retry_r2["r1_failure_before_database_or_rotation"])
+        self.assertEqual(retry_r2["fresh_preflight"], "GREEN")
+        self.assertTrue(retry_r2["fresh_backup"].endswith("-pre-s10-2d-community"))
+        self.assertRegex(retry_r2["backup_index_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(retry_r2["deployment"], "FAILED_PUBLICATION_ROTATION_RED")
+        self.assertEqual(retry_r2["live_runtime_safe_code"], "S9_RUNTIME_FAILED")
+        self.assertEqual(
+            retry_r2["exact_second_failure_root_cause"],
+            "UNRESOLVED_SAFE_CODE_MASKING_NO_SECOND_CUTOVER_AUTHORIZED",
+        )
+        self.assertEqual(retry_r2["rollback"], "GREEN_AFTER_BOTFATHER_OPERATOR_RECOVERY")
+        self.assertFalse(retry_r2["migration_0029_present"])
+        self.assertEqual(retry_r2["observation"], "NOT_STARTED_AFTER_FAILED_CUTOVER")
+        self.assertEqual(retry_r2["latency_samples"], 0)
         self.assertFalse(retry_r2["real_acquisition_ready"])
         self.assertFalse(retry_r2["adult_gates_opened"])
+        self.assertFalse(retry_r2["further_retry_authorized"])
         self.assertFalse(self.manifest["active"])
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
