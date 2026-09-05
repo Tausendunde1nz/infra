@@ -159,3 +159,30 @@ Community cutover: NOT PERFORMED
 Application merge and post-merge CI: GREEN
 Control implementation review: PENDING
 R3 cutover authorization: NO-GO
+
+CONTROL MERGE EVIDENCE
+
+Implementation commit: 38c3944f1b04bb0f5f8474fc4b2d3971c39cbd9d
+Implementation tree: bb34ade75acbbd0aab2fea6b9faf450d39ed1e20
+Pull request: 129
+PR CI: 33976748716 GREEN at the implementation commit
+Local full suite: 415/415 GREEN
+Targeted R2.1 Control suite: 18/18 GREEN
+Same-SHA review: GREEN
+Merge commit: e26eeedb3294ea6ca0e122c78c2928eca7241622
+Merge tree: bb34ade75acbbd0aab2fea6b9faf450d39ed1e20
+Post-merge CI: 33976820622 GREEN
+
+FINAL DECISION
+
+R2.1 diagnosis and implementation: GREEN
+Root cause identified: true
+Fixes merged: true
+Full-path reproduction: GREEN PostgreSQL 17/18
+Systemd-like reproduction: GREEN within documented isolation differences
+Safe taxonomy and redaction: GREEN
+Server deployment: NOT PERFORMED
+Community external activation: false
+Real acquisition: false
+R3 cutover authorization: NO-GO
+S10_2D_R3_CUTOVER_TECHNICALLY_READY=true
