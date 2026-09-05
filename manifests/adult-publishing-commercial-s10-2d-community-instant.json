@@ -19,9 +19,9 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "df421504418bb662b194aa589f30f2ed996c56fe",
+    "expected_base_commit": "e0222f2ad42e3ff78f1875c07002ddb1d6a3d287",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
-    "controller_sha256": "a019a4031afc9a08704a3239aecc2ca21cf1af49d314a66b9668acd19285de23",
+    "controller_sha256": "55ab900a242b1b66f4509ed6c237dd1818f13558d63b816498a2cd3bcca078a7",
     "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
     "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
     "exact_post_merge_commit_and_tree_required": true
