@@ -1,6 +1,6 @@
 {
   "version": "tu1nz-commercial-s10-2d-community-instant-v1",
-  "decision": "GO_BACKUP_FIRST_PENDING_OPERATOR_CHECKPOINT",
+  "decision": "NO_GO_RETRY_REQUIRED_SOURCE_RECOVERY_GREEN",
   "active": false,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
@@ -139,6 +139,23 @@
     "risk_based_observation_required": true,
     "minimum_observation_minutes": 30,
     "readiness_separate_after_observation": true
+  },
+  "recovery_completion": {
+    "status": "GREEN",
+    "executed_with_control_commit": "1249a359bc56f7d270dbf4055c66ceaaed222c81",
+    "executed_with_control_tree": "1ca95ffbfd364b39af6e9b8f1f5f6f4766e9b803",
+    "backup_path": "/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T113100Z-pre-s10-2d-community",
+    "backup_index_sha256": "5d92af1f712f20b12e4986989e404ac9461744075e842d0e8e472b0c5e53893b",
+    "restored_application_commit": "f9747088a31ec6c671e82de24e293ebdec99f717",
+    "restored_application_tree": "7defedef032f6af38bbce0165eb6c2bdec327df7",
+    "migration_0029_present": false,
+    "source_bot_profile": "GREEN",
+    "botfather_group_joining": "DISABLED_SOURCE_CONTRACT",
+    "public_services": "GREEN",
+    "growth_and_health_timers": "GREEN_FUTURE_RUNS",
+    "natural_s10_health_run": "GREEN_2026-09-05T11:37:12Z",
+    "real_acquisition_ready": false,
+    "target_retry_authorized": false
   },
   "future_media_contract": {
     "test_only": true,

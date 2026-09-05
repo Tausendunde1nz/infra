@@ -31,7 +31,15 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
 
     def test_manifest_binds_reviewed_application_release_and_migration(self) -> None:
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
-        self.assertEqual(self.manifest["decision"], "GO_BACKUP_FIRST_PENDING_OPERATOR_CHECKPOINT")
+        self.assertEqual(
+            self.manifest["decision"],
+            "NO_GO_RETRY_REQUIRED_SOURCE_RECOVERY_GREEN",
+        )
+        recovery = self.manifest["recovery_completion"]
+        self.assertEqual(recovery["status"], "GREEN")
+        self.assertFalse(recovery["migration_0029_present"])
+        self.assertFalse(recovery["real_acquisition_ready"])
+        self.assertFalse(recovery["target_retry_authorized"])
         self.assertFalse(self.manifest["active"])
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
