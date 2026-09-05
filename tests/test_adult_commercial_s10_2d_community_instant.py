@@ -98,16 +98,19 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertLess(rollback.index("restore_technical_state"), rollback.index("restore_source_bot_profile"))
         self.assertLess(rollback.index("restore_source_bot_profile"), rollback.index("systemctl start"))
         restore = self.controller.split("restore_source_bot_profile() {", 1)[1].split("require_target_control() {", 1)[0]
-        self.assertLess(restore.index("verify_current_bot_profile"), restore.index("configure_bound_bot_profile"))
-        self.assertIn("configure_bound_bot_profile", restore)
+        self.assertLess(restore.index("verify_current_bot_profile"), restore.index("reconcile_source_bot_commands"))
+        self.assertIn("reconcile_source_bot_commands", restore)
         self.assertIn("S8_TELEGRAM_GROUP_CAPABILITY_MISMATCH", restore)
         self.assertIn("S8_TELEGRAM_GROUPS_ENABLED", self.controller)
 
-        bound = self.controller.split("configure_bound_bot_profile() {", 1)[1].split(
+        reconcile = self.controller.split("reconcile_source_bot_commands() {", 1)[1].split(
             "verify_current_bot_profile() {", 1
         )[0]
-        self.assertIn('git -C "$APPLICATION_ROOT" archive "$TARGET_SHA"', bound)
-        self.assertIn("-m tu1nz_public_s8.brand_migration", bound)
+        self.assertIn('client.call_profile("setMyCommands"', reconcile)
+        self.assertIn('client.call_profile("getMyCommands"', reconcile)
+        for forbidden in ("setMyName", "setMyDescription", "setMyShortDescription", "setChatMenuButton"):
+            self.assertNotIn(forbidden, reconcile)
+        self.assertIn("verify_bot_profile(client, contract, copy)", reconcile)
 
     def test_public_community_contract_uses_the_live_redirect_not_page_copy(self) -> None:
         verify = self.controller.split("verify_target() {", 1)[1].split("preflight() {", 1)[0]
