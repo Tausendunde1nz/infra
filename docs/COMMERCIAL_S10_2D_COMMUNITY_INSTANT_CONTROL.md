@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `IMPLEMENTED_PENDING_OPERATOR_CHECKPOINT`
+Status: `SOURCE_RECOVERY_GREEN_TARGET_RETRY_NOT_AUTHORIZED`
 
 ## Authorized outcome
 
@@ -153,3 +153,28 @@ navigation across all four surfaces, queue rotation, latency sample and
 percentile evidence, observation duration, services, timers, nginx, endpoints,
 repository cleanliness, readiness flags, business-loop priority, every product
 boundary, operator action and final GO/NO-GO. A concise GO/NO-GO matrix follows.
+
+## 2026-09-05 recovery completion
+
+The recovery-only Control change was merged as
+`1249a359bc56f7d270dbf4055c66ceaaed222c81`, tree
+`1ca95ffbfd364b39af6e9b8f1f5f6f4766e9b803`, with post-merge CI
+`33963379729` green. The exact backup is
+`/opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T113100Z-pre-s10-2d-community`;
+its checksum-index digest is
+`5d92af1f712f20b12e4986989e404ac9461744075e842d0e8e472b0c5e53893b`.
+
+The version-bound rollback restored Application
+`f9747088a31ec6c671e82de24e293ebdec99f717`, tree
+`7defedef032f6af38bbce0165eb6c2bdec327df7`. Only the three drifted Bot API
+command scopes required reconciliation. The complete source profile then
+verified green with BotFather group joining disabled. Migration 0029 is absent.
+S7, S8 Landing, S8 Telegram, S10 WMS and nginx are active with zero restarts;
+all S9/S10 timers are enabled, active, waiting and have future runs.
+
+An S10 health invocation overlapped the controlled restart and failed with the
+safe endpoint code. The next natural timer invocation at
+`2026-09-05T11:37:12Z` completed successfully, proving the recovered public,
+growth and health surface. No target retry occurred. S10.2D activation,
+observation, readiness and real acquisition remain NO-GO until a separately
+authorized retry starts from a fresh backup and green preflight.
