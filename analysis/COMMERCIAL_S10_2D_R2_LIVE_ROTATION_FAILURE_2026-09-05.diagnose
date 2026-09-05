@@ -1,0 +1,114 @@
+TU1NZ / WANT ME SEEN — S10.2D-R2 LIVE ROTATION FAILURE
+DATE: 2026-09-05
+CLASSIFICATION: P1_CUTOVER_CONSISTENCY_GATE
+FINAL STATUS: FAILED_RECOVERED_SOURCE_GREEN_NO_GO
+
+SCOPE
+
+This record contains only aggregate, privacy-safe evidence from the exactly one
+authorized R2 cutover. It contains no token, message, media, user identifier,
+personal data or page content.
+
+VERSION BINDING
+
+Application target commit: 963d80f626a197b564201f92d5164090cf49d102
+Application target tree:   03e25deaba0ec3c3250310f8a4c1bf1cadae87c5
+Application CI:            33962072767 GREEN
+Control execution commit:  7fbd28d17ee8ab949f7606ba7fe7bf204a0fe81c
+Control execution tree:    ac888eea4db5fc983de6eec83702c2c981aa81f8
+Control PR / CI:            #126 / 33967247447 GREEN
+Control post-merge CI:      33967293016 GREEN
+
+R1 ROOT CAUSE AND FIX
+
+R1 emitted S9_WMS_CONTRACT_REQUIRED before database or rotation entry. The
+reviewed rotation unit omitted the required S10 contract argument for its WMS
+origin. The minimal fix added the existing contract path to the existing unit.
+The Control regression was red before the fix and green after it. The complete
+Control suite passed 412/412; the unchanged Application suite passed 989/989.
+
+FRESH R2 BOUNDARY
+
+Preflight: GREEN
+Backup: /opt/tu1nz_repos/backups/commercial-s8-public-telegram/20260905T125900Z-pre-s10-2d-community
+Backup index SHA-256: ffcd125d6cb88f518d2bb77f426bf46635cd2ad7ad6bcca1319d795e0302391c
+BotFather Join Groups: enabled only immediately before the cutover checkpoint
+
+LIVE FAILURE
+
+The only R2 cutover reached the publication-rotation gate and failed.
+Privacy-safe service code: S9_RUNTIME_FAILED
+Observed at: 2026-09-05T13:16:21Z
+Exit status: 2
+
+The immediately preceding Audience timer started at 13:15:49Z, emitted
+S9_SCHEDULER_IDLE at 13:15:50Z and deactivated before rotation started at
+13:16:20Z. There was no concurrent timer run or in-flight publication lease.
+
+READ-ONLY EXCLUSIONS
+
+- no in-flight publication
+- no desired-ID mismatch
+- no digest conflict
+- no invalid projected queue state
+- expected runtime SELECT/UPDATE/INSERT privileges present
+- runtime-role transactional lock probe succeeded and was rolled back
+- no PostgreSQL server error in the failure window
+- no kernel, seccomp, AppArmor, permission, OOM or timeout classification
+- no Adult/AVS/payment/publishing/beta/production boundary opened
+
+ISOLATED REPRODUCTION
+
+The target rotation method was executed against an isolated PostgreSQL 17
+production-shape fixture using only non-personal aggregate S9 runtime, channel,
+content and queue state. It completed green with 38 inserts, 18 filtered items
+and 19 queued items. This excludes an intrinsic rotation algorithm, schema,
+production-shape data, database privilege or SQL-lock failure.
+
+A separate full-CLI diagnostic stopped before rotation with
+S9_CONTRACT_PATH_UNSAFE because that disposable fixture intentionally used
+relative contract paths. This is a diagnostic-fixture constraint, not the live
+failure, and it was not treated as product evidence.
+
+UNRESOLVED CAUSE
+
+The reviewed Application entrypoint collapses non-public exceptions into the
+single S9_RUNTIME_FAILED safe code. The retained live evidence therefore cannot
+distinguish the exact second exception. Further discrimination would require a
+new versioned diagnostic change and another deployment. Neither is authorized
+under the single-cutover R2 scope. No speculative cause is asserted.
+
+ROLLBACK
+
+Automatic technical rollback restored the source Application, then stopped at
+the expected external BotFather recovery gate. After the owner disabled Join
+Groups, only the same version-bound rollback resumed and returned
+S10_2D_ROLLBACK_GREEN.
+
+Restored Application commit: f9747088a31ec6c671e82de24e293ebdec99f717
+Restored Application tree:   7defedef032f6af38bbce0165eb6c2bdec327df7
+Migration 0029: absent
+Database restore: not required
+Community: EXTERNAL_INACTIVE
+Public services: GREEN, NRestarts=0
+Public endpoints: 200 / 200 / 308
+S9/S10 timers: GREEN with future runs
+Server repositories: clean
+
+DECISION
+
+S10.2D-R2: NO-GO
+Automated Community cutover: NO-GO
+Real acquisition: false
+Observation: not started
+Latency acceptance samples: 0
+Further retry authorized: false
+Source SFW product: GREEN
+Product boundaries: CLOSED
+
+LOCAL EVIDENCE-FINALIZATION NOTE
+
+The first post-edit secret-scan shell invocation did not start because its
+credential-pattern quoting was syntactically invalid. It exited before scanning
+or changing any file and emitted no matched content. The scan was repeated with
+a fixed literal pattern and its aggregate result is the authoritative result.
