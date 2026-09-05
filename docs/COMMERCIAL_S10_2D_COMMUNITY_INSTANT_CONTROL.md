@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `S10_2D_R2_FAILED_RECOVERED_SOURCE_GREEN_NO_GO`
+Status: `S10_2D_R3_CANONICAL_BINDING_READY_SOURCE_ONLY_NO_GO_RUNTIME`
 
 ## Authorized outcome
 
@@ -387,3 +387,23 @@ CI chains green and both Same-SHA reviews green. This makes a separately
 authorized R3 cutover technically ready. It does not authorize or perform R3,
 deploy either repository, enable BotFather group joining, apply migration 0029
 or activate real acquisition.
+
+## 2026-09-05 S10.2D-R3.1 canonical Application binding
+
+R3.1 corrects only the active, version-pinned Application target contract.
+The controller and manifest now both require Application merge commit
+`3617a6c50abeaeb061a8f1b89352178acb6eac94`, tree
+`343c6bee5a34e42be80ab50e8e1478420c739272`, post-merge CI 33976297037 and
+999 green tests. A local synthetic contract check accepts that exact
+commit/tree pair and rejects the previous active target. The strict commit,
+tree and CI checks remain in place; no branch-only or moving-latest binding is
+accepted.
+
+The previous target remains present only in historical diagnosis and audit
+evidence. No historical report was rewritten. R3.1 performs no server sync,
+deployment, systemd change, migration 0029, Community activation, BotFather
+change, publication rotation or acquisition. With this source fix reviewed,
+merged and green after merge, the canonical binding and separate R3 cutover
+are technically ready; the R3 runtime and real acquisition remain NO-GO until
+their separately authorized preflight, backup, operator checkpoint, single
+cutover and observation complete.

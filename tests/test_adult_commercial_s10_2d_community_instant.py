@@ -15,6 +15,7 @@ S8_HEALTH = ROOT / "scripts/tu1nz_adult_public_s8_health.py"
 S10_HEALTH = ROOT / "scripts/tu1nz_adult_public_s10_1_health.py"
 BACKUP = ROOT / "scripts/tu1nz_adult_public_s10_1_backup.sh"
 CONTROL = ROOT / "docs/COMMERCIAL_S10_2D_COMMUNITY_INSTANT_CONTROL.md"
+DEPLOYMENT_GAP = ROOT / "docs/COMMERCIAL_S10_2D_DEPLOYMENT_GAP.diagnose.md"
 S8_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service"
 S8_HEALTH_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-health.service"
 S10_UNIT = ROOT / "systemd/tu1nz-adult-public-s10-wms.service"
@@ -33,7 +34,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
         self.assertEqual(
             self.manifest["decision"],
-            "NO_GO_S10_2D_R2_FAILED_RECOVERED_SOURCE_GREEN",
+            "S10_2D_R3_CANONICAL_BINDING_READY_SOURCE_ONLY_NO_GO_RUNTIME",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
@@ -85,12 +86,56 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
         self.assertEqual(app["source_tree"], "7defedef032f6af38bbce0165eb6c2bdec327df7")
-        self.assertEqual(app["target_commit"], "963d80f626a197b564201f92d5164090cf49d102")
-        self.assertEqual(app["target_tree"], "03e25deaba0ec3c3250310f8a4c1bf1cadae87c5")
-        self.assertEqual(app["post_merge_ci"], 33962072767)
-        self.assertEqual(app["unit_tests_green"], 989)
+        self.assertEqual(app["target_commit"], "3617a6c50abeaeb061a8f1b89352178acb6eac94")
+        self.assertEqual(app["target_tree"], "343c6bee5a34e42be80ab50e8e1478420c739272")
+        self.assertEqual(app["post_merge_ci"], 33976297037)
+        self.assertEqual(app["unit_tests_green"], 999)
         self.assertEqual(app["postgresql_acceptance"], [17, 18])
         self.assertEqual(app["migration"], "0029_commercial_s10_2d_community")
+
+    def test_r3_1_active_binding_is_exact_consistent_and_rejects_previous_target(self) -> None:
+        expected_commit = "3617a6c50abeaeb061a8f1b89352178acb6eac94"
+        expected_tree = "343c6bee5a34e42be80ab50e8e1478420c739272"
+        expected_ci = 33976297037
+        previous_commit = "963d80f626a197b564201f92d5164090cf49d102"
+        previous_tree = "03e25deaba0ec3c3250310f8a4c1bf1cadae87c5"
+        app = self.manifest["application"]
+        binding = self.manifest["canonical_binding_r3_1"]
+
+        controller_values = dict(
+            re.findall(r'^readonly (TARGET_SHA|TARGET_TREE|APPLICATION_POST_MERGE_CI)="([^"]+)"$', self.controller, re.MULTILINE)
+        )
+        self.assertEqual(controller_values["TARGET_SHA"], expected_commit)
+        self.assertEqual(controller_values["TARGET_TREE"], expected_tree)
+        self.assertEqual(int(controller_values["APPLICATION_POST_MERGE_CI"]), expected_ci)
+        self.assertEqual(app["target_commit"], controller_values["TARGET_SHA"])
+        self.assertEqual(app["target_tree"], controller_values["TARGET_TREE"])
+        self.assertEqual(app["post_merge_ci"], int(controller_values["APPLICATION_POST_MERGE_CI"]))
+        self.assertEqual(app["unit_tests_green"], 999)
+
+        active_contract = (app["target_commit"], app["target_tree"])
+        self.assertEqual(active_contract, (expected_commit, expected_tree))
+        self.assertNotEqual(active_contract, (previous_commit, previous_tree))
+        self.assertNotIn(f'readonly TARGET_SHA="{previous_commit}"', self.controller)
+
+        self.assertEqual(binding["application_commit"], expected_commit)
+        self.assertEqual(binding["application_tree"], expected_tree)
+        self.assertEqual(binding["application_post_merge_ci"], expected_ci)
+        self.assertEqual(binding["application_tests_green"], 999)
+        self.assertEqual(binding["previous_active_target_commit"], previous_commit)
+        self.assertTrue(binding["historical_evidence_preserved"])
+        self.assertTrue(binding["controller_manifest_consistency"])
+        self.assertEqual(binding["new_target_binding_check"], "GREEN")
+        self.assertEqual(binding["previous_target_binding_check"], "RED")
+        self.assertTrue(binding["s10_2d_r3_canonical_binding_ready"])
+        self.assertTrue(binding["s10_2d_r3_cutover_technically_ready"])
+        self.assertFalse(binding["server_mutation"])
+        self.assertFalse(binding["r3_runtime_started"])
+        self.assertFalse(binding["real_acquisition_ready"])
+
+        historical = DEPLOYMENT_GAP.read_text(encoding="utf-8")
+        self.assertIn(previous_commit, historical)
+        self.assertIn(previous_commit, self.control)
 
     def test_all_new_control_material_is_hash_bound_and_syntax_valid(self) -> None:
         control = self.manifest["control"]
