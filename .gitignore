@@ -273,4 +273,5 @@
 !analysis/COMMERCIAL_S10_S8_BACKUP_HASH_DRIFT_2026-08-31.diagnose
 !analysis/COMMERCIAL_S9_TIMER_LIVENESS_2026-09-03.diagnose
 !analysis/COMMERCIAL_S10_2D_CONTROL_HASH_BINDINGS_2026-09-05.diagnose
+!analysis/COMMERCIAL_S10_2D_TAILSCALE_ROUTE_2026-09-05.diagnose
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh
