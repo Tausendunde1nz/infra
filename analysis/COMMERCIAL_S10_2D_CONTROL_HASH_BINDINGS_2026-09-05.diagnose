@@ -1,0 +1,29 @@
+# S10.2D Control hash-binding regression diagnosis
+
+Date: 2026-09-05
+
+## Symptom
+
+The first complete Control test run reported three SHA-256 mismatches for the
+shared S8 health executable, S8 runtime unit and S8 health unit. The changed
+files were intentional S10.2D Community bindings, but the historical S8
+manifest still referenced their prior deployable revisions.
+
+## Cause
+
+The repository treats current deployable Control files as hash-bound material
+from every dependent manifest. Adding Community arguments changed those files
+without simultaneously advancing the S8 compatibility bindings.
+
+## Resolution
+
+The S8 manifest now binds the exact new revisions. The S10.1 manifest likewise
+binds the evolved backup, health, WMS and shared S9-health files. No runtime or
+server state was changed. Targeted S10.1/S10.2B/S10.2D tests pass after the
+update; the complete suite is rerun before commit.
+
+## Prevention
+
+Every future shared unit, health executable or backup-script change must update
+all manifests that intentionally verify the current deployable file, not only
+the newest phase manifest.

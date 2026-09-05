@@ -260,12 +260,66 @@ def _growth(arguments: argparse.Namespace) -> dict[str, object]:
     return {"application": "GREEN", "telegram": "GREEN"}
 
 
+def _community(arguments: argparse.Namespace) -> dict[str, object] | None:
+    if arguments.community_contract is None and arguments.community_copy is None:
+        if arguments.local_only or arguments.pre_growth:
+            return None
+        raise ValueError("S10_2D_COMMUNITY_HEALTH_ARGUMENTS_MISSING")
+    if arguments.community_contract is None or arguments.community_copy is None:
+        raise ValueError("S10_2D_COMMUNITY_HEALTH_ARGUMENTS_INCOMPLETE")
+    completed = _run([
+        str(APPLICATION / ".venv/bin/tu1nz-public-s8-telegram"),
+        "--contract", str(arguments.s8_contract),
+        "--copy", str(arguments.s8_copy),
+        "--telegram-token", str(arguments.telegram_token),
+        "--database-dsn", str(arguments.database_dsn),
+        "--community-contract", str(arguments.community_contract),
+        "--community-copy", str(arguments.community_copy),
+        "--health-only",
+    ])
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        raise ValueError("S10_2D_COMMUNITY_HEALTH_INVALID") from None
+    community = payload.get("community") if isinstance(payload, dict) else None
+    provider = community.get("provider") if isinstance(community, dict) else None
+    latency = community.get("latency_24h") if isinstance(community, dict) else None
+    if (
+        completed.returncode != 0
+        or not isinstance(payload, dict)
+        or payload.get("ok") is not True
+        or payload.get("state") not in {"GREEN", "YELLOW"}
+        or not isinstance(community, dict)
+        or not isinstance(provider, dict)
+        or provider.get("ok") is not True
+        or not isinstance(latency, dict)
+        or community.get("pending_moderation") != 0
+        or community.get("stuck_restrictions") != 0
+        or community.get("latency_degraded") is not False
+    ):
+        raise ValueError("S10_2D_COMMUNITY_HEALTH_RED")
+    return {
+        "provider": "GREEN",
+        "rules_pinned": provider.get("rules_pinned") is True,
+        "media_publishing_enabled": False,
+        "pending_moderation": 0,
+        "stuck_restrictions": 0,
+        "latency_samples": latency.get("samples"),
+        "latency_p50_ms": latency.get("bot_response_p50_ms"),
+        "latency_p95_ms": latency.get("bot_response_p95_ms"),
+        "latency_p99_ms": latency.get("bot_response_p99_ms"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--copy", type=Path, required=True)
     parser.add_argument("--s8-contract", type=Path, required=True)
+    parser.add_argument("--s8-copy", type=Path)
     parser.add_argument("--s9-contract", type=Path, required=True)
+    parser.add_argument("--community-contract", type=Path)
+    parser.add_argument("--community-copy", type=Path)
     parser.add_argument("--database-dsn", type=Path, required=True)
     parser.add_argument("--telegram-token", type=Path, required=True)
     parser.add_argument("--telegram-channel", required=True)
@@ -274,8 +328,19 @@ def main() -> int:
     mode.add_argument("--pre-growth", action="store_true")
     arguments = parser.parse_args()
     try:
-        if not all(path.is_file() for path in (arguments.contract, arguments.copy, arguments.s8_contract, arguments.s9_contract, arguments.database_dsn, arguments.telegram_token)):
+        required_paths = (
+            arguments.contract, arguments.copy, arguments.s8_contract,
+            arguments.s9_contract, arguments.database_dsn, arguments.telegram_token,
+        )
+        if not all(path.is_file() for path in required_paths):
             raise ValueError("S10_REQUIRED_FILE_MISSING")
+        if arguments.community_contract is not None and arguments.s8_copy is None:
+            raise ValueError("S10_2D_COMMUNITY_S8_COPY_MISSING")
+        if any(
+            path is not None and not path.is_file()
+            for path in (arguments.s8_copy, arguments.community_contract, arguments.community_copy)
+        ):
+            raise ValueError("S10_2D_COMMUNITY_REQUIRED_FILE_MISSING")
         safe_code = (
             "S10_1_WMS_LOCAL_SFW_GREEN"
             if arguments.local_only
@@ -290,6 +355,7 @@ def main() -> int:
             "web_local": _web(LOCAL_ORIGIN),
             "web_public": None if arguments.local_only else _web(PUBLIC_ORIGIN),
             "growth": _growth(arguments),
+            "community": _community(arguments),
             "system": _system(arguments.local_only, not arguments.local_only and not arguments.pre_growth),
             "adult_content": False,
             "real_avs": False,

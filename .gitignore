@@ -57,6 +57,7 @@
 !scripts/tu1nz_adult_public_s9_control.sh
 !scripts/tu1nz_adult_public_s9_health.py
 !scripts/tu1nz_adult_public_s10_2_control.sh
+!scripts/tu1nz_adult_public_s10_2d_control.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -88,6 +89,7 @@
 !systemd/tu1nz-adult-public-s9-report.timer
 !systemd/tu1nz-adult-public-s9-health.service
 !systemd/tu1nz-adult-public-s9-health.timer
+!systemd/tu1nz-adult-public-s10-2d-rotate.service
 !systemd/tu1nz_agentmode.service
 !systemd/tu1nz_integrity.service
 !systemd/tu1nz_monitor.service
@@ -130,6 +132,7 @@
 !manifests/adult-publishing-commercial-s9-automated-growth.json
 !manifests/adult-publishing-commercial-s10-exposure-repositioning.json
 !manifests/adult-publishing-commercial-s10-2-product-growth.json
+!manifests/adult-publishing-commercial-s10-2d-community-instant.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -179,6 +182,7 @@
 !tests/test_adult_commercial_s9_automated_growth.py
 !tests/test_adult_commercial_s10_exposure_repositioning.py
 !tests/test_adult_commercial_s10_2_product_growth.py
+!tests/test_adult_commercial_s10_2d_community_instant.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -268,4 +272,5 @@
 !analysis/COMMERCIAL_S9_GUIDE_HEALTH_MARKER_2026-08-31.diagnose
 !analysis/COMMERCIAL_S10_S8_BACKUP_HASH_DRIFT_2026-08-31.diagnose
 !analysis/COMMERCIAL_S9_TIMER_LIVENESS_2026-09-03.diagnose
+!analysis/COMMERCIAL_S10_2D_CONTROL_HASH_BINDINGS_2026-09-05.diagnose
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh

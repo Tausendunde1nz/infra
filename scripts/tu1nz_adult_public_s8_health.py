@@ -54,6 +54,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--copy", type=Path, required=True)
     parser.add_argument("--telegram-token", type=Path, required=True)
     parser.add_argument("--database-dsn", type=Path, required=True)
+    parser.add_argument("--community-contract", type=Path)
+    parser.add_argument("--community-copy", type=Path)
     parser.add_argument("--mode", choices=("prestart", "runtime"), required=True)
     return parser
 
@@ -206,6 +208,15 @@ def main() -> int:
         "--database-dsn", str(arguments.database_dsn),
         "--diagnostic-mode", arguments.mode,
     ]
+    if (arguments.community_contract is None) != (arguments.community_copy is None):
+        payload = _fallback(arguments.mode, "S8_COMMUNITY_ARGUMENTS_INCOMPLETE")
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return 2
+    if arguments.community_contract is not None and arguments.community_copy is not None:
+        command.extend([
+            "--community-contract", str(arguments.community_contract),
+            "--community-copy", str(arguments.community_copy),
+        ])
     try:
         completed = subprocess.run(
             command,

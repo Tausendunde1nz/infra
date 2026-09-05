@@ -1,0 +1,27 @@
+[Unit]
+Description=Want Me Seen S10.2D one-shot SFW content queue rotation
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+LoadCredential=s9_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
+ExecStart=/usr/bin/env PYTHONPATH=/opt/tu1nz_repos/adult-publishing-core/src /opt/tu1nz_repos/adult-publishing-core/.venv/bin/python -m tu1nz_growth_s9.runtime --contract /etc/tu1nz/adult-commercial-s9-growth.json --database-dsn %d/s9_database_dsn --rotate-content --s10-copy /etc/tu1nz/adult-commercial-s10-wms-copy.json --public-origin https://wantmeseen.com
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+UMask=0077
