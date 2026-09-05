@@ -1,0 +1,40 @@
+# Commercial S10.2D Tailscale route diagnosis — 2026-09-05
+
+## Observed condition
+
+The local Tailscale backend reported `Running`, but the bounded single-packet
+probe to the canonical server Tailscale address did not establish a direct
+connection. A small client/daemon version skew was also reported. No server,
+Telegram, DNS, repository or runtime mutation was attempted.
+
+## Safe hypotheses
+
+1. The existing local session needs re-authentication.
+2. The server is reachable only through a relay and the direct-only probe was
+   too strict for the current network path.
+3. The canonical server peer is temporarily unavailable.
+
+## Read-only diagnostic plan
+
+1. Inspect only the local backend/login state and peer reachability metadata.
+2. Attempt one bounded non-interactive SSH identity check with no remote
+   mutation and no credential bypass.
+3. If authentication is required, include it in the already approved single
+   bundled operator checkpoint.
+4. Proceed to backup or deployment only after the canonical host identity and
+   route are proven.
+
+## Read-only diagnosis result
+
+The canonical peer is known, online and active. A bounded probe allowing the
+normal relay-or-direct path succeeded. The initial failure was therefore
+caused by requiring a direct connection from a single packet, not by a server
+or peer outage. Tailscale SSH then reached the official additional-authentication
+gate; host identity has not yet been accepted as proven and remains part of
+the single operator checkpoint. The client/daemon version skew is unchanged
+and non-blocking for the verified route.
+
+## Rollback and boundary
+
+No rollback is required because no mutable action occurred. Adult media, AVS,
+payment, external publishing, Controlled Beta and production remain closed.
