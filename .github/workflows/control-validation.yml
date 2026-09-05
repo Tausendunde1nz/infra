@@ -669,6 +669,30 @@ jobs:
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
           ! grep -nE '(systemctl[[:space:]]+restart|rm[[:space:]]+-rf|git[[:space:]]+(reset|clean))' scripts/tu1nz_adult_public_s10_2_control.sh
+      - name: Validate Commercial S10.2D runtime diagnosis Control SSOT
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s10-2d-community-instant.json >/dev/null
+          && bash -n scripts/tu1nz_adult_public_s10_2d_control.sh
+          && python3 -m py_compile
+          tests/test_adult_commercial_s10_2d_community_instant.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s10_2d_community_instant
+      - name: Reject Commercial S10.2D secrets cron and diagnostic leakage
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s10-2d-community-instant.json
+            docs/COMMERCIAL_S10_2D_COMMUNITY_INSTANT_CONTROL.md
+            analysis/COMMERCIAL_S10_2D_R2_1_RUNTIME_FAILURE_TAXONOMY_2026-09-05.diagnose
+            scripts/tu1nz_adult_public_s10_2d_control.sh
+            systemd/tu1nz-adult-public-s10-2d-rotate.service
+            tests/test_adult_commercial_s10_2d_community_instant.py
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP) PRIVATE KEY-----' -- "${files[@]}"
+          ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
+          ! grep -nE '(systemctl[[:space:]]+restart|rm[[:space:]]+-rf|git[[:space:]]+(reset|clean))' scripts/tu1nz_adult_public_s10_2d_control.sh
       - name: Validate Night Shift IV product-loop Control SSOT
         run: >-
           python3 -m json.tool

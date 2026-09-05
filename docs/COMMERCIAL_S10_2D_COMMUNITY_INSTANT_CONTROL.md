@@ -310,3 +310,63 @@ start, no live latency acceptance samples were collected, and real acquisition
 was not enabled. Adult media, real AVS, payment, external publishing, real
 creator/member access, Controlled Beta and production remain closed. No further
 S10.2D retry is authorized.
+
+## 2026-09-05 S10.2D-R2.1 runtime diagnosis contract
+
+R2.1 is a diagnosis and repair-readiness step only. It does not authorize a
+Community cutover, Application target deployment, migration 0029, BotFather
+change, observation window or real acquisition. The server must remain on the
+recovered S8/S10 SFW baseline throughout this step.
+
+The retained R2 evidence and a fresh read-only execution-path inventory prove
+the exact live-only mismatch. The database credential resolves to an explicit
+`AF_INET` PostgreSQL endpoint, while the reviewed rotation service restricts
+its process to `RestrictAddressFamilies=AF_UNIX`. The process is therefore
+prevented from opening the required database socket before PostgreSQL receives
+a connection. This explains all retained evidence at once: the service exited
+with status 2, PostgreSQL recorded no server-side error, the runtime role and
+transactional lock probe were green outside the unit sandbox, and the same
+rotation method completed against the isolated PostgreSQL 17 fixture.
+
+The minimal infrastructure correction is to align the rotation unit with the
+already proven S9 database callers by allowing `AF_INET`, `AF_INET6` and
+`AF_UNIX`. It does not add outbound publication behavior, new network targets,
+new privileges or a second repair architecture. A Control regression must
+prove the old unit red and the corrected unit green.
+
+The Application entrypoint must also replace the generic diagnostic collapse
+with a bounded, deterministic taxonomy. Output may contain only a stable
+runtime code, an allowlisted reason code when one already exists, component,
+stage, retry class, exit class, and a digest fingerprint derived exclusively
+from those bounded fields. It must never include an exception message, DSN,
+credential path content, Telegram token, raw message, media, user identifier,
+SQL text or unrestricted filesystem path. Known configuration, contract,
+database-connect, database-operation, state, permission, timeout, dependency,
+CLI and unexpected failures must remain distinguishable and fail closed.
+
+Acceptance requires a red-to-green regression for the address-family mismatch,
+systemd-like full-CLI rotation against a synthetic database with absolute safe
+paths, a successful isolated rotation, deterministic fingerprints, sensitive
+value suppression, distinct exit classes and unchanged SFW product boundaries.
+Application must retain at least 989 passing tests and Control at least 412.
+Only reviewed merge commits with green CI may become canonical. R3 remains
+unauthorized and technically not ready until all R2.1 evidence is complete.
+
+The reviewed Application repair is merged as
+`3617a6c50abeaeb061a8f1b89352178acb6eac94` (tree
+`343c6bee5a34e42be80ab50e8e1478420c739272`) through PR 109. Its PR CI
+33976148365 and post-merge CI 33976297037 are green across Python 3.10/3.13
+and PostgreSQL 17/18, with 999 unit tests green. The systemd-like acceptance
+uses the production module entrypoint, fixed working directory, absolute
+contract paths, a bounded environment and an isolated synthetic database.
+It proves a successful rotation and twice reproduces an unavailable database
+as `S9_RUNTIME_DATABASE_CONNECT` at `ROTATION_DATABASE` with exit class 22,
+the same safe fingerprint, and no credential disclosure.
+
+The only deliberate differences from the live unit are the isolated database
+and the absence of systemd PID 1; the executable/module, CLI argument shape,
+working directory, contract/config shape and runtime-role database behavior
+remain aligned. The Control layer does not retry rotation in R2.1: known exit
+classes are translated to bounded reason codes and every failure remains
+fail-closed. No rollback is required because this phase performs no server
+mutation. Deployment and R3 remain separate and unauthorized.

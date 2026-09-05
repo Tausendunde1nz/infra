@@ -538,9 +538,28 @@ start_target() {
   run_health_gates
 }
 
+rotation_failure_code() {
+  local exit_status
+  exit_status="$(unit_value "$ROTATE_SERVICE" ExecMainStatus)"
+  case "$exit_status" in
+    20) printf '%s\n' "PUBLICATION_ROTATION_CONFIG_ERROR" ;;
+    21) printf '%s\n' "PUBLICATION_ROTATION_STATE_ERROR" ;;
+    22) printf '%s\n' "PUBLICATION_ROTATION_DATABASE_ERROR" ;;
+    23) printf '%s\n' "PUBLICATION_ROTATION_PERMISSION_ERROR" ;;
+    216|217|226) printf '%s\n' "PUBLICATION_ROTATION_PERMISSION_ERROR" ;;
+    24) printf '%s\n' "PUBLICATION_ROTATION_TEMPORARY_EXTERNAL_ERROR" ;;
+    25) printf '%s\n' "PUBLICATION_ROTATION_UNEXPECTED_ERROR" ;;
+    200) printf '%s\n' "PUBLICATION_ROTATION_WORKDIR_ERROR" ;;
+    203) printf '%s\n' "PUBLICATION_ROTATION_EXEC_NOT_FOUND" ;;
+    *) printf '%s\n' "PUBLICATION_ROTATION_UNCLASSIFIED_ERROR" ;;
+  esac
+}
+
 run_rotation() {
   systemctl reset-failed "$ROTATE_SERVICE" >/dev/null || true
-  systemctl start "$ROTATE_SERVICE" || fail "PUBLICATION_ROTATION_RED"
+  if ! systemctl start "$ROTATE_SERVICE"; then
+    fail "$(rotation_failure_code)"
+  fi
   [ "$(unit_value "$ROTATE_SERVICE" Result)" = "success" ] || fail "PUBLICATION_ROTATION_RESULT_RED"
   [ "$(unit_value "$ROTATE_SERVICE" ExecMainStatus)" = "0" ] || fail "PUBLICATION_ROTATION_STATUS_RED"
 }

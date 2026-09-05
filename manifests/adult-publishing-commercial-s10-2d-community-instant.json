@@ -21,8 +21,8 @@
     "branch": "control-main",
     "expected_base_commit": "5a28ddfb2d2d43cdfd5c3f5353221c3f276702e1",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
-    "controller_sha256": "0d5737b17c500ae573c874c5cb21b8da34c0290e6b188150d068cc3d61a6e4b6",
-    "rotation_unit_sha256": "6e3343887b29a65d630042529bf3f2652f6bdd4cc57f9f3c13c634671e0b5e47",
+    "controller_sha256": "ad054932f3238c811a8c07e60cf0d92919ff6fc91c66d852a85a400c286a06bd",
+    "rotation_unit_sha256": "ffadc2bc5834a9460c7bd9e4e5ea77e813ba7d794e1a3363359e41cb458b2a7e",
     "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
     "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
     "exact_post_merge_commit_and_tree_required": true
@@ -232,6 +232,56 @@
     "real_acquisition_ready": false,
     "adult_gates_opened": false,
     "further_retry_authorized": false
+  },
+  "runtime_failure_diagnosis_r2_1": {
+    "authorized": true,
+    "scope": "DIAGNOSIS_AND_REPAIR_READINESS_ONLY",
+    "status": "ROOT_CAUSE_PROVEN_FIX_REVIEW_PENDING_NO_DEPLOYMENT",
+    "retained_live_safe_code": "S9_RUNTIME_FAILED",
+    "retained_live_exit_status": 2,
+    "root_cause": "ROTATION_UNIT_BLOCKED_CONFIGURED_AF_INET_DATABASE_TRANSPORT",
+    "database_transport": "AF_INET",
+    "rotation_unit_address_families_before": [
+      "AF_UNIX"
+    ],
+    "rotation_unit_address_families_required": [
+      "AF_UNIX",
+      "AF_INET",
+      "AF_INET6"
+    ],
+    "postgres_observed_connection_failure": false,
+    "isolated_rotation_logic_green": true,
+    "minimal_control_fix": "ALIGN_EXISTING_ROTATION_UNIT_ADDRESS_FAMILY_ALLOWLIST",
+    "application_taxonomy_required": true,
+    "application_taxonomy_merged": true,
+    "application_implementation_commit": "6f5e2c1be41c59359fff76473a2b3d4ea84cafcb",
+    "application_merge_commit": "3617a6c50abeaeb061a8f1b89352178acb6eac94",
+    "application_merge_tree": "343c6bee5a34e42be80ab50e8e1478420c739272",
+    "application_pr": 109,
+    "application_pr_ci": 33976148365,
+    "application_post_merge_ci": 33976297037,
+    "application_tests_green": 999,
+    "postgresql_full_path_acceptance": [
+      17,
+      18
+    ],
+    "systemd_like_cli_green": true,
+    "controlled_failure_reason_code": "S9_RUNTIME_DATABASE_CONNECT",
+    "controlled_failure_stage": "ROTATION_DATABASE",
+    "controlled_failure_exit_class": 22,
+    "controlled_failure_fingerprint_deterministic": true,
+    "credential_redaction_green": true,
+    "controller_retry_policy": "NO_RETRY_FAIL_CLOSED",
+    "rollback_decision": "NOT_REQUIRED_NO_SERVER_MUTATION",
+    "remaining_execution_difference": "ISOLATED_SYNTHETIC_DATABASE_AND_NO_SYSTEMD_PID1",
+    "raw_exception_messages_forbidden": true,
+    "deterministic_fingerprint_required": true,
+    "server_mutation": false,
+    "community_cutover_authorized": false,
+    "migration_0029_authorized": false,
+    "botfather_change_authorized": false,
+    "real_acquisition_ready": false,
+    "r3_cutover_technically_ready": false
   },
   "future_media_contract": {
     "test_only": true,
