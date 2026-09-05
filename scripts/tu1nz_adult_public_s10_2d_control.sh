@@ -430,22 +430,40 @@ configure_current_bot_profile() {
     --telegram-token "$TOKEN_PATH"
 }
 
-configure_bound_bot_profile() {
-  local root status=0
-  root="$(mktemp -d /run/tu1nz-s10-2d-profile.XXXXXX)" || return 1
-  if ! runuser -u chatops -- git -C "$APPLICATION_ROOT" archive "$TARGET_SHA" | tar -x -C "$root"; then
-    find "$root" -depth -delete
-    return 1
-  fi
-  PYTHONPATH="$root/src" "$APPLICATION_ROOT/.venv/bin/python" \
-    -m tu1nz_public_s8.brand_migration \
-    --configure-bot \
-    --bot-contract /etc/tu1nz/adult-commercial-s8-public-telegram.json \
-    --brand-contract /etc/tu1nz/adult-commercial-s10-wms.json \
-    --brand-copy /etc/tu1nz/adult-commercial-s10-wms-copy.json \
-    --telegram-token "$TOKEN_PATH" || status=$?
-  find "$root" -depth -delete
-  return "$status"
+reconcile_source_bot_commands() {
+  PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" - \
+    /etc/tu1nz/adult-commercial-s8-public-telegram.json \
+    /etc/tu1nz/adult-commercial-s10-wms-copy.json \
+    "$TOKEN_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from tu1nz_exposure_s10.copy import ExposureCopy
+from tu1nz_public_s8.brand_migration import _commands, verify_bot_profile
+from tu1nz_public_s8.contract import S8Contract
+from tu1nz_public_s8.runtime import _token
+from tu1nz_public_s8.telegram import S8TelegramClient, TelegramApiError
+
+try:
+    contract = S8Contract.load(Path(sys.argv[1]))
+    copy = ExposureCopy.load(Path(sys.argv[2]))
+    client = S8TelegramClient(_token(Path(sys.argv[3])), contract)
+    client.verify_local_identity()
+    scopes = (("", client.commands()), ("de", _commands("de")), ("en", _commands("en")))
+    for language_code, commands in scopes:
+        language = {} if not language_code else {"language_code": language_code}
+        expected = [{"command": name, "description": description} for name, description in commands]
+        if client.call_profile("getMyCommands", language) != expected:
+            client.call_profile("setMyCommands", {"commands": expected, **language})
+    print(json.dumps(verify_bot_profile(client, contract, copy), sort_keys=True, separators=(",", ":")))
+except TelegramApiError as error:
+    print(json.dumps({"ok": False, "safe_code": error.safe_code}, sort_keys=True, separators=(",", ":")))
+    raise SystemExit(2)
+except (OSError, RuntimeError, ValueError):
+    print('{"ok":false,"safe_code":"S10_2D_SOURCE_COMMAND_RECONCILE_FAILED"}')
+    raise SystemExit(2)
+PY
 }
 
 verify_current_bot_profile() {
@@ -466,7 +484,7 @@ restore_source_bot_profile() {
     && [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUP_CAPABILITY_MISMATCH"}' ] \
     && return 3
   status=0
-  result="$(configure_bound_bot_profile)" || status=$?
+  result="$(reconcile_source_bot_commands)" || status=$?
   [ "$status" -eq 0 ] && return 0
   [ "$status" -eq 2 ] \
     && { [ "$result" = '{"ok":false,"safe_code":"S8_TELEGRAM_GROUPS_ENABLED"}' ] \

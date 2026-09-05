@@ -150,3 +150,23 @@ This is a recovery correction, not authorization for another deployment. It
 must be merged with green CI and synchronized before the existing versioned
 rollback may resume. A new deployment remains prohibited unless source
 recovery is fully green, a new backup is created and a new preflight passes.
+
+## Source-schema recovery follow-up
+
+The archived target reconciler could not load the historical source S8
+contract because the target schema requires the new Community fields. It
+failed closed before changing the three remaining command scopes. A read-only
+field comparison confirmed that default, German and English commands are the
+only drift: identity, group capability, names, descriptions, short
+descriptions and menu already match the source contract.
+
+The recovery is therefore narrowed further. While the exact `SOURCE_SHA` is
+checked out, the controller uses its own reviewed contract and Bot API adapter
+to read the default, German and English command scopes and writes only scopes
+that differ. No name, description, short-description or menu setter is
+reachable from this function. The complete historical source profile verifier
+still runs after reconciliation, including identity, webhook and disabled
+group capability checks.
+
+This follow-up remains recovery-only. It requires merged green Control CI and
+a new backup bound to that Control commit before the same rollback may resume.
