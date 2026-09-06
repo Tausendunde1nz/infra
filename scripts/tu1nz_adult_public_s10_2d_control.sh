@@ -9,6 +9,7 @@ readonly TOKEN_PATH="/etc/tu1nz/adult-commercial-s10-2b-telegram.token"
 readonly DATABASE_DSN_PATH="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
 readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_backup.sh"
+readonly HEALTH_GATE_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_health_gate.py"
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
@@ -664,6 +665,7 @@ restore_source_bot_profile() {
 
 require_target_control() {
   local unit
+  [ -x "$HEALTH_GATE_SCRIPT" ] || fail "HEALTH_GATE_SCRIPT_UNAVAILABLE"
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s8_health.py" /usr/local/bin/tu1nz_adult_public_s8_health.py || fail "S8_HEALTH_SCRIPT_DRIFT"
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_health.py" /usr/local/bin/tu1nz_adult_public_s10_1_health.py || fail "S10_HEALTH_SCRIPT_DRIFT"
   for unit in "${UNIT_FILES[@]}"; do
@@ -687,13 +689,16 @@ quiesce() {
 }
 
 run_health_gates() {
-  local unit
-  for unit in tu1nz-adult-public-s8-health.service tu1nz-adult-public-s9-health.service tu1nz-adult-public-s10-health.service; do
-    systemctl reset-failed "$unit" >/dev/null || true
-    systemctl start "$unit" || fail "HEALTH_GATE_START_RED"
-    [ "$(unit_value "$unit" Result)" = "success" ] || fail "HEALTH_GATE_RESULT_RED"
-    [ "$(unit_value "$unit" ExecMainStatus)" = "0" ] || fail "HEALTH_GATE_STATUS_RED"
-  done
+  local report safe_code status=0
+  report="$("$HEALTH_GATE_SCRIPT")" || status=$?
+  if [ "$status" -ne 0 ]; then
+    printf 'S10_2D_HEALTH_GATE_EVIDENCE %s\n' "$report" >&2
+    safe_code="$(/usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin).get("safe_code"); assert isinstance(value,str) and value.startswith("HEALTH_GATE_"); print(value)' <<<"$report")" \
+      || fail "HEALTH_GATE_EVIDENCE_INVALID"
+    fail "$safe_code"
+  fi
+  /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); assert value.get("ok") is True and value.get("safe_code")=="S10_2D_HEALTH_GATES_GREEN"' <<<"$report" \
+    || fail "HEALTH_GATE_EVIDENCE_INVALID"
 }
 
 start_target() {

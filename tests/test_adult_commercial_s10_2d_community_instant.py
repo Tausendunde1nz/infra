@@ -17,6 +17,9 @@ BACKUP = ROOT / "scripts/tu1nz_adult_public_s10_1_backup.sh"
 CONTROL = ROOT / "docs/COMMERCIAL_S10_2D_COMMUNITY_INSTANT_CONTROL.md"
 DEPLOYMENT_GAP = ROOT / "docs/COMMERCIAL_S10_2D_DEPLOYMENT_GAP.diagnose.md"
 PID1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R3_3_PID1_COMMUNITY_CONTRACT_2026-09-06.diagnose"
+R4_1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R4_1_HEALTH_GATE_START_2026-09-06.diagnose"
+HEALTH_GATE = ROOT / "scripts/tu1nz_adult_public_s10_2d_health_gate.py"
+RELEASE_SIMULATOR = ROOT / "scripts/tu1nz_adult_public_s10_2d_release_simulator.py"
 S8_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service"
 S8_SOURCE_DROPIN = (
     ROOT / "systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf"
@@ -35,10 +38,10 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.control = CONTROL.read_text(encoding="utf-8")
 
     def test_manifest_binds_reviewed_application_release_and_migration(self) -> None:
-        self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v2")
+        self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v3")
         self.assertEqual(
             self.manifest["decision"],
-            "S10_2D_R3_5_SOURCE_STABILIZATION_GREEN_NO_GO_RUNTIME",
+            "S10_2D_R4_1_HEALTH_GATE_SOURCE_GREEN_NO_GO_RUNTIME",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
@@ -167,8 +170,27 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(ROTATE_UNIT.read_bytes()).hexdigest(), control["rotation_unit_sha256"])
         self.assertEqual(hashlib.sha256(S8_HEALTH.read_bytes()).hexdigest(), control["s8_health_sha256"])
         self.assertEqual(hashlib.sha256(S10_HEALTH.read_bytes()).hexdigest(), control["s10_health_sha256"])
+        self.assertEqual(hashlib.sha256(HEALTH_GATE.read_bytes()).hexdigest(), control["health_gate_sha256"])
+        self.assertEqual(
+            hashlib.sha256(RELEASE_SIMULATOR.read_bytes()).hexdigest(),
+            control["release_simulator_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(S9_HEALTH_DROPIN.read_bytes()).hexdigest(),
+            control["s9_health_dropin_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(S10_HEALTH_UNIT.read_bytes()).hexdigest(),
+            control["s10_health_unit_sha256"],
+        )
         subprocess.run(["bash", "-n", str(CONTROLLER)], check=True)
-        subprocess.run(["python3", "-m", "py_compile", str(S8_HEALTH), str(S10_HEALTH)], check=True)
+        subprocess.run(
+            [
+                "python3", "-m", "py_compile", str(S8_HEALTH), str(S10_HEALTH),
+                str(HEALTH_GATE), str(RELEASE_SIMULATOR),
+            ],
+            check=True,
+        )
 
     def test_r2_1_root_cause_and_runtime_diagnostics_remain_fail_closed(self) -> None:
         diagnosis = self.manifest["runtime_failure_diagnosis_r2_1"]
@@ -375,6 +397,8 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn("--community-copy /etc/tu1nz/adult-commercial-s10-2d-community-copy.json", s8_health_unit)
         self.assertIn("--s8-copy /etc/tu1nz/adult-commercial-s8-copy.json", s10_health_unit)
         self.assertIn("--s8-copy /etc/tu1nz/adult-commercial-s8-copy.json", dropin)
+        self.assertIn("--runtime-release-id s10-2d-r3-5", s10_health_unit)
+        self.assertIn("--runtime-release-id s10-2d-r3-5", dropin)
         self.assertIn("tu1nz-public-s8-telegram", s8)
         self.assertIn("tu1nz_exposure_s10.runtime", s10)
 
@@ -566,8 +590,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(contract["rollback_target_state"], "A_PRE_CUTOVER")
         r3_3 = self.manifest["pid1_community_contract_r3_3"]
         r3_5 = self.manifest["source_stabilization_r3_5"]
-        self.assertEqual(self.manifest["control"]["expected_base_commit"], r3_5["control_start_commit"])
-        self.assertEqual(self.manifest["control"]["expected_base_tree"], r3_5["control_start_tree"])
+        r4_1 = self.manifest["health_gate_stabilization_r4_1"]
+        self.assertEqual(self.manifest["control"]["expected_base_commit"], r4_1["control_start_commit"])
+        self.assertEqual(self.manifest["control"]["expected_base_tree"], r4_1["control_start_tree"])
         self.assertRegex(contract["control_start_commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(contract["control_start_tree"], r"^[0-9a-f]{40}$")
         self.assertTrue(contract["source_backup_bundle"].endswith("-control-before.bundle"))
