@@ -1,0 +1,73 @@
+S10.2D-R3.3 effective PID-1 Community contract diagnosis
+Date: 2026-09-06
+Scope: source-only; no server or public-runtime mutation
+
+Observed contract loss
+----------------------
+The intended target fragment is
+/etc/systemd/system/tu1nz-adult-public-s8-telegram.service. Its ExecStart
+contains both existing target arguments:
+
+- --community-contract /etc/tu1nz/adult-commercial-s10-2d-community.json
+- --community-copy /etc/tu1nz/adult-commercial-s10-2d-community-copy.json
+
+The inherited source-only drop-in is
+/etc/systemd/system/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf.
+It clears ExecStart and supplies a replacement without either Community
+argument. systemd drop-in precedence therefore selects the source replacement
+as the effective PID-1 command even after the target fragment is installed.
+That pre-fix replacement is /usr/bin/env with a bounded PYTHONPATH, the
+Application virtual-environment Python and module tu1nz_public_s8.runtime. The
+corrected target fragment invokes the existing Application virtual-environment
+console entrypoint tu1nz-public-s8-telegram. The working directory remains
+/opt/tu1nz_repos/adult-publishing-core in both states.
+
+Root cause
+----------
+SOURCE_S10_WMS_DROPIN_RESET_EXECSTART_OVERRIDES_TARGET_UNIT
+
+The target controller installed and byte-compared the base fragment but did
+not remove the source-only ExecStart override or verify systemd's effective
+FragmentPath, DropInPaths and ExecStart before starting the target service.
+No wrapper, EnvironmentFile or additional runtime configuration is involved.
+
+Deterministic reproduction
+--------------------------
+The regression resolves the target fragment followed by the inherited source
+drop-in using systemd scalar precedence. The resulting effective command lacks
+both Community arguments and is RED as
+TARGET_PID1_COMMUNITY_CONTRACT_MISSING.
+
+Minimal correction
+------------------
+After the existing verified backup and target quiesce, the controller removes
+only the source S10 WMS drop-in before daemon-reload. The target base fragment
+then becomes the sole effective launch definition. Before any target start, a
+fail-closed guard requires the exact fragment path, no S8 drop-ins, chatops
+user/group, the canonical Application working directory, no EnvironmentFile,
+and both Community arguments in the effective ExecStart. Target verification
+repeats this guard.
+
+Source and rollback isolation
+-----------------------------
+Source preflight pins and verifies the source drop-in hash and confirms that
+systemd's effective source command contains no Community argument. The existing
+s10-units-before.tar backup includes this drop-in. Rollback extraction restores
+it before source verification, so the public S8/S10 fallback remains
+Community-disabled.
+
+Canonical Application binding
+-----------------------------
+The former active target 3617a6c50abeaeb061a8f1b89352178acb6eac94 is an
+ancestor of current canonical Application
+343a5efe56bebbb0ea82e833f25ef43a91d258dc, tree
+85b581a4d47c0098dec2dc78887a89ef40bc33e1. The current commit preserves the
+complete S10.2D target and runtime taxonomy and adds only the reviewed
+recovery-safe migration 0029 downgrade. The active target and downgrade hash
+are rebound to that exact reviewed release. Historical evidence is unchanged.
+
+Safety boundary
+---------------
+No server synchronization, systemd command, migration, Telegram or BotFather
+mutation, Community runtime, real acquisition, Adult media, AVS, payment,
+publishing, Controlled Beta or production action is part of R3.3.

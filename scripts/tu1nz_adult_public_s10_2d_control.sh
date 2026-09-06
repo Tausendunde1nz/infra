@@ -12,9 +12,9 @@ readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_backup.sh
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
-readonly TARGET_SHA="3617a6c50abeaeb061a8f1b89352178acb6eac94"
-readonly TARGET_TREE="343c6bee5a34e42be80ab50e8e1478420c739272"
-readonly APPLICATION_POST_MERGE_CI="33976297037"
+readonly TARGET_SHA="343a5efe56bebbb0ea82e833f25ef43a91d258dc"
+readonly TARGET_TREE="85b581a4d47c0098dec2dc78887a89ef40bc33e1"
+readonly APPLICATION_POST_MERGE_CI="34020966620"
 readonly COMMUNITY="@WantMeSeenCommunity"
 readonly CHANNEL="@WantMeSeen"
 readonly BOT_ID="8861935205"
@@ -34,8 +34,10 @@ readonly TARGET_COMMUNITY_SHA="e93b7f67a4963d10028e177d944c068b4444f0c9de5b5802a
 readonly TARGET_COMMUNITY_COPY_SHA="8cf0f716ba6f0a751c862f69c65fe639ddc07106929195d2cbe65507d304cb6f"
 readonly TARGET_BUSINESS_LOOP_SHA="aaee5878825272c14d41c34e859370bf49b7bd1617851dcafe9cbff2c019a6e6"
 readonly MIGRATION_SHA="66eae1c5022e5e005b278984d3b5580928fdd4133a0cfe9653e63957bb933d20"
-readonly MIGRATION_DOWN_SHA="0ad0f0983a1a36965b31de85c8a4296d58cce8a9baa1309cf643cc457b96400a"
+readonly MIGRATION_DOWN_SHA="e2421a6eb83dc4a8d5af8e2d592f6fb54e45fcf6549c4c85c517c6b5de272ad2"
 readonly SOURCE_S8_UNIT_SHA="2a83f8ccb2945315d98191831cc2c0059d14a30122e23f5db149f90ea308deee"
+readonly S8_SOURCE_DROPIN="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf"
+readonly SOURCE_S8_DROPIN_SHA="2eaa68ace7a2ed4259be422cb7908eb5994735691c265d20935ca4d354d9565a"
 readonly SOURCE_S8_HEALTH_UNIT_SHA="24c6d544bd12a93b8631da8fa017cc50e45432f5c9ca736359fe5f8c304f4d88"
 readonly SOURCE_S10_UNIT_SHA="7016f1b110d5b87ec9455d588bf9ca502be419b3b95162a4441fc0d6187a3939"
 readonly SOURCE_S10_HEALTH_UNIT_SHA="6fa111959f26a2cea7a37f5251dfe4d130aa4b64bd89963fc220afe366969eb1"
@@ -184,6 +186,7 @@ require_target_configuration() {
 
 require_source_control() {
   require_hash /etc/systemd/system/tu1nz-adult-public-s8-telegram.service "$SOURCE_S8_UNIT_SHA" "SOURCE_S8_UNIT"
+  require_hash "$S8_SOURCE_DROPIN" "$SOURCE_S8_DROPIN_SHA" "SOURCE_S8_DROPIN"
   require_hash /etc/systemd/system/tu1nz-adult-public-s8-health.service "$SOURCE_S8_HEALTH_UNIT_SHA" "SOURCE_S8_HEALTH_UNIT"
   require_hash /etc/systemd/system/tu1nz-adult-public-s10-wms.service "$SOURCE_S10_UNIT_SHA" "SOURCE_S10_UNIT"
   require_hash /etc/systemd/system/tu1nz-adult-public-s10-health.service "$SOURCE_S10_HEALTH_UNIT_SHA" "SOURCE_S10_HEALTH_UNIT"
@@ -191,6 +194,55 @@ require_source_control() {
   require_hash /usr/local/bin/tu1nz_adult_public_s8_health.py "$SOURCE_S8_HEALTH_SCRIPT_SHA" "SOURCE_S8_HEALTH_SCRIPT"
   require_hash /usr/local/bin/tu1nz_adult_public_s10_1_health.py "$SOURCE_S10_HEALTH_SCRIPT_SHA" "SOURCE_S10_HEALTH_SCRIPT"
   [ ! -e "/etc/systemd/system/$ROTATE_SERVICE" ] || fail "SOURCE_ROTATE_UNIT_PRESENT"
+}
+
+require_source_pid1_contract() {
+  local dropins effective
+  [ "$(unit_value "$S8_SERVICE" FragmentPath)" = "/etc/systemd/system/$S8_SERVICE" ] \
+    || fail "SOURCE_S8_FRAGMENT_PATH_RED"
+  dropins="$(unit_value "$S8_SERVICE" DropInPaths)"
+  case "$dropins" in
+    *"$S8_SOURCE_DROPIN"*) ;;
+    *) fail "SOURCE_S8_DROPIN_NOT_EFFECTIVE" ;;
+  esac
+  [ "$(unit_value "$S8_SERVICE" User)" = "chatops" ] || fail "SOURCE_S8_USER_RED"
+  [ "$(unit_value "$S8_SERVICE" Group)" = "chatops" ] || fail "SOURCE_S8_GROUP_RED"
+  [ "$(unit_value "$S8_SERVICE" WorkingDirectory)" = "$APPLICATION_ROOT" ] \
+    || fail "SOURCE_S8_WORKING_DIRECTORY_RED"
+  [ -z "$(unit_value "$S8_SERVICE" EnvironmentFiles)" ] || fail "SOURCE_S8_ENVIRONMENT_FILE_PRESENT"
+  effective="$(unit_value "$S8_SERVICE" ExecStart)"
+  case "$effective" in
+    *"$APPLICATION_ROOT/.venv/bin/python -m tu1nz_public_s8.runtime"*) ;;
+    *) fail "SOURCE_S8_EXECUTABLE_RED" ;;
+  esac
+  case "$effective" in
+    *--community-contract*|*--community-copy*) fail "SOURCE_PID1_COMMUNITY_CONTRACT_PRESENT" ;;
+  esac
+}
+
+require_target_pid1_contract() {
+  local effective
+  [ "$(unit_value "$S8_SERVICE" FragmentPath)" = "/etc/systemd/system/$S8_SERVICE" ] \
+    || fail "TARGET_S8_FRAGMENT_PATH_RED"
+  [ -z "$(unit_value "$S8_SERVICE" DropInPaths)" ] || fail "TARGET_S8_DROPIN_PRESENT"
+  [ "$(unit_value "$S8_SERVICE" User)" = "chatops" ] || fail "TARGET_S8_USER_RED"
+  [ "$(unit_value "$S8_SERVICE" Group)" = "chatops" ] || fail "TARGET_S8_GROUP_RED"
+  [ "$(unit_value "$S8_SERVICE" WorkingDirectory)" = "$APPLICATION_ROOT" ] \
+    || fail "TARGET_S8_WORKING_DIRECTORY_RED"
+  [ -z "$(unit_value "$S8_SERVICE" EnvironmentFiles)" ] || fail "TARGET_S8_ENVIRONMENT_FILE_PRESENT"
+  effective="$(unit_value "$S8_SERVICE" ExecStart)"
+  case "$effective" in
+    *"$APPLICATION_ROOT/.venv/bin/tu1nz-public-s8-telegram"*) ;;
+    *) fail "TARGET_S8_EXECUTABLE_RED" ;;
+  esac
+  case "$effective" in
+    *"--community-contract /etc/tu1nz/adult-commercial-s10-2d-community.json"*) ;;
+    *) fail "TARGET_PID1_COMMUNITY_CONTRACT_MISSING" ;;
+  esac
+  case "$effective" in
+    *"--community-copy /etc/tu1nz/adult-commercial-s10-2d-community-copy.json"*) ;;
+    *) fail "TARGET_PID1_COMMUNITY_COPY_MISSING" ;;
+  esac
 }
 
 require_product_boundary() {
@@ -429,10 +481,12 @@ install_target_control() {
   install -d -o root -g root -m 0755 /etc/systemd/system/tu1nz-adult-public-s9-health.service.d
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-health.service.d/s10-wms.conf" \
     /etc/systemd/system/tu1nz-adult-public-s9-health.service.d/s10-wms.conf
+  rm -f -- "$S8_SOURCE_DROPIN"
   systemctl daemon-reload
   systemd-analyze verify "${UNIT_FILES[@]/#//etc/systemd/system/}" \
     /etc/systemd/system/tu1nz-adult-public-s9-health.service >/dev/null \
     || fail "SYSTEMD_VERIFY_RED"
+  require_target_pid1_contract
 }
 
 configure_current_bot_profile() {
@@ -517,6 +571,8 @@ require_target_control() {
   done
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s9-health.service.d/s10-wms.conf" \
     /etc/systemd/system/tu1nz-adult-public-s9-health.service.d/s10-wms.conf || fail "HEALTH_DROPIN_DRIFT"
+  [ ! -e "$S8_SOURCE_DROPIN" ] || fail "TARGET_S8_SOURCE_DROPIN_PRESENT"
+  require_target_pid1_contract
 }
 
 quiesce() {
@@ -612,6 +668,7 @@ require_source_green() {
   require_application_source
   require_source_configuration
   require_source_control
+  require_source_pid1_contract
   require_system_green
 }
 
@@ -644,6 +701,7 @@ preflight() {
   require_application_source
   require_source_configuration
   require_source_control
+  require_source_pid1_contract
   require_system_green
   [ "$(migration_state)" = "0" ] || fail "MIGRATION_0029_ALREADY_PRESENT"
   fetch_target

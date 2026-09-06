@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `S10_2D_R3_STATE_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME`
+Status: `S10_2D_R3_PID1_COMMUNITY_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME`
 
 ## Authorized outcome
 
@@ -448,3 +448,54 @@ Telegram, Community, BotFather or Tailscale action. The reviewed Application
 SHA remains unchanged. `S10_2D_R3_STATE_CONTRACT_READY=true` and
 `S10_2D_R3_CUTOVER_TECHNICALLY_READY=true` are source-readiness results only;
 R3 runtime and real acquisition remain separately unauthorized.
+
+## 2026-09-06 S10.2D-R3.3 effective PID-1 Community contract
+
+R3.3 corrects only the remaining source-side PID-1 launch contract. The exact
+effective path is systemd PID 1, the installed
+`tu1nz-adult-public-s8-telegram.service` fragment, its drop-ins, the fragment's
+`ExecStart` and the existing S8 runtime CLI. The failed pre-fix path was
+`/usr/bin/env`, bounded `PYTHONPATH`, the Application virtual-environment
+Python and module `tu1nz_public_s8.runtime`; the corrected target path is the
+Application virtual-environment console entrypoint
+`tu1nz-public-s8-telegram`. No wrapper or `EnvironmentFile` participates; the
+two existing systemd credential names remain unchanged.
+
+The target fragment already contained the reviewed `--community-contract` and
+`--community-copy` arguments. The inherited S10 WMS source drop-in, however,
+first cleared `ExecStart` and then supplied a source-only replacement without
+those arguments. systemd drop-in precedence therefore made that replacement
+the effective PID-1 command. The target controller installed and compared only
+the base fragment, so it did not detect the effective override.
+
+The minimal fix removes that source-only drop-in after the verified backup and
+target quiesce, before `daemon-reload` and before any target service start. A
+new pre-start guard requires the exact installed fragment, no remaining S8
+drop-ins, the expected user, group and working directory, no environment file,
+and both Community paths in systemd's effective `ExecStart`. Target
+verification repeats the same guard. Rollback restores the source drop-in from
+the existing `s10-units-before.tar`; source preflight and rollback verification
+require its pinned hash and prove that the effective source command contains no
+Community arguments.
+
+The deterministic regression models the real systemd precedence. Before the
+fix, the inherited target shape resolves without either Community argument and
+is RED as `TARGET_PID1_COMMUNITY_CONTRACT_MISSING`; after the fix, the target
+fragment is the sole effective launch source and contains both existing
+contract paths, while the source/fallback launch remains Community-disabled.
+No Community configuration is duplicated or activated.
+
+The active target binding advances from Application
+`3617a6c50abeaeb061a8f1b89352178acb6eac94` to its reviewed descendant
+`343a5efe56bebbb0ea82e833f25ef43a91d258dc`, tree
+`85b581a4d47c0098dec2dc78887a89ef40bc33e1`, post-merge CI 34020966620 and
+999 green tests. This descendant contains the complete previous S10.2D target,
+runtime taxonomy and migration 0029, plus the recovery-safe migration-down
+correction. Only the active Application/controller/manifest binding and active
+down-migration hash change; all R1/R2/R3/R3.1/R3.2 evidence remains immutable.
+
+R3.3 is source-only. It performs no server synchronization, systemd action,
+migration, Telegram or BotFather mutation, Community start, public acquisition
+or Adult capability activation. `S10_2D_R3_PID1_COMMUNITY_CONTRACT_READY=true`
+and `S10_2D_R3_CUTOVER_TECHNICALLY_READY=true` are readiness results for a
+future separately authorized Runtime R3 only.

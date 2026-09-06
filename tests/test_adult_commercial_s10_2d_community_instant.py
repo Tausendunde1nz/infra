@@ -16,7 +16,11 @@ S10_HEALTH = ROOT / "scripts/tu1nz_adult_public_s10_1_health.py"
 BACKUP = ROOT / "scripts/tu1nz_adult_public_s10_1_backup.sh"
 CONTROL = ROOT / "docs/COMMERCIAL_S10_2D_COMMUNITY_INSTANT_CONTROL.md"
 DEPLOYMENT_GAP = ROOT / "docs/COMMERCIAL_S10_2D_DEPLOYMENT_GAP.diagnose.md"
+PID1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R3_3_PID1_COMMUNITY_CONTRACT_2026-09-06.diagnose"
 S8_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service"
+S8_SOURCE_DROPIN = (
+    ROOT / "systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf"
+)
 S8_HEALTH_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-health.service"
 S10_UNIT = ROOT / "systemd/tu1nz-adult-public-s10-wms.service"
 S10_HEALTH_UNIT = ROOT / "systemd/tu1nz-adult-public-s10-health.service"
@@ -34,7 +38,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
         self.assertEqual(
             self.manifest["decision"],
-            "S10_2D_R3_STATE_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME",
+            "S10_2D_R3_PID1_COMMUNITY_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
@@ -86,21 +90,23 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
         self.assertEqual(app["source_tree"], "7defedef032f6af38bbce0165eb6c2bdec327df7")
-        self.assertEqual(app["target_commit"], "3617a6c50abeaeb061a8f1b89352178acb6eac94")
-        self.assertEqual(app["target_tree"], "343c6bee5a34e42be80ab50e8e1478420c739272")
-        self.assertEqual(app["post_merge_ci"], 33976297037)
+        self.assertEqual(app["target_commit"], "343a5efe56bebbb0ea82e833f25ef43a91d258dc")
+        self.assertEqual(app["target_tree"], "85b581a4d47c0098dec2dc78887a89ef40bc33e1")
+        self.assertEqual(app["post_merge_ci"], 34020966620)
         self.assertEqual(app["unit_tests_green"], 999)
         self.assertEqual(app["postgresql_acceptance"], [17, 18])
         self.assertEqual(app["migration"], "0029_commercial_s10_2d_community")
 
-    def test_r3_1_active_binding_is_exact_consistent_and_rejects_previous_target(self) -> None:
-        expected_commit = "3617a6c50abeaeb061a8f1b89352178acb6eac94"
-        expected_tree = "343c6bee5a34e42be80ab50e8e1478420c739272"
-        expected_ci = 33976297037
-        previous_commit = "963d80f626a197b564201f92d5164090cf49d102"
-        previous_tree = "03e25deaba0ec3c3250310f8a4c1bf1cadae87c5"
+    def test_r3_3_active_binding_is_current_and_r3_1_evidence_is_immutable(self) -> None:
+        expected_commit = "343a5efe56bebbb0ea82e833f25ef43a91d258dc"
+        expected_tree = "85b581a4d47c0098dec2dc78887a89ef40bc33e1"
+        expected_ci = 34020966620
+        previous_commit = "3617a6c50abeaeb061a8f1b89352178acb6eac94"
+        previous_tree = "343c6bee5a34e42be80ab50e8e1478420c739272"
+        historical_previous_commit = "963d80f626a197b564201f92d5164090cf49d102"
         app = self.manifest["application"]
         binding = self.manifest["canonical_binding_r3_1"]
+        r3_3 = self.manifest["pid1_community_contract_r3_3"]
 
         controller_values = dict(
             re.findall(r'^readonly (TARGET_SHA|TARGET_TREE|APPLICATION_POST_MERGE_CI)="([^"]+)"$', self.controller, re.MULTILINE)
@@ -118,11 +124,11 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertNotEqual(active_contract, (previous_commit, previous_tree))
         self.assertNotIn(f'readonly TARGET_SHA="{previous_commit}"', self.controller)
 
-        self.assertEqual(binding["application_commit"], expected_commit)
-        self.assertEqual(binding["application_tree"], expected_tree)
-        self.assertEqual(binding["application_post_merge_ci"], expected_ci)
+        self.assertEqual(binding["application_commit"], previous_commit)
+        self.assertEqual(binding["application_tree"], previous_tree)
+        self.assertEqual(binding["application_post_merge_ci"], 33976297037)
         self.assertEqual(binding["application_tests_green"], 999)
-        self.assertEqual(binding["previous_active_target_commit"], previous_commit)
+        self.assertEqual(binding["previous_active_target_commit"], historical_previous_commit)
         self.assertTrue(binding["historical_evidence_preserved"])
         self.assertTrue(binding["controller_manifest_consistency"])
         self.assertEqual(binding["new_target_binding_check"], "GREEN")
@@ -133,13 +139,28 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertFalse(binding["r3_runtime_started"])
         self.assertFalse(binding["real_acquisition_ready"])
 
+        self.assertEqual(r3_3["application_current_commit"], expected_commit)
+        self.assertEqual(r3_3["application_current_tree"], expected_tree)
+        self.assertEqual(r3_3["application_current_post_merge_ci"], expected_ci)
+        self.assertEqual(r3_3["previous_active_target_commit"], previous_commit)
+        self.assertEqual(r3_3["previous_active_target_tree"], previous_tree)
+        self.assertTrue(r3_3["current_contains_previous_target"])
+        self.assertTrue(r3_3["runtime_taxonomy_present"])
+        self.assertTrue(r3_3["migration_0029_present_in_source"])
+        self.assertTrue(r3_3["migration_0029_safe_down_present"])
+
         historical = DEPLOYMENT_GAP.read_text(encoding="utf-8")
-        self.assertIn(previous_commit, historical)
+        self.assertIn(historical_previous_commit, historical)
         self.assertIn(previous_commit, self.control)
 
     def test_all_new_control_material_is_hash_bound_and_syntax_valid(self) -> None:
         control = self.manifest["control"]
         self.assertEqual(hashlib.sha256(CONTROLLER.read_bytes()).hexdigest(), control["controller_sha256"])
+        self.assertEqual(hashlib.sha256(S8_UNIT.read_bytes()).hexdigest(), control["target_s8_unit_sha256"])
+        self.assertEqual(
+            hashlib.sha256(S8_SOURCE_DROPIN.read_bytes()).hexdigest(),
+            control["source_s8_dropin_sha256"],
+        )
         self.assertEqual(hashlib.sha256(ROTATE_UNIT.read_bytes()).hexdigest(), control["rotation_unit_sha256"])
         self.assertEqual(hashlib.sha256(S8_HEALTH.read_bytes()).hexdigest(), control["s8_health_sha256"])
         self.assertEqual(hashlib.sha256(S10_HEALTH.read_bytes()).hexdigest(), control["s10_health_sha256"])
@@ -354,6 +375,105 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn("tu1nz-public-s8-telegram", s8)
         self.assertIn("tu1nz_exposure_s10.runtime", s10)
 
+    def test_target_pid1_contract_neutralizes_the_source_execstart_override(self) -> None:
+        def effective_execstart(*sources: str) -> str:
+            current = ""
+            in_service = False
+            for source in sources:
+                for raw_line in source.splitlines():
+                    line = raw_line.strip()
+                    if line.startswith("[") and line.endswith("]"):
+                        in_service = line == "[Service]"
+                    elif in_service and line.startswith("ExecStart="):
+                        current = line.removeprefix("ExecStart=")
+            return current
+
+        target_unit = S8_UNIT.read_text(encoding="utf-8")
+        source_override = S8_SOURCE_DROPIN.read_text(encoding="utf-8")
+        inherited_target_launch = effective_execstart(target_unit, source_override)
+        final_target_launch = effective_execstart(target_unit)
+        source_launch = effective_execstart(source_override)
+
+        for directive in (
+            "User=chatops",
+            "Group=chatops",
+            "WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core",
+            "NoNewPrivileges=true",
+            "PrivateTmp=true",
+            "PrivateDevices=true",
+            "ProtectSystem=strict",
+            "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+        ):
+            self.assertIn(directive, target_unit)
+        self.assertNotIn("EnvironmentFile=", target_unit)
+
+        # This is the deterministic pre-fix RED shape observed at PID 1: the
+        # legacy source drop-in wins over the otherwise-correct target unit.
+        self.assertNotIn("--community-contract", inherited_target_launch)
+        self.assertNotIn("--community-copy", inherited_target_launch)
+
+        install = self.controller.split("install_target_control() {", 1)[1].split(
+            "configure_current_bot_profile() {", 1
+        )[0]
+        target_guard = self.controller.split("require_target_control() {", 1)[1].split(
+            "quiesce() {", 1
+        )[0]
+        effective_guard = self.controller.split("require_target_pid1_contract() {", 1)[1].split(
+            "require_product_boundary() {", 1
+        )[0]
+        source_guard = self.controller.split("require_source_control() {", 1)[1].split(
+            "require_product_boundary() {", 1
+        )[0]
+        restore = self.controller.split("restore_technical_state() {", 1)[1].split(
+            "database_floor() {", 1
+        )[0]
+
+        self.assertIn('rm -f -- "$S8_SOURCE_DROPIN"', install)
+        self.assertLess(install.index('rm -f -- "$S8_SOURCE_DROPIN"'), install.index("systemctl daemon-reload"))
+        self.assertLess(install.index("systemctl daemon-reload"), install.index("require_target_pid1_contract"))
+        self.assertIn("TARGET_S8_SOURCE_DROPIN_PRESENT", target_guard)
+        for property_name in (
+            "FragmentPath", "DropInPaths", "User", "Group", "WorkingDirectory",
+            "EnvironmentFiles", "ExecStart",
+        ):
+            self.assertIn(property_name, effective_guard)
+        self.assertIn("TARGET_PID1_COMMUNITY_CONTRACT_MISSING", effective_guard)
+        self.assertIn("TARGET_PID1_COMMUNITY_COPY_MISSING", effective_guard)
+        self.assertIn("SOURCE_S8_DROPIN", source_guard)
+        self.assertIn("s10-units-before.tar", restore)
+
+        for required in (
+            "--community-contract /etc/tu1nz/adult-commercial-s10-2d-community.json",
+            "--community-copy /etc/tu1nz/adult-commercial-s10-2d-community-copy.json",
+        ):
+            self.assertIn(required, final_target_launch)
+            self.assertNotIn(required, source_launch)
+
+        contract = self.manifest["pid1_community_contract_r3_3"]
+        self.assertEqual(contract["root_cause"], "SOURCE_S10_WMS_DROPIN_RESET_EXECSTART_OVERRIDES_TARGET_UNIT")
+        self.assertEqual(contract["pre_fix_safe_code"], "TARGET_PID1_COMMUNITY_CONTRACT_MISSING")
+        self.assertEqual(contract["effective_startup_path"]["fragment"], "/etc/systemd/system/tu1nz-adult-public-s8-telegram.service")
+        self.assertEqual(contract["effective_startup_path"]["source_override"], str(Path("/etc/systemd/system/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf")))
+        self.assertEqual(contract["target_community_contract"], "/etc/tu1nz/adult-commercial-s10-2d-community.json")
+        self.assertEqual(contract["target_community_copy"], "/etc/tu1nz/adult-commercial-s10-2d-community-copy.json")
+        self.assertTrue(contract["target_pid1_community_contract_present"])
+        self.assertTrue(contract["source_pid1_community_contract_disabled"])
+        self.assertTrue(contract["red_to_green_regression"])
+        self.assertEqual(contract["target_full_cli_acceptance"], "GREEN_SYNTHETIC_NO_NETWORK")
+        self.assertEqual(contract["systemd_like_acceptance"], "GREEN_SOURCE_AND_TARGET")
+        self.assertFalse(contract["application_change_required"])
+        self.assertTrue(contract["control_change_required"])
+        self.assertEqual(contract["focused_control_tests_green"], 24)
+        self.assertEqual(contract["full_control_tests_green"], 421)
+        self.assertEqual(contract["postgresql_acceptance"], [17, 18])
+        self.assertTrue(contract["secret_pii_scan_green"])
+        self.assertFalse(contract["server_mutation"])
+        self.assertFalse(contract["community_runtime_started"])
+        self.assertFalse(contract["real_acquisition"])
+        diagnosis = PID1_DIAGNOSIS.read_text(encoding="utf-8")
+        self.assertIn(contract["root_cause"], diagnosis)
+        self.assertIn(contract["pre_fix_safe_code"], diagnosis)
+
     def test_rotation_is_one_shot_hardened_and_uses_reviewed_queue_path(self) -> None:
         unit = ROTATE_UNIT.read_text(encoding="utf-8")
         self.assertIn("Type=oneshot", unit)
@@ -440,7 +560,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(contract["r3_target_state"], "B_R3_RUNTIME_GREEN")
         self.assertEqual(contract["s10_2e_target_state"], "C_S10_2E_ACQUISITION_GO")
         self.assertEqual(contract["rollback_target_state"], "A_PRE_CUTOVER")
-        self.assertEqual(self.manifest["control"]["expected_base_commit"], contract["control_start_commit"])
+        r3_3 = self.manifest["pid1_community_contract_r3_3"]
+        self.assertEqual(self.manifest["control"]["expected_base_commit"], r3_3["control_start_commit"])
+        self.assertEqual(self.manifest["control"]["expected_base_tree"], r3_3["control_start_tree"])
         self.assertRegex(contract["control_start_commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(contract["control_start_tree"], r"^[0-9a-f]{40}$")
         self.assertTrue(contract["source_backup_bundle"].endswith("-control-before.bundle"))
