@@ -686,7 +686,10 @@ jobs:
             docs/COMMERCIAL_S10_2D_COMMUNITY_INSTANT_CONTROL.md
             analysis/COMMERCIAL_S10_2D_R2_1_RUNTIME_FAILURE_TAXONOMY_2026-09-05.diagnose
             analysis/COMMERCIAL_S10_2D_R3_2_ACQUISITION_STATE_DECOUPLING_2026-09-06.diagnose
+            analysis/COMMERCIAL_S10_2D_R3_3_PID1_COMMUNITY_CONTRACT_2026-09-06.diagnose
             scripts/tu1nz_adult_public_s10_2d_control.sh
+            systemd/tu1nz-adult-public-s8-telegram.service
+            systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf
             systemd/tu1nz-adult-public-s10-2d-rotate.service
             tests/test_adult_commercial_s10_2d_community_instant.py
           )
