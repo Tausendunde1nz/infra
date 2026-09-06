@@ -35,10 +35,10 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.control = CONTROL.read_text(encoding="utf-8")
 
     def test_manifest_binds_reviewed_application_release_and_migration(self) -> None:
-        self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
+        self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v2")
         self.assertEqual(
             self.manifest["decision"],
-            "S10_2D_R3_PID1_COMMUNITY_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME",
+            "S10_2D_R3_5_SOURCE_STABILIZATION_GREEN_NO_GO_RUNTIME",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
@@ -90,17 +90,20 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
         self.assertEqual(app["source_tree"], "7defedef032f6af38bbce0165eb6c2bdec327df7")
-        self.assertEqual(app["target_commit"], "343a5efe56bebbb0ea82e833f25ef43a91d258dc")
-        self.assertEqual(app["target_tree"], "85b581a4d47c0098dec2dc78887a89ef40bc33e1")
-        self.assertEqual(app["post_merge_ci"], 34020966620)
-        self.assertEqual(app["unit_tests_green"], 999)
+        self.assertEqual(app["target_commit"], "d4ec676b3422d1dce111fe9ec1b855910580fcf0")
+        self.assertEqual(app["target_tree"], "2dfa39732aca27e6ff12afd85c199576d427faa0")
+        self.assertEqual(app["post_merge_ci"], 34030838080)
+        self.assertEqual(app["unit_tests_green"], 1005)
         self.assertEqual(app["postgresql_acceptance"], [17, 18])
         self.assertEqual(app["migration"], "0029_commercial_s10_2d_community")
 
-    def test_r3_3_active_binding_is_current_and_r3_1_evidence_is_immutable(self) -> None:
-        expected_commit = "343a5efe56bebbb0ea82e833f25ef43a91d258dc"
-        expected_tree = "85b581a4d47c0098dec2dc78887a89ef40bc33e1"
-        expected_ci = 34020966620
+    def test_r3_5_active_binding_is_current_and_prior_evidence_is_immutable(self) -> None:
+        expected_commit = "d4ec676b3422d1dce111fe9ec1b855910580fcf0"
+        expected_tree = "2dfa39732aca27e6ff12afd85c199576d427faa0"
+        expected_ci = 34030838080
+        historical_r3_3_commit = "343a5efe56bebbb0ea82e833f25ef43a91d258dc"
+        historical_r3_3_tree = "85b581a4d47c0098dec2dc78887a89ef40bc33e1"
+        historical_r3_3_ci = 34020966620
         previous_commit = "3617a6c50abeaeb061a8f1b89352178acb6eac94"
         previous_tree = "343c6bee5a34e42be80ab50e8e1478420c739272"
         historical_previous_commit = "963d80f626a197b564201f92d5164090cf49d102"
@@ -117,7 +120,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(app["target_commit"], controller_values["TARGET_SHA"])
         self.assertEqual(app["target_tree"], controller_values["TARGET_TREE"])
         self.assertEqual(app["post_merge_ci"], int(controller_values["APPLICATION_POST_MERGE_CI"]))
-        self.assertEqual(app["unit_tests_green"], 999)
+        self.assertEqual(app["unit_tests_green"], 1005)
 
         active_contract = (app["target_commit"], app["target_tree"])
         self.assertEqual(active_contract, (expected_commit, expected_tree))
@@ -139,9 +142,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertFalse(binding["r3_runtime_started"])
         self.assertFalse(binding["real_acquisition_ready"])
 
-        self.assertEqual(r3_3["application_current_commit"], expected_commit)
-        self.assertEqual(r3_3["application_current_tree"], expected_tree)
-        self.assertEqual(r3_3["application_current_post_merge_ci"], expected_ci)
+        self.assertEqual(r3_3["application_current_commit"], historical_r3_3_commit)
+        self.assertEqual(r3_3["application_current_tree"], historical_r3_3_tree)
+        self.assertEqual(r3_3["application_current_post_merge_ci"], historical_r3_3_ci)
         self.assertEqual(r3_3["previous_active_target_commit"], previous_commit)
         self.assertEqual(r3_3["previous_active_target_tree"], previous_tree)
         self.assertTrue(r3_3["current_contains_previous_target"])
@@ -497,11 +500,11 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn("tu1nz_adult_public_s10_1_health.py", source)
         self.assertIn("s10-runtime-executables-before.tar", source)
 
-    def test_acquisition_state_matrix_accepts_only_a_b_and_c(self) -> None:
+    def test_acquisition_state_matrix_accepts_safe_inactive_history_and_active_go(self) -> None:
         def valid(ready: bool, active: bool, baseline: str | None) -> bool:
             return (
-                (not ready and not active and baseline is None)
-                or (ready and not active and baseline is None)
+                (not ready and not active)
+                or (ready and not active)
                 or (ready and active and baseline is not None)
             )
 
@@ -510,14 +513,15 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertTrue(valid(True, True, "activation-timestamp"))
         self.assertFalse(valid(False, True, "activation-timestamp"))
         self.assertFalse(valid(True, True, None))
-        self.assertFalse(valid(True, False, "activation-timestamp"))
+        self.assertTrue(valid(True, False, "historical-timestamp"))
+        self.assertTrue(valid(False, False, "historical-timestamp"))
 
         guard = self.controller.split("require_acquisition_state_contract() {", 1)[1].split(
             "run_bound_migration() {", 1
         )[0]
         for condition in (
-            "pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL",
-            "pre_acquisition_readiness='GREEN' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL",
+            "pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready",
+            "pre_acquisition_readiness='GREEN' AND NOT wms_real_acquisition_ready",
             "pre_acquisition_readiness='GREEN' AND wms_real_acquisition_ready AND real_acquisition_baseline_start IS NOT NULL",
         ):
             self.assertIn(condition, guard)
@@ -525,7 +529,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
 
     def test_r3_readiness_transition_does_not_activate_or_start_baseline(self) -> None:
         mark_ready = self.controller.split("mark_ready() {", 1)[1].split('case "${1:-}"', 1)[0]
-        update = mark_ready.split('database_scalar "UPDATE ', 1)[1].split(' RETURNING 1;', 1)[0]
+        update = mark_ready.split('WITH updated AS (UPDATE ', 1)[1].split(' RETURNING 1)', 1)[0]
         self.assertIn("SET pre_acquisition_readiness='GREEN',updated_at=CURRENT_TIMESTAMP", update)
         self.assertNotIn("wms_real_acquisition_ready=true", update)
         self.assertNotIn("real_acquisition_baseline_start=CURRENT_TIMESTAMP", update)
@@ -561,8 +565,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(contract["s10_2e_target_state"], "C_S10_2E_ACQUISITION_GO")
         self.assertEqual(contract["rollback_target_state"], "A_PRE_CUTOVER")
         r3_3 = self.manifest["pid1_community_contract_r3_3"]
-        self.assertEqual(self.manifest["control"]["expected_base_commit"], r3_3["control_start_commit"])
-        self.assertEqual(self.manifest["control"]["expected_base_tree"], r3_3["control_start_tree"])
+        r3_5 = self.manifest["source_stabilization_r3_5"]
+        self.assertEqual(self.manifest["control"]["expected_base_commit"], r3_5["control_start_commit"])
+        self.assertEqual(self.manifest["control"]["expected_base_tree"], r3_5["control_start_tree"])
         self.assertRegex(contract["control_start_commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(contract["control_start_tree"], r"^[0-9a-f]{40}$")
         self.assertTrue(contract["source_backup_bundle"].endswith("-control-before.bundle"))

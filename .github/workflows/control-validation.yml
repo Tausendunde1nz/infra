@@ -675,9 +675,12 @@ jobs:
           manifests/adult-publishing-commercial-s10-2d-community-instant.json >/dev/null
           && bash -n scripts/tu1nz_adult_public_s10_2d_control.sh
           && python3 -m py_compile
+          scripts/tu1nz_adult_public_s10_2d_release_simulator.py
           tests/test_adult_commercial_s10_2d_community_instant.py
+          tests/test_adult_commercial_s10_2d_r3_5_stabilization.py
           && python3 -m unittest -v
           tests.test_adult_commercial_s10_2d_community_instant
+          tests.test_adult_commercial_s10_2d_r3_5_stabilization
       - name: Reject Commercial S10.2D secrets cron and diagnostic leakage
         shell: bash
         run: |
@@ -688,10 +691,12 @@ jobs:
             analysis/COMMERCIAL_S10_2D_R3_2_ACQUISITION_STATE_DECOUPLING_2026-09-06.diagnose
             analysis/COMMERCIAL_S10_2D_R3_3_PID1_COMMUNITY_CONTRACT_2026-09-06.diagnose
             scripts/tu1nz_adult_public_s10_2d_control.sh
+            scripts/tu1nz_adult_public_s10_2d_release_simulator.py
             systemd/tu1nz-adult-public-s8-telegram.service
             systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf
             systemd/tu1nz-adult-public-s10-2d-rotate.service
             tests/test_adult_commercial_s10_2d_community_instant.py
+            tests/test_adult_commercial_s10_2d_r3_5_stabilization.py
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP) PRIVATE KEY-----' -- "${files[@]}"
