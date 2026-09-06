@@ -56,6 +56,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-dsn", type=Path, required=True)
     parser.add_argument("--community-contract", type=Path)
     parser.add_argument("--community-copy", type=Path)
+    parser.add_argument("--runtime-release-id")
     parser.add_argument("--mode", choices=("prestart", "runtime"), required=True)
     return parser
 
@@ -217,6 +218,8 @@ def main() -> int:
             "--community-contract", str(arguments.community_contract),
             "--community-copy", str(arguments.community_copy),
         ])
+    if arguments.runtime_release_id is not None:
+        command.extend(["--runtime-release-id", arguments.runtime_release_id])
     try:
         completed = subprocess.run(
             command,

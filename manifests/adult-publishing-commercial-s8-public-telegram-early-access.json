@@ -77,8 +77,8 @@
     "backup_script_sha256": "502e7c4904053dd9836d710b9cdd07f600896bc3ed5ad58b8e640c95d8af6d06",
     "controller_sha256": "dfdb45ac25f1a47571fd99f9d9ce47e6caa1c20dfb4c865f61469be2b81e2a21",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
-    "health_script_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
-    "health_service_sha256": "78b2f6feee8492365bbd112353f41cf147ad57491280dc0fd20f959ccde76713",
+    "health_script_sha256": "34b13e3a311364458b66fc9f6d69540dfb8cbe50ce3da0ba984e111ac68ca578",
+    "health_service_sha256": "5f7187f776ade647bd9ba0aba9b4318470caf6627ba4df08ea5c3357eb252735",
     "health_timer_sha256": "42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005",
     "landing_contract_sha256": "ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e",
     "landing_service_sha256": "f2663c4f1e57e91aa938d67bc5533fa5324dd355282bdf6e52fe40102b7b994d",
@@ -91,7 +91,7 @@
     "public_proxy_sha256": "65c0bc9d12981a4532d5453c668f8b2f9a4ad32cf5a7a18b8ef4ed3b56a0f062",
     "s7_contract_sha256": "a2c654487bc9c7567d3794da4d3a948c5e888fe4e3c92e36dece5ed77bb45802",
     "s8_contract_sha256": "733a6e1bfae4514fc3f09b6ddc9c0e94406d8160eed8629519155f810a0f8498",
-    "service_unit_sha256": "a567c1eae7647de8aad0fdd88fae5b2ce57c397ead8703c657b3776c41bcd801"
+    "service_unit_sha256": "2532fbdf50959a34024893372c2fc67996f0666e25a4d92c18122a44a48dda95"
   },
   "health": {
     "ANALYTICS": "GREEN_PUBLIC_SFW",
