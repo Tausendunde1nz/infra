@@ -18,6 +18,7 @@ CONTROL = ROOT / "docs/COMMERCIAL_S10_2D_COMMUNITY_INSTANT_CONTROL.md"
 DEPLOYMENT_GAP = ROOT / "docs/COMMERCIAL_S10_2D_DEPLOYMENT_GAP.diagnose.md"
 PID1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R3_3_PID1_COMMUNITY_CONTRACT_2026-09-06.diagnose"
 R4_1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R4_1_HEALTH_GATE_START_2026-09-06.diagnose"
+R6_1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R6_1_S8_STARTUP_HEALTH_2026-09-06.diagnose"
 HEALTH_GATE = ROOT / "scripts/tu1nz_adult_public_s10_2d_health_gate.py"
 RELEASE_SIMULATOR = ROOT / "scripts/tu1nz_adult_public_s10_2d_release_simulator.py"
 S8_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service"
@@ -38,10 +39,10 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.control = CONTROL.read_text(encoding="utf-8")
 
     def test_manifest_binds_reviewed_application_release_and_migration(self) -> None:
-        self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v3")
+        self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v4")
         self.assertEqual(
             self.manifest["decision"],
-            "S10_2D_R4_1_HEALTH_GATE_SOURCE_GREEN_NO_GO_RUNTIME",
+            "S10_2D_R6_1_SOURCE_GREEN_NO_GO_RUNTIME",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
@@ -93,17 +94,17 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         app = self.manifest["application"]
         self.assertEqual(app["source_commit"], "f9747088a31ec6c671e82de24e293ebdec99f717")
         self.assertEqual(app["source_tree"], "7defedef032f6af38bbce0165eb6c2bdec327df7")
-        self.assertEqual(app["target_commit"], "d4ec676b3422d1dce111fe9ec1b855910580fcf0")
-        self.assertEqual(app["target_tree"], "2dfa39732aca27e6ff12afd85c199576d427faa0")
-        self.assertEqual(app["post_merge_ci"], 34030838080)
-        self.assertEqual(app["unit_tests_green"], 1005)
+        self.assertEqual(app["target_commit"], "312db84d5db6d76c9d6bb448459c9404b1dfcbe4")
+        self.assertEqual(app["target_tree"], "ac4f8bca1fd796626742a8ef6c6afcdda482fc68")
+        self.assertEqual(app["post_merge_ci"], 34057828638)
+        self.assertEqual(app["unit_tests_green"], 1006)
         self.assertEqual(app["postgresql_acceptance"], [17, 18])
         self.assertEqual(app["migration"], "0029_commercial_s10_2d_community")
 
-    def test_r3_5_active_binding_is_current_and_prior_evidence_is_immutable(self) -> None:
-        expected_commit = "d4ec676b3422d1dce111fe9ec1b855910580fcf0"
-        expected_tree = "2dfa39732aca27e6ff12afd85c199576d427faa0"
-        expected_ci = 34030838080
+    def test_r6_1_active_binding_is_current_and_prior_evidence_is_immutable(self) -> None:
+        expected_commit = "312db84d5db6d76c9d6bb448459c9404b1dfcbe4"
+        expected_tree = "ac4f8bca1fd796626742a8ef6c6afcdda482fc68"
+        expected_ci = 34057828638
         historical_r3_3_commit = "343a5efe56bebbb0ea82e833f25ef43a91d258dc"
         historical_r3_3_tree = "85b581a4d47c0098dec2dc78887a89ef40bc33e1"
         historical_r3_3_ci = 34020966620
@@ -123,7 +124,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(app["target_commit"], controller_values["TARGET_SHA"])
         self.assertEqual(app["target_tree"], controller_values["TARGET_TREE"])
         self.assertEqual(app["post_merge_ci"], int(controller_values["APPLICATION_POST_MERGE_CI"]))
-        self.assertEqual(app["unit_tests_green"], 1005)
+        self.assertEqual(app["unit_tests_green"], 1006)
 
         active_contract = (app["target_commit"], app["target_tree"])
         self.assertEqual(active_contract, (expected_commit, expected_tree))
@@ -158,6 +159,10 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         historical = DEPLOYMENT_GAP.read_text(encoding="utf-8")
         self.assertIn(historical_previous_commit, historical)
         self.assertIn(previous_commit, self.control)
+        r3_5 = self.manifest["source_stabilization_r3_5"]
+        self.assertEqual(r3_5["application_commit"], "d4ec676b3422d1dce111fe9ec1b855910580fcf0")
+        self.assertEqual(r3_5["application_tree"], "2dfa39732aca27e6ff12afd85c199576d427faa0")
+        self.assertEqual(r3_5["application_post_merge_ci"], 34030838080)
 
     def test_all_new_control_material_is_hash_bound_and_syntax_valid(self) -> None:
         control = self.manifest["control"]
@@ -182,6 +187,10 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(
             hashlib.sha256(S10_HEALTH_UNIT.read_bytes()).hexdigest(),
             control["s10_health_unit_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(S10_UNIT.read_bytes()).hexdigest(),
+            control["s10_wms_unit_sha256"],
         )
         subprocess.run(["bash", "-n", str(CONTROLLER)], check=True)
         subprocess.run(
@@ -401,6 +410,86 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn("--runtime-release-id s10-2d-r3-5", dropin)
         self.assertIn("tu1nz-public-s8-telegram", s8)
         self.assertIn("tu1nz_exposure_s10.runtime", s10)
+        self.assertIn("--runtime-release-id s10-2d-r3-5", s10)
+
+    def test_r6_1_manifest_and_diagnosis_bind_the_corrected_root_cause(self) -> None:
+        contract = self.manifest["startup_readiness_recovery_r6_1"]
+        self.assertEqual(contract["status"], "GREEN_SOURCE_CONTRACT")
+        self.assertTrue(contract["source_only"])
+        self.assertEqual(
+            contract["root_cause"],
+            "CONTROLLER_CHECKED_S8_POLLER_HEALTH_BEFORE_RELEASE_BOUND_POLLER_READINESS",
+        )
+        self.assertFalse(contract["port_18110_conflict"])
+        self.assertEqual(contract["port_18110_owner"], "S10_WMS_RUNTIME")
+        self.assertEqual(contract["s8_runtime_transport"], "TELEGRAM_LONG_POLL_AND_DATABASE")
+        self.assertFalse(contract["s8_http_listener_expected"])
+        self.assertEqual(contract["application_tests_green"], 1006)
+        self.assertEqual(contract["postgresql_acceptance"], [17, 18])
+        self.assertEqual(contract["release_simulator_listener_cases_green"], 9)
+        self.assertTrue(contract["release_simulator_uses_real_application_runtime"])
+        self.assertTrue(contract["release_simulator_proves_port_release"])
+        self.assertFalse(contract["server_mutation"])
+        self.assertFalse(contract["runtime_cutover"])
+        self.assertFalse(contract["community_activation"])
+        self.assertFalse(contract["real_acquisition"])
+        self.assertTrue(contract["s10_2d_next_runtime_cutover_ready"])
+        diagnosis = R6_1_DIAGNOSIS.read_text(encoding="utf-8")
+        self.assertIn(contract["root_cause"], diagnosis)
+        self.assertIn("The S10 WMS runtime owns 127.0.0.1:18110", diagnosis)
+        self.assertIn("no port conflict", diagnosis)
+
+    def test_r6_1_startup_is_state_ordered_and_bounded(self) -> None:
+        listener = self.controller.split("require_target_wms_listener() {", 1)[1].split(
+            "target_s8_poller_ready() {", 1
+        )[0]
+        poller = self.controller.split("require_target_s8_poller() {", 1)[1].split(
+            "start_target() {", 1
+        )[0]
+        start = self.controller.split("start_target() {", 1)[1].split(
+            "rotation_failure_code() {", 1
+        )[0]
+        self.assertIn("for attempt in {1..30}", listener)
+        self.assertIn("S10_WMS_HEALTH_CONTRACT_RED", listener)
+        self.assertIn("for attempt in {1..45}", poller)
+        self.assertIn("S8_RUNTIME_PROCESS_NOT_RUNNING", poller)
+        self.assertIn("S8_POLLER_READINESS_DATABASE_RED", poller)
+        self.assertIn("S8_POLLER_NOT_READY", poller)
+        self.assertLess(start.index("require_target_wms_listener"), start.index("require_target_s8_poller"))
+        self.assertLess(start.index("require_target_s8_poller"), start.index('systemctl start "${TIMERS[@]}"'))
+        self.assertLess(start.index('systemctl start "${TIMERS[@]}"'), start.index("run_health_gates"))
+
+    def test_r6_1_health_taxonomy_and_real_listener_simulator_are_fail_closed(self) -> None:
+        health_gate = HEALTH_GATE.read_text(encoding="utf-8")
+        s8_health = S8_HEALTH.read_text(encoding="utf-8")
+        simulator = RELEASE_SIMULATOR.read_text(encoding="utf-8")
+        for status, reason in (
+            (47, "PROCESS_NOT_RUNNING"),
+            (48, "POLLER_NOT_READY"),
+            (49, "RELEASE_ID_RED"),
+        ):
+            self.assertRegex(health_gate, rf'{status}: \([^\n]+"{reason}"\)')
+        for status in (47, 48, 49):
+            self.assertIn(f"return {status}", s8_health)
+        for value in (
+            "subprocess.Popen",
+            "socket.socket",
+            "urllib.request.urlopen",
+            "S10_WMS_HEALTH_PORT_NOT_RELEASED",
+            '"normal_target_startup"',
+            '"port_already_occupied"',
+            '"health_task_crashes"',
+            '"wrong_port_config"',
+            '"wrong_release_identity"',
+            '"poller_starts_health_does_not"',
+            '"health_starts_poller_dies"',
+            '"source_process_not_relinquished"',
+            '"rollback_source_listener_restored"',
+            "S10_2D_R6_1_RELEASE_SIMULATOR_GREEN",
+            "HEALTH_GATE_S8_RUNTIME_POLLER_NOT_READY",
+        ):
+            self.assertIn(value, simulator)
+        self.assertNotIn('state.health_green = scenario == "bounded_startup_transition"', simulator)
 
     def test_target_pid1_contract_neutralizes_the_source_execstart_override(self) -> None:
         def effective_execstart(*sources: str) -> str:
@@ -590,9 +679,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(contract["rollback_target_state"], "A_PRE_CUTOVER")
         r3_3 = self.manifest["pid1_community_contract_r3_3"]
         r3_5 = self.manifest["source_stabilization_r3_5"]
-        r4_1 = self.manifest["health_gate_stabilization_r4_1"]
-        self.assertEqual(self.manifest["control"]["expected_base_commit"], r4_1["control_start_commit"])
-        self.assertEqual(self.manifest["control"]["expected_base_tree"], r4_1["control_start_tree"])
+        r6_1 = self.manifest["startup_readiness_recovery_r6_1"]
+        self.assertEqual(self.manifest["control"]["expected_base_commit"], r6_1["control_start_commit"])
+        self.assertEqual(self.manifest["control"]["expected_base_tree"], r6_1["control_start_tree"])
         self.assertRegex(contract["control_start_commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(contract["control_start_tree"], r"^[0-9a-f]{40}$")
         self.assertTrue(contract["source_backup_bundle"].endswith("-control-before.bundle"))

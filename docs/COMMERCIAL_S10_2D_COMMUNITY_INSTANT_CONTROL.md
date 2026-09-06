@@ -499,3 +499,55 @@ migration, Telegram or BotFather mutation, Community start, public acquisition
 or Adult capability activation. `S10_2D_R3_PID1_COMMUNITY_CONTRACT_READY=true`
 and `S10_2D_R3_CUTOVER_TECHNICALLY_READY=true` are readiness results for a
 future separately authorized Runtime R3 only.
+
+## 2026-09-06 S10.2D-R6.1 S8 startup and port-18110 contract
+
+R6.1 corrects the premise behind the recovered R6 startup failure. The S8
+Telegram service does not expose an HTTP health port: its reviewed entrypoint
+claims a bot-and-release-bound durable poller lease and performs Telegram long
+polling. The S10 WMS runtime is the sole intended owner of
+`127.0.0.1:18110` and `/health`. The retained R6 evidence contains no port
+conflict.
+
+The target S8 process started at 19:13:09.436012Z, S10 WMS at
+19:13:09.455817Z, and the S8 health check at 19:13:10.680986Z. That check
+failed at 19:13:12.052625Z before the target poller established a release-bound
+cursor or successful poll; rollback stopped it at 19:13:12.999000Z. The exact
+root cause is `CONTROLLER_CHECKED_S8_POLLER_HEALTH_BEFORE_RELEASE_BOUND_POLLER_READINESS`.
+
+The corrected target sequence starts S8 Landing, S8 Telegram and S10 WMS,
+waits for the exact release-bound WMS health contract for at most 30 seconds,
+then waits for the exact bot-and-release-bound S8 poller state for at most 45
+seconds, and only then starts timers and executes the complete version-bound
+health gates. The waits inspect state; there is no blind startup sleep. Process
+absence, poller-not-ready and release mismatch remain separate fail-closed
+health results.
+
+The WMS health response now proves its runtime release, target bot,
+`TARGET_COMMUNITY` contract and inactive acquisition boundary. The corresponding
+systemd unit supplies the existing target release ID. No S8 listener is added,
+and no new service, migration, table, credential, retry architecture or network
+destination is introduced.
+
+The release simulator now runs the real reviewed WMS Application entrypoint on
+an isolated loopback port, waits for that child process's own readiness event,
+checks its version-bound health contract, terminates it and proves port release.
+Nine lifecycle and failure cases are covered, including an occupied port,
+process crash, wrong port, wrong release, asymmetric health/poller states,
+source-listener overlap and rollback restoration. The previously synthetic
+bounded-startup GREEN is now the expected
+`HEALTH_GATE_S8_RUNTIME_POLLER_NOT_READY` result.
+
+Application PR 112 was reviewed at
+`49a36eb83f8eb33713ef52d9a7aa671ffa452ecb` and integrated by merge commit
+`312db84d5db6d76c9d6bb448459c9404b1dfcbe4`, tree
+`ac4f8bca1fd796626742a8ef6c6afcdda482fc68`. Its 1,006 tests, PostgreSQL
+17/18 acceptance and post-merge CI 34057828638 are green.
+
+This phase is source-only. It performs no server synchronization, systemd
+operation, migration, Telegram action, Community start or real acquisition.
+All Adult and financial boundaries remain closed. The recovered public SFW
+runtime remains the active server state. `S10_2D_NEXT_RUNTIME_CUTOVER_READY=true`
+means that the source contract is ready for a future separately authorized
+cutover; live PID-1 startup and the first release-bound poll remain intentionally
+unclaimed until that cutover.

@@ -161,12 +161,17 @@ class CommercialS102DR41HealthGateTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         report = json.loads(completed.stdout)
-        self.assertEqual(report["safe_code"], "S10_2D_R4_1_RELEASE_SIMULATOR_GREEN")
+        self.assertEqual(report["safe_code"], "S10_2D_R6_1_RELEASE_SIMULATOR_GREEN")
         self.assertTrue(report["production_health_gate_shared"])
+        self.assertTrue(report["production_wms_listener_shared"])
+        self.assertEqual(report["health_listener_owner"], "S10_WMS_RUNTIME")
+        self.assertEqual(report["health_listener_production_port"], 18110)
         self.assertEqual(len(report["scenarios"]), 8)
         self.assertEqual(len(report["health_cases"]), 9)
+        self.assertEqual(len(report["listener_cases"]), 9)
         self.assertTrue(all(item["ok"] for item in report["scenarios"]))
         self.assertTrue(all(item["ok"] for item in report["health_cases"]))
+        self.assertTrue(all(item["ok"] for item in report["listener_cases"]))
         reproduction = next(
             item for item in report["health_cases"]
             if item["name"] == "r4_missing_health_release_binding"

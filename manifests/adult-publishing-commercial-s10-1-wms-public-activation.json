@@ -128,7 +128,7 @@
     "legacy_prearm_script_sha256": "4a2d4f359f7324c99131202727c884c2b8713670c1cbdd5c18809a4807324753",
     "legacy_publication_evidence_script_sha256": "603ba3df2207fa4072826aae1ab5c709758e1d197afb38032ae23d6eb550948d",
     "target_s9_health_script_sha256": "36fce6f0b4e455b87bb44e00907e8da02ab0241300cc7cc84373b83f83871ce0",
-    "wms_service_sha256": "89c4913ab17b0e167c82f7f46ea2f013f43864dea539c11ebe1ae351e9dab2db",
+    "wms_service_sha256": "febad1e1a55e1820eceda6edc132222af8599110a5392e7d2c4fa65985f05ca1",
     "local_health_service_sha256": "0f8cb4e70765d71d0490bee881f1cc184555167324458c6cf4c6339cfb14d9c5",
     "pre_growth_health_service_sha256": "60c169c4470df8205cba9df59de06f8d06829063c9cd0d49dd1a690fd612c243",
     "legacy_prearm_service_sha256": "9ca64c25c67e90e1e05f2beaf507d63588c02883ab713003d121e737ad207f95",

@@ -13,9 +13,9 @@ readonly HEALTH_GATE_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_hea
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
-readonly TARGET_SHA="d4ec676b3422d1dce111fe9ec1b855910580fcf0"
-readonly TARGET_TREE="2dfa39732aca27e6ff12afd85c199576d427faa0"
-readonly APPLICATION_POST_MERGE_CI="34030838080"
+readonly TARGET_SHA="312db84d5db6d76c9d6bb448459c9404b1dfcbe4"
+readonly TARGET_TREE="ac4f8bca1fd796626742a8ef6c6afcdda482fc68"
+readonly APPLICATION_POST_MERGE_CI="34057828638"
 readonly COMMUNITY="@WantMeSeenCommunity"
 readonly CHANNEL="@WantMeSeen"
 readonly BOT_ID="8861935205"
@@ -701,15 +701,60 @@ run_health_gates() {
     || fail "HEALTH_GATE_EVIDENCE_INVALID"
 }
 
+target_wms_health_ready() {
+  local report
+  report="$(curl --fail --silent --show-error --max-time 2 http://127.0.0.1:18110/health)" || return 1
+  /usr/bin/python3 -c '
+import json,sys
+value=json.load(sys.stdin)
+valid=(
+    value.get("ok") is True
+    and value.get("runtime_release_id")==sys.argv[1]
+    and value.get("runtime_contract")=="TARGET_COMMUNITY"
+    and value.get("bot_id")==int(sys.argv[2])
+    and value.get("community") is True
+    and value.get("acquisition_active") is False
+)
+raise SystemExit(0 if valid else 2)
+' "$TARGET_RELEASE_ID" "$BOT_ID" <<<"$report"
+}
+
+require_target_wms_listener() {
+  local attempt
+  for attempt in {1..30}; do
+    systemctl is-active --quiet "$S10_SERVICE" || fail "S10_WMS_HEALTH_LISTENER_NOT_STARTED"
+    if target_wms_health_ready; then
+      return 0
+    fi
+    [ "$attempt" -lt 30 ] || fail "S10_WMS_HEALTH_CONTRACT_RED"
+    sleep 1
+  done
+}
+
+target_s8_poller_ready() {
+  database_scalar "SELECT count(*) FROM commercial_s10_2d_bot_polling_state WHERE bot_id=$BOT_ID AND release_id='$TARGET_RELEASE_ID' AND lease_owner_id IS NOT NULL AND lease_expires_at>CURRENT_TIMESTAMP AND last_successful_poll_at IS NOT NULL AND last_successful_poll_at>=CURRENT_TIMESTAMP-INTERVAL '90 seconds' AND last_event_path_code='BOT_EVENT_PATH_GREEN';"
+}
+
+require_target_s8_poller() {
+  local attempt state
+  for attempt in {1..45}; do
+    systemctl is-active --quiet "$S8_SERVICE" || fail "S8_RUNTIME_PROCESS_NOT_RUNNING"
+    state="$(target_s8_poller_ready)" || fail "S8_POLLER_READINESS_DATABASE_RED"
+    case "$state" in
+      1) return 0 ;;
+      0) ;;
+      *) fail "S8_POLLER_READINESS_STATE_INVALID" ;;
+    esac
+    [ "$attempt" -lt 45 ] || fail "S8_POLLER_NOT_READY"
+    sleep 1
+  done
+}
+
 start_target() {
   systemctl reset-failed "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" >/dev/null || true
   systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" || fail "PUBLIC_SERVICE_START_RED"
-  local attempt
-  for attempt in {1..30}; do
-    curl --fail --silent --show-error --output /dev/null --max-time 2 http://127.0.0.1:18110/health && break
-    [ "$attempt" -lt 30 ] || fail "S10_WMS_READINESS_RED"
-    sleep 1
-  done
+  require_target_wms_listener
+  require_target_s8_poller
   systemctl start "${TIMERS[@]}" || fail "TIMER_RESUME_RED"
   run_health_gates
 }

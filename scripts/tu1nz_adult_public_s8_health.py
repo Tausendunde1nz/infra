@@ -135,6 +135,31 @@ def _recompute(payload: dict[str, object]) -> None:
     payload["safe_code"] = "S8_DIAGNOSTIC_{0}".format(state)
 
 
+def _runtime_exit_status(payload: dict[str, object]) -> int:
+    """Preserve the first actionable runtime boundary for the parent gate."""
+
+    if payload.get("state") in {"GREEN", "YELLOW"}:
+        return 0
+    components = payload.get("components")
+    if isinstance(components, dict):
+        process = components.get("BOT_PROCESS")
+        if isinstance(process, dict) and process.get("status") == "RED":
+            return 47
+    community = payload.get("community")
+    if isinstance(community, dict):
+        event_path = community.get("bot_event_path")
+        if isinstance(event_path, dict):
+            if event_path.get("safe_code") == "BOT_RUNTIME_CONTRACT_MISMATCH":
+                return 49
+            if event_path.get("ok") is not True:
+                return 48
+    if isinstance(components, dict):
+        polling = components.get("POLLING")
+        if isinstance(polling, dict) and polling.get("status") == "RED":
+            return 48
+    return 2
+
+
 def _read(url: str) -> bytes:
     request = Request(url, headers={"User-Agent": "TU1NZ-S8-Health/1"}, method="GET")
     try:
@@ -241,8 +266,9 @@ def main() -> int:
     payload["components"]["LANDING_INTEGRATION"] = _landing_component(arguments.contract)
     _recompute(payload)
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
-    accepted = payload["state"] in ({"GREEN", "YELLOW"} if arguments.mode == "runtime" else {"GREEN"})
-    return 0 if accepted else 2
+    if arguments.mode == "runtime":
+        return _runtime_exit_status(payload)
+    return 0 if payload["state"] == "GREEN" else 2
 
 
 if __name__ == "__main__":
