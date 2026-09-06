@@ -34,7 +34,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(self.manifest["version"], "tu1nz-commercial-s10-2d-community-instant-v1")
         self.assertEqual(
             self.manifest["decision"],
-            "S10_2D_R3_CANONICAL_BINDING_READY_SOURCE_ONLY_NO_GO_RUNTIME",
+            "S10_2D_R3_STATE_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME",
         )
         recovery = self.manifest["recovery_completion"]
         self.assertEqual(recovery["status"], "GREEN")
@@ -233,7 +233,11 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
             "PRODUCT_SURFACE_CHANGED_BEFORE_ACTIVE_ACQUISITION",
             "OBSERVATION_WINDOW_INCOMPLETE",
             "LATENCY_SAMPLE_FLOOR_MISSING",
-            "WMS_REAL_ACQUISITION_READY",
+            "WMS_REAL_ACQUISITION_TECHNICALLY_READY",
+            "REAL_ACQUISITION_ACTIVE",
+            "REAL_ACQUISITION_BASELINE_START",
+            "ACQUISITION_STATE_CONTRACT_RED",
+            "WAITING_OPERATOR_ACQUISITION_GO",
         ):
             self.assertIn(str(value), self.controller)
         deploy = self.controller.split("deploy() {", 1)[1].split("observation_snapshot() {", 1)[0]
@@ -328,6 +332,11 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         ])
         self.assertFalse(loop["autonomous_task_generation"])
         self.assertFalse(loop["fake_users_or_content"])
+        self.assertEqual(loop["technical_ready_inactive_state"], "WAITING_OPERATOR_ACQUISITION_GO")
+        self.assertFalse(loop["automatic_link_seeding_before_acquisition_go"])
+        self.assertTrue(loop["real_acquisition_baseline_required_for_new_reporting_window"])
+        self.assertTrue(loop["pre_acquisition_events_preserved"])
+        self.assertTrue(loop["automated_wms_sfw_growth_independent"])
 
     def test_health_units_bind_community_and_reuse_existing_runtime(self) -> None:
         s8 = S8_UNIT.read_text(encoding="utf-8")
@@ -368,6 +377,102 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn("tu1nz_adult_public_s10_1_health.py", source)
         self.assertIn("s10-runtime-executables-before.tar", source)
 
+    def test_acquisition_state_matrix_accepts_only_a_b_and_c(self) -> None:
+        def valid(ready: bool, active: bool, baseline: str | None) -> bool:
+            return (
+                (not ready and not active and baseline is None)
+                or (ready and not active and baseline is None)
+                or (ready and active and baseline is not None)
+            )
+
+        self.assertTrue(valid(False, False, None))
+        self.assertTrue(valid(True, False, None))
+        self.assertTrue(valid(True, True, "activation-timestamp"))
+        self.assertFalse(valid(False, True, "activation-timestamp"))
+        self.assertFalse(valid(True, True, None))
+        self.assertFalse(valid(True, False, "activation-timestamp"))
+
+        guard = self.controller.split("require_acquisition_state_contract() {", 1)[1].split(
+            "run_bound_migration() {", 1
+        )[0]
+        for condition in (
+            "pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL",
+            "pre_acquisition_readiness='GREEN' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL",
+            "pre_acquisition_readiness='GREEN' AND wms_real_acquisition_ready AND real_acquisition_baseline_start IS NOT NULL",
+        ):
+            self.assertIn(condition, guard)
+        self.assertIn('fail "ACQUISITION_STATE_CONTRACT_RED"', guard)
+
+    def test_r3_readiness_transition_does_not_activate_or_start_baseline(self) -> None:
+        mark_ready = self.controller.split("mark_ready() {", 1)[1].split('case "${1:-}"', 1)[0]
+        update = mark_ready.split('database_scalar "UPDATE ', 1)[1].split(' RETURNING 1;', 1)[0]
+        self.assertIn("SET pre_acquisition_readiness='GREEN',updated_at=CURRENT_TIMESTAMP", update)
+        self.assertNotIn("wms_real_acquisition_ready=true", update)
+        self.assertNotIn("real_acquisition_baseline_start=CURRENT_TIMESTAMP", update)
+        self.assertIn("AND NOT wms_real_acquisition_ready", update)
+        self.assertIn("AND real_acquisition_baseline_start IS NULL", update)
+        for value in (
+            '"safe_code":"S10_2D_COMMUNITY_RUNTIME_GO"',
+            '"WMS_REAL_ACQUISITION_TECHNICALLY_READY":true',
+            '"REAL_ACQUISITION_ACTIVE":false',
+            '"REAL_ACQUISITION_BASELINE_START":null',
+            '"business_loop_state":"WAITING_OPERATOR_ACQUISITION_GO"',
+            '"automatic_link_seeding":false',
+        ):
+            self.assertIn(value, mark_ready)
+
+    def test_r3_rollback_resets_only_inactive_null_baseline_state(self) -> None:
+        reset = self.controller.split("reset_r3_acquisition_state() {", 1)[1].split(
+            "rollback_migration_if_unused() {", 1
+        )[0]
+        self.assertIn("pre_acquisition_readiness='PENDING'", reset)
+        self.assertIn("wms_real_acquisition_ready=false", reset)
+        self.assertIn("real_acquisition_baseline_start=NULL", reset)
+        self.assertIn("WHERE singleton AND NOT wms_real_acquisition_ready", reset)
+        self.assertIn("real_acquisition_baseline_start IS NULL", reset)
+        self.assertIn('fail "R3_ROLLBACK_ACQUISITION_ACTIVE"', reset)
+        rollback = self.controller.split("rollback() {", 1)[1].split("deploy() {", 1)[0]
+        self.assertLess(rollback.index("reset_r3_acquisition_state"), rollback.index("rollback_migration_if_unused"))
+
+    def test_r3_and_s10_2e_targets_are_separate_and_source_only(self) -> None:
+        contract = self.manifest["acquisition_state_contract_r3_2"]
+        states = contract["valid_states"]
+        self.assertEqual(contract["r3_target_state"], "B_R3_RUNTIME_GREEN")
+        self.assertEqual(contract["s10_2e_target_state"], "C_S10_2E_ACQUISITION_GO")
+        self.assertEqual(contract["rollback_target_state"], "A_PRE_CUTOVER")
+        self.assertEqual(self.manifest["control"]["expected_base_commit"], contract["control_start_commit"])
+        self.assertRegex(contract["control_start_commit"], r"^[0-9a-f]{40}$")
+        self.assertRegex(contract["control_start_tree"], r"^[0-9a-f]{40}$")
+        self.assertTrue(contract["source_backup_bundle"].endswith("-control-before.bundle"))
+        self.assertEqual(contract["source_backup_location"], "LOCAL_OUTSIDE_CONTROL_WORKTREE")
+        self.assertRegex(contract["source_backup_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(states["A_PRE_CUTOVER"], {
+            "technically_ready": False,
+            "real_acquisition_active": False,
+            "baseline_start": None,
+        })
+        self.assertEqual(states["B_R3_RUNTIME_GREEN"]["technically_ready"], True)
+        self.assertEqual(states["B_R3_RUNTIME_GREEN"]["real_acquisition_active"], False)
+        self.assertIsNone(states["B_R3_RUNTIME_GREEN"]["baseline_start"])
+        self.assertEqual(states["B_R3_RUNTIME_GREEN"]["business_loop_state"], "WAITING_OPERATOR_ACQUISITION_GO")
+        self.assertEqual(states["C_S10_2E_ACQUISITION_GO"]["technically_ready"], True)
+        self.assertEqual(states["C_S10_2E_ACQUISITION_GO"]["real_acquisition_active"], True)
+        self.assertEqual(states["C_S10_2E_ACQUISITION_GO"]["baseline_start"], "ACTIVATION_TIMESTAMP")
+        self.assertFalse(contract["automatic_link_seeding"])
+        self.assertTrue(contract["historical_pre_acquisition_events_preserved"])
+        self.assertFalse(contract["historical_baselines_deleted"])
+        self.assertEqual(contract["automated_wms_sfw_growth"], "GO_INDEPENDENT")
+        self.assertTrue(contract["s10_2d_r3_state_contract_ready"])
+        self.assertTrue(contract["s10_2d_r3_cutover_technically_ready"])
+        self.assertTrue(contract["source_only"])
+        self.assertFalse(contract["server_mutation"])
+        self.assertFalse(contract["r3_runtime_started"])
+        self.assertFalse(contract["real_acquisition"])
+
+        observation = self.controller.split("observation_snapshot() {", 1)[1].split("mark_ready() {", 1)[0]
+        self.assertIn("WAITING_OPERATOR_ACQUISITION_GO", observation)
+        self.assertIn('"REAL_ACQUISITION_BASELINE_START_PRESENT":%s', observation)
+
     def test_latency_and_readiness_are_strictly_separate(self) -> None:
         latency = self.manifest["latency"]
         baseline = self.manifest["baseline"]
@@ -399,7 +504,10 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
             "delete-messages and restrict/ban-members",
             "at least 1,800 seconds",
             "exactly 41 numbered points",
-            "No acquisition campaign is launched",
+            "No acquisition campaign or automatic",
+            "S10.2D-R3.2 acquisition-state contract",
+            "WAITING_OPERATOR_ACQUISITION_GO",
+            "only a future, separately authorized S10.2E",
         ):
             self.assertIn(value, self.control)
         self.assertIsNone(re.search(r"[0-9]{7,16}:[A-Za-z0-9_-]{30,}", self.control))

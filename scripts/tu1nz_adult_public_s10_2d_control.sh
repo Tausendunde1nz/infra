@@ -365,6 +365,11 @@ migration_state() {
   database_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='commercial_s10_2d_runtime_control';"
 }
 
+require_acquisition_state_contract() {
+  [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_runtime_control WHERE singleton AND ((pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL) OR (pre_acquisition_readiness='GREEN' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL) OR (pre_acquisition_readiness='GREEN' AND wms_real_acquisition_ready AND real_acquisition_baseline_start IS NOT NULL));")" = "1" ] \
+    || fail "ACQUISITION_STATE_CONTRACT_RED"
+}
+
 run_bound_migration() {
   local path="$1" expected="$2" failure="$3" actual
   actual="$(runuser -u chatops -- git -C "$APPLICATION_ROOT" show "${TARGET_SHA}:$path" | sha256sum | awk '{print $1}')"
@@ -382,6 +387,16 @@ apply_migration() {
   esac
   [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_runtime_control WHERE singleton AND pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready AND pre_acquisition_baseline_reason='PRODUCT_SURFACE_CHANGED_BEFORE_ACTIVE_ACQUISITION';")" = "1" ] \
     || fail "PRE_ACQUISITION_BASELINE_RED"
+  require_acquisition_state_contract
+}
+
+reset_r3_acquisition_state() {
+  [ "$(migration_state)" = "1" ] || return 0
+  require_acquisition_state_contract
+  [ "$(database_scalar "UPDATE commercial_s10_2d_runtime_control SET pre_acquisition_readiness='PENDING',wms_real_acquisition_ready=false,real_acquisition_baseline_start=NULL,updated_at=CURRENT_TIMESTAMP WHERE singleton AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL RETURNING 1;")" = "1" ] \
+    || fail "R3_ROLLBACK_ACQUISITION_ACTIVE"
+  [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_runtime_control WHERE singleton AND pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL;")" = "1" ] \
+    || fail "R3_ROLLBACK_STATE_RED"
 }
 
 rollback_migration_if_unused() {
@@ -608,6 +623,7 @@ verify_target() {
   require_target_configuration
   require_target_control
   [ "$(migration_state)" = "1" ] || fail "MIGRATION_0029_MISSING"
+  require_acquisition_state_contract
   require_product_boundary
   current_community_verify
   require_system_green
@@ -643,6 +659,7 @@ rollback() {
   require_control "$1" "$2"
   require_backup "$1" "$2" "$3"
   quiesce
+  reset_r3_acquisition_state
   rollback_migration_if_unused
   restore_technical_state "$3"
   if ! restore_source_bot_profile; then
@@ -687,10 +704,10 @@ observation_snapshot() {
   require_root
   verify_target "$1" "$2" >/dev/null
   local evidence
-  evidence="$(database_scalar "SELECT floor(extract(epoch FROM (CURRENT_TIMESTAMP-pre_acquisition_baseline_end)))::bigint||':'||(SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE occurred_at>=pre_acquisition_baseline_end)||':'||(SELECT count(*) FROM commercial_s10_2d_moderation_outbox WHERE delivery_state='PENDING')||':'||(SELECT count(*) FROM commercial_s10_2d_community_members WHERE community_state='RESTRICTED' AND restriction_until<CURRENT_TIMESTAMP)||':'||pre_acquisition_readiness||':'||wms_real_acquisition_ready::int FROM commercial_s10_2d_runtime_control WHERE singleton;")"
-  IFS=: read -r elapsed samples pending stuck readiness ready <<<"$evidence"
-  printf '{"ok":true,"safe_code":"S10_2D_OBSERVATION_GREEN","elapsed_seconds":%s,"latency_samples":%s,"pending_moderation":%s,"stuck_restrictions":%s,"readiness":"%s","real_acquisition_ready":%s}\n' \
-    "$elapsed" "$samples" "$pending" "$stuck" "$readiness" "$ready"
+  evidence="$(database_scalar "SELECT floor(extract(epoch FROM (CURRENT_TIMESTAMP-pre_acquisition_baseline_end)))::bigint||':'||(SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE occurred_at>=pre_acquisition_baseline_end)||':'||(SELECT count(*) FROM commercial_s10_2d_moderation_outbox WHERE delivery_state='PENDING')||':'||(SELECT count(*) FROM commercial_s10_2d_community_members WHERE community_state='RESTRICTED' AND restriction_until<CURRENT_TIMESTAMP)||':'||CASE WHEN pre_acquisition_readiness='GREEN' THEN 'true' ELSE 'false' END||':'||CASE WHEN wms_real_acquisition_ready THEN 'true' ELSE 'false' END||':'||CASE WHEN real_acquisition_baseline_start IS NULL THEN 'false' ELSE 'true' END||':'||CASE WHEN pre_acquisition_readiness='GREEN' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL THEN 'WAITING_OPERATOR_ACQUISITION_GO' WHEN pre_acquisition_readiness='GREEN' AND wms_real_acquisition_ready AND real_acquisition_baseline_start IS NOT NULL THEN 'REAL_ACQUISITION_ACTIVE' ELSE 'PRE_CUTOVER' END FROM commercial_s10_2d_runtime_control WHERE singleton;")"
+  IFS=: read -r elapsed samples pending stuck technical_ready acquisition_active baseline_present loop_state <<<"$evidence"
+  printf '{"ok":true,"safe_code":"S10_2D_OBSERVATION_GREEN","elapsed_seconds":%s,"latency_samples":%s,"pending_moderation":%s,"stuck_restrictions":%s,"WMS_REAL_ACQUISITION_TECHNICALLY_READY":%s,"REAL_ACQUISITION_ACTIVE":%s,"REAL_ACQUISITION_BASELINE_START_PRESENT":%s,"business_loop_state":"%s"}\n' \
+    "$elapsed" "$samples" "$pending" "$stuck" "$technical_ready" "$acquisition_active" "$baseline_present" "$loop_state"
 }
 
 mark_ready() {
@@ -706,9 +723,12 @@ mark_ready() {
   [ "$p99" -ge 0 ] && [ "$p99" -lt 5000 ] || fail "LATENCY_P99_RED"
   [ "$pending" = "0" ] || fail "MODERATION_OUTBOX_PENDING"
   [ "$stuck" = "0" ] || fail "COMMUNITY_RESTRICTION_STUCK"
-  [ "$(database_scalar "UPDATE commercial_s10_2d_runtime_control SET pre_acquisition_readiness='GREEN',wms_real_acquisition_ready=true,real_acquisition_baseline_start=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE singleton AND pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready RETURNING 1;")" = "1" ] \
+  [ "$(database_scalar "UPDATE commercial_s10_2d_runtime_control SET pre_acquisition_readiness='GREEN',updated_at=CURRENT_TIMESTAMP WHERE singleton AND pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL RETURNING 1;")" = "1" ] \
     || fail "READINESS_STATE_DIVERGED"
-  printf '{"ok":true,"safe_code":"S10_2D_REAL_ACQUISITION_READY","elapsed_seconds":%s,"latency_samples":%s,"p50_ms":%s,"p95_ms":%s,"p99_ms":%s,"WMS_REAL_ACQUISITION_READY":true,"adult_media":false,"avs":false,"payments":false,"publishing":false}\n' \
+  require_acquisition_state_contract
+  [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_runtime_control WHERE singleton AND pre_acquisition_readiness='GREEN' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL;")" = "1" ] \
+    || fail "R3_TARGET_STATE_RED"
+  printf '{"ok":true,"safe_code":"S10_2D_COMMUNITY_RUNTIME_GO","elapsed_seconds":%s,"latency_samples":%s,"p50_ms":%s,"p95_ms":%s,"p99_ms":%s,"WMS_REAL_ACQUISITION_TECHNICALLY_READY":true,"REAL_ACQUISITION_ACTIVE":false,"REAL_ACQUISITION_BASELINE_START":null,"business_loop_state":"WAITING_OPERATOR_ACQUISITION_GO","automatic_link_seeding":false,"adult_media":false,"avs":false,"payments":false,"publishing":false}\n' \
     "$elapsed" "$samples" "$p50" "$p95" "$p99"
 }
 
