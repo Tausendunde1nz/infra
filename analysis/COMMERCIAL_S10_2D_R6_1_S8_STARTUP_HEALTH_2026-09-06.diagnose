@@ -1,0 +1,85 @@
+TU1NZ / WANT ME SEEN — S10.2D-R6.1 S8 STARTUP AND HEALTH DIAGNOSIS
+Date: 2026-09-06
+Classification: SOURCE-ONLY, PRIVACY-SAFE, NO RUNTIME CUTOVER
+
+Observed failure
+----------------
+The authorized R6 target attempt started the target S8 Telegram service at
+2026-09-06T19:13:09.436012Z and the S10 WMS service at
+2026-09-06T19:13:09.455817Z. The S8 health gate began at
+2026-09-06T19:13:10.680986Z, exited with status 2 at
+2026-09-06T19:13:12.052625Z, and rollback stopped the target S8 process at
+2026-09-06T19:13:12.999000Z. No release-bound poller readiness event was
+established during that 3.56-second process lifetime.
+
+Corrected premise and exact ownership
+-------------------------------------
+The target S8 Telegram process does not own an HTTP listener. Its effective
+entrypoint is tu1nz-public-s8-telegram, which starts the existing S8 runtime,
+validates the release-bound Community contract, claims the durable database
+poller lease, and performs Telegram long polling.
+
+The S10 WMS runtime owns 127.0.0.1:18110 and its /health endpoint. The target
+controller deliberately starts S8 Landing, S8 Telegram and S10 WMS together.
+Therefore a listener on 18110 proves only WMS readiness; it does not prove that
+the S8 Telegram process has claimed its release-bound poller lease or completed
+a successful poll. There was no port conflict in the retained R6 evidence.
+
+Root cause
+----------
+CONTROLLER_CHECKED_S8_POLLER_HEALTH_BEFORE_RELEASE_BOUND_POLLER_READINESS
+
+The controller waited for port 18110, then immediately ran the S8 health gate.
+The WMS listener became reachable first. The S8 process was active but had not
+yet produced the release-bound durable poller state required by the health
+contract. The generic exit-status mapping then collapsed that expected bounded
+startup transition into a generic runtime red. A fixed sleep would merely move
+the race and is not an acceptable repair.
+
+Minimal source correction
+-------------------------
+1. WMS /health now binds the exact runtime release, target bot identity,
+   Community mode, and inactive real-acquisition boundary.
+2. The WMS service supplies the existing target release ID explicitly.
+3. The controller polls the version-bound WMS health contract for at most 30
+   seconds and then polls the release-bound S8 durable poller state for at most
+   45 seconds before starting timers or running the complete health gates.
+4. S8 health and the outer gate preserve three separate fail-closed outcomes:
+   process not running, poller not ready, and release-ID mismatch.
+5. No new runtime, listener, service, database table, migration, credential,
+   network destination, retry architecture, or product capability is added.
+
+Safe failure taxonomy
+---------------------
+- HEALTH_GATE_S8_RUNTIME_PROCESS_NOT_RUNNING
+- HEALTH_GATE_S8_RUNTIME_POLLER_NOT_READY
+- HEALTH_GATE_S8_RUNTIME_RELEASE_ID_RED
+- S10_WMS_HEALTH_LISTENER_NOT_STARTED
+- S10_WMS_HEALTH_CONTRACT_RED
+- S10_WMS_HEALTH_PORT_IN_USE
+- S10_WMS_HEALTH_BIND_FAILED
+
+Simulator correction
+--------------------
+The previous bounded-startup simulator assigned a synthetic GREEN state and
+did not own a real socket. The corrected simulator starts the reviewed
+Application WMS runtime on an isolated loopback port, waits for that process's
+own READY event, verifies the release/bot/Community/acquisition health
+contract, terminates it, and proves that the port is relinquished. Nine cases
+cover normal target startup, occupied port, task crash, wrong port, wrong
+release, poller without health, health with poller loss, source listener not
+relinquished, and rollback restoration of the source listener. The bounded
+startup transition is now the expected POLLER_NOT_READY red, never a synthetic
+green.
+
+Boundaries and decision
+-----------------------
+The source correction does not synchronize or mutate the server. The recovered
+SFW source runtime remains active, migration 0029 and 0030 remain absent, and
+Community runtime and real acquisition remain inactive. Adult media, AVS,
+payments, external Adult publishing, creator access, controlled beta,
+production, mass messaging and new paid services remain closed.
+
+S10_2D_NEXT_RUNTIME_CUTOVER_READY=true is a source-readiness result only. A
+future separately authorized cutover must still prove the actual live start,
+the release-bound poller lease and a successful poll under systemd PID 1.

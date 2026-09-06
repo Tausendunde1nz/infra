@@ -77,7 +77,7 @@
     "backup_script_sha256": "502e7c4904053dd9836d710b9cdd07f600896bc3ed5ad58b8e640c95d8af6d06",
     "controller_sha256": "dfdb45ac25f1a47571fd99f9d9ce47e6caa1c20dfb4c865f61469be2b81e2a21",
     "copy_sha256": "95c4d6f62d4319417a0bac601cd7ee8f4567541fb616220016eec408b5853093",
-    "health_script_sha256": "34b13e3a311364458b66fc9f6d69540dfb8cbe50ce3da0ba984e111ac68ca578",
+    "health_script_sha256": "fa5b6c852ecf671a5e64f2a0fc688cb3f1c16a242bfcda1d24e41a599d3996db",
     "health_service_sha256": "5f7187f776ade647bd9ba0aba9b4318470caf6627ba4df08ea5c3357eb252735",
     "health_timer_sha256": "42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005",
     "landing_contract_sha256": "ecf9fc7908e0e2fc0208b9af27c5670df3463b34dcab213659ce410111af149e",

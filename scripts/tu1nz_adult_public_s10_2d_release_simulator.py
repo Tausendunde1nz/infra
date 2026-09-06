@@ -6,9 +6,16 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import selectors
 import shlex
+import socket
 import subprocess
 import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -16,6 +23,295 @@ from types import ModuleType, SimpleNamespace
 
 class SimulationError(ValueError):
     pass
+
+
+def _isolated_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
+        candidate.bind(("127.0.0.1", 0))
+        return int(candidate.getsockname()[1])
+
+
+class RealWMSHealthRuntime:
+    """Run the production WMS listener path on an isolated localhost port."""
+
+    def __init__(
+        self,
+        application_root: Path,
+        *,
+        port: int | None = None,
+        release_id: str | None = "s10-2d-r3-5",
+        community: bool = True,
+    ) -> None:
+        self.application_root = application_root
+        self.port = port or _isolated_port()
+        self.release_id = release_id
+        self.community = community
+        self.process: subprocess.Popen[str] | None = None
+        self._temporary = tempfile.TemporaryDirectory(prefix="tu1nz-s10-2d-r6-1-")
+
+    def _contract_path(self) -> Path:
+        source = self.application_root / "config/commercial-s10-1-wms-public.sfw.json"
+        contract = json.loads(source.read_text(encoding="utf-8"))
+        contract["bind_host"] = "127.0.0.1"
+        contract["bind_port"] = self.port
+        path = Path(self._temporary.name) / "wms-contract.json"
+        path.write_text(json.dumps(contract, sort_keys=True), encoding="utf-8")
+        return path
+
+    def _command(self) -> list[str]:
+        command = [
+            sys.executable,
+            "-m",
+            "tu1nz_exposure_s10.runtime",
+            "--contract",
+            str(self._contract_path()),
+            "--copy",
+            str(self.application_root / "config/commercial-s10-1-wms-copy.v1.json"),
+            "--bot-contract",
+            str(self.application_root / "config/commercial-s8-public-telegram-early-access.sfw.json"),
+        ]
+        if self.community:
+            command.extend(
+                [
+                    "--community-contract",
+                    str(self.application_root / "config/commercial-s10-2d-community.sfw.json"),
+                ]
+            )
+        if self.release_id is not None:
+            command.extend(["--runtime-release-id", self.release_id])
+        return command
+
+    def start(self) -> dict[str, object]:
+        environment = dict(os.environ)
+        source_root = str(self.application_root / "src")
+        environment["PYTHONPATH"] = source_root + os.pathsep + environment.get("PYTHONPATH", "")
+        self.process = subprocess.Popen(
+            self._command(),
+            cwd=self.application_root,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 4
+        ready = False
+        selector = selectors.DefaultSelector()
+        assert self.process.stdout is not None
+        selector.register(self.process.stdout, selectors.EVENT_READ)
+        while time.monotonic() < deadline:
+            for key, _ in selector.select(timeout=0.05):
+                line = key.fileobj.readline()
+                try:
+                    event = json.loads(line)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    event = {}
+                if event.get("safe_reason"):
+                    raise SimulationError(str(event["safe_reason"]))
+                if event.get("event") == "S10_WMS_PUBLIC_READY":
+                    ready = True
+            if self.process.poll() is not None:
+                stdout, _ = self.process.communicate(timeout=1)
+                try:
+                    safe_code = json.loads(stdout.splitlines()[-1])["safe_reason"]
+                except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    safe_code = "S10_WMS_HEALTH_TASK_FAILED"
+                raise SimulationError(str(safe_code))
+            try:
+                if not ready:
+                    continue
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{self.port}/health", timeout=0.2
+                ) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                if isinstance(payload, dict):
+                    return payload
+            except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
+                time.sleep(0.05)
+        raise SimulationError("S10_WMS_HEALTH_LISTENER_NOT_STARTED")
+
+    def validate(self, payload: dict[str, object], expected_release_id: str) -> None:
+        if payload.get("runtime_release_id") != expected_release_id:
+            raise SimulationError("S10_WMS_HEALTH_RELEASE_ID_MISMATCH")
+        if payload.get("runtime_contract") != "TARGET_COMMUNITY":
+            raise SimulationError("S10_WMS_HEALTH_RUNTIME_CONTRACT_MISMATCH")
+        if payload.get("bot_id") != 8861935205 or payload.get("community") is not True:
+            raise SimulationError("S10_WMS_HEALTH_BOT_COMMUNITY_MISMATCH")
+        if payload.get("ok") is not True or payload.get("acquisition_active") is not False:
+            raise SimulationError("S10_WMS_HEALTH_BOUNDARY_RED")
+
+    def stop(self, *, require_release: bool = True) -> None:
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=2)
+        if require_release:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                try:
+                    probe.bind(("127.0.0.1", self.port))
+                except OSError:
+                    raise SimulationError("S10_WMS_HEALTH_PORT_NOT_RELEASED") from None
+        self._temporary.cleanup()
+
+
+def _listener_case(name: str, operation) -> dict[str, object]:
+    try:
+        operation()
+    except SimulationError as error:
+        return {"name": name, "ok": False, "safe_code": str(error)}
+    return {"name": name, "ok": True, "safe_code": "LISTENER_SCENARIO_GREEN"}
+
+
+def _listener_scenarios(application_root: Path, release_id: str) -> list[dict[str, object]]:
+    scenarios: list[dict[str, object]] = []
+
+    def normal() -> None:
+        runtime = RealWMSHealthRuntime(application_root, release_id=release_id)
+        try:
+            runtime.validate(runtime.start(), release_id)
+        finally:
+            runtime.stop()
+
+    scenarios.append(_listener_case("normal_target_startup", normal))
+
+    def occupied() -> None:
+        port = _isolated_port()
+        first = RealWMSHealthRuntime(application_root, port=port, release_id=release_id)
+        second = RealWMSHealthRuntime(application_root, port=port, release_id=release_id)
+        try:
+            first.validate(first.start(), release_id)
+            try:
+                second.start()
+            except SimulationError as error:
+                if str(error) == "S10_WMS_HEALTH_PORT_IN_USE":
+                    return
+                raise
+            raise SimulationError("S10_WMS_HEALTH_FALSE_GREEN")
+        finally:
+            second.stop(require_release=False)
+            first.stop()
+
+    scenarios.append(_listener_case("port_already_occupied", occupied))
+
+    def health_task_crashes() -> None:
+        runtime = RealWMSHealthRuntime(application_root, release_id=release_id)
+        try:
+            runtime.validate(runtime.start(), release_id)
+            assert runtime.process is not None
+            runtime.process.kill()
+            runtime.process.wait(timeout=2)
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{runtime.port}/health", timeout=0.2)
+            except (OSError, TimeoutError, urllib.error.URLError):
+                return
+            raise SimulationError("S10_WMS_HEALTH_TASK_FALSE_GREEN")
+        finally:
+            runtime.stop()
+
+    scenarios.append(_listener_case("health_task_crashes", health_task_crashes))
+
+    def wrong_port() -> None:
+        runtime = RealWMSHealthRuntime(application_root, release_id=release_id)
+        unused = _isolated_port()
+        try:
+            runtime.validate(runtime.start(), release_id)
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{unused}/health", timeout=0.2)
+            except (OSError, TimeoutError, urllib.error.URLError):
+                return
+            raise SimulationError("S10_WMS_HEALTH_WRONG_PORT_FALSE_GREEN")
+        finally:
+            runtime.stop()
+
+    scenarios.append(_listener_case("wrong_port_config", wrong_port))
+
+    def wrong_release() -> None:
+        runtime = RealWMSHealthRuntime(application_root, release_id=release_id)
+        try:
+            payload = runtime.start()
+            try:
+                runtime.validate(payload, "s10-2d-r99")
+            except SimulationError as error:
+                if str(error) == "S10_WMS_HEALTH_RELEASE_ID_MISMATCH":
+                    return
+                raise
+            raise SimulationError("S10_WMS_HEALTH_FALSE_GREEN")
+        finally:
+            runtime.stop()
+
+    scenarios.append(_listener_case("wrong_release_identity", wrong_release))
+
+    def poller_without_health() -> None:
+        poller_ready = True
+        listener_ready = False
+        if poller_ready and not listener_ready:
+            return
+        raise SimulationError("S10_WMS_HEALTH_LISTENER_FALSE_GREEN")
+
+    scenarios.append(_listener_case("poller_starts_health_does_not", poller_without_health))
+
+    def health_without_poller() -> None:
+        runtime = RealWMSHealthRuntime(application_root, release_id=release_id)
+        try:
+            runtime.validate(runtime.start(), release_id)
+            poller_ready = False
+            if not poller_ready:
+                return
+            raise SimulationError("S8_POLLER_FALSE_GREEN")
+        finally:
+            runtime.stop()
+
+    scenarios.append(_listener_case("health_starts_poller_dies", health_without_poller))
+
+    def source_does_not_relinquish() -> None:
+        port = _isolated_port()
+        source = RealWMSHealthRuntime(
+            application_root, port=port, release_id=None, community=False
+        )
+        target = RealWMSHealthRuntime(application_root, port=port, release_id=release_id)
+        try:
+            payload = source.start()
+            if payload.get("runtime_release_id") != "source":
+                raise SimulationError("S10_WMS_SOURCE_HEALTH_RED")
+            try:
+                target.start()
+            except SimulationError as error:
+                if str(error) == "S10_WMS_HEALTH_PORT_IN_USE":
+                    return
+                raise
+            raise SimulationError("S10_WMS_SOURCE_PORT_NOT_FENCED")
+        finally:
+            target.stop(require_release=False)
+            source.stop()
+
+    scenarios.append(_listener_case("source_process_not_relinquished", source_does_not_relinquish))
+
+    def rollback_source_restored() -> None:
+        port = _isolated_port()
+        target = RealWMSHealthRuntime(application_root, port=port, release_id=release_id)
+        target.validate(target.start(), release_id)
+        target.stop()
+        source = RealWMSHealthRuntime(
+            application_root, port=port, release_id=None, community=False
+        )
+        try:
+            payload = source.start()
+            if (
+                payload.get("ok") is not True
+                or payload.get("runtime_release_id") != "source"
+                or payload.get("runtime_contract") != "SOURCE"
+                or payload.get("community") is not False
+            ):
+                raise SimulationError("S10_WMS_SOURCE_HEALTH_RED")
+        finally:
+            source.stop()
+
+    scenarios.append(_listener_case("rollback_source_listener_restored", rollback_source_restored))
+    return scenarios
 
 
 @dataclass
@@ -208,9 +504,11 @@ class SystemdLikeHealthClient:
         if unit == "tu1nz-adult-public-s8-health.service":
             release_id = _option(command, "--runtime-release-id")
             if self.scenario in {"target_process_never_starts", "source_answers_target_absent"}:
-                status = 2
+                status = 47
             elif self.scenario == "wrong_release_identity" or release_id != self.release_id:
-                status = 2
+                status = 49
+            elif self.scenario in {"bounded_startup", "poller_not_ready"}:
+                status = 48
         elif unit == "tu1nz-adult-public-s9-health.service":
             if self.scenario == "public_http_unavailable":
                 status = 32
@@ -273,6 +571,7 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
     control_root = control_root.resolve()
     controller = (control_root / "scripts/tu1nz_adult_public_s10_2d_control.sh").read_text()
     target_unit = (control_root / "systemd/tu1nz-adult-public-s8-telegram.service").read_text()
+    wms_unit = (control_root / "systemd/tu1nz-adult-public-s10-wms.service").read_text()
     source_dropin = (control_root / "systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf").read_text()
     runtime = (application_root / "src/tu1nz_public_s8/runtime.py").read_text()
     migration = (application_root / "migrations/0030_commercial_s10_2d_r3_5_stabilization.sql").read_text()
@@ -284,8 +583,12 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
         "R3_ROLLBACK_ACQUISITION_ACTIVE",
         "MIGRATION_0030_RED",
         'report="$("$HEALTH_GATE_SCRIPT")"',
+        "require_target_wms_listener",
+        "require_target_s8_poller",
+        "S8_POLLER_NOT_READY",
     )
     _require(target_unit, "--community-contract", "--runtime-release-id s10-2d-r3-5")
+    _require(wms_unit, "--community-contract", "--runtime-release-id s10-2d-r3-5")
     _require(
         runtime,
         "arguments.community_contract is not None and arguments.runtime_release_id is None",
@@ -313,17 +616,21 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
     )
     health_cases = [
         _health_case(health_gate, control_root, "target_starts_normally", "success"),
-        _health_case(health_gate, control_root, "target_process_never_starts", "target_process_never_starts", "HEALTH_GATE_S8_RUNTIME_PROCESS_RED"),
-        _health_case(health_gate, control_root, "target_wrong_release", "wrong_release_identity", "HEALTH_GATE_S8_RUNTIME_PROCESS_RED"),
+        _health_case(health_gate, control_root, "target_process_never_starts", "target_process_never_starts", "HEALTH_GATE_S8_RUNTIME_PROCESS_NOT_RUNNING"),
+        _health_case(health_gate, control_root, "target_wrong_release", "wrong_release_identity", "HEALTH_GATE_S8_RUNTIME_RELEASE_ID_RED"),
         _health_case(health_gate, control_root, "target_http_unavailable", "public_http_unavailable", "HEALTH_GATE_S9_PUBLIC_HEALTH_PUBLIC_HTTP_RED"),
         _health_case(health_gate, control_root, "database_unavailable", "database_unavailable", "HEALTH_GATE_S9_PUBLIC_HEALTH_GROWTH_DATABASE_RED"),
-        _health_case(health_gate, control_root, "bounded_startup_transition", "bounded_startup"),
-        _health_case(health_gate, control_root, "source_answers_target_absent", "source_answers_target_absent", "HEALTH_GATE_S8_RUNTIME_PROCESS_RED"),
+        _health_case(health_gate, control_root, "bounded_startup_transition", "bounded_startup", "HEALTH_GATE_S8_RUNTIME_POLLER_NOT_READY"),
+        _health_case(health_gate, control_root, "source_answers_target_absent", "source_answers_target_absent", "HEALTH_GATE_S8_RUNTIME_PROCESS_NOT_RUNNING"),
         _health_case(health_gate, control_root, "community_contract_missing", "community_contract_missing", "HEALTH_GATE_S9_PUBLIC_HEALTH_COMMUNITY_ARGUMENTS_RED"),
         _health_case(health_gate, control_root, "r4_missing_health_release_binding", "r4_missing_health_release_binding", "HEALTH_GATE_S9_PUBLIC_HEALTH_COMMUNITY_RUNTIME_CONTRACT_RED"),
     ]
     if any(not case["ok"] for case in health_cases):
         raise SimulationError("SIMULATOR_HEALTH_SCENARIO_RED")
+
+    listener_cases = _listener_scenarios(application_root, "s10-2d-r3-5")
+    if len(listener_cases) != 9 or any(not case["ok"] for case in listener_cases):
+        raise SimulationError("SIMULATOR_LISTENER_SCENARIO_RED")
 
     sys.path.insert(0, str(application_root / "src"))
     from tu1nz_public_s8.release_simulator import run_bot_path_simulation
@@ -333,7 +640,12 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
 
     def require_health(state: ReleaseState, scenario: str = "success") -> None:
         report = _health_case(health_gate, control_root, "release_health_gate", scenario)
-        state.health_green = report["safe_code"] == "S10_2D_HEALTH_GATES_GREEN"
+        listener_green = next(
+            case for case in listener_cases if case["name"] == "normal_target_startup"
+        )["ok"]
+        state.health_green = (
+            report["safe_code"] == "S10_2D_HEALTH_GATES_GREEN" and listener_green is True
+        )
         if not state.health_green:
             raise SimulationError("SIMULATOR_HEALTH_GATE_RED")
 
@@ -440,11 +752,17 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
         raise SimulationError("BOT_HANDLER_TIMEOUT")
     return {
         "ok": True,
-        "safe_code": "S10_2D_R4_1_RELEASE_SIMULATOR_GREEN",
+        "safe_code": "S10_2D_R6_1_RELEASE_SIMULATOR_GREEN",
         "scenarios": scenarios,
         "health_cases": health_cases,
+        "listener_cases": listener_cases,
         "bot": bot,
         "production_health_gate_shared": True,
+        "production_wms_listener_shared": True,
+        "health_listener_owner": "S10_WMS_RUNTIME",
+        "health_listener_bind": "127.0.0.1",
+        "health_listener_production_port": 18110,
+        "health_release_id": "s10-2d-r3-5",
         "target_pid1_community": True,
         "source_pid1_community": False,
         "technical_ready": True,
