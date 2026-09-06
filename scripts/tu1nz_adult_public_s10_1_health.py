@@ -87,6 +87,43 @@ SOURCE_S9_CHANNELS = {
     **S9_CHANNELS,
     "telegram_channel": "DISABLED_FOR_NOW",
 }
+HEALTH_EXIT_STATUS = {
+    "S10_2D_COMMUNITY_RUNTIME_CONTRACT_RED": 40,
+    "S10_2D_COMMUNITY_POLLER_RED": 41,
+    "S10_2D_COMMUNITY_OFFSET_RED": 42,
+    "S10_2D_COMMUNITY_PROVIDER_RED": 43,
+    "S10_2D_COMMUNITY_STATE_RED": 44,
+    "S10_2D_COMMUNITY_HEALTH_INVALID": 45,
+    "S10_2D_COMMUNITY_HEALTH_ARGUMENTS_MISSING": 46,
+    "S10_2D_COMMUNITY_HEALTH_ARGUMENTS_INCOMPLETE": 46,
+}
+
+
+def health_exit_status(safe_code: str) -> int:
+    """Return a stable, privacy-safe process class for the controller."""
+
+    if safe_code in HEALTH_EXIT_STATUS:
+        return HEALTH_EXIT_STATUS[safe_code]
+    if safe_code in {
+        "S10_REQUIRED_FILE_MISSING",
+        "S10_2D_COMMUNITY_S8_COPY_MISSING",
+        "S10_2D_COMMUNITY_REQUIRED_FILE_MISSING",
+    }:
+        return 30
+    if safe_code in {
+        "S10_SYSTEMD_STATE_RED",
+        "S10_BASELINE_SERVICE_RED",
+        "S10_TIMER_STATE_RED",
+        "S10_TIMER_LIVENESS_RED",
+    }:
+        return 31
+    if safe_code.startswith("S10_PUBLIC_") or safe_code == "S10_PRODUCT_BOUNDARY_RED":
+        return 32
+    if safe_code.startswith("S10_GROWTH_"):
+        return 33
+    if safe_code.startswith("S10_TELEGRAM_"):
+        return 34
+    return 2
 
 
 def _run(command: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -267,6 +304,8 @@ def _community(arguments: argparse.Namespace) -> dict[str, object] | None:
         raise ValueError("S10_2D_COMMUNITY_HEALTH_ARGUMENTS_MISSING")
     if arguments.community_contract is None or arguments.community_copy is None:
         raise ValueError("S10_2D_COMMUNITY_HEALTH_ARGUMENTS_INCOMPLETE")
+    if not arguments.runtime_release_id:
+        raise ValueError("S10_2D_COMMUNITY_RUNTIME_CONTRACT_RED")
     completed = _run([
         str(APPLICATION / ".venv/bin/tu1nz-public-s8-telegram"),
         "--contract", str(arguments.s8_contract),
@@ -275,29 +314,41 @@ def _community(arguments: argparse.Namespace) -> dict[str, object] | None:
         "--database-dsn", str(arguments.database_dsn),
         "--community-contract", str(arguments.community_contract),
         "--community-copy", str(arguments.community_copy),
+        "--runtime-release-id", arguments.runtime_release_id,
         "--health-only",
     ])
     try:
         payload = json.loads(completed.stdout)
     except json.JSONDecodeError:
         raise ValueError("S10_2D_COMMUNITY_HEALTH_INVALID") from None
+    if completed.returncode != 0:
+        child_code = payload.get("safe_code") if isinstance(payload, dict) else None
+        mapped_code = {
+            "BOT_RUNTIME_CONTRACT_MISMATCH": "S10_2D_COMMUNITY_RUNTIME_CONTRACT_RED",
+            "BOT_POLLER_NOT_RUNNING": "S10_2D_COMMUNITY_POLLER_RED",
+            "BOT_OFFSET_STALLED": "S10_2D_COMMUNITY_OFFSET_RED",
+        }.get(child_code, "S10_2D_COMMUNITY_STATE_RED")
+        raise ValueError(mapped_code)
     community = payload.get("community") if isinstance(payload, dict) else None
     provider = community.get("provider") if isinstance(community, dict) else None
     latency = community.get("latency_24h") if isinstance(community, dict) else None
+    if not all((
+        isinstance(payload, dict),
+        isinstance(community, dict),
+        isinstance(provider, dict),
+        isinstance(latency, dict),
+    )):
+        raise ValueError("S10_2D_COMMUNITY_STATE_RED")
+    if provider.get("ok") is not True:
+        raise ValueError("S10_2D_COMMUNITY_PROVIDER_RED")
     if (
-        completed.returncode != 0
-        or not isinstance(payload, dict)
-        or payload.get("ok") is not True
+        payload.get("ok") is not True
         or payload.get("state") not in {"GREEN", "YELLOW"}
-        or not isinstance(community, dict)
-        or not isinstance(provider, dict)
-        or provider.get("ok") is not True
-        or not isinstance(latency, dict)
         or community.get("pending_moderation") != 0
         or community.get("stuck_restrictions") != 0
         or community.get("latency_degraded") is not False
     ):
-        raise ValueError("S10_2D_COMMUNITY_HEALTH_RED")
+        raise ValueError("S10_2D_COMMUNITY_STATE_RED")
     return {
         "provider": "GREEN",
         "rules_pinned": provider.get("rules_pinned") is True,
@@ -320,6 +371,7 @@ def main() -> int:
     parser.add_argument("--s9-contract", type=Path, required=True)
     parser.add_argument("--community-contract", type=Path)
     parser.add_argument("--community-copy", type=Path)
+    parser.add_argument("--runtime-release-id")
     parser.add_argument("--database-dsn", type=Path, required=True)
     parser.add_argument("--telegram-token", type=Path, required=True)
     parser.add_argument("--telegram-channel", required=True)
@@ -370,7 +422,7 @@ def main() -> int:
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         safe_code = str(error) if str(error).startswith("S10_") else "S10_1_WMS_HEALTH_RED"
         print(json.dumps({"ok": False, "safe_code": safe_code, "state": "RED"}, sort_keys=True, separators=(",", ":")))
-        return 2
+        return health_exit_status(safe_code)
 
 
 if __name__ == "__main__":

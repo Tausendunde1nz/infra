@@ -1,0 +1,173 @@
+TU1NZ / WANT ME SEEN — S10.2D-R4.1 HEALTH GATE START
+Source-only diagnosis; no runtime or server mutation
+
+Decision
+========
+
+The single R4 cutover failure was a deterministic health-contract
+configuration error, not a startup race and not a target-process startup
+failure.  The target S8 process emitted its bounded STARTING and READY states
+before the S9 health unit failed.  The precise failed sub-contract was:
+
+  S9 health unit
+  -> S10.1 health envelope community check
+  -> S8 Telegram health-only child process
+  -> missing --runtime-release-id
+  -> BOT_RUNTIME_CONTRACT_MISMATCH
+  -> systemd oneshot exit 2
+  -> controller collapsed the result to HEALTH_GATE_START_RED
+
+The fixed safe controller classification is:
+
+  HEALTH_GATE_S9_PUBLIC_HEALTH_COMMUNITY_RUNTIME_CONTRACT_RED
+
+Evidence and classification
+===========================
+
+The privacy-safe R4 timeline was:
+
+- 2026-09-06T12:28:35.530093Z: target S8 process STARTING.
+- 2026-09-06T12:28:37.772134Z: target S8 process READY.
+- 2026-09-06T12:28:53.083018Z: S9/S10 community health RED.
+
+The process was ready about 15.3 seconds before the health failure.  Therefore
+adding an arbitrary sleep would not fix this failure.  The failure is both
+DETERMINISTIC_CONFIGURATION_ERROR and HEALTH_CONTRACT_ERROR.  It is not a
+BOUNDED_STARTUP_TRANSITION and is not evidence of a REAL_RUNTIME_FAILURE.
+
+Production sequence reconstructed
+=================================
+
+The existing controller sequence is preserved:
+
+1. Verify the version-bound preflight and backup.
+2. Quiesce timers, workers, landing, S8 and S10.
+3. Switch Application to the frozen target commit.
+4. Install target configuration and versioned Control artifacts.
+5. Remove the source S8 ExecStart drop-in.
+6. Install target units and health executables.
+7. Run systemd daemon-reload.
+8. Verify the effective PID-1 fragment, drop-ins, user, group, working
+   directory and target community/release arguments.
+9. Configure the already-authorized target bot profile.
+10. Apply migrations 0029 and 0030.
+11. Start landing, S8 and S10.
+12. Wait on the existing bounded local S10 HTTP readiness loop.
+13. Resume S9/S10 timers.
+14. Start S8, S9 and S10 health oneshots in that order.
+15. Verify systemd Result=success and ExecMainStatus=0 for every health unit.
+16. Continue to target verification, rotation, the second health pass and
+   final verification only if all prior gates are GREEN.
+
+Exact root cause
+================
+
+The target PID-1 unit already supplied `--runtime-release-id s10-2d-r3-5`.
+Application runtime intentionally rejects a community contract without a
+release identity as BOT_RUNTIME_CONTRACT_MISMATCH.  The S8 health unit also
+supplied the release identity.  However, the S9 health drop-in and S10 health
+unit did not supply it to the S10.1 health envelope, and that envelope did not
+forward it to the S8 health-only child process.  This made the S9 oneshot fail
+deterministically after the target process was already ready.
+
+Minimal fix
+===========
+
+- Bind both S9 and S10 health ExecStart commands to the existing frozen target
+  release ID `s10-2d-r3-5`.
+- Require and forward that identity in the community health child command.
+- Preserve bounded child safe codes as stable process exit classes.
+- Run the controller's S8/S9/S10 sequence through one privacy-safe shared
+  health-gate runner.
+- Emit only bounded stage, check ID, expected state, actual enum, exit class,
+  systemd result, elapsed milliseconds and a deterministic SHA-256
+  fingerprint.  No journal, token, DSN, Telegram payload or user data is read
+  into the report.
+
+No health expectation was weakened.  A response from the old source process
+cannot satisfy target acceptance: the target S8 health command remains bound
+to the expected release ID, and both community health paths now use the same
+identity.
+
+Health failure taxonomy
+=======================
+
+Only checks that actually exist in the production path are classified:
+
+- configuration or required-file failure: exit 30
+- system/service/timer state failure: exit 31
+- public HTTP/health failure: exit 32
+- growth/database health failure: exit 33
+- Telegram channel health failure: exit 34
+- community runtime/release contract failure: exit 40
+- community poller failure: exit 41
+- community offset failure: exit 42
+- community provider failure: exit 43
+- community state failure: exit 44
+- community envelope failure: exit 45
+- community argument failure: exit 46
+- standard systemd working-directory, executable, user/group and namespace
+  exits retain 200/203/216/217/226.
+
+Unknown values remain fail-closed as PROCESS_RED.  The fingerprint excludes
+elapsed time so the same contract failure has the same deterministic identity.
+
+Source versus target health
+===========================
+
+Check                 Source expectation       Target expectation                R4 result
+Application/PID       source active             target active/ready                GREEN
+Local HTTP            source S10 health 200     target S10 health 200              GREEN
+Public HTTP           public SFW green          public SFW green                   not the first RED
+Database              source migrations absent target migrations 0029/0030        installed; not first RED
+Runtime contract      source has no community   target community + release bound   RED in health child
+Telegram              source bot profile        target bot profile                 preflight GREEN
+Community             inactive/absent           provider and state healthy         not reached past contract
+Readiness state       pre-cutover inactive      target pending, not acquisition     unchanged/fail-closed
+Timers                source future runs        target future runs                 resumed before gate
+
+Timing inventory
+================
+
+- Controller local readiness: immediate first HTTP attempt, at most 30
+  attempts, one-second cadence, two-second per-request curl cap.
+- S8 diagnostic child: 30-second subprocess cap; landing reads use six seconds.
+- S10 health child commands: 30-second subprocess cap.
+- S10 public/local reads: eight seconds per request.
+- Telegram polling contract: ten-second long-poll plus its bounded transport
+  allowance.
+- Shared systemctl start observation: 95-second cap, allowing systemd to own
+  the oneshot state transition while preventing an unbounded caller hang.
+- No new retry was added to the deterministic community contract failure.
+
+Simulator parity
+================
+
+Before R4.1 the simulator set `community_green = True` in a separate in-memory
+state model.  It checked that selected strings existed in source files but did
+not compute the effective S9 drop-in ExecStart, did not run the S10 community
+health command builder and did not execute the controller's S8/S9/S10 health
+unit sequence.  Therefore it could not observe the missing release argument.
+
+After R4.1 the simulator imports the exact health-gate runner used by the
+controller, resolves effective unit ExecStart commands including the S9
+drop-in, validates the systemd-like user/group/working-directory/credential
+shape, executes the real community health command builder, and preserves the
+same exit-to-safe-code mapping.  The pre-fix missing-binding fixture is
+expected RED; the fixed target path is GREEN.
+
+Nine health cases cover normal target start, absent target process, wrong
+release, HTTP failure, database failure, the existing bounded startup
+transition, a still-answering source with no target, missing community
+contract, and the exact R4 missing health release binding.  The full release
+suite separately covers target success, health-start rollback, bot failure,
+rotation failure, community failure, rollback, active-acquisition protection
+and migration/evidence edge cases.
+
+Boundaries
+==========
+
+Application source, migrations, bot cursor/lease contract and public runtime
+are unchanged.  Adult media, AVS, payment, publishing, controlled beta,
+production and real acquisition remain closed.  No server command, deployment,
+BotFather operation or production migration is part of R4.1.
