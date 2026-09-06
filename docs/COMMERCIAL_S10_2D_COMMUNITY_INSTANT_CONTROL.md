@@ -1,6 +1,6 @@
 # Commercial S10.2D — Community, instant bot experience and pre-acquisition control
 
-Status: `S10_2D_R3_CANONICAL_BINDING_READY_SOURCE_ONLY_NO_GO_RUNTIME`
+Status: `S10_2D_R3_STATE_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME`
 
 ## Authorized outcome
 
@@ -123,9 +123,12 @@ true:
 - exact provider identity/permissions, services, timers, public WMS, product
   boundaries and both canonical repositories are green.
 
-Only then are `PRE_ACQUISITION_READINESS=GREEN`,
-`WMS_REAL_ACQUISITION_READY=true` and the new acquisition-baseline start stored.
-No acquisition campaign is launched by this step.
+Only then is technical readiness stored as `PRE_ACQUISITION_READINESS=GREEN`.
+The legacy storage field `wms_real_acquisition_ready` represents the separate
+business decision `REAL_ACQUISITION_ACTIVE`; it remains false, and
+`REAL_ACQUISITION_BASELINE_START` remains null. The controller returns
+`S10_2D_COMMUNITY_RUNTIME_GO` and stops. No acquisition campaign or automatic
+link seeding is launched by this step.
 
 ## Product behavior and privacy boundary
 
@@ -407,3 +410,41 @@ merged and green after merge, the canonical binding and separate R3 cutover
 are technically ready; the R3 runtime and real acquisition remain NO-GO until
 their separately authorized preflight, backup, operator checkpoint, single
 cutover and observation complete.
+
+## 2026-09-06 S10.2D-R3.2 acquisition-state contract
+
+R3.2 corrects only the active source contract that previously coupled technical
+readiness to traffic activation and the start of a new analytics baseline. It
+uses the existing migration 0029 columns without changing that migration or the
+canonical Application release. Their logical meanings are now explicit:
+
+- `pre_acquisition_readiness=GREEN` means
+  `WMS_REAL_ACQUISITION_TECHNICALLY_READY=true`;
+- the legacy storage field `wms_real_acquisition_ready=true` means
+  `REAL_ACQUISITION_ACTIVE=true`;
+- `real_acquisition_baseline_start` is populated only when that separate
+  acquisition decision becomes active.
+
+The valid state matrix is: A) pre-cutover is false/false/null; B) R3 runtime
+green is true/false/null; C) a future S10.2E acquisition GO is
+true/true/activation-timestamp. False/true, active/null and inactive with a
+current acquisition timestamp are rejected fail-closed. This is a contract
+guard, not a new state framework.
+
+After the 30-minute R3 observation, `mark-ready` transitions only A to B. The
+Business Loop reports `WAITING_OPERATOR_ACQUISITION_GO`, starts no link seeding
+and does not open a new reporting window. Existing passive S9 SFW Growth remains
+independently GO. Historical and pre-acquisition events remain preserved and
+separate; only a future, separately authorized S10.2E action may transition B
+to C and create the activation timestamp.
+
+R3 rollback accepts only an inactive, null-baseline A or B state, resets the
+current R3 state to A and then uses the existing data-aware migration rollback.
+It refuses to rewrite an active acquisition state and never deletes historical
+analytics or baselines. The Community runtime remains inactive after rollback.
+
+R3.2 performs no server synchronization, deployment, systemd action, migration,
+Telegram, Community, BotFather or Tailscale action. The reviewed Application
+SHA remains unchanged. `S10_2D_R3_STATE_CONTRACT_READY=true` and
+`S10_2D_R3_CUTOVER_TECHNICALLY_READY=true` are source-readiness results only;
+R3 runtime and real acquisition remain separately unauthorized.

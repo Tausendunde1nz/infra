@@ -1,0 +1,54 @@
+S10.2D-R3.2 acquisition-state decoupling diagnosis
+Date: 2026-09-06
+Scope: source-only Control correction
+
+Observed conflict
+
+The R3 controller's mark-ready action used one database update to mark the
+runtime observation green, set wms_real_acquisition_ready=true and create
+real_acquisition_baseline_start. This coupled a technical acceptance result to
+the separate operator/business decision to activate real acquisition.
+
+Active contract inventory
+
+- The active controller owned the conflicting update and its status output.
+- The active manifest and SSOT described the same coupled transition.
+- The existing Application migration already supports the required intermediate
+  state: pre_acquisition_readiness=GREEN,
+  wms_real_acquisition_ready=false and real_acquisition_baseline_start=NULL.
+- No active health contract, release contract, evidence validator or growth
+  report independently inferred acquisition activation from technical
+  readiness. Historical evidence was not modified.
+
+Corrected storage mapping
+
+- WMS_REAL_ACQUISITION_TECHNICALLY_READY maps to
+  pre_acquisition_readiness=GREEN.
+- REAL_ACQUISITION_ACTIVE maps to the legacy storage field
+  wms_real_acquisition_ready=true.
+- REAL_ACQUISITION_BASELINE_START maps to
+  real_acquisition_baseline_start and is created only with a future S10.2E
+  acquisition-GO decision.
+
+Minimal correction
+
+The R3 mark-ready update changes only pre_acquisition_readiness to GREEN. It
+leaves acquisition inactive and the baseline null, reports
+WAITING_OPERATOR_ACQUISITION_GO and disables automatic link seeding. A bounded
+state-matrix guard accepts only false/false/null, true/false/null and
+true/true/timestamp. Rollback resets only an inactive, null-baseline current R3
+state and refuses an active acquisition state.
+
+Risk and rollback
+
+The material risks are an early baseline, accidental traffic activation,
+incorrect rollback and contamination of pre-acquisition reporting. The state
+guard and regression matrix fail closed for each. The source can be restored
+from the verified pre-change Git bundle. No server backup is needed because no
+server or runtime mutation is authorized or performed.
+
+Boundaries
+
+The canonical Application SHA, migration 0029, AF_INET correction, runtime
+failure taxonomy, publication rotation, moderation, latency, Telegram and all
+Adult/AVS/payment/publishing/beta/production gates remain unchanged.

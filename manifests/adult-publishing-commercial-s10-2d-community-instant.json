@@ -1,6 +1,6 @@
 {
   "version": "tu1nz-commercial-s10-2d-community-instant-v1",
-  "decision": "S10_2D_R3_CANONICAL_BINDING_READY_SOURCE_ONLY_NO_GO_RUNTIME",
+  "decision": "S10_2D_R3_STATE_CONTRACT_READY_SOURCE_ONLY_NO_GO_RUNTIME",
   "active": false,
   "application": {
     "repository": "Tausendunde1nz/adult-publishing-core",
@@ -19,9 +19,9 @@
   "control": {
     "repository": "Tausendunde1nz/infra",
     "branch": "control-main",
-    "expected_base_commit": "5a28ddfb2d2d43cdfd5c3f5353221c3f276702e1",
+    "expected_base_commit": "80f73db25a2a5eed84790d4dabe7cd59e2677209",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
-    "controller_sha256": "121f3bd2523f71ef0dbd37d9a52c341ba1ded856e778d21577d5ad1e2416541c",
+    "controller_sha256": "9b0d90fb1bce02f9299ab9ca806a50c0e6d202a8245263808747b397319d6c48",
     "rotation_unit_sha256": "ffadc2bc5834a9460c7bd9e4e5ea77e813ba7d794e1a3363359e41cb458b2a7e",
     "s8_health_sha256": "ca5d6533ec38a965e8799eb9b27dccb463b40813f86c0914ea9577336ddff710",
     "s10_health_sha256": "fa69cdb7a641e2debc1d951d95ad6ba5502183d3c7db18b046633ccc850253d2",
@@ -110,6 +110,11 @@
   },
   "business_loop": {
     "single_evidence_backed_action": true,
+    "technical_ready_inactive_state": "WAITING_OPERATOR_ACQUISITION_GO",
+    "automatic_link_seeding_before_acquisition_go": false,
+    "real_acquisition_baseline_required_for_new_reporting_window": true,
+    "pre_acquisition_events_preserved": true,
+    "automated_wms_sfw_growth_independent": true,
     "priorities": [
       "BOT_LATENCY",
       "REACH",
@@ -308,6 +313,57 @@
     "server_mutation": false,
     "r3_runtime_started": false,
     "real_acquisition_ready": false
+  },
+  "acquisition_state_contract_r3_2": {
+    "status": "GREEN_SOURCE_CONTRACT",
+    "source_only": true,
+    "control_start_commit": "80f73db25a2a5eed84790d4dabe7cd59e2677209",
+    "control_start_tree": "6fd99ef3ed3520d343370b477b82d114aa982ead",
+    "source_backup_bundle": "20260906T055353Z-control-before.bundle",
+    "source_backup_location": "LOCAL_OUTSIDE_CONTROL_WORKTREE",
+    "source_backup_sha256": "c23e8abcb8ad2a65d226db89ef1b546d8a5fef9bbe3b78ebd1421388362cdd75",
+    "application_change_required": false,
+    "database_migration_required": false,
+    "storage_mapping": {
+      "WMS_REAL_ACQUISITION_TECHNICALLY_READY": "pre_acquisition_readiness=GREEN",
+      "REAL_ACQUISITION_ACTIVE": "wms_real_acquisition_ready=true",
+      "REAL_ACQUISITION_BASELINE_START": "real_acquisition_baseline_start"
+    },
+    "valid_states": {
+      "A_PRE_CUTOVER": {
+        "technically_ready": false,
+        "real_acquisition_active": false,
+        "baseline_start": null
+      },
+      "B_R3_RUNTIME_GREEN": {
+        "technically_ready": true,
+        "real_acquisition_active": false,
+        "baseline_start": null,
+        "business_loop_state": "WAITING_OPERATOR_ACQUISITION_GO"
+      },
+      "C_S10_2E_ACQUISITION_GO": {
+        "technically_ready": true,
+        "real_acquisition_active": true,
+        "baseline_start": "ACTIVATION_TIMESTAMP"
+      }
+    },
+    "invalid_states": [
+      "TECHNICALLY_READY_FALSE_ACTIVE_TRUE",
+      "ACTIVE_TRUE_BASELINE_NULL",
+      "ACTIVE_FALSE_CURRENT_BASELINE_PRESENT"
+    ],
+    "r3_target_state": "B_R3_RUNTIME_GREEN",
+    "s10_2e_target_state": "C_S10_2E_ACQUISITION_GO",
+    "rollback_target_state": "A_PRE_CUTOVER",
+    "historical_pre_acquisition_events_preserved": true,
+    "historical_baselines_deleted": false,
+    "automatic_link_seeding": false,
+    "automated_wms_sfw_growth": "GO_INDEPENDENT",
+    "real_acquisition": false,
+    "s10_2d_r3_state_contract_ready": true,
+    "s10_2d_r3_cutover_technically_ready": true,
+    "server_mutation": false,
+    "r3_runtime_started": false
   },
   "future_media_contract": {
     "test_only": true,
