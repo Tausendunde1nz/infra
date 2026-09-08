@@ -674,19 +674,23 @@ jobs:
           python3 -m json.tool
           manifests/adult-publishing-commercial-s10-2d-community-instant.json >/dev/null
           && bash -n scripts/tu1nz_adult_public_s10_2d_control.sh
+          scripts/tu1nz_adult_public_s10_2d_backup.sh
           && python3 -m py_compile
           scripts/tu1nz_adult_public_s10_2d_health_gate.py
           scripts/tu1nz_adult_public_s10_2d_release_simulator.py
           scripts/tu1nz_adult_public_s10_2d_r7_aggregate_recovery.py
+          scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py
           tests/test_adult_commercial_s10_2d_community_instant.py
           tests/test_adult_commercial_s10_2d_r3_5_stabilization.py
           tests/test_adult_commercial_s10_2d_r4_1_health_gate.py
           tests/test_adult_commercial_s10_2d_r7_aggregate_recovery.py
+          tests/test_adult_commercial_s10_2d_r7_1_aggregate_compatibility.py
           && python3 -m unittest -v
           tests.test_adult_commercial_s10_2d_community_instant
           tests.test_adult_commercial_s10_2d_r3_5_stabilization
           tests.test_adult_commercial_s10_2d_r4_1_health_gate
           tests.test_adult_commercial_s10_2d_r7_aggregate_recovery
+          tests.test_adult_commercial_s10_2d_r7_1_aggregate_compatibility
       - name: Reject Commercial S10.2D secrets cron and diagnostic leakage
         shell: bash
         run: |
@@ -702,9 +706,15 @@ jobs:
             analysis/COMMERCIAL_S10_2D_R7_SETGID_BACKUP_PARENT_2026-09-08.diagnose
             analysis/COMMERCIAL_S10_2D_R7_RESET_FAILED_INACTIVE_UNIT_2026-09-08.diagnose
             analysis/COMMERCIAL_S10_2D_R7_HEALTH_START_SETTLE_2026-09-08.diagnose
+            analysis/COMMERCIAL_S10_2D_R7_1_HASH_BINDING_2026-09-08.diagnose
+            analysis/COMMERCIAL_S10_2D_R7_1_APPLICATION_TEST_INTERPRETER_2026-09-08.diagnose
             docs/COMMERCIAL_S10_2D_R7_AGGREGATE_RECOVERY.md
+            docs/COMMERCIAL_S10_2D_R7_1_AGGREGATE_COMPATIBILITY.md
             manifests/adult-publishing-commercial-s10-2d-r7-aggregate-recovery.json
+            manifests/adult-publishing-commercial-s10-2d-r7-1-aggregate-compatibility.json
             scripts/tu1nz_adult_public_s10_1_health.py
+            scripts/tu1nz_adult_public_s10_2d_backup.sh
+            scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py
             scripts/tu1nz_adult_public_s10_2d_control.sh
             scripts/tu1nz_adult_public_s10_2d_health_gate.py
             scripts/tu1nz_adult_public_s10_2d_release_simulator.py
@@ -718,6 +728,7 @@ jobs:
             tests/test_adult_commercial_s10_2d_r3_5_stabilization.py
             tests/test_adult_commercial_s10_2d_r4_1_health_gate.py
             tests/test_adult_commercial_s10_2d_r7_aggregate_recovery.py
+            tests/test_adult_commercial_s10_2d_r7_1_aggregate_compatibility.py
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP) PRIVATE KEY-----' -- "${files[@]}"

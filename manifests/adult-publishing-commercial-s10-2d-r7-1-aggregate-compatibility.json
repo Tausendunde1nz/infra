@@ -1,0 +1,141 @@
+{
+  "schema": "tu1nz-commercial-s10-2d-r7-1-aggregate-compatibility-v1",
+  "decision": "S10_2D_R7_1_SOURCE_CONTRACT_PENDING_CI",
+  "validation_status": "GREEN_LOCAL_PENDING_CI",
+  "source_baseline": {
+    "application_commit": "312db84d5db6d76c9d6bb448459c9404b1dfcbe4",
+    "application_tree": "ac4f8bca1fd796626742a8ef6c6afcdda482fc68",
+    "application_ci": 34057828638,
+    "safe_source_commit": "f9747088a31ec6c671e82de24e293ebdec99f717",
+    "safe_source_tree": "7defedef032f6af38bbce0165eb6c2bdec327df7",
+    "control_base_commit": "c8b8e692f172ff16a8319063c9b2546d1c43ff88",
+    "control_base_tree": "efae513d13478890814521cf3766bdd6c8a5c3ed",
+    "control_base_ci": 34248366545
+  },
+  "source_backup": {
+    "path": "backups/commercial-s10-2d-r7-1-source/20260908T171601Z",
+    "application_bundle_sha256": "5070c64753adf5483f697e87b5b672d9a8f4194bafd53b4601e713fd089fe84f",
+    "control_bundle_sha256": "3b3e6fff10ac2bc6b025e480373ba78a1e34a232e29ba4efa42a52748f13833c",
+    "bundle_verify": "GREEN"
+  },
+  "local_validation": {
+    "application_tests": "1006/1006 GREEN",
+    "application_changed": false,
+    "control_tests": "454/454 GREEN",
+    "aggregate_contract_tests": "9/9 GREEN",
+    "release_scenarios": 8,
+    "release_health_scenarios": 9,
+    "release_listener_scenarios": 9,
+    "release_aggregate_scenarios": 9,
+    "full_source_target_failure_rollback_source_chain": "GREEN",
+    "secret_and_personal_data_scan": "GREEN",
+    "postgresql": "NOT_IN_SCOPE_NO_DATABASE_CONTRACT_CHANGE",
+    "same_sha_review": "PENDING_CI"
+  },
+  "aggregate_inventory": {
+    "path": "/var/lib/tu1nz-adult-public-s9/landing-aggregates.json",
+    "format": "ASCII_JSON_COUNTER_MAP_V1",
+    "key": "date|event|source|campaign",
+    "value": "NON_NEGATIVE_INTEGER",
+    "mode": "0600",
+    "atomic_write": true,
+    "file_fsync": true,
+    "parent_fsync": true,
+    "embedded_schema_version": false,
+    "sidecar_event_schema_version": "tu1nz-s9-aggregate-events-v1"
+  },
+  "event_matrix": [
+    {"event": "LANDING_VIEW", "source_support": true, "target_support": true, "rollback_class": "SOURCE_COMPATIBLE"},
+    {"event": "TELEGRAM_CTA", "source_support": true, "target_support": true, "rollback_class": "SOURCE_COMPATIBLE"},
+    {"event": "COMMUNITY_CTA", "source_support": false, "target_support": true, "rollback_class": "TARGET_ONLY_PRODUCT"}
+  ],
+  "aggregate_contract": {
+    "version": "tu1nz-s10-2d-r7-1-aggregate-contract-v1",
+    "community_cta_class": "TARGET_ONLY_PRODUCT",
+    "target_technical_events": [],
+    "unknown_events_fail_closed": true,
+    "unknown_safe_code": "AGGREGATE_RECONCILIATION_UNKNOWN_EVENT_RED",
+    "byte_backup_mandatory": true,
+    "original_bytes_preserved": true,
+    "target_only_archive_hash_bound": true,
+    "source_projection_atomic": true,
+    "count_conservation_required": true,
+    "source_count_regression_blocked": true,
+    "idempotent_retry": true,
+    "failed_attempt_restores_original": true,
+    "database_mutation": false,
+    "personal_data": false
+  },
+  "backup_preflight": {
+    "aggregate_backup_present": true,
+    "aggregate_backup_hash_valid": true,
+    "aggregate_backup_mode_valid": true,
+    "aggregate_backup_restore_path_valid": true,
+    "failure": "CUTOVER_PREFLIGHT_RED"
+  },
+  "rollback_order": [
+    "TARGET_QUIESCE",
+    "CURRENT_AGGREGATE_BYTE_BACKUP",
+    "EVENT_CLASSIFICATION",
+    "TARGET_ONLY_ARCHIVE",
+    "SOURCE_PROJECTION",
+    "ATOMIC_INSTALL",
+    "TARGET_MIGRATION_DOWN",
+    "SOURCE_APPLICATION_RESTORE",
+    "SOURCE_AGGREGATE_READER",
+    "SOURCE_SERVICES_START",
+    "SOURCE_HEALTH"
+  ],
+  "simulator": {
+    "version": "S10_2D_R7_1_AGGREGATE_ROLLBACK_GREEN",
+    "aggregate_scenarios": 9,
+    "r7_red_reproduced": true,
+    "actual_target_writer": true,
+    "actual_source_reader": true,
+    "two_failed_attempts_restore_original": true,
+    "final_retry_idempotent": true,
+    "public_health_path_simulated": true
+  },
+  "artifact_bindings": {
+    "controller_sha256": "1fd3f211018a8ae351afbdce3eff19e3c711bf4157dfc205475d7e64c052021f",
+    "release_simulator_sha256": "025cfa56de5b633a8936a6d96219d7f18ad9fe1bf44e8f11bef1c1b37d4e4d63",
+    "aggregate_contract_sha256": "fabda225548d66ca156d8b487d400b49a3a8533ff075e0c35f68f0c49ddab16a",
+    "aggregate_backup_sha256": "c62d6551a2f09d23cdf8ae9ec1d59664d6dc0609fda82e1983f3b7ed693acabf",
+    "migration_0029_up_sha256": "66eae1c5022e5e005b278984d3b5580928fdd4133a0cfe9653e63957bb933d20",
+    "migration_0029_down_sha256": "e2421a6eb83dc4a8d5af8e2d592f6fb54e45fcf6549c4c85c517c6b5de272ad2",
+    "migration_0030_up_sha256": "9e39223ae7c129355185f2fa48723a4034bfc4a8bb987e448b0d45ac567ed58b",
+    "migration_0030_down_sha256": "a1bdec916a607e14e151c237c032d814c78f58eada41b75f16dcccb9a4ff208b",
+    "target_s8_unit_sha256": "2532fbdf50959a34024893372c2fc67996f0666e25a4d92c18122a44a48dda95",
+    "source_s8_dropin_sha256": "2eaa68ace7a2ed4259be422cb7908eb5994735691c265d20935ca4d354d9565a",
+    "target_s10_unit_sha256": "febad1e1a55e1820eceda6edc132222af8599110a5392e7d2c4fa65985f05ca1",
+    "s8_health_unit_sha256": "5f7187f776ade647bd9ba0aba9b4318470caf6627ba4df08ea5c3357eb252735",
+    "s9_health_dropin_sha256": "a92967f423cef362d18828f3a012c587f74615784ee395f1a1d81b1a8e9231bc",
+    "s10_health_unit_sha256": "608316886bf9521759bc14d60b8ba23af31e06acb244d24c7f4c557c32bb877c",
+    "health_gate_sha256": "a70491db77096892ef274cec04e793c8fd4b65d35e13c6c36649c03c6585f345"
+  },
+  "freeze": {
+    "tag": "s10-2d-r7-1-source-freeze",
+    "immutable": true,
+    "status": "PENDING_POST_MERGE"
+  },
+  "scope": {
+    "application_change": false,
+    "control_source_change": true,
+    "runtime_mutation": false,
+    "server_sync": false,
+    "systemd_action": false,
+    "nginx_action": false,
+    "telegram_action": false,
+    "database_mutation": false,
+    "community_activation": false
+  },
+  "product_boundary": {
+    "real_acquisition": false,
+    "adult_media": false,
+    "identity_or_avs": false,
+    "payments": false,
+    "external_publishing": false,
+    "controlled_beta": false,
+    "production_adult_workflow": false
+  }
+}
