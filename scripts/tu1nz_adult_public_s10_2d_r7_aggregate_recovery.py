@@ -601,6 +601,7 @@ def verify(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str,
 def _restore_original_fail_closed(recovery_dir: Path) -> None:
     for service in SERVICES:
         _systemctl("stop", service, safe_code="FAIL_CLOSED_STOP_RED")
+        require(_unit_value(service, "ActiveState") in {"inactive", "failed"}, "FAIL_CLOSED_SERVICE_ACTIVE")
     try:
         evidence = json.loads(_read_exact(recovery_dir / "evidence.json").decode("ascii"))
         original = _read_exact(recovery_dir / "landing-aggregates.original.json")
@@ -655,6 +656,10 @@ def recover(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str
         if replacement_attempted:
             _restore_original_fail_closed(recovery_dir)
         raise
+    except Exception:
+        if replacement_attempted:
+            _restore_original_fail_closed(recovery_dir)
+        raise RecoveryError("UNEXPECTED_RECOVERY_ERROR") from None
     raise RecoveryError("SOURCE_RUNTIME_NOT_SETTLED")
 
 
