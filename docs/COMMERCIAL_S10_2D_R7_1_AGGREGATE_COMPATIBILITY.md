@@ -167,3 +167,23 @@ no such execution occurs in R7.1.
 Required proof chain:
 
 `SOURCE → TARGET → FAILURE → ROLLBACK → SOURCE → PUBLIC HEALTH GREEN`
+
+## Source validation and integration
+
+- Application (unchanged): 1006/1006 tests GREEN.
+- Control: 454/454 tests GREEN.
+- Aggregate compatibility: 9/9 focused tests GREEN.
+- Full simulator: 8 release, 9 health, 9 listener, and 9 aggregate
+  scenarios GREEN.
+- Secret, private-key, PII, cron, and destructive-shortcut scans: GREEN.
+- Implementation commit: `c8343df7b0f86e91f69614ebef1d7109eba54806`.
+- Implementation tree: `326934d28f496f3feb5a4e0553a9ac0ca1444b7d`.
+- Pull request: `#142`; CI `34258300367` GREEN.
+- Same-SHA review: P1/P2 clean.
+- Merge commit: `e73c3798e43dffa35faab98a462f6a13739a98e2`.
+- Post-merge CI: `34258458476` GREEN.
+
+These source gates make the separately gated next runtime cutover technically
+ready. They do not activate it. The immutable
+`s10-2d-r7-1-source-freeze` tag is created only after the final evidence merge
+and its post-merge CI are GREEN.
