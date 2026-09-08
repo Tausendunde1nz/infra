@@ -230,6 +230,13 @@ def _systemctl(*arguments: str, safe_code: str, timeout: int = 95) -> None:
     require(completed.returncode == 0, safe_code)
 
 
+def _reset_failed_if_needed(unit: str, *, safe_code: str) -> None:
+    """Reset systemd failure state only when the unit is actually failed."""
+
+    if _unit_value(unit, "ActiveState") == "failed":
+        _systemctl("reset-failed", unit, safe_code=safe_code)
+
+
 def _regular_metadata(path: Path, *, expected_uid: int | None = None) -> os.stat_result:
     require(path.is_absolute() and not path.is_symlink(), "PATH_UNSAFE")
     try:
@@ -702,12 +709,12 @@ def recover(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str
         current = _read_exact(AGGREGATE_PATH)
         require(sha256_bytes(current) == evidence["source_sha256"], "RECOVERED_AGGREGATE_HASH_RED")
         for service in SERVICES:
-            _systemctl("reset-failed", service, safe_code="SERVICE_RESET_RED")
+            _reset_failed_if_needed(service, safe_code="SERVICE_RESET_RED")
             _systemctl("start", service, safe_code="SOURCE_SERVICE_START_RED")
         for timer in TIMERS:
             _systemctl("start", timer, safe_code="TIMER_START_RED")
         for service in HEALTH_SERVICES:
-            _systemctl("reset-failed", service, safe_code="HEALTH_SERVICE_RESET_RED")
+            _reset_failed_if_needed(service, safe_code="HEALTH_SERVICE_RESET_RED")
             _systemctl("start", service, safe_code="HEALTH_SERVICE_START_RED")
         last_error = "SOURCE_RUNTIME_NOT_SETTLED"
         for attempt in range(60):
