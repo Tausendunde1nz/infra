@@ -46,7 +46,8 @@ Success requires source Application and Control to remain exact and clean,
 the recovered baseline hash to match its backup, the live aggregate to contain
 only source-supported events without count regression, all S7/S8/S10/nginx
 services active with zero restarts, every S9/S10 timer enabled with a future
-run, internal and public health `ok=true`, public SFW pages HTTP 200, the German
+run, the S8/S9/S10 health guards successful, internal and public health
+`ok=true` with the exact SFW brand/mode, public SFW pages HTTP 200, the German
 domain HTTP 308, and all Adult/AVS/payment/publishing/beta/production boundaries
 closed.
 

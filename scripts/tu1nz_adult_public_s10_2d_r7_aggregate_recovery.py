@@ -56,6 +56,11 @@ TIMERS = (
     "tu1nz-adult-public-s9-health.timer",
     "tu1nz-adult-public-s10-health.timer",
 )
+HEALTH_SERVICES = (
+    "tu1nz-adult-public-s8-health.service",
+    "tu1nz-adult-public-s9-health.service",
+    "tu1nz-adult-public-s10-health.service",
+)
 ADULT_RUNTIMES = (
     "tu1nz-adult-commercial-s0.service",
     "tu1nz-adult-commercial-s3.service",
@@ -516,9 +521,13 @@ def _verify_runtime_green() -> None:
         require(_unit_value(timer, "SubState") == "waiting" and _timer_has_future(timer), "TIMER_NO_FUTURE_RUN")
     for service in ADULT_RUNTIMES:
         require(_unit_value(service, "ActiveState") in {"", "inactive", "failed"}, "ADULT_RUNTIME_OPEN")
+    for service in HEALTH_SERVICES:
+        require(_unit_value(service, "Result") == "success", "HEALTH_SERVICE_RESULT_RED")
+        require(_unit_value(service, "ExecMainStatus") == "0", "HEALTH_SERVICE_STATUS_RED")
     for url in HEALTH_URLS:
         health = _http_json(url)
         require(health.get("ok") is True, "HEALTH_NOT_OK")
+        require(health.get("brand") == "Want Me Seen" and health.get("mode") == "SFW_PUBLIC_EARLY_ACCESS", "HEALTH_IDENTITY_RED")
         require(all(health.get(key) is False for key in BOUNDARY_KEYS), "PRODUCT_BOUNDARY_RED")
     for url in PUBLIC_PAGES:
         require(_http_status(url) == 200, "PUBLIC_PAGE_RED")
@@ -629,6 +638,9 @@ def recover(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str
             _systemctl("start", service, safe_code="SOURCE_SERVICE_START_RED")
         for timer in TIMERS:
             _systemctl("start", timer, safe_code="TIMER_START_RED")
+        for service in HEALTH_SERVICES:
+            _systemctl("reset-failed", service, safe_code="HEALTH_SERVICE_RESET_RED")
+            _systemctl("start", service, safe_code="HEALTH_SERVICE_START_RED")
         last_error = "SOURCE_RUNTIME_NOT_SETTLED"
         for attempt in range(60):
             try:

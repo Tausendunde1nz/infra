@@ -51,6 +51,7 @@
     "forward_aggregate_quarantined_not_deleted": true,
     "s7_s8_s10_nginx_active_zero_restarts": true,
     "s9_s10_timers_future_runs": true,
+    "s8_s9_s10_health_guards_successful": true,
     "public_pages_http_200": true,
     "german_redirect_http_308": true,
     "health_ok": true
