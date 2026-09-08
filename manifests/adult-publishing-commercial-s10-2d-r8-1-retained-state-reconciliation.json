@@ -64,6 +64,15 @@
     "release_simulator_sha256": "6b0d58c02a3506a7a3819c75e66e66600f8eda112c87adc2d585e318a239b682",
     "state_reconciler_sha256": "fc21228ee49aa5ae9035326a20d8d61e871a6191206c29ed92fca9c8222d6ee7"
   },
+  "source_integration": {
+    "pull_request": 144,
+    "reviewed_head_commit": "d913cb1b40a2746ba427899dc2e6b773988bf6f7",
+    "reviewed_head_tree": "7639b15ec59f1178c05e3be8acde6bdb7ec7a8c7",
+    "pull_request_ci": 34271364158,
+    "merge_commit": "e6dac22c4fa4f6802ebcda66f8ed2b3dc85b5326",
+    "merge_tree": "7639b15ec59f1178c05e3be8acde6bdb7ec7a8c7",
+    "post_merge_ci": 34271482838
+  },
   "expected_live_pre_state": {
     "release_id": "s10-2d-r3-5",
     "run_id_sha256": "6c2af59919f79ce39c99efa6b3a8de9c318d1e259f3bf383710692daa78bf7d9",
@@ -96,12 +105,12 @@
     "repeated_reconciliation": "GREEN",
     "source_tests": "467/467 GREEN",
     "secret_and_personal_data_scan": "GREEN",
-    "same_sha_review": "PENDING",
-    "post_merge_ci": "PENDING"
+    "same_sha_review": "P1/P2 CLEAN",
+    "post_merge_ci": "34271482838 GREEN"
   },
   "freeze": {
     "tag": "s10-2d-r8-1-state-reconciliation-freeze",
-    "status": "PENDING_POST_MERGE_CI"
+    "status": "FINALIZED_BY_TAG_AFTER_EVIDENCE_POST_MERGE_CI"
   },
-  "decision": "SOURCE_IMPLEMENTATION_READY_FOR_COMMIT"
+  "decision": "SOURCE_GREEN_LIVE_RECONCILIATION_NOT_STARTED"
 }
