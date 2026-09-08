@@ -1,0 +1,8 @@
+scope=R8.1 local Control regression
+status=RESOLVED
+failure=the host default Python runtime did not include the Application test dependency set
+cause=the release tests share the canonical Application virtual environment
+remediation=reran the suite with the unchanged Application dependency runtime used by the release contract
+validation=full Control suite GREEN
+runtime_mutation=false
+personal_data=false

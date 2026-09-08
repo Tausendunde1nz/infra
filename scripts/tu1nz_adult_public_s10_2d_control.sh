@@ -11,6 +11,7 @@ readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
 readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_backup.sh"
 readonly HEALTH_GATE_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_health_gate.py"
 readonly AGGREGATE_CONTRACT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py"
+readonly STATE_RECONCILER="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_state_reconcile.py"
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
@@ -443,6 +444,11 @@ require_source_aggregate_readable() {
     >/dev/null || fail "SOURCE_AGGREGATE_READER_RED"
 }
 
+require_retained_state_preflight() {
+  "$STATE_RECONCILER" preflight --database "$DATABASE" >/dev/null \
+    || fail "RETAINED_STATE_PREFLIGHT_RED"
+}
+
 migration_state() {
   database_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='commercial_s10_2d_runtime_control';"
 }
@@ -865,7 +871,7 @@ verify_target() {
     "$APPLICATION_POST_MERGE_CI" "$COMMUNITY" "$CHANNEL"
 }
 
-preflight() {
+preflight_baseline() {
   require_root
   require_control "$1" "$2"
   require_paths_unshared
@@ -885,11 +891,23 @@ preflight() {
       [ "$(database_scalar "SELECT CASE WHEN count(*)=0 OR (count(*)=2 AND count(*) FILTER (WHERE bot_response_latency_ms=300000)=2) THEN 1 ELSE 0 END FROM commercial_s10_2d_latency_samples;")" = "1" ] \
         || fail "MIGRATION_0029_RETAINED_EVIDENCE_UNKNOWN"
       ;;
+    1:1)
+      require_acquisition_state_contract
+      require_retained_state_preflight
+      ;;
     *) fail "MIGRATION_BASELINE_UNEXPECTED" ;;
   esac
   fetch_target
-  target_group_capability_verify || fail "TARGET_BOT_GROUP_CAPABILITY_RED"
-  target_community_verify || fail "COMMUNITY_OPERATOR_PREFLIGHT_RED"
+}
+
+state_preflight() {
+  preflight_baseline "$1" "$2"
+  printf '{"ok":true,"safe_code":"S10_2D_R8_STATE_PREFLIGHT_GREEN","application_ci":%s,"community_runtime":false,"real_acquisition":false,"adult_media":false,"avs":false,"payments":false,"publishing":false}\n' \
+    "$APPLICATION_POST_MERGE_CI"
+}
+
+preflight() {
+  preflight_baseline "$1" "$2"
   require_backup "$1" "$2" "$3"
   printf '{"ok":true,"safe_code":"S10_2D_PREFLIGHT_GREEN","application_ci":%s,"community":"%s","adult_media":false,"avs":false,"payments":false,"publishing":false}\n' \
     "$APPLICATION_POST_MERGE_CI" "$COMMUNITY"
@@ -920,6 +938,8 @@ deploy() {
   local before after
   require_root
   preflight "$1" "$2" "$3" >/dev/null
+  target_group_capability_verify || fail "TARGET_BOT_GROUP_CAPABILITY_RED"
+  target_community_verify || fail "COMMUNITY_OPERATOR_PREFLIGHT_RED"
   before="$(database_floor)"
   if ! (
     quiesce
@@ -976,6 +996,7 @@ mark_ready() {
 }
 
 case "${1:-}" in
+  state-preflight) [ "$#" -eq 3 ] || fail "USAGE"; state_preflight "$2" "$3" ;;
   preflight) [ "$#" -eq 4 ] || fail "USAGE"; preflight "$2" "$3" "$4" ;;
   deploy) [ "$#" -eq 4 ] || fail "USAGE"; deploy "$2" "$3" "$4" ;;
   verify) [ "$#" -eq 3 ] || fail "USAGE"; verify_target "$2" "$3" ;;

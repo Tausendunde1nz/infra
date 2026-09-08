@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2d-community-instant.json"
+R8_1_MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2d-r8-1-retained-state-reconciliation.json"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s10_2d_control.sh"
 S8_HEALTH = ROOT / "scripts/tu1nz_adult_public_s8_health.py"
 S10_HEALTH = ROOT / "scripts/tu1nz_adult_public_s10_1_health.py"
@@ -166,7 +167,8 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
 
     def test_all_new_control_material_is_hash_bound_and_syntax_valid(self) -> None:
         control = self.manifest["control"]
-        self.assertEqual(hashlib.sha256(CONTROLLER.read_bytes()).hexdigest(), control["controller_sha256"])
+        current = json.loads(R8_1_MANIFEST.read_text(encoding="utf-8"))["artifact_bindings"]
+        self.assertEqual(hashlib.sha256(CONTROLLER.read_bytes()).hexdigest(), current["controller_sha256"])
         self.assertEqual(hashlib.sha256(S8_UNIT.read_bytes()).hexdigest(), control["target_s8_unit_sha256"])
         self.assertEqual(
             hashlib.sha256(S8_SOURCE_DROPIN.read_bytes()).hexdigest(),
@@ -176,10 +178,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(S8_HEALTH.read_bytes()).hexdigest(), control["s8_health_sha256"])
         self.assertEqual(hashlib.sha256(S10_HEALTH.read_bytes()).hexdigest(), control["s10_health_sha256"])
         self.assertEqual(hashlib.sha256(HEALTH_GATE.read_bytes()).hexdigest(), control["health_gate_sha256"])
-        self.assertEqual(
-            hashlib.sha256(RELEASE_SIMULATOR.read_bytes()).hexdigest(),
-            control["release_simulator_sha256"],
-        )
+        self.assertEqual(hashlib.sha256(RELEASE_SIMULATOR.read_bytes()).hexdigest(), current["release_simulator_sha256"])
         self.assertEqual(
             hashlib.sha256(S9_HEALTH_DROPIN.read_bytes()).hexdigest(),
             control["s9_health_dropin_sha256"],
@@ -299,7 +298,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertLess(deploy.index("preflight"), deploy.index("quiesce"))
         preflight = self.controller.split("preflight() {", 1)[1].split("rollback() {", 1)[0]
         self.assertIn("require_backup", preflight)
-        self.assertLess(preflight.index("target_group_capability_verify"), preflight.index("target_community_verify"))
+        self.assertNotIn("target_group_capability_verify", preflight)
+        self.assertLess(deploy.index("target_group_capability_verify"), deploy.index("target_community_verify"))
+        self.assertLess(deploy.index("target_community_verify"), deploy.index("quiesce"))
         self.assertLess(deploy.index("configure_current_bot_profile"), deploy.index("apply_migration"))
         self.assertLess(deploy.index("apply_migration"), deploy.index("start_target"))
         self.assertLess(deploy.index("verify_target"), deploy.index("run_rotation"))
@@ -485,7 +486,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
             '"health_starts_poller_dies"',
             '"source_process_not_relinquished"',
             '"rollback_source_listener_restored"',
-            "S10_2D_R6_1_RELEASE_SIMULATOR_GREEN",
+            "S10_2D_R8_1_RELEASE_SIMULATOR_GREEN",
             "HEALTH_GATE_S8_RUNTIME_POLLER_NOT_READY",
         ):
             self.assertIn(value, simulator)

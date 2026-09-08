@@ -161,7 +161,7 @@ class CommercialS102DR41HealthGateTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         report = json.loads(completed.stdout)
-        self.assertEqual(report["safe_code"], "S10_2D_R6_1_RELEASE_SIMULATOR_GREEN")
+        self.assertEqual(report["safe_code"], "S10_2D_R8_1_RELEASE_SIMULATOR_GREEN")
         self.assertTrue(report["production_health_gate_shared"])
         self.assertTrue(report["production_wms_listener_shared"])
         self.assertEqual(report["health_listener_owner"], "S10_WMS_RUNTIME")

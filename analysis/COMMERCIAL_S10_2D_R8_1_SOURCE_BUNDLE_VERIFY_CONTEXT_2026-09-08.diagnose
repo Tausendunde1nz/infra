@@ -1,0 +1,8 @@
+scope=R8.1 source backup
+status=RESOLVED
+failure=git bundle verify was initially invoked outside a repository context
+cause=the bundle verifier requires an object database even for a complete bundle
+remediation=reran verification with the matching Application and Control repositories as explicit contexts
+result=both bundles verified complete; SHA-256 recorded outside Git
+runtime_mutation=false
+personal_data=false
