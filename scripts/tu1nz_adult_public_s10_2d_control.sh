@@ -8,8 +8,9 @@ readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly TOKEN_PATH="/etc/tu1nz/adult-commercial-s10-2b-telegram.token"
 readonly DATABASE_DSN_PATH="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
-readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_backup.sh"
+readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_backup.sh"
 readonly HEALTH_GATE_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_health_gate.py"
+readonly AGGREGATE_CONTRACT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py"
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
@@ -422,6 +423,26 @@ require_backup() {
   [ "$(sed -n '2p' "$3/control-provenance.txt")" = "$2" ] || fail "BACKUP_CONTROL_TREE_MISMATCH"
 }
 
+reconcile_aggregate_for_source() {
+  local backup="$1" report
+  if ! report="$("$AGGREGATE_CONTRACT" reconcile \
+    --backup-dir "$backup" \
+    --release-id "$TARGET_RELEASE_ID" \
+    --run-id "$(basename "$backup")")"; then
+    printf '%s\n' "$report" >&2
+    fail "AGGREGATE_RECONCILIATION_RED"
+  fi
+}
+
+require_source_aggregate_readable() {
+  "$AGGREGATE_CONTRACT" verify-source >/dev/null \
+    || fail "SOURCE_AGGREGATE_CONTRACT_RED"
+  runuser -u chatops -- env PYTHONPATH="$APPLICATION_ROOT/src" \
+    "$APPLICATION_ROOT/.venv/bin/python" -c \
+    'from pathlib import Path; from tu1nz_growth_s9.counter import AggregateCounter; AggregateCounter(Path("/var/lib/tu1nz-adult-public-s9/landing-aggregates.json")).snapshot()' \
+    >/dev/null || fail "SOURCE_AGGREGATE_READER_RED"
+}
+
 migration_state() {
   database_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='commercial_s10_2d_runtime_control';"
 }
@@ -819,6 +840,7 @@ require_source_green() {
   require_source_configuration
   require_source_control
   require_source_pid1_contract
+  require_source_aggregate_readable
   require_system_green
 }
 
@@ -878,9 +900,11 @@ rollback() {
   require_control "$1" "$2"
   require_backup "$1" "$2" "$3"
   quiesce
+  reconcile_aggregate_for_source "$3"
   reset_r3_acquisition_state
   rollback_migration_if_unused
   restore_technical_state "$3"
+  require_source_aggregate_readable
   if ! restore_source_bot_profile; then
     systemctl stop "$S8_SERVICE" >/dev/null || true
     fail "SOURCE_BOTFATHER_GROUPS_OPERATOR_REQUIRED"

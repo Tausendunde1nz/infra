@@ -58,6 +58,8 @@
 !scripts/tu1nz_adult_public_s9_health.py
 !scripts/tu1nz_adult_public_s10_2_control.sh
 !scripts/tu1nz_adult_public_s10_2d_control.sh
+!scripts/tu1nz_adult_public_s10_2d_backup.sh
+!scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -134,6 +136,7 @@
 !manifests/adult-publishing-commercial-s10-2-product-growth.json
 !manifests/adult-publishing-commercial-s10-2d-community-instant.json
 !manifests/adult-publishing-commercial-s10-2d-r7-aggregate-recovery.json
+!manifests/adult-publishing-commercial-s10-2d-r7-1-aggregate-compatibility.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -185,6 +188,7 @@
 !tests/test_adult_commercial_s10_2_product_growth.py
 !tests/test_adult_commercial_s10_2d_community_instant.py
 !tests/test_adult_commercial_s10_2d_r7_aggregate_recovery.py
+!tests/test_adult_commercial_s10_2d_r7_1_aggregate_compatibility.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -283,5 +287,7 @@
 !analysis/COMMERCIAL_S10_2D_R7_SETGID_BACKUP_PARENT_2026-09-08.diagnose
 !analysis/COMMERCIAL_S10_2D_R7_RESET_FAILED_INACTIVE_UNIT_2026-09-08.diagnose
 !analysis/COMMERCIAL_S10_2D_R7_HEALTH_START_SETTLE_2026-09-08.diagnose
+!analysis/COMMERCIAL_S10_2D_R7_1_HASH_BINDING_2026-09-08.diagnose
+!analysis/COMMERCIAL_S10_2D_R7_1_APPLICATION_TEST_INTERPRETER_2026-09-08.diagnose
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh
 !scripts/tu1nz_adult_public_s10_2d_r7_aggregate_recovery.py

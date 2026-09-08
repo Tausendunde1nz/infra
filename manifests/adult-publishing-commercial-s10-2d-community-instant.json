@@ -25,7 +25,7 @@
     "expected_base_commit": "d36a6e7a52ed88e55235b3a3ab1a1564ecc729f9",
     "expected_base_tree": "4d5689256fdf6aa9094f957041a47a1489d916da",
     "controller": "scripts/tu1nz_adult_public_s10_2d_control.sh",
-    "controller_sha256": "de758e698cca876be1408b2a77aae2679e1a0850bc9aa35076e45ce862faada2",
+    "controller_sha256": "1fd3f211018a8ae351afbdce3eff19e3c711bf4157dfc205475d7e64c052021f",
     "target_s8_unit_sha256": "2532fbdf50959a34024893372c2fc67996f0666e25a4d92c18122a44a48dda95",
     "source_s8_dropin_sha256": "2eaa68ace7a2ed4259be422cb7908eb5994735691c265d20935ca4d354d9565a",
     "rotation_unit_sha256": "ffadc2bc5834a9460c7bd9e4e5ea77e813ba7d794e1a3363359e41cb458b2a7e",
@@ -35,7 +35,7 @@
     "s10_health_unit_sha256": "608316886bf9521759bc14d60b8ba23af31e06acb244d24c7f4c557c32bb877c",
     "s10_wms_unit_sha256": "febad1e1a55e1820eceda6edc132222af8599110a5392e7d2c4fa65985f05ca1",
     "health_gate_sha256": "a70491db77096892ef274cec04e793c8fd4b65d35e13c6c36649c03c6585f345",
-    "release_simulator_sha256": "3a2e1ef7ea9439763098999abf78df8d29675a62a69610aae585551f2c0ab841",
+    "release_simulator_sha256": "025cfa56de5b633a8936a6d96219d7f18ad9fe1bf44e8f11bef1c1b37d4e4d63",
     "exact_post_merge_commit_and_tree_required": true
   },
   "operator_checkpoint": {

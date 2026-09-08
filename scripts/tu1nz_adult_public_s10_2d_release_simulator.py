@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import importlib.util
 import json
 import os
@@ -534,6 +535,345 @@ def _scenario(name: str, operation) -> dict[str, object]:
     return {"name": name, "ok": True, "safe_code": "SIMULATED_GREEN"}
 
 
+def _baseline_aggregate() -> dict[str, int]:
+    payload: dict[str, int] = {}
+    for index in range(37):
+        event = "LANDING_VIEW" if index < 19 else "TELEGRAM_CTA"
+        payload[f"2026-09-07|{event}|source{index:02d}|campaign{index:02d}"] = 1
+    last = next(reversed(payload))
+    payload[last] += 6732 - sum(payload.values())
+    return payload
+
+
+def _write_aggregate(path: Path, payload: dict[str, int] | bytes) -> None:
+    material = payload if isinstance(payload, bytes) else json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    ).encode("ascii")
+    path.write_bytes(material)
+    path.chmod(0o600)
+
+
+def _source_counter_module(application_root: Path, directory: Path) -> ModuleType:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(application_root),
+            "show",
+            "f9747088a31ec6c671e82de24e293ebdec99f717:src/tu1nz_growth_s9/counter.py",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise SimulationError("SIMULATOR_SOURCE_COUNTER_BINDING_RED")
+    source_path = directory / "source_counter.py"
+    source_path.write_bytes(completed.stdout)
+    return _load_module(source_path, f"tu1nz_source_counter_{id(directory)}")
+
+
+def _aggregate_scenarios(application_root: Path, control_root: Path) -> list[dict[str, object]]:
+    aggregate_contract = _load_module(
+        control_root / "scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py",
+        "tu1nz_s10_2d_aggregate_contract_simulator",
+    )
+    target_counter = _load_module(
+        application_root / "src/tu1nz_growth_s9/counter.py",
+        "tu1nz_target_counter_simulator",
+    )
+    reports: list[dict[str, object]] = []
+
+    def case(name: str, operation) -> None:
+        try:
+            operation()
+        except SimulationError:
+            raise
+        except Exception as error:
+            candidate = str(error)
+            safe = candidate if candidate.isupper() and " " not in candidate else "AGGREGATE_SCENARIO_RED"
+            raise SimulationError(safe) from None
+        reports.append({"name": name, "ok": True, "safe_code": "AGGREGATE_SCENARIO_GREEN"})
+
+    def prepare(directory: Path) -> tuple[Path, Path, str]:
+        aggregate = directory / "landing-aggregates.json"
+        backup = directory / "backup"
+        backup.mkdir(mode=0o700)
+        _write_aggregate(aggregate, _baseline_aggregate())
+        run_id = "20260908T000000Z-pre-s10-2d-community"
+        aggregate_contract.create_backup(
+            aggregate,
+            backup,
+            target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+            run_id=run_id,
+        )
+        return aggregate, backup, run_id
+
+    def exact_r7() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-exact-") as temporary:
+            directory = Path(temporary)
+            source_counter = _source_counter_module(application_root, directory)
+            if frozenset(source_counter.AggregateCounter.EVENTS) != aggregate_contract.SOURCE_EVENTS:
+                raise SimulationError("SIMULATOR_SOURCE_EVENT_SET_RED")
+            if frozenset(target_counter.AggregateCounter.EVENTS) != aggregate_contract.KNOWN_EVENTS:
+                raise SimulationError("SIMULATOR_TARGET_EVENT_SET_RED")
+            aggregate, backup, run_id = prepare(directory)
+            source_counter.AggregateCounter(aggregate).snapshot()
+            port = _isolated_port()
+            target_runtime = RealWMSHealthRuntime(
+                application_root,
+                port=port,
+                release_id="s10-2d-r3-5",
+                community=True,
+            )
+            try:
+                target_runtime.validate(target_runtime.start(), "s10-2d-r3-5")
+                writer = target_counter.AggregateCounter(aggregate)
+                writer.record(
+                    "COMMUNITY_CTA",
+                    "community",
+                    "s10_wms_launch",
+                    dt.datetime(2026, 9, 8, tzinfo=dt.timezone.utc),
+                )
+                red_reproduced = False
+                try:
+                    source_counter.AggregateCounter(aggregate)
+                except ValueError as error:
+                    red_reproduced = str(error) == "S9_AGGREGATE_STATE_INVALID"
+                if not red_reproduced:
+                    raise SimulationError("R7_RED_NOT_REPRODUCED")
+            finally:
+                target_runtime.stop()
+            result = aggregate_contract.reconcile_for_source(
+                aggregate,
+                backup,
+                target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                run_id=run_id,
+            )
+            source = source_counter.AggregateCounter(aggregate).snapshot()
+            if not result["target_only_archived"] or len(source) != 37 or sum(source.values()) != 6732:
+                raise SimulationError("R7_SOURCE_PROJECTION_RED")
+            source_runtime = RealWMSHealthRuntime(
+                application_root,
+                port=port,
+                release_id=None,
+                community=False,
+            )
+            try:
+                source_health = source_runtime.start()
+                if (
+                    source_health.get("ok") is not True
+                    or source_health.get("runtime_release_id") != "source"
+                    or source_health.get("runtime_contract") != "SOURCE"
+                    or source_health.get("community") is not False
+                ):
+                    raise SimulationError("R7_SOURCE_PUBLIC_HEALTH_RED")
+            finally:
+                source_runtime.stop()
+
+    case("source_target_community_failure_rollback_source_health", exact_r7)
+
+    def multiple_target_and_source_events() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-multiple-") as temporary:
+            directory = Path(temporary)
+            source_counter = _source_counter_module(application_root, directory)
+            aggregate, backup, run_id = prepare(directory)
+            writer = target_counter.AggregateCounter(aggregate)
+            now = dt.datetime(2026, 9, 8, tzinfo=dt.timezone.utc)
+            for event in ("COMMUNITY_CTA", "COMMUNITY_CTA", "LANDING_VIEW", "TELEGRAM_CTA"):
+                writer.record(event, "recovery", "simulator", now)
+            aggregate_contract.reconcile_for_source(
+                aggregate,
+                backup,
+                target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                run_id=run_id,
+            )
+            source = source_counter.AggregateCounter(aggregate).snapshot()
+            if any("|COMMUNITY_CTA|" in key for key in source) or sum(source.values()) != 6734:
+                raise SimulationError("AGGREGATE_MULTIPLE_TARGET_EVENT_RED")
+
+    case("multiple_community_and_source_events", multiple_target_and_source_events)
+
+    def no_target_event() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-no-target-") as temporary:
+            directory = Path(temporary)
+            source_counter = _source_counter_module(application_root, directory)
+            aggregate, backup, run_id = prepare(directory)
+            result = aggregate_contract.reconcile_for_source(
+                aggregate,
+                backup,
+                target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                run_id=run_id,
+            )
+            source_counter.AggregateCounter(aggregate).snapshot()
+            if result["target_only_total"] != 0:
+                raise SimulationError("AGGREGATE_EMPTY_TARGET_ARCHIVE_RED")
+
+    case("target_fails_before_aggregate_write", no_target_event)
+
+    def unknown_event() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-unknown-") as temporary:
+            directory = Path(temporary)
+            aggregate, backup, run_id = prepare(directory)
+            payload = _baseline_aggregate()
+            payload["2026-09-08|UNBOUND_EVENT|source|campaign"] = 1
+            _write_aggregate(aggregate, payload)
+            original = aggregate.read_bytes()
+            try:
+                aggregate_contract.reconcile_for_source(
+                    aggregate,
+                    backup,
+                    target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                    run_id=run_id,
+                )
+            except aggregate_contract.AggregateContractError as error:
+                if str(error) != "AGGREGATE_RECONCILIATION_UNKNOWN_EVENT_RED":
+                    raise
+            else:
+                raise SimulationError("AGGREGATE_UNKNOWN_EVENT_FALSE_GREEN")
+            archived = backup / aggregate_contract.RECONCILIATION_DIRECTORY / aggregate_contract.CURRENT_BYTES
+            if aggregate.read_bytes() != original or archived.read_bytes() != original:
+                raise SimulationError("AGGREGATE_UNKNOWN_EVENT_ORIGINAL_RED")
+
+    case("unknown_event_fails_closed", unknown_event)
+
+    def malformed_event_file() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-malformed-") as temporary:
+            directory = Path(temporary)
+            aggregate, backup, run_id = prepare(directory)
+            _write_aggregate(aggregate, b'{"incomplete":')
+            original = aggregate.read_bytes()
+            try:
+                aggregate_contract.reconcile_for_source(
+                    aggregate,
+                    backup,
+                    target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                    run_id=run_id,
+                )
+            except aggregate_contract.AggregateContractError as error:
+                if str(error) != "AGGREGATE_JSON_RED":
+                    raise
+            else:
+                raise SimulationError("AGGREGATE_MALFORMED_FALSE_GREEN")
+            if aggregate.read_bytes() != original:
+                raise SimulationError("AGGREGATE_MALFORMED_ORIGINAL_RED")
+
+    case("malformed_incomplete_file_fails_closed", malformed_event_file)
+
+    def backup_checksum_mismatch() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-checksum-") as temporary:
+            directory = Path(temporary)
+            aggregate, backup, run_id = prepare(directory)
+            before = aggregate.read_bytes()
+            (backup / aggregate_contract.BACKUP_BYTES).write_bytes(b"{}")
+            (backup / aggregate_contract.BACKUP_BYTES).chmod(0o600)
+            try:
+                aggregate_contract.verify_backup(
+                    aggregate,
+                    backup,
+                    target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                    run_id=run_id,
+                )
+            except aggregate_contract.AggregateContractError as error:
+                if str(error) != "AGGREGATE_BACKUP_HASH_RED":
+                    raise
+            else:
+                raise SimulationError("AGGREGATE_CHECKSUM_FALSE_GREEN")
+            if aggregate.read_bytes() != before:
+                raise SimulationError("AGGREGATE_CHECKSUM_LIVE_MUTATION_RED")
+
+    case("backup_checksum_mismatch_fails_preflight", backup_checksum_mismatch)
+
+    def two_failures_then_idempotent_success() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-idempotent-") as temporary:
+            directory = Path(temporary)
+            source_counter = _source_counter_module(application_root, directory)
+            aggregate, backup, run_id = prepare(directory)
+            target_counter.AggregateCounter(aggregate).record(
+                "COMMUNITY_CTA",
+                "community",
+                "s10_wms_launch",
+                dt.datetime(2026, 9, 8, tzinfo=dt.timezone.utc),
+            )
+            target_bytes = aggregate.read_bytes()
+
+            def injected_failure() -> None:
+                raise aggregate_contract.AggregateContractError("SIMULATED_POST_REPLACE_RED")
+
+            for _ in range(2):
+                try:
+                    aggregate_contract.reconcile_for_source(
+                        aggregate,
+                        backup,
+                        target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                        run_id=run_id,
+                        after_replace=injected_failure,
+                    )
+                except aggregate_contract.AggregateContractError as error:
+                    if str(error) != "SIMULATED_POST_REPLACE_RED":
+                        raise
+                else:
+                    raise SimulationError("AGGREGATE_INJECTED_FAILURE_FALSE_GREEN")
+                if aggregate.read_bytes() != target_bytes:
+                    raise SimulationError("AGGREGATE_FAILED_ATTEMPT_RESTORE_RED")
+            aggregate_contract.reconcile_for_source(
+                aggregate,
+                backup,
+                target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                run_id=run_id,
+            )
+            repeated = aggregate_contract.reconcile_for_source(
+                aggregate,
+                backup,
+                target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                run_id=run_id,
+            )
+            source_counter.AggregateCounter(aggregate).snapshot()
+            archived = list((backup / aggregate_contract.RECONCILIATION_DIRECTORY).glob(aggregate_contract.CURRENT_BYTES))
+            if not repeated["idempotent"] or len(archived) != 1:
+                raise SimulationError("AGGREGATE_IDEMPOTENCY_RED")
+
+    case("two_failed_recoveries_then_idempotent_success", two_failures_then_idempotent_success)
+
+    def source_count_regression() -> None:
+        with tempfile.TemporaryDirectory(prefix="tu1nz-r7-1-count-") as temporary:
+            directory = Path(temporary)
+            aggregate, backup, run_id = prepare(directory)
+            payload = _baseline_aggregate()
+            first = next(iter(payload))
+            payload[first] = 0
+            _write_aggregate(aggregate, payload)
+            original = aggregate.read_bytes()
+            try:
+                aggregate_contract.reconcile_for_source(
+                    aggregate,
+                    backup,
+                    target_release_id=aggregate_contract.TARGET_RELEASE_ID,
+                    run_id=run_id,
+                )
+            except aggregate_contract.AggregateContractError as error:
+                if str(error) != "AGGREGATE_SOURCE_COUNT_REGRESSION_RED":
+                    raise
+            else:
+                raise SimulationError("AGGREGATE_COUNT_REGRESSION_FALSE_GREEN")
+            if aggregate.read_bytes() != original:
+                raise SimulationError("AGGREGATE_COUNT_REGRESSION_MUTATED")
+
+    case("source_count_regression_fails_closed", source_count_regression)
+
+    if aggregate_contract.TARGET_TECHNICAL_EVENTS:
+        raise SimulationError("AGGREGATE_TARGET_TECHNICAL_EVENT_UNCLASSIFIED")
+    reports.append(
+        {
+            "name": "target_technical_event_set_explicitly_empty",
+            "ok": True,
+            "safe_code": "AGGREGATE_SCENARIO_GREEN",
+        }
+    )
+    if len(reports) != 9 or any(not report["ok"] for report in reports):
+        raise SimulationError("AGGREGATE_SCENARIO_SET_RED")
+    return reports
+
+
 def _health_case(
     health_gate: ModuleType,
     control_root: Path,
@@ -586,7 +926,21 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
         "require_target_wms_listener",
         "require_target_s8_poller",
         "S8_POLLER_NOT_READY",
+        "tu1nz_adult_public_s10_2d_backup.sh",
+        "tu1nz_adult_public_s10_2d_aggregate_contract.py",
+        "reconcile_aggregate_for_source",
+        "require_source_aggregate_readable",
     )
+    rollback_contract = controller.split("rollback() {", 1)[1].split("deploy() {", 1)[0]
+    if not (
+        rollback_contract.index("quiesce")
+        < rollback_contract.index("reconcile_aggregate_for_source")
+        < rollback_contract.index("rollback_migration_if_unused")
+        < rollback_contract.index("restore_technical_state")
+        < rollback_contract.index("systemctl start")
+        < rollback_contract.index("require_source_green")
+    ):
+        raise SimulationError("SIMULATOR_AGGREGATE_ROLLBACK_ORDER_RED")
     _require(target_unit, "--community-contract", "--runtime-release-id s10-2d-r3-5")
     _require(wms_unit, "--community-contract", "--runtime-release-id s10-2d-r3-5")
     _require(
@@ -631,6 +985,10 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
     listener_cases = _listener_scenarios(application_root, "s10-2d-r3-5")
     if len(listener_cases) != 9 or any(not case["ok"] for case in listener_cases):
         raise SimulationError("SIMULATOR_LISTENER_SCENARIO_RED")
+
+    aggregate_cases = _aggregate_scenarios(application_root, control_root)
+    if len(aggregate_cases) != 9 or any(not case["ok"] for case in aggregate_cases):
+        raise SimulationError("SIMULATOR_AGGREGATE_SCENARIO_RED")
 
     sys.path.insert(0, str(application_root / "src"))
     from tu1nz_public_s8.release_simulator import run_bot_path_simulation
@@ -756,6 +1114,12 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
         "scenarios": scenarios,
         "health_cases": health_cases,
         "listener_cases": listener_cases,
+        "aggregate_cases": aggregate_cases,
+        "aggregate_contract": "S10_2D_R7_1_AGGREGATE_ROLLBACK_GREEN",
+        "aggregate_source_target_failure_rollback_source_health": True,
+        "aggregate_unknown_events_fail_closed": True,
+        "aggregate_original_restored_after_failed_recovery": True,
+        "aggregate_backup_mandatory": True,
         "bot": bot,
         "production_health_gate_shared": True,
         "production_wms_listener_shared": True,
