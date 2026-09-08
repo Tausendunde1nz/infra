@@ -1,0 +1,10 @@
+# S10.2D-R7 local unittest discovery — 2026-09-08
+
+Status: `LOCAL_COMMAND_SELECTION_CORRECTED_NO_PRODUCT_IMPACT`
+
+The repository-root invocation `python3 -m unittest discover -v` returned zero
+tests because this Control repository intentionally uses explicit test-module
+routing in CI. No test failed and no server or product state changed. The
+recovery validation therefore uses the exact S10.2D module list from
+`control-validation.yml` plus the new R7 recovery module. The repository-wide
+CI workflow remains the authoritative full validation.
