@@ -140,7 +140,7 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
 
     def test_manifest_and_control_keep_recovery_narrow_and_fail_closed(self) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["decision"], "P0_SOURCE_PUBLIC_RECOVERY_AUTHORIZED_PENDING_EXECUTION")
+        self.assertEqual(manifest["decision"], "P0_SOURCE_PUBLIC_RECOVERY_GREEN")
         self.assertEqual(manifest["source_application"]["commit"], RECOVERY.SOURCE_SHA)
         self.assertEqual(manifest["source_application"]["tree"], RECOVERY.SOURCE_TREE)
         self.assertEqual(manifest["data_contract"]["source_events"], sorted(RECOVERY.SOURCE_EVENTS))
@@ -153,6 +153,13 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
         self.assertTrue(manifest["backup"]["inherited_setgid_normalized_to_0700"])
         self.assertTrue(manifest["runtime"]["reset_failed_only_when_active_state_failed"])
         self.assertEqual(manifest["runtime"]["health_start_settle_delays_seconds"], [0, 5, 15, 30])
+        self.assertEqual(manifest["execution"]["control_commit"], "75afbf4586461bcce72b7d123910cfdf8e0f641b")
+        self.assertEqual(manifest["execution"]["control_tree"], "67c55421b6e67f0ac2d890018a0ee4bdeb51c53a")
+        self.assertEqual(manifest["execution"]["control_post_merge_ci"], 34247579828)
+        self.assertEqual(manifest["execution"]["source_entries"], 37)
+        self.assertEqual(manifest["execution"]["forward_entries"], 1)
+        self.assertTrue(all(attempt["original_restored"] for attempt in manifest["execution"]["failed_closed_attempts"]))
+        self.assertFalse(manifest["execution"]["database_mutation"])
         self.assertFalse(manifest["scope"]["database_mutation"])
         self.assertFalse(manifest["scope"]["application_change"])
         self.assertFalse(manifest["scope"]["second_cutover"])

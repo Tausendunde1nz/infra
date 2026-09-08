@@ -1,6 +1,6 @@
 {
   "version": "tu1nz-commercial-s10-2d-r7-aggregate-recovery-v1",
-  "decision": "P0_SOURCE_PUBLIC_RECOVERY_AUTHORIZED_PENDING_EXECUTION",
+  "decision": "P0_SOURCE_PUBLIC_RECOVERY_GREEN",
   "active": false,
   "source_application": {
     "commit": "f9747088a31ec6c671e82de24e293ebdec99f717",
@@ -51,6 +51,39 @@
   "runtime": {
     "reset_failed_only_when_active_state_failed": true,
     "health_start_settle_delays_seconds": [0, 5, 15, 30]
+  },
+  "execution": {
+    "verified_at_utc": "2026-09-08T15:58:05Z",
+    "control_commit": "75afbf4586461bcce72b7d123910cfdf8e0f641b",
+    "control_tree": "67c55421b6e67f0ac2d890018a0ee4bdeb51c53a",
+    "control_post_merge_ci": 34247579828,
+    "control_sync_backup": "/opt/tu1nz_repos/backups/commercial-s10-2d-r7-control-sync/20260908T153156Z",
+    "recovery_directory": "/opt/tu1nz_repos/backups/commercial-s10-2d-r7-aggregate-recovery/20260908T155418Z",
+    "original_sha256": "f489dd6b781ec53e6002ee1dcafe4421254504693c83c38517c690e97df4ace9",
+    "source_sha256": "7fe19b2fe3925f302c2d718e2e9d746eebff7754d45d9dc512783d33fc899831",
+    "forward_sha256": "828c4c1650abc5c2f77b58adbe352731fe4529bc7f90dbaef770549c919f614e",
+    "source_entries": 37,
+    "source_total": 6732,
+    "forward_entries": 1,
+    "forward_total": 1,
+    "failed_closed_attempts": [
+      {
+        "recovery_directory": "/opt/tu1nz_repos/backups/commercial-s10-2d-r7-aggregate-recovery/20260908T153156Z",
+        "safe_code": "HEALTH_SERVICE_RESET_RED",
+        "original_restored": true
+      },
+      {
+        "recovery_directory": "/opt/tu1nz_repos/backups/commercial-s10-2d-r7-aggregate-recovery/20260908T154635Z",
+        "safe_code": "HEALTH_SERVICE_START_RED",
+        "original_restored": true
+      }
+    ],
+    "application_clean": true,
+    "control_clean": true,
+    "public_pages_http_status": 200,
+    "german_redirect_http_status": 308,
+    "health_ok": true,
+    "database_mutation": false
   },
   "success": {
     "source_repositories_exact_and_clean": true,
