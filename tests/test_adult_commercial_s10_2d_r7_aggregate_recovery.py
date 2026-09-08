@@ -122,6 +122,22 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
             RECOVERY._reset_failed_if_needed("failed.service", safe_code="RESET_RED")
             systemctl.assert_called_once_with("reset-failed", "failed.service", safe_code="RESET_RED")
 
+    def test_health_start_settle_is_bounded_and_stops_on_success(self) -> None:
+        attempts = [
+            subprocess.CompletedProcess([], 1, "", ""),
+            subprocess.CompletedProcess([], 1, "", ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+        with mock.patch.object(RECOVERY, "_run", side_effect=attempts) as run, mock.patch.object(
+            RECOVERY, "_reset_failed_if_needed"
+        ) as reset, mock.patch.object(RECOVERY.time, "sleep") as sleep:
+            RECOVERY._start_health_with_settle("health.service")
+
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(reset.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5, 15])
+        self.assertEqual(sum(RECOVERY.HEALTH_START_SETTLE_DELAYS_SECONDS), 50)
+
     def test_manifest_and_control_keep_recovery_narrow_and_fail_closed(self) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["decision"], "P0_SOURCE_PUBLIC_RECOVERY_AUTHORIZED_PENDING_EXECUTION")
@@ -136,6 +152,7 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
         self.assertTrue(manifest["backup"]["post_backup_race_check"])
         self.assertTrue(manifest["backup"]["inherited_setgid_normalized_to_0700"])
         self.assertTrue(manifest["runtime"]["reset_failed_only_when_active_state_failed"])
+        self.assertEqual(manifest["runtime"]["health_start_settle_delays_seconds"], [0, 5, 15, 30])
         self.assertFalse(manifest["scope"]["database_mutation"])
         self.assertFalse(manifest["scope"]["application_change"])
         self.assertFalse(manifest["scope"]["second_cutover"])
