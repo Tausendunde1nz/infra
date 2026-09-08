@@ -34,10 +34,13 @@ Before replacing anything it creates a root-only recovery directory and saves:
 4. hashes, ownership/mode and count-conservation evidence without dimensions,
    content, messages, media or identifiers.
 
-The source-compatible view replaces the shared file atomically with its
-original owner, group and mode. Forward-only aggregates are not deleted; they
-remain in the protected backup beside the exact original bytes. If startup or
-verification fails, the script stops all affected writers, restores the exact
+Every file and parent-directory entry is durably synchronized before the live
+file can change. The script then stops the affected timers, workers and public
+services, confirms that the original aggregate hash did not race after backup,
+and replaces the shared file atomically with its original owner, group and
+mode. Forward-only aggregates are not deleted; they remain in the protected
+backup beside the exact original bytes. If startup or verification fails, the
+script stops all affected timers, workers and writers, restores the exact
 original bytes atomically and remains fail-closed.
 
 ## Success gate

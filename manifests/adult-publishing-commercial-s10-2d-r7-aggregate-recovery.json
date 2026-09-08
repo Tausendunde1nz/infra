@@ -34,6 +34,9 @@
     "sha256_bound": true,
     "owner_group_mode_preserved": true,
     "atomic_replacement": true,
+    "parent_directories_fsynced_before_replacement": true,
+    "timers_workers_quiesced_before_replacement": true,
+    "post_backup_race_check": true,
     "exact_original_restore_available": true
   },
   "scope": {

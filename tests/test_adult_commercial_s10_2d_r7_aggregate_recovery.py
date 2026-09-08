@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -71,6 +72,23 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(path.stat().st_nlink, 1)
 
+    def test_fail_closed_quiesce_stops_timers_then_workers_then_public_services(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def record(*arguments: str, **_keywords: object) -> None:
+            calls.append(arguments)
+
+        with mock.patch.object(RECOVERY, "_systemctl", side_effect=record), mock.patch.object(
+            RECOVERY, "_unit_value", return_value="inactive"
+        ):
+            RECOVERY._quiesce_automation()
+
+        stopped = [arguments[1] for arguments in calls]
+        self.assertEqual(
+            stopped,
+            list(RECOVERY.TIMERS) + list(RECOVERY.RECOVERY_WORKERS) + list(RECOVERY.SERVICES),
+        )
+
     def test_manifest_and_control_keep_recovery_narrow_and_fail_closed(self) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["decision"], "P0_SOURCE_PUBLIC_RECOVERY_AUTHORIZED_PENDING_EXECUTION")
@@ -80,6 +98,9 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
         self.assertEqual(manifest["data_contract"]["forward_events"], sorted(RECOVERY.FORWARD_EVENTS))
         self.assertTrue(manifest["backup"]["original_bytes_preserved"])
         self.assertTrue(manifest["backup"]["forward_entries_preserved"])
+        self.assertTrue(manifest["backup"]["parent_directories_fsynced_before_replacement"])
+        self.assertTrue(manifest["backup"]["timers_workers_quiesced_before_replacement"])
+        self.assertTrue(manifest["backup"]["post_backup_race_check"])
         self.assertFalse(manifest["scope"]["database_mutation"])
         self.assertFalse(manifest["scope"]["application_change"])
         self.assertFalse(manifest["scope"]["second_cutover"])
@@ -106,6 +127,9 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
         self.assertIn("landing-aggregates.forward-only.json", source)
         self.assertIn("os.replace", source)
         self.assertIn("os.fsync", source)
+        self.assertIn("AGGREGATE_CHANGED_AFTER_BACKUP", source)
+        self.assertIn("FAIL_CLOSED_TIMER_STOP_RED", source)
+        self.assertLess(source.index("_fsync_directory(recovery_dir)"), source.index("replacement_attempted = False"))
 
 
 if __name__ == "__main__":

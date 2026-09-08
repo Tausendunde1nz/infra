@@ -61,6 +61,15 @@ HEALTH_SERVICES = (
     "tu1nz-adult-public-s9-health.service",
     "tu1nz-adult-public-s10-health.service",
 )
+RECOVERY_WORKERS = (
+    "tu1nz-adult-public-s8-health.service",
+    "tu1nz-adult-public-s8-probe.service",
+    "tu1nz-adult-public-s9-audience.service",
+    "tu1nz-adult-public-s9-nurture.service",
+    "tu1nz-adult-public-s9-report.service",
+    "tu1nz-adult-public-s9-health.service",
+    "tu1nz-adult-public-s10-health.service",
+)
 ADULT_RUNTIMES = (
     "tu1nz-adult-commercial-s0.service",
     "tu1nz-adult-commercial-s3.service",
@@ -304,6 +313,17 @@ def _write_evidence(path: Path, value: object) -> None:
     _write_new(path, canonical_json(value) + b"\n", uid=0, gid=0)
 
 
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        raise RecoveryError("BACKUP_DIRECTORY_SYNC_RED") from None
+
+
 def _validate_control_binding(control_sha: str, control_tree: str) -> None:
     require(os.geteuid() == 0, "ROOT_REQUIRED")
     require(bool(re.fullmatch(r"[0-9a-f]{40}", control_sha)), "CONTROL_SHA_INVALID")
@@ -461,11 +481,11 @@ def _create_backup(recovery_dir: Path, material: bytes, payload: Mapping[str, in
         for path in (original_path, source_path, forward_path, recovery_dir / "evidence.json")
     ).encode("ascii")
     _write_new(recovery_dir / "SHA256SUMS", checksum_lines, uid=0, gid=0)
-    directory = os.open(recovery_dir, os.O_RDONLY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+    # Persist both file entries and every newly created directory entry before
+    # the live aggregate can be replaced.
+    _fsync_directory(recovery_dir)
+    _fsync_directory(RECOVERY_PREFIX)
+    _fsync_directory(BACKUP_PARENT)
     return evidence
 
 
@@ -598,10 +618,20 @@ def verify(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str,
     }
 
 
-def _restore_original_fail_closed(recovery_dir: Path) -> None:
+def _quiesce_automation() -> None:
+    for timer in TIMERS:
+        _systemctl("stop", timer, safe_code="FAIL_CLOSED_TIMER_STOP_RED")
+        require(_unit_value(timer, "ActiveState") in {"inactive", "failed"}, "FAIL_CLOSED_TIMER_ACTIVE")
+    for service in RECOVERY_WORKERS:
+        _systemctl("stop", service, safe_code="FAIL_CLOSED_WORKER_STOP_RED")
+        require(_unit_value(service, "ActiveState") in {"inactive", "failed"}, "FAIL_CLOSED_WORKER_ACTIVE")
     for service in SERVICES:
         _systemctl("stop", service, safe_code="FAIL_CLOSED_STOP_RED")
         require(_unit_value(service, "ActiveState") in {"inactive", "failed"}, "FAIL_CLOSED_SERVICE_ACTIVE")
+
+
+def _restore_original_fail_closed(recovery_dir: Path) -> None:
+    _quiesce_automation()
     try:
         evidence = json.loads(_read_exact(recovery_dir / "evidence.json").decode("ascii"))
         original = _read_exact(recovery_dir / "landing-aggregates.original.json")
@@ -612,6 +642,14 @@ def _restore_original_fail_closed(recovery_dir: Path) -> None:
             uid=int(evidence["original_uid"]),
             gid=int(evidence["original_gid"]),
             mode=int(str(evidence["original_mode"]), 8),
+        )
+        restored = AGGREGATE_PATH.lstat()
+        require(sha256_bytes(_read_exact(AGGREGATE_PATH)) == evidence.get("original_sha256"), "ORIGINAL_RESTORE_HASH_RED")
+        require(
+            restored.st_uid == int(evidence["original_uid"])
+            and restored.st_gid == int(evidence["original_gid"])
+            and stat.S_IMODE(restored.st_mode) == int(str(evidence["original_mode"]), 8),
+            "ORIGINAL_RESTORE_METADATA_RED",
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise RecoveryError("ORIGINAL_RESTORE_RED") from None
@@ -624,6 +662,8 @@ def recover(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str
     evidence = _create_backup(recovery_dir, material, payload, metadata, control_sha, control_tree)
     replacement_attempted = False
     try:
+        _quiesce_automation()
+        require(sha256_bytes(_read_exact(AGGREGATE_PATH)) == evidence["original_sha256"], "AGGREGATE_CHANGED_AFTER_BACKUP")
         replacement_attempted = True
         _atomic_replace(
             AGGREGATE_PATH,
