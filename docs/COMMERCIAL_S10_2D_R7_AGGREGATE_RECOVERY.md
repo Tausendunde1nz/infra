@@ -40,6 +40,12 @@ accepts only that exact inherited-bit case on an already root-owned directory,
 removes the setgid bit to obtain `0700`, persists the directory entry, and
 rejects every other ownership or mode deviation.
 
+Some successful inactive one-shot health units are not retained in systemd's
+loaded-unit set. Calling `reset-failed` for such a unit returns an error even
+though no failure exists. The recovery therefore issues `reset-failed` only
+when `ActiveState=failed`; inactive or active healthy units proceed directly
+to the already required start and result verification.
+
 Every file and parent-directory entry is durably synchronized before the live
 file can change. The script then stops the affected timers, workers and public
 services, confirms that the original aggregate hash did not race after backup,

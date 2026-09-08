@@ -48,6 +48,9 @@
     "second_cutover": false,
     "new_product_logic": false
   },
+  "runtime": {
+    "reset_failed_only_when_active_state_failed": true
+  },
   "success": {
     "source_repositories_exact_and_clean": true,
     "source_configuration_hash_bound": true,

@@ -109,6 +109,19 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
             list(RECOVERY.TIMERS) + list(RECOVERY.RECOVERY_WORKERS) + list(RECOVERY.SERVICES),
         )
 
+    def test_reset_failed_is_only_called_for_failed_units(self) -> None:
+        with mock.patch.object(RECOVERY, "_unit_value", return_value="inactive"), mock.patch.object(
+            RECOVERY, "_systemctl"
+        ) as systemctl:
+            RECOVERY._reset_failed_if_needed("inactive.service", safe_code="RESET_RED")
+            systemctl.assert_not_called()
+
+        with mock.patch.object(RECOVERY, "_unit_value", return_value="failed"), mock.patch.object(
+            RECOVERY, "_systemctl"
+        ) as systemctl:
+            RECOVERY._reset_failed_if_needed("failed.service", safe_code="RESET_RED")
+            systemctl.assert_called_once_with("reset-failed", "failed.service", safe_code="RESET_RED")
+
     def test_manifest_and_control_keep_recovery_narrow_and_fail_closed(self) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["decision"], "P0_SOURCE_PUBLIC_RECOVERY_AUTHORIZED_PENDING_EXECUTION")
@@ -122,6 +135,7 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
         self.assertTrue(manifest["backup"]["timers_workers_quiesced_before_replacement"])
         self.assertTrue(manifest["backup"]["post_backup_race_check"])
         self.assertTrue(manifest["backup"]["inherited_setgid_normalized_to_0700"])
+        self.assertTrue(manifest["runtime"]["reset_failed_only_when_active_state_failed"])
         self.assertFalse(manifest["scope"]["database_mutation"])
         self.assertFalse(manifest["scope"]["application_change"])
         self.assertFalse(manifest["scope"]["second_cutover"])
