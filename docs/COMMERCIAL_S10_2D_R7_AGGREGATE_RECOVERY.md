@@ -1,6 +1,6 @@
 # Commercial S10.2D-R7 aggregate recovery
 
-Status: `P0_SOURCE_PUBLIC_RECOVERY_AUTHORIZED_PENDING_EXECUTION`
+Status: `P0_SOURCE_PUBLIC_RECOVERY_GREEN`
 
 ## Objective and boundary
 
@@ -73,3 +73,23 @@ domain HTTP 308, and all Adult/AVS/payment/publishing/beta/production boundaries
 closed.
 
 No follow-on infrastructure sprint or cutover is authorized by this recovery.
+
+## Executed result
+
+The final version-bound recovery completed GREEN on 2026-09-08 using Control
+commit `75afbf4586461bcce72b7d123910cfdf8e0f641b`, tree
+`67c55421b6e67f0ac2d890018a0ee4bdeb51c53a`, and post-merge CI
+`34247579828`. Its root-only evidence is stored under recovery identifier
+`20260908T155418Z`.
+
+The live source-compatible view retained 37 entries with aggregate total 6732.
+The single forward-only entry with total 1 remains separately preserved beside
+the exact original bytes; all three views are SHA-256 bound. Two preceding
+fail-closed runtime attempts preserved their separate evidence and restored the
+original hash and metadata before the final execution.
+
+Independent verification found the source Application and final Control exact
+and clean, S7/S8 Landing/S8 Telegram/S10 WMS/nginx active with zero restarts,
+all S9/S10 timers enabled, active, waiting and future-scheduled, all S8/S9/S10
+health guards successful, all required public pages HTTP 200, the German domain
+HTTP 308, and public health GREEN with every forbidden product boundary closed.
