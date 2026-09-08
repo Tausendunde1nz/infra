@@ -1,0 +1,68 @@
+{
+  "version": "tu1nz-commercial-s10-2d-r7-aggregate-recovery-v1",
+  "decision": "P0_SOURCE_PUBLIC_RECOVERY_AUTHORIZED_PENDING_EXECUTION",
+  "active": false,
+  "source_application": {
+    "commit": "f9747088a31ec6c671e82de24e293ebdec99f717",
+    "tree": "7defedef032f6af38bbce0165eb6c2bdec327df7"
+  },
+  "failed_target_application": {
+    "commit": "312db84d5db6d76c9d6bb448459c9404b1dfcbe4",
+    "tree": "ac4f8bca1fd796626742a8ef6c6afcdda482fc68",
+    "post_merge_ci": 34057828638
+  },
+  "failure": {
+    "stage": "VERSIONED_ROLLBACK_SOURCE_PUBLIC_START",
+    "safe_code": "S9_AGGREGATE_STATE_INVALID",
+    "public_http_status": 502,
+    "cause": "FORWARD_ONLY_COMMUNITY_CTA_REMAINED_IN_SHARED_AGGREGATE_AFTER_SOURCE_ROLLBACK"
+  },
+  "data_contract": {
+    "path": "/var/lib/tu1nz-adult-public-s9/landing-aggregates.json",
+    "source_events": ["LANDING_VIEW", "TELEGRAM_CTA"],
+    "forward_events": ["COMMUNITY_CTA"],
+    "aggregate_only": true,
+    "contains_user_identifiers": false,
+    "contains_messages": false,
+    "contains_media": false
+  },
+  "backup": {
+    "root": "/opt/tu1nz_repos/backups/commercial-s10-2d-r7-aggregate-recovery",
+    "original_bytes_preserved": true,
+    "source_compatible_view_preserved": true,
+    "forward_entries_preserved": true,
+    "sha256_bound": true,
+    "owner_group_mode_preserved": true,
+    "atomic_replacement": true,
+    "exact_original_restore_available": true
+  },
+  "scope": {
+    "application_change": false,
+    "database_mutation": false,
+    "telegram_profile_mutation": false,
+    "community_mutation": false,
+    "second_cutover": false,
+    "new_product_logic": false
+  },
+  "success": {
+    "source_repositories_exact_and_clean": true,
+    "source_configuration_hash_bound": true,
+    "aggregate_source_compatible": true,
+    "forward_aggregate_quarantined_not_deleted": true,
+    "s7_s8_s10_nginx_active_zero_restarts": true,
+    "s9_s10_timers_future_runs": true,
+    "public_pages_http_200": true,
+    "german_redirect_http_308": true,
+    "health_ok": true
+  },
+  "product_boundary": {
+    "adult_media": false,
+    "identity_documents": false,
+    "real_avs": false,
+    "payments": false,
+    "external_publishing": false,
+    "real_acquisition": false,
+    "controlled_beta": false,
+    "production": false
+  }
+}

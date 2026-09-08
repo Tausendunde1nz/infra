@@ -133,6 +133,7 @@
 !manifests/adult-publishing-commercial-s10-exposure-repositioning.json
 !manifests/adult-publishing-commercial-s10-2-product-growth.json
 !manifests/adult-publishing-commercial-s10-2d-community-instant.json
+!manifests/adult-publishing-commercial-s10-2d-r7-aggregate-recovery.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -183,6 +184,7 @@
 !tests/test_adult_commercial_s10_exposure_repositioning.py
 !tests/test_adult_commercial_s10_2_product_growth.py
 !tests/test_adult_commercial_s10_2d_community_instant.py
+!tests/test_adult_commercial_s10_2d_r7_aggregate_recovery.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
@@ -276,4 +278,7 @@
 !analysis/COMMERCIAL_S10_2D_TAILSCALE_ROUTE_2026-09-05.diagnose
 !analysis/COMMERCIAL_S10_2D_R3_2_ACQUISITION_STATE_DECOUPLING_2026-09-06.diagnose
 !analysis/COMMERCIAL_S10_2D_R3_3_PID1_COMMUNITY_CONTRACT_2026-09-06.diagnose
+!analysis/COMMERCIAL_S10_2D_R7_AGGREGATE_ROLLBACK_GAP_2026-09-08.diagnose
+!analysis/COMMERCIAL_S10_2D_R7_LOCAL_UNITTEST_DISCOVERY_2026-09-08.diagnose
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh
+!scripts/tu1nz_adult_public_s10_2d_r7_aggregate_recovery.py

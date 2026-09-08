@@ -1,0 +1,34 @@
+# S10.2D-R7 rollback public-health gap — 2026-09-08
+
+Status: `P0_PUBLIC_SFW_OUTAGE_FAIL_CLOSED_RECOVERY_AUTHORIZED`
+
+## Observed state
+
+- The single versioned R7 rollback restored Application source commit
+  `f9747088a31ec6c671e82de24e293ebdec99f717`, tree
+  `7defedef032f6af38bbce0165eb6c2bdec327df7`.
+- Control remained exact and clean at the frozen R7 control release.
+- nginx and S7 remained active.
+- S8 Landing and S10 WMS failed with `S9_AGGREGATE_STATE_INVALID`; S8 Telegram
+  remained inactive after fail-closed rollback.
+- The five tested public Want Me Seen endpoints returned HTTP 502.
+- Community processing was inactive and BotFather group joining was disabled.
+- Adult media, AVS, payments, external publishing and real acquisition stayed
+  closed.
+
+## Root cause
+
+The target release extended the anonymous shared aggregate event allowlist with
+`COMMUNITY_CTA`. A real, explicitly authorized friend test created such an
+aggregate. The older source release only accepts `LANDING_VIEW` and
+`TELEGRAM_CTA`, so it correctly rejected the forward-shaped file. The R7 backup
+and rollback covered Git, configuration, units, executables and database
+evidence but not `/var/lib/tu1nz-adult-public-s9/landing-aggregates.json`.
+
+## Recovery decision
+
+Do not invoke the cutover or its rollback again. Do not change Application
+logic and do not mutate the database. Use the separately reviewed recovery to
+preserve the exact original bytes and isolate the forward-only entries, then
+atomically restore the source-compatible aggregate view. On any unexpected
+condition, restore the original bytes and leave affected services stopped.
