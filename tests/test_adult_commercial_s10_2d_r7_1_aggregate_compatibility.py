@@ -15,6 +15,7 @@ BACKUP = ROOT / "scripts/tu1nz_adult_public_s10_2d_backup.sh"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s10_2d_control.sh"
 SIMULATOR = ROOT / "scripts/tu1nz_adult_public_s10_2d_release_simulator.py"
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2d-r7-1-aggregate-compatibility.json"
+R8_1_MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2d-r8-1-retained-state-reconciliation.json"
 CONTROL = ROOT / "docs/COMMERCIAL_S10_2D_R7_1_AGGREGATE_COMPATIBILITY.md"
 
 SPEC = importlib.util.spec_from_file_location("s10_2d_r7_1_aggregate_contract", SCRIPT)
@@ -268,8 +269,9 @@ class CommercialS102DR71AggregateCompatibilityTests(unittest.TestCase):
         self.assertFalse(manifest["scope"]["runtime_mutation"])
         self.assertFalse(manifest["product_boundary"]["real_acquisition"])
         bindings = manifest["artifact_bindings"]
-        self.assertEqual(bindings["controller_sha256"], hashlib.sha256(CONTROLLER.read_bytes()).hexdigest())
-        self.assertEqual(bindings["release_simulator_sha256"], hashlib.sha256(SIMULATOR.read_bytes()).hexdigest())
+        current = json.loads(R8_1_MANIFEST.read_text(encoding="utf-8"))["artifact_bindings"]
+        self.assertEqual(current["controller_sha256"], hashlib.sha256(CONTROLLER.read_bytes()).hexdigest())
+        self.assertEqual(current["release_simulator_sha256"], hashlib.sha256(SIMULATOR.read_bytes()).hexdigest())
         self.assertEqual(bindings["aggregate_contract_sha256"], hashlib.sha256(SCRIPT.read_bytes()).hexdigest())
         self.assertEqual(bindings["aggregate_backup_sha256"], hashlib.sha256(BACKUP.read_bytes()).hexdigest())
         control = CONTROL.read_text(encoding="utf-8")

@@ -874,6 +874,187 @@ def _aggregate_scenarios(application_root: Path, control_root: Path) -> list[dic
     return reports
 
 
+def _retained_state_scenarios(control_root: Path) -> list[dict[str, object]]:
+    contract = _load_module(
+        control_root / "scripts/tu1nz_adult_public_s10_2d_state_reconcile.py",
+        "tu1nz_s10_2d_r8_1_state_simulator",
+    )
+    release = "s10-2d-r3-5"
+    run = "11111111-1111-4111-8111-111111111111"
+    cutover = "2026-09-07T15:37:04.000000Z"
+    subject = "22222222-2222-4222-8222-222222222222"
+    joined = "2026-09-08T03:38:05.226357Z"
+    active = "2026-09-08T03:38:25.292795Z"
+
+    def sample(number: int, source: str, occurred_at: str) -> dict[str, object]:
+        return {
+            "sample_id": f"00000000-0000-4000-8000-{number:012d}",
+            "source": source,
+            "bot_response_latency_ms": 500 + number,
+            "poll_lag_ms": 100,
+            "handler_duration_ms": 100,
+            "send_ack_ms": 100,
+            "occurred_at": occurred_at,
+            "release_id": release,
+            "run_id": run,
+            "evidence_class": "TECHNICAL_ACCEPTANCE",
+            "cutover_started_at": cutover,
+        }
+
+    def fixture() -> dict[str, object]:
+        latency = [
+            sample(index, "DIRECT", f"2026-09-08T03:3{index}:00.000000Z")
+            for index in range(1, 13)
+        ]
+        latency.extend((
+            sample(13, "COMMUNITY", "2026-09-08T03:38:05.720047Z"),
+            sample(14, "COMMUNITY", "2026-09-08T03:38:25.905793Z"),
+        ))
+        return {
+            "runtime": {
+                "release_id": release,
+                "run_id": run,
+                "cutover_started_at": cutover,
+                "readiness": "PENDING",
+                "acquisition_ready": False,
+                "baseline_start": None,
+            },
+            "members": [{
+                "subject_id": subject,
+                "telegram_user_id": "synthetic-test-identity",
+                "community_state": "ACTIVE",
+                "self_attested": True,
+                "warning_count": 0,
+                "ban_state": False,
+                "joined_at": joined,
+                "updated_at": active,
+            }],
+            "community_events": [
+                {"event_id": "30000000-0000-4000-8000-000000000001", "event_type": "COMMUNITY_JOIN", "subject_id": subject, "occurred_at": joined},
+                {"event_id": "30000000-0000-4000-8000-000000000002", "event_type": "RULES_ACCEPTED", "subject_id": subject, "occurred_at": active},
+                {"event_id": "30000000-0000-4000-8000-000000000003", "event_type": "COMMUNITY_ACTIVE_MEMBER", "subject_id": subject, "occurred_at": active},
+            ],
+            "rate_limits": [],
+            "moderation_events": [],
+            "moderation_outbox": [],
+            "latency": latency,
+        }
+
+    provider = {"status": "left", "is_human": True, "non_privileged": True}
+    reports: list[dict[str, object]] = []
+
+    def case(name: str, operation) -> None:
+        try:
+            operation()
+        except (contract.StateContractError, SimulationError) as error:
+            reports.append({"name": name, "ok": False, "safe_code": str(error)})
+        else:
+            reports.append({"name": name, "ok": True, "safe_code": "RETAINED_STATE_SCENARIO_GREEN"})
+
+    def current_r8() -> None:
+        current = fixture()
+        try:
+            contract.retained_preflight(current)
+        except contract.StateContractError as error:
+            if str(error) != "MIGRATION_0029_RETAINED_PRODUCT_STATE":
+                raise
+        else:
+            raise SimulationError("RETAINED_CURRENT_STATE_FALSE_GREEN")
+        reconciled, _ = contract.reconcile_model(
+            current,
+            ownership_class="FAILED_RELEASE_TARGET_STATE_CONFIRMED",
+            provider=provider,
+        )
+        if contract.retained_preflight(reconciled)["safe_code"] != "S10_2D_CLEAN_CUTOVER_BASELINE_GREEN":
+            raise SimulationError("RETAINED_NEXT_PREFLIGHT_RED")
+
+    case("current_r8_red_reconcile_next_preflight", current_r8)
+
+    def unknown_member() -> None:
+        current = fixture()
+        current["community_events"] = current["community_events"][:-1]
+        try:
+            contract.reconcile_model(current, ownership_class="INTERNAL_ACCEPTANCE_CONFIRMED", provider=provider)
+        except contract.StateContractError as error:
+            if str(error) == "RETAINED_MEMBER_EVENT_OWNERSHIP_RED":
+                return
+            raise
+        raise SimulationError("RETAINED_UNKNOWN_MEMBER_FALSE_GREEN")
+
+    case("unknown_member_fails_closed", unknown_member)
+
+    def unknown_latency() -> None:
+        current = fixture()
+        current["latency"][0]["evidence_class"] = "UNKNOWN"
+        try:
+            contract.reconcile_model(current, ownership_class="FAILED_RELEASE_TARGET_STATE_CONFIRMED", provider=provider)
+        except contract.StateContractError as error:
+            if str(error) == "MIGRATION_0029_RETAINED_EVIDENCE_UNKNOWN":
+                return
+            raise
+        raise SimulationError("RETAINED_UNKNOWN_LATENCY_FALSE_GREEN")
+
+    case("unknown_latency_fails_closed", unknown_latency)
+
+    def real_user() -> None:
+        current = fixture()
+        current["runtime"].update({
+            "readiness": "GREEN",
+            "acquisition_ready": True,
+            "baseline_start": "2026-09-08T04:00:00.000000Z",
+        })
+        report = contract.retained_preflight(current)
+        if report["safe_code"] != "S10_2D_REAL_PRODUCT_STATE_PRESERVED" or report["cleanup_permitted"]:
+            raise SimulationError("RETAINED_REAL_USER_PRESERVATION_RED")
+
+    case("real_product_member_preserved", real_user)
+
+    def provider_exit() -> None:
+        try:
+            contract.reconcile_model(
+                fixture(),
+                ownership_class="INTERNAL_ACCEPTANCE_CONFIRMED",
+                provider={**provider, "status": "restricted"},
+            )
+        except contract.StateContractError as error:
+            if str(error) == "RETAINED_PROVIDER_EXIT_REQUIRED":
+                return
+            raise
+        raise SimulationError("RETAINED_PROVIDER_DB_DIVERGENCE_FALSE_GREEN")
+
+    case("provider_exit_required", provider_exit)
+
+    def repeated() -> None:
+        reconciled, first = contract.reconcile_model(
+            fixture(), ownership_class="FAILED_RELEASE_TARGET_STATE_CONFIRMED", provider=provider
+        )
+        repeated_state, second = contract.reconcile_model(
+            reconciled, ownership_class="FAILED_RELEASE_TARGET_STATE_CONFIRMED", provider=provider
+        )
+        if first["idempotent"] or not second["idempotent"] or repeated_state != reconciled:
+            raise SimulationError("RETAINED_RECONCILIATION_IDEMPOTENCY_RED")
+
+    case("repeated_reconciliation_idempotent", repeated)
+
+    def multi_release() -> None:
+        reconciled, _ = contract.reconcile_model(
+            fixture(), ownership_class="FAILED_RELEASE_TARGET_STATE_CONFIRMED", provider=provider
+        )
+        contract.retained_preflight(reconciled)
+        release_b = fixture()
+        release_b["runtime"]["release_id"] = "s10-2d-r8"
+        for row in release_b["latency"]:
+            row["release_id"] = "s10-2d-r8"
+        contract.classify_retained_state(
+            release_b, ownership_class="INTERNAL_ACCEPTANCE_CONFIRMED", provider=provider
+        )
+
+    case("multi_release_acceptance_lifecycle", multi_release)
+    if len(reports) != 7 or any(not report["ok"] for report in reports):
+        raise SimulationError("RETAINED_STATE_SCENARIO_SET_RED")
+    return reports
+
+
 def _health_case(
     health_gate: ModuleType,
     control_root: Path,
@@ -928,8 +1109,11 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
         "S8_POLLER_NOT_READY",
         "tu1nz_adult_public_s10_2d_backup.sh",
         "tu1nz_adult_public_s10_2d_aggregate_contract.py",
+        "tu1nz_adult_public_s10_2d_state_reconcile.py",
         "reconcile_aggregate_for_source",
         "require_source_aggregate_readable",
+        "require_retained_state_preflight",
+        "state-preflight",
     )
     rollback_contract = controller.split("rollback() {", 1)[1].split("deploy() {", 1)[0]
     if not (
@@ -989,6 +1173,10 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
     aggregate_cases = _aggregate_scenarios(application_root, control_root)
     if len(aggregate_cases) != 9 or any(not case["ok"] for case in aggregate_cases):
         raise SimulationError("SIMULATOR_AGGREGATE_SCENARIO_RED")
+
+    retained_state_cases = _retained_state_scenarios(control_root)
+    if len(retained_state_cases) != 7 or any(not case["ok"] for case in retained_state_cases):
+        raise SimulationError("SIMULATOR_RETAINED_STATE_SCENARIO_RED")
 
     sys.path.insert(0, str(application_root / "src"))
     from tu1nz_public_s8.release_simulator import run_bot_path_simulation
@@ -1110,11 +1298,15 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
         raise SimulationError("BOT_HANDLER_TIMEOUT")
     return {
         "ok": True,
-        "safe_code": "S10_2D_R6_1_RELEASE_SIMULATOR_GREEN",
+        "safe_code": "S10_2D_R8_1_RELEASE_SIMULATOR_GREEN",
         "scenarios": scenarios,
         "health_cases": health_cases,
         "listener_cases": listener_cases,
         "aggregate_cases": aggregate_cases,
+        "retained_state_cases": retained_state_cases,
+        "retained_state_contract": "S10_2D_R8_1_RECONCILIATION_GREEN",
+        "real_product_state_preserved": True,
+        "unknown_retained_state_fails_closed": True,
         "aggregate_contract": "S10_2D_R7_1_AGGREGATE_ROLLBACK_GREEN",
         "aggregate_source_target_failure_rollback_source_health": True,
         "aggregate_unknown_events_fail_closed": True,

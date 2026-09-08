@@ -1,0 +1,8 @@
+scope=R8.1 full Control regression
+status=RESOLVED
+failure=historical tests expected the R6.1 simulator code and provider gates inside the old preflight body
+cause=R8.1 deliberately adds retained-state scenarios and moves provider gates after backup preflight but before mutation
+remediation=updated current-contract tests to bind R8.1 artifacts and the safer gate ordering; preserved historical manifests
+validation=467 tests GREEN using the Application dependency runtime
+runtime_mutation=false
+personal_data=false

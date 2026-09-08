@@ -1,0 +1,107 @@
+{
+  "schema": "tu1nz-commercial-s10-2d-r8-1-retained-state-reconciliation-v1",
+  "scope": {
+    "application_change": false,
+    "control_source_change": true,
+    "runtime_cutover": false,
+    "community_activation": false,
+    "botfather_change": false,
+    "real_acquisition": false,
+    "adult_media": false,
+    "avs": false,
+    "payments": false,
+    "publishing": false,
+    "controlled_beta": false
+  },
+  "source_baseline": {
+    "application_commit": "312db84d5db6d76c9d6bb448459c9404b1dfcbe4",
+    "application_tree": "ac4f8bca1fd796626742a8ef6c6afcdda482fc68",
+    "application_ci": 34057828638,
+    "control_commit": "42ff448cb2ef765952b6b5aa808b53388e7c3053",
+    "control_tree": "af89b276dd8bf8e5d85d993517b354faa26e24d3",
+    "control_ci": 34258847852,
+    "safe_server_application": "f9747088a31ec6c671e82de24e293ebdec99f717",
+    "safe_server_control": "c8b8e692f172ff16a8319063c9b2546d1c43ff88"
+  },
+  "live_inventory": {
+    "community_rows": 1,
+    "community_events": 3,
+    "latency_rows": 14,
+    "latency_min_ms": 574,
+    "latency_max_ms": 20906,
+    "pending_moderation": 0,
+    "unknown_rows": 0,
+    "identifiers_recorded": false
+  },
+  "ownership": {
+    "classification": "FAILED_RELEASE_TARGET_STATE_CONFIRMED",
+    "release_bound": true,
+    "run_bound": true,
+    "cutover_bound": true,
+    "evidence_class": "TECHNICAL_ACCEPTANCE",
+    "community_lifecycle_correlated": true,
+    "provider_human": true,
+    "provider_non_privileged": true,
+    "display_name_used_as_proof": false,
+    "real_acquisition_active": false,
+    "baseline_start": null
+  },
+  "reconciliation_contract": {
+    "row_specific": true,
+    "release_specific": true,
+    "run_specific": true,
+    "evidence_specific": true,
+    "backup_first": true,
+    "root_only_private_inventory": true,
+    "provider_exit_required": true,
+    "unknown_fails_closed": true,
+    "real_product_state_preserved": true,
+    "idempotent": true,
+    "bulk_delete_available": false
+  },
+  "artifact_bindings": {
+    "controller_sha256": "7b117c57a2a5d4cb9692696137d686b85adc2e7519575668390fbb87ea5956c7",
+    "release_simulator_sha256": "6b0d58c02a3506a7a3819c75e66e66600f8eda112c87adc2d585e318a239b682",
+    "state_reconciler_sha256": "fc21228ee49aa5ae9035326a20d8d61e871a6191206c29ed92fca9c8222d6ee7"
+  },
+  "expected_live_pre_state": {
+    "release_id": "s10-2d-r3-5",
+    "run_id_sha256": "6c2af59919f79ce39c99efa6b3a8de9c318d1e259f3bf383710692daa78bf7d9",
+    "cutover_started_at": "2026-09-07T15:37:04.788047Z",
+    "community_rows": 1,
+    "community_events": 3,
+    "latency_rows": 14,
+    "moderation_events": 0,
+    "pending_moderation": 0,
+    "real_acquisition_active": false,
+    "baseline_start": null
+  },
+  "expected_live_post_state": {
+    "retained_internal_members": 0,
+    "retained_unknown_members": 0,
+    "retained_acceptance_latency": 0,
+    "retained_unknown_latency": 0,
+    "real_acquisition_active": false,
+    "baseline_start": null,
+    "community_runtime_active": false
+  },
+  "validation": {
+    "current_r8_red_then_clean": "GREEN",
+    "unknown_member": "EXPECTED_RED",
+    "unknown_latency": "EXPECTED_RED",
+    "real_user_preservation": "GREEN",
+    "provider_exit_gate": "GREEN",
+    "acceptance_lifecycle": "GREEN",
+    "multi_release": "GREEN",
+    "repeated_reconciliation": "GREEN",
+    "source_tests": "467/467 GREEN",
+    "secret_and_personal_data_scan": "GREEN",
+    "same_sha_review": "PENDING",
+    "post_merge_ci": "PENDING"
+  },
+  "freeze": {
+    "tag": "s10-2d-r8-1-state-reconciliation-freeze",
+    "status": "PENDING_POST_MERGE_CI"
+  },
+  "decision": "SOURCE_IMPLEMENTATION_READY_FOR_COMMIT"
+}
