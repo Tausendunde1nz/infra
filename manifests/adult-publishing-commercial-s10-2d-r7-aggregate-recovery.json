@@ -49,7 +49,8 @@
     "new_product_logic": false
   },
   "runtime": {
-    "reset_failed_only_when_active_state_failed": true
+    "reset_failed_only_when_active_state_failed": true,
+    "health_start_settle_delays_seconds": [0, 5, 15, 30]
   },
   "success": {
     "source_repositories_exact_and_clean": true,

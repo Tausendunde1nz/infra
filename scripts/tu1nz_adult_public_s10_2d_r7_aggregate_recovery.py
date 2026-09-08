@@ -61,6 +61,7 @@ HEALTH_SERVICES = (
     "tu1nz-adult-public-s9-health.service",
     "tu1nz-adult-public-s10-health.service",
 )
+HEALTH_START_SETTLE_DELAYS_SECONDS = (0, 5, 15, 30)
 RECOVERY_WORKERS = (
     "tu1nz-adult-public-s8-health.service",
     "tu1nz-adult-public-s8-probe.service",
@@ -235,6 +236,19 @@ def _reset_failed_if_needed(unit: str, *, safe_code: str) -> None:
 
     if _unit_value(unit, "ActiveState") == "failed":
         _systemctl("reset-failed", unit, safe_code=safe_code)
+
+
+def _start_health_with_settle(unit: str) -> None:
+    """Bound health start retries while a newly started poller becomes ready."""
+
+    for delay in HEALTH_START_SETTLE_DELAYS_SECONDS:
+        if delay:
+            time.sleep(delay)
+        _reset_failed_if_needed(unit, safe_code="HEALTH_SERVICE_RESET_RED")
+        completed = _run(["/usr/bin/systemctl", "start", unit], timeout=95)
+        if completed.returncode == 0:
+            return
+    raise RecoveryError("HEALTH_SERVICE_START_RED")
 
 
 def _regular_metadata(path: Path, *, expected_uid: int | None = None) -> os.stat_result:
@@ -714,8 +728,7 @@ def recover(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str
         for timer in TIMERS:
             _systemctl("start", timer, safe_code="TIMER_START_RED")
         for service in HEALTH_SERVICES:
-            _reset_failed_if_needed(service, safe_code="HEALTH_SERVICE_RESET_RED")
-            _systemctl("start", service, safe_code="HEALTH_SERVICE_START_RED")
+            _start_health_with_settle(service)
         last_error = "SOURCE_RUNTIME_NOT_SETTLED"
         for attempt in range(60):
             try:

@@ -46,6 +46,12 @@ though no failure exists. The recovery therefore issues `reset-failed` only
 when `ActiveState=failed`; inactive or active healthy units proceed directly
 to the already required start and result verification.
 
+The Telegram poller may need one bounded long-poll cycle before it writes its
+fresh runtime heartbeat. Health one-shots are therefore started on the fixed
+schedule `0, 5, 15, 30` seconds (50 seconds total at most), stopping at the
+first success. The poller remains running between attempts; the full final
+health, service, timer and public verification remains mandatory.
+
 Every file and parent-directory entry is durably synchronized before the live
 file can change. The script then stops the affected timers, workers and public
 services, confirms that the original aggregate hash did not race after backup,
