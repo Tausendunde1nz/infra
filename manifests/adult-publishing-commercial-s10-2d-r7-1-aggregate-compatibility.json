@@ -1,7 +1,7 @@
 {
   "schema": "tu1nz-commercial-s10-2d-r7-1-aggregate-compatibility-v1",
-  "decision": "S10_2D_R7_1_SOURCE_CONTRACT_PENDING_CI",
-  "validation_status": "GREEN_LOCAL_PENDING_CI",
+  "decision": "S10_2D_NEXT_RUNTIME_CUTOVER_READY",
+  "validation_status": "GREEN_SOURCE_ONLY",
   "source_baseline": {
     "application_commit": "312db84d5db6d76c9d6bb448459c9404b1dfcbe4",
     "application_tree": "ac4f8bca1fd796626742a8ef6c6afcdda482fc68",
@@ -30,7 +30,20 @@
     "full_source_target_failure_rollback_source_chain": "GREEN",
     "secret_and_personal_data_scan": "GREEN",
     "postgresql": "NOT_IN_SCOPE_NO_DATABASE_CONTRACT_CHANGE",
-    "same_sha_review": "PENDING_CI"
+    "same_sha_review": "GREEN_P1_P2_CLEAN"
+  },
+  "source_integration": {
+    "implementation_commit": "c8343df7b0f86e91f69614ebef1d7109eba54806",
+    "implementation_tree": "326934d28f496f3feb5a4e0553a9ac0ca1444b7d",
+    "pull_request": 142,
+    "pull_request_ci": 34258300367,
+    "pull_request_ci_status": "GREEN",
+    "same_sha_review": "GREEN_P1_P2_CLEAN",
+    "merge_method": "MERGE_COMMIT",
+    "merge_commit": "e73c3798e43dffa35faab98a462f6a13739a98e2",
+    "merge_tree": "326934d28f496f3feb5a4e0553a9ac0ca1444b7d",
+    "post_merge_ci": 34258458476,
+    "post_merge_ci_status": "GREEN"
   },
   "aggregate_inventory": {
     "path": "/var/lib/tu1nz-adult-public-s9/landing-aggregates.json",
@@ -116,7 +129,8 @@
   "freeze": {
     "tag": "s10-2d-r7-1-source-freeze",
     "immutable": true,
-    "status": "PENDING_POST_MERGE"
+    "target": "FINAL_EVIDENCE_MERGE_COMMIT",
+    "status": "FINALIZED_BY_TAG_AFTER_FINAL_POST_MERGE_CI"
   },
   "scope": {
     "application_change": false,
