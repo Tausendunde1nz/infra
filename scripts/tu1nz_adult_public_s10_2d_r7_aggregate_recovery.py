@@ -324,6 +324,43 @@ def _fsync_directory(path: Path) -> None:
         raise RecoveryError("BACKUP_DIRECTORY_SYNC_RED") from None
 
 
+def _normalize_private_directory(path: Path, *, expected_uid: int, expected_gid: int) -> None:
+    """Remove only an inherited setgid bit from an otherwise private directory."""
+
+    require(path.is_dir() and not path.is_symlink(), "RECOVERY_PREFIX_UNSAFE")
+    metadata = path.lstat()
+    require(
+        metadata.st_uid == expected_uid
+        and metadata.st_gid == expected_gid
+        and stat.S_IMODE(metadata.st_mode) in {0o700, 0o2700},
+        "RECOVERY_PREFIX_UNSAFE",
+    )
+    if stat.S_IMODE(metadata.st_mode) == 0o2700:
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            raise RecoveryError("RECOVERY_PREFIX_NORMALIZE_RED") from None
+    require(stat.S_IMODE(path.lstat().st_mode) == 0o700, "RECOVERY_PREFIX_NORMALIZE_RED")
+
+
+def _prepare_recovery_prefix() -> None:
+    """Create or narrowly normalize the root-only backup prefix."""
+
+    require(os.geteuid() == 0, "ROOT_REQUIRED")
+    require(BACKUP_PARENT.is_dir() and not BACKUP_PARENT.is_symlink(), "BACKUP_PARENT_UNSAFE")
+    try:
+        if not RECOVERY_PREFIX.exists():
+            os.mkdir(RECOVERY_PREFIX, 0o700)
+            os.chown(RECOVERY_PREFIX, 0, 0)
+        _normalize_private_directory(RECOVERY_PREFIX, expected_uid=0, expected_gid=0)
+        _fsync_directory(RECOVERY_PREFIX)
+        _fsync_directory(BACKUP_PARENT)
+    except RecoveryError:
+        raise
+    except OSError:
+        raise RecoveryError("RECOVERY_PREFIX_CREATE_RED") from None
+
+
 def _validate_control_binding(control_sha: str, control_tree: str) -> None:
     require(os.geteuid() == 0, "ROOT_REQUIRED")
     require(bool(re.fullmatch(r"[0-9a-f]{40}", control_sha)), "CONTROL_SHA_INVALID")
@@ -424,20 +461,9 @@ def preflight(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[s
 def _create_backup(recovery_dir: Path, material: bytes, payload: Mapping[str, int], metadata: os.stat_result, control_sha: str, control_tree: str) -> dict[str, object]:
     source, forward = partition_aggregate(payload)
     try:
-        if not RECOVERY_PREFIX.exists():
-            os.mkdir(RECOVERY_PREFIX, 0o700)
-            os.chown(RECOVERY_PREFIX, 0, 0)
-        prefix_metadata = RECOVERY_PREFIX.lstat()
-        require(
-            RECOVERY_PREFIX.is_dir()
-            and not RECOVERY_PREFIX.is_symlink()
-            and prefix_metadata.st_uid == 0
-            and prefix_metadata.st_gid == 0
-            and stat.S_IMODE(prefix_metadata.st_mode) == 0o700,
-            "RECOVERY_PREFIX_UNSAFE",
-        )
         os.mkdir(recovery_dir, 0o700)
         os.chown(recovery_dir, 0, 0)
+        _normalize_private_directory(recovery_dir, expected_uid=0, expected_gid=0)
     except OSError:
         raise RecoveryError("RECOVERY_DIRECTORY_CREATE_RED") from None
 
@@ -656,6 +682,7 @@ def _restore_original_fail_closed(recovery_dir: Path) -> None:
 
 
 def recover(control_sha: str, control_tree: str, recovery_dir: Path) -> dict[str, object]:
+    _prepare_recovery_prefix()
     preflight(control_sha, control_tree, recovery_dir)
     material, payload, metadata = _load_current_aggregate()
     source, _forward = partition_aggregate(payload)

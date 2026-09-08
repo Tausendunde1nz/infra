@@ -72,6 +72,26 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(path.stat().st_nlink, 1)
 
+    def test_private_directory_normalizes_only_inherited_setgid_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recovery-prefix"
+            path.mkdir(mode=0o700)
+            path.chmod(0o2700)
+            RECOVERY._normalize_private_directory(
+                path,
+                expected_uid=os.getuid(),
+                expected_gid=os.getgid(),
+            )
+            self.assertEqual(path.stat().st_mode & 0o7777, 0o700)
+
+            path.chmod(0o750)
+            with self.assertRaisesRegex(RECOVERY.RecoveryError, "RECOVERY_PREFIX_UNSAFE"):
+                RECOVERY._normalize_private_directory(
+                    path,
+                    expected_uid=os.getuid(),
+                    expected_gid=os.getgid(),
+                )
+
     def test_fail_closed_quiesce_stops_timers_then_workers_then_public_services(self) -> None:
         calls: list[tuple[str, ...]] = []
 
@@ -101,6 +121,7 @@ class CommercialS102DR7AggregateRecoveryTests(unittest.TestCase):
         self.assertTrue(manifest["backup"]["parent_directories_fsynced_before_replacement"])
         self.assertTrue(manifest["backup"]["timers_workers_quiesced_before_replacement"])
         self.assertTrue(manifest["backup"]["post_backup_race_check"])
+        self.assertTrue(manifest["backup"]["inherited_setgid_normalized_to_0700"])
         self.assertFalse(manifest["scope"]["database_mutation"])
         self.assertFalse(manifest["scope"]["application_change"])
         self.assertFalse(manifest["scope"]["second_cutover"])

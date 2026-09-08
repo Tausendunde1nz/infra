@@ -33,6 +33,7 @@
     "forward_entries_preserved": true,
     "sha256_bound": true,
     "owner_group_mode_preserved": true,
+    "inherited_setgid_normalized_to_0700": true,
     "atomic_replacement": true,
     "parent_directories_fsynced_before_replacement": true,
     "timers_workers_quiesced_before_replacement": true,

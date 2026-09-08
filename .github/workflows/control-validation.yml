@@ -699,6 +699,7 @@ jobs:
             analysis/COMMERCIAL_S10_2D_R4_1_HEALTH_GATE_START_2026-09-06.diagnose
             analysis/COMMERCIAL_S10_2D_R7_AGGREGATE_ROLLBACK_GAP_2026-09-08.diagnose
             analysis/COMMERCIAL_S10_2D_R7_LOCAL_UNITTEST_DISCOVERY_2026-09-08.diagnose
+            analysis/COMMERCIAL_S10_2D_R7_SETGID_BACKUP_PARENT_2026-09-08.diagnose
             docs/COMMERCIAL_S10_2D_R7_AGGREGATE_RECOVERY.md
             manifests/adult-publishing-commercial-s10-2d-r7-aggregate-recovery.json
             scripts/tu1nz_adult_public_s10_1_health.py

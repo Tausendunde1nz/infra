@@ -34,6 +34,12 @@ Before replacing anything it creates a root-only recovery directory and saves:
 4. hashes, ownership/mode and count-conservation evidence without dimensions,
    content, messages, media or identifiers.
 
+The server backup parent is intentionally setgid. Linux can therefore create a
+new child directory as mode `2700` even when `0700` was requested. The recovery
+accepts only that exact inherited-bit case on an already root-owned directory,
+removes the setgid bit to obtain `0700`, persists the directory entry, and
+rejects every other ownership or mode deviation.
+
 Every file and parent-directory entry is durably synchronized before the live
 file can change. The script then stops the affected timers, workers and public
 services, confirms that the original aggregate hash did not race after backup,
