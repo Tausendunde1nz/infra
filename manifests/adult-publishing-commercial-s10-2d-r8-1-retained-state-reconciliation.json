@@ -88,7 +88,17 @@
     "latency_trigger_suspended_in_same_transaction": true,
     "release_simulator": "GREEN",
     "retained_state_scenarios": "7/7 GREEN",
-    "server_retry_performed": false
+    "server_retry_performed": false,
+    "source_integration": {
+      "merge_commit": "df2c744e1f9c7c18ef7823672b7c4156a7514031",
+      "merge_tree": "c6a55573da073a108d931f0aa88d949ae5e96dd4",
+      "post_merge_ci": 34390845204,
+      "pull_request": 146,
+      "pull_request_ci": 34390722139,
+      "reviewed_head_commit": "88c197b0079b153f0ea21fae32326098a306c565",
+      "reviewed_head_tree": "c6a55573da073a108d931f0aa88d949ae5e96dd4",
+      "same_sha_review": "P1/P2 CLEAN"
+    }
   },
   "expected_live_pre_state": {
     "release_id": "s10-2d-r3-5",
@@ -127,7 +137,7 @@
   },
   "freeze": {
     "tag": "s10-2d-r8-1-state-reconciliation-freeze-v2",
-    "status": "PENDING_TRIGGER_CORRECTION_INTEGRATION"
+    "status": "PENDING_CORRECTION_EVIDENCE_POST_MERGE_CI"
   },
-  "decision": "SOURCE_CORRECTION_VALIDATED_AWAITING_INTEGRATION_NO_RETRY"
+  "decision": "SOURCE_CORRECTION_INTEGRATED_GREEN_LIVE_RETRY_NOT_STARTED"
 }
