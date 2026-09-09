@@ -62,7 +62,7 @@
   "artifact_bindings": {
     "controller_sha256": "7b117c57a2a5d4cb9692696137d686b85adc2e7519575668390fbb87ea5956c7",
     "release_simulator_sha256": "6b0d58c02a3506a7a3819c75e66e66600f8eda112c87adc2d585e318a239b682",
-    "state_reconciler_sha256": "fc21228ee49aa5ae9035326a20d8d61e871a6191206c29ed92fca9c8222d6ee7"
+    "state_reconciler_sha256": "9f64ea717f36a0e3fa0b4402196d7a7f2f6ab0dbfbb9addb706bf48ca2d0b4df"
   },
   "source_integration": {
     "pull_request": 144,
@@ -72,6 +72,23 @@
     "merge_commit": "e6dac22c4fa4f6802ebcda66f8ed2b3dc85b5326",
     "merge_tree": "7639b15ec59f1178c05e3be8acde6bdb7ec7a8c7",
     "post_merge_ci": 34271482838
+  },
+  "failed_candidate": {
+    "freeze": "s10-2d-r8-1-state-reconciliation-freeze",
+    "safe_code": "RETAINED_DATABASE_QUERY_RED",
+    "transaction_rolled_back": true,
+    "database_mutation": false,
+    "result_artifact_present": false,
+    "retained_counts_unchanged": true,
+    "root_cause": "COMMUNITY_EVENT_APPEND_ONLY_TRIGGER_REMAINED_ENABLED"
+  },
+  "failed_candidate_correction": {
+    "community_event_trigger_suspended_in_same_transaction": true,
+    "full_control_tests": "467/467 GREEN",
+    "latency_trigger_suspended_in_same_transaction": true,
+    "release_simulator": "GREEN",
+    "retained_state_scenarios": "7/7 GREEN",
+    "server_retry_performed": false
   },
   "expected_live_pre_state": {
     "release_id": "s10-2d-r3-5",
@@ -109,8 +126,8 @@
     "post_merge_ci": "34271482838 GREEN"
   },
   "freeze": {
-    "tag": "s10-2d-r8-1-state-reconciliation-freeze",
-    "status": "FINALIZED_BY_TAG_AFTER_EVIDENCE_POST_MERGE_CI"
+    "tag": "s10-2d-r8-1-state-reconciliation-freeze-v2",
+    "status": "PENDING_TRIGGER_CORRECTION_INTEGRATION"
   },
-  "decision": "SOURCE_GREEN_LIVE_RECONCILIATION_NOT_STARTED"
+  "decision": "SOURCE_CORRECTION_VALIDATED_AWAITING_INTEGRATION_NO_RETRY"
 }
