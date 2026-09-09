@@ -582,9 +582,11 @@ BEGIN
 END;
 $$;
 ALTER TABLE commercial_s10_2d_latency_samples DISABLE TRIGGER commercial_s10_2d_latency_append_only;
+ALTER TABLE commercial_s10_2d_community_events DISABLE TRIGGER commercial_s10_2d_community_events_append_only;
 DELETE FROM commercial_s10_2d_latency_samples WHERE sample_id IN ({sample_ids});
-ALTER TABLE commercial_s10_2d_latency_samples ENABLE TRIGGER commercial_s10_2d_latency_append_only;
 DELETE FROM commercial_s10_2d_community_events WHERE event_id IN ({event_ids});
+ALTER TABLE commercial_s10_2d_community_events ENABLE TRIGGER commercial_s10_2d_community_events_append_only;
+ALTER TABLE commercial_s10_2d_latency_samples ENABLE TRIGGER commercial_s10_2d_latency_append_only;
 DELETE FROM commercial_s10_2d_community_members WHERE subject_id={subject} AND telegram_user_id={telegram};
 DO $$
 BEGIN

@@ -1,0 +1,8 @@
+scope=R8.1 live retained-state reconciliation
+status=FAIL_CLOSED_SOURCE_CORRECTION_REQUIRED
+failure=the exact reconciliation transaction returned RETAINED_DATABASE_QUERY_RED
+cause=the latency append-only trigger was suspended but the community-event append-only trigger remained enabled
+impact=transaction rolled back; retained counts remained 1/3/14; no result artifact; both triggers remained enabled
+remediation=version both trigger suspensions symmetrically inside the same locked transaction; retest, review, merge, post-merge validate, and freeze before retry
+runtime_cutover=false
+personal_data=false

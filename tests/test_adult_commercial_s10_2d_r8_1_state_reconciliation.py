@@ -227,6 +227,10 @@ class CommercialS102DR81StateReconciliationTests(unittest.TestCase):
         self.assertIn("telegram_user_id", source)
         self.assertIn("commercial_s10_2d_runtime_control, commercial_s10_2d_bot_polling_state", source)
         self.assertIn("current_snapshot(snapshot)", source)
+        self.assertIn("DISABLE TRIGGER commercial_s10_2d_latency_append_only", source)
+        self.assertIn("ENABLE TRIGGER commercial_s10_2d_latency_append_only", source)
+        self.assertIn("DISABLE TRIGGER commercial_s10_2d_community_events_append_only", source)
+        self.assertIn("ENABLE TRIGGER commercial_s10_2d_community_events_append_only", source)
         self.assertNotIn('command.extend(("--file"', source)
         self.assertIn("_write_new(path, result.stdout)", source)
         self.assertNotIn("DELETE WHERE state='ACTIVE'", source)
@@ -240,6 +244,14 @@ class CommercialS102DR81StateReconciliationTests(unittest.TestCase):
         self.assertLess(sql.index("current_snapshot(snapshot)"), sql.index("DELETE FROM"))
         self.assertIn('"community_state":"ACTIVE"', sql)
         self.assertIn("commercial_s10_2d_runtime_control, commercial_s10_2d_bot_polling_state", sql)
+        self.assertLess(
+            sql.index("DISABLE TRIGGER commercial_s10_2d_community_events_append_only"),
+            sql.index("DELETE FROM commercial_s10_2d_community_events"),
+        )
+        self.assertLess(
+            sql.index("DELETE FROM commercial_s10_2d_community_events"),
+            sql.index("ENABLE TRIGGER commercial_s10_2d_community_events_append_only"),
+        )
 
     def test_manifest_and_control_preserve_scope_and_privacy_boundaries(self) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))

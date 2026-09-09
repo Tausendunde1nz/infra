@@ -292,6 +292,7 @@
 !analysis/COMMERCIAL_S10_2D_R8_1_SOURCE_BUNDLE_VERIFY_CONTEXT_2026-09-08.diagnose
 !analysis/COMMERCIAL_S10_2D_R8_1_FULL_SUITE_EXPECTATIONS_2026-09-08.diagnose
 !analysis/COMMERCIAL_S10_2D_R8_1_TEST_RUNTIME_2026-09-08.diagnose
+!analysis/COMMERCIAL_S10_2D_R8_1_EVENT_TRIGGER_ROLLBACK_2026-09-09.diagnose
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh
 !scripts/tu1nz_adult_public_s10_2d_r7_aggregate_recovery.py
 !scripts/tu1nz_adult_public_s10_2d_state_reconcile.py
