@@ -88,7 +88,7 @@
     "latency_trigger_suspended_in_same_transaction": true,
     "release_simulator": "GREEN",
     "retained_state_scenarios": "7/7 GREEN",
-    "server_retry_performed": false,
+    "server_retry_performed": true,
     "source_integration": {
       "merge_commit": "df2c744e1f9c7c18ef7823672b7c4156a7514031",
       "merge_tree": "c6a55573da073a108d931f0aa88d949ae5e96dd4",
@@ -121,6 +121,30 @@
     "baseline_start": null,
     "community_runtime_active": false
   },
+  "live_reconciliation": {
+    "acquisition_active": false,
+    "adult_gates_closed": true,
+    "archived_community_rows": 1,
+    "archived_latency_rows": 14,
+    "backup_directory": "/opt/tu1nz_repos/backups/commercial-s10-2d-r8-1-state/20260908T195727Z",
+    "backup_owner_mode": "root:root 0700/0600",
+    "community_events_after": 0,
+    "community_rows_after": 0,
+    "completed_at": "2026-09-09T18:50:23Z",
+    "data_archive_sha256": "7274a10176288e609edbc2b09ea6738fca599af60df73fffc6ff56e784b53233",
+    "future_preflight": "S10_2D_R8_STATE_PREFLIGHT_GREEN",
+    "latency_rows_after": 0,
+    "moderation_rows_after": 0,
+    "provider_status_before": "kicked",
+    "public_health": "GREEN",
+    "real_acquisition_baseline": null,
+    "reconciliation_result_sha256": "30eddd416b192dc3c5a382a07007e9583ff343c9a1b741f14fc91d089804dcfb",
+    "runtime_cutover": false,
+    "safe_code": "S10_2D_RETAINED_STATE_RECONCILED",
+    "schema_archive_sha256": "1ac4c7130e389e8e657fe534bb4ba124c94c8b9be987da7bee6c620c775f13c7fc",
+    "trigger_state_after": "ENABLED",
+    "unknown_rows": 0
+  },
   "validation": {
     "current_r8_red_then_clean": "GREEN",
     "unknown_member": "EXPECTED_RED",
@@ -137,7 +161,7 @@
   },
   "freeze": {
     "tag": "s10-2d-r8-1-state-reconciliation-freeze-v2",
-    "status": "PENDING_CORRECTION_EVIDENCE_POST_MERGE_CI"
+    "status": "FINALIZED_PRE_LIVE_LIGHTWEIGHT_TAG"
   },
-  "decision": "SOURCE_CORRECTION_INTEGRATED_GREEN_LIVE_RETRY_NOT_STARTED"
+  "decision": "R8_1_GREEN_NEXT_RUNTIME_CUTOVER_READY_NO_CUTOVER"
 }
