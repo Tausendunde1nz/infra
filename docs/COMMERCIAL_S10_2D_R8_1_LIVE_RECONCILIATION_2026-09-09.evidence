@@ -1,0 +1,62 @@
+# Commercial S10.2D-R8.1 live reconciliation evidence
+
+## Scope
+
+This evidence records aggregate results only. No Telegram identifier, message,
+media, token, DSN, or personal data is included. No runtime cutover, community
+activation, BotFather change, or real acquisition was performed.
+
+## Frozen source
+
+- Application: `312db84d5db6d76c9d6bb448459c9404b1dfcbe4`, tree
+  `ac4f8bca1fd796626742a8ef6c6afcdda482fc68`, CI `34057828638` GREEN.
+- Control execution freeze: `s10-2d-r8-1-state-reconciliation-freeze-v2`
+  at `f65e8f82f971ef38ad0e47aea7b38372e7e64976`, tree
+  `5ed886d43a09948b47bcfd74bd3fe8ccbd8ad092`, CI `34391110983` GREEN.
+- State reconciler SHA-256:
+  `9f64ea717f36a0e3fa0b4402196d7a7f2f6ab0dbfbb9addb706bf48ca2d0b4df`.
+
+## Fail-closed precursor
+
+The first frozen candidate returned `RETAINED_DATABASE_QUERY_RED`. Its database
+transaction rolled back, no result artifact was written, the retained counts
+remained 1 community row, 3 lifecycle events, and 14 latency rows, and both
+append-only triggers remained enabled. The versioned correction symmetrically
+suspends and re-enables both append-only triggers inside the same locked
+transaction. PR 146, its CI, same-SHA review, merge commit, and post-merge CI
+were GREEN before a retry was permitted.
+
+## Backup and reconciliation
+
+- Root-only state backup:
+  `/opt/tu1nz_repos/backups/commercial-s10-2d-r8-1-state/20260908T195727Z`.
+- Directory/file modes: `0700/0600`; restore artifacts verified.
+- Data archive SHA-256:
+  `7274a10176288e609edbc2b09ea6738fca599af60df73fffc6ff56e784b53233`.
+- Schema archive SHA-256:
+  `1ac4c7130e389e8e657fe534bb4ba124c94c8b9be987da7bee6c620c775f13c7fc`.
+- Provider status immediately before reconciliation: `kicked`.
+- Reconciliation completed at `2026-09-09T18:50:23Z` with
+  `S10_2D_RETAINED_STATE_RECONCILED`.
+- Archived aggregate: 1 community row and 14 latency rows; unknown rows: 0.
+- Result SHA-256:
+  `30eddd416b192dc3c5a382a07007e9583ff343c9a1b741f14fc91d089804dcfb`.
+
+## Post-state
+
+- Community members/events/latency: `0/0/0`.
+- Moderation events/outbox/rate limits: `0/0/0`.
+- Both append-only triggers: enabled.
+- Real acquisition: false; baseline: null; readiness remains pending.
+- Future R8 preflight: `S10_2D_R8_STATE_PREFLIGHT_GREEN`.
+- Public WMS and health endpoints: GREEN.
+- S7, S8 Landing, S8 Telegram, S10 WMS, and nginx: active with zero restarts.
+- Growth and health timers: active, enabled, and scheduled.
+- Community runtime: inactive. Adult media, AVS, payment, and publishing: closed.
+
+## Decision
+
+`S10_2D_NEXT_RUNTIME_CUTOVER_READY=true`.
+
+R8.1 is GREEN. No runtime cutover was executed. Real acquisition remains
+NO-GO until a separate explicitly authorized product step.
