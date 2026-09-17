@@ -12,6 +12,8 @@ readonly BACKUP_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_backup.s
 readonly HEALTH_GATE_SCRIPT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_health_gate.py"
 readonly AGGREGATE_CONTRACT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py"
 readonly STATE_RECONCILER="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_state_reconcile.py"
+readonly READINESS_CONTRACT="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_readiness.py"
+readonly READINESS_MANIFEST="$CONTROL_ROOT/manifests/adult-publishing-commercial-s10-2d-r8-3-technical-readiness.json"
 
 readonly SOURCE_SHA="f9747088a31ec6c671e82de24e293ebdec99f717"
 readonly SOURCE_TREE="7defedef032f6af38bbce0165eb6c2bdec327df7"
@@ -777,6 +779,21 @@ require_target_s8_poller() {
   done
 }
 
+require_installed_runtime_evidence_green() {
+  local unit
+  for unit in tu1nz-adult-public-s8-health.service tu1nz-adult-public-s9-health.service \
+    tu1nz-adult-public-s10-health.service "$ROTATE_SERVICE"; do
+    [ "$(unit_value "$unit" Result)" = "success" ] || fail "RUNTIME_EVIDENCE_RESULT_RED"
+    [ "$(unit_value "$unit" ExecMainStatus)" = "0" ] || fail "RUNTIME_EVIDENCE_STATUS_RED"
+  done
+}
+
+require_target_aggregate_readable() {
+  PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" -c \
+    'from pathlib import Path; from tu1nz_growth_s9.counter import AggregateCounter; AggregateCounter(Path("/var/lib/tu1nz-adult-public-s9/landing-aggregates.json")).snapshot()' \
+    >/dev/null || fail "TARGET_AGGREGATE_STATE_RED"
+}
+
 start_target() {
   systemctl reset-failed "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" >/dev/null || true
   systemctl start "$S8_LANDING_SERVICE" "$S8_SERVICE" "$S10_SERVICE" || fail "PUBLIC_SERVICE_START_RED"
@@ -976,23 +993,32 @@ observation_snapshot() {
 mark_ready() {
   require_root
   verify_target "$1" "$2" >/dev/null
-  local evidence
-  evidence="$(database_scalar "SELECT floor(extract(epoch FROM (CURRENT_TIMESTAMP-pre_acquisition_baseline_end)))::bigint||':'||count(s.sample_id)||':'||coalesce(percentile_cont(0.50) WITHIN GROUP (ORDER BY s.bot_response_latency_ms)::bigint,-1)||':'||coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY s.bot_response_latency_ms)::bigint,-1)||':'||coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY s.bot_response_latency_ms)::bigint,-1)||':'||(SELECT count(*) FROM commercial_s10_2d_moderation_outbox WHERE delivery_state='PENDING')||':'||(SELECT count(*) FROM commercial_s10_2d_community_members WHERE community_state='RESTRICTED' AND restriction_until<CURRENT_TIMESTAMP) FROM commercial_s10_2d_runtime_control c LEFT JOIN commercial_s10_2d_latency_samples s ON s.release_id='$TARGET_RELEASE_ID' AND s.run_id=c.technical_evidence_run_id AND s.occurred_at>=c.pre_acquisition_baseline_end WHERE c.singleton GROUP BY c.pre_acquisition_baseline_end;")"
-  IFS=: read -r elapsed samples p50 p95 p99 pending stuck <<<"$evidence"
-  [ "$elapsed" -ge 1800 ] || fail "OBSERVATION_WINDOW_INCOMPLETE"
-  [ "$samples" -ge 5 ] || fail "LATENCY_SAMPLE_FLOOR_MISSING"
-  [ "$p50" -ge 0 ] && [ "$p50" -lt 1000 ] || fail "LATENCY_P50_RED"
-  [ "$p95" -ge 0 ] && [ "$p95" -lt 2000 ] || fail "LATENCY_P95_RED"
-  [ "$p99" -ge 0 ] && [ "$p99" -lt 5000 ] || fail "LATENCY_P99_RED"
-  [ "$pending" = "0" ] || fail "MODERATION_OUTBOX_PENDING"
-  [ "$stuck" = "0" ] || fail "COMMUNITY_RESTRICTION_STUCK"
+  require_target_wms_listener
+  require_target_s8_poller
+  require_installed_runtime_evidence_green
+  require_target_aggregate_readable
+  [ -x "$READINESS_CONTRACT" ] || fail "READINESS_CONTRACT_UNAVAILABLE"
+  [ -f "$READINESS_MANIFEST" ] && [ ! -L "$READINESS_MANIFEST" ] || fail "READINESS_MANIFEST_UNAVAILABLE"
+  local profile="$3" evidence elapsed samples p50 p95 p99 pending stuck release_id run_bound unknown_retained acquisition_active baseline_present
+  local baseline_json readiness_report safe_code status=0
+  evidence="$(database_scalar "SELECT floor(extract(epoch FROM (CURRENT_TIMESTAMP-pre_acquisition_baseline_end)))::bigint||':'||count(s.sample_id)||':'||coalesce(percentile_cont(0.50) WITHIN GROUP (ORDER BY s.bot_response_latency_ms)::bigint,-1)||':'||coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY s.bot_response_latency_ms)::bigint,-1)||':'||coalesce(percentile_cont(0.99) WITHIN GROUP (ORDER BY s.bot_response_latency_ms)::bigint,-1)||':'||(SELECT count(*) FROM commercial_s10_2d_moderation_outbox WHERE delivery_state='PENDING')||':'||(SELECT count(*) FROM commercial_s10_2d_community_members WHERE community_state='RESTRICTED' AND restriction_until<CURRENT_TIMESTAMP)||':'||c.target_release_id||':'||CASE WHEN c.technical_evidence_run_id IS NOT NULL THEN 'true' ELSE 'false' END||':'||(SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE evidence_class<>'TECHNICAL_ACCEPTANCE' OR release_id NOT IN ('s10-2d-r3-4','$TARGET_RELEASE_ID'))||':'||CASE WHEN c.wms_real_acquisition_ready THEN 'true' ELSE 'false' END||':'||CASE WHEN c.real_acquisition_baseline_start IS NULL THEN 'false' ELSE 'true' END FROM commercial_s10_2d_runtime_control c LEFT JOIN commercial_s10_2d_latency_samples s ON s.release_id='$TARGET_RELEASE_ID' AND s.run_id=c.technical_evidence_run_id AND s.occurred_at>=c.pre_acquisition_baseline_end WHERE c.singleton GROUP BY c.pre_acquisition_baseline_end,c.target_release_id,c.technical_evidence_run_id,c.wms_real_acquisition_ready,c.real_acquisition_baseline_start;")"
+  IFS=: read -r elapsed samples p50 p95 p99 pending stuck release_id run_bound unknown_retained acquisition_active baseline_present <<<"$evidence"
+  baseline_json=null
+  [ "$baseline_present" = "false" ] || baseline_json='"PRESENT"'
+  readiness_report="$(printf '{"technical_gates":{"wms_health":true,"public_health":true,"release_binding":true,"control_binding":true,"s8_poller_running":true,"valid_lease":true,"exactly_one_poller":true,"successful_telegram_polls":true,"event_path_ready":true,"publication_rotation":true,"community_runtime":true,"moderation_runtime":true,"aggregate_state":true,"database_migration_state":true,"growth_health_timers":true,"critical_runtime_errors_absent":true,"retained_unknown_state_absent":true,"adult_media_closed":true,"avs_closed":true,"payment_closed":true,"publishing_closed":true,"acquisition_inactive":true,"observation_green":true},"technical_evidence_release_id":"%s","technical_evidence_run_bound":%s,"observation_duration_seconds":%s,"bot_response_samples":%s,"bot_response_p50_ms":%s,"bot_response_p95_ms":%s,"bot_response_p99_ms":%s,"pending_moderation":%s,"stuck_restrictions":%s,"unknown_retained_state":%s,"real_acquisition_active":%s,"real_acquisition_baseline_start":%s}\n' \
+    "$release_id" "$run_bound" "$elapsed" "$samples" "$p50" "$p95" "$p99" "$pending" "$stuck" "$unknown_retained" "$acquisition_active" "$baseline_json" \
+    | "$READINESS_CONTRACT" --manifest "$READINESS_MANIFEST" --profile "$profile")" || status=$?
+  if [ "$status" -ne 0 ]; then
+    safe_code="$(/usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin).get("safe_code"); assert isinstance(value,str) and value.isupper() and " " not in value; print(value)' <<<"$readiness_report")" \
+      || fail "READINESS_EVIDENCE_INVALID"
+    fail "$safe_code"
+  fi
   [ "$(database_scalar "WITH updated AS (UPDATE commercial_s10_2d_runtime_control SET pre_acquisition_readiness='GREEN',updated_at=CURRENT_TIMESTAMP WHERE singleton AND pre_acquisition_readiness='PENDING' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL RETURNING 1) SELECT count(*) FROM updated;")" = "1" ] \
     || fail "READINESS_STATE_DIVERGED"
   require_acquisition_state_contract
   [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_runtime_control WHERE singleton AND pre_acquisition_readiness='GREEN' AND NOT wms_real_acquisition_ready AND real_acquisition_baseline_start IS NULL;")" = "1" ] \
     || fail "R3_TARGET_STATE_RED"
-  printf '{"ok":true,"safe_code":"S10_2D_COMMUNITY_RUNTIME_GO","elapsed_seconds":%s,"latency_samples":%s,"p50_ms":%s,"p95_ms":%s,"p99_ms":%s,"WMS_REAL_ACQUISITION_TECHNICALLY_READY":true,"REAL_ACQUISITION_ACTIVE":false,"REAL_ACQUISITION_BASELINE_START":null,"business_loop_state":"WAITING_OPERATOR_ACQUISITION_GO","automatic_link_seeding":false,"adult_media":false,"avs":false,"payments":false,"publishing":false}\n' \
-    "$elapsed" "$samples" "$p50" "$p95" "$p99"
+  printf '%s\n' "$readiness_report"
 }
 
 case "${1:-}" in
@@ -1001,7 +1027,7 @@ case "${1:-}" in
   deploy) [ "$#" -eq 4 ] || fail "USAGE"; deploy "$2" "$3" "$4" ;;
   verify) [ "$#" -eq 3 ] || fail "USAGE"; verify_target "$2" "$3" ;;
   observe) [ "$#" -eq 3 ] || fail "USAGE"; observation_snapshot "$2" "$3" ;;
-  mark-ready) [ "$#" -eq 3 ] || fail "USAGE"; mark_ready "$2" "$3" ;;
+  mark-ready) [ "$#" -eq 4 ] || fail "USAGE"; mark_ready "$2" "$3" "$4" ;;
   rollback) [ "$#" -eq 4 ] || fail "USAGE"; rollback "$2" "$3" "$4" ;;
   *) fail "USAGE" ;;
 esac

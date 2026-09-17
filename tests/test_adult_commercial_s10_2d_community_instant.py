@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2d-community-instant.json"
 R8_1_MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2d-r8-1-retained-state-reconciliation.json"
+R8_3_MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2d-r8-3-technical-readiness.json"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s10_2d_control.sh"
 S8_HEALTH = ROOT / "scripts/tu1nz_adult_public_s8_health.py"
 S10_HEALTH = ROOT / "scripts/tu1nz_adult_public_s10_1_health.py"
@@ -22,6 +23,7 @@ R4_1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R4_1_HEALTH_GATE_START_2026-
 R6_1_DIAGNOSIS = ROOT / "analysis/COMMERCIAL_S10_2D_R6_1_S8_STARTUP_HEALTH_2026-09-06.diagnose"
 HEALTH_GATE = ROOT / "scripts/tu1nz_adult_public_s10_2d_health_gate.py"
 RELEASE_SIMULATOR = ROOT / "scripts/tu1nz_adult_public_s10_2d_release_simulator.py"
+READINESS_CONTRACT = ROOT / "scripts/tu1nz_adult_public_s10_2d_readiness.py"
 S8_UNIT = ROOT / "systemd/tu1nz-adult-public-s8-telegram.service"
 S8_SOURCE_DROPIN = (
     ROOT / "systemd/tu1nz-adult-public-s8-telegram.service.d/s10-wms.conf"
@@ -167,7 +169,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
 
     def test_all_new_control_material_is_hash_bound_and_syntax_valid(self) -> None:
         control = self.manifest["control"]
-        current = json.loads(R8_1_MANIFEST.read_text(encoding="utf-8"))["artifact_bindings"]
+        current = json.loads(R8_3_MANIFEST.read_text(encoding="utf-8"))["artifact_bindings"]
         self.assertEqual(hashlib.sha256(CONTROLLER.read_bytes()).hexdigest(), current["controller_sha256"])
         self.assertEqual(hashlib.sha256(S8_UNIT.read_bytes()).hexdigest(), control["target_s8_unit_sha256"])
         self.assertEqual(
@@ -268,6 +270,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertIn('fail "$(rotation_failure_code)"', run_rotation)
 
     def test_controller_is_backup_first_version_bound_and_fail_closed(self) -> None:
+        combined_contract = self.controller + READINESS_CONTRACT.read_text(encoding="utf-8")
         for value in (
             self.manifest["application"]["source_commit"],
             self.manifest["application"]["source_tree"],
@@ -293,7 +296,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
             "ACQUISITION_STATE_CONTRACT_RED",
             "WAITING_OPERATOR_ACQUISITION_GO",
         ):
-            self.assertIn(str(value), self.controller)
+            self.assertIn(str(value), combined_contract)
         deploy = self.controller.split("deploy() {", 1)[1].split("observation_snapshot() {", 1)[0]
         self.assertLess(deploy.index("preflight"), deploy.index("quiesce"))
         preflight = self.controller.split("preflight() {", 1)[1].split("rollback() {", 1)[0]
@@ -486,7 +489,7 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
             '"health_starts_poller_dies"',
             '"source_process_not_relinquished"',
             '"rollback_source_listener_restored"',
-            "S10_2D_R8_1_RELEASE_SIMULATOR_GREEN",
+            "S10_2D_R8_3_RELEASE_SIMULATOR_GREEN",
             "HEALTH_GATE_S8_RUNTIME_POLLER_NOT_READY",
         ):
             self.assertIn(value, simulator)
@@ -649,15 +652,9 @@ class CommercialS102DCommunityInstantTests(unittest.TestCase):
         self.assertNotIn("real_acquisition_baseline_start=CURRENT_TIMESTAMP", update)
         self.assertIn("AND NOT wms_real_acquisition_ready", update)
         self.assertIn("AND real_acquisition_baseline_start IS NULL", update)
-        for value in (
-            '"safe_code":"S10_2D_COMMUNITY_RUNTIME_GO"',
-            '"WMS_REAL_ACQUISITION_TECHNICALLY_READY":true',
-            '"REAL_ACQUISITION_ACTIVE":false',
-            '"REAL_ACQUISITION_BASELINE_START":null',
-            '"business_loop_state":"WAITING_OPERATOR_ACQUISITION_GO"',
-            '"automatic_link_seeding":false',
-        ):
-            self.assertIn(value, mark_ready)
+        self.assertIn('"$READINESS_CONTRACT"', mark_ready)
+        self.assertIn('--profile "$profile"', mark_ready)
+        self.assertIn("READINESS_STATE_DIVERGED", mark_ready)
 
     def test_r3_rollback_resets_only_inactive_null_baseline_state(self) -> None:
         reset = self.controller.split("reset_r3_acquisition_state() {", 1)[1].split(
