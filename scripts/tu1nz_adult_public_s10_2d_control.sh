@@ -789,7 +789,8 @@ require_installed_runtime_evidence_green() {
 }
 
 require_target_aggregate_readable() {
-  PYTHONPATH="$APPLICATION_ROOT/src" "$APPLICATION_ROOT/.venv/bin/python" -c \
+  runuser -u chatops -- env PYTHONPATH="$APPLICATION_ROOT/src" \
+    "$APPLICATION_ROOT/.venv/bin/python" -c \
     'from pathlib import Path; from tu1nz_growth_s9.counter import AggregateCounter; AggregateCounter(Path("/var/lib/tu1nz-adult-public-s9/landing-aggregates.json")).snapshot()' \
     >/dev/null || fail "TARGET_AGGREGATE_STATE_RED"
 }

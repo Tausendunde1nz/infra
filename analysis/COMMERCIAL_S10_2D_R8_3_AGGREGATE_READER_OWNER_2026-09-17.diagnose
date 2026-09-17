@@ -1,0 +1,14 @@
+S10.2D-R8.3 target aggregate reader ownership diagnosis
+
+The first mark-ready attempt stopped before its readiness state update with
+TARGET_AGGREGATE_STATE_RED. The runtime-control state remained PENDING, real
+acquisition remained false, and its baseline remained null.
+
+The aggregate file was a regular, single-link, mode-0600 chatops-owned file.
+The new target reader invoked the Application counter as root, while the
+counter deliberately rejects aggregate material whose owner differs from its
+effective user. The existing source-reader contract already used chatops.
+
+The bounded correction runs the target reader as chatops with the same pinned
+Application source and path. It does not alter aggregate contents, services,
+database rows, evidence, Application source, or product boundaries.

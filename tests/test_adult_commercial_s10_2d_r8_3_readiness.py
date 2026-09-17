@@ -199,6 +199,9 @@ class CommercialS102DR83ReadinessTests(unittest.TestCase):
         self.assertIn('--profile "$profile"', controller)
         self.assertIn("SET pre_acquisition_readiness='GREEN'", controller)
         mark_ready = controller.split("mark_ready() {", 1)[1].split('case "${1:-}"', 1)[0]
+        aggregate_reader = controller.split("require_target_aggregate_readable() {", 1)[1].split("start_target() {", 1)[0]
+        self.assertIn("runuser -u chatops -- env PYTHONPATH", aggregate_reader)
+        self.assertIn("TARGET_AGGREGATE_STATE_RED", aggregate_reader)
         self.assertNotIn("wms_real_acquisition_ready=true", mark_ready)
         self.assertNotIn("real_acquisition_baseline_start=CURRENT_TIMESTAMP", mark_ready)
         self.assertFalse(self.manifest["real_acquisition_active"])
