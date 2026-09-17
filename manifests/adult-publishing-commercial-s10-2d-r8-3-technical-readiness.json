@@ -26,6 +26,14 @@
     "bundle_verified": true
   },
   "acceptance_profile": "TECHNICAL_RUNTIME_WITH_HUMAN_DEFERRED",
+  "technical_runtime_status": "GO",
+  "direct_bot_human_acceptance": "DEFERRED",
+  "community_human_acceptance": "DEFERRED",
+  "moderation_human_acceptance": "DEFERRED",
+  "bot_response_latency_status": "NOT_MEASURED",
+  "join_welcome_latency_status": "NOT_MEASURED",
+  "observation_duration": 1818,
+  "adult_gate_state": "CLOSED",
   "acceptance_profiles": {
     "FULL_HUMAN_E2E": {
       "human_acceptance_required": "GREEN",
