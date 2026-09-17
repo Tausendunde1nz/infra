@@ -203,6 +203,14 @@ class CommercialS102DR83ReadinessTests(unittest.TestCase):
         self.assertNotIn("real_acquisition_baseline_start=CURRENT_TIMESTAMP", mark_ready)
         self.assertFalse(self.manifest["real_acquisition_active"])
         self.assertIsNone(self.manifest["real_acquisition_baseline_start"])
+        self.assertEqual(self.manifest["technical_runtime_status"], "GO")
+        self.assertEqual(self.manifest["direct_bot_human_acceptance"], "DEFERRED")
+        self.assertEqual(self.manifest["community_human_acceptance"], "DEFERRED")
+        self.assertEqual(self.manifest["moderation_human_acceptance"], "DEFERRED")
+        self.assertEqual(self.manifest["bot_response_latency_status"], "NOT_MEASURED")
+        self.assertEqual(self.manifest["join_welcome_latency_status"], "NOT_MEASURED")
+        self.assertEqual(self.manifest["observation_duration"], 1818)
+        self.assertEqual(self.manifest["adult_gate_state"], "CLOSED")
 
 
 if __name__ == "__main__":
