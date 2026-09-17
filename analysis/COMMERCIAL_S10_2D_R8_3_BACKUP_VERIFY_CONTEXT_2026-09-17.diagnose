@@ -1,0 +1,13 @@
+S10.2D-R8.3 source-backup verification diagnosis
+
+During the backup gate, both Git bundles and their SHA-256 index were created
+successfully. The first two verification invocations lacked a usable repository
+context: one omitted the repository, and one ran across the root/chatops
+ownership boundary. Neither invocation changed a repository or a bundle.
+
+The bounded correction used each canonical repository with an explicit
+safe-directory context while retaining the root-only backup directory. Both
+bundles then passed `git bundle verify`; the checksum index passed; the backup
+directory is root:root mode 2700 and its files are mode 0600.
+
+No retry altered runtime, database, services, evidence, or source content.

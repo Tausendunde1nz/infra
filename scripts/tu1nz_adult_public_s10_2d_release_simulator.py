@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import importlib.util
 import json
@@ -1055,6 +1056,123 @@ def _retained_state_scenarios(control_root: Path) -> list[dict[str, object]]:
     return reports
 
 
+def _readiness_scenarios(control_root: Path) -> list[dict[str, object]]:
+    contract = _load_module(
+        control_root / "scripts/tu1nz_adult_public_s10_2d_readiness.py",
+        "tu1nz_s10_2d_r8_3_readiness_simulator",
+    )
+    manifest = contract.load_manifest(
+        control_root
+        / "manifests/adult-publishing-commercial-s10-2d-r8-3-technical-readiness.json"
+    )
+
+    def evidence() -> dict[str, object]:
+        return {
+            "technical_gates": {
+                gate: True for gate in manifest["technical_readiness"]["required_gates"]
+            },
+            "technical_evidence_release_id": "s10-2d-r3-5",
+            "technical_evidence_run_bound": True,
+            "observation_duration_seconds": 1818,
+            "bot_response_samples": 0,
+            "bot_response_p50_ms": -1,
+            "bot_response_p95_ms": -1,
+            "bot_response_p99_ms": -1,
+            "pending_moderation": 0,
+            "stuck_restrictions": 0,
+            "unknown_retained_state": 0,
+            "real_acquisition_active": False,
+            "real_acquisition_baseline_start": None,
+        }
+
+    reports: list[dict[str, object]] = []
+
+    def green(name: str, candidate_manifest: dict[str, object], candidate_evidence: dict[str, object], profile: str) -> None:
+        report = contract.evaluate_readiness(
+            candidate_manifest,
+            candidate_evidence,
+            profile,
+            enforce_selected_profile=False,
+        )
+        if report["WMS_REAL_ACQUISITION_TECHNICALLY_READY"] is not True:
+            raise SimulationError("READINESS_SCENARIO_FALSE_GREEN")
+        if report["REAL_ACQUISITION_ACTIVE"] is not False or report["REAL_ACQUISITION_BASELINE_START"] is not None:
+            raise SimulationError("READINESS_ACQUISITION_GUARD_RED")
+        reports.append({"name": name, "ok": True, "safe_code": report["safe_code"]})
+
+    def red(name: str, candidate_manifest: dict[str, object], candidate_evidence: dict[str, object], profile: str, expected: str) -> None:
+        try:
+            contract.evaluate_readiness(
+                candidate_manifest,
+                candidate_evidence,
+                profile,
+                enforce_selected_profile=False,
+            )
+        except contract.ReadinessContractError as error:
+            if str(error) != expected:
+                raise SimulationError("READINESS_SCENARIO_REASON_RED") from None
+            reports.append({"name": name, "ok": True, "safe_code": expected})
+            return
+        raise SimulationError("READINESS_SCENARIO_FALSE_GREEN")
+
+    strict_manifest = copy.deepcopy(manifest)
+    strict_manifest["human_acceptance"] = {
+        "direct_bot": "GREEN",
+        "community": "GREEN",
+        "moderation": "GREEN",
+    }
+    strict_manifest["human_latency"] = {
+        "bot_response": "MEASURED",
+        "join_welcome": "MEASURED",
+    }
+    strict_evidence = evidence()
+    strict_evidence.update({
+        "bot_response_samples": 5,
+        "bot_response_p50_ms": 500,
+        "bot_response_p95_ms": 900,
+        "bot_response_p99_ms": 950,
+    })
+    green("full_human_e2e_green", strict_manifest, strict_evidence, contract.STRICT_PROFILE)
+    green(
+        "r8_2_technical_runtime_human_deferred_green",
+        manifest,
+        evidence(),
+        contract.DEFERRED_PROFILE,
+    )
+
+    candidate = evidence()
+    candidate["technical_gates"]["wms_health"] = False
+    red("technical_red_human_deferred", manifest, candidate, contract.DEFERRED_PROFILE, "TECHNICAL_GATE_RED")
+
+    candidate_manifest = copy.deepcopy(manifest)
+    candidate_manifest["human_acceptance"]["direct_bot"] = "RED"
+    red("human_red_is_not_deferred", candidate_manifest, evidence(), contract.DEFERRED_PROFILE, "HUMAN_ACCEPTANCE_RED")
+    red("unknown_profile_fails_closed", manifest, evidence(), "UNKNOWN", "UNKNOWN_ACCEPTANCE_PROFILE")
+
+    candidate = evidence()
+    candidate["real_acquisition_active"] = True
+    red("unexpected_acquisition_active", manifest, candidate, contract.DEFERRED_PROFILE, "REAL_ACQUISITION_UNEXPECTEDLY_ACTIVE")
+
+    candidate_manifest = copy.deepcopy(manifest)
+    candidate_manifest["product_boundaries"]["ADULT_MEDIA"] = "OPEN"
+    red("adult_gate_open", candidate_manifest, evidence(), contract.DEFERRED_PROFILE, "PRODUCT_BOUNDARY_RED")
+
+    candidate = evidence()
+    candidate["observation_duration_seconds"] = 1799
+    red("observation_missing", manifest, candidate, contract.DEFERRED_PROFILE, "OBSERVATION_WINDOW_INCOMPLETE")
+
+    candidate = evidence()
+    candidate["technical_evidence_release_id"] = "s10-2d-r3-4"
+    red("stale_wrong_release_evidence", manifest, candidate, contract.DEFERRED_PROFILE, "TECHNICAL_EVIDENCE_STALE")
+
+    strict_zero = evidence()
+    red("full_human_zero_samples", strict_manifest, strict_zero, contract.STRICT_PROFILE, "LATENCY_SAMPLE_FLOOR_MISSING")
+
+    if len(reports) != 10 or any(not report["ok"] for report in reports):
+        raise SimulationError("READINESS_SCENARIO_SET_RED")
+    return reports
+
+
 def _health_case(
     health_gate: ModuleType,
     control_root: Path,
@@ -1177,6 +1295,9 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
     retained_state_cases = _retained_state_scenarios(control_root)
     if len(retained_state_cases) != 7 or any(not case["ok"] for case in retained_state_cases):
         raise SimulationError("SIMULATOR_RETAINED_STATE_SCENARIO_RED")
+    readiness_cases = _readiness_scenarios(control_root)
+    if len(readiness_cases) != 10 or any(not case["ok"] for case in readiness_cases):
+        raise SimulationError("SIMULATOR_READINESS_SCENARIO_RED")
 
     sys.path.insert(0, str(application_root / "src"))
     from tu1nz_public_s8.release_simulator import run_bot_path_simulation
@@ -1298,12 +1419,15 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
         raise SimulationError("BOT_HANDLER_TIMEOUT")
     return {
         "ok": True,
-        "safe_code": "S10_2D_R8_1_RELEASE_SIMULATOR_GREEN",
+        "safe_code": "S10_2D_R8_3_RELEASE_SIMULATOR_GREEN",
         "scenarios": scenarios,
         "health_cases": health_cases,
         "listener_cases": listener_cases,
         "aggregate_cases": aggregate_cases,
         "retained_state_cases": retained_state_cases,
+        "readiness_cases": readiness_cases,
+        "acceptance_profiles": ["FULL_HUMAN_E2E", "TECHNICAL_RUNTIME_WITH_HUMAN_DEFERRED"],
+        "human_acceptance_separate_from_technical_readiness": True,
         "retained_state_contract": "S10_2D_R8_1_RECONCILIATION_GREEN",
         "real_product_state_preserved": True,
         "unknown_retained_state_fails_closed": True,

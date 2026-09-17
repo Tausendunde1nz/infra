@@ -1,0 +1,121 @@
+{
+  "version": "tu1nz-commercial-s10-2d-r8-3-technical-readiness-v1",
+  "decision": "TECHNICAL_READINESS_SOURCE_GREEN_PENDING_CI",
+  "scope": {
+    "control_contract_only": true,
+    "application_changed": false,
+    "runtime_redeploy": false,
+    "migration_run": false,
+    "acquisition_start": false
+  },
+  "application": {
+    "commit": "312db84d5db6d76c9d6bb448459c9404b1dfcbe4",
+    "tree": "ac4f8bca1fd796626742a8ef6c6afcdda482fc68"
+  },
+  "control_start": {
+    "commit": "a6d3cf3af62cf6704a0f558ff924a6b4c2dac420",
+    "tree": "e8867be3102ad0d992d6fd5c073fc514ee7c8af8"
+  },
+  "source_backup": {
+    "location": "/opt/tu1nz_repos/backups/commercial-s10-2d-r8-3-source-20260917T184809Z",
+    "git_bundles": [
+      "application.bundle",
+      "control.bundle"
+    ],
+    "sha256_verified": true,
+    "bundle_verified": true
+  },
+  "acceptance_profile": "TECHNICAL_RUNTIME_WITH_HUMAN_DEFERRED",
+  "acceptance_profiles": {
+    "FULL_HUMAN_E2E": {
+      "human_acceptance_required": "GREEN",
+      "human_latency_required": "MEASURED",
+      "minimum_samples": 5,
+      "p50_strictly_less_than_ms": 1000,
+      "p95_strictly_less_than_ms": 2000,
+      "p99_strictly_less_than_ms": 5000
+    },
+    "TECHNICAL_RUNTIME_WITH_HUMAN_DEFERRED": {
+      "human_acceptance_required": "DEFERRED",
+      "human_latency_required": "NOT_MEASURED",
+      "human_samples_required": false
+    }
+  },
+  "technical_readiness": {
+    "required_gates": [
+      "wms_health",
+      "public_health",
+      "release_binding",
+      "control_binding",
+      "s8_poller_running",
+      "valid_lease",
+      "exactly_one_poller",
+      "successful_telegram_polls",
+      "event_path_ready",
+      "publication_rotation",
+      "community_runtime",
+      "moderation_runtime",
+      "aggregate_state",
+      "database_migration_state",
+      "growth_health_timers",
+      "critical_runtime_errors_absent",
+      "retained_unknown_state_absent",
+      "adult_media_closed",
+      "avs_closed",
+      "payment_closed",
+      "publishing_closed",
+      "acquisition_inactive",
+      "observation_green"
+    ]
+  },
+  "human_acceptance": {
+    "direct_bot": "DEFERRED",
+    "community": "DEFERRED",
+    "moderation": "DEFERRED"
+  },
+  "human_latency": {
+    "bot_response": "NOT_MEASURED",
+    "join_welcome": "NOT_MEASURED"
+  },
+  "minimum_observation_seconds": 1800,
+  "technical_evidence_release_id": "s10-2d-r3-5",
+  "r8_2_evidence": {
+    "green_snapshots": 29,
+    "observation_duration_seconds": 1818,
+    "bot_response_samples": 0,
+    "join_welcome_samples": 0,
+    "runtime": "GREEN",
+    "public_health": "GREEN",
+    "poller": "GREEN",
+    "lease_renewal": "GREEN",
+    "successful_polls": "GREEN",
+    "event_path": "GREEN",
+    "publication_rotation": "GREEN",
+    "evidence_immutable": true
+  },
+  "source_validation": {
+    "control_tests_green": 473,
+    "static_validation": "GREEN",
+    "secret_and_pii_scan": "GREEN",
+    "release_simulator": "GREEN",
+    "temporary_test_runtime_binding_removed": true
+  },
+  "real_acquisition_active": false,
+  "real_acquisition_baseline_start": null,
+  "product_boundaries": {
+    "REAL_AVS": "CLOSED",
+    "ADULT_MEDIA": "CLOSED",
+    "COMMUNITY_ADULT_MEDIA": "CLOSED",
+    "ADULT_SUBMISSION": "CLOSED",
+    "PUBLISHING": "CLOSED",
+    "PAYMENT": "CLOSED",
+    "CONTROLLED_BETA": "CLOSED",
+    "PRODUCTION": "CLOSED"
+  },
+  "artifact_bindings": {
+    "controller_sha256": "d1468da7d6ecacd7ccf116c0e4c9bf0135d536033bf21c0e8460b2c566687eb8",
+    "readiness_contract_sha256": "a4bbb464c8ca40741978f8a6f2113a229dbdc54e35b4da6eba942dd5c5ba4fd9",
+    "release_simulator_sha256": "976234ef27c7213d31b1adec404930f2b2e46d1c7cd8a746e6e78973c4d67f16",
+    "manifest_schema": "R8_3_TECHNICAL_HUMAN_SEPARATION_V1"
+  }
+}
