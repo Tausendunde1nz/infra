@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "release": "commercial-s10-2e-controlled-sfw-real-acquisition",
+  "application": {
+    "sha": "312db84d5db6d76c9d6bb448459c9404b1dfcbe4",
+    "tree": "ac4f8bca1fd796626742a8ef6c6afcdda482fc68"
+  },
+  "required_freeze": {
+    "tag": "s10-2d-r8-3-technical-readiness-freeze-r1",
+    "commit": "d41b7695061136f7449d27e38e6adf1be0df219c",
+    "tree": "d071412d8cdc93f1570be70465e39ef9fed634f0"
+  },
+  "initial_state": {
+    "WMS_REAL_ACQUISITION_TECHNICALLY_READY": true,
+    "REAL_ACQUISITION_ACTIVE": false,
+    "REAL_ACQUISITION_BASELINE_START": null
+  },
+  "success_state": {
+    "WMS_REAL_ACQUISITION_TECHNICALLY_READY": true,
+    "REAL_ACQUISITION_ACTIVE": true,
+    "REAL_ACQUISITION_BASELINE_START": "SET_ONCE_AT_ACTIVATION"
+  },
+  "distribution": {
+    "scope": ["SFW", "OWNED", "ORGANIC", "NON_SPAM"],
+    "paid_campaigns": false,
+    "mass_direct_messages": false,
+    "third_party_adult_networks": false
+  },
+  "acceptance": {
+    "DIRECT_BOT_HUMAN_ACCEPTANCE": "DEFERRED",
+    "COMMUNITY_HUMAN_ACCEPTANCE": "DEFERRED",
+    "MODERATION_HUMAN_LIVE_ACCEPTANCE": "DEFERRED",
+    "BOT_RESPONSE_LATENCY": "NOT_MEASURED",
+    "JOIN_WELCOME_LATENCY": "NOT_MEASURED"
+  },
+  "product_boundaries": {
+    "REAL_AVS": "CLOSED",
+    "ADULT_MEDIA": "CLOSED",
+    "COMMUNITY_ADULT_MEDIA": "CLOSED",
+    "ADULT_SUBMISSION": "CLOSED",
+    "PUBLISHING": "CLOSED",
+    "PAYMENT": "CLOSED",
+    "CONTROLLED_BETA": "CLOSED",
+    "PRODUCTION": "CLOSED"
+  },
+  "activation": {
+    "baseline_is_single_assignment": true,
+    "baseline_uses_database_current_timestamp": true,
+    "requires_verified_backup": true,
+    "requires_green_runtime": true,
+    "requires_clean_repositories": true
+  },
+  "pause": {
+    "sets_real_acquisition_active_false": true,
+    "preserves_baseline": true,
+    "does_not_rollback_healthy_runtime": true
+  },
+  "evidence": {
+    "aggregated_only": true,
+    "real_and_test_separated_at_baseline": true,
+    "contains_personal_data": false,
+    "contains_credentials": false
+  }
+}
