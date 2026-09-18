@@ -758,3 +758,30 @@ jobs:
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
+      - name: Validate Commercial S10.2E controlled acquisition
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s10-2e-controlled-acquisition.json >/dev/null
+          && bash -n
+          scripts/tu1nz_adult_public_s10_2e_backup.sh
+          scripts/tu1nz_adult_public_s10_2e_acquisition.sh
+          && python3 -m py_compile
+          scripts/tu1nz_adult_public_s10_2e_evidence.py
+          tests/test_adult_commercial_s10_2e_controlled_acquisition.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s10_2e_controlled_acquisition
+      - name: Reject Commercial S10.2E secrets cron and boundary expansion
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s10-2e-controlled-acquisition.json
+            docs/COMMERCIAL_S10_2E_CONTROLLED_ACQUISITION.md
+            docs/COMMERCIAL_S10_2E_BACKUP_TARGET_STATE_DIAGNOSIS.md
+            scripts/tu1nz_adult_public_s10_2e_backup.sh
+            scripts/tu1nz_adult_public_s10_2e_acquisition.sh
+            scripts/tu1nz_adult_public_s10_2e_evidence.py
+            tests/test_adult_commercial_s10_2e_controlled_acquisition.py
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP) PRIVATE KEY-----' -- "${files[@]}"
+          ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
