@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "scripts/tu1nz_adult_public_s10_2e_evidence.py"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s10_2e_acquisition.sh"
 BACKUP = ROOT / "scripts/tu1nz_adult_public_s10_2e_backup.sh"
-BASE_BACKUP = ROOT / "scripts/tu1nz_adult_public_s10_2d_backup.sh"
+BASE_BACKUP = ROOT / "scripts/tu1nz_adult_public_s10_1_backup.sh"
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s10-2e-controlled-acquisition.json"
 
 
@@ -108,6 +108,35 @@ class CommercialS102EControlledAcquisitionTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.EvidenceError, "^AGGREGATE_COUNT_REGRESSION_RED$"):
             MODULE.delta({"a": 1}, {"a": 2})
 
+    def test_target_state_aggregate_snapshot_accepts_community_and_rejects_unknown_events(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = self.write_json(
+                directory,
+                "live.json",
+                {
+                    "2026-09-18|LANDING_VIEW|direct|s10_wms_launch": 10,
+                    "2026-09-18|TELEGRAM_CTA|landing|s10_wms_launch": 2,
+                    "2026-09-18|COMMUNITY_CTA|bot|s10_2d_community": 1,
+                },
+            )
+            destination = directory / "snapshot.json"
+            report = MODULE.snapshot_aggregate(source, destination)
+            self.assertEqual(report["safe_code"], "S10_2E_AGGREGATE_SNAPSHOT_GREEN")
+            self.assertEqual(destination.read_bytes(), source.read_bytes())
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(MODULE.load_aggregate(destination)["2026-09-18|COMMUNITY_CTA|bot|s10_2d_community"], 1)
+            with self.assertRaisesRegex(MODULE.EvidenceError, "^EVIDENCE_DESTINATION_RED$"):
+                MODULE.snapshot_aggregate(source, destination)
+
+            unknown = self.write_json(
+                directory,
+                "unknown.json",
+                {"2026-09-18|UNKNOWN_EVENT|direct|s10_wms_launch": 1},
+            )
+            with self.assertRaisesRegex(MODULE.EvidenceError, "^AGGREGATE_EVENT_RED$"):
+                MODULE.snapshot_aggregate(unknown, directory / "unknown-snapshot.json")
+
     def test_controller_activation_is_atomic_single_assignment_and_pause_preserves_baseline(self) -> None:
         controller = CONTROLLER.read_text(encoding="utf-8")
         activation = controller.split("activate() {", 1)[1].split("pause() {", 1)[0]
@@ -123,6 +152,10 @@ class CommercialS102EControlledAcquisitionTests(unittest.TestCase):
         backup = BACKUP.read_text(encoding="utf-8")
         base = BASE_BACKUP.read_text(encoding="utf-8")
         self.assertIn('"$BASE_BACKUP" create "$BACKUP_PATH"', backup)
+        self.assertIn("tu1nz_adult_public_s10_1_backup.sh", backup)
+        self.assertNotIn("tu1nz_adult_public_s10_2d_backup.sh", backup)
+        self.assertIn("snapshot-aggregate", backup)
+        self.assertIn("verify-aggregate", backup)
         self.assertIn("database_snapshot", backup)
         self.assertIn("s10-2e-aggregate-before.sha256", backup)
         self.assertIn("-pre-s10-2d-community", backup)

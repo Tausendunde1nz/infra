@@ -4,7 +4,7 @@ umask 0007
 
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly DATABASE="tu1nz_adult_commercial_s3"
-readonly BASE_BACKUP="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2d_backup.sh"
+readonly BASE_BACKUP="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_backup.sh"
 readonly EVIDENCE_TOOL="$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_2e_evidence.py"
 readonly AGGREGATE_PATH="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"
 readonly BACKUP_PREFIX="/opt/tu1nz_repos/backups/commercial-s8-public-telegram/"
@@ -82,6 +82,8 @@ verify_acquisition_backup() {
     || fail "BASELINE_SNAPSHOT_RED"
   /usr/bin/python3 -c 'import json,sys; value=json.load(open(sys.argv[1],encoding="ascii")); raise SystemExit(0 if value.get("ok") is True else 2)' \
     "$path/$HEALTH_NAME" || fail "PUBLIC_HEALTH_SNAPSHOT_RED"
+  "$EVIDENCE_TOOL" verify-aggregate --snapshot "$path/s10-2d-aggregate-before.json" >/dev/null \
+    || fail "AGGREGATE_SNAPSHOT_RED"
   read -r expected _ <"$path/$AGGREGATE_HASH_NAME"
   actual="$(sha256sum "$path/s10-2d-aggregate-before.json" | awk '{print $1}')"
   [ "$actual" = "$expected" ] || fail "AGGREGATE_HASH_RED"
@@ -105,6 +107,10 @@ case "$ACTION" in
   create)
     [ ! -e "$BACKUP_PATH" ] || fail "BACKUP_PATH_EXISTS"
     "$BASE_BACKUP" create "$BACKUP_PATH" >/dev/null || fail "BASE_BACKUP_CREATE_RED"
+    "$EVIDENCE_TOOL" snapshot-aggregate \
+      --source "$AGGREGATE_PATH" \
+      --destination "$BACKUP_PATH/s10-2d-aggregate-before.json" >/dev/null \
+      || fail "AGGREGATE_SNAPSHOT_CREATE_RED"
     database_snapshot >"$BACKUP_PATH/$SNAPSHOT_NAME"
     curl --fail --silent --show-error --max-time 10 https://wantmeseen.com/health \
       | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); keys=("adult_content","media_intake","identity_documents","real_avs","payments","external_publishing","controlled_beta","production"); assert value.get("ok") is True and all(value.get(k) is False for k in keys); print("{\"ok\":true,\"product_boundaries_closed\":true}")' \
@@ -112,7 +118,7 @@ case "$ACTION" in
     sha256sum "$BACKUP_PATH/s10-2d-aggregate-before.json" >"$BACKUP_PATH/$AGGREGATE_HASH_NAME"
     printf '%s\n' \
       "S10.2E pause keeps REAL_ACQUISITION_BASELINE_START immutable and sets only REAL_ACQUISITION_ACTIVE=false." \
-      "Verify SHA256SUMS and the S10.2D base restore contract before any destructive database restore." \
+      "Verify SHA256SUMS, the S10.1 base restore contract, and the S10.2E aggregate snapshot before any destructive database restore." \
       >>"$BACKUP_PATH/RESTORE.txt"
     find "$BACKUP_PATH" -maxdepth 1 -type f -exec chmod 0600 {} +
     refresh_index "$BACKUP_PATH"

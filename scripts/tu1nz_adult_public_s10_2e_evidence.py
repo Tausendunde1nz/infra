@@ -34,6 +34,8 @@ COUNT_KEYS = frozenset(
         "waitlist_total",
     }
 )
+AGGREGATE_EVENTS = frozenset({"LANDING_VIEW", "TELEGRAM_CTA", "COMMUNITY_CTA"})
+MAX_AGGREGATE_BYTES = 8 * 1024 * 1024
 
 
 def require(condition: bool, safe_code: str) -> None:
@@ -49,12 +51,66 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
-def load_json(path: Path) -> dict[str, object]:
-    require(path.is_absolute() and path.is_file() and not path.is_symlink(), "EVIDENCE_PATH_RED")
-    require(stat.S_IMODE(path.stat().st_mode) in {0o600, 0o640, 0o644}, "EVIDENCE_MODE_RED")
+def read_regular_bytes(path: Path, *, safe_code: str = "EVIDENCE_PATH_RED") -> bytes:
+    require(path.is_absolute() and not path.is_symlink(), safe_code)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
-        value = json.loads(path.read_text(encoding="ascii"), object_pairs_hook=unique_object)
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            current = path.lstat()
+            require(
+                stat.S_ISREG(opened.st_mode)
+                and opened.st_nlink == 1
+                and (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino),
+                safe_code,
+            )
+            require(stat.S_IMODE(opened.st_mode) in {0o600, 0o640, 0o644}, "EVIDENCE_MODE_RED")
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                material = stream.read(MAX_AGGREGATE_BYTES + 1)
+        finally:
+            os.close(descriptor)
+    except EvidenceError:
+        raise
+    except OSError:
+        raise EvidenceError(safe_code) from None
+    require(len(material) <= MAX_AGGREGATE_BYTES, "EVIDENCE_SIZE_RED")
+    return material
+
+
+def write_new(path: Path, material: bytes) -> None:
+    require(path.is_absolute() and not path.exists() and not path.is_symlink(), "EVIDENCE_DESTINATION_RED")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    created = False
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        created = True
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb", closefd=False) as stream:
+                stream.write(material)
+                stream.flush()
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except OSError:
+        if created:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        raise EvidenceError("EVIDENCE_WRITE_RED") from None
+
+
+def load_json(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(read_regular_bytes(path).decode("ascii"), object_pairs_hook=unique_object)
+    except (UnicodeError, json.JSONDecodeError):
         raise EvidenceError("EVIDENCE_JSON_RED") from None
     require(isinstance(value, dict), "EVIDENCE_SHAPE_RED")
     return value
@@ -62,6 +118,28 @@ def load_json(path: Path) -> dict[str, object]:
 
 def load_aggregate(path: Path) -> dict[str, int]:
     value = load_json(path)
+    return load_aggregate_from_value(value)
+
+
+def snapshot_aggregate(source: Path, destination: Path) -> dict[str, object]:
+    material = read_regular_bytes(source, safe_code="AGGREGATE_SOURCE_RED")
+    try:
+        value = json.loads(material.decode("ascii"), object_pairs_hook=unique_object)
+    except (UnicodeError, json.JSONDecodeError):
+        raise EvidenceError("EVIDENCE_JSON_RED") from None
+    require(isinstance(value, dict), "EVIDENCE_SHAPE_RED")
+    # Reuse the full aggregate contract, including target-state COMMUNITY_CTA.
+    temporary_value = load_aggregate_from_value(value)
+    write_new(destination, material)
+    return {
+        "ok": True,
+        "safe_code": "S10_2E_AGGREGATE_SNAPSHOT_GREEN",
+        "sha256": hashlib.sha256(material).hexdigest(),
+        "events": summarize_aggregate(temporary_value),
+    }
+
+
+def load_aggregate_from_value(value: Mapping[str, object]) -> dict[str, int]:
     result: dict[str, int] = {}
     for key, count in value.items():
         require(isinstance(key, str), "AGGREGATE_KEY_RED")
@@ -71,6 +149,8 @@ def load_aggregate(path: Path) -> dict[str, int]:
             dt.date.fromisoformat(parts[0])
         except ValueError:
             raise EvidenceError("AGGREGATE_DATE_RED") from None
+        require(parts[1] in AGGREGATE_EVENTS, "AGGREGATE_EVENT_RED")
+        require(all(len(part) <= 64 for part in parts[1:]), "AGGREGATE_DIMENSION_RED")
         require(isinstance(count, int) and not isinstance(count, bool) and count >= 0, "AGGREGATE_COUNT_RED")
         result[key] = count
     return result
@@ -158,6 +238,11 @@ def parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="action", required=True)
     verify = subparsers.add_parser("verify-snapshot")
     verify.add_argument("--snapshot", type=Path, required=True)
+    verify_aggregate = subparsers.add_parser("verify-aggregate")
+    verify_aggregate.add_argument("--snapshot", type=Path, required=True)
+    snapshot_aggregate_parser = subparsers.add_parser("snapshot-aggregate")
+    snapshot_aggregate_parser.add_argument("--source", type=Path, required=True)
+    snapshot_aggregate_parser.add_argument("--destination", type=Path, required=True)
     result = subparsers.add_parser("report")
     result.add_argument("--baseline", type=Path, required=True)
     result.add_argument("--current", type=Path, required=True)
@@ -177,6 +262,16 @@ def main() -> int:
                 "safe_code": "S10_2E_BASELINE_SNAPSHOT_GREEN",
                 "sha256": hashlib.sha256(arguments.snapshot.read_bytes()).hexdigest(),
             }
+        elif arguments.action == "verify-aggregate":
+            value = load_aggregate(arguments.snapshot)
+            output = {
+                "ok": True,
+                "safe_code": "S10_2E_AGGREGATE_SNAPSHOT_GREEN",
+                "sha256": hashlib.sha256(read_regular_bytes(arguments.snapshot)).hexdigest(),
+                "events": summarize_aggregate(value),
+            }
+        elif arguments.action == "snapshot-aggregate":
+            output = snapshot_aggregate(arguments.source, arguments.destination)
         else:
             output = report(
                 arguments.baseline,
