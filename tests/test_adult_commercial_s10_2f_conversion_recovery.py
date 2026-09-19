@@ -78,7 +78,7 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertTrue(all(value is False for key, value in manifest["boundaries"].items() if key != "human_acceptance"))
         self.assertEqual(manifest["boundaries"]["human_acceptance"], "DEFERRED")
         controller = CONTROLLER.read_text(encoding="utf-8")
-        self.assertIn("git -C \"$APPLICATION_ROOT\" bundle verify", controller)
+        self.assertIn('git_chatops "$APPLICATION_ROOT" bundle verify', controller)
         self.assertIn("S10_2F_DEPLOYMENT_ROLLED_BACK", controller)
         self.assertIn('return 2', controller)
         self.assertNotIn('exit 2', controller)
@@ -89,13 +89,17 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="04eec54c23ba15e5787712bac434ae2f5bf4ae36"', controller)
         self.assertIn('TARGET_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"', controller)
         self.assertIn('TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"', controller)
-        self.assertIn('TARGET_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"', controller)
+        self.assertIn('TARGET_CONTROL_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"', controller)
+        self.assertIn('TARGET_CONTROL_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"', controller)
+        self.assertIn('TARGET_CONTROL_TAG="s10-2f-control-artifacts-r1"', controller)
+        self.assertIn('runuser -u chatops -- git -C "$repository"', controller)
+        self.assertEqual(controller.count("git -C"), 1)
         self.assertIn('merge-base --is-ancestor "$target_application" origin/main', controller)
         self.assertNotIn('rev-parse origin/main)" = "$target_application"', controller)
         self.assertNotIn('rev-parse origin/control-main)" = "$target_control"', controller)
         self.assertIn('refs/tags/${TARGET_CONTROL_TAG}^{commit}', controller)
-        self.assertIn('grep -Fqx "control_commit=${target_control}"', controller)
-        self.assertIn('grep -Fqx "control_tree=${target_control_tree}"', controller)
+        self.assertIn('grep -Fqx "control_commit=${TARGET_CONTROL_COMMIT}"', controller)
+        self.assertIn('grep -Fqx "control_tree=${TARGET_CONTROL_TREE}"', controller)
         verify_target = controller.index("verify_target()")
         deploy = controller.index("deploy()")
         self.assertIn(
@@ -103,9 +107,11 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
             controller[verify_target:deploy],
         )
         self.assertEqual(
-            manifest["control_release"]["freeze_tag"],
-            "s10-2f-conversion-recovery-freeze-r1",
+            manifest["control_release"]["artifact_tag"],
+            "s10-2f-control-artifacts-r1",
         )
+        self.assertEqual(manifest["control_release"]["artifact_commit"], "1d5e0d84451d35cb4148d0b52209002048db7e88")
+        self.assertEqual(manifest["control_release"]["artifact_tree"], "3e6ab73b929cd19a796cc8528cce06809e801d4c")
         self.assertIn('grep -Fqx "application_commit=${source_application}"', controller)
         self.assertIn('grep -Fqx "control_commit=${source_control}"', controller)
         self.assertIn('https://wantmeseen.com/health', controller)

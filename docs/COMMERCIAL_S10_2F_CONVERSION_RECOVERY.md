@@ -83,6 +83,13 @@ Application merge `1d0dbb88603be49ea172178b77d86451036035a1`
 The community CTA stays visually secondary. The direct bot deep link and
 first-touch source/campaign contract are unchanged.
 
+The privileged controller runs every repository Git operation as `chatops`.
+Its installable Control artifact is independently pinned to reviewed commit
+`1d5e0d84451d35cb4148d0b52209002048db7e88`, tree
+`3e6ab73b929cd19a796cc8528cce06809e801d4c`, and annotated artifact tag
+`s10-2f-control-artifacts-r1`. The post-merge evidence freeze remains the
+separate `s10-2f-conversion-recovery-freeze-r1` tag.
+
 ## Measurement contract
 
 `HUMAN_LIKE_BROWSER_NAVIGATION_V1` applies only at and after the exact

@@ -17,9 +17,12 @@
     "tests": "1011_GREEN"
   },
   "control_release": {
-    "freeze_tag": "s10-2f-conversion-recovery-freeze-r1",
-    "binding": "ANNOTATED_TAG_WITH_COMMIT_AND_TREE_PROVENANCE",
-    "post_merge_commit_and_tree_recorded_in_tag": true
+    "artifact_commit": "1d5e0d84451d35cb4148d0b52209002048db7e88",
+    "artifact_tree": "3e6ab73b929cd19a796cc8528cce06809e801d4c",
+    "artifact_tag": "s10-2f-control-artifacts-r1",
+    "final_freeze_tag": "s10-2f-conversion-recovery-freeze-r1",
+    "binding": "HARD_CODED_REVIEWED_COMMIT_TREE_AND_ANNOTATED_ARTIFACT_TAG",
+    "post_merge_commit_and_tree_recorded_in_final_freeze": true
   },
   "root_cause": {
     "classification": "MULTIPLE_CAUSES",

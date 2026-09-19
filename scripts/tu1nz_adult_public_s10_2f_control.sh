@@ -15,7 +15,9 @@ readonly SOURCE_CONTROL_COMMIT="66e5b18c9d3bfc1082b1e2d0188cf14418f586a3"
 readonly SOURCE_CONTROL_TREE="04eec54c23ba15e5787712bac434ae2f5bf4ae36"
 readonly TARGET_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"
 readonly TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
-readonly TARGET_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"
+readonly TARGET_CONTROL_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"
+readonly TARGET_CONTROL_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"
+readonly TARGET_CONTROL_TAG="s10-2f-control-artifacts-r1"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -38,6 +40,12 @@ fail() {
   return 2
 }
 
+git_chatops() {
+  local repository="$1"
+  shift
+  runuser -u chatops -- git -C "$repository" "$@"
+}
+
 require_sha() {
   if [[ ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
     fail "S10_2F_SHA_INVALID"
@@ -54,11 +62,11 @@ require_backup_path() {
 
 require_clean_commit() {
   local repository="$1" expected="$2" code="$3"
-  if [ "$(git -C "$repository" rev-parse HEAD)" != "$expected" ]; then
+  if [ "$(git_chatops "$repository" rev-parse HEAD)" != "$expected" ]; then
     fail "${code}_COMMIT_DRIFT"
     return $?
   fi
-  if [ -n "$(git -C "$repository" status --porcelain)" ]; then
+  if [ -n "$(git_chatops "$repository" status --porcelain)" ]; then
     fail "${code}_WORKTREE_DIRTY"
     return $?
   fi
@@ -110,9 +118,9 @@ preflight() {
   [ "$source_control" = "$SOURCE_CONTROL_COMMIT" ] || fail "S10_2F_SOURCE_CONTROL_DRIFT"
   require_clean_commit "$APPLICATION_ROOT" "$source_application" APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$source_control" CONTROL
-  [ "$(git -C "$APPLICATION_ROOT" rev-parse "${source_application}^{tree}")" = "$SOURCE_APPLICATION_TREE" ] \
+  [ "$(git_chatops "$APPLICATION_ROOT" rev-parse "${source_application}^{tree}")" = "$SOURCE_APPLICATION_TREE" ] \
     || fail "S10_2F_SOURCE_APPLICATION_TREE_DRIFT"
-  [ "$(git -C "$CONTROL_ROOT" rev-parse "${source_control}^{tree}")" = "$SOURCE_CONTROL_TREE" ] \
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "${source_control}^{tree}")" = "$SOURCE_CONTROL_TREE" ] \
     || fail "S10_2F_SOURCE_CONTROL_TREE_DRIFT"
   require_service_health
   require_acquisition_state || fail "S10_2F_ACQUISITION_STATE_RED"
@@ -165,11 +173,13 @@ backup() {
   local backup_path="$1" source_application="$2" source_control="$3"
   require_backup_path "$backup_path"
   [ ! -e "$backup_path" ] || fail "S10_2F_BACKUP_EXISTS"
-  install -d -o root -g root -m 0700 "$backup_path"
-  git -C "$APPLICATION_ROOT" bundle create "$backup_path/application.bundle" HEAD
-  git -C "$CONTROL_ROOT" bundle create "$backup_path/control.bundle" HEAD
-  git -C "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null
-  git -C "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null
+  install -d -o root -g chatops -m 0750 "$backup_path"
+  git_chatops "$APPLICATION_ROOT" bundle create - HEAD > "$backup_path/application.bundle"
+  git_chatops "$CONTROL_ROOT" bundle create - HEAD > "$backup_path/control.bundle"
+  chown root:chatops "$backup_path/application.bundle" "$backup_path/control.bundle"
+  chmod 0640 "$backup_path/application.bundle" "$backup_path/control.bundle"
+  git_chatops "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null
+  git_chatops "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null
   install -m 0600 /etc/systemd/system/tu1nz-adult-public-s10-wms.service "$backup_path/wms.service"
   install -m 0600 /etc/systemd/system/tu1nz-adult-public-s10-health.service "$backup_path/health.service"
   install -m 0600 /usr/local/bin/tu1nz_adult_public_s10_1_health.py "$backup_path/health.py"
@@ -194,6 +204,7 @@ backup() {
     find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
     sha256sum -c SHA256SUMS >/dev/null
   )
+  chown -R root:root "$backup_path"
   chmod -R go-rwx "$backup_path"
   printf '{"ok":true,"safe_code":"S10_2F_BACKUP_GREEN","path":"%s"}\n' "$backup_path"
 }
@@ -204,8 +215,8 @@ restore_source() {
   grep -Fqx "application_commit=${source_application}" "$backup_path/provenance.txt" || return 1
   grep -Fqx "control_commit=${source_control}" "$backup_path/provenance.txt" || return 1
   grep -Fqx "acquisition_baseline=${ACQUISITION_BASELINE}" "$backup_path/provenance.txt" || return 1
-  git -C "$APPLICATION_ROOT" switch --detach "$source_application" >/dev/null || return 1
-  git -C "$CONTROL_ROOT" switch --detach "$source_control" >/dev/null || return 1
+  git_chatops "$APPLICATION_ROOT" switch --detach "$source_application" >/dev/null || return 1
+  git_chatops "$CONTROL_ROOT" switch --detach "$source_control" >/dev/null || return 1
   install -o root -g root -m 0644 "$backup_path/wms.service" /etc/systemd/system/tu1nz-adult-public-s10-wms.service || return 1
   install -o root -g root -m 0644 "$backup_path/health.service" /etc/systemd/system/tu1nz-adult-public-s10-health.service || return 1
   install -o root -g root -m 0755 "$backup_path/health.py" /usr/local/bin/tu1nz_adult_public_s10_1_health.py || return 1
@@ -274,25 +285,28 @@ PY
 }
 
 require_target_release() {
-  local target_application="$1" target_control="$2" target_control_tree
+  local target_application="$1" target_control="$2"
   [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
     || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
-  git -C "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" \
-    || fail "S10_2F_APPLICATION_TARGET_MISSING"
-  [ "$(git -C "$APPLICATION_ROOT" rev-parse "${target_application}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
-    || fail "S10_2F_APPLICATION_TREE_DRIFT"
-  git -C "$CONTROL_ROOT" cat-file -e "${target_control}^{commit}" \
-    || fail "S10_2F_CONTROL_TARGET_MISSING"
-  [ "$(git -C "$CONTROL_ROOT" cat-file -t "refs/tags/${TARGET_CONTROL_TAG}")" = tag ] \
-    || fail "S10_2F_CONTROL_RELEASE_TAG_RED"
-  [ "$(git -C "$CONTROL_ROOT" rev-parse "refs/tags/${TARGET_CONTROL_TAG}^{commit}")" = "$target_control" ] \
+  [ "$target_control" = "$TARGET_CONTROL_COMMIT" ] \
     || fail "S10_2F_CONTROL_RELEASE_DRIFT"
-  target_control_tree="$(git -C "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")"
-  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
-    | grep -Fqx "control_commit=${target_control}" \
+  git_chatops "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" \
+    || fail "S10_2F_APPLICATION_TARGET_MISSING"
+  [ "$(git_chatops "$APPLICATION_ROOT" rev-parse "${target_application}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
+    || fail "S10_2F_APPLICATION_TREE_DRIFT"
+  git_chatops "$CONTROL_ROOT" cat-file -e "${target_control}^{commit}" \
+    || fail "S10_2F_CONTROL_TARGET_MISSING"
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")" = "$TARGET_CONTROL_TREE" ] \
+    || fail "S10_2F_CONTROL_TREE_DRIFT"
+  [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${TARGET_CONTROL_TAG}")" = tag ] \
+    || fail "S10_2F_CONTROL_RELEASE_TAG_RED"
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${TARGET_CONTROL_TAG}^{commit}")" = "$TARGET_CONTROL_COMMIT" ] \
+    || fail "S10_2F_CONTROL_RELEASE_DRIFT"
+  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
+    | grep -Fqx "control_commit=${TARGET_CONTROL_COMMIT}" \
     || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
-  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
-    | grep -Fqx "control_tree=${target_control_tree}" \
+  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
+    | grep -Fqx "control_tree=${TARGET_CONTROL_TREE}" \
     || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
 }
 
@@ -319,12 +333,14 @@ verify_target() {
 deploy() {
   local backup_path="$1" source_application="$2" source_control="$3" target_application="$4" target_control="$5"
   preflight "$source_application" "$source_control" >/dev/null
-  git -C "$APPLICATION_ROOT" fetch origin main >/dev/null
-  git -C "$CONTROL_ROOT" fetch --no-tags origin control-main \
+  git_chatops "$APPLICATION_ROOT" fetch origin main >/dev/null
+  git_chatops "$CONTROL_ROOT" fetch --no-tags origin control-main \
     "refs/tags/${TARGET_CONTROL_TAG}:refs/tags/${TARGET_CONTROL_TAG}" >/dev/null
   require_target_release "$target_application" "$target_control"
-  git -C "$APPLICATION_ROOT" merge-base --is-ancestor "$target_application" origin/main \
+  git_chatops "$APPLICATION_ROOT" merge-base --is-ancestor "$target_application" origin/main \
     || fail "S10_2F_APPLICATION_RELEASE_NOT_ON_MAIN"
+  git_chatops "$CONTROL_ROOT" merge-base --is-ancestor "$target_control" origin/control-main \
+    || fail "S10_2F_CONTROL_RELEASE_NOT_ON_MAIN"
   backup "$backup_path" "$source_application" "$source_control" >/dev/null
   local mutated=0
   rollback_on_error() {
@@ -341,8 +357,8 @@ deploy() {
   }
   trap rollback_on_error ERR
   mutated=1
-  git -C "$APPLICATION_ROOT" switch --detach "$target_application" >/dev/null
-  git -C "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
+  git_chatops "$APPLICATION_ROOT" switch --detach "$target_application" >/dev/null
+  git_chatops "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s10-1-wms-copy.v1.json" /etc/tu1nz/adult-commercial-s10-wms-copy.json
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/tu1nz-adult-public-s10-wms.service" /etc/systemd/system/tu1nz-adult-public-s10-wms.service
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/tu1nz-adult-public-s10-health.service" /etc/systemd/system/tu1nz-adult-public-s10-health.service
