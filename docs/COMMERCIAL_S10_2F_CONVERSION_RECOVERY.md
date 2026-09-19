@@ -90,7 +90,8 @@ Its installable Control artifact is independently pinned to reviewed commit
 `s10-2f-control-artifacts-r1`. Runtime files are read from that pinned object,
 while the canonical Control checkout stays on the final merged commit so the
 corrected verify/rollback controller remains available. The post-merge
-evidence freeze is the separate `s10-2f-conversion-recovery-freeze-r1` tag.
+evidence freeze is the separate `s10-2f-conversion-recovery-freeze-r2` tag;
+`r1` remains retained as immutable evidence of the pre-deployment revision.
 The complete final Control tree is additionally bound by a hard-coded,
 self-neutralising content fingerprint: only the fingerprint constant itself is
 normalised before hashing, so a merge commit may be accepted without allowing
@@ -125,7 +126,10 @@ not a runtime failure.
 The versioned controller verifies canonical source state, creates and verifies
 Git bundles, copies the runtime manifest, units, configuration, DB schema
 shape, aggregate counts and exact aggregate bytes, then writes SHA-256
-evidence. A deployment failure restores both repository commits and all
+evidence. Bundle files remain inside root-only evidence storage; root opens
+their read-only descriptors while Git verification still executes as
+`chatops`, so no directory permission is weakened. A deployment failure
+restores both repository commits and all
 affected installed files, removes newly introduced S10.2F state, reloads
 systemd and restarts only the WMS service. The historic acquisition aggregate
 is evidence and is not truncated during rollback.

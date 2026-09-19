@@ -18,8 +18,8 @@ readonly TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
 readonly TARGET_CONTROL_ARTIFACT_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"
 readonly TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"
 readonly TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"
-readonly FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"
-readonly FINAL_CONTROL_RELEASE_FINGERPRINT="e6456defc5e701d3017a9900362a8c746c5d730e2837a2538336951cf29b93ff"
+readonly FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r2"
+readonly FINAL_CONTROL_RELEASE_FINGERPRINT="d7988b72da5e0e96c3fad460b165be8d990af5d51931372603db9feec319b709"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -219,8 +219,10 @@ backup() {
   git_chatops "$CONTROL_ROOT" bundle create - HEAD > "$backup_path/control.bundle"
   chown root:chatops "$backup_path/application.bundle" "$backup_path/control.bundle"
   chmod 0640 "$backup_path/application.bundle" "$backup_path/control.bundle"
-  git_chatops "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null
-  git_chatops "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null
+  git_chatops "$APPLICATION_ROOT" bundle verify /dev/stdin \
+    < "$backup_path/application.bundle" >/dev/null
+  git_chatops "$CONTROL_ROOT" bundle verify /dev/stdin \
+    < "$backup_path/control.bundle" >/dev/null
   install -m 0600 /etc/systemd/system/tu1nz-adult-public-s10-wms.service "$backup_path/wms.service"
   install -m 0600 /etc/systemd/system/tu1nz-adult-public-s10-health.service "$backup_path/health.service"
   install -m 0600 /usr/local/bin/tu1nz_adult_public_s10_1_health.py "$backup_path/health.py"

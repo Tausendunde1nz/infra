@@ -78,7 +78,14 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertTrue(all(value is False for key, value in manifest["boundaries"].items() if key != "human_acceptance"))
         self.assertEqual(manifest["boundaries"]["human_acceptance"], "DEFERRED")
         controller = CONTROLLER.read_text(encoding="utf-8")
-        self.assertIn('git_chatops "$APPLICATION_ROOT" bundle verify', controller)
+        self.assertIn('git_chatops "$APPLICATION_ROOT" bundle verify /dev/stdin', controller)
+        self.assertIn('< "$backup_path/application.bundle"', controller)
+        self.assertIn('git_chatops "$CONTROL_ROOT" bundle verify /dev/stdin', controller)
+        self.assertIn('< "$backup_path/control.bundle"', controller)
+        self.assertNotIn(
+            'bundle verify "$backup_path/application.bundle"',
+            controller,
+        )
         self.assertIn("S10_2F_DEPLOYMENT_ROLLED_BACK", controller)
         self.assertIn('return 2', controller)
         self.assertNotIn('exit 2', controller)
@@ -92,7 +99,7 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('TARGET_CONTROL_ARTIFACT_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"', controller)
         self.assertIn('TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"', controller)
         self.assertIn('TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"', controller)
-        self.assertIn('FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"', controller)
+        self.assertIn('FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r2"', controller)
         self.assertRegex(
             controller,
             r'FINAL_CONTROL_RELEASE_FINGERPRINT="(?:[0-9a-f]{64}|PENDING)"',
