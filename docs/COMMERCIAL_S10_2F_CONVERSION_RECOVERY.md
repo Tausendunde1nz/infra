@@ -91,6 +91,11 @@ Its installable Control artifact is independently pinned to reviewed commit
 while the canonical Control checkout stays on the final merged commit so the
 corrected verify/rollback controller remains available. The post-merge
 evidence freeze is the separate `s10-2f-conversion-recovery-freeze-r1` tag.
+The complete final Control tree is additionally bound by a hard-coded,
+self-neutralising content fingerprint: only the fingerprint constant itself is
+normalised before hashing, so a merge commit may be accepted without allowing
+any reviewed file content to change. Branch membership is ancestry-based and
+therefore remains valid if `control-main` advances after this frozen release.
 
 ## Measurement contract
 

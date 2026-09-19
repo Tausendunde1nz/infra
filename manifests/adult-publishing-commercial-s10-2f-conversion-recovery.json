@@ -24,6 +24,8 @@
     "binding": "HARD_CODED_REVIEWED_ARTIFACT_PLUS_SEPARATE_FINAL_CONTROL_FREEZE",
     "runtime_files_read_from_artifact_commit": true,
     "canonical_checkout_retains_corrected_controller": true,
+    "final_control_tree_bound_by_normalized_content_fingerprint": true,
+    "control_main_membership": "ANCESTOR_OF_CONTROL_MAIN",
     "post_merge_commit_and_tree_recorded_in_final_freeze": true
   },
   "root_cause": {

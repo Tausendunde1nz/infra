@@ -19,6 +19,7 @@ readonly TARGET_CONTROL_ARTIFACT_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e8
 readonly TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"
 readonly TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"
 readonly FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"
+readonly FINAL_CONTROL_RELEASE_FINGERPRINT="3d65d073981fa05f68146293bde4ceb5399064df0abdf74dca6adb8d04174aeb"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -45,6 +46,45 @@ git_chatops() {
   local repository="$1"
   shift
   runuser -u chatops -- git -C "$repository" "$@"
+}
+
+control_release_fingerprint() {
+  local commit="$1"
+  S10_2F_CONTROL_ROOT="$CONTROL_ROOT" S10_2F_CONTROL_COMMIT="$commit" \
+    runuser -u chatops -- env \
+      S10_2F_CONTROL_ROOT="$CONTROL_ROOT" \
+      S10_2F_CONTROL_COMMIT="$commit" \
+      /usr/bin/python3 - <<'PY'
+import hashlib
+import os
+import re
+import subprocess
+
+repository = os.environ["S10_2F_CONTROL_ROOT"]
+commit = os.environ["S10_2F_CONTROL_COMMIT"]
+controller_path = b"scripts/tu1nz_adult_public_s10_2f_control.sh"
+tree = subprocess.check_output(
+    ["git", "-C", repository, "ls-tree", "-rz", commit]
+)
+records = []
+for raw_record in tree.rstrip(b"\0").split(b"\0"):
+    metadata, path = raw_record.split(b"\t", 1)
+    mode, object_type, object_id = metadata.split(b" ", 2)
+    if path == controller_path:
+        content = subprocess.check_output(
+            ["git", "-C", repository, "show", f"{commit}:{path.decode('ascii')}"]
+        )
+        normalized, replacements = re.subn(
+            rb'(?m)^readonly FINAL_CONTROL_RELEASE_FINGERPRINT="(?:[0-9a-f]{64}|PENDING)"$',
+            b'readonly FINAL_CONTROL_RELEASE_FINGERPRINT="<NORMALIZED>"',
+            content,
+        )
+        if replacements != 1:
+            raise SystemExit(2)
+        object_id = b"normalized-sha256:" + hashlib.sha256(normalized).hexdigest().encode("ascii")
+    records.append(b"\0".join((mode, object_type, path, object_id)))
+print(hashlib.sha256(b"\n".join(sorted(records))).hexdigest())
+PY
 }
 
 require_sha() {
@@ -286,7 +326,7 @@ PY
 }
 
 require_target_release() {
-  local target_application="$1" target_control="$2" target_control_tree
+  local target_application="$1" target_control="$2" target_control_tree target_control_fingerprint
   [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
     || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
   git_chatops "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" \
@@ -316,6 +356,10 @@ require_target_release() {
   [ "$(git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${FINAL_CONTROL_TAG}^{commit}")" = "$target_control" ] \
     || fail "S10_2F_FINAL_CONTROL_RELEASE_DRIFT"
   target_control_tree="$(git_chatops "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")"
+  target_control_fingerprint="$(control_release_fingerprint "$target_control")" \
+    || fail "S10_2F_FINAL_CONTROL_FINGERPRINT_RED"
+  [ "$target_control_fingerprint" = "$FINAL_CONTROL_RELEASE_FINGERPRINT" ] \
+    || fail "S10_2F_FINAL_CONTROL_FINGERPRINT_RED"
   git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${FINAL_CONTROL_TAG}" \
     | grep -Fqx "control_commit=${target_control}" \
     || fail "S10_2F_FINAL_CONTROL_PROVENANCE_RED"
@@ -360,7 +404,7 @@ deploy() {
   require_target_release "$target_application" "$target_control"
   git_chatops "$APPLICATION_ROOT" merge-base --is-ancestor "$target_application" origin/main \
     || fail "S10_2F_APPLICATION_RELEASE_NOT_ON_MAIN"
-  [ "$(git_chatops "$CONTROL_ROOT" rev-parse origin/control-main)" = "$target_control" ] \
+  git_chatops "$CONTROL_ROOT" merge-base --is-ancestor "$target_control" origin/control-main \
     || fail "S10_2F_FINAL_CONTROL_NOT_ON_MAIN"
   backup "$backup_path" "$source_application" "$source_control" >/dev/null
   local mutated=0

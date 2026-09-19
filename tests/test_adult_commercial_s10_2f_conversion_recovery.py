@@ -93,18 +93,28 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"', controller)
         self.assertIn('TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"', controller)
         self.assertIn('FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"', controller)
+        self.assertRegex(
+            controller,
+            r'FINAL_CONTROL_RELEASE_FINGERPRINT="(?:[0-9a-f]{64}|PENDING)"',
+        )
         self.assertIn('runuser -u chatops -- git -C "$repository"', controller)
         self.assertEqual(controller.count("git -C"), 1)
         self.assertNotIn(' DATABASE_DSN="$DATABASE_DSN"', controller)
         self.assertNotIn(' ACQUISITION_BASELINE="$ACQUISITION_BASELINE"', controller)
         self.assertIn('merge-base --is-ancestor "$target_application" origin/main', controller)
         self.assertNotIn('rev-parse origin/main)" = "$target_application"', controller)
-        self.assertIn('rev-parse origin/control-main)" = "$target_control"', controller)
+        self.assertNotIn('rev-parse origin/control-main)" = "$target_control"', controller)
+        self.assertIn(
+            'merge-base --is-ancestor "$target_control" origin/control-main',
+            controller,
+        )
         self.assertIn('refs/tags/${TARGET_CONTROL_ARTIFACT_TAG}^{commit}', controller)
         self.assertIn('grep -Fqx "control_commit=${TARGET_CONTROL_ARTIFACT_COMMIT}"', controller)
         self.assertIn('grep -Fqx "control_tree=${TARGET_CONTROL_ARTIFACT_TREE}"', controller)
         self.assertIn('show "${TARGET_CONTROL_ARTIFACT_COMMIT}:${path}"', controller)
         self.assertIn('switch --detach "$target_control"', controller)
+        self.assertIn('control_release_fingerprint "$target_control"', controller)
+        self.assertIn('S10_2F_FINAL_CONTROL_FINGERPRINT_RED', controller)
         verify_target = controller.index("verify_target()")
         deploy = controller.index("deploy()")
         self.assertIn(
