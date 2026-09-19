@@ -12,7 +12,7 @@ readonly SOURCE_CONTROL_COMMIT="5f0b5878888a5d48317e28ce75a6f0f552d6a419"
 readonly SOURCE_CONTROL_TREE="6aebbeed942cd235a292dc8fcafcc29b6e2dab80"
 readonly TARGET_APPLICATION_COMMIT="65707b079183151cfe7ea508f9270c31389f2334"
 readonly TARGET_APPLICATION_TREE="79d60a5b8d791f65c0de06d0ae7861fb0d032ed4"
-readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r5"
+readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r6"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly EXPERIENCE_RELEASE_ID="s11-interactive-experience-mvp-r1"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -145,6 +145,14 @@ require_acquisition_state() {
   [ "$state" = "true|${ACQUISITION_BASELINE}" ]
 }
 
+require_community_latency_slo() {
+  local healthy
+  healthy="$(database_scalar \
+    "WITH recent AS (SELECT bot_response_latency_ms FROM commercial_s10_2d_latency_samples WHERE occurred_at>=CURRENT_TIMESTAMP-INTERVAL '24 hours'), aggregate AS (SELECT count(*) AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY bot_response_latency_ms) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY bot_response_latency_ms) AS p95, percentile_cont(0.99) WITHIN GROUP (ORDER BY bot_response_latency_ms) AS p99 FROM recent) SELECT (samples<5 OR (p50<1000 AND p95<2000 AND p99<5000)) FROM aggregate;")" \
+    || return 1
+  [ "$healthy" = true ]
+}
+
 require_services_and_timers() {
   local unit next_realtime next_monotonic
   for unit in "${SERVICES[@]}"; do
@@ -197,6 +205,7 @@ require_source_state() {
     || fail "S11_SOURCE_COPY_ALREADY_PRESENT"
   require_s11_schema_absent_or_disabled
   require_acquisition_state || fail "S11_ACQUISITION_STATE_RED"
+  require_community_latency_slo || fail "S11_COMMUNITY_LATENCY_SLO_RED"
   require_services_and_timers
   require_public_health
 }
@@ -437,7 +446,7 @@ wait_runtime() {
   for attempt in {1..60}; do
     if [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = active ] \
       && [ "$(systemctl show "$S8_SERVICE" -p NRestarts --value)" = 0 ] \
-      && [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_bot_polling_state WHERE release_id='${RUNTIME_RELEASE_ID}' AND lease_owner_id IS NOT NULL AND lease_expires_at>CURRENT_TIMESTAMP AND last_successful_poll_at>=CURRENT_TIMESTAMP-INTERVAL '90 seconds' AND last_event_path_code='BOT_EVENT_PATH_GREEN';")" = 1 ]; then
+      && [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_bot_polling_state WHERE release_id='${RUNTIME_RELEASE_ID}' AND lease_owner_id IS NOT NULL AND lease_expires_at>CURRENT_TIMESTAMP AND last_successful_poll_at>=CURRENT_TIMESTAMP-INTERVAL '90 seconds' AND last_event_path_code IN ('BOT_EVENT_PATH_GREEN','BOT_UPDATE_NOT_RECEIVED');")" = 1 ]; then
       return 0
     fi
     sleep 1

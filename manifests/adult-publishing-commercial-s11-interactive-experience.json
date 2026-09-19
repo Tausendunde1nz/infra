@@ -1,6 +1,6 @@
 {
   "version": "tu1nz-commercial-s11-interactive-experience-mvp-v1",
-  "status": "READY_FOR_VERSION_BOUND_DEPLOYMENT",
+  "status": "READY_FOR_VERSION_BOUND_DEPLOYMENT_AFTER_RUNTIME_HEALTH_GREEN",
   "source": {
     "application_commit": "1d0dbb88603be49ea172178b77d86451036035a1",
     "application_tree": "49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e",
@@ -19,7 +19,7 @@
     "postgresql_acceptance": "GREEN"
   },
   "control_release": {
-    "freeze_tag": "s11-interactive-experience-mvp-freeze-r5",
+    "freeze_tag": "s11-interactive-experience-mvp-freeze-r6",
     "binding": "EXACT_ANNOTATED_TAG_COMMIT_AND_TREE",
     "control_main_membership": "ANCESTOR_OF_CONTROL_MAIN",
     "post_merge_ci_required": true

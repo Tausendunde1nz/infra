@@ -105,8 +105,9 @@ the prior bot code/unit/config so the S10.2F Early Access path remains usable.
 
 Only Application `65707b079183151cfe7ea508f9270c31389f2334` with tree
 `79d60a5b8d791f65c0de06d0ae7861fb0d032ed4` and a Control commit bound by the
-annotated tag `s11-interactive-experience-mvp-freeze-r5` may deploy. The r5
-freeze contains the timer and backup-mode corrections and uses the established
+annotated tag `s11-interactive-experience-mvp-freeze-r6` may deploy. The r6
+freeze contains the timer, backup-mode, database-admin and in-flight poller
+gate corrections and uses the established
 local PostgreSQL administrator only for hash-bound migration and feature-flag
 updates. Runtime reads and services retain the least-privilege runtime DSN.
 Both release commits must
@@ -124,11 +125,18 @@ Runtime validation covers public website, health, privacy, terms, imprint and
 the `.de` redirect; S7, S8 Landing, S8 Telegram, S10 WMS and nginx with zero
 restarts; active enabled S9/S10 timers with future realtime or monotonic runs;
 the single S8 poller,
-valid lease, successful polls and green event path; publication rotation;
+valid lease, successful polls and either a completed green event path or the
+strictly bounded `BOT_UPDATE_NOT_RECEIVED` state of the current in-flight
+long-poll; publication rotation;
 growth health; S11 catalog/state health; all product boundaries; exact
 acquisition state and baseline. Human Telegram acceptance is allowed to remain
 `DEFERRED`; the release-bound synthetic A-H journey is the technical product
 gate.
+
+Deployment preflight also evaluates the existing Community 24-hour latency SLO
+with the same five-sample minimum and p50/p95/p99 thresholds as runtime health.
+Existing red measurements are retained and block deployment before backup or
+mutation; they are never deleted, reset, relabelled or hidden by S11.
 
 ## Initial product reporting
 
