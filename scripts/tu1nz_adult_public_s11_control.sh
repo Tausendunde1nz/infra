@@ -19,8 +19,10 @@ readonly EXPERIENCE_CONTRACT_SHA="faf4fe20887f7b9d7b31d8f35518db1dea2faa861c84ac
 readonly EXPERIENCE_COPY_SHA="bd842016355f7efd7dfdceedbe89e6e7ea0c7ada09dfe5587b37ad4e42abc972"
 readonly MIGRATION_UP_SHA="5792180ca628740d6a3b644958b3ba0c4f82d68bc93bd17673f3445d02429606"
 readonly MIGRATION_DOWN_SHA="bf4d3ce5e082d813a4f637ac010babb0c4835b94f204167b287657de90aaa157"
+readonly WMS_LANDING_COPY_SHA="86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"
 readonly EXPERIENCE_CONTRACT="/etc/tu1nz/adult-commercial-s11-interactive-experience.json"
 readonly EXPERIENCE_COPY="/etc/tu1nz/adult-commercial-s11-interactive-copy.json"
+readonly WMS_LANDING_COPY="/etc/tu1nz/adult-commercial-s10-wms-copy.json"
 readonly S8_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service"
 readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.service"
 readonly S8_HEALTH_SCRIPT="/usr/local/bin/tu1nz_adult_public_s8_health.py"
@@ -267,11 +269,14 @@ backup_runtime() {
   install -d -o root -g root -m 0700 "$backup_path"
   git_chatops "$APPLICATION_ROOT" bundle create - HEAD > "$backup_path/application.bundle"
   git_chatops "$CONTROL_ROOT" bundle create - HEAD > "$backup_path/control.bundle"
-  git -C "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null
-  git -C "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null
+  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" \
+    bundle verify "$backup_path/application.bundle" >/dev/null
+  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" \
+    bundle verify "$backup_path/control.bundle" >/dev/null
   install -m 0600 "$S8_UNIT" "$backup_path/s8-telegram.service"
   install -m 0600 "$S8_HEALTH_UNIT" "$backup_path/s8-health.service"
   install -m 0600 "$S8_HEALTH_SCRIPT" "$backup_path/s8-health.py"
+  install -m 0600 "$WMS_LANDING_COPY" "$backup_path/wms-landing-copy.json"
   install -m 0600 "$AGGREGATE_STATE" "$backup_path/landing-aggregates.exact"
   : > "$backup_path/EXPERIENCE_CONTRACT_ABSENT"
   : > "$backup_path/EXPERIENCE_COPY_ABSENT"
@@ -280,6 +285,8 @@ backup_runtime() {
   printf 'application_commit=%s\napplication_tree=%s\ncontrol_commit=%s\ncontrol_tree=%s\nacquisition_baseline=%s\n' \
     "$source_application" "$SOURCE_APPLICATION_TREE" "$source_control" "$SOURCE_CONTROL_TREE" \
     "$ACQUISITION_BASELINE" > "$backup_path/provenance.txt"
+  : > "$backup_path/owners-and-modes.txt"
+  chmod -R go-rwx "$backup_path"
   find "$backup_path" -maxdepth 1 -type f -exec stat -c '%n|%U|%G|%a' {} + \
     | sort > "$backup_path/owners-and-modes.txt"
   (
@@ -287,9 +294,10 @@ backup_runtime() {
     find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
     sha256sum -c SHA256SUMS >/dev/null
   )
-  chmod -R go-rwx "$backup_path"
-  git -C "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null
-  git -C "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null
+  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" \
+    bundle verify "$backup_path/application.bundle" >/dev/null
+  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" \
+    bundle verify "$backup_path/control.bundle" >/dev/null
   printf '{"ok":true,"safe_code":"S11_RUNTIME_BACKUP_GREEN","path":"%s"}\n' "$backup_path"
 }
 
@@ -302,8 +310,10 @@ require_backup() {
   grep -Fqx "control_commit=${source_control}" "$backup_path/provenance.txt" || return 1
   grep -Fqx "acquisition_baseline=${ACQUISITION_BASELINE}" "$backup_path/provenance.txt" || return 1
   (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null) || return 1
-  git -C "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null || return 1
-  git -C "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null || return 1
+  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" \
+    bundle verify "$backup_path/application.bundle" >/dev/null || return 1
+  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" \
+    bundle verify "$backup_path/control.bundle" >/dev/null || return 1
 }
 
 fetch_and_require_target() {
@@ -326,6 +336,7 @@ config/commercial-s11-interactive-experience.sfw.json ${EXPERIENCE_CONTRACT_SHA}
 config/commercial-s11-interactive-copy.v1.json ${EXPERIENCE_COPY_SHA}
 migrations/0031_commercial_s11_interactive_experience.sql ${MIGRATION_UP_SHA}
 migrations/0031_commercial_s11_interactive_experience.down.sql ${MIGRATION_DOWN_SHA}
+config/commercial-s10-1-wms-copy.v1.json ${WMS_LANDING_COPY_SHA}
 EOF
 }
 
@@ -450,6 +461,8 @@ verify_target() {
     || fail "S11_INSTALLED_CONTRACT_DRIFT"
   [ "$(sha256sum "$EXPERIENCE_COPY" | awk '{print $1}')" = "$EXPERIENCE_COPY_SHA" ] \
     || fail "S11_INSTALLED_COPY_DRIFT"
+  [ "$(sha256sum "$WMS_LANDING_COPY" | awk '{print $1}')" = "$WMS_LANDING_COPY_SHA" ] \
+    || fail "S11_INSTALLED_LANDING_COPY_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s8-telegram.service" "$S8_UNIT" \
     || fail "S11_INSTALLED_S8_UNIT_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s8-health.service" "$S8_HEALTH_UNIT" \
@@ -479,9 +492,11 @@ restore_source() {
   install -o root -g root -m 0644 "$backup_path/s8-telegram.service" "$S8_UNIT" || return 1
   install -o root -g root -m 0644 "$backup_path/s8-health.service" "$S8_HEALTH_UNIT" || return 1
   install -o root -g root -m 0755 "$backup_path/s8-health.py" "$S8_HEALTH_SCRIPT" || return 1
+  install -o root -g root -m 0644 "$backup_path/wms-landing-copy.json" "$WMS_LANDING_COPY" || return 1
   rm -f -- "$EXPERIENCE_CONTRACT" "$EXPERIENCE_COPY"
   systemctl daemon-reload || return 1
   systemctl restart "$S8_SERVICE" || return 1
+  systemctl restart tu1nz-adult-public-s10-wms.service || return 1
   wait_runtime || return 1
   require_clean_commit "$APPLICATION_ROOT" "$source_application" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION || return 1
   require_clean_commit "$CONTROL_ROOT" "$source_control" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL || return 1
@@ -512,6 +527,8 @@ deploy() {
     config/commercial-s11-interactive-experience.sfw.json 0644 "$EXPERIENCE_CONTRACT"
   install_from_git "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" \
     config/commercial-s11-interactive-copy.v1.json 0644 "$EXPERIENCE_COPY"
+  install_from_git "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" \
+    config/commercial-s10-1-wms-copy.v1.json 0644 "$WMS_LANDING_COPY"
   install_from_git "$CONTROL_ROOT" "$target_control" \
     systemd/tu1nz-adult-public-s8-telegram.service 0644 "$S8_UNIT"
   install_from_git "$CONTROL_ROOT" "$target_control" \
@@ -522,6 +539,7 @@ deploy() {
   require_feature_state off || fail "S11_SOURCE_DEFAULT_NOT_OFF"
   systemctl daemon-reload
   systemctl restart "$S8_SERVICE"
+  systemctl restart tu1nz-adult-public-s10-wms.service
   wait_runtime
   run_runtime_health
   run_synthetic_journeys "$backup_path/synthetic-journeys.json"
@@ -534,6 +552,8 @@ deploy() {
   systemctl show "${SERVICES[@]}" "${TIMERS[@]}" > "$backup_path/runtime-postdeploy.txt"
   chmod 0600 "$backup_path/synthetic-journeys.json" \
     "$backup_path/database-postdeploy-aggregate.json" "$backup_path/runtime-postdeploy.txt"
+  find "$backup_path" -maxdepth 1 -type f ! -name SHA256SUMS \
+    -exec stat -c '%n|%U|%G|%a' {} + | sort > "$backup_path/owners-and-modes.txt"
   (
     cd "$backup_path"
     find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS

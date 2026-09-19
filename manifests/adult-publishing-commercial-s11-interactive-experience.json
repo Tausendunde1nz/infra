@@ -40,6 +40,10 @@
     "migration_down": {
       "path": "migrations/0031_commercial_s11_interactive_experience.down.sql",
       "sha256": "bf4d3ce5e082d813a4f637ac010babb0c4835b94f204167b287657de90aaa157"
+    },
+    "wms_landing_copy": {
+      "path": "config/commercial-s10-1-wms-copy.v1.json",
+      "sha256": "86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"
     }
   },
   "product": {

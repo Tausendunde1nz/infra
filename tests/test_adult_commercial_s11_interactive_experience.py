@@ -44,6 +44,7 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
             "experience_copy": "bd842016355f7efd7dfdceedbe89e6e7ea0c7ada09dfe5587b37ad4e42abc972",
             "migration_up": "5792180ca628740d6a3b644958b3ba0c4f82d68bc93bd17673f3445d02429606",
             "migration_down": "bf4d3ce5e082d813a4f637ac010babb0c4835b94f204167b287657de90aaa157",
+            "wms_landing_copy": "86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2",
         }
         for name, digest in expected.items():
             with self.subTest(name=name):
@@ -129,6 +130,7 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
         for token in (
             "application.bundle", "control.bundle", "bundle verify",
             "landing-aggregates.exact", "database-aggregate-and-schema.json",
+            "wms-landing-copy.json",
             "runtime-manifest.txt", "owners-and-modes.txt", "provenance.txt",
             "SHA256SUMS", "chmod -R go-rwx", "EXPERIENCE_CONTRACT_ABSENT",
             "EXPERIENCE_COPY_ABSENT",
