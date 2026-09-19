@@ -132,12 +132,18 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
             "landing-aggregates.exact", "database-aggregate-and-schema.json",
             "wms-landing-copy.json",
             "runtime-manifest.txt", "owners-and-modes.txt", "provenance.txt",
-            "SHA256SUMS", "chmod -R go-rwx", "EXPERIENCE_CONTRACT_ABSENT",
+            "SHA256SUMS", "chmod -R go-rwx", 'chmod 0700 "$backup_path"',
+            "EXPERIENCE_CONTRACT_ABSENT",
             "EXPERIENCE_COPY_ABSENT", "POSTDEPLOY_SHA256SUMS",
         ):
             self.assertIn(token, self.controller)
         self.assertNotIn("adult-commercial-s7-database.dsn\" \"$backup_path", self.controller)
         self.assertNotIn("telegram.token\" \"$backup_path", self.controller)
+        backup = self.controller[
+            self.controller.index("backup_runtime() {"):self.controller.index("require_backup() {")
+        ]
+        self.assertLess(backup.index("chmod -R go-rwx"), backup.index('chmod 0700 "$backup_path"'))
+        self.assertLess(backup.index('chmod 0700 "$backup_path"'), backup.index("SHA256SUMS"))
 
     def test_failure_is_fail_closed_and_rollback_is_nondestructive(self) -> None:
         self.assertIn("trap 'deployment_error' ERR", self.controller)

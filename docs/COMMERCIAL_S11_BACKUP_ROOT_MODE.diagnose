@@ -1,0 +1,35 @@
+COMMERCIAL S11 BACKUP ROOT-MODE DIAGNOSIS
+
+Status: ROOT_CAUSE_CONFIRMED; NO_S11_RUNTIME_MUTATION
+Observed safe code: S11_BACKUP_VERIFY_RED
+
+The retry passed source preflight and created the complete root-private backup.
+Provenance, SHA-256 verification and both Git bundle verifications were green.
+The deployment stopped before repository switching, package installation,
+migration or feature activation because the backup root mode was 2700 rather
+than the controller's required 0700.
+
+The parent backup directory is setgid. A newly created child inherited that
+special bit. The existing recursive `chmod go-rwx` removed all group and other
+permissions but intentionally did not clear setgid, leaving a private 2700
+directory. The verifier correctly rejected the exact-mode mismatch.
+
+Bounded correction:
+- Keep the parent and server configuration unchanged.
+- After recursively removing group/other access, explicitly set the new backup
+  root to 0700 before owner/mode evidence and checksums are produced.
+- Keep the verifier's exact root:root:700 contract unchanged.
+
+Backup and rollback:
+- The stopped-attempt backup remains immutable and root-private; it is not
+  modified or reused.
+- No rollback was required because the controller had not armed or begun runtime
+  mutation.
+- The next attempt uses a fresh timestamped backup path.
+- Immutable freezes r1 and r2 are not moved; the reviewed successor is r3.
+
+Validation contract:
+- Focused and complete Control tests, syntax, JSON and secret scan must pass.
+- PR CI and same-SHA Codex review must pass.
+- A green canonical post-merge CI and exact annotated r3 freeze are required
+  before retry.

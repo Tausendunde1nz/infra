@@ -105,9 +105,10 @@ the prior bot code/unit/config so the S10.2F Early Access path remains usable.
 
 Only Application `65707b079183151cfe7ea508f9270c31389f2334` with tree
 `79d60a5b8d791f65c0de06d0ae7861fb0d032ed4` and a Control commit bound by the
-annotated tag `s11-interactive-experience-mvp-freeze-r2` may deploy. The r2
-freeze supersedes r1 only to accept a future systemd schedule reported through
-either the realtime or monotonic next-elapse property. Both release commits must
+annotated tag `s11-interactive-experience-mvp-freeze-r3` may deploy. The r3
+freeze contains the r2 realtime-or-monotonic timer correction and additionally
+normalizes the private backup root to exact mode `0700` after setgid inheritance.
+Both release commits must
 be on their canonical remote branches, clean, and backed by green post-merge
 CI before runtime work.
 
