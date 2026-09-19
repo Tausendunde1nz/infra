@@ -11,7 +11,7 @@ readonly SOURCE_CONTROL_COMMIT="5f0b5878888a5d48317e28ce75a6f0f552d6a419"
 readonly SOURCE_CONTROL_TREE="6aebbeed942cd235a292dc8fcafcc29b6e2dab80"
 readonly TARGET_APPLICATION_COMMIT="65707b079183151cfe7ea508f9270c31389f2334"
 readonly TARGET_APPLICATION_TREE="79d60a5b8d791f65c0de06d0ae7861fb0d032ed4"
-readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r3"
+readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r4"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly EXPERIENCE_RELEASE_ID="s11-interactive-experience-mvp-r1"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -309,6 +309,7 @@ backup_runtime() {
   : > "$backup_path/owners-and-modes.txt"
   chmod -R go-rwx "$backup_path"
   chmod 0700 "$backup_path"
+  chmod g-s "$backup_path"
   find "$backup_path" -maxdepth 1 -type f -exec stat -c '%n|%U|%G|%a' {} + \
     | sort > "$backup_path/owners-and-modes.txt"
   (
