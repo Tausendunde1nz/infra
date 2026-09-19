@@ -19,7 +19,7 @@
     "postgresql_acceptance": "GREEN"
   },
   "control_release": {
-    "freeze_tag": "s11-interactive-experience-mvp-freeze-r3",
+    "freeze_tag": "s11-interactive-experience-mvp-freeze-r4",
     "binding": "EXACT_ANNOTATED_TAG_COMMIT_AND_TREE",
     "control_main_membership": "ANCESTOR_OF_CONTROL_MAIN",
     "post_merge_ci_required": true

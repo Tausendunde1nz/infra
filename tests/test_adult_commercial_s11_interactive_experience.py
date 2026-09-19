@@ -133,6 +133,7 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
             "wms-landing-copy.json",
             "runtime-manifest.txt", "owners-and-modes.txt", "provenance.txt",
             "SHA256SUMS", "chmod -R go-rwx", 'chmod 0700 "$backup_path"',
+            'chmod g-s "$backup_path"',
             "EXPERIENCE_CONTRACT_ABSENT",
             "EXPERIENCE_COPY_ABSENT", "POSTDEPLOY_SHA256SUMS",
         ):
@@ -143,7 +144,8 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
             self.controller.index("backup_runtime() {"):self.controller.index("require_backup() {")
         ]
         self.assertLess(backup.index("chmod -R go-rwx"), backup.index('chmod 0700 "$backup_path"'))
-        self.assertLess(backup.index('chmod 0700 "$backup_path"'), backup.index("SHA256SUMS"))
+        self.assertLess(backup.index('chmod 0700 "$backup_path"'), backup.index('chmod g-s "$backup_path"'))
+        self.assertLess(backup.index('chmod g-s "$backup_path"'), backup.index("SHA256SUMS"))
 
     def test_failure_is_fail_closed_and_rollback_is_nondestructive(self) -> None:
         self.assertIn("trap 'deployment_error' ERR", self.controller)
