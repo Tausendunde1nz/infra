@@ -96,6 +96,12 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('refs/tags/${TARGET_CONTROL_TAG}^{commit}', controller)
         self.assertIn('grep -Fqx "control_commit=${target_control}"', controller)
         self.assertIn('grep -Fqx "control_tree=${target_control_tree}"', controller)
+        verify_target = controller.index("verify_target()")
+        deploy = controller.index("deploy()")
+        self.assertIn(
+            'require_target_release "$target_application" "$target_control"',
+            controller[verify_target:deploy],
+        )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
             "s10-2f-conversion-recovery-freeze-r1",

@@ -273,8 +273,32 @@ PY
   mv -f "$temporary" "$CHANGESET_STATE"
 }
 
+require_target_release() {
+  local target_application="$1" target_control="$2" target_control_tree
+  [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
+    || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
+  git -C "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" \
+    || fail "S10_2F_APPLICATION_TARGET_MISSING"
+  [ "$(git -C "$APPLICATION_ROOT" rev-parse "${target_application}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
+    || fail "S10_2F_APPLICATION_TREE_DRIFT"
+  git -C "$CONTROL_ROOT" cat-file -e "${target_control}^{commit}" \
+    || fail "S10_2F_CONTROL_TARGET_MISSING"
+  [ "$(git -C "$CONTROL_ROOT" cat-file -t "refs/tags/${TARGET_CONTROL_TAG}")" = tag ] \
+    || fail "S10_2F_CONTROL_RELEASE_TAG_RED"
+  [ "$(git -C "$CONTROL_ROOT" rev-parse "refs/tags/${TARGET_CONTROL_TAG}^{commit}")" = "$target_control" ] \
+    || fail "S10_2F_CONTROL_RELEASE_DRIFT"
+  target_control_tree="$(git -C "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")"
+  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
+    | grep -Fqx "control_commit=${target_control}" \
+    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
+  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
+    | grep -Fqx "control_tree=${target_control_tree}" \
+    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
+}
+
 verify_target() {
   local target_application="$1" target_control="$2"
+  require_target_release "$target_application" "$target_control"
   require_clean_commit "$APPLICATION_ROOT" "$target_application" APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$target_control" CONTROL
   require_service_health
@@ -298,26 +322,9 @@ deploy() {
   git -C "$APPLICATION_ROOT" fetch origin main >/dev/null
   git -C "$CONTROL_ROOT" fetch --no-tags origin control-main \
     "refs/tags/${TARGET_CONTROL_TAG}:refs/tags/${TARGET_CONTROL_TAG}" >/dev/null
-  [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
-    || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
+  require_target_release "$target_application" "$target_control"
   git -C "$APPLICATION_ROOT" merge-base --is-ancestor "$target_application" origin/main \
     || fail "S10_2F_APPLICATION_RELEASE_NOT_ON_MAIN"
-  git -C "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" || fail "S10_2F_APPLICATION_TARGET_MISSING"
-  git -C "$CONTROL_ROOT" cat-file -e "${target_control}^{commit}" || fail "S10_2F_CONTROL_TARGET_MISSING"
-  [ "$(git -C "$APPLICATION_ROOT" rev-parse "${target_application}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
-    || fail "S10_2F_APPLICATION_TREE_DRIFT"
-  [ "$(git -C "$CONTROL_ROOT" cat-file -t "refs/tags/${TARGET_CONTROL_TAG}")" = tag ] \
-    || fail "S10_2F_CONTROL_RELEASE_TAG_RED"
-  [ "$(git -C "$CONTROL_ROOT" rev-parse "refs/tags/${TARGET_CONTROL_TAG}^{commit}")" = "$target_control" ] \
-    || fail "S10_2F_CONTROL_RELEASE_DRIFT"
-  local target_control_tree
-  target_control_tree="$(git -C "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")"
-  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
-    | grep -Fqx "control_commit=${target_control}" \
-    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
-  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
-    | grep -Fqx "control_tree=${target_control_tree}" \
-    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
   backup "$backup_path" "$source_application" "$source_control" >/dev/null
   local mutated=0
   rollback_on_error() {
