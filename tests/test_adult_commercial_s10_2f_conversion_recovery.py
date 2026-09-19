@@ -89,8 +89,17 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="04eec54c23ba15e5787712bac434ae2f5bf4ae36"', controller)
         self.assertIn('TARGET_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"', controller)
         self.assertIn('TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"', controller)
+        self.assertIn('TARGET_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"', controller)
         self.assertIn('merge-base --is-ancestor "$target_application" origin/main', controller)
         self.assertNotIn('rev-parse origin/main)" = "$target_application"', controller)
+        self.assertNotIn('rev-parse origin/control-main)" = "$target_control"', controller)
+        self.assertIn('refs/tags/${TARGET_CONTROL_TAG}^{commit}', controller)
+        self.assertIn('grep -Fqx "control_commit=${target_control}"', controller)
+        self.assertIn('grep -Fqx "control_tree=${target_control_tree}"', controller)
+        self.assertEqual(
+            manifest["control_release"]["freeze_tag"],
+            "s10-2f-conversion-recovery-freeze-r1",
+        )
         self.assertIn('grep -Fqx "application_commit=${source_application}"', controller)
         self.assertIn('grep -Fqx "control_commit=${source_control}"', controller)
         self.assertIn('https://wantmeseen.com/health', controller)

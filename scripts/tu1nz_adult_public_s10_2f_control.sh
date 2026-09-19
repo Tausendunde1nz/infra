@@ -15,6 +15,7 @@ readonly SOURCE_CONTROL_COMMIT="66e5b18c9d3bfc1082b1e2d0188cf14418f586a3"
 readonly SOURCE_CONTROL_TREE="04eec54c23ba15e5787712bac434ae2f5bf4ae36"
 readonly TARGET_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"
 readonly TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
+readonly TARGET_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -295,17 +296,28 @@ deploy() {
   local backup_path="$1" source_application="$2" source_control="$3" target_application="$4" target_control="$5"
   preflight "$source_application" "$source_control" >/dev/null
   git -C "$APPLICATION_ROOT" fetch origin main >/dev/null
-  git -C "$CONTROL_ROOT" fetch origin control-main >/dev/null
+  git -C "$CONTROL_ROOT" fetch --no-tags origin control-main \
+    "refs/tags/${TARGET_CONTROL_TAG}:refs/tags/${TARGET_CONTROL_TAG}" >/dev/null
   [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
     || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
   git -C "$APPLICATION_ROOT" merge-base --is-ancestor "$target_application" origin/main \
     || fail "S10_2F_APPLICATION_RELEASE_NOT_ON_MAIN"
-  [ "$(git -C "$CONTROL_ROOT" rev-parse origin/control-main)" = "$target_control" ] \
-    || fail "S10_2F_CONTROL_REMOTE_DRIFT"
   git -C "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" || fail "S10_2F_APPLICATION_TARGET_MISSING"
   git -C "$CONTROL_ROOT" cat-file -e "${target_control}^{commit}" || fail "S10_2F_CONTROL_TARGET_MISSING"
   [ "$(git -C "$APPLICATION_ROOT" rev-parse "${target_application}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
     || fail "S10_2F_APPLICATION_TREE_DRIFT"
+  [ "$(git -C "$CONTROL_ROOT" cat-file -t "refs/tags/${TARGET_CONTROL_TAG}")" = tag ] \
+    || fail "S10_2F_CONTROL_RELEASE_TAG_RED"
+  [ "$(git -C "$CONTROL_ROOT" rev-parse "refs/tags/${TARGET_CONTROL_TAG}^{commit}")" = "$target_control" ] \
+    || fail "S10_2F_CONTROL_RELEASE_DRIFT"
+  local target_control_tree
+  target_control_tree="$(git -C "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")"
+  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
+    | grep -Fqx "control_commit=${target_control}" \
+    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
+  git -C "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
+    | grep -Fqx "control_tree=${target_control_tree}" \
+    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
   backup "$backup_path" "$source_application" "$source_control" >/dev/null
   local mutated=0
   rollback_on_error() {
