@@ -9,6 +9,8 @@ readonly QUALITY_STATE="${STATE_ROOT}/wms-traffic-quality.json"
 readonly CHANGESET_STATE="${STATE_ROOT}/s10-2f-changeset.json"
 readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
+readonly TARGET_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"
+readonly TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -28,22 +30,33 @@ readonly TIMERS=(
 
 fail() {
   printf '{"ok":false,"safe_code":"%s"}\n' "$1" >&2
-  exit 2
+  return 2
 }
 
 require_sha() {
-  [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail "S10_2F_SHA_INVALID"
+  if [[ ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
+    fail "S10_2F_SHA_INVALID"
+    return $?
+  fi
 }
 
 require_backup_path() {
-  [[ "$1" =~ ^/opt/tu1nz_repos/backups/commercial-s10-2f-conversion/[0-9]{8}T[0-9]{6}Z-predeploy$ ]] \
-    || fail "S10_2F_BACKUP_PATH_INVALID"
+  if [[ ! "$1" =~ ^/opt/tu1nz_repos/backups/commercial-s10-2f-conversion/[0-9]{8}T[0-9]{6}Z-predeploy$ ]]; then
+    fail "S10_2F_BACKUP_PATH_INVALID"
+    return $?
+  fi
 }
 
 require_clean_commit() {
   local repository="$1" expected="$2" code="$3"
-  [ "$(git -C "$repository" rev-parse HEAD)" = "$expected" ] || fail "${code}_COMMIT_DRIFT"
-  [ -z "$(git -C "$repository" status --porcelain)" ] || fail "${code}_WORKTREE_DIRTY"
+  if [ "$(git -C "$repository" rev-parse HEAD)" != "$expected" ]; then
+    fail "${code}_COMMIT_DRIFT"
+    return $?
+  fi
+  if [ -n "$(git -C "$repository" status --porcelain)" ]; then
+    fail "${code}_WORKTREE_DIRTY"
+    return $?
+  fi
 }
 
 require_service_health() {
@@ -51,11 +64,17 @@ require_service_health() {
   for unit in "${SERVICES[@]}"; do
     active="$(systemctl show "$unit" -p ActiveState --value)"
     restarts="$(systemctl show "$unit" -p NRestarts --value)"
-    [ "$active" = active ] && [ "$restarts" = 0 ] || fail "S10_2F_SERVICE_RED"
+    if [ "$active" != active ] || [ "$restarts" != 0 ]; then
+      fail "S10_2F_SERVICE_RED"
+      return $?
+    fi
   done
   for unit in "${TIMERS[@]}"; do
-    [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] || fail "S10_2F_TIMER_RED"
-    [ "$(systemctl is-enabled "$unit")" = enabled ] || fail "S10_2F_TIMER_RED"
+    if [ "$(systemctl show "$unit" -p ActiveState --value)" != active ] \
+      || [ "$(systemctl is-enabled "$unit")" != enabled ]; then
+      fail "S10_2F_TIMER_RED"
+      return $?
+    fi
   done
 }
 
@@ -189,22 +208,39 @@ restore_source() {
   fi
   systemctl daemon-reload || return 1
   systemctl restart "$WMS_SERVICE" || return 1
-  require_clean_commit "$APPLICATION_ROOT" "$source_application" APPLICATION
-  require_clean_commit "$CONTROL_ROOT" "$source_control" CONTROL
-  require_service_health
+  require_clean_commit "$APPLICATION_ROOT" "$source_application" APPLICATION || return 1
+  require_clean_commit "$CONTROL_ROOT" "$source_control" CONTROL || return 1
+  require_service_health || return 1
   require_acquisition_state || return 1
   [ "$(curl -fsS -o /dev/null -w '%{http_code}' https://wantmeseen.com/)" = 200 ] || return 1
   [ "$(curl -fsS -o /dev/null -w '%{http_code}' https://wantmeseen.com/health)" = 200 ] || return 1
   [ "$(curl -sS -o /dev/null -w '%{http_code}' https://wantmeseen.de/)" = 308 ] || return 1
 }
 
-install_state() {
-  local temporary started_at
+install_quality_state() {
+  local temporary
   temporary="$(mktemp "${STATE_ROOT}/.wms-traffic-quality.XXXXXX")"
   printf '{}\n' > "$temporary"
   chown chatops:chatops "$temporary"
   chmod 0600 "$temporary"
   mv -f "$temporary" "$QUALITY_STATE"
+}
+
+wait_target_runtime() {
+  local attempt
+  for attempt in {1..40}; do
+    if curl -fsS http://127.0.0.1:18110/health \
+      | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); raise SystemExit(0 if value.get("ok") is True and value.get("funnel_measurement_semantics") == "HUMAN_LIKE_BROWSER_NAVIGATION_V1" else 1)' \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  fail "S10_2F_TARGET_LISTENER_RED"
+}
+
+install_changeset_state() {
+  local temporary started_at
   started_at="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
   temporary="$(mktemp "${STATE_ROOT}/.s10-2f-changeset.XXXXXX")"
   STARTED_AT="$started_at" ACQUISITION_BASELINE="$ACQUISITION_BASELINE" \
@@ -247,12 +283,16 @@ deploy() {
   preflight "$source_application" "$source_control" >/dev/null
   git -C "$APPLICATION_ROOT" fetch origin main >/dev/null
   git -C "$CONTROL_ROOT" fetch origin control-main >/dev/null
+  [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
+    || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
   [ "$(git -C "$APPLICATION_ROOT" rev-parse origin/main)" = "$target_application" ] \
     || fail "S10_2F_APPLICATION_REMOTE_DRIFT"
   [ "$(git -C "$CONTROL_ROOT" rev-parse origin/control-main)" = "$target_control" ] \
     || fail "S10_2F_CONTROL_REMOTE_DRIFT"
   git -C "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" || fail "S10_2F_APPLICATION_TARGET_MISSING"
   git -C "$CONTROL_ROOT" cat-file -e "${target_control}^{commit}" || fail "S10_2F_CONTROL_TARGET_MISSING"
+  [ "$(git -C "$APPLICATION_ROOT" rev-parse "${target_application}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
+    || fail "S10_2F_APPLICATION_TREE_DRIFT"
   backup "$backup_path" "$source_application" "$source_control" >/dev/null
   local mutated=0
   rollback_on_error() {
@@ -275,9 +315,11 @@ deploy() {
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/tu1nz-adult-public-s10-wms.service" /etc/systemd/system/tu1nz-adult-public-s10-wms.service
   install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/tu1nz-adult-public-s10-health.service" /etc/systemd/system/tu1nz-adult-public-s10-health.service
   install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_health.py" /usr/local/bin/tu1nz_adult_public_s10_1_health.py
-  install_state
+  install_quality_state
   systemctl daemon-reload
   systemctl restart "$WMS_SERVICE"
+  wait_target_runtime
+  install_changeset_state
   verify_target "$target_application" "$target_control"
   trap - ERR
 }
