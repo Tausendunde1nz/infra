@@ -189,6 +189,13 @@ restore_source() {
   fi
   systemctl daemon-reload || return 1
   systemctl restart "$WMS_SERVICE" || return 1
+  require_clean_commit "$APPLICATION_ROOT" "$source_application" APPLICATION
+  require_clean_commit "$CONTROL_ROOT" "$source_control" CONTROL
+  require_service_health
+  require_acquisition_state || return 1
+  [ "$(curl -fsS -o /dev/null -w '%{http_code}' https://wantmeseen.com/)" = 200 ] || return 1
+  [ "$(curl -fsS -o /dev/null -w '%{http_code}' https://wantmeseen.com/health)" = 200 ] || return 1
+  [ "$(curl -sS -o /dev/null -w '%{http_code}' https://wantmeseen.de/)" = 308 ] || return 1
 }
 
 install_state() {

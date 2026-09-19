@@ -81,6 +81,8 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn("git -C \"$APPLICATION_ROOT\" bundle verify", controller)
         self.assertIn("S10_2F_DEPLOYMENT_ROLLED_BACK", controller)
         self.assertIn("require_acquisition_state", controller)
+        self.assertIn('https://wantmeseen.com/health', controller)
+        self.assertIn('https://wantmeseen.de/', controller)
         self.assertNotIn("reset --hard", controller)
         self.assertNotIn("cron", controller.casefold())
 
