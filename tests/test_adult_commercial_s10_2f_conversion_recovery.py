@@ -86,6 +86,10 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
             'bundle verify "$backup_path/application.bundle"',
             controller,
         )
+        verify_helper = controller[
+            controller.index("verify_backup_bundles()") : controller.index("backup()")
+        ]
+        self.assertEqual(verify_helper.count("|| return 1"), 2)
         self.assertIn("S10_2F_DEPLOYMENT_ROLLED_BACK", controller)
         self.assertIn('return 2', controller)
         self.assertNotIn('exit 2', controller)

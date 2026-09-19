@@ -19,7 +19,7 @@ readonly TARGET_CONTROL_ARTIFACT_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e8
 readonly TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"
 readonly TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"
 readonly FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r3"
-readonly FINAL_CONTROL_RELEASE_FINGERPRINT="64ec8f1fb50520385bceceb81da4ce0d307770f4fb41c9058d31cf6f641cff0f"
+readonly FINAL_CONTROL_RELEASE_FINGERPRINT="2f62a0e92849040578fb646c35db07af76a1fe8d095c4f84bd0e30bdc69c4561"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -213,9 +213,11 @@ PY
 verify_backup_bundles() {
   local backup_path="$1"
   git_chatops "$APPLICATION_ROOT" bundle verify /dev/stdin \
-    < "$backup_path/application.bundle" >/dev/null
+    < "$backup_path/application.bundle" >/dev/null \
+    || return 1
   git_chatops "$CONTROL_ROOT" bundle verify /dev/stdin \
-    < "$backup_path/control.bundle" >/dev/null
+    < "$backup_path/control.bundle" >/dev/null \
+    || return 1
 }
 
 backup() {
