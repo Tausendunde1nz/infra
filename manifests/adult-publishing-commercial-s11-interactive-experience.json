@@ -1,0 +1,87 @@
+{
+  "version": "tu1nz-commercial-s11-interactive-experience-mvp-v1",
+  "status": "READY_FOR_VERSION_BOUND_DEPLOYMENT",
+  "source": {
+    "application_commit": "1d0dbb88603be49ea172178b77d86451036035a1",
+    "application_tree": "49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e",
+    "control_commit": "5f0b5878888a5d48317e28ce75a6f0f552d6a419",
+    "control_tree": "6aebbeed942cd235a292dc8fcafcc29b6e2dab80",
+    "real_acquisition_active": true,
+    "acquisition_baseline_start": "2026-09-18T00:41:06.710027Z"
+  },
+  "application_release": {
+    "commit": "65707b079183151cfe7ea508f9270c31389f2334",
+    "tree": "79d60a5b8d791f65c0de06d0ae7861fb0d032ed4",
+    "pull_request": 114,
+    "review_commit": "e8c2fb702d80a55b90872a2d4aa4572cc88d472b",
+    "post_merge_ci": 35443107077,
+    "tests": "1028_GREEN",
+    "postgresql_acceptance": "GREEN"
+  },
+  "control_release": {
+    "freeze_tag": "s11-interactive-experience-mvp-freeze-r1",
+    "binding": "EXACT_ANNOTATED_TAG_COMMIT_AND_TREE",
+    "control_main_membership": "ANCESTOR_OF_CONTROL_MAIN",
+    "post_merge_ci_required": true
+  },
+  "artifacts": {
+    "experience_contract": {
+      "path": "config/commercial-s11-interactive-experience.sfw.json",
+      "sha256": "faf4fe20887f7b9d7b31d8f35518db1dea2faa861c84acd791f9f0a739db425d"
+    },
+    "experience_copy": {
+      "path": "config/commercial-s11-interactive-copy.v1.json",
+      "sha256": "bd842016355f7efd7dfdceedbe89e6e7ea0c7ada09dfe5587b37ad4e42abc972"
+    },
+    "migration_up": {
+      "path": "migrations/0031_commercial_s11_interactive_experience.sql",
+      "sha256": "5792180ca628740d6a3b644958b3ba0c4f82d68bc93bd17673f3445d02429606"
+    },
+    "migration_down": {
+      "path": "migrations/0031_commercial_s11_interactive_experience.down.sql",
+      "sha256": "bf4d3ce5e082d813a4f637ac010babb0c4835b94f204167b287657de90aaa157"
+    }
+  },
+  "product": {
+    "catalog_version": "s11-curated-sfw-challenges-v1",
+    "state_machine_version": "s11-experience-state-v1",
+    "challenge_count": 36,
+    "challenges_per_mode": 12,
+    "session_challenge_count": 3,
+    "modes": ["PLAYFUL", "BOLD", "DARING"],
+    "feature_source_default": false,
+    "human_acceptance": "DEFERRED"
+  },
+  "analytics": {
+    "evidence_classes": ["REAL_ACQUISITION", "SYNTHETIC", "INTERNAL_TEST"],
+    "message_bodies_recorded": false,
+    "challenge_response_text_recorded": false,
+    "synthetic_in_real_kpis": false
+  },
+  "deployment": {
+    "controller": "scripts/tu1nz_adult_public_s11_control.sh",
+    "backup_required": true,
+    "automatic_rollback": true,
+    "sequence": [
+      "CODE_OFF",
+      "ADDITIVE_MIGRATION",
+      "HEALTH",
+      "SYNTHETIC_JOURNEYS_A_TO_H",
+      "VERSIONED_ENABLE",
+      "HEALTH",
+      "PRODUCT_VALIDATION"
+    ],
+    "real_acquisition_remains_active": true,
+    "baseline_reset": false
+  },
+  "boundaries": {
+    "adult_media": false,
+    "community_adult_media": false,
+    "community_user_content_publishing": false,
+    "real_avs": false,
+    "payment": false,
+    "external_publishing": false,
+    "controlled_beta": false,
+    "production": false
+  }
+}
