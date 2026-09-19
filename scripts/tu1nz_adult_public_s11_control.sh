@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
+readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"
 readonly SOURCE_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"
@@ -11,7 +12,7 @@ readonly SOURCE_CONTROL_COMMIT="5f0b5878888a5d48317e28ce75a6f0f552d6a419"
 readonly SOURCE_CONTROL_TREE="6aebbeed942cd235a292dc8fcafcc29b6e2dab80"
 readonly TARGET_APPLICATION_COMMIT="65707b079183151cfe7ea508f9270c31389f2334"
 readonly TARGET_APPLICATION_TREE="79d60a5b8d791f65c0de06d0ae7861fb0d032ed4"
-readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r4"
+readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r5"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly EXPERIENCE_RELEASE_ID="s11-interactive-experience-mvp-r1"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -374,45 +375,23 @@ apply_migration() {
     require_s11_schema_absent_or_disabled
     return 0
   fi
-  S11_DATABASE_DSN="$DATABASE_DSN" \
-    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY' 2>/dev/null
-from pathlib import Path
-import os
-import psycopg
-
-dsn = Path(os.environ["S11_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
-sql = Path("/opt/tu1nz_repos/adult-publishing-core/migrations/0031_commercial_s11_interactive_experience.sql").read_text(encoding="utf-8")
-with psycopg.connect(dsn, autocommit=True) as connection:
-    present = connection.execute(
-        "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' "
-        "AND table_name LIKE 'commercial_s11_%'"
-    ).fetchone()[0]
-    if present != 0:
-        raise SystemExit(2)
-    connection.execute(sql)
-PY
+  runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --dbname="$DATABASE" \
+    <"$APPLICATION_ROOT/migrations/0031_commercial_s11_interactive_experience.sql" \
+    >/dev/null
 }
 
 set_feature() {
   local enabled="$1" reason="$2"
-  S11_DATABASE_DSN="$DATABASE_DSN" S11_ENABLED="$enabled" S11_REASON="$reason" \
-    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY' 2>/dev/null
-from pathlib import Path
-import os
-import psycopg
-
-dsn = Path(os.environ["S11_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
-enabled = os.environ["S11_ENABLED"] == "true"
-with psycopg.connect(dsn) as connection:
-    cursor = connection.execute(
-        "UPDATE commercial_s11_runtime_control SET enabled=%s, "
-        "live_start=CASE WHEN %s THEN COALESCE(live_start, CURRENT_TIMESTAMP) ELSE NULL END, "
-        "reason_safe_code=%s, updated_at=CURRENT_TIMESTAMP WHERE singleton",
-        (enabled, enabled, os.environ["S11_REASON"]),
-    )
-    if cursor.rowcount != 1:
-        raise SystemExit(2)
-PY
+  case "$enabled" in
+    true|false) ;;
+    *) fail "S11_FEATURE_VALUE_INVALID" ;;
+  esac
+  [[ "$reason" =~ ^S11_[A-Z0-9_]{1,96}$ ]] || fail "S11_FEATURE_REASON_INVALID"
+  runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --dbname="$DATABASE" \
+    --command="UPDATE commercial_s11_runtime_control SET enabled=${enabled}, live_start=CASE WHEN ${enabled} THEN COALESCE(live_start, CURRENT_TIMESTAMP) ELSE NULL END, reason_safe_code='${reason}', updated_at=CURRENT_TIMESTAMP WHERE singleton;" \
+    >/dev/null
 }
 
 require_feature_state() {

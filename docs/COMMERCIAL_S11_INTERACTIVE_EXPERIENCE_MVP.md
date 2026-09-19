@@ -105,9 +105,10 @@ the prior bot code/unit/config so the S10.2F Early Access path remains usable.
 
 Only Application `65707b079183151cfe7ea508f9270c31389f2334` with tree
 `79d60a5b8d791f65c0de06d0ae7861fb0d032ed4` and a Control commit bound by the
-annotated tag `s11-interactive-experience-mvp-freeze-r4` may deploy. The r4
-freeze contains the realtime-or-monotonic timer correction and explicitly
-clears inherited setgid after normalizing the private backup root to mode `0700`.
+annotated tag `s11-interactive-experience-mvp-freeze-r5` may deploy. The r5
+freeze contains the timer and backup-mode corrections and uses the established
+local PostgreSQL administrator only for hash-bound migration and feature-flag
+updates. Runtime reads and services retain the least-privilege runtime DSN.
 Both release commits must
 be on their canonical remote branches, clean, and backed by green post-merge
 CI before runtime work.

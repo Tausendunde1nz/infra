@@ -1,0 +1,37 @@
+COMMERCIAL S11 DATABASE MIGRATION PRIVILEGE DIAGNOSIS
+
+Status: ROOT_CAUSE_CONFIRMED; AUTOMATIC_ROLLBACK_GREEN
+Observed SQLSTATE: 42501 INSUFFICIENT_PRIVILEGE
+
+The r4 deployment passed source preflight, exact private backup verification,
+canonical release synchronization and repository switching. It then failed
+before migration 0031 committed. The versioned controller automatically
+restored both source repositories, package, units and configuration. S7, S8,
+S10 and nginx returned active with zero restarts; S11 tables and files are
+absent and both repositories are clean at their source commits.
+
+A transaction-only diagnostic executed the exact frozen migration and always
+rolled it back. PostgreSQL returned permission denied for schema public. The
+configured runtime DSN is intentionally least-privilege and cannot create
+tables. The SQL and required predecessor schema objects were otherwise present.
+
+Bounded correction:
+- Use the already established local `runuser -u postgres -- psql` migration
+  ingress for the exact hash-verified migration file, streamed over stdin.
+- Use the same local administrator only for the controller's versioned feature
+  flag update.
+- Keep all runtime service access and evidence reads on the existing
+  least-privilege DSN.
+- Do not broaden runtime grants and do not add credentials.
+
+Backup and rollback:
+- The r4 predeploy backup is complete, exact-mode private and immutable.
+- The automatic non-destructive rollback completed successfully.
+- The retry requires a fresh timestamped backup and exact r5 freeze.
+- Immutable freezes r1 through r4 are not moved.
+
+Validation contract:
+- Focused and full Control tests, shell syntax, JSON and secret scan pass.
+- PR CI, same-SHA review, merge-commit and post-merge CI pass.
+- The exact annotated r5 freeze binds the canonical Application and Control
+  commits and trees before any retry.
