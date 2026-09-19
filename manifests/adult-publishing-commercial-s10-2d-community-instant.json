@@ -30,10 +30,10 @@
     "source_s8_dropin_sha256": "2eaa68ace7a2ed4259be422cb7908eb5994735691c265d20935ca4d354d9565a",
     "rotation_unit_sha256": "ffadc2bc5834a9460c7bd9e4e5ea77e813ba7d794e1a3363359e41cb458b2a7e",
     "s8_health_sha256": "fa5b6c852ecf671a5e64f2a0fc688cb3f1c16a242bfcda1d24e41a599d3996db",
-    "s10_health_sha256": "31e9e4b020cd94eedbe5e31ddac32dcd38b647594357b5791cde4670a10d139f",
+    "s10_health_sha256": "26c1a462f61a8a4985606f1ab4aee242c606df91236855cb3402c9a19ff71361",
     "s9_health_dropin_sha256": "a92967f423cef362d18828f3a012c587f74615784ee395f1a1d81b1a8e9231bc",
-    "s10_health_unit_sha256": "608316886bf9521759bc14d60b8ba23af31e06acb244d24c7f4c557c32bb877c",
-    "s10_wms_unit_sha256": "febad1e1a55e1820eceda6edc132222af8599110a5392e7d2c4fa65985f05ca1",
+    "s10_health_unit_sha256": "4e6b78b4a91e7d833efa35c9291392a518aa6ca93451135c9cb465f78ac7c8c9",
+    "s10_wms_unit_sha256": "53237fc837a28cabbab7e34693db67bfaa2736b5153818f6b218c7dbcd65b89a",
     "health_gate_sha256": "a70491db77096892ef274cec04e793c8fd4b65d35e13c6c36649c03c6585f345",
     "release_simulator_sha256": "025cfa56de5b633a8936a6d96219d7f18ad9fe1bf44e8f11bef1c1b37d4e4d63",
     "exact_post_merge_commit_and_tree_required": true
