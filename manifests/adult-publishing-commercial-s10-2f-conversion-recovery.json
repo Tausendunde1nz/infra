@@ -1,0 +1,69 @@
+{
+  "version": "tu1nz-commercial-s10-2f-conversion-recovery-v1",
+  "status": "READY_FOR_VERSION_BOUND_DEPLOYMENT",
+  "source": {
+    "application_commit": "312db84d5db6d76c9d6bb448459c9404b1dfcbe4",
+    "application_tree": "ac4f8bca1fd796626742a8ef6c6afcdda482fc68",
+    "control_commit": "66e5b18c9d3bfc1082b1e2d0188cf14418f586a3",
+    "control_tree": "04eec54c23ba15e5787712bac434ae2f5bf4ae36",
+    "acquisition_baseline_start": "2026-09-18T00:41:06.710027Z"
+  },
+  "application_release": {
+    "commit": "1d0dbb88603be49ea172178b77d86451036035a1",
+    "tree": "49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e",
+    "pull_request": 113,
+    "review_commit": "2f9621156aa775d664c44b87834d72bab5e7b9a6",
+    "post_merge_ci": 35429208518,
+    "tests": "1011_GREEN"
+  },
+  "root_cause": {
+    "classification": "MULTIPLE_CAUSES",
+    "primary": [
+      "MEASUREMENT_BUG",
+      "LOW_QUALITY_TRAFFIC"
+    ],
+    "secondary": [
+      "UX_FRICTION"
+    ],
+    "routing_or_deeplink_bug": false,
+    "bot_event_pipeline_bug": false,
+    "community_event_pipeline_bug": false,
+    "waitlist_writer_bug": false
+  },
+  "measurement": {
+    "historical_baseline_rewritten": false,
+    "semantics": "HUMAN_LIKE_BROWSER_NAVIGATION_V1",
+    "changeset_state": "/var/lib/tu1nz-adult-public-s9/s10-2f-changeset.json",
+    "traffic_quality_state": "/var/lib/tu1nz-adult-public-s9/wms-traffic-quality.json",
+    "traffic_classes": [
+      "HUMAN_LIKE",
+      "KNOWN_AUTOMATION",
+      "KNOWN_HEALTH",
+      "BOT_OR_CRAWLER",
+      "PREFETCH_OR_PREVIEW",
+      "UNKNOWN"
+    ],
+    "identifiers_collected": false,
+    "cookies_collected": false,
+    "fingerprints_collected": false
+  },
+  "deployment": {
+    "controller": "scripts/tu1nz_adult_public_s10_2f_control.sh",
+    "backup_required": true,
+    "automatic_rollback": true,
+    "application_and_control_commits_required": true,
+    "freeze_required": true,
+    "s10_2f_changeset_start_set_at_activation": true,
+    "real_acquisition_remains_active": true
+  },
+  "boundaries": {
+    "adult_media": false,
+    "community_adult_media": false,
+    "real_avs": false,
+    "payment": false,
+    "publishing": false,
+    "controlled_beta": false,
+    "production": false,
+    "human_acceptance": "DEFERRED"
+  }
+}

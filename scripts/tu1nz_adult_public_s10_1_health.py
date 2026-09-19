@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -19,6 +21,17 @@ S9_RUNTIME = APPLICATION / ".venv/bin/python"
 LOCAL_ORIGIN = "http://127.0.0.1:18110"
 PUBLIC_ORIGIN = "https://wantmeseen.com"
 MAXIMUM_BYTES = 768 * 1024
+TRAFFIC_QUALITY_MAXIMUM_BYTES = 256 * 1024
+TRAFFIC_QUALITY_ROUTES = frozenset({"LANDING", "TELEGRAM_CTA", "COMMUNITY_CTA"})
+TRAFFIC_QUALITY_CLASSES = frozenset({
+    "HUMAN_LIKE",
+    "KNOWN_AUTOMATION",
+    "KNOWN_HEALTH",
+    "BOT_OR_CRAWLER",
+    "PREFETCH_OR_PREVIEW",
+    "UNKNOWN",
+})
+ACQUISITION_BASELINE_START = "2026-09-18T00:41:06.710027Z"
 SERVICES = (
     "tu1nz-adult-public-s7.service",
     "tu1nz-adult-public-s8-telegram.service",
@@ -221,6 +234,104 @@ def _web(origin: str) -> dict[str, object]:
     return {"landing": "GREEN", "legal": "GREEN", "seo": "GREEN"}
 
 
+def _traffic_quality(path: Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    if not path.is_absolute() or path.is_symlink() or path.parent.is_symlink():
+        raise ValueError("S10_TRAFFIC_QUALITY_PATH_RED")
+    try:
+        metadata = path.stat()
+        material = path.read_bytes()
+    except OSError:
+        raise ValueError("S10_TRAFFIC_QUALITY_STATE_RED") from None
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+        or not material
+        or len(material) > TRAFFIC_QUALITY_MAXIMUM_BYTES
+    ):
+        raise ValueError("S10_TRAFFIC_QUALITY_STATE_RED")
+    try:
+        values = json.loads(material.decode("ascii"))
+    except (UnicodeError, json.JSONDecodeError):
+        raise ValueError("S10_TRAFFIC_QUALITY_STATE_RED") from None
+    if not isinstance(values, dict):
+        raise ValueError("S10_TRAFFIC_QUALITY_STATE_RED")
+    routes = {key: 0 for key in sorted(TRAFFIC_QUALITY_ROUTES)}
+    classes = {key: 0 for key in sorted(TRAFFIC_QUALITY_CLASSES)}
+    for key, value in values.items():
+        if not isinstance(key, str) or isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("S10_TRAFFIC_QUALITY_STATE_RED")
+        parts = key.split("|")
+        if (
+            len(parts) != 3
+            or parts[1] not in TRAFFIC_QUALITY_ROUTES
+            or parts[2] not in TRAFFIC_QUALITY_CLASSES
+        ):
+            raise ValueError("S10_TRAFFIC_QUALITY_STATE_RED")
+        try:
+            date.fromisoformat(parts[0])
+        except ValueError:
+            raise ValueError("S10_TRAFFIC_QUALITY_STATE_RED") from None
+        routes[parts[1]] += value
+        classes[parts[2]] += value
+    return {
+        "semantics": "AGGREGATE_REQUEST_CLASS_V1",
+        "samples": sum(classes.values()),
+        "routes": routes,
+        "classes": classes,
+    }
+
+
+def _changeset(path: Path | None) -> dict[str, object] | None:
+    if path is None:
+        return None
+    if not path.is_absolute() or path.is_symlink() or path.parent.is_symlink():
+        raise ValueError("S10_2F_CHANGESET_PATH_RED")
+    try:
+        metadata = path.stat()
+        material = path.read_bytes()
+    except OSError:
+        raise ValueError("S10_2F_CHANGESET_STATE_RED") from None
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or not 1 <= len(material) <= 2048
+    ):
+        raise ValueError("S10_2F_CHANGESET_STATE_RED")
+    try:
+        payload = json.loads(material.decode("ascii"))
+    except (UnicodeError, json.JSONDecodeError):
+        raise ValueError("S10_2F_CHANGESET_STATE_RED") from None
+    if not isinstance(payload, dict) or set(payload) != {
+        "version",
+        "started_at",
+        "acquisition_baseline_start",
+        "measurement_semantics",
+    }:
+        raise ValueError("S10_2F_CHANGESET_STATE_RED")
+    started_at = payload.get("started_at")
+    try:
+        parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00")) if isinstance(started_at, str) else None
+    except ValueError:
+        parsed = None
+    if (
+        payload.get("version") != "S10_2F"
+        or parsed is None
+        or parsed.tzinfo != timezone.utc
+        or parsed < datetime.fromisoformat(ACQUISITION_BASELINE_START.replace("Z", "+00:00"))
+        or parsed > datetime.now(timezone.utc)
+        or payload.get("acquisition_baseline_start") != ACQUISITION_BASELINE_START
+        or payload.get("measurement_semantics") != "HUMAN_LIKE_BROWSER_NAVIGATION_V1"
+    ):
+        raise ValueError("S10_2F_CHANGESET_STATE_RED")
+    return payload
+
+
 def _system(local_only: bool, require_timers: bool) -> dict[str, object]:
     services: dict[str, object] = {}
     for unit in SERVICES:
@@ -375,6 +486,8 @@ def main() -> int:
     parser.add_argument("--database-dsn", type=Path, required=True)
     parser.add_argument("--telegram-token", type=Path, required=True)
     parser.add_argument("--telegram-channel", required=True)
+    parser.add_argument("--traffic-quality-state", type=Path)
+    parser.add_argument("--changeset-state", type=Path)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--local-only", action="store_true")
     mode.add_argument("--pre-growth", action="store_true")
@@ -406,6 +519,8 @@ def main() -> int:
             "state": "GREEN",
             "web_local": _web(LOCAL_ORIGIN),
             "web_public": None if arguments.local_only else _web(PUBLIC_ORIGIN),
+            "traffic_quality": _traffic_quality(arguments.traffic_quality_state),
+            "s10_2f_changeset": _changeset(arguments.changeset_state),
             "growth": _growth(arguments),
             "community": _community(arguments),
             "system": _system(arguments.local_only, not arguments.local_only and not arguments.pre_growth),

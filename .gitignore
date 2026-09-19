@@ -60,6 +60,7 @@
 !scripts/tu1nz_adult_public_s10_2d_control.sh
 !scripts/tu1nz_adult_public_s10_2d_backup.sh
 !scripts/tu1nz_adult_public_s10_2d_aggregate_contract.py
+!scripts/tu1nz_adult_public_s10_2f_control.sh
 !systemd/
 !systemd/restore-test.service
 !systemd/tu1nz_encrypted_backup.service
@@ -137,6 +138,7 @@
 !manifests/adult-publishing-commercial-s10-2d-community-instant.json
 !manifests/adult-publishing-commercial-s10-2d-r7-aggregate-recovery.json
 !manifests/adult-publishing-commercial-s10-2d-r7-1-aggregate-compatibility.json
+!manifests/adult-publishing-commercial-s10-2f-conversion-recovery.json
 !config/
 !config/adult-publishing/
 !config/adult-publishing/staging-s0-commercial/
@@ -189,6 +191,7 @@
 !tests/test_adult_commercial_s10_2d_community_instant.py
 !tests/test_adult_commercial_s10_2d_r7_aggregate_recovery.py
 !tests/test_adult_commercial_s10_2d_r7_1_aggregate_compatibility.py
+!tests/test_adult_commercial_s10_2f_conversion_recovery.py
 !analysis/
 !analysis/M3_5_2_SERVER_INVENTORY_2026-08-27.diagnose
 !analysis/M3_5_2_MANIFEST_SELF_REFERENCE_2026-08-27.diagnose
