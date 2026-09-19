@@ -225,6 +225,39 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
         ):
             self.assertIn(token, self.controller)
 
+    def test_preflight_requires_existing_community_latency_slo(self) -> None:
+        preflight = self.controller[
+            self.controller.index("require_source_state() {"):
+            self.controller.index("require_s11_schema_absent_or_disabled() {")
+        ]
+        latency = self.controller[
+            self.controller.index("require_community_latency_slo() {"):
+            self.controller.index("require_services_and_timers() {")
+        ]
+        self.assertIn("require_community_latency_slo", preflight)
+        self.assertIn("S11_COMMUNITY_LATENCY_SLO_RED", preflight)
+        self.assertIn("commercial_s10_2d_latency_samples", latency)
+        self.assertIn("samples<5", latency)
+        self.assertIn("p50<1000", latency)
+        self.assertIn("p95<2000", latency)
+        self.assertIn("p99<5000", latency)
+        self.assertNotIn("DELETE", latency)
+        self.assertNotIn("UPDATE", latency)
+
+    def test_runtime_gate_accepts_only_green_or_healthy_inflight_poll(self) -> None:
+        runtime = self.controller[
+            self.controller.index("wait_runtime() {"):
+            self.controller.index("run_runtime_health() {")
+        ]
+        self.assertIn("lease_expires_at>CURRENT_TIMESTAMP", runtime)
+        self.assertIn("last_successful_poll_at>=CURRENT_TIMESTAMP-INTERVAL '90 seconds'", runtime)
+        self.assertIn(
+            "last_event_path_code IN ('BOT_EVENT_PATH_GREEN','BOT_UPDATE_NOT_RECEIVED')",
+            runtime,
+        )
+        self.assertNotIn("BOT_POLLER_NOT_RUNNING", runtime)
+        self.assertNotIn("BOT_OFFSET_STALLED", runtime)
+
     def test_future_timer_gate_accepts_realtime_or_monotonic_schedule(self) -> None:
         timer_gate = self.controller[
             self.controller.index("require_services_and_timers() {"):

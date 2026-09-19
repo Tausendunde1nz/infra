@@ -1,0 +1,46 @@
+COMMERCIAL S11 RUNTIME HEALTH AND IN-FLIGHT POLLER DIAGNOSIS
+
+Status: ROOT_CAUSE_CONFIRMED; S11_DISABLED; SOURCE_RUNTIME_RESTORED
+
+The r5 deployment installed the exact frozen Application and Control releases,
+applied the additive S11 migration with the established PostgreSQL administrator
+ingress and kept the feature disabled. The first post-restart runtime health
+gate then failed closed. Automatic rollback restored the source Application,
+Control, package, units and configuration. S11 tables remain preserved with the
+feature disabled and with zero sessions and zero product events.
+
+The immediate health failure is not a poller, lease, provider, moderation or
+release-binding failure. Privacy-safe aggregate inspection proves one live,
+release-bound poller, a future lease, a recent successful poll, a green provider,
+zero pending moderation and zero stuck restrictions. The failing condition is
+the pre-existing Community 24-hour latency SLO: six DIRECT samples include an
+update backlog processed after earlier runtime interruption, including values at
+the existing 300-second cap. No sample, KPI or acquisition baseline is changed.
+
+The rollback readiness check exposed a separate controller defect. The poller
+sets `BOT_UPDATE_NOT_RECEIVED` while a bounded Telegram long-poll is in flight,
+then writes `BOT_EVENT_PATH_GREEN` after the successful response. Requiring the
+latter exact value at every instant can reject a healthy live poller. The r6
+gate accepts the in-flight code only when all independent fences are also true:
+the exact release, one non-null owner, a future lease and a successful poll in
+the preceding 90 seconds. All error codes remain rejected.
+
+Bounded correction:
+- add an exact read-only Community latency SLO gate to source preflight so the
+  current red condition stops before backup and deployment mutation;
+- align the controller readiness query with the Application poller health
+  contract for the strictly fenced in-flight long-poll state;
+- retain all latency evidence and the real-acquisition baseline unchanged;
+- do not use a manual Telegram message to manufacture health;
+- do not change the 1s/2s/5s SLO thresholds or the five-sample minimum;
+- keep S11 OFF until the unchanged rolling window becomes GREEN naturally.
+
+Retry contract:
+- merge and freeze the r6 controller through the normal CI and same-SHA review;
+- run r6 preflight read-only; RED must be `S11_COMMUNITY_LATENCY_SLO_RED` while
+  the window is degraded;
+- make no new deployment attempt until both S9 and S10 health are GREEN;
+- then use a fresh timestamped predeploy backup and the exact r6 freeze.
+
+Adult media, real AVS, payment, external publishing, Community user-content
+publishing, Controlled Beta and production remain closed.
