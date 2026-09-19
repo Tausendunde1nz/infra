@@ -96,6 +96,8 @@ self-neutralising content fingerprint: only the fingerprint constant itself is
 normalised before hashing, so a merge commit may be accepted without allowing
 any reviewed file content to change. Branch membership is ancestry-based and
 therefore remains valid if `control-main` advances after this frozen release.
+The target controller must also carry the exact final fingerprint constant;
+placeholder or stale constants fail closed before mutation.
 
 ## Measurement contract
 

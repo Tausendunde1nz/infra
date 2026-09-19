@@ -115,6 +115,11 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('switch --detach "$target_control"', controller)
         self.assertIn('control_release_fingerprint "$target_control"', controller)
         self.assertIn('S10_2F_FINAL_CONTROL_FINGERPRINT_RED', controller)
+        self.assertIn('S10_2F_FINAL_CONTROL_CONSTANT_RED', controller)
+        self.assertIn(
+            '"readonly FINAL_CONTROL_RELEASE_FINGERPRINT=\\\"${FINAL_CONTROL_RELEASE_FINGERPRINT}\\\""',
+            controller,
+        )
         verify_target = controller.index("verify_target()")
         deploy = controller.index("deploy()")
         self.assertIn(
