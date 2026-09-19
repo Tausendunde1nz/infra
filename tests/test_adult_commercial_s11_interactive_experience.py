@@ -193,12 +193,28 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
             "nginx.service", "tu1nz-adult-public-s9-audience.timer",
             "tu1nz-adult-public-s9-nurture.timer", "tu1nz-adult-public-s9-report.timer",
             "tu1nz-adult-public-s9-health.timer", "tu1nz-adult-public-s10-health.timer",
-            "NextElapseUSecRealtime", "commercial_s10_2d_bot_polling_state",
+            "NextElapseUSecRealtime", "NextElapseUSecMonotonic",
+            "commercial_s10_2d_bot_polling_state",
             "lease_expires_at>CURRENT_TIMESTAMP", "BOT_EVENT_PATH_GREEN",
             "tu1nz-adult-public-s10-2d-rotate.service", "https://wantmeseen.com/health",
             "https://wantmeseen.de/", "/privacy", "/terms", "/imprint",
         ):
             self.assertIn(token, self.controller)
+
+    def test_future_timer_gate_accepts_realtime_or_monotonic_schedule(self) -> None:
+        timer_gate = self.controller[
+            self.controller.index("require_services_and_timers() {"):
+            self.controller.index("require_public_health() {")
+        ]
+        self.assertIn("next_realtime", timer_gate)
+        self.assertIn("next_monotonic", timer_gate)
+        self.assertIn("NextElapseUSecRealtime", timer_gate)
+        self.assertIn("NextElapseUSecMonotonic", timer_gate)
+        self.assertIn("S11_TIMER_FUTURE_RUN_MISSING", timer_gate)
+        self.assertRegex(
+            timer_gate,
+            r'(?s)if \{ \[ -z "\$next_realtime" \].*&& \{ \[ -z "\$next_monotonic" \]',
+        )
 
     def test_acquisition_baseline_is_immutable(self) -> None:
         expected = "2026-09-18T00:41:06.710027Z"

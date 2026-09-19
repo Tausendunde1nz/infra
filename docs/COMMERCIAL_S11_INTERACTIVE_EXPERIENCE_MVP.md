@@ -105,7 +105,9 @@ the prior bot code/unit/config so the S10.2F Early Access path remains usable.
 
 Only Application `65707b079183151cfe7ea508f9270c31389f2334` with tree
 `79d60a5b8d791f65c0de06d0ae7861fb0d032ed4` and a Control commit bound by the
-annotated tag `s11-interactive-experience-mvp-freeze-r1` may deploy. Both must
+annotated tag `s11-interactive-experience-mvp-freeze-r2` may deploy. The r2
+freeze supersedes r1 only to accept a future systemd schedule reported through
+either the realtime or monotonic next-elapse property. Both release commits must
 be on their canonical remote branches, clean, and backed by green post-merge
 CI before runtime work.
 
@@ -118,7 +120,8 @@ on an unsuccessful deployment.
 
 Runtime validation covers public website, health, privacy, terms, imprint and
 the `.de` redirect; S7, S8 Landing, S8 Telegram, S10 WMS and nginx with zero
-restarts; active enabled S9/S10 timers with future runs; the single S8 poller,
+restarts; active enabled S9/S10 timers with future realtime or monotonic runs;
+the single S8 poller,
 valid lease, successful polls and green event path; publication rotation;
 growth health; S11 catalog/state health; all product boundaries; exact
 acquisition state and baseline. Human Telegram acceptance is allowed to remain
