@@ -15,9 +15,10 @@ readonly SOURCE_CONTROL_COMMIT="66e5b18c9d3bfc1082b1e2d0188cf14418f586a3"
 readonly SOURCE_CONTROL_TREE="04eec54c23ba15e5787712bac434ae2f5bf4ae36"
 readonly TARGET_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"
 readonly TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
-readonly TARGET_CONTROL_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"
-readonly TARGET_CONTROL_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"
-readonly TARGET_CONTROL_TAG="s10-2f-control-artifacts-r1"
+readonly TARGET_CONTROL_ARTIFACT_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"
+readonly TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"
+readonly TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"
+readonly FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r1"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -285,29 +286,48 @@ PY
 }
 
 require_target_release() {
-  local target_application="$1" target_control="$2"
+  local target_application="$1" target_control="$2" target_control_tree
   [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
     || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
-  [ "$target_control" = "$TARGET_CONTROL_COMMIT" ] \
-    || fail "S10_2F_CONTROL_RELEASE_DRIFT"
   git_chatops "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" \
     || fail "S10_2F_APPLICATION_TARGET_MISSING"
   [ "$(git_chatops "$APPLICATION_ROOT" rev-parse "${target_application}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
     || fail "S10_2F_APPLICATION_TREE_DRIFT"
+  git_chatops "$CONTROL_ROOT" cat-file -e "${TARGET_CONTROL_ARTIFACT_COMMIT}^{commit}" \
+    || fail "S10_2F_CONTROL_ARTIFACT_MISSING"
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "${TARGET_CONTROL_ARTIFACT_COMMIT}^{tree}")" = "$TARGET_CONTROL_ARTIFACT_TREE" ] \
+    || fail "S10_2F_CONTROL_ARTIFACT_TREE_DRIFT"
+  [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${TARGET_CONTROL_ARTIFACT_TAG}")" = tag ] \
+    || fail "S10_2F_CONTROL_RELEASE_TAG_RED"
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${TARGET_CONTROL_ARTIFACT_TAG}^{commit}")" = "$TARGET_CONTROL_ARTIFACT_COMMIT" ] \
+    || fail "S10_2F_CONTROL_ARTIFACT_RELEASE_DRIFT"
+  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_ARTIFACT_TAG}" \
+    | grep -Fqx "control_commit=${TARGET_CONTROL_ARTIFACT_COMMIT}" \
+    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
+  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_ARTIFACT_TAG}" \
+    | grep -Fqx "control_tree=${TARGET_CONTROL_ARTIFACT_TREE}" \
+    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
   git_chatops "$CONTROL_ROOT" cat-file -e "${target_control}^{commit}" \
     || fail "S10_2F_CONTROL_TARGET_MISSING"
-  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")" = "$TARGET_CONTROL_TREE" ] \
-    || fail "S10_2F_CONTROL_TREE_DRIFT"
-  [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${TARGET_CONTROL_TAG}")" = tag ] \
-    || fail "S10_2F_CONTROL_RELEASE_TAG_RED"
-  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${TARGET_CONTROL_TAG}^{commit}")" = "$TARGET_CONTROL_COMMIT" ] \
-    || fail "S10_2F_CONTROL_RELEASE_DRIFT"
-  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
-    | grep -Fqx "control_commit=${TARGET_CONTROL_COMMIT}" \
-    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
-  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${TARGET_CONTROL_TAG}" \
-    | grep -Fqx "control_tree=${TARGET_CONTROL_TREE}" \
-    || fail "S10_2F_CONTROL_RELEASE_PROVENANCE_RED"
+  git_chatops "$CONTROL_ROOT" merge-base --is-ancestor "$TARGET_CONTROL_ARTIFACT_COMMIT" "$target_control" \
+    || fail "S10_2F_CONTROL_ARTIFACT_NOT_IN_RELEASE"
+  [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${FINAL_CONTROL_TAG}")" = tag ] \
+    || fail "S10_2F_FINAL_CONTROL_TAG_RED"
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${FINAL_CONTROL_TAG}^{commit}")" = "$target_control" ] \
+    || fail "S10_2F_FINAL_CONTROL_RELEASE_DRIFT"
+  target_control_tree="$(git_chatops "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")"
+  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${FINAL_CONTROL_TAG}" \
+    | grep -Fqx "control_commit=${target_control}" \
+    || fail "S10_2F_FINAL_CONTROL_PROVENANCE_RED"
+  git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${FINAL_CONTROL_TAG}" \
+    | grep -Fqx "control_tree=${target_control_tree}" \
+    || fail "S10_2F_FINAL_CONTROL_PROVENANCE_RED"
+}
+
+install_control_artifact() {
+  local path="$1" mode="$2" destination="$3"
+  git_chatops "$CONTROL_ROOT" show "${TARGET_CONTROL_ARTIFACT_COMMIT}:${path}" \
+    | install -o root -g root -m "$mode" /dev/stdin "$destination"
 }
 
 verify_target() {
@@ -335,12 +355,13 @@ deploy() {
   preflight "$source_application" "$source_control" >/dev/null
   git_chatops "$APPLICATION_ROOT" fetch origin main >/dev/null
   git_chatops "$CONTROL_ROOT" fetch --no-tags origin control-main \
-    "refs/tags/${TARGET_CONTROL_TAG}:refs/tags/${TARGET_CONTROL_TAG}" >/dev/null
+    "refs/tags/${TARGET_CONTROL_ARTIFACT_TAG}:refs/tags/${TARGET_CONTROL_ARTIFACT_TAG}" \
+    "refs/tags/${FINAL_CONTROL_TAG}:refs/tags/${FINAL_CONTROL_TAG}" >/dev/null
   require_target_release "$target_application" "$target_control"
   git_chatops "$APPLICATION_ROOT" merge-base --is-ancestor "$target_application" origin/main \
     || fail "S10_2F_APPLICATION_RELEASE_NOT_ON_MAIN"
-  git_chatops "$CONTROL_ROOT" merge-base --is-ancestor "$target_control" origin/control-main \
-    || fail "S10_2F_CONTROL_RELEASE_NOT_ON_MAIN"
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse origin/control-main)" = "$target_control" ] \
+    || fail "S10_2F_FINAL_CONTROL_NOT_ON_MAIN"
   backup "$backup_path" "$source_application" "$source_control" >/dev/null
   local mutated=0
   rollback_on_error() {
@@ -360,9 +381,9 @@ deploy() {
   git_chatops "$APPLICATION_ROOT" switch --detach "$target_application" >/dev/null
   git_chatops "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
   install -o root -g root -m 0644 "$APPLICATION_ROOT/config/commercial-s10-1-wms-copy.v1.json" /etc/tu1nz/adult-commercial-s10-wms-copy.json
-  install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/tu1nz-adult-public-s10-wms.service" /etc/systemd/system/tu1nz-adult-public-s10-wms.service
-  install -o root -g root -m 0644 "$CONTROL_ROOT/systemd/tu1nz-adult-public-s10-health.service" /etc/systemd/system/tu1nz-adult-public-s10-health.service
-  install -o root -g root -m 0755 "$CONTROL_ROOT/scripts/tu1nz_adult_public_s10_1_health.py" /usr/local/bin/tu1nz_adult_public_s10_1_health.py
+  install_control_artifact systemd/tu1nz-adult-public-s10-wms.service 0644 /etc/systemd/system/tu1nz-adult-public-s10-wms.service
+  install_control_artifact systemd/tu1nz-adult-public-s10-health.service 0644 /etc/systemd/system/tu1nz-adult-public-s10-health.service
+  install_control_artifact scripts/tu1nz_adult_public_s10_1_health.py 0755 /usr/local/bin/tu1nz_adult_public_s10_1_health.py
   install_quality_state
   systemctl daemon-reload
   systemctl restart "$WMS_SERVICE"

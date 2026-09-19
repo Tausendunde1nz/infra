@@ -87,8 +87,10 @@ The privileged controller runs every repository Git operation as `chatops`.
 Its installable Control artifact is independently pinned to reviewed commit
 `1d5e0d84451d35cb4148d0b52209002048db7e88`, tree
 `3e6ab73b929cd19a796cc8528cce06809e801d4c`, and annotated artifact tag
-`s10-2f-control-artifacts-r1`. The post-merge evidence freeze remains the
-separate `s10-2f-conversion-recovery-freeze-r1` tag.
+`s10-2f-control-artifacts-r1`. Runtime files are read from that pinned object,
+while the canonical Control checkout stays on the final merged commit so the
+corrected verify/rollback controller remains available. The post-merge
+evidence freeze is the separate `s10-2f-conversion-recovery-freeze-r1` tag.
 
 ## Measurement contract
 

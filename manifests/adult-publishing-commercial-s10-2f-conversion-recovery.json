@@ -21,7 +21,9 @@
     "artifact_tree": "3e6ab73b929cd19a796cc8528cce06809e801d4c",
     "artifact_tag": "s10-2f-control-artifacts-r1",
     "final_freeze_tag": "s10-2f-conversion-recovery-freeze-r1",
-    "binding": "HARD_CODED_REVIEWED_COMMIT_TREE_AND_ANNOTATED_ARTIFACT_TAG",
+    "binding": "HARD_CODED_REVIEWED_ARTIFACT_PLUS_SEPARATE_FINAL_CONTROL_FREEZE",
+    "runtime_files_read_from_artifact_commit": true,
+    "canonical_checkout_retains_corrected_controller": true,
     "post_merge_commit_and_tree_recorded_in_final_freeze": true
   },
   "root_cause": {
