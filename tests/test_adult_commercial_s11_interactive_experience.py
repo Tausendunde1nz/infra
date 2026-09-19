@@ -171,6 +171,22 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
         self.assertIn("require_s11_schema_absent_or_disabled", migration)
         self.assertNotIn("DROP TABLE", self.controller)
 
+    def test_migration_and_feature_toggle_use_existing_admin_ingress(self) -> None:
+        migration = self.controller[
+            self.controller.index("apply_migration() {"):self.controller.index("set_feature() {")
+        ]
+        feature = self.controller[
+            self.controller.index("set_feature() {"):self.controller.index("require_feature_state() {")
+        ]
+        self.assertIn('readonly DATABASE="tu1nz_adult_commercial_s3"', self.controller)
+        for body in (migration, feature):
+            self.assertIn("runuser -u postgres -- psql", body)
+            self.assertIn('--dbname="$DATABASE"', body)
+            self.assertNotIn("psycopg.connect", body)
+        self.assertIn('<"$APPLICATION_ROOT/migrations/0031_commercial_s11_interactive_experience.sql"', migration)
+        self.assertIn("S11_FEATURE_VALUE_INVALID", feature)
+        self.assertIn("S11_FEATURE_REASON_INVALID", feature)
+
     def test_freeze_is_exact_but_canonical_membership_allows_branch_advance(self) -> None:
         remote = self.controller[
             self.controller.index("require_remote_release() {"):
