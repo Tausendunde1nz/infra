@@ -11,7 +11,7 @@ readonly SOURCE_CONTROL_COMMIT="5f0b5878888a5d48317e28ce75a6f0f552d6a419"
 readonly SOURCE_CONTROL_TREE="6aebbeed942cd235a292dc8fcafcc29b6e2dab80"
 readonly TARGET_APPLICATION_COMMIT="65707b079183151cfe7ea508f9270c31389f2334"
 readonly TARGET_APPLICATION_TREE="79d60a5b8d791f65c0de06d0ae7861fb0d032ed4"
-readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r2"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly EXPERIENCE_RELEASE_ID="s11-interactive-experience-mvp-r1"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -145,7 +145,7 @@ require_acquisition_state() {
 }
 
 require_services_and_timers() {
-  local unit next
+  local unit next_realtime next_monotonic
   for unit in "${SERVICES[@]}"; do
     [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] \
       || fail "S11_SERVICE_RED"
@@ -157,8 +157,12 @@ require_services_and_timers() {
       || fail "S11_TIMER_RED"
     [ "$(systemctl is-enabled "$unit")" = enabled ] \
       || fail "S11_TIMER_DISABLED"
-    next="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
-    [ -n "$next" ] && [ "$next" != n/a ] || fail "S11_TIMER_FUTURE_RUN_MISSING"
+    next_realtime="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
+    next_monotonic="$(systemctl show "$unit" -p NextElapseUSecMonotonic --value)"
+    if { [ -z "$next_realtime" ] || [ "$next_realtime" = n/a ]; } \
+      && { [ -z "$next_monotonic" ] || [ "$next_monotonic" = n/a ] || [ "$next_monotonic" = 0 ]; }; then
+      fail "S11_TIMER_FUTURE_RUN_MISSING"
+    fi
   done
 }
 

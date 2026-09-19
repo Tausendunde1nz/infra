@@ -1,0 +1,33 @@
+COMMERCIAL S11 TIMER FUTURE-GATE DIAGNOSIS
+
+Status: ROOT_CAUSE_CONFIRMED; NO_RUNTIME_MUTATION
+Observed safe code: S11_TIMER_FUTURE_RUN_MISSING
+
+The first S11 deployment attempt stopped during source preflight, before the
+backup boundary and before any runtime mutation. Four calendar-based S9 timers
+reported a future NextElapseUSecRealtime. The active/enabled S10 health timer
+uses OnBootSec plus OnUnitActiveSec, was in waiting state, and had a future run
+in systemctl list-timers and NextElapseUSecMonotonic, while its realtime field
+was empty. The controller incorrectly required the realtime field alone.
+
+Risk assessment:
+- Changing the existing timer would introduce unnecessary runtime drift.
+- Accepting any active/enabled timer without a future property would weaken the
+  liveness gate.
+- The bounded correction is to require at least one non-empty, non-n/a future
+  property: NextElapseUSecRealtime or NextElapseUSecMonotonic.
+
+Backup and rollback:
+- No backup was created because no mutation was reached; source state remains
+  unchanged.
+- The existing backup-first boundary and non-destructive S11-to-S10.2F rollback
+  remain unchanged.
+- The immutable r1 tag is not moved. A reviewed canonical Control successor is
+  frozen as r2 before any retry.
+
+Validation contract:
+- Shell syntax and the complete Control suite must pass.
+- PR CI and a same-SHA Codex review must be green.
+- The r2 annotated tag must bind the exact canonical Application and Control
+  commits and trees.
+- Runtime retry must still pass the complete preflight before backup or mutation.
