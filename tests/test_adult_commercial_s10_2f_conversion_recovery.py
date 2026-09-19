@@ -94,6 +94,8 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('TARGET_CONTROL_TAG="s10-2f-control-artifacts-r1"', controller)
         self.assertIn('runuser -u chatops -- git -C "$repository"', controller)
         self.assertEqual(controller.count("git -C"), 1)
+        self.assertNotIn(' DATABASE_DSN="$DATABASE_DSN"', controller)
+        self.assertNotIn(' ACQUISITION_BASELINE="$ACQUISITION_BASELINE"', controller)
         self.assertIn('merge-base --is-ancestor "$target_application" origin/main', controller)
         self.assertNotIn('rev-parse origin/main)" = "$target_application"', controller)
         self.assertNotIn('rev-parse origin/control-main)" = "$target_control"', controller)

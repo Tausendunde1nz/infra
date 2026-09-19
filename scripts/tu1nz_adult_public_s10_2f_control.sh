@@ -92,13 +92,13 @@ require_service_health() {
 }
 
 require_acquisition_state() {
-  APPLICATION_ROOT="$APPLICATION_ROOT" DATABASE_DSN="$DATABASE_DSN" ACQUISITION_BASELINE="$ACQUISITION_BASELINE" \
+  S10_2F_DATABASE_DSN="$DATABASE_DSN" S10_2F_ACQUISITION_BASELINE="$ACQUISITION_BASELINE" \
     "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
 import os
 from pathlib import Path
 import psycopg
 
-dsn = Path(os.environ["DATABASE_DSN"]).read_text(encoding="utf-8").strip()
+dsn = Path(os.environ["S10_2F_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
 with psycopg.connect(dsn) as connection:
     row = connection.execute(
         "SELECT wms_real_acquisition_ready, real_acquisition_baseline_start "
@@ -107,7 +107,7 @@ with psycopg.connect(dsn) as connection:
 if row is None or row[0] is not True or row[1] is None:
     raise SystemExit(2)
 value = row[1].isoformat().replace("+00:00", "Z")
-if value != os.environ["ACQUISITION_BASELINE"]:
+if value != os.environ["S10_2F_ACQUISITION_BASELINE"]:
     raise SystemExit(2)
 PY
 }
@@ -134,14 +134,14 @@ preflight() {
 
 database_evidence() {
   local destination="$1"
-  DESTINATION="$destination" DATABASE_DSN="$DATABASE_DSN" \
+  S10_2F_DESTINATION="$destination" S10_2F_DATABASE_DSN="$DATABASE_DSN" \
     "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
 import json
 import os
 from pathlib import Path
 import psycopg
 
-dsn = Path(os.environ["DATABASE_DSN"]).read_text(encoding="utf-8").strip()
+dsn = Path(os.environ["S10_2F_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
 evidence = {}
 with psycopg.connect(dsn) as connection:
     evidence["acquisition"] = connection.execute(
@@ -162,7 +162,7 @@ with psycopg.connect(dsn) as connection:
         "AND (table_name LIKE 'commercial_s8_%' OR table_name LIKE 'commercial_s10_2d_%') "
         "ORDER BY table_name, ordinal_position"
     ).fetchall()
-Path(os.environ["DESTINATION"]).write_text(
+Path(os.environ["S10_2F_DESTINATION"]).write_text(
     json.dumps(evidence, default=str, sort_keys=True, separators=(",", ":")) + "\n",
     encoding="ascii",
 )
@@ -268,14 +268,14 @@ install_changeset_state() {
   local temporary started_at
   started_at="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
   temporary="$(mktemp "${STATE_ROOT}/.s10-2f-changeset.XXXXXX")"
-  STARTED_AT="$started_at" ACQUISITION_BASELINE="$ACQUISITION_BASELINE" \
+  S10_2F_STARTED_AT="$started_at" S10_2F_ACQUISITION_BASELINE="$ACQUISITION_BASELINE" \
     /usr/bin/python3 - <<'PY' > "$temporary"
 import json
 import os
 print(json.dumps({
     "version": "S10_2F",
-    "started_at": os.environ["STARTED_AT"],
-    "acquisition_baseline_start": os.environ["ACQUISITION_BASELINE"],
+    "started_at": os.environ["S10_2F_STARTED_AT"],
+    "acquisition_baseline_start": os.environ["S10_2F_ACQUISITION_BASELINE"],
     "measurement_semantics": "HUMAN_LIKE_BROWSER_NAVIGATION_V1",
 }, sort_keys=True, separators=(",", ":")))
 PY
