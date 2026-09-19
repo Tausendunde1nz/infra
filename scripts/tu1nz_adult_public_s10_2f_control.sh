@@ -9,6 +9,10 @@ readonly QUALITY_STATE="${STATE_ROOT}/wms-traffic-quality.json"
 readonly CHANGESET_STATE="${STATE_ROOT}/s10-2f-changeset.json"
 readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
+readonly SOURCE_APPLICATION_COMMIT="312db84d5db6d76c9d6bb448459c9404b1dfcbe4"
+readonly SOURCE_APPLICATION_TREE="ac4f8bca1fd796626742a8ef6c6afcdda482fc68"
+readonly SOURCE_CONTROL_COMMIT="66e5b18c9d3bfc1082b1e2d0188cf14418f586a3"
+readonly SOURCE_CONTROL_TREE="04eec54c23ba15e5787712bac434ae2f5bf4ae36"
 readonly TARGET_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"
 readonly TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
@@ -101,8 +105,14 @@ PY
 
 preflight() {
   local source_application="$1" source_control="$2"
+  [ "$source_application" = "$SOURCE_APPLICATION_COMMIT" ] || fail "S10_2F_SOURCE_APPLICATION_DRIFT"
+  [ "$source_control" = "$SOURCE_CONTROL_COMMIT" ] || fail "S10_2F_SOURCE_CONTROL_DRIFT"
   require_clean_commit "$APPLICATION_ROOT" "$source_application" APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$source_control" CONTROL
+  [ "$(git -C "$APPLICATION_ROOT" rev-parse "${source_application}^{tree}")" = "$SOURCE_APPLICATION_TREE" ] \
+    || fail "S10_2F_SOURCE_APPLICATION_TREE_DRIFT"
+  [ "$(git -C "$CONTROL_ROOT" rev-parse "${source_control}^{tree}")" = "$SOURCE_CONTROL_TREE" ] \
+    || fail "S10_2F_SOURCE_CONTROL_TREE_DRIFT"
   require_service_health
   require_acquisition_state || fail "S10_2F_ACQUISITION_STATE_RED"
   [ -f "$AGGREGATE_STATE" ] && [ ! -L "$AGGREGATE_STATE" ] || fail "S10_2F_AGGREGATE_RED"
@@ -190,6 +200,9 @@ backup() {
 restore_source() {
   local backup_path="$1" source_application="$2" source_control="$3"
   (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null) || return 1
+  grep -Fqx "application_commit=${source_application}" "$backup_path/provenance.txt" || return 1
+  grep -Fqx "control_commit=${source_control}" "$backup_path/provenance.txt" || return 1
+  grep -Fqx "acquisition_baseline=${ACQUISITION_BASELINE}" "$backup_path/provenance.txt" || return 1
   git -C "$APPLICATION_ROOT" switch --detach "$source_application" >/dev/null || return 1
   git -C "$CONTROL_ROOT" switch --detach "$source_control" >/dev/null || return 1
   install -o root -g root -m 0644 "$backup_path/wms.service" /etc/systemd/system/tu1nz-adult-public-s10-wms.service || return 1
@@ -285,8 +298,8 @@ deploy() {
   git -C "$CONTROL_ROOT" fetch origin control-main >/dev/null
   [ "$target_application" = "$TARGET_APPLICATION_COMMIT" ] \
     || fail "S10_2F_APPLICATION_RELEASE_DRIFT"
-  [ "$(git -C "$APPLICATION_ROOT" rev-parse origin/main)" = "$target_application" ] \
-    || fail "S10_2F_APPLICATION_REMOTE_DRIFT"
+  git -C "$APPLICATION_ROOT" merge-base --is-ancestor "$target_application" origin/main \
+    || fail "S10_2F_APPLICATION_RELEASE_NOT_ON_MAIN"
   [ "$(git -C "$CONTROL_ROOT" rev-parse origin/control-main)" = "$target_control" ] \
     || fail "S10_2F_CONTROL_REMOTE_DRIFT"
   git -C "$APPLICATION_ROOT" cat-file -e "${target_application}^{commit}" || fail "S10_2F_APPLICATION_TARGET_MISSING"
