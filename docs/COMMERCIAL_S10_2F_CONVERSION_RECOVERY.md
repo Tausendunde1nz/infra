@@ -90,8 +90,8 @@ Its installable Control artifact is independently pinned to reviewed commit
 `s10-2f-control-artifacts-r1`. Runtime files are read from that pinned object,
 while the canonical Control checkout stays on the final merged commit so the
 corrected verify/rollback controller remains available. The post-merge
-evidence freeze is the separate `s10-2f-conversion-recovery-freeze-r2` tag;
-`r1` remains retained as immutable evidence of the pre-deployment revision.
+evidence freeze is the separate `s10-2f-conversion-recovery-freeze-r3` tag;
+`r1` and `r2` remain retained as immutable pre-final evidence.
 The complete final Control tree is additionally bound by a hard-coded,
 self-neutralising content fingerprint: only the fingerprint constant itself is
 normalised before hashing, so a merge commit may be accepted without allowing
@@ -133,6 +133,13 @@ restores both repository commits and all
 affected installed files, removes newly introduced S10.2F state, reloads
 systemd and restarts only the WMS service. The historic acquisition aggregate
 is evidence and is not truncated during rollback.
+
+The containing evidence directory remains `root:root` without group traversal.
+Only the two immutable Git bundles retain `root:chatops 0640`, permitting a
+root-opened descriptor to be reverified as `chatops`. The narrowly scoped
+`repair-backup-modes` action changes only those two owner/mode tuples after
+checksum and provenance validation and then repeats both bundle and checksum
+verification.
 
 ## Product boundaries
 

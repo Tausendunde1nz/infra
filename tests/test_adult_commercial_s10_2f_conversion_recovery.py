@@ -99,7 +99,7 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('TARGET_CONTROL_ARTIFACT_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"', controller)
         self.assertIn('TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"', controller)
         self.assertIn('TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"', controller)
-        self.assertIn('FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r2"', controller)
+        self.assertIn('FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r3"', controller)
         self.assertRegex(
             controller,
             r'FINAL_CONTROL_RELEASE_FINGERPRINT="(?:[0-9a-f]{64}|PENDING)"',
@@ -123,6 +123,13 @@ class CommercialS102FConversionRecoveryTests(unittest.TestCase):
         self.assertIn('control_release_fingerprint "$target_control"', controller)
         self.assertIn('S10_2F_FINAL_CONTROL_FINGERPRINT_RED', controller)
         self.assertIn('S10_2F_FINAL_CONTROL_CONSTANT_RED', controller)
+        self.assertIn('repair_backup_bundle_modes()', controller)
+        self.assertIn('S10_2F_BACKUP_MODE_REPAIR_GREEN', controller)
+        self.assertIn(
+            'chown root:chatops "$backup_path/application.bundle" "$backup_path/control.bundle"',
+            controller,
+        )
+        self.assertGreaterEqual(controller.count('verify_backup_bundles "$backup_path"'), 3)
         self.assertIn(
             '"readonly FINAL_CONTROL_RELEASE_FINGERPRINT=\\\"${FINAL_CONTROL_RELEASE_FINGERPRINT}\\\""',
             controller,

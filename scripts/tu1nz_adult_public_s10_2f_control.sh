@@ -18,8 +18,8 @@ readonly TARGET_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
 readonly TARGET_CONTROL_ARTIFACT_COMMIT="1d5e0d84451d35cb4148d0b52209002048db7e88"
 readonly TARGET_CONTROL_ARTIFACT_TREE="3e6ab73b929cd19a796cc8528cce06809e801d4c"
 readonly TARGET_CONTROL_ARTIFACT_TAG="s10-2f-control-artifacts-r1"
-readonly FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r2"
-readonly FINAL_CONTROL_RELEASE_FINGERPRINT="d7988b72da5e0e96c3fad460b165be8d990af5d51931372603db9feec319b709"
+readonly FINAL_CONTROL_TAG="s10-2f-conversion-recovery-freeze-r3"
+readonly FINAL_CONTROL_RELEASE_FINGERPRINT="64ec8f1fb50520385bceceb81da4ce0d307770f4fb41c9058d31cf6f641cff0f"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
 readonly HEALTH_SERVICE="tu1nz-adult-public-s10-health.service"
 readonly SERVICES=(
@@ -210,6 +210,14 @@ Path(os.environ["S10_2F_DESTINATION"]).write_text(
 PY
 }
 
+verify_backup_bundles() {
+  local backup_path="$1"
+  git_chatops "$APPLICATION_ROOT" bundle verify /dev/stdin \
+    < "$backup_path/application.bundle" >/dev/null
+  git_chatops "$CONTROL_ROOT" bundle verify /dev/stdin \
+    < "$backup_path/control.bundle" >/dev/null
+}
+
 backup() {
   local backup_path="$1" source_application="$2" source_control="$3"
   require_backup_path "$backup_path"
@@ -219,10 +227,7 @@ backup() {
   git_chatops "$CONTROL_ROOT" bundle create - HEAD > "$backup_path/control.bundle"
   chown root:chatops "$backup_path/application.bundle" "$backup_path/control.bundle"
   chmod 0640 "$backup_path/application.bundle" "$backup_path/control.bundle"
-  git_chatops "$APPLICATION_ROOT" bundle verify /dev/stdin \
-    < "$backup_path/application.bundle" >/dev/null
-  git_chatops "$CONTROL_ROOT" bundle verify /dev/stdin \
-    < "$backup_path/control.bundle" >/dev/null
+  verify_backup_bundles "$backup_path"
   install -m 0600 /etc/systemd/system/tu1nz-adult-public-s10-wms.service "$backup_path/wms.service"
   install -m 0600 /etc/systemd/system/tu1nz-adult-public-s10-health.service "$backup_path/health.service"
   install -m 0600 /usr/local/bin/tu1nz_adult_public_s10_1_health.py "$backup_path/health.py"
@@ -249,7 +254,38 @@ backup() {
   )
   chown -R root:root "$backup_path"
   chmod -R go-rwx "$backup_path"
+  chown root:chatops "$backup_path/application.bundle" "$backup_path/control.bundle"
+  chmod 0640 "$backup_path/application.bundle" "$backup_path/control.bundle"
+  verify_backup_bundles "$backup_path"
   printf '{"ok":true,"safe_code":"S10_2F_BACKUP_GREEN","path":"%s"}\n' "$backup_path"
+}
+
+repair_backup_bundle_modes() {
+  local backup_path="$1" source_application="$2" source_control="$3"
+  require_backup_path "$backup_path"
+  [ "$source_application" = "$SOURCE_APPLICATION_COMMIT" ] \
+    || fail "S10_2F_BACKUP_PROVENANCE_RED"
+  [ "$source_control" = "$SOURCE_CONTROL_COMMIT" ] \
+    || fail "S10_2F_BACKUP_PROVENANCE_RED"
+  [ -d "$backup_path" ] && [ ! -L "$backup_path" ] \
+    || fail "S10_2F_BACKUP_PATH_RED"
+  [ "$(stat -c '%U:%G' "$backup_path")" = root:root ] \
+    || fail "S10_2F_BACKUP_OWNER_RED"
+  (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null) \
+    || fail "S10_2F_BACKUP_CHECKSUM_RED"
+  grep -Fqx "application_commit=${source_application}" "$backup_path/provenance.txt" \
+    || fail "S10_2F_BACKUP_PROVENANCE_RED"
+  grep -Fqx "control_commit=${source_control}" "$backup_path/provenance.txt" \
+    || fail "S10_2F_BACKUP_PROVENANCE_RED"
+  grep -Fqx "acquisition_baseline=${ACQUISITION_BASELINE}" "$backup_path/provenance.txt" \
+    || fail "S10_2F_BACKUP_PROVENANCE_RED"
+  chown root:chatops "$backup_path/application.bundle" "$backup_path/control.bundle"
+  chmod 0640 "$backup_path/application.bundle" "$backup_path/control.bundle"
+  verify_backup_bundles "$backup_path" \
+    || fail "S10_2F_BACKUP_BUNDLE_VERIFY_RED"
+  (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null) \
+    || fail "S10_2F_BACKUP_CHECKSUM_RED"
+  printf '{"ok":true,"safe_code":"S10_2F_BACKUP_MODE_REPAIR_GREEN"}\n'
 }
 
 restore_source() {
@@ -472,6 +508,11 @@ main() {
       require_backup_path "$4"
       restore_source "$4" "$source_application" "$source_control"
       printf '{"ok":true,"safe_code":"S10_2F_ROLLBACK_GREEN"}\n'
+      ;;
+    repair-backup-modes)
+      [ "$#" = 4 ] || fail "S10_2F_ARGUMENTS_INVALID"
+      require_backup_path "$4"
+      repair_backup_bundle_modes "$4" "$source_application" "$source_control"
       ;;
     *) fail "S10_2F_ACTION_INVALID" ;;
   esac
