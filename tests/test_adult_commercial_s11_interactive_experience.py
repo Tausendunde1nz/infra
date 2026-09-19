@@ -133,7 +133,7 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
             "wms-landing-copy.json",
             "runtime-manifest.txt", "owners-and-modes.txt", "provenance.txt",
             "SHA256SUMS", "chmod -R go-rwx", "EXPERIENCE_CONTRACT_ABSENT",
-            "EXPERIENCE_COPY_ABSENT",
+            "EXPERIENCE_COPY_ABSENT", "POSTDEPLOY_SHA256SUMS",
         ):
             self.assertIn(token, self.controller)
         self.assertNotIn("adult-commercial-s7-database.dsn\" \"$backup_path", self.controller)
@@ -151,6 +151,40 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
         self.assertIn("pip install", restore)
         self.assertIn("s8-telegram.service", restore)
         self.assertIn("require_acquisition_state", restore)
+
+    def test_preserved_disabled_schema_can_be_validated_and_reused(self) -> None:
+        self.assertIn("require_s11_schema_absent_or_disabled", self.controller)
+        self.assertIn("S11_SCHEMA_PARTIAL_RED", self.controller)
+        self.assertIn("S11_SCHEMA_SHAPE_RED", self.controller)
+        self.assertIn("S11_SCHEMA_TRIGGER_RED", self.controller)
+        migration = self.controller[
+            self.controller.index("apply_migration() {"):self.controller.index("set_feature() {")
+        ]
+        self.assertIn("require_s11_schema_absent_or_disabled", migration)
+        self.assertNotIn("DROP TABLE", self.controller)
+
+    def test_freeze_is_exact_but_canonical_membership_allows_branch_advance(self) -> None:
+        remote = self.controller[
+            self.controller.index("require_remote_release() {"):
+            self.controller.index("require_local_freeze() {")
+        ]
+        self.assertIn('refs/tags/${FINAL_CONTROL_TAG}^{}', remote)
+        self.assertNotIn("refs/heads/control-main", remote)
+        self.assertIn(
+            'merge-base --is-ancestor "$target_control" origin/control-main',
+            self.controller,
+        )
+
+    def test_predeploy_checksum_stays_immutable_while_rollback_is_armed(self) -> None:
+        deploy = self.controller[
+            self.controller.index("deploy() {"):self.controller.index("deployment_error() {")
+        ]
+        armed = deploy.index("S11_ROLLBACK_ARMED=true")
+        disarmed = deploy.index("S11_ROLLBACK_ARMED=false")
+        protected = deploy[armed:disarmed]
+        self.assertNotIn('> SHA256SUMS', protected)
+        self.assertIn("POSTDEPLOY_SHA256SUMS", protected)
+        self.assertIn("sha256sum -c SHA256SUMS", protected)
 
     def test_runtime_validation_covers_required_system(self) -> None:
         for token in (

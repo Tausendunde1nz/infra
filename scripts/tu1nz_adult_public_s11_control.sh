@@ -90,8 +90,6 @@ require_remote_release() {
   local target_control="$1"
   [ "$(remote_ref "$APPLICATION_ROOT" refs/heads/main)" = "$TARGET_APPLICATION_COMMIT" ] \
     || fail "S11_REMOTE_APPLICATION_DRIFT"
-  [ "$(remote_ref "$CONTROL_ROOT" refs/heads/control-main)" = "$target_control" ] \
-    || fail "S11_REMOTE_CONTROL_DRIFT"
   [ "$(remote_ref "$CONTROL_ROOT" "refs/tags/${FINAL_CONTROL_TAG}^{}")" = "$target_control" ] \
     || fail "S11_REMOTE_FREEZE_DRIFT"
 }
@@ -192,11 +190,30 @@ require_source_state() {
     || fail "S11_SOURCE_CONTRACT_ALREADY_PRESENT"
   [ ! -e "$EXPERIENCE_COPY" ] && [ ! -L "$EXPERIENCE_COPY" ] \
     || fail "S11_SOURCE_COPY_ALREADY_PRESENT"
-  [ "$(database_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'commercial_s11_%';")" = 0 ] \
-    || fail "S11_SOURCE_SCHEMA_ALREADY_PRESENT"
+  require_s11_schema_absent_or_disabled
   require_acquisition_state || fail "S11_ACQUISITION_STATE_RED"
   require_services_and_timers
   require_public_health
+}
+
+require_s11_schema_absent_or_disabled() {
+  local table_count shape_count trigger_count
+  table_count="$(database_scalar \
+    "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'commercial_s11_%';")" \
+    || fail "S11_SCHEMA_INSPECTION_RED"
+  if [ "$table_count" = 0 ]; then
+    return 0
+  fi
+  [ "$table_count" = 3 ] || fail "S11_SCHEMA_PARTIAL_RED"
+  require_feature_state off || fail "S11_PRESERVED_SCHEMA_CONTROL_RED"
+  shape_count="$(database_scalar \
+    "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND (table_name,column_name) IN (('commercial_s11_runtime_control','enabled'),('commercial_s11_runtime_control','live_start'),('commercial_s11_runtime_control','catalog_version'),('commercial_s11_runtime_control','state_machine_version'),('commercial_s11_experience_sessions','subject_id'),('commercial_s11_experience_sessions','revision'),('commercial_s11_product_events','event_type'),('commercial_s11_product_events','evidence_class')); ")" \
+    || fail "S11_SCHEMA_INSPECTION_RED"
+  [ "$shape_count" = 8 ] || fail "S11_SCHEMA_SHAPE_RED"
+  trigger_count="$(database_scalar \
+    "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('commercial_s11_experience_session_guard','commercial_s11_product_events_append_only');")" \
+    || fail "S11_SCHEMA_INSPECTION_RED"
+  [ "$trigger_count" = 2 ] || fail "S11_SCHEMA_TRIGGER_RED"
 }
 
 preflight() {
@@ -325,8 +342,8 @@ fetch_and_require_target() {
     || fail "S11_FETCHED_APPLICATION_DRIFT"
   [ "$(git_chatops "$APPLICATION_ROOT" rev-parse "${TARGET_APPLICATION_COMMIT}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
     || fail "S11_TARGET_APPLICATION_TREE_DRIFT"
-  [ "$(git_chatops "$CONTROL_ROOT" rev-parse origin/control-main)" = "$target_control" ] \
-    || fail "S11_FETCHED_CONTROL_DRIFT"
+  git_chatops "$CONTROL_ROOT" merge-base --is-ancestor "$target_control" origin/control-main \
+    || fail "S11_CONTROL_NOT_ON_CANONICAL_BRANCH"
   require_local_freeze "$target_control"
   while read -r path expected; do
     actual="$(git_chatops "$APPLICATION_ROOT" show "${TARGET_APPLICATION_COMMIT}:${path}" | sha256sum | awk '{print $1}')"
@@ -347,6 +364,10 @@ install_from_git() {
 }
 
 apply_migration() {
+  if [ "$(database_scalar "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'commercial_s11_%';")" != 0 ]; then
+    require_s11_schema_absent_or_disabled
+    return 0
+  fi
   S11_DATABASE_DSN="$DATABASE_DSN" \
     "$APPLICATION_ROOT/.venv/bin/python" - <<'PY' 2>/dev/null
 from pathlib import Path
@@ -548,18 +569,24 @@ deploy() {
   wait_runtime
   run_runtime_health
   verify_target "$target_control"
-  database_evidence "$backup_path/database-postdeploy-aggregate.json"
-  systemctl show "${SERVICES[@]}" "${TIMERS[@]}" > "$backup_path/runtime-postdeploy.txt"
-  chmod 0600 "$backup_path/synthetic-journeys.json" \
-    "$backup_path/database-postdeploy-aggregate.json" "$backup_path/runtime-postdeploy.txt"
-  find "$backup_path" -maxdepth 1 -type f ! -name SHA256SUMS \
-    -exec stat -c '%n|%U|%G|%a' {} + | sort > "$backup_path/owners-and-modes.txt"
+  install -d -o root -g root -m 0700 "$backup_path/postdeploy"
+  mv "$backup_path/synthetic-journeys.json" "$backup_path/postdeploy/synthetic-journeys.json"
+  database_evidence "$backup_path/postdeploy/database-aggregate.json"
+  systemctl show "${SERVICES[@]}" "${TIMERS[@]}" > "$backup_path/postdeploy/runtime-manifest.txt"
+  chmod 0600 "$backup_path/postdeploy/synthetic-journeys.json" \
+    "$backup_path/postdeploy/database-aggregate.json" "$backup_path/postdeploy/runtime-manifest.txt"
+  find "$backup_path/postdeploy" -maxdepth 1 -type f ! -name POSTDEPLOY_SHA256SUMS \
+    -exec stat -c '%n|%U|%G|%a' {} + | sort > "$backup_path/postdeploy/owners-and-modes.txt"
   (
-    cd "$backup_path"
-    find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-    sha256sum -c SHA256SUMS >/dev/null
+    cd "$backup_path/postdeploy"
+    find . -type f ! -name POSTDEPLOY_SHA256SUMS ! -name .POSTDEPLOY_SHA256SUMS.tmp \
+      -print0 | sort -z \
+      | xargs -0 sha256sum > .POSTDEPLOY_SHA256SUMS.tmp
+    sha256sum -c .POSTDEPLOY_SHA256SUMS.tmp >/dev/null
+    mv .POSTDEPLOY_SHA256SUMS.tmp POSTDEPLOY_SHA256SUMS
   )
-  chmod 0600 "$backup_path/SHA256SUMS"
+  chmod 0600 "$backup_path/postdeploy/POSTDEPLOY_SHA256SUMS"
+  (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null)
   trap - ERR
   S11_ROLLBACK_ARMED=false
   printf '{"ok":true,"safe_code":"S11_DEPLOYMENT_GREEN","human_acceptance":"DEFERRED"}\n'
