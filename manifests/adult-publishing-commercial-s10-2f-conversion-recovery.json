@@ -20,8 +20,12 @@
     "artifact_commit": "1d5e0d84451d35cb4148d0b52209002048db7e88",
     "artifact_tree": "3e6ab73b929cd19a796cc8528cce06809e801d4c",
     "artifact_tag": "s10-2f-control-artifacts-r1",
-    "final_freeze_tag": "s10-2f-conversion-recovery-freeze-r2",
-    "superseded_predeployment_freeze_tag": "s10-2f-conversion-recovery-freeze-r1",
+    "final_freeze_tag": "s10-2f-conversion-recovery-freeze-r3",
+    "superseded_predeployment_freeze_tags": [
+      "s10-2f-conversion-recovery-freeze-r1",
+      "s10-2f-conversion-recovery-freeze-r2"
+    ],
+    "backup_bundle_mode_contract": "ROOT_CHATOPS_0640_INSIDE_ROOT_ONLY_DIRECTORY",
     "binding": "HARD_CODED_REVIEWED_ARTIFACT_PLUS_SEPARATE_FINAL_CONTROL_FREEZE",
     "runtime_files_read_from_artifact_commit": true,
     "canonical_checkout_retains_corrected_controller": true,
