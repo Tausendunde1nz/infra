@@ -25,12 +25,19 @@ Operational health, timer liveness, the single Poller lease, publication
 rotation, public health, product boundaries and the unchanged acquisition
 baseline are rechecked before and after the serialized promotion.
 
+The final evidence read occurs only after the controller has acquired the
+exclusive database barrier used by every Canary evidence writer. The gate then
+applies `CANARY_READY_FOR_PROMOTION` and `FULL_RELEASE` in that same database
+transaction. A failed immediate pre-promotion hard-gate recheck instead moves
+the active Canary directly to `CANARY_RED`; it can never leave a committed,
+active READY intermediate state.
+
 The controller does not reinterpret insufficient real volume as success. When
 the 24-hour horizon or ten-session cap arrives below the five-real-sample
 floor, the state becomes `CANARY_INSUFFICIENT_REAL_VOLUME` and S11 is disabled.
 Any red hard gate, red latency profile or new ambiguous provenance becomes
-`CANARY_RED`. `S11_FULL` is possible only through the guarded
-`CANARY_READY_FOR_PROMOTION` transition. At a terminal outcome the systemd
+`CANARY_RED`. `S11_FULL` is possible only through the guarded, atomic
+`CANARY_READY_FOR_PROMOTION` transition pair. At a terminal outcome the systemd
 controller retains only its periodic read-only health observation; no further
 state transition is available.
 

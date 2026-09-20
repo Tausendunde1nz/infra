@@ -325,6 +325,46 @@ def _runtime_payload(connection: psycopg.Connection, now: datetime, hard_gates: 
     }
 
 
+def promote_under_barrier(
+    connection: psycopg.Connection,
+    now: datetime,
+    expected_release_id: str,
+) -> dict[str, Any]:
+    """Re-evaluate evidence and promote atomically behind the writer barrier."""
+    if not expected_release_id or len(expected_release_id) > 128:
+        raise ValueError("S11_2_RELEASE_BINDING_INVALID")
+    bound_release_id = connection.execute(
+        "SELECT target_release_id FROM commercial_s10_2d_runtime_control "
+        "WHERE singleton FOR UPDATE"
+    ).fetchone()
+    if bound_release_id is None or bound_release_id[0] != expected_release_id:
+        raise ValueError("S11_2_RELEASE_BINDING_CHANGED")
+    connection.execute(
+        "SELECT pg_advisory_xact_lock("
+        "hashtextextended('tu1nz:s11:canary-promotion:v1',0))"
+    )
+    result = evaluate(_runtime_payload(connection, now, True))
+    if result["transition"] != "PROMOTE_FULL":
+        raise ValueError("S11_2_PROMOTION_BARRIER_NOT_GREEN")
+    for transition, safe_code in (
+        ("CANARY_READY_FOR_PROMOTION", "S11_2_CANARY_READY_FOR_PROMOTION"),
+        ("FULL_RELEASE", "S11_2_FULL_RELEASE_GREEN"),
+    ):
+        connection.execute(
+            "SELECT tu1nz_s11_2_transition_runtime_control(%s,%s,%s,%s)",
+            (expected_release_id, transition, now, safe_code),
+        )
+    return {
+        **result,
+        "release_state": "S11_FULL",
+        "promotion_state": "FULL_RELEASE",
+        "decision": "FULL_RELEASE",
+        "reason": "FULL_RELEASE_GREEN",
+        "transition": None,
+        "promotion_applied": True,
+    }
+
+
 def simulate_contract() -> dict[str, Any]:
     start = "2026-01-01T00:00:00Z"
     before_horizon = "2026-01-01T12:00:00Z"
@@ -391,6 +431,8 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--dsn-file", type=Path)
     parser.add_argument("--now", type=_timestamp)
     parser.add_argument("--hard-gates-green", action="store_true")
+    parser.add_argument("--promote-under-barrier", action="store_true")
+    parser.add_argument("--expected-release-id")
     return parser
 
 
@@ -405,7 +447,16 @@ def main() -> int:
         dsn = _private_text(arguments.dsn_file, 8192)
         now = arguments.now or datetime.now(timezone.utc)
         with psycopg.connect(dsn) as connection:
-            result = evaluate(_runtime_payload(connection, now, arguments.hard_gates_green))
+            if arguments.promote_under_barrier:
+                if arguments.hard_gates_green or arguments.expected_release_id is None:
+                    raise ValueError("S11_2_PROMOTION_ARGUMENTS_INVALID")
+                result = promote_under_barrier(
+                    connection, now, arguments.expected_release_id
+                )
+            else:
+                if arguments.expected_release_id is not None:
+                    raise ValueError("S11_2_PROMOTION_ARGUMENTS_INVALID")
+                result = evaluate(_runtime_payload(connection, now, arguments.hard_gates_green))
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0
 

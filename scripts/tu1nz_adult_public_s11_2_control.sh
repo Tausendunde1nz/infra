@@ -543,6 +543,11 @@ gate_json() {
   fi
 }
 
+promote_under_barrier_json() {
+  "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN" \
+    --promote-under-barrier --expected-release-id "$RUNTIME_RELEASE_ID"
+}
+
 gate_field() {
   /usr/bin/python3 -c 'import json,sys;value=json.load(sys.stdin).get(sys.argv[1]);raise SystemExit(2) if value is None else print(value)' "$1"
 }
@@ -750,12 +755,24 @@ observe() {
       ;;
     PROMOTE_FULL)
       [ "$hard" = true ] || fail "S11_2_PROMOTION_HARD_GATE_RED"
-      database_transition CANARY_READY_FOR_PROMOTION S11_2_CANARY_READY_FOR_PROMOTION
-      require_hard_gates
-      database_transition FULL_RELEASE S11_2_FULL_RELEASE_GREEN
-      require_hard_gates
+      if ! require_hard_gates; then
+        database_transition CANARY_RED S11_2_PROMOTION_HARD_GATE_RED
+        require_public_health
+        printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_PROMOTION_HARD_GATE_RED"}\n' >&2
+        return 2
+      fi
+      if ! payload="$(promote_under_barrier_json)"; then
+        database_transition CANARY_RED S11_2_PROMOTION_BARRIER_RED
+        require_public_health
+        printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_PROMOTION_BARRIER_RED"}\n' >&2
+        return 2
+      fi
+      if ! require_hard_gates; then
+        fail "S11_2_POST_PROMOTION_HARD_GATE_RED"
+        return 2
+      fi
       [ "$(release_state)" = "S11_FULL|FULL_RELEASE" ] || fail "S11_2_PROMOTION_STATE_RED"
-      printf '{"ok":true,"safe_code":"S11_2_FULL_RELEASE_GREEN"}\n'
+      printf '%s\n' "$payload"
       ;;
     *) fail "S11_2_GATE_TRANSITION_RED" ;;
   esac

@@ -6,6 +6,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,8 +145,8 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertNotIn("systemctl disable", observe)
         self.assertIn("S11_2_TERMINAL_HARD_GATE_RED", observe)
         self.assertIn("require_hard_gates", observe)
-        self.assertIn("CANARY_READY_FOR_PROMOTION", observe)
-        self.assertIn("FULL_RELEASE", observe)
+        self.assertIn("promote_under_barrier_json", observe)
+        self.assertIn("S11_FULL|FULL_RELEASE", observe)
 
     def test_observer_failures_cannot_be_overwritten_or_skip_canary_shutdown(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -158,6 +159,62 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertLess(observe.index('current_state="$(release_state)"'), observe.index("require_clean_commit"))
         self.assertIn("require_local_freeze", observe)
         self.assertIn("database_transition CANARY_RED S11_2_REPOSITORY_INTEGRITY_RED", observe)
+
+    def test_promotion_rechecks_hard_gates_and_is_atomic_under_writer_barrier(self):
+        controller = CONTROLLER.read_text(encoding="utf-8")
+        observe = controller[controller.index("observe() {"):controller.index("rollback() {")]
+        promotion = observe[observe.index("PROMOTE_FULL)"):]
+        self.assertLess(promotion.index("require_hard_gates"), promotion.index("promote_under_barrier_json"))
+        self.assertIn("database_transition CANARY_RED S11_2_PROMOTION_HARD_GATE_RED", promotion)
+        self.assertNotIn("database_transition CANARY_READY_FOR_PROMOTION", promotion)
+        self.assertNotIn("database_transition FULL_RELEASE", promotion)
+        gate = GATE.read_text(encoding="utf-8")
+        barrier = gate[gate.index("def promote_under_barrier("):gate.index("def simulate_contract")]
+        self.assertLess(barrier.index("FOR UPDATE"), barrier.index("pg_advisory_xact_lock"))
+        self.assertLess(barrier.index("pg_advisory_xact_lock"), barrier.index("_runtime_payload"))
+        self.assertLess(barrier.index("_runtime_payload"), barrier.index("CANARY_READY_FOR_PROMOTION"))
+        self.assertIn("FULL_RELEASE", barrier)
+        self.assertNotIn("commit()", barrier)
+
+    def test_atomic_promotion_rechecks_evidence_after_acquiring_writer_barrier(self):
+        class Result:
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Connection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, statement, parameters=None):
+                self.calls.append((statement, parameters))
+                if "target_release_id" in statement:
+                    return Result(("s10-2d-r3-5",))
+                return Result()
+
+        connection = Connection()
+        with mock.patch.object(
+            MODULE,
+            "_runtime_payload",
+            return_value=fixture([200, 250, 300, 350, 400]),
+        ):
+            result = MODULE.promote_under_barrier(
+                connection,
+                MODULE._timestamp("2026-01-01T12:00:00Z"),
+                "s10-2d-r3-5",
+            )
+        statements = [call[0] for call in connection.calls]
+        self.assertIn("FOR UPDATE", statements[0])
+        self.assertIn("pg_advisory_xact_lock", statements[1])
+        self.assertEqual(result["decision"], "FULL_RELEASE")
+        self.assertTrue(result["promotion_applied"])
+        transitions = [call[1][1] for call in connection.calls[2:]]
+        self.assertEqual(
+            transitions,
+            ["CANARY_READY_FOR_PROMOTION", "FULL_RELEASE"],
+        )
 
     def test_frozen_release_and_manifest_contract(self):
         source = CONTROLLER.read_text(encoding="utf-8")
