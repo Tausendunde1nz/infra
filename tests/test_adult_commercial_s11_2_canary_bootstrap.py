@@ -160,6 +160,33 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("require_local_freeze", observe)
         self.assertIn("database_transition CANARY_RED S11_2_REPOSITORY_INTEGRITY_RED", observe)
 
+    def test_retired_s8_health_timer_is_preserved_not_reactivated(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        timers = source[source.index('readonly TIMERS=('):source.index("fail() {")]
+        self.assertNotIn("tu1nz-adult-public-s8-health.timer", timers)
+        self.assertIn(
+            'RETIRED_S8_HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"',
+            source,
+        )
+        gates = source[
+            source.index("require_services_and_timers() {"):
+            source.index("require_public_health() {")
+        ]
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_MISSING", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_ENABLED", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_ACTIVE", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_SUBSTATE_RED", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_PATH_DRIFT", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_DROPIN_PRESENT", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_UNIT_DRIFT", gates)
+        self.assertIn('cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER"', gates)
+        runtime_health = source[
+            source.index("run_runtime_health() {"):
+            source.index("gate_json() {")
+        ]
+        self.assertIn("tu1nz-adult-public-s8-health.service", runtime_health)
+        self.assertNotIn("tu1nz-adult-public-s8-health.timer", runtime_health)
+
     def test_promotion_rechecks_hard_gates_and_is_atomic_under_writer_barrier(self):
         controller = CONTROLLER.read_text(encoding="utf-8")
         observe = controller[controller.index("observe() {"):controller.index("rollback() {")]
@@ -267,13 +294,17 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
         self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r1"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r2"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
         self.assertEqual(manifest["promotion_contract"]["minimum_real_samples"], 5)
         self.assertEqual(manifest["human_acceptance"], "DEFERRED")
         self.assertTrue(manifest["preserved_runtime"]["real_acquisition_active"])
+        self.assertEqual(
+            manifest["preserved_runtime"]["s8_health_timer"],
+            "RETIRED_DISABLED_INACTIVE",
+        )
 
     def test_systemd_controller_is_serial_periodic_and_bounded(self):
         service = SERVICE.read_text(encoding="utf-8")

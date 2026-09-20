@@ -13,7 +13,7 @@ readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
 readonly TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"
 readonly TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r2"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -34,6 +34,7 @@ readonly INSTALLED_GATE="/usr/local/bin/tu1nz_adult_public_s11_2_gate.py"
 readonly CONTROLLER_UNIT="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service"
 readonly CONTROLLER_TIMER="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.timer"
 readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
+readonly RETIRED_S8_HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
 readonly SERVICES=(
   tu1nz-adult-public-s7.service
   tu1nz-adult-public-s8-landing.service
@@ -42,7 +43,6 @@ readonly SERVICES=(
   nginx.service
 )
 readonly TIMERS=(
-  tu1nz-adult-public-s8-health.timer
   tu1nz-adult-public-s9-audience.timer
   tu1nz-adult-public-s9-nurture.timer
   tu1nz-adult-public-s9-report.timer
@@ -192,6 +192,21 @@ require_services_and_timers() {
       return 2
     fi
   done
+  [ "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p LoadState --value)" = loaded ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_MISSING"; return 2; }
+  [ "$(systemctl is-enabled "$RETIRED_S8_HEALTH_TIMER")" = disabled ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_ENABLED"; return 2; }
+  [ "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p ActiveState --value)" = inactive ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_ACTIVE"; return 2; }
+  [ "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p SubState --value)" = dead ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_SUBSTATE_RED"; return 2; }
+  [ "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p FragmentPath --value)" = "/etc/systemd/system/$RETIRED_S8_HEALTH_TIMER" ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_PATH_DRIFT"; return 2; }
+  [ -z "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p DropInPaths --value)" ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_DROPIN_PRESENT"; return 2; }
+  cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER" \
+    "/etc/systemd/system/$RETIRED_S8_HEALTH_TIMER" \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_UNIT_DRIFT"; return 2; }
 }
 
 require_public_health() {

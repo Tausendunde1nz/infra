@@ -9,7 +9,7 @@
     "reviewed_head": "b70bcbe464d28c4f587b746a282a84380630cb05"
   },
   "control_release": {
-    "freeze_tag": "s11-2-canary-bootstrap-freeze-r1",
+    "freeze_tag": "s11-2-canary-bootstrap-freeze-r2",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "gate": "scripts/tu1nz_adult_public_s11_2_gate.py",
     "timer": "tu1nz-adult-public-s11-canary-controller.timer",
@@ -54,7 +54,9 @@
   "preserved_runtime": {
     "real_acquisition_active": true,
     "real_acquisition_baseline": "2026-09-18T00:41:06.710027Z",
-    "runtime_release_id": "s10-2d-r3-5"
+    "runtime_release_id": "s10-2d-r3-5",
+    "s8_health_timer": "RETIRED_DISABLED_INACTIVE",
+    "recurring_health_envelopes": ["S9", "S10"]
   },
   "closed_boundaries": [
     "COMMUNITY_USER_CONTENT_PUBLISHING",
