@@ -9,7 +9,9 @@
     "tests": "1039_GREEN"
   },
   "control_release": {
-    "freeze_tag": "s11-1-latency-provenance-slo-freeze-r1"
+    "freeze_tag": "s11-1-latency-provenance-slo-freeze-r2",
+    "supersedes_freeze_tag": "s11-1-latency-provenance-slo-freeze-r1",
+    "r1_runtime_status": "PREDEPLOY_BACKUP_MODE_FAIL_CLOSED_NO_RUNTIME_MUTATION"
   },
   "provenance": {
     "classes": ["REAL", "INTERNAL_TEST", "SYNTHETIC", "HEALTH", "PROVIDER_PROBE", "UNKNOWN"],

@@ -56,3 +56,12 @@ migration, reader, reconciliation and non-S11 S8 units. It keeps the existing
 S11 schema disabled, preserves `live_start = null`, preserves real acquisition
 and its baseline, and never installs the S11 experience configuration. A
 separate S11 deployment remains gated by a genuine `GREEN` result.
+
+## Backup mode hardening
+
+The first r1 server attempt stopped before fetch or runtime mutation because the
+backup directory inherited a parent setgid bit and therefore had mode `2700`
+instead of the controller's required `0700`. The r2 controller explicitly sets
+`0700`, removes setgid, records owner/mode evidence, and verifies checksums and
+both Git bundles before arming rollback. The r1 freeze and its intact failed-run
+backup remain immutable evidence.
