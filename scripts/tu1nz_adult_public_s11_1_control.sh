@@ -11,7 +11,7 @@ readonly SOURCE_CONTROL_COMMIT="5f0b5878888a5d48317e28ce75a6f0f552d6a419"
 readonly SOURCE_CONTROL_TREE="6aebbeed942cd235a292dc8fcafcc29b6e2dab80"
 readonly TARGET_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
 readonly TARGET_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
-readonly FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r2"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly S8_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service"
 readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.service"
@@ -157,7 +157,12 @@ backup_runtime() {
   systemctl show "${SERVICES[@]}" > "$backup_path/runtime-manifest.txt"
   database_scalar "SELECT json_build_object('s11_enabled',enabled,'s11_live_start_present',live_start IS NOT NULL,'acquisition_active',wms_real_acquisition_ready,'baseline',real_acquisition_baseline_start,'latency_samples',count(sample_id))::text FROM commercial_s11_runtime_control CROSS JOIN commercial_s10_2d_runtime_control LEFT JOIN commercial_s10_2d_latency_samples ON true WHERE commercial_s11_runtime_control.singleton AND commercial_s10_2d_runtime_control.singleton GROUP BY enabled,live_start,wms_real_acquisition_ready,real_acquisition_baseline_start;" \
     > "$backup_path/database-aggregate.json"
+  : > "$backup_path/owners-and-modes.txt"
   chmod -R go-rwx "$backup_path"
+  chmod 0700 "$backup_path"
+  chmod g-s "$backup_path"
+  find "$backup_path" -maxdepth 1 -type f -exec stat -c '%n|%U|%G|%a' {} + \
+    | sort > "$backup_path/owners-and-modes.txt"
   (
     cd "$backup_path"
     find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS

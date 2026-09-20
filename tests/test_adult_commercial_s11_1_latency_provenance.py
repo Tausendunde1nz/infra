@@ -152,7 +152,7 @@ class CommercialS111LatencyProvenanceTests(unittest.TestCase):
         for source in (contract, product):
             self.assertIn('TARGET_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"', source)
             self.assertIn('TARGET_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"', source)
-            self.assertIn('FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r1"', source)
+            self.assertIn('FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r2"', source)
         self.assertNotIn("__TARGET_APPLICATION_", contract)
 
     def test_product_deploy_starts_from_the_installed_frozen_contract(self):
@@ -163,6 +163,15 @@ class CommercialS111LatencyProvenanceTests(unittest.TestCase):
         self.assertIn('rev-parse "${source_control}^{tree}"', state)
         self.assertNotIn('readonly SOURCE_CONTROL_COMMIT=', source)
         self.assertNotIn('readonly SOURCE_CONTROL_TREE=', source)
+
+    def test_contract_backup_clears_inherited_setgid_before_verification(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        backup = source[source.index("backup_runtime() {"):source.index("require_backup() {")]
+        self.assertIn('chmod 0700 "$backup_path"', backup)
+        self.assertIn('chmod g-s "$backup_path"', backup)
+        self.assertIn('owners-and-modes.txt', backup)
+        self.assertLess(backup.index('chmod 0700 "$backup_path"'), backup.index("SHA256SUMS"))
+        self.assertLess(backup.index('chmod g-s "$backup_path"'), backup.index("SHA256SUMS"))
 
 
 if __name__ == "__main__":
