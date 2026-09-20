@@ -11,7 +11,7 @@ readonly SOURCE_CONTROL_COMMIT="5f0b5878888a5d48317e28ce75a6f0f552d6a419"
 readonly SOURCE_CONTROL_TREE="6aebbeed942cd235a292dc8fcafcc29b6e2dab80"
 readonly TARGET_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
 readonly TARGET_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
-readonly FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r2"
+readonly FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r3"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly S8_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service"
 readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.service"
@@ -240,7 +240,8 @@ verify_target() {
     || fail "S11_1_READER_DRIFT"
   cmp -s "$CONTROL_ROOT/evidence/commercial-s11-1-latency-provenance-reconciliation.json" "$RECONCILIATION" \
     || fail "S11_1_RECONCILIATION_DRIFT"
-  state="$("$SLO_READER" --dsn-file "$DATABASE_DSN" --reconciliation "$RECONCILIATION" \
+  state="$("$APPLICATION_ROOT/.venv/bin/python" "$SLO_READER" \
+    --dsn-file "$DATABASE_DSN" --reconciliation "$RECONCILIATION" \
     --profile REAL_USER_DIRECT_LATENCY | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])')"
   case "$state" in GREEN|RED|INSUFFICIENT_EVIDENCE) ;; *) fail "S11_1_GATE_STATE_INVALID" ;; esac
   require_services_and_public
@@ -315,7 +316,8 @@ deployment_error() {
 
 gate() {
   require_root
-  "$SLO_READER" --dsn-file "$DATABASE_DSN" --reconciliation "$RECONCILIATION" \
+  "$APPLICATION_ROOT/.venv/bin/python" "$SLO_READER" \
+    --dsn-file "$DATABASE_DSN" --reconciliation "$RECONCILIATION" \
     --profile REAL_USER_DIRECT_LATENCY
 }
 

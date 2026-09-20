@@ -8,7 +8,7 @@ readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"
 readonly TARGET_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
 readonly TARGET_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
-readonly FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r2"
+readonly FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r3"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly EXPERIENCE_RELEASE_ID="s11-interactive-experience-mvp-r1"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -147,7 +147,7 @@ community_latency_slo_state() {
   [ -x "$S11_LATENCY_SLO_READER" ] || fail "S11_LATENCY_SLO_READER_MISSING"
   [ -f "$S11_LATENCY_RECONCILIATION" ] && [ ! -L "$S11_LATENCY_RECONCILIATION" ] \
     || fail "S11_LATENCY_RECONCILIATION_MISSING"
-  "$S11_LATENCY_SLO_READER" \
+  "$APPLICATION_ROOT/.venv/bin/python" "$S11_LATENCY_SLO_READER" \
     --dsn-file "$DATABASE_DSN" \
     --reconciliation "$S11_LATENCY_RECONCILIATION" \
     --profile REAL_USER_DIRECT_LATENCY \
