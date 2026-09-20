@@ -327,7 +327,6 @@ def _runtime_payload(connection: psycopg.Connection, now: datetime, hard_gates: 
 
 def promote_under_barrier(
     connection: psycopg.Connection,
-    now: datetime,
     expected_release_id: str,
 ) -> dict[str, Any]:
     """Re-evaluate evidence and promote atomically behind the writer barrier."""
@@ -343,7 +342,11 @@ def promote_under_barrier(
         "SELECT pg_advisory_xact_lock("
         "hashtextextended('tu1nz:s11:canary-promotion:v1',0))"
     )
-    result = evaluate(_runtime_payload(connection, now, True))
+    barrier_now_row = connection.execute("SELECT clock_timestamp()").fetchone()
+    if barrier_now_row is None:
+        raise ValueError("S11_2_BARRIER_TIME_MISSING")
+    barrier_now = barrier_now_row[0]
+    result = evaluate(_runtime_payload(connection, barrier_now, True))
     if result["transition"] != "PROMOTE_FULL":
         raise ValueError("S11_2_PROMOTION_BARRIER_NOT_GREEN")
     for transition, safe_code in (
@@ -352,7 +355,7 @@ def promote_under_barrier(
     ):
         connection.execute(
             "SELECT tu1nz_s11_2_transition_runtime_control(%s,%s,%s,%s)",
-            (expected_release_id, transition, now, safe_code),
+            (expected_release_id, transition, barrier_now, safe_code),
         )
     return {
         **result,
@@ -451,7 +454,7 @@ def main() -> int:
                 if arguments.hard_gates_green or arguments.expected_release_id is None:
                     raise ValueError("S11_2_PROMOTION_ARGUMENTS_INVALID")
                 result = promote_under_barrier(
-                    connection, now, arguments.expected_release_id
+                    connection, arguments.expected_release_id
                 )
             else:
                 if arguments.expected_release_id is not None:

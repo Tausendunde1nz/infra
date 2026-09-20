@@ -168,10 +168,16 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("database_transition CANARY_RED S11_2_PROMOTION_HARD_GATE_RED", promotion)
         self.assertNotIn("database_transition CANARY_READY_FOR_PROMOTION", promotion)
         self.assertNotIn("database_transition FULL_RELEASE", promotion)
+        helper = controller[
+            controller.index("promote_under_barrier_json() {"):
+            controller.index("gate_field() {")
+        ]
+        self.assertIn('"$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE"', helper)
         gate = GATE.read_text(encoding="utf-8")
         barrier = gate[gate.index("def promote_under_barrier("):gate.index("def simulate_contract")]
         self.assertLess(barrier.index("FOR UPDATE"), barrier.index("pg_advisory_xact_lock"))
-        self.assertLess(barrier.index("pg_advisory_xact_lock"), barrier.index("_runtime_payload"))
+        self.assertLess(barrier.index("pg_advisory_xact_lock"), barrier.index("clock_timestamp"))
+        self.assertLess(barrier.index("clock_timestamp"), barrier.index("_runtime_payload"))
         self.assertLess(barrier.index("_runtime_payload"), barrier.index("CANARY_READY_FOR_PROMOTION"))
         self.assertIn("FULL_RELEASE", barrier)
         self.assertNotIn("commit()", barrier)
@@ -192,6 +198,8 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
                 self.calls.append((statement, parameters))
                 if "target_release_id" in statement:
                     return Result(("s10-2d-r3-5",))
+                if statement == "SELECT clock_timestamp()":
+                    return Result((MODULE._timestamp("2026-01-01T12:00:00Z"),))
                 return Result()
 
         connection = Connection()
@@ -202,15 +210,15 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         ):
             result = MODULE.promote_under_barrier(
                 connection,
-                MODULE._timestamp("2026-01-01T12:00:00Z"),
                 "s10-2d-r3-5",
             )
         statements = [call[0] for call in connection.calls]
         self.assertIn("FOR UPDATE", statements[0])
         self.assertIn("pg_advisory_xact_lock", statements[1])
+        self.assertEqual(statements[2], "SELECT clock_timestamp()")
         self.assertEqual(result["decision"], "FULL_RELEASE")
         self.assertTrue(result["promotion_applied"])
-        transitions = [call[1][1] for call in connection.calls[2:]]
+        transitions = [call[1][1] for call in connection.calls[3:]]
         self.assertEqual(
             transitions,
             ["CANARY_READY_FOR_PROMOTION", "FULL_RELEASE"],

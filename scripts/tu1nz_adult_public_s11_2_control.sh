@@ -544,7 +544,7 @@ gate_json() {
 }
 
 promote_under_barrier_json() {
-  "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN" \
+  "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN" \
     --promote-under-barrier --expected-release-id "$RUNTIME_RELEASE_ID"
 }
 
