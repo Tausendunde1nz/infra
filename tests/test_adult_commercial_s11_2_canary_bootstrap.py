@@ -147,6 +147,18 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("CANARY_READY_FOR_PROMOTION", observe)
         self.assertIn("FULL_RELEASE", observe)
 
+    def test_observer_failures_cannot_be_overwritten_or_skip_canary_shutdown(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        hard = source[source.index("require_services_and_timers() {"):source.index("require_source_state() {")]
+        self.assertGreaterEqual(hard.count("return 2; }"), 9)
+        self.assertIn("require_services_and_timers || return $?", hard)
+        self.assertIn("require_poller_and_rotation || return $?", hard)
+        self.assertIn("require_public_health || return $?", hard)
+        observe = source[source.index("observe() {"):source.index("rollback() {")]
+        self.assertLess(observe.index('current_state="$(release_state)"'), observe.index("require_clean_commit"))
+        self.assertIn("require_local_freeze", observe)
+        self.assertIn("database_transition CANARY_RED S11_2_REPOSITORY_INTEGRITY_RED", observe)
+
     def test_frozen_release_and_manifest_contract(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
@@ -169,6 +181,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         )
         self.assertIn("ProtectSystem=strict", service)
         self.assertIn("CapabilityBoundingSet=CAP_SETUID CAP_SETGID", service)
+        self.assertNotIn("Requires=tu1nz-adult-public-s8-telegram.service", service)
         self.assertIn("OnUnitActiveSec=5min", timer)
         self.assertIn("Persistent=true", timer)
         self.assertIn("WantedBy=timers.target", timer)

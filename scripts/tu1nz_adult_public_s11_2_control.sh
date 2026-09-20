@@ -86,11 +86,11 @@ remote_ref() {
 require_clean_commit() {
   local repository="$1" expected_commit="$2" expected_tree="$3" code="$4"
   [ "$(git_chatops "$repository" rev-parse HEAD)" = "$expected_commit" ] \
-    || fail "S11_2_${code}_COMMIT_DRIFT"
+    || { fail "S11_2_${code}_COMMIT_DRIFT"; return 2; }
   [ "$(git_chatops "$repository" rev-parse 'HEAD^{tree}')" = "$expected_tree" ] \
-    || fail "S11_2_${code}_TREE_DRIFT"
+    || { fail "S11_2_${code}_TREE_DRIFT"; return 2; }
   [ -z "$(git_chatops "$repository" status --porcelain)" ] \
-    || fail "S11_2_${code}_WORKTREE_DIRTY"
+    || { fail "S11_2_${code}_WORKTREE_DIRTY"; return 2; }
 }
 
 target_control_commit() {
@@ -112,8 +112,9 @@ require_remote_target() {
 require_local_freeze() {
   local target_control="$1" control_tree
   [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${FINAL_CONTROL_TAG}")" = tag ] \
-    || fail "S11_2_FREEZE_NOT_ANNOTATED"
-  [ "$(target_control_commit)" = "$target_control" ] || fail "S11_2_FREEZE_COMMIT_DRIFT"
+    || { fail "S11_2_FREEZE_NOT_ANNOTATED"; return 2; }
+  [ "$(target_control_commit)" = "$target_control" ] \
+    || { fail "S11_2_FREEZE_COMMIT_DRIFT"; return 2; }
   control_tree="$(target_control_tree)"
   for binding in \
     "application_commit=${TARGET_APPLICATION_COMMIT}" \
@@ -124,7 +125,8 @@ require_local_freeze() {
     "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN"
   do
     git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${FINAL_CONTROL_TAG}" \
-      | grep -Fqx "$binding" || fail "S11_2_FREEZE_PROVENANCE_RED"
+      | grep -Fqx "$binding" \
+      || { fail "S11_2_FREEZE_PROVENANCE_RED"; return 2; }
   done
 }
 
@@ -172,17 +174,22 @@ require_product_boundaries() {
 require_services_and_timers() {
   local unit next_realtime next_monotonic
   for unit in "${SERVICES[@]}"; do
-    [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] || fail "S11_2_SERVICE_RED"
-    [ "$(systemctl show "$unit" -p NRestarts --value)" = 0 ] || fail "S11_2_SERVICE_RESTART_RED"
+    [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] \
+      || { fail "S11_2_SERVICE_RED"; return 2; }
+    [ "$(systemctl show "$unit" -p NRestarts --value)" = 0 ] \
+      || { fail "S11_2_SERVICE_RESTART_RED"; return 2; }
   done
   for unit in "${TIMERS[@]}"; do
-    [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] || fail "S11_2_TIMER_RED"
-    [ "$(systemctl is-enabled "$unit")" = enabled ] || fail "S11_2_TIMER_DISABLED"
+    [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] \
+      || { fail "S11_2_TIMER_RED"; return 2; }
+    [ "$(systemctl is-enabled "$unit")" = enabled ] \
+      || { fail "S11_2_TIMER_DISABLED"; return 2; }
     next_realtime="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
     next_monotonic="$(systemctl show "$unit" -p NextElapseUSecMonotonic --value)"
     if { [ -z "$next_realtime" ] || [ "$next_realtime" = n/a ]; } \
       && { [ -z "$next_monotonic" ] || [ "$next_monotonic" = n/a ] || [ "$next_monotonic" = 0 ]; }; then
       fail "S11_2_TIMER_FUTURE_RUN_MISSING"
+      return 2
     fi
   done
 }
@@ -191,29 +198,31 @@ require_public_health() {
   local path code
   for path in / /privacy /terms /imprint; do
     code="$(curl -sS --max-time 12 -o /dev/null -w '%{http_code}' "https://wantmeseen.com${path}")"
-    [ "$code" = 200 ] || fail "S11_2_PUBLIC_ENDPOINT_RED"
+    [ "$code" = 200 ] || { fail "S11_2_PUBLIC_ENDPOINT_RED"; return 2; }
   done
   [ "$(curl -sS --max-time 12 -o /dev/null -w '%{http_code}' https://wantmeseen.de/)" = 308 ] \
-    || fail "S11_2_LEGACY_REDIRECT_RED"
+    || { fail "S11_2_LEGACY_REDIRECT_RED"; return 2; }
   curl -fsS --max-time 12 https://wantmeseen.com/health \
     | /usr/bin/python3 -c \
       'import json,sys;p=json.load(sys.stdin);raise SystemExit(0 if p.get("ok") is True and not any(p.get("forbidden_capabilities",{}).values()) else 1)' \
-    >/dev/null || fail "S11_2_PUBLIC_HEALTH_RED"
+    >/dev/null || { fail "S11_2_PUBLIC_HEALTH_RED"; return 2; }
 }
 
 require_poller_and_rotation() {
   [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_bot_polling_state WHERE release_id='${RUNTIME_RELEASE_ID}' AND lease_owner_id IS NOT NULL AND lease_expires_at>CURRENT_TIMESTAMP AND last_successful_poll_at>=CURRENT_TIMESTAMP-INTERVAL '90 seconds' AND last_event_path_code IN ('BOT_EVENT_PATH_GREEN','BOT_UPDATE_NOT_RECEIVED');")" = 1 ] \
-    || fail "S11_2_POLLER_LEASE_RED"
+    || { fail "S11_2_POLLER_LEASE_RED"; return 2; }
   [ "$(systemctl show tu1nz-adult-public-s10-2d-rotate.service -p Result --value)" = success ] \
-    || fail "S11_2_PUBLICATION_ROTATION_RED"
+    || { fail "S11_2_PUBLICATION_ROTATION_RED"; return 2; }
 }
 
 require_hard_gates() {
-  require_acquisition_state || fail "S11_2_ACQUISITION_STATE_RED"
-  require_product_boundaries || fail "S11_2_PRODUCT_BOUNDARY_RED"
-  require_services_and_timers
-  require_poller_and_rotation
-  require_public_health
+  require_acquisition_state \
+    || { fail "S11_2_ACQUISITION_STATE_RED"; return 2; }
+  require_product_boundaries \
+    || { fail "S11_2_PRODUCT_BOUNDARY_RED"; return 2; }
+  require_services_and_timers || return $?
+  require_poller_and_rotation || return $?
+  require_public_health || return $?
 }
 
 require_source_state() {
@@ -694,10 +703,20 @@ observe() {
   local target_control hard=true payload decision transition current_state
   require_root
   acquire_lock
-  target_control="$(target_control_commit)"
-  require_clean_commit "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION
-  require_clean_commit "$CONTROL_ROOT" "$target_control" "$(target_control_tree)" TARGET_CONTROL
   current_state="$(release_state)"
+  if ! target_control="$(target_control_commit)" \
+    || ! require_clean_commit "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION \
+    || ! require_clean_commit "$CONTROL_ROOT" "$target_control" "$(target_control_tree)" TARGET_CONTROL \
+    || ! require_local_freeze "$target_control"; then
+    if [[ "$current_state" == S11_CANARY\|* ]]; then
+      database_transition CANARY_RED S11_2_REPOSITORY_INTEGRITY_RED
+      require_public_health
+      printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_REPOSITORY_INTEGRITY_RED"}\n' >&2
+    else
+      fail "S11_2_REPOSITORY_INTEGRITY_RED"
+    fi
+    return 2
+  fi
   if ! require_hard_gates; then
     hard=false
   fi

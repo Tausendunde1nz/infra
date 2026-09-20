@@ -1,7 +1,6 @@
 [Unit]
 Description=TU1NZ S11.2 bounded Canary release controller
 After=network-online.target postgresql.service tu1nz-adult-public-s8-telegram.service
-Requires=tu1nz-adult-public-s8-telegram.service
 Wants=network-online.target
 
 [Service]

@@ -34,6 +34,12 @@ Any red hard gate, red latency profile or new ambiguous provenance becomes
 controller retains only its periodic read-only health observation; no further
 state transition is available.
 
+The observer is ordered after the Telegram service but does not require that
+service to start successfully. This lets an inactive or failed monitored
+service drive the active Canary to `CANARY_RED` instead of preventing the
+fail-closed observer itself from running. Repository or freeze drift follows
+the same terminal path.
+
 ## Backup, activation and recovery
 
 The deployment controller verifies the installed source state and the signed
