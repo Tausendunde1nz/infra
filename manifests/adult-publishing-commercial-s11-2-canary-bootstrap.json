@@ -35,6 +35,7 @@
     "real_profile": "S11_CANARY_REAL_USER_LATENCY",
     "insufficient_real_volume_is_terminal": true,
     "hard_gates_required_before_and_after_promotion": true,
+    "hard_gates_rechecked_inside_writer_barrier": true,
     "final_evidence_read_under_writer_barrier": true,
     "ready_and_full_transitions_atomic": true
   },

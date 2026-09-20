@@ -8,6 +8,7 @@ import json
 import math
 import os
 import stat
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ PROMOTION_STATES = {
     "CANARY_INSUFFICIENT_REAL_VOLUME",
     "FULL_RELEASE",
 }
+HARD_GATE_CONTROLLER = "/usr/local/bin/tu1nz_adult_public_s11_2_control.sh"
 
 
 def _timestamp(value: str) -> datetime:
@@ -328,6 +330,7 @@ def _runtime_payload(connection: psycopg.Connection, now: datetime, hard_gates: 
 def promote_under_barrier(
     connection: psycopg.Connection,
     expected_release_id: str,
+    hard_gate_check: Any,
 ) -> dict[str, Any]:
     """Re-evaluate evidence and promote atomically behind the writer barrier."""
     if not expected_release_id or len(expected_release_id) > 128:
@@ -342,6 +345,8 @@ def promote_under_barrier(
         "SELECT pg_advisory_xact_lock("
         "hashtextextended('tu1nz:s11:canary-promotion:v1',0))"
     )
+    if hard_gate_check() is not True:
+        raise ValueError("S11_2_IN_BARRIER_HARD_GATE_RED")
     barrier_now_row = connection.execute("SELECT clock_timestamp()").fetchone()
     if barrier_now_row is None:
         raise ValueError("S11_2_BARRIER_TIME_MISSING")
@@ -439,6 +444,21 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _runtime_hard_gate_check() -> bool:
+    try:
+        completed = subprocess.run(
+            [HARD_GATE_CONTROLLER, "hard-gates-read-only"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=90,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
 def main() -> int:
     arguments = _parser().parse_args()
     if arguments.simulate_contract:
@@ -454,7 +474,9 @@ def main() -> int:
                 if arguments.hard_gates_green or arguments.expected_release_id is None:
                     raise ValueError("S11_2_PROMOTION_ARGUMENTS_INVALID")
                 result = promote_under_barrier(
-                    connection, arguments.expected_release_id
+                    connection,
+                    arguments.expected_release_id,
+                    _runtime_hard_gate_check,
                 )
             else:
                 if arguments.expected_release_id is not None:

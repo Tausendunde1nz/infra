@@ -26,11 +26,13 @@ rotation, public health, product boundaries and the unchanged acquisition
 baseline are rechecked before and after the serialized promotion.
 
 The final evidence read occurs only after the controller has acquired the
-exclusive database barrier used by every Canary evidence writer. The gate then
-applies `CANARY_READY_FOR_PROMOTION` and `FULL_RELEASE` in that same database
-transaction. A failed immediate pre-promotion hard-gate recheck instead moves
-the active Canary directly to `CANARY_RED`; it can never leave a committed,
-active READY intermediate state.
+exclusive database barrier used by every Canary evidence writer. While that
+barrier remains held, a fixed read-only controller subcommand repeats every
+hard gate. The gate then applies `CANARY_READY_FOR_PROMOTION` and
+`FULL_RELEASE` in that same database transaction. A failed immediate or
+in-barrier hard-gate recheck rolls the transaction back and moves the active
+Canary directly to `CANARY_RED`; it can never leave a committed, active READY
+intermediate state.
 
 The controller does not reinterpret insufficient real volume as success. When
 the 24-hour horizon or ten-session cap arrives below the five-real-sample

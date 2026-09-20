@@ -135,7 +135,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
     def test_rollback_is_evidence_preserving_and_rejects_full(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         restore = source[source.index("restore_source() {"):source.index("deploy() {")]
-        self.assertIn('[[ "$current_state" != S11_FULL\\|* ]] || return 1', restore)
+        self.assertIn("S11_FULL\\|*) return 1", restore)
         self.assertNotIn("0033_commercial_s11_2_canary_bootstrap.down.sql", restore)
         self.assertIn("database_transition CANARY_RED", restore)
 
@@ -211,6 +211,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             result = MODULE.promote_under_barrier(
                 connection,
                 "s10-2d-r3-5",
+                lambda: True,
             )
         statements = [call[0] for call in connection.calls]
         self.assertIn("FOR UPDATE", statements[0])
@@ -223,6 +224,44 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             transitions,
             ["CANARY_READY_FOR_PROMOTION", "FULL_RELEASE"],
         )
+
+    def test_in_barrier_hard_gate_failure_prevents_every_transition(self):
+        class Result:
+            def __init__(self, row=None):
+                self.row = row
+
+            def fetchone(self):
+                return self.row
+
+        class Connection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, statement, parameters=None):
+                self.calls.append((statement, parameters))
+                if "target_release_id" in statement:
+                    return Result(("s10-2d-r3-5",))
+                return Result()
+
+        connection = Connection()
+        with self.assertRaisesRegex(ValueError, "S11_2_IN_BARRIER_HARD_GATE_RED"):
+            MODULE.promote_under_barrier(
+                connection,
+                "s10-2d-r3-5",
+                lambda: False,
+            )
+        self.assertEqual(len(connection.calls), 2)
+        self.assertFalse(
+            any("tu1nz_s11_2_transition_runtime_control" in call[0] for call in connection.calls)
+        )
+
+    def test_rollback_requires_an_explicit_readable_known_state(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        restore = source[source.index("restore_source() {"):source.index("deploy() {")]
+        self.assertNotIn("release_state 2>/dev/null || true", restore)
+        self.assertIn('if ! current_state="$(release_state 2>/dev/null)"; then', restore)
+        self.assertIn("S11_FULL\\|*) return 1", restore)
+        self.assertIn("*) return 1", restore)
 
     def test_frozen_release_and_manifest_contract(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -240,6 +279,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         service = SERVICE.read_text(encoding="utf-8")
         timer = TIMER.read_text(encoding="utf-8")
         self.assertIn("Type=oneshot", service)
+        self.assertIn("TimeoutStartSec=300", service)
         self.assertIn(
             "ExecStart=/usr/local/bin/tu1nz_adult_public_s11_2_control.sh observe",
             service,

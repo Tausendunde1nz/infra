@@ -599,8 +599,14 @@ restore_optional() {
 restore_source() {
   local backup_path="$1" target_control="$2" current_state
   require_backup "$backup_path" "$target_control" || return 1
-  current_state="$(release_state 2>/dev/null || true)"
-  [[ "$current_state" != S11_FULL\|* ]] || return 1
+  if ! current_state="$(release_state 2>/dev/null)"; then
+    return 1
+  fi
+  case "$current_state" in
+    S11_FULL\|*) return 1 ;;
+    S11_CANARY\|*|S11_DISABLED\|*) ;;
+    *) return 1 ;;
+  esac
   systemctl disable --now tu1nz-adult-public-s11-canary-controller.timer >/dev/null 2>&1 || true
   if [[ "$current_state" == S11_CANARY\|* ]]; then
     database_transition CANARY_RED S11_2_DEPLOYMENT_ROLLBACK || return 1
@@ -798,6 +804,11 @@ usage() {
 }
 
 case "${1:-}" in
+  hard-gates-read-only)
+    [ "$#" -eq 1 ] || usage
+    require_root
+    require_hard_gates
+    ;;
   preflight)
     [ "$#" -eq 3 ] || usage
     preflight "$2" "$3"
