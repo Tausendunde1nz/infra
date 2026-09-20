@@ -1,0 +1,56 @@
+{
+  "version": "tu1nz-commercial-s11-1-latency-provenance-v1",
+  "status": "SOURCE_REVIEWED_READY_TO_FREEZE",
+  "application_release": {
+    "commit": "ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc",
+    "tree": "1acc0300ca099bd57f2455753c0a2700867a68d5",
+    "pull_request": 115,
+    "post_merge_ci": 35509998343,
+    "tests": "1039_GREEN"
+  },
+  "control_release": {
+    "freeze_tag": "s11-1-latency-provenance-slo-freeze-r1"
+  },
+  "provenance": {
+    "classes": ["REAL", "INTERNAL_TEST", "SYNTHETIC", "HEALTH", "PROVIDER_PROBE", "UNKNOWN"],
+    "required_binding": ["evidence_class", "release_id", "run_id", "sample_type", "recorded_at", "interaction_path"],
+    "unknown_fail_closed": true,
+    "personal_data_recorded": false
+  },
+  "slo_contract": {
+    "states": ["GREEN", "RED", "INSUFFICIENT_EVIDENCE"],
+    "minimum_samples": 5,
+    "p50_limit_ms": 1000,
+    "p95_limit_ms": 2000,
+    "p99_limit_ms": 5000,
+    "maximum_limit_ms": null
+  },
+  "profiles": [
+    "TECHNICAL_RUNTIME_LATENCY",
+    "REAL_USER_DIRECT_LATENCY",
+    "COMMUNITY_JOIN_LATENCY",
+    "MODERATION_LATENCY"
+  ],
+  "deployment_gate": {
+    "profile": "REAL_USER_DIRECT_LATENCY",
+    "metric": "bot_response_latency_ms",
+    "allow_state": "GREEN",
+    "insufficient_blocks": true
+  },
+  "simulator": {
+    "entrypoint": "scripts/tu1nz_adult_public_s11_latency_slo.py --simulate-contract",
+    "required_cases": ["A", "B", "C", "D", "E", "F", "G_REAL", "G_TECHNICAL", "H"]
+  },
+  "historical_evidence": {
+    "rows_mutated": false,
+    "reconciliation": "evidence/commercial-s11-1-latency-provenance-reconciliation.json",
+    "current_fixture_result": "RED_UNKNOWN_PROVENANCE_FAIL_CLOSED"
+  },
+  "runtime_contract_deployment": {
+    "backup_required": true,
+    "s11_feature_enabled": false,
+    "s11_live_start": null,
+    "real_acquisition_preserved": true,
+    "baseline_reset": false
+  }
+}
