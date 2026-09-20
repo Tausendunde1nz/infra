@@ -144,3 +144,9 @@ Current Adult Publishing infrastructure decisions:
   `scripts/tu1nz_adult_s1_release_gate.py` and
   `systemd/tu1nz-adult-publishing-s1.service` are the fail-closed S1 Control
   artifacts. They authorize no live Telegram/X/Reddit publisher or real media.
+- `docs/COMMERCIAL_S11_2_CANARY_BOOTSTRAP.md`,
+  `manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json`, the
+  S11.2 gate/controller and its systemd timer define the backup-first,
+  first-ten, 24-hour Canary state machine. Five real and five technical samples
+  must independently satisfy the strict latency thresholds before guarded Full
+  promotion; insufficient evidence or any hard-gate failure terminates safely.

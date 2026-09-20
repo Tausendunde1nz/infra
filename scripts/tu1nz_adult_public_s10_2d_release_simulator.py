@@ -1247,7 +1247,10 @@ def simulate(application_root: Path, control_root: Path) -> dict[str, object]:
     _require(wms_unit, "--community-contract", "--runtime-release-id s10-2d-r3-5")
     _require(
         runtime,
-        "arguments.community_contract is not None and arguments.runtime_release_id is None",
+        "latency_runtime_requested = (",
+        "arguments.community_contract is not None",
+        "or arguments.experience_contract is not None",
+        "if latency_runtime_requested and arguments.runtime_release_id is None",
         "BOT_RUNTIME_CONTRACT_MISMATCH",
     )
     if "--community-contract" in source_dropin or "--runtime-release-id" in source_dropin:

@@ -1,0 +1,70 @@
+{
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v1",
+  "status": "SOURCE_READY_FOR_REVIEW",
+  "application_release": {
+    "commit": "d1c9aeba7d6f3cd692cd8127b565aea7234e13e8",
+    "tree": "9b931764246189938225406b7b592d0baf6a50d9",
+    "pull_request": 116,
+    "post_merge_ci": 35531091485,
+    "reviewed_head": "b70bcbe464d28c4f587b746a282a84380630cb05"
+  },
+  "control_release": {
+    "freeze_tag": "s11-2-canary-bootstrap-freeze-r1",
+    "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
+    "gate": "scripts/tu1nz_adult_public_s11_2_gate.py",
+    "timer": "tu1nz-adult-public-s11-canary-controller.timer",
+    "parallel_mutating_controller_allowed": false
+  },
+  "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
+  "canary_contract": {
+    "admission": "FIRST_10",
+    "session_cap": 10,
+    "evidence_epoch_hours": 24,
+    "epoch_immutable": true,
+    "release_binding_immutable": true,
+    "historical_unknown_preserved": true,
+    "new_unknown_fails_closed": true
+  },
+  "promotion_contract": {
+    "minimum_real_samples": 5,
+    "minimum_technical_samples": 5,
+    "p50_strictly_below_ms": 1000,
+    "p95_strictly_below_ms": 2000,
+    "p99_strictly_below_ms": 5000,
+    "technical_profile": "S11_CANARY_TECHNICAL_LATENCY",
+    "real_profile": "S11_CANARY_REAL_USER_LATENCY",
+    "insufficient_real_volume_is_terminal": true,
+    "hard_gates_required_before_and_after_promotion": true,
+    "hard_gates_rechecked_inside_writer_barrier": true,
+    "final_evidence_read_under_writer_barrier": true,
+    "ready_and_full_transitions_atomic": true
+  },
+  "deployment": {
+    "backup_first": true,
+    "database_dump_format": "custom",
+    "database_restore_list_verified": true,
+    "application_bundled": true,
+    "control_bundled": true,
+    "initial_feature_state": "S11_DISABLED",
+    "synthetic_journeys_before_canary": true,
+    "automatic_full_promotion": true,
+    "controller_remains_read_only_at_terminal_state": true,
+    "full_rollback_requires_separate_versioned_recovery": true
+  },
+  "preserved_runtime": {
+    "real_acquisition_active": true,
+    "real_acquisition_baseline": "2026-09-18T00:41:06.710027Z",
+    "runtime_release_id": "s10-2d-r3-5"
+  },
+  "closed_boundaries": [
+    "COMMUNITY_USER_CONTENT_PUBLISHING",
+    "ADULT_MEDIA",
+    "REAL_AVS",
+    "PAYMENTS",
+    "EXTERNAL_PUBLISHING",
+    "CONTROLLED_BETA",
+    "PRODUCTION"
+  ],
+  "human_acceptance": "DEFERRED",
+  "expected_post_deploy_state": "S11_CANARY_COLLECTING_EVIDENCE"
+}

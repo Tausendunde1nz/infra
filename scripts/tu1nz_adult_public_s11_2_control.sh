@@ -1,0 +1,836 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
+readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
+readonly DATABASE="tu1nz_adult_commercial_s3"
+readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
+readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"
+readonly SOURCE_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
+readonly SOURCE_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
+readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
+readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
+readonly TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"
+readonly TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r1"
+readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
+readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
+readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
+readonly EXPERIENCE_CONTRACT_SHA="faf4fe20887f7b9d7b31d8f35518db1dea2faa861c84acd791f9f0a739db425d"
+readonly EXPERIENCE_COPY_SHA="bd842016355f7efd7dfdceedbe89e6e7ea0c7ada09dfe5587b37ad4e42abc972"
+readonly SYNTHETIC_CONTRACT_SHA="2b9bffc4e485d825dd0e266183bd203fa5a31e876814d8ec2685ae4cc7544bfc"
+readonly MIGRATION_UP_SHA="97cca3f1a59ec125ef621cdb79ce85931682011ec88ad0b5f164617767f68e77"
+readonly MIGRATION_DOWN_SHA="4514d3b91dc3924b54116b216baa32896c7091ce4fd114dded62fbe6f1a1917b"
+readonly WMS_LANDING_COPY_SHA="86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"
+readonly EXPERIENCE_CONTRACT="/etc/tu1nz/adult-commercial-s11-interactive-experience.json"
+readonly EXPERIENCE_COPY="/etc/tu1nz/adult-commercial-s11-interactive-copy.json"
+readonly WMS_LANDING_COPY="/etc/tu1nz/adult-commercial-s10-wms-copy.json"
+readonly S8_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service"
+readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.service"
+readonly S8_HEALTH_SCRIPT="/usr/local/bin/tu1nz_adult_public_s8_health.py"
+readonly INSTALLED_CONTROLLER="/usr/local/bin/tu1nz_adult_public_s11_2_control.sh"
+readonly INSTALLED_GATE="/usr/local/bin/tu1nz_adult_public_s11_2_gate.py"
+readonly CONTROLLER_UNIT="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service"
+readonly CONTROLLER_TIMER="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.timer"
+readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
+readonly SERVICES=(
+  tu1nz-adult-public-s7.service
+  tu1nz-adult-public-s8-landing.service
+  tu1nz-adult-public-s8-telegram.service
+  tu1nz-adult-public-s10-wms.service
+  nginx.service
+)
+readonly TIMERS=(
+  tu1nz-adult-public-s8-health.timer
+  tu1nz-adult-public-s9-audience.timer
+  tu1nz-adult-public-s9-nurture.timer
+  tu1nz-adult-public-s9-report.timer
+  tu1nz-adult-public-s9-health.timer
+  tu1nz-adult-public-s10-health.timer
+)
+
+fail() {
+  printf '{"ok":false,"safe_code":"%s"}\n' "$1" >&2
+  return 2
+}
+
+require_root() {
+  [ "$(id -u)" -eq 0 ] || fail "S11_2_ROOT_REQUIRED"
+}
+
+acquire_lock() {
+  exec 9> /run/tu1nz-adult-public-s11-2-control.lock
+  flock -n 9 || fail "S11_2_CONTROL_ALREADY_RUNNING"
+}
+
+require_sha() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail "S11_2_SHA_INVALID"
+}
+
+require_backup_path() {
+  [[ "$1" =~ ^/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/[0-9]{8}T[0-9]{6}Z-predeploy$ ]] \
+    || fail "S11_2_BACKUP_PATH_INVALID"
+}
+
+git_chatops() {
+  local repository="$1"
+  shift
+  runuser -u chatops -- git -C "$repository" "$@"
+}
+
+remote_ref() {
+  git_chatops "$1" ls-remote origin "$2" | awk 'NR == 1 {print $1}'
+}
+
+require_clean_commit() {
+  local repository="$1" expected_commit="$2" expected_tree="$3" code="$4"
+  [ "$(git_chatops "$repository" rev-parse HEAD)" = "$expected_commit" ] \
+    || { fail "S11_2_${code}_COMMIT_DRIFT"; return 2; }
+  [ "$(git_chatops "$repository" rev-parse 'HEAD^{tree}')" = "$expected_tree" ] \
+    || { fail "S11_2_${code}_TREE_DRIFT"; return 2; }
+  [ -z "$(git_chatops "$repository" status --porcelain)" ] \
+    || { fail "S11_2_${code}_WORKTREE_DIRTY"; return 2; }
+}
+
+target_control_commit() {
+  git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${FINAL_CONTROL_TAG}^{commit}"
+}
+
+target_control_tree() {
+  git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${FINAL_CONTROL_TAG}^{commit}^{tree}"
+}
+
+require_remote_target() {
+  local target_control="$1"
+  [ "$(remote_ref "$APPLICATION_ROOT" refs/heads/main)" = "$TARGET_APPLICATION_COMMIT" ] \
+    || fail "S11_2_REMOTE_APPLICATION_DRIFT"
+  [ "$(remote_ref "$CONTROL_ROOT" "refs/tags/${FINAL_CONTROL_TAG}^{}")" = "$target_control" ] \
+    || fail "S11_2_REMOTE_FREEZE_DRIFT"
+}
+
+require_local_freeze() {
+  local target_control="$1" control_tree
+  [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${FINAL_CONTROL_TAG}")" = tag ] \
+    || { fail "S11_2_FREEZE_NOT_ANNOTATED"; return 2; }
+  [ "$(target_control_commit)" = "$target_control" ] \
+    || { fail "S11_2_FREEZE_COMMIT_DRIFT"; return 2; }
+  control_tree="$(target_control_tree)"
+  for binding in \
+    "application_commit=${TARGET_APPLICATION_COMMIT}" \
+    "application_tree=${TARGET_APPLICATION_TREE}" \
+    "control_commit=${target_control}" \
+    "control_tree=${control_tree}" \
+    "canary_contract=FIRST_10_24H_EPOCH_BOUND" \
+    "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN"
+  do
+    git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${FINAL_CONTROL_TAG}" \
+      | grep -Fqx "$binding" \
+      || { fail "S11_2_FREEZE_PROVENANCE_RED"; return 2; }
+  done
+}
+
+database_scalar() {
+  local statement="$1"
+  S11_DATABASE_DSN="$DATABASE_DSN" S11_STATEMENT="$statement" \
+    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
+import os
+from pathlib import Path
+import psycopg
+
+dsn = Path(os.environ["S11_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
+with psycopg.connect(dsn) as connection:
+    row = connection.execute(os.environ["S11_STATEMENT"]).fetchone()
+if row is None or len(row) != 1:
+    raise SystemExit(2)
+value = row[0]
+print("true" if value is True else "false" if value is False else value)
+PY
+}
+
+database_transition() {
+  local transition="$1" safe_code="$2"
+  [[ "$transition" =~ ^(START_CANARY|CANARY_READY_FOR_PROMOTION|FULL_RELEASE|CANARY_RED|CANARY_INSUFFICIENT_REAL_VOLUME)$ ]] \
+    || fail "S11_2_TRANSITION_INVALID"
+  [[ "$safe_code" =~ ^S11_2_[A-Z0-9_]{1,96}$ ]] || fail "S11_2_SAFE_CODE_INVALID"
+  runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --dbname="$DATABASE" \
+    --command="SELECT tu1nz_s11_2_transition_runtime_control('${RUNTIME_RELEASE_ID}','${transition}',clock_timestamp(),'${safe_code}');" \
+    >/dev/null
+}
+
+release_state() {
+  database_scalar "SELECT release_state||'|'||promotion_state FROM commercial_s11_runtime_control WHERE singleton;"
+}
+
+require_acquisition_state() {
+  [ "$(database_scalar "SELECT wms_real_acquisition_ready::text||'|'||to_char(real_acquisition_baseline_start AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM commercial_s10_2d_runtime_control WHERE singleton;")" = "true|${ACQUISITION_BASELINE}" ]
+}
+
+require_product_boundaries() {
+  [ "$(database_scalar "SELECT (NOT community_user_content_publishing_enabled AND NOT adult_media_enabled AND NOT real_avs_enabled AND NOT payments_enabled AND NOT external_publishing_enabled AND NOT controlled_beta_enabled AND NOT production_enabled)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ]
+}
+
+require_services_and_timers() {
+  local unit next_realtime next_monotonic
+  for unit in "${SERVICES[@]}"; do
+    [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] \
+      || { fail "S11_2_SERVICE_RED"; return 2; }
+    [ "$(systemctl show "$unit" -p NRestarts --value)" = 0 ] \
+      || { fail "S11_2_SERVICE_RESTART_RED"; return 2; }
+  done
+  for unit in "${TIMERS[@]}"; do
+    [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] \
+      || { fail "S11_2_TIMER_RED"; return 2; }
+    [ "$(systemctl is-enabled "$unit")" = enabled ] \
+      || { fail "S11_2_TIMER_DISABLED"; return 2; }
+    next_realtime="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
+    next_monotonic="$(systemctl show "$unit" -p NextElapseUSecMonotonic --value)"
+    if { [ -z "$next_realtime" ] || [ "$next_realtime" = n/a ]; } \
+      && { [ -z "$next_monotonic" ] || [ "$next_monotonic" = n/a ] || [ "$next_monotonic" = 0 ]; }; then
+      fail "S11_2_TIMER_FUTURE_RUN_MISSING"
+      return 2
+    fi
+  done
+}
+
+require_public_health() {
+  local path code
+  for path in / /privacy /terms /imprint; do
+    code="$(curl -sS --max-time 12 -o /dev/null -w '%{http_code}' "https://wantmeseen.com${path}")"
+    [ "$code" = 200 ] || { fail "S11_2_PUBLIC_ENDPOINT_RED"; return 2; }
+  done
+  [ "$(curl -sS --max-time 12 -o /dev/null -w '%{http_code}' https://wantmeseen.de/)" = 308 ] \
+    || { fail "S11_2_LEGACY_REDIRECT_RED"; return 2; }
+  curl -fsS --max-time 12 https://wantmeseen.com/health \
+    | /usr/bin/python3 -c \
+      'import json,sys;p=json.load(sys.stdin);raise SystemExit(0 if p.get("ok") is True and not any(p.get("forbidden_capabilities",{}).values()) else 1)' \
+    >/dev/null || { fail "S11_2_PUBLIC_HEALTH_RED"; return 2; }
+}
+
+require_poller_and_rotation() {
+  [ "$(database_scalar "SELECT count(*) FROM commercial_s10_2d_bot_polling_state WHERE release_id='${RUNTIME_RELEASE_ID}' AND lease_owner_id IS NOT NULL AND lease_expires_at>CURRENT_TIMESTAMP AND last_successful_poll_at>=CURRENT_TIMESTAMP-INTERVAL '90 seconds' AND last_event_path_code IN ('BOT_EVENT_PATH_GREEN','BOT_UPDATE_NOT_RECEIVED');")" = 1 ] \
+    || { fail "S11_2_POLLER_LEASE_RED"; return 2; }
+  [ "$(systemctl show tu1nz-adult-public-s10-2d-rotate.service -p Result --value)" = success ] \
+    || { fail "S11_2_PUBLICATION_ROTATION_RED"; return 2; }
+}
+
+require_hard_gates() {
+  require_acquisition_state \
+    || { fail "S11_2_ACQUISITION_STATE_RED"; return 2; }
+  require_product_boundaries \
+    || { fail "S11_2_PRODUCT_BOUNDARY_RED"; return 2; }
+  require_services_and_timers || return $?
+  require_poller_and_rotation || return $?
+  require_public_health || return $?
+}
+
+require_source_state() {
+  require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION
+  require_clean_commit "$CONTROL_ROOT" "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL
+  [ -f "$DATABASE_DSN" ] && [ ! -L "$DATABASE_DSN" ] || fail "S11_2_DATABASE_CREDENTIAL_RED"
+  [ -f "$AGGREGATE_STATE" ] && [ ! -L "$AGGREGATE_STATE" ] || fail "S11_2_AGGREGATE_STATE_RED"
+  [ "$(database_scalar "SELECT enabled::text||'|'||(live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = "false|true" ] \
+    || fail "S11_2_SOURCE_FEATURE_NOT_OFF"
+  require_hard_gates
+}
+
+preflight() {
+  local target_control="$1" backup_path="$2"
+  require_root
+  require_sha "$target_control"
+  require_backup_path "$backup_path"
+  [ ! -e "$backup_path" ] || fail "S11_2_BACKUP_ALREADY_EXISTS"
+  require_source_state
+  require_remote_target "$target_control"
+  printf '{"ok":true,"safe_code":"S11_2_PREFLIGHT_GREEN"}\n'
+}
+
+database_evidence() {
+  local destination="$1"
+  S11_DATABASE_DSN="$DATABASE_DSN" S11_DESTINATION="$destination" \
+    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
+import json
+import os
+from pathlib import Path
+import psycopg
+
+dsn = Path(os.environ["S11_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
+evidence = {}
+with psycopg.connect(dsn) as connection:
+    evidence["acquisition"] = connection.execute(
+        "SELECT wms_real_acquisition_ready,real_acquisition_baseline_start "
+        "FROM commercial_s10_2d_runtime_control WHERE singleton"
+    ).fetchone()
+    evidence["schema"] = connection.execute(
+        "SELECT table_name,column_name,data_type,is_nullable FROM information_schema.columns "
+        "WHERE table_schema='public' AND (table_name LIKE 'commercial_s8_%' "
+        "OR table_name LIKE 'commercial_s10_2d_%' OR table_name LIKE 'commercial_s11_%') "
+        "ORDER BY table_name,ordinal_position"
+    ).fetchall()
+    evidence["latency_counts"] = connection.execute(
+        "SELECT evidence_class,sample_type,interaction_path,count(*) "
+        "FROM commercial_s10_2d_latency_samples GROUP BY 1,2,3 ORDER BY 1,2,3"
+    ).fetchall()
+    s11_control_columns = {
+        row[0] for row in connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name='commercial_s11_runtime_control'"
+        ).fetchall()
+    }
+    evidence["s11_control_schema"] = sorted(s11_control_columns)
+    if "release_state" in s11_control_columns:
+        evidence["s11_control"] = connection.execute(
+            "SELECT enabled,live_start IS NOT NULL,release_state,canary_release_id,"
+            "canary_evidence_start,canary_live_start,full_live_start,canary_horizon_at,"
+            "canary_session_cap,promotion_state,community_user_content_publishing_enabled,"
+            "adult_media_enabled,real_avs_enabled,payments_enabled,external_publishing_enabled,"
+            "controlled_beta_enabled,production_enabled FROM commercial_s11_runtime_control "
+            "WHERE singleton"
+        ).fetchone()
+    else:
+        evidence["s11_control"] = connection.execute(
+            "SELECT enabled,live_start IS NOT NULL,catalog_version,state_machine_version,"
+            "community_user_content_publishing_enabled,adult_media_enabled,real_avs_enabled,"
+            "payments_enabled,external_publishing_enabled,controlled_beta_enabled,"
+            "production_enabled FROM commercial_s11_runtime_control WHERE singleton"
+        ).fetchone()
+    s11_session_columns = {
+        row[0] for row in connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name='commercial_s11_experience_sessions'"
+        ).fetchall()
+    }
+    if "admission_state" in s11_session_columns:
+        evidence["s11_sessions"] = connection.execute(
+            "SELECT COALESCE(admission_state,'UNADMITTED'),count(*) "
+            "FROM commercial_s11_experience_sessions GROUP BY 1 ORDER BY 1"
+        ).fetchall()
+    else:
+        evidence["s11_sessions"] = [
+            ["PRE_CANARY_SCHEMA", connection.execute(
+                "SELECT count(*) FROM commercial_s11_experience_sessions"
+            ).fetchone()[0]]
+        ]
+    evidence["s11_events"] = connection.execute(
+        "SELECT evidence_class,event_type,count(*) FROM commercial_s11_product_events "
+        "GROUP BY 1,2 ORDER BY 1,2"
+    ).fetchall()
+Path(os.environ["S11_DESTINATION"]).write_text(
+    json.dumps(evidence, default=str, sort_keys=True, separators=(",", ":")) + "\n",
+    encoding="ascii",
+)
+PY
+}
+
+backup_optional() {
+  local source="$1" destination="$2" absent="$3"
+  if [ -f "$source" ] && [ ! -L "$source" ]; then
+    install -m 0600 "$source" "$destination"
+  else
+    : > "$absent"
+  fi
+}
+
+backup_runtime() {
+  local backup_path="$1" target_control="$2" historical_unknown
+  install -d -o root -g root -m 0700 "$backup_path"
+  chmod 0700 "$backup_path"
+  chmod g-s "$backup_path"
+  git_chatops "$APPLICATION_ROOT" bundle create - HEAD > "$backup_path/application.bundle"
+  git_chatops "$CONTROL_ROOT" bundle create - HEAD > "$backup_path/control.bundle"
+  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null
+  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null
+  runuser -u postgres -- pg_dump --format=custom --no-owner --no-privileges --dbname="$DATABASE" \
+    > "$backup_path/database.dump"
+  pg_restore --list "$backup_path/database.dump" > "$backup_path/database.restore-list.txt"
+  [ -s "$backup_path/database.restore-list.txt" ] || fail "S11_2_DATABASE_BACKUP_RED"
+  backup_optional "$S8_UNIT" "$backup_path/s8-telegram.service" "$backup_path/S8_UNIT_ABSENT"
+  backup_optional "$S8_HEALTH_UNIT" "$backup_path/s8-health.service" "$backup_path/S8_HEALTH_UNIT_ABSENT"
+  backup_optional "$S8_HEALTH_SCRIPT" "$backup_path/s8-health.py" "$backup_path/S8_HEALTH_SCRIPT_ABSENT"
+  backup_optional "$EXPERIENCE_CONTRACT" "$backup_path/experience-contract.json" "$backup_path/EXPERIENCE_CONTRACT_ABSENT"
+  backup_optional "$EXPERIENCE_COPY" "$backup_path/experience-copy.json" "$backup_path/EXPERIENCE_COPY_ABSENT"
+  backup_optional "$WMS_LANDING_COPY" "$backup_path/wms-landing-copy.json" "$backup_path/WMS_LANDING_COPY_ABSENT"
+  backup_optional "$INSTALLED_CONTROLLER" "$backup_path/s11-2-control.sh" "$backup_path/S11_2_CONTROLLER_ABSENT"
+  backup_optional "$INSTALLED_GATE" "$backup_path/s11-2-gate.py" "$backup_path/S11_2_GATE_ABSENT"
+  backup_optional "$CONTROLLER_UNIT" "$backup_path/s11-2-controller.service" "$backup_path/S11_2_SERVICE_ABSENT"
+  backup_optional "$CONTROLLER_TIMER" "$backup_path/s11-2-controller.timer" "$backup_path/S11_2_TIMER_ABSENT"
+  install -m 0600 "$AGGREGATE_STATE" "$backup_path/landing-aggregates.exact"
+  systemctl show "${SERVICES[@]}" "${TIMERS[@]}" > "$backup_path/runtime-manifest.txt"
+  database_evidence "$backup_path/database-aggregate-and-schema.json"
+  historical_unknown="$(database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE evidence_class IN ('UNKNOWN','TECHNICAL_ACCEPTANCE') OR sample_type='UNKNOWN' OR interaction_path='UNKNOWN';")"
+  printf 'source_application_commit=%s\nsource_application_tree=%s\nsource_control_commit=%s\nsource_control_tree=%s\ntarget_application_commit=%s\ntarget_application_tree=%s\ntarget_control_commit=%s\nacquisition_baseline=%s\nhistorical_unknown_count=%s\nrestore_command=pg_restore --clean --if-exists --dbname=%s database.dump\n' \
+    "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" \
+    "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" \
+    "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" "$target_control" \
+    "$ACQUISITION_BASELINE" "$historical_unknown" "$DATABASE" > "$backup_path/provenance.txt"
+  : > "$backup_path/owners-and-modes.txt"
+  chmod -R go-rwx "$backup_path"
+  chmod 0700 "$backup_path"
+  chmod g-s "$backup_path"
+  find "$backup_path" -maxdepth 1 -type f -exec stat -c '%n|%U|%G|%a' {} + \
+    | sort > "$backup_path/owners-and-modes.txt"
+  (
+    cd "$backup_path"
+    find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+    sha256sum -c SHA256SUMS >/dev/null
+  )
+  printf '{"ok":true,"safe_code":"S11_2_RUNTIME_BACKUP_GREEN"}\n'
+}
+
+require_backup() {
+  local backup_path="$1" target_control="$2"
+  [ -d "$backup_path" ] && [ ! -L "$backup_path" ] || return 1
+  [ "$(stat -c '%U:%G:%a' "$backup_path")" = root:root:700 ] || return 1
+  grep -Fqx "source_application_commit=${SOURCE_APPLICATION_COMMIT}" "$backup_path/provenance.txt" || return 1
+  grep -Fqx "source_control_commit=${SOURCE_CONTROL_COMMIT}" "$backup_path/provenance.txt" || return 1
+  grep -Fqx "target_control_commit=${target_control}" "$backup_path/provenance.txt" || return 1
+  (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null) || return 1
+  git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null || return 1
+  git -c safe.directory="$CONTROL_ROOT" -C "$CONTROL_ROOT" bundle verify "$backup_path/control.bundle" >/dev/null || return 1
+  pg_restore --list "$backup_path/database.dump" >/dev/null || return 1
+}
+
+fetch_and_require_target() {
+  local target_control="$1" path expected actual
+  git_chatops "$APPLICATION_ROOT" fetch --quiet --no-tags origin main
+  git_chatops "$CONTROL_ROOT" fetch --quiet --no-tags origin control-main \
+    "refs/tags/${FINAL_CONTROL_TAG}:refs/tags/${FINAL_CONTROL_TAG}"
+  [ "$(git_chatops "$APPLICATION_ROOT" rev-parse origin/main)" = "$TARGET_APPLICATION_COMMIT" ] \
+    || fail "S11_2_FETCHED_APPLICATION_DRIFT"
+  [ "$(git_chatops "$APPLICATION_ROOT" rev-parse "${TARGET_APPLICATION_COMMIT}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
+    || fail "S11_2_TARGET_APPLICATION_TREE_DRIFT"
+  git_chatops "$CONTROL_ROOT" merge-base --is-ancestor "$target_control" origin/control-main \
+    || fail "S11_2_CONTROL_NOT_CANONICAL"
+  require_local_freeze "$target_control"
+  while read -r path expected; do
+    actual="$(git_chatops "$APPLICATION_ROOT" show "${TARGET_APPLICATION_COMMIT}:${path}" | sha256sum | awk '{print $1}')"
+    [ "$actual" = "$expected" ] || fail "S11_2_APPLICATION_ARTIFACT_DRIFT"
+  done <<EOF
+config/commercial-s11-interactive-experience.sfw.json ${EXPERIENCE_CONTRACT_SHA}
+config/commercial-s11-interactive-copy.v1.json ${EXPERIENCE_COPY_SHA}
+config/commercial-s11-synthetic-experience.v1.json ${SYNTHETIC_CONTRACT_SHA}
+migrations/0033_commercial_s11_2_canary_bootstrap.sql ${MIGRATION_UP_SHA}
+migrations/0033_commercial_s11_2_canary_bootstrap.down.sql ${MIGRATION_DOWN_SHA}
+config/commercial-s10-1-wms-copy.v1.json ${WMS_LANDING_COPY_SHA}
+EOF
+}
+
+install_from_git() {
+  local repository="$1" commit="$2" path="$3" mode="$4" destination="$5"
+  git_chatops "$repository" show "${commit}:${path}" \
+    | install -o root -g root -m "$mode" /dev/stdin "$destination"
+}
+
+apply_migration() {
+  local installed
+  installed="$(database_scalar "SELECT count(*)=6 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','full_live_start','promotion_state');")"
+  if [ "$installed" = true ]; then
+    [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] \
+      || fail "S11_2_EXISTING_CANARY_STATE_RED"
+    return 0
+  fi
+  runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --dbname="$DATABASE" \
+    < "$APPLICATION_ROOT/migrations/0033_commercial_s11_2_canary_bootstrap.sql" \
+    >/dev/null
+  [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] \
+    || fail "S11_2_MIGRATION_DEFAULT_NOT_OFF"
+}
+
+run_synthetic_journeys() {
+  local destination="$1"
+  "$APPLICATION_ROOT/.venv/bin/tu1nz-commercial-s11-experience-journey" \
+    --contract "$EXPERIENCE_CONTRACT" --copy "$EXPERIENCE_COPY" \
+    --release-id "$EXPERIENCE_RELEASE_ID" > "$destination"
+  /usr/bin/python3 - "$destination" <<'PY'
+import json
+import sys
+from pathlib import Path
+payload=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected=["A_COMPLETE","B_SAFER_COMPLETE","C_BOLDEST_SFW","D_SKIP_ALL","E_STOP_RETURN","F_SECOND_SESSION","G_EXISTING_WAITLIST","H_AGE_REJECTION"]
+if payload.get("ok") is not True or payload.get("journeys") != expected:
+    raise SystemExit(2)
+if any(payload.get(key) is not False for key in ("adult_media","real_avs","payments","publishing","community_user_content_publishing")):
+    raise SystemExit(2)
+PY
+}
+
+technical_latency_fixture() {
+  local destination="$1" values_file="$2" iteration start_ns end_ns elapsed_ms
+  : > "$values_file"
+  for iteration in 1 2 3 4 5; do
+    start_ns="$(date +%s%N)"
+    run_synthetic_journeys "${destination}.${iteration}.json"
+    end_ns="$(date +%s%N)"
+    elapsed_ms=$(( (end_ns - start_ns + 999999) / 1000000 ))
+    printf '%s\n' "$elapsed_ms" >> "$values_file"
+  done
+  /usr/bin/python3 - "$values_file" "$destination" <<'PY'
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+values=[int(value) for value in Path(sys.argv[1]).read_text().splitlines()]
+start=datetime.now(timezone.utc)-timedelta(seconds=1)
+payload={
+ "release_state":"S11_CANARY","promotion_state":"CANARY_COLLECTING_EVIDENCE",
+ "now":datetime.now(timezone.utc).isoformat(),"evidence_start":start.isoformat(),
+ "horizon_at":(start+timedelta(hours=24)).isoformat(),"session_cap":10,
+ "admitted_count":0,"technical_values_ms":values,"real_values_ms":[],
+ "new_unknown_count":0,"historical_unknown_count":0,"experience_sessions":0,
+ "product_event_count":0,"hard_gates_green":True,
+}
+Path(sys.argv[2]).write_text(json.dumps(payload,sort_keys=True,separators=(",",":"))+"\n")
+PY
+  "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" --input "$destination" \
+    | /usr/bin/python3 -c 'import json,sys;p=json.load(sys.stdin);raise SystemExit(0 if p["technical_latency"]["state"]=="GREEN" else 2)' \
+    || fail "S11_2_TECHNICAL_LATENCY_RED"
+}
+
+insert_technical_evidence() {
+  local values_file="$1" value
+  while read -r value; do
+    [[ "$value" =~ ^[0-9]+$ ]] || fail "S11_2_TECHNICAL_LATENCY_VALUE_RED"
+    runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --dbname="$DATABASE" --command="
+        INSERT INTO commercial_s10_2d_latency_samples (
+          sample_id,source,bot_response_latency_ms,poll_lag_ms,handler_duration_ms,
+          send_ack_ms,occurred_at,release_id,run_id,evidence_class,
+          cutover_started_at,sample_type,interaction_path
+        )
+        SELECT gen_random_uuid(),'DIRECT',${value},0,${value},0,clock_timestamp(),
+               target_release_id,technical_evidence_run_id,'INTERNAL_TEST',
+               cutover_started_at,'S11_CANARY_RESPONSE','INTERNAL_ACCEPTANCE'
+        FROM commercial_s10_2d_runtime_control
+        WHERE singleton AND target_release_id='${RUNTIME_RELEASE_ID}';" >/dev/null
+  done < "$values_file"
+}
+
+wait_runtime() {
+  local attempt
+  for attempt in {1..60}; do
+    if [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = active ] \
+      && [ "$(systemctl show "$S8_SERVICE" -p NRestarts --value)" = 0 ] \
+      && require_poller_and_rotation >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "S11_2_RUNTIME_READY_TIMEOUT"
+}
+
+run_runtime_health() {
+  local unit
+  for unit in \
+    tu1nz-adult-public-s8-health.service \
+    tu1nz-adult-public-s9-health.service \
+    tu1nz-adult-public-s10-health.service
+  do
+    systemctl start "$unit"
+    [ "$(systemctl show "$unit" -p Result --value)" = success ] \
+      || fail "S11_2_RUNTIME_HEALTH_RED"
+  done
+}
+
+gate_json() {
+  local hard="$1"
+  if [ "$hard" = true ]; then
+    "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" \
+      --dsn-file "$DATABASE_DSN" --hard-gates-green
+  else
+    "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN"
+  fi
+}
+
+promote_under_barrier_json() {
+  "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN" \
+    --promote-under-barrier --expected-release-id "$RUNTIME_RELEASE_ID"
+}
+
+gate_field() {
+  /usr/bin/python3 -c 'import json,sys;value=json.load(sys.stdin).get(sys.argv[1]);raise SystemExit(2) if value is None else print(value)' "$1"
+}
+
+verify_target() {
+  local target_control="$1" state technical historical_before historical_after next_realtime next_monotonic
+  require_clean_commit "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION
+  require_clean_commit "$CONTROL_ROOT" "$target_control" "$(target_control_tree)" TARGET_CONTROL
+  require_local_freeze "$target_control"
+  [ "$(sha256sum "$EXPERIENCE_CONTRACT" | awk '{print $1}')" = "$EXPERIENCE_CONTRACT_SHA" ] || fail "S11_2_INSTALLED_CONTRACT_DRIFT"
+  [ "$(sha256sum "$EXPERIENCE_COPY" | awk '{print $1}')" = "$EXPERIENCE_COPY_SHA" ] || fail "S11_2_INSTALLED_COPY_DRIFT"
+  [ "$(sha256sum "$WMS_LANDING_COPY" | awk '{print $1}')" = "$WMS_LANDING_COPY_SHA" ] || fail "S11_2_INSTALLED_LANDING_COPY_DRIFT"
+  cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_control.sh" "$INSTALLED_CONTROLLER" || fail "S11_2_INSTALLED_CONTROLLER_DRIFT"
+  cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_gate.py" "$INSTALLED_GATE" || fail "S11_2_INSTALLED_GATE_DRIFT"
+  cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.service" "$CONTROLLER_UNIT" || fail "S11_2_INSTALLED_SERVICE_DRIFT"
+  cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.timer" "$CONTROLLER_TIMER" || fail "S11_2_INSTALLED_TIMER_DRIFT"
+  state="$(release_state)"
+  case "$state" in
+    S11_CANARY\|CANARY_COLLECTING_EVIDENCE|S11_FULL\|FULL_RELEASE) ;;
+    *) fail "S11_2_RUNTIME_STATE_RED" ;;
+  esac
+  require_hard_gates
+  wait_runtime
+  technical="$(gate_json true | /usr/bin/python3 -c 'import json,sys;print(json.load(sys.stdin)["technical_latency"]["state"])')"
+  [ "$technical" = GREEN ] || fail "S11_2_TECHNICAL_LATENCY_RED"
+  historical_before="$(grep '^historical_unknown_count=' "$S11_2_BACKUP_PATH/provenance.txt" | cut -d= -f2)"
+  historical_after="$(database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE evidence_class IN ('UNKNOWN','TECHNICAL_ACCEPTANCE') OR sample_type='UNKNOWN' OR interaction_path='UNKNOWN';")"
+  [ "$historical_after" = "$historical_before" ] || fail "S11_2_HISTORICAL_UNKNOWN_MUTATED"
+  [ "$(systemctl is-enabled tu1nz-adult-public-s11-canary-controller.timer)" = enabled ] || fail "S11_2_CONTROLLER_TIMER_DISABLED"
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p ActiveState --value)" = active ] || fail "S11_2_CONTROLLER_TIMER_RED"
+  next_realtime="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p NextElapseUSecRealtime --value)"
+  next_monotonic="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p NextElapseUSecMonotonic --value)"
+  if { [ -z "$next_realtime" ] || [ "$next_realtime" = n/a ]; } \
+    && { [ -z "$next_monotonic" ] || [ "$next_monotonic" = n/a ] || [ "$next_monotonic" = 0 ]; }; then
+    fail "S11_2_CONTROLLER_FUTURE_RUN_MISSING"
+  fi
+  printf '{"ok":true,"safe_code":"S11_2_CANARY_RUNTIME_GREEN","state":"%s"}\n' "$state"
+}
+
+restore_optional() {
+  local backup_path="$1" stored="$2" absent="$3" destination="$4" mode="$5"
+  if [ -f "$backup_path/$absent" ]; then
+    rm -f -- "$destination"
+  else
+    install -o root -g root -m "$mode" "$backup_path/$stored" "$destination"
+  fi
+}
+
+restore_source() {
+  local backup_path="$1" target_control="$2" current_state
+  require_backup "$backup_path" "$target_control" || return 1
+  if ! current_state="$(release_state 2>/dev/null)"; then
+    return 1
+  fi
+  case "$current_state" in
+    S11_FULL\|*) return 1 ;;
+    S11_CANARY\|*|S11_DISABLED\|*) ;;
+    *) return 1 ;;
+  esac
+  systemctl disable --now tu1nz-adult-public-s11-canary-controller.timer >/dev/null 2>&1 || true
+  if [[ "$current_state" == S11_CANARY\|* ]]; then
+    database_transition CANARY_RED S11_2_DEPLOYMENT_ROLLBACK || return 1
+  fi
+  git_chatops "$APPLICATION_ROOT" switch --detach "$SOURCE_APPLICATION_COMMIT" >/dev/null || return 1
+  git_chatops "$CONTROL_ROOT" switch --detach "$SOURCE_CONTROL_COMMIT" >/dev/null || return 1
+  runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/python" -m pip install \
+    --no-deps --no-build-isolation "$APPLICATION_ROOT" >/dev/null || return 1
+  restore_optional "$backup_path" s8-telegram.service S8_UNIT_ABSENT "$S8_UNIT" 0644 || return 1
+  restore_optional "$backup_path" s8-health.service S8_HEALTH_UNIT_ABSENT "$S8_HEALTH_UNIT" 0644 || return 1
+  restore_optional "$backup_path" s8-health.py S8_HEALTH_SCRIPT_ABSENT "$S8_HEALTH_SCRIPT" 0755 || return 1
+  restore_optional "$backup_path" experience-contract.json EXPERIENCE_CONTRACT_ABSENT "$EXPERIENCE_CONTRACT" 0644 || return 1
+  restore_optional "$backup_path" experience-copy.json EXPERIENCE_COPY_ABSENT "$EXPERIENCE_COPY" 0644 || return 1
+  restore_optional "$backup_path" wms-landing-copy.json WMS_LANDING_COPY_ABSENT "$WMS_LANDING_COPY" 0644 || return 1
+  restore_optional "$backup_path" s11-2-control.sh S11_2_CONTROLLER_ABSENT "$INSTALLED_CONTROLLER" 0755 || return 1
+  restore_optional "$backup_path" s11-2-gate.py S11_2_GATE_ABSENT "$INSTALLED_GATE" 0755 || return 1
+  restore_optional "$backup_path" s11-2-controller.service S11_2_SERVICE_ABSENT "$CONTROLLER_UNIT" 0644 || return 1
+  restore_optional "$backup_path" s11-2-controller.timer S11_2_TIMER_ABSENT "$CONTROLLER_TIMER" 0644 || return 1
+  systemctl daemon-reload || return 1
+  systemctl restart "$S8_SERVICE" || return 1
+  systemctl restart tu1nz-adult-public-s10-wms.service || return 1
+  wait_runtime || return 1
+  require_acquisition_state || return 1
+  require_public_health || return 1
+}
+
+deploy() {
+  local target_control="$1" backup_path="$2" current_state
+  require_root
+  acquire_lock
+  preflight "$target_control" "$backup_path"
+  backup_runtime "$backup_path" "$target_control"
+  require_backup "$backup_path" "$target_control" || fail "S11_2_BACKUP_VERIFY_RED"
+  S11_2_ROLLBACK_ARMED=true
+  S11_2_BACKUP_PATH="$backup_path"
+  S11_2_TARGET_CONTROL="$target_control"
+  trap 'deployment_error' ERR
+
+  fetch_and_require_target "$target_control"
+  git_chatops "$APPLICATION_ROOT" switch --detach "$TARGET_APPLICATION_COMMIT" >/dev/null
+  git_chatops "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
+  runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/python" -m pip install \
+    --no-deps --no-build-isolation "$APPLICATION_ROOT" >/dev/null
+  install_from_git "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" config/commercial-s11-interactive-experience.sfw.json 0644 "$EXPERIENCE_CONTRACT"
+  install_from_git "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" config/commercial-s11-interactive-copy.v1.json 0644 "$EXPERIENCE_COPY"
+  install_from_git "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" config/commercial-s10-1-wms-copy.v1.json 0644 "$WMS_LANDING_COPY"
+  install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s8-telegram.service 0644 "$S8_UNIT"
+  install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s8-health.service 0644 "$S8_HEALTH_UNIT"
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s8_health.py 0755 "$S8_HEALTH_SCRIPT"
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_control.sh 0755 "$INSTALLED_CONTROLLER"
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_gate.py 0755 "$INSTALLED_GATE"
+  install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.service 0644 "$CONTROLLER_UNIT"
+  install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.timer 0644 "$CONTROLLER_TIMER"
+  apply_migration
+  [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_CODE_OFF_RED"
+  systemctl daemon-reload
+  systemctl restart "$S8_SERVICE"
+  systemctl restart tu1nz-adult-public-s10-wms.service
+  wait_runtime
+  run_runtime_health
+  run_synthetic_journeys "$backup_path/synthetic-journeys.json"
+  technical_latency_fixture "$backup_path/technical-latency-input.json" "$backup_path/technical-latency-values.txt"
+  require_hard_gates
+  database_transition START_CANARY S11_2_CANARY_BOOTSTRAP_LIVE
+  insert_technical_evidence "$backup_path/technical-latency-values.txt"
+  current_state="$(gate_json true | gate_field decision)"
+  [ "$current_state" = CANARY_COLLECTING_EVIDENCE ] || fail "S11_2_INITIAL_CANARY_STATE_RED"
+  systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
+  run_runtime_health
+  verify_target "$target_control"
+  install -d -o root -g root -m 0700 "$backup_path/postdeploy"
+  mv "$backup_path/synthetic-journeys.json" "$backup_path/postdeploy/synthetic-journeys.json"
+  mv "$backup_path"/synthetic-journeys.json.* "$backup_path/postdeploy/"
+  mv "$backup_path/technical-latency-input.json" "$backup_path/postdeploy/technical-latency-input.json"
+  mv "$backup_path/technical-latency-values.txt" "$backup_path/postdeploy/technical-latency-values.txt"
+  database_evidence "$backup_path/postdeploy/database-aggregate.json"
+  gate_json true > "$backup_path/postdeploy/canary-gate.json"
+  systemctl show "${SERVICES[@]}" "${TIMERS[@]}" tu1nz-adult-public-s11-canary-controller.timer \
+    > "$backup_path/postdeploy/runtime-manifest.txt"
+  chmod -R go-rwx "$backup_path/postdeploy"
+  (
+    cd "$backup_path/postdeploy"
+    find . -type f ! -name POSTDEPLOY_SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > POSTDEPLOY_SHA256SUMS
+    sha256sum -c POSTDEPLOY_SHA256SUMS >/dev/null
+  )
+  (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null)
+  trap - ERR
+  S11_2_ROLLBACK_ARMED=false
+  printf '{"ok":true,"safe_code":"S11_2_DEPLOYMENT_GREEN","canary_state":"CANARY_COLLECTING_EVIDENCE","human_acceptance":"DEFERRED"}\n'
+}
+
+deployment_error() {
+  local exit_status=$?
+  trap - ERR
+  if [ "${S11_2_ROLLBACK_ARMED:-false}" = true ] \
+    && restore_source "$S11_2_BACKUP_PATH" "$S11_2_TARGET_CONTROL"; then
+    printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLED_BACK"}\n' >&2
+  else
+    printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLBACK_RED"}\n' >&2
+  fi
+  exit "$exit_status"
+}
+
+observe() {
+  local target_control hard=true payload decision transition current_state
+  require_root
+  acquire_lock
+  current_state="$(release_state)"
+  if ! target_control="$(target_control_commit)" \
+    || ! require_clean_commit "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION \
+    || ! require_clean_commit "$CONTROL_ROOT" "$target_control" "$(target_control_tree)" TARGET_CONTROL \
+    || ! require_local_freeze "$target_control"; then
+    if [[ "$current_state" == S11_CANARY\|* ]]; then
+      database_transition CANARY_RED S11_2_REPOSITORY_INTEGRITY_RED
+      require_public_health
+      printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_REPOSITORY_INTEGRITY_RED"}\n' >&2
+    else
+      fail "S11_2_REPOSITORY_INTEGRITY_RED"
+    fi
+    return 2
+  fi
+  if ! require_hard_gates; then
+    hard=false
+  fi
+  if ! payload="$(gate_json "$hard")"; then
+    if [[ "$current_state" == S11_CANARY\|* ]]; then
+      database_transition CANARY_RED S11_2_GATE_READER_RED
+      printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_GATE_READER_RED"}\n' >&2
+    else
+      fail "S11_2_GATE_READER_RED"
+    fi
+    return 2
+  fi
+  decision="$(printf '%s\n' "$payload" | gate_field decision)"
+  transition="$(printf '%s\n' "$payload" | /usr/bin/python3 -c 'import json,sys;p=json.load(sys.stdin);print(p.get("transition") or "NONE")')"
+  case "$transition" in
+    NONE)
+      if [ "$hard" != true ]; then
+        fail "S11_2_TERMINAL_HARD_GATE_RED"
+      fi
+      printf '%s\n' "$payload"
+      ;;
+    CANARY_RED)
+      database_transition CANARY_RED S11_2_CANARY_FAIL_CLOSED
+      require_public_health
+      printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_RED","decision":"%s"}\n' "$decision"
+      ;;
+    CANARY_INSUFFICIENT_REAL_VOLUME)
+      database_transition CANARY_INSUFFICIENT_REAL_VOLUME S11_2_CANARY_INSUFFICIENT_REAL_VOLUME
+      require_public_health
+      printf '{"ok":true,"safe_code":"S11_2_CANARY_DISABLED_INSUFFICIENT_REAL_VOLUME"}\n'
+      ;;
+    PROMOTE_FULL)
+      [ "$hard" = true ] || fail "S11_2_PROMOTION_HARD_GATE_RED"
+      if ! require_hard_gates; then
+        database_transition CANARY_RED S11_2_PROMOTION_HARD_GATE_RED
+        require_public_health
+        printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_PROMOTION_HARD_GATE_RED"}\n' >&2
+        return 2
+      fi
+      if ! payload="$(promote_under_barrier_json)"; then
+        database_transition CANARY_RED S11_2_PROMOTION_BARRIER_RED
+        require_public_health
+        printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_PROMOTION_BARRIER_RED"}\n' >&2
+        return 2
+      fi
+      if ! require_hard_gates; then
+        fail "S11_2_POST_PROMOTION_HARD_GATE_RED"
+        return 2
+      fi
+      [ "$(release_state)" = "S11_FULL|FULL_RELEASE" ] || fail "S11_2_PROMOTION_STATE_RED"
+      printf '%s\n' "$payload"
+      ;;
+    *) fail "S11_2_GATE_TRANSITION_RED" ;;
+  esac
+}
+
+rollback() {
+  local backup_path="$1" target_control="$2"
+  require_root
+  acquire_lock
+  require_sha "$target_control"
+  require_backup_path "$backup_path"
+  restore_source "$backup_path" "$target_control" || fail "S11_2_ROLLBACK_RED"
+  printf '{"ok":true,"safe_code":"S11_2_ROLLBACK_GREEN"}\n'
+}
+
+usage() {
+  printf 'usage: %s preflight TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
+  printf '       %s deploy TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
+  printf '       %s observe\n' "$0" >&2
+  printf '       %s verify TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
+  printf '       %s rollback BACKUP_PATH TARGET_CONTROL\n' "$0" >&2
+  return 2
+}
+
+case "${1:-}" in
+  hard-gates-read-only)
+    [ "$#" -eq 1 ] || usage
+    require_root
+    require_hard_gates
+    ;;
+  preflight)
+    [ "$#" -eq 3 ] || usage
+    preflight "$2" "$3"
+    ;;
+  deploy)
+    [ "$#" -eq 3 ] || usage
+    deploy "$2" "$3"
+    ;;
+  observe)
+    [ "$#" -eq 1 ] || usage
+    observe
+    ;;
+  verify)
+    [ "$#" -eq 3 ] || usage
+    require_root
+    acquire_lock
+    S11_2_BACKUP_PATH="$3"
+    verify_target "$2"
+    ;;
+  rollback)
+    [ "$#" -eq 3 ] || usage
+    rollback "$2" "$3"
+    ;;
+  *) usage ;;
+esac

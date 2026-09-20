@@ -1,0 +1,13 @@
+[Unit]
+Description=Observe TU1NZ S11.2 Canary and promote or fail closed
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+AccuracySec=15s
+Persistent=true
+Unit=tu1nz-adult-public-s11-canary-controller.service
+
+[Install]
+WantedBy=timers.target

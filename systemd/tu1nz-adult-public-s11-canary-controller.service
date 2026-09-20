@@ -1,0 +1,30 @@
+[Unit]
+Description=TU1NZ S11.2 bounded Canary release controller
+After=network-online.target postgresql.service tu1nz-adult-public-s8-telegram.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=300
+User=root
+Group=root
+ExecStart=/usr/local/bin/tu1nz_adult_public_s11_2_control.sh observe
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
+ReadWritePaths=/run
+UMask=0077
