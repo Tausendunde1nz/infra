@@ -299,5 +299,11 @@
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh
 !scripts/tu1nz_adult_public_s10_2d_r7_aggregate_recovery.py
 !scripts/tu1nz_adult_public_s10_2d_state_reconcile.py
+!scripts/tu1nz_adult_public_s11_2_control.sh
+!scripts/tu1nz_adult_public_s11_2_gate.py
 !tests/test_adult_commercial_s10_2d_r8_1_state_reconciliation.py
+!tests/test_adult_commercial_s11_2_canary_bootstrap.py
 !manifests/adult-publishing-commercial-s10-2d-r8-1-retained-state-reconciliation.json
+!manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json
+!systemd/tu1nz-adult-public-s11-canary-controller.service
+!systemd/tu1nz-adult-public-s11-canary-controller.timer

@@ -785,3 +785,41 @@ jobs:
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP) PRIVATE KEY-----' -- "${files[@]}"
           ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
+      - name: Validate Commercial S11.2 Canary bootstrap Control SSOT
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json >/dev/null
+          && bash -n scripts/tu1nz_adult_public_s11_2_control.sh
+          && python3 -m py_compile
+          scripts/tu1nz_adult_public_s11_2_gate.py
+          tests/test_adult_commercial_s11_2_canary_bootstrap.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s11_2_canary_bootstrap
+          && python3 scripts/tu1nz_adult_public_s11_2_gate.py --simulate-contract
+      - name: Validate Commercial S11.2 Canary systemd controller
+        shell: bash
+        run: |
+          temporary_units="$(mktemp -d)"
+          cp systemd/tu1nz-adult-public-s11-canary-controller.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s11-canary-controller.timer "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s8-telegram.service "$temporary_units/"
+          sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service
+          systemd-analyze verify "$temporary_units"/*.service "$temporary_units"/*.timer
+      - name: Reject Commercial S11.2 secrets cron evidence mutation and boundary expansion
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json
+            docs/COMMERCIAL_S11_2_CANARY_BOOTSTRAP.md
+            scripts/tu1nz_adult_public_s11_2_control.sh
+            scripts/tu1nz_adult_public_s11_2_gate.py
+            systemd/tu1nz-adult-public-s11-canary-controller.service
+            systemd/tu1nz-adult-public-s11-canary-controller.timer
+            tests/test_adult_commercial_s11_2_canary_bootstrap.py
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP) PRIVATE KEY-----' -- "${files[@]}"
+          ! git grep -nEi '((^|[[:space:]])crontab([[:space:]]|$)|api\.x\.com|reddit\.com)' -- "${files[@]}"
+          ! git grep -nE '(DELETE FROM|UPDATE)[[:space:]]+commercial_s10_2d_latency_samples' -- \
+            scripts/tu1nz_adult_public_s11_2_control.sh \
+            scripts/tu1nz_adult_public_s11_2_gate.py
