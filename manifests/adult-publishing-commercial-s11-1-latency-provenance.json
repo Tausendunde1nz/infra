@@ -9,9 +9,11 @@
     "tests": "1039_GREEN"
   },
   "control_release": {
-    "freeze_tag": "s11-1-latency-provenance-slo-freeze-r2",
-    "supersedes_freeze_tag": "s11-1-latency-provenance-slo-freeze-r1",
-    "r1_runtime_status": "PREDEPLOY_BACKUP_MODE_FAIL_CLOSED_NO_RUNTIME_MUTATION"
+    "freeze_tag": "s11-1-latency-provenance-slo-freeze-r3",
+    "supersedes_freeze_tag": "s11-1-latency-provenance-slo-freeze-r2",
+    "r1_runtime_status": "PREDEPLOY_BACKUP_MODE_FAIL_CLOSED_NO_RUNTIME_MUTATION",
+    "r2_runtime_status": "BACKUP_AND_HEALTH_GREEN_FINAL_VERIFY_SYSTEM_PYTHON_BINDING_FAIL_CLOSED_ROLLED_BACK",
+    "reader_interpreter": "APPLICATION_VENV"
   },
   "provenance": {
     "classes": ["REAL", "INTERNAL_TEST", "SYNTHETIC", "HEALTH", "PROVIDER_PROBE", "UNKNOWN"],

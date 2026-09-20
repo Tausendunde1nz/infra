@@ -1,0 +1,42 @@
+# Commercial S11.1 r2 final-verify rollback diagnosis
+
+Date: 2026-09-20
+
+## Observed boundary
+
+- The r2 backup exists at the authorized immutable backup path with
+  `root:root:0700`; checksums and both Git bundles verify.
+- The provenance-aware S8 unit started and its health service completed with
+  `Result=success`.
+- The final contract verification failed closed and the controller restored
+  the exact clean source Application and Control commits.
+- S11 remained disabled with `live_start IS NULL`; real acquisition and its
+  baseline remained present; public services remained active with zero
+  restarts.
+- Migration 0032 is additive and remains present. Historical latency rows were
+  not modified or deleted.
+
+## Root cause
+
+The controller installed the SLO reader under `/usr/local/bin` and invoked it
+directly. Its `/usr/bin/env python3` shebang selected system Python. The server
+system Python does not provide `psycopg`; the frozen Application virtual
+environment does. Consequently the final JSON reader invocation terminated
+before returning a contract state and triggered the armed rollback.
+
+The same reader, reconciliation and database return the expected fail-closed
+`RED / UNKNOWN_PROVENANCE_FAIL_CLOSED` when invoked with the Application
+virtual environment. This proves the SLO contract was not the failure source.
+At diagnosis time the database contained twelve immutable legacy
+`TECHNICAL_ACCEPTANCE` rows; the additive columns correctly defaulted to
+`UNKNOWN`. The versioned reconciliation covers only the six previously proven
+rows, so the additional unresolved rows correctly keep the real-user profile
+fail-closed. No sample was relabelled or removed.
+
+## Versioned correction and rollback
+
+Bind both the S11.1 contract controller and the later S11 product controller
+to the frozen Application virtual-environment interpreter for every installed
+reader invocation. Add a static regression test. Do not install a system
+package and do not weaken the SLO. The existing r2 rollback and backup are the
+recovery path; r1 and r2 freezes remain immutable.

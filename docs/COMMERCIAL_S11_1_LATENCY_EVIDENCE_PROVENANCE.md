@@ -65,3 +65,19 @@ instead of the controller's required `0700`. The r2 controller explicitly sets
 `0700`, removes setgid, records owner/mode evidence, and verifies checksums and
 both Git bundles before arming rollback. The r1 freeze and its intact failed-run
 backup remain immutable evidence.
+
+## Runtime interpreter binding
+
+The r2 server attempt created and verified its backup, installed the frozen
+contract, started the provenance-aware S8 runtime, and completed the S8 health
+check. The final contract verification then failed closed and restored the
+clean source release. Root-cause evidence showed that the installed reader was
+invoked through its system-Python shebang while `psycopg` is intentionally
+available only in the frozen Application virtual environment. The reader
+contract itself remained valid and returned fail-closed `RED` when invoked with
+that environment.
+
+The r3 controllers therefore bind every runtime SLO-reader invocation to
+`/opt/tu1nz_repos/adult-publishing-core/.venv/bin/python`. No system package is
+installed, no evidence is rewritten, and the SLO thresholds or acceptance
+states are unchanged. The r2 backup and diagnosis remain immutable evidence.

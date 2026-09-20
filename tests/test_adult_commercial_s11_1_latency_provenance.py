@@ -141,6 +141,11 @@ class CommercialS111LatencyProvenanceTests(unittest.TestCase):
         self.assertEqual(manifest["slo_contract"]["minimum_samples"], 5)
         self.assertEqual(manifest["deployment_gate"]["profile"], "REAL_USER_DIRECT_LATENCY")
         self.assertEqual(manifest["deployment_gate"]["allow_state"], "GREEN")
+        self.assertEqual(
+            manifest["control_release"]["freeze_tag"],
+            "s11-1-latency-provenance-slo-freeze-r3",
+        )
+        self.assertEqual(manifest["control_release"]["reader_interpreter"], "APPLICATION_VENV")
         self.assertEqual(manifest["simulator"]["required_cases"], [
             "A", "B", "C", "D", "E", "F", "G_REAL", "G_TECHNICAL", "H",
         ])
@@ -152,7 +157,7 @@ class CommercialS111LatencyProvenanceTests(unittest.TestCase):
         for source in (contract, product):
             self.assertIn('TARGET_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"', source)
             self.assertIn('TARGET_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"', source)
-            self.assertIn('FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r2"', source)
+            self.assertIn('FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r3"', source)
         self.assertNotIn("__TARGET_APPLICATION_", contract)
 
     def test_product_deploy_starts_from_the_installed_frozen_contract(self):
@@ -172,6 +177,20 @@ class CommercialS111LatencyProvenanceTests(unittest.TestCase):
         self.assertIn('owners-and-modes.txt', backup)
         self.assertLess(backup.index('chmod 0700 "$backup_path"'), backup.index("SHA256SUMS"))
         self.assertLess(backup.index('chmod g-s "$backup_path"'), backup.index("SHA256SUMS"))
+
+    def test_runtime_reader_uses_application_venv_not_system_shebang(self):
+        contract = CONTROLLER.read_text(encoding="utf-8")
+        product = S11_CONTROLLER.read_text(encoding="utf-8")
+        self.assertGreaterEqual(
+            contract.count('"$APPLICATION_ROOT/.venv/bin/python" "$SLO_READER"'),
+            2,
+        )
+        self.assertIn(
+            '"$APPLICATION_ROOT/.venv/bin/python" "$S11_LATENCY_SLO_READER"',
+            product,
+        )
+        self.assertNotIn('\n  "$SLO_READER" --dsn-file', contract)
+        self.assertNotIn('\n  "$S11_LATENCY_SLO_READER" \\\n', product)
 
 
 if __name__ == "__main__":
