@@ -175,6 +175,11 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_MISSING", gates)
         self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_ENABLED", gates)
         self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_ACTIVE", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_SUBSTATE_RED", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_PATH_DRIFT", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_DROPIN_PRESENT", gates)
+        self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_UNIT_DRIFT", gates)
+        self.assertIn('cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER"', gates)
         runtime_health = source[
             source.index("run_runtime_health() {"):
             source.index("gate_json() {")

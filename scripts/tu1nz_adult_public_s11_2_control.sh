@@ -198,6 +198,15 @@ require_services_and_timers() {
     || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_ENABLED"; return 2; }
   [ "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p ActiveState --value)" = inactive ] \
     || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_ACTIVE"; return 2; }
+  [ "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p SubState --value)" = dead ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_SUBSTATE_RED"; return 2; }
+  [ "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p FragmentPath --value)" = "/etc/systemd/system/$RETIRED_S8_HEALTH_TIMER" ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_PATH_DRIFT"; return 2; }
+  [ -z "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p DropInPaths --value)" ] \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_DROPIN_PRESENT"; return 2; }
+  cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER" \
+    "/etc/systemd/system/$RETIRED_S8_HEALTH_TIMER" \
+    || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_UNIT_DRIFT"; return 2; }
 }
 
 require_public_health() {
