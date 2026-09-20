@@ -803,6 +803,8 @@ jobs:
           cp systemd/tu1nz-adult-public-s11-canary-controller.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s11-canary-controller.timer "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-telegram.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"
+          cp systemd/tu1nz-adult-public-s7.service "$temporary_units/"
           sed -i 's|^ExecStart=.*$|ExecStart=/bin/true|' "$temporary_units"/*.service
           systemd-analyze verify "$temporary_units"/*.service "$temporary_units"/*.timer
       - name: Reject Commercial S11.2 secrets cron evidence mutation and boundary expansion
