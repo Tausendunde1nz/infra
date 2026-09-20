@@ -6,13 +6,9 @@ readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"
-readonly SOURCE_APPLICATION_COMMIT="1d0dbb88603be49ea172178b77d86451036035a1"
-readonly SOURCE_APPLICATION_TREE="49f82e23ba16f06ddc27ef13e0b3f3643bc9da3e"
-readonly SOURCE_CONTROL_COMMIT="5f0b5878888a5d48317e28ce75a6f0f552d6a419"
-readonly SOURCE_CONTROL_TREE="6aebbeed942cd235a292dc8fcafcc29b6e2dab80"
-readonly TARGET_APPLICATION_COMMIT="65707b079183151cfe7ea508f9270c31389f2334"
-readonly TARGET_APPLICATION_TREE="79d60a5b8d791f65c0de06d0ae7861fb0d032ed4"
-readonly FINAL_CONTROL_TAG="s11-interactive-experience-mvp-freeze-r6"
+readonly TARGET_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
+readonly TARGET_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
+readonly FINAL_CONTROL_TAG="s11-1-latency-provenance-slo-freeze-r1"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly EXPERIENCE_RELEASE_ID="s11-interactive-experience-mvp-r1"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -27,6 +23,8 @@ readonly WMS_LANDING_COPY="/etc/tu1nz/adult-commercial-s10-wms-copy.json"
 readonly S8_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service"
 readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.service"
 readonly S8_HEALTH_SCRIPT="/usr/local/bin/tu1nz_adult_public_s8_health.py"
+readonly S11_LATENCY_SLO_READER="/usr/local/bin/tu1nz_adult_public_s11_latency_slo.py"
+readonly S11_LATENCY_RECONCILIATION="/etc/tu1nz/adult-commercial-s11-1-latency-provenance-reconciliation.json"
 readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
 readonly SERVICES=(
   tu1nz-adult-public-s7.service
@@ -145,12 +143,27 @@ require_acquisition_state() {
   [ "$state" = "true|${ACQUISITION_BASELINE}" ]
 }
 
+community_latency_slo_state() {
+  [ -x "$S11_LATENCY_SLO_READER" ] || fail "S11_LATENCY_SLO_READER_MISSING"
+  [ -f "$S11_LATENCY_RECONCILIATION" ] && [ ! -L "$S11_LATENCY_RECONCILIATION" ] \
+    || fail "S11_LATENCY_RECONCILIATION_MISSING"
+  "$S11_LATENCY_SLO_READER" \
+    --dsn-file "$DATABASE_DSN" \
+    --reconciliation "$S11_LATENCY_RECONCILIATION" \
+    --profile REAL_USER_DIRECT_LATENCY \
+    | /usr/bin/python3 -c \
+      'import json,sys; value=json.load(sys.stdin).get("state"); raise SystemExit(2) if value not in {"GREEN","RED","INSUFFICIENT_EVIDENCE"} else print(value)'
+}
+
 require_community_latency_slo() {
-  local healthy
-  healthy="$(database_scalar \
-    "WITH recent AS (SELECT bot_response_latency_ms FROM commercial_s10_2d_latency_samples WHERE occurred_at>=CURRENT_TIMESTAMP-INTERVAL '24 hours'), aggregate AS (SELECT count(*) AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY bot_response_latency_ms) AS p50, percentile_cont(0.95) WITHIN GROUP (ORDER BY bot_response_latency_ms) AS p95, percentile_cont(0.99) WITHIN GROUP (ORDER BY bot_response_latency_ms) AS p99 FROM recent) SELECT (samples<5 OR (p50<1000 AND p95<2000 AND p99<5000)) FROM aggregate;")" \
-    || return 1
-  [ "$healthy" = true ]
+  local state
+  state="$(community_latency_slo_state)" || fail "S11_COMMUNITY_LATENCY_SLO_READER_RED"
+  case "$state" in
+    GREEN) return 0 ;;
+    RED) fail "S11_COMMUNITY_LATENCY_SLO_RED" ;;
+    INSUFFICIENT_EVIDENCE) fail "S11_COMMUNITY_LATENCY_SLO_INSUFFICIENT_EVIDENCE" ;;
+    *) fail "S11_COMMUNITY_LATENCY_SLO_READER_RED" ;;
+  esac
 }
 
 require_services_and_timers() {
@@ -190,13 +203,15 @@ require_public_health() {
 }
 
 require_source_state() {
-  local source_application="$1" source_control="$2"
-  [ "$source_application" = "$SOURCE_APPLICATION_COMMIT" ] \
+  local source_application="$1" source_control="$2" target_control="$3" source_control_tree
+  [ "$source_application" = "$TARGET_APPLICATION_COMMIT" ] \
     || fail "S11_SOURCE_APPLICATION_ARGUMENT_DRIFT"
-  [ "$source_control" = "$SOURCE_CONTROL_COMMIT" ] \
+  [ "$source_control" = "$target_control" ] \
     || fail "S11_SOURCE_CONTROL_ARGUMENT_DRIFT"
-  require_clean_commit "$APPLICATION_ROOT" "$source_application" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION
-  require_clean_commit "$CONTROL_ROOT" "$source_control" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL
+  source_control_tree="$(git_chatops "$CONTROL_ROOT" rev-parse "${source_control}^{tree}")" \
+    || fail "S11_SOURCE_CONTROL_TREE_UNRESOLVED"
+  require_clean_commit "$APPLICATION_ROOT" "$source_application" "$TARGET_APPLICATION_TREE" SOURCE_APPLICATION
+  require_clean_commit "$CONTROL_ROOT" "$source_control" "$source_control_tree" SOURCE_CONTROL
   [ -f "$DATABASE_DSN" ] && [ ! -L "$DATABASE_DSN" ] || fail "S11_DATABASE_CREDENTIAL_RED"
   [ -f "$AGGREGATE_STATE" ] && [ ! -L "$AGGREGATE_STATE" ] || fail "S11_AGGREGATE_STATE_RED"
   [ ! -e "$EXPERIENCE_CONTRACT" ] && [ ! -L "$EXPERIENCE_CONTRACT" ] \
@@ -205,7 +220,7 @@ require_source_state() {
     || fail "S11_SOURCE_COPY_ALREADY_PRESENT"
   require_s11_schema_absent_or_disabled
   require_acquisition_state || fail "S11_ACQUISITION_STATE_RED"
-  require_community_latency_slo || fail "S11_COMMUNITY_LATENCY_SLO_RED"
+  require_community_latency_slo
   require_services_and_timers
   require_public_health
 }
@@ -238,7 +253,7 @@ preflight() {
   require_sha "$target_control"
   require_backup_path "$backup_path"
   [ ! -e "$backup_path" ] || fail "S11_BACKUP_ALREADY_EXISTS"
-  require_source_state "$source_application" "$source_control"
+  require_source_state "$source_application" "$source_control" "$target_control"
   require_remote_release "$target_control"
   printf '{"ok":true,"safe_code":"S11_PREFLIGHT_GREEN"}\n'
 }
@@ -296,7 +311,8 @@ PY
 }
 
 backup_runtime() {
-  local backup_path="$1" source_application="$2" source_control="$3"
+  local backup_path="$1" source_application="$2" source_control="$3" source_control_tree
+  source_control_tree="$(git_chatops "$CONTROL_ROOT" rev-parse "${source_control}^{tree}")"
   install -d -o root -g root -m 0700 "$backup_path"
   git_chatops "$APPLICATION_ROOT" bundle create - HEAD > "$backup_path/application.bundle"
   git_chatops "$CONTROL_ROOT" bundle create - HEAD > "$backup_path/control.bundle"
@@ -314,7 +330,7 @@ backup_runtime() {
   systemctl show "${SERVICES[@]}" "${TIMERS[@]}" > "$backup_path/runtime-manifest.txt"
   database_evidence "$backup_path/database-aggregate-and-schema.json"
   printf 'application_commit=%s\napplication_tree=%s\ncontrol_commit=%s\ncontrol_tree=%s\nacquisition_baseline=%s\n' \
-    "$source_application" "$SOURCE_APPLICATION_TREE" "$source_control" "$SOURCE_CONTROL_TREE" \
+    "$source_application" "$TARGET_APPLICATION_TREE" "$source_control" "$source_control_tree" \
     "$ACQUISITION_BASELINE" > "$backup_path/provenance.txt"
   : > "$backup_path/owners-and-modes.txt"
   chmod -R go-rwx "$backup_path"
@@ -513,8 +529,9 @@ restore_source() {
   systemctl restart "$S8_SERVICE" || return 1
   systemctl restart tu1nz-adult-public-s10-wms.service || return 1
   wait_runtime || return 1
-  require_clean_commit "$APPLICATION_ROOT" "$source_application" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION || return 1
-  require_clean_commit "$CONTROL_ROOT" "$source_control" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL || return 1
+  require_clean_commit "$APPLICATION_ROOT" "$source_application" "$TARGET_APPLICATION_TREE" SOURCE_APPLICATION || return 1
+  require_clean_commit "$CONTROL_ROOT" "$source_control" \
+    "$(git_chatops "$CONTROL_ROOT" rev-parse "${source_control}^{tree}")" SOURCE_CONTROL || return 1
   require_acquisition_state || return 1
   require_services_and_timers || return 1
   require_public_health || return 1

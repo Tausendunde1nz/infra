@@ -235,12 +235,9 @@ class CommercialS11InteractiveExperienceControlTests(unittest.TestCase):
             self.controller.index("require_services_and_timers() {")
         ]
         self.assertIn("require_community_latency_slo", preflight)
-        self.assertIn("S11_COMMUNITY_LATENCY_SLO_RED", preflight)
-        self.assertIn("commercial_s10_2d_latency_samples", latency)
-        self.assertIn("samples<5", latency)
-        self.assertIn("p50<1000", latency)
-        self.assertIn("p95<2000", latency)
-        self.assertIn("p99<5000", latency)
+        self.assertIn("S11_COMMUNITY_LATENCY_SLO_RED", latency)
+        self.assertIn("S11_COMMUNITY_LATENCY_SLO_INSUFFICIENT_EVIDENCE", latency)
+        self.assertNotIn("samples<5", latency)
         self.assertNotIn("DELETE", latency)
         self.assertNotIn("UPDATE", latency)
 

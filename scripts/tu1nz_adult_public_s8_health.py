@@ -59,6 +59,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--experience-contract", type=Path)
     parser.add_argument("--experience-copy", type=Path)
     parser.add_argument("--runtime-release-id")
+    parser.add_argument(
+        "--latency-evidence-class",
+        choices=("REAL", "INTERNAL_TEST", "SYNTHETIC", "HEALTH", "PROVIDER_PROBE"),
+        required=True,
+    )
     parser.add_argument("--mode", choices=("prestart", "runtime"), required=True)
     return parser
 
@@ -256,6 +261,7 @@ def main() -> int:
         ])
     if arguments.runtime_release_id is not None:
         command.extend(["--runtime-release-id", arguments.runtime_release_id])
+    command.extend(["--latency-evidence-class", arguments.latency_evidence_class])
     try:
         completed = subprocess.run(
             command,

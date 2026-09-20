@@ -1,0 +1,61 @@
+{
+  "version": "tu1nz-commercial-s11-1-latency-provenance-reconciliation-v1",
+  "original_rows_mutated": false,
+  "release_id": "s10-2d-r3-5",
+  "assertions": [
+    {
+      "source": "DIRECT",
+      "recorded_at": "2026-09-19T15:35:54.463991Z",
+      "bot_response_latency_ms": 464,
+      "evidence_class": "UNKNOWN",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": "UNKNOWN",
+      "proof": "LEGACY_ORIGIN_NOT_PROVEN"
+    },
+    {
+      "source": "DIRECT",
+      "recorded_at": "2026-09-19T15:35:57.796959Z",
+      "bot_response_latency_ms": 797,
+      "evidence_class": "UNKNOWN",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": "UNKNOWN",
+      "proof": "LEGACY_ORIGIN_NOT_PROVEN"
+    },
+    {
+      "source": "DIRECT",
+      "recorded_at": "2026-09-19T15:36:29.079489Z",
+      "bot_response_latency_ms": 19079,
+      "evidence_class": "UNKNOWN",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": "UNKNOWN",
+      "proof": "LEGACY_ORIGIN_NOT_PROVEN"
+    },
+    {
+      "source": "DIRECT",
+      "recorded_at": "2026-09-20T10:17:11.687389Z",
+      "bot_response_latency_ms": 687,
+      "evidence_class": "REAL",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": "TELEGRAM_DIRECT",
+      "proof": "REAL_EXTERNAL_TELEGRAM_INTERACTION_CONFIRMED"
+    },
+    {
+      "source": "DIRECT",
+      "recorded_at": "2026-09-20T10:17:21.422611Z",
+      "bot_response_latency_ms": 423,
+      "evidence_class": "REAL",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": "TELEGRAM_DIRECT",
+      "proof": "REAL_EXTERNAL_TELEGRAM_INTERACTION_CONFIRMED"
+    },
+    {
+      "source": "DIRECT",
+      "recorded_at": "2026-09-20T10:17:31.358575Z",
+      "bot_response_latency_ms": 359,
+      "evidence_class": "REAL",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": "TELEGRAM_DIRECT",
+      "proof": "REAL_EXTERNAL_TELEGRAM_INTERACTION_CONFIRMED"
+    }
+  ]
+}

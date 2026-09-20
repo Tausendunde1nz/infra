@@ -1,5 +1,5 @@
 [Unit]
-Description=TU1NZ Adult Publishing S8 public Telegram Early Access
+Description=TU1NZ Adult Publishing S8 public Telegram with S11.1 provenance
 After=network-online.target postgresql.service tu1nz-adult-public-s7.service tu1nz-adult-public-s8-landing.service
 Requires=tu1nz-adult-public-s8-landing.service
 Wants=network-online.target
@@ -13,7 +13,7 @@ Group=chatops
 WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
 LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.token
 LoadCredential=s8_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
-ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s8-telegram --contract /etc/tu1nz/adult-commercial-s8-public-telegram.json --copy /etc/tu1nz/adult-commercial-s8-copy.json --telegram-token %d/s8_telegram_token --database-dsn %d/s8_database_dsn --community-contract /etc/tu1nz/adult-commercial-s10-2d-community.json --community-copy /etc/tu1nz/adult-commercial-s10-2d-community-copy.json --experience-contract /etc/tu1nz/adult-commercial-s11-interactive-experience.json --experience-copy /etc/tu1nz/adult-commercial-s11-interactive-copy.json --runtime-release-id s10-2d-r3-5 --latency-evidence-class REAL
+ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s8-telegram --contract /etc/tu1nz/adult-commercial-s8-public-telegram.json --copy /etc/tu1nz/adult-commercial-s8-copy.json --telegram-token %d/s8_telegram_token --database-dsn %d/s8_database_dsn --community-contract /etc/tu1nz/adult-commercial-s10-2d-community.json --community-copy /etc/tu1nz/adult-commercial-s10-2d-community-copy.json --runtime-release-id s10-2d-r3-5 --latency-evidence-class REAL
 Restart=on-failure
 RestartPreventExitStatus=2
 RestartSec=15s
