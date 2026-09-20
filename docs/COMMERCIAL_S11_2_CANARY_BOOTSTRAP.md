@@ -25,6 +25,13 @@ Operational health, timer liveness, the single Poller lease, publication
 rotation, public health, product boundaries and the unchanged acquisition
 baseline are rechecked before and after the serialized promotion.
 
+The historically retired S8 recurring health timer is a protected runtime
+invariant: its reviewed unit remains loaded but the timer stays disabled and
+inactive after S9/S10 assumed recurring health responsibility. S11.2 requires
+the active S9/S10 timers to have future runs and executes the retained S8
+health service only as an explicit one-shot deployment gate. It never
+reactivates duplicate S8 recurring monitoring.
+
 The final evidence read occurs only after the controller has acquired the
 exclusive database barrier used by every Canary evidence writer. While that
 barrier remains held, a fixed read-only controller subcommand repeats every
