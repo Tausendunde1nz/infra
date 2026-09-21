@@ -349,6 +349,16 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
 
     def test_p0_recovery_is_exact_backup_first_and_does_not_retry_canary(self):
         source = P0_RECOVERY.read_text(encoding="utf-8")
+        controller = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn(
+            "exec 9> /run/tu1nz-adult-public-s11-2-control.lock",
+            source,
+        )
+        self.assertIn(
+            "exec 9> /run/tu1nz-adult-public-s11-2-control.lock",
+            controller,
+        )
+        self.assertNotIn("s11-2-p0-recovery.lock", source)
         recover = source[source.index("recover() {"):source.index("usage() {")]
         self.assertLess(recover.index("preflight"), recover.index("backup_runtime"))
         self.assertLess(recover.index("require_backup"), recover.index("install -o root"))

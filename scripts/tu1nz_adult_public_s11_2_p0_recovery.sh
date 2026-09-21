@@ -49,7 +49,7 @@ require_root() {
 }
 
 acquire_lock() {
-  exec 9> /run/tu1nz-adult-public-s11-2-p0-recovery.lock
+  exec 9> /run/tu1nz-adult-public-s11-2-control.lock
   flock -n 9 || fail "S11_2_P0_RECOVERY_ALREADY_RUNNING"
 }
 
