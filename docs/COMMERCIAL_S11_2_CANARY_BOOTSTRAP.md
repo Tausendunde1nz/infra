@@ -86,7 +86,7 @@ commit and its independently backed-up copy, and that pair failed closed with
 `S10_PUBLIC_COPY_KEYS_INVALID_EN`. Git returned cleanly while public WMS became
 unavailable.
 
-Freeze r3 adds a read-only WMS construction probe to both deployment preflight
+Freeze r3 added a read-only WMS construction probe to both deployment preflight
 and the rollback path before any service restart. The backup now also binds the
 base WMS, bot, community, aggregate and traffic-quality inputs needed to prove
 the runtime tuple.
@@ -102,3 +102,11 @@ cannot deliberately reintroduce the known 502 state.
 
 This recovery restores S10.2F availability only. It does not retry the Canary,
 promote S11 or authorize a second S11.2 deployment.
+
+The first P0 recovery execution completed its second backup and checksum
+verification but stopped before mutation because the setgid backup parent made
+the root-owned directory inherit mode 2700. Although group and other had no
+access, the exact contract requires root:root 0700. Freeze r4 explicitly
+removes inherited setgid, verifies exact 0700 before the first backup write and
+rechecks it after permission hardening. The completed r3 backup remains
+immutable, and r4 retains the same public-WMS-only boundary.

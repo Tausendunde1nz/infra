@@ -328,7 +328,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
         self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r3"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r4"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
@@ -346,6 +346,13 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             manifest["rollback_compatibility"]["p0_recovery_target"],
             "PUBLIC_WMS_ONLY",
         )
+        self.assertEqual(
+            manifest["rollback_compatibility"]["backup_directory_exact_mode"],
+            "root:root:0700",
+        )
+        self.assertTrue(
+            manifest["rollback_compatibility"]["inherited_setgid_removed_before_backup"]
+        )
 
     def test_p0_recovery_is_exact_backup_first_and_does_not_retry_canary(self):
         source = P0_RECOVERY.read_text(encoding="utf-8")
@@ -359,6 +366,12 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             controller,
         )
         self.assertNotIn("s11-2-p0-recovery.lock", source)
+        backup = source[source.index("backup_runtime() {"):source.index("require_backup() {")]
+        self.assertLess(backup.index('chmod g-s "$backup_path"'), backup.index("application.bundle"))
+        self.assertGreaterEqual(backup.count('chmod g-s "$backup_path"'), 2)
+        self.assertIn("S11_2_P0_BACKUP_MODE_NORMALIZATION_RED", backup)
+        self.assertIn("root:root:700", backup)
+        self.assertNotIn("root:root:2700", backup)
         recover = source[source.index("recover() {"):source.index("usage() {")]
         self.assertLess(recover.index("preflight"), recover.index("backup_runtime"))
         self.assertLess(recover.index("require_backup"), recover.index("install -o root"))
