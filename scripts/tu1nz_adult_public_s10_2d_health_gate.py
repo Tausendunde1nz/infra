@@ -11,6 +11,11 @@ import time
 from dataclasses import dataclass
 from typing import Protocol
 
+try:
+    from scripts.tu1nz_adult_public_community_health_contract import normalize_report
+except ModuleNotFoundError:  # direct execution from /usr/local/bin
+    from tu1nz_adult_public_community_health_contract import normalize_report
+
 
 HEALTH_UNITS = (
     "tu1nz-adult-public-s8-health.service",
@@ -67,6 +72,8 @@ class HealthGateClient(Protocol):
 
     def show(self, unit: str, property_name: str) -> str: ...
 
+    def safe_report(self, unit: str) -> dict[str, object] | None: ...
+
 
 @dataclass(frozen=True)
 class HealthGateFailure(Exception):
@@ -76,8 +83,13 @@ class HealthGateFailure(Exception):
 class SystemctlClient:
     """Bounded adapter for the three systemd operations used by the gate."""
 
-    def __init__(self, executable: str = "/usr/bin/systemctl") -> None:
+    def __init__(
+        self,
+        executable: str = "/usr/bin/systemctl",
+        journal_executable: str = "/usr/bin/journalctl",
+    ) -> None:
         self.executable = executable
+        self.journal_executable = journal_executable
 
     def _run(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -99,6 +111,37 @@ class SystemctlClient:
         completed = self._run("show", unit, "-p", property_name, "--value")
         return completed.stdout.strip() if completed.returncode == 0 else ""
 
+    def safe_report(self, unit: str) -> dict[str, object] | None:
+        invocation_id = self.show(unit, "InvocationID")
+        if len(invocation_id) != 32 or any(value not in "0123456789abcdef" for value in invocation_id.lower()):
+            return None
+        completed = subprocess.run(
+            [
+                self.journal_executable,
+                "--no-pager",
+                "-o",
+                "cat",
+                "-n",
+                "20",
+                f"_SYSTEMD_INVOCATION_ID={invocation_id}",
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        if completed.returncode != 0 or len(completed.stdout.encode("utf-8")) > 64 * 1024:
+            return None
+        for line in reversed(completed.stdout.splitlines()):
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and payload.get("ok") is False:
+                return payload
+        return None
+
 
 def _bounded_result(value: str) -> str:
     return value if value in _ALLOWED_RESULTS else "unknown"
@@ -119,6 +162,7 @@ def _failure_report(
     result: str,
     exit_status: int | None,
     elapsed_ms: int,
+    child_report: dict[str, object] | None = None,
 ) -> dict[str, object]:
     unit_stage = _UNIT_STAGE[unit]
     check_suffix, reason_suffix = _EXIT_CHECKS.get(
@@ -133,6 +177,11 @@ def _failure_report(
         else f"SYSTEMCTL_START_EXIT_{max(0, min(start_status, 255))}"
     )
     bounded_result = _bounded_result(result)
+    child_failure = (
+        normalize_report(child_report)
+        if unit == HEALTH_UNITS[1] and exit_status in {40, 41, 42, 43, 44}
+        else None
+    )
     fingerprint_input = {
         "actual_state": actual_state,
         "check_id": check_id,
@@ -140,11 +189,13 @@ def _failure_report(
         "expected_state": EXPECTED_STATE,
         "result": bounded_result,
         "stage": "HEALTH_GATE_START",
+        "child_code": None if child_failure is None else child_failure.child_code,
+        "outer_code": None if child_failure is None else child_failure.outer_code,
     }
     fingerprint = hashlib.sha256(
         json.dumps(fingerprint_input, sort_keys=True, separators=(",", ":")).encode("ascii")
     ).hexdigest()
-    return {
+    report: dict[str, object] = {
         "actual_state": actual_state,
         "check_id": check_id,
         "elapsed_ms": max(0, min(elapsed_ms, MAXIMUM_REPORTED_ELAPSED_MS)),
@@ -156,6 +207,16 @@ def _failure_report(
         "safe_code": safe_code,
         "stage": "HEALTH_GATE_START",
     }
+    if child_failure is not None:
+        report.update({
+            "child_code": child_failure.child_code,
+            "component": child_failure.component,
+            "decision_class": child_failure.decision_class,
+            "next_action": child_failure.next_action,
+            "outer_code": child_failure.outer_code,
+            "retry": False,
+        })
+    return report
 
 
 def run_health_gates(client: HealthGateClient | None = None) -> dict[str, object]:
@@ -183,6 +244,8 @@ def run_health_gates(client: HealthGateClient | None = None) -> dict[str, object
         result = active_client.show(unit, "Result")
         exit_status = _bounded_exit_status(active_client.show(unit, "ExecMainStatus"))
         if start_status != 0 or result != "success" or exit_status != 0:
+            safe_report = getattr(active_client, "safe_report", None)
+            child_report = safe_report(unit) if callable(safe_report) else None
             raise HealthGateFailure(
                 _failure_report(
                     unit,
@@ -190,6 +253,7 @@ def run_health_gates(client: HealthGateClient | None = None) -> dict[str, object
                     result=result,
                     exit_status=exit_status,
                     elapsed_ms=elapsed_ms,
+                    child_report=child_report,
                 )
             )
         completed_units.append(unit)

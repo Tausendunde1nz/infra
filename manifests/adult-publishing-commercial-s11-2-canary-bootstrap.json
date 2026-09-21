@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v6",
-  "status": "S11_2_R7_SOURCE_FIX_AND_S8_POLLER_RECOVERY_READY_FOR_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v7",
+  "status": "S11_2_R8_CHILD_CODE_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "d1c9aeba7d6f3cd692cd8127b565aea7234e13e8",
     "tree": "9b931764246189938225406b7b592d0baf6a50d9",
@@ -9,13 +9,40 @@
     "reviewed_head": "b70bcbe464d28c4f587b746a282a84380630cb05"
   },
   "control_release": {
-    "freeze_tag": "s11-2-canary-bootstrap-freeze-r7",
+    "freeze_tag": "s11-2-canary-bootstrap-freeze-r8",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
     "gate": "scripts/tu1nz_adult_public_s11_2_gate.py",
     "timer": "tu1nz-adult-public-s11-canary-controller.timer",
     "parallel_mutating_controller_allowed": false
+  },
+  "r8_community_health_contract": {
+    "outer_code_preserved": true,
+    "child_code_allowlisted": true,
+    "missing_child_fails_closed": true,
+    "unknown_child_fails_closed": true,
+    "decision_classes": [
+      "RETRYABLE_RUNTIME_READINESS",
+      "STATE_INTEGRITY_BLOCKER",
+      "RELEASE_BINDING_BLOCKER",
+      "PROVIDER_EXTERNAL_BLOCKER",
+      "UNKNOWN_HARD_RED"
+    ],
+    "automatic_retry": false,
+    "runtime_retry_performed": false,
+    "s11_canary_retry_performed": false,
+    "fixture_matrix": "A-I",
+    "simulator": "scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py"
+  },
+  "r8_artifact_bindings": {
+    "community_health_contract_sha256": "24fa5748eada3cdd2821fb5d183660990c4e6fd3841c0fead87bf9cc16db387d",
+    "s9_health_wrapper_sha256": "ef82d33d414f7e712bb091180acad70e7e8874bc1b623ce505f7d9db95c8e9a8",
+    "health_gate_sha256": "31515ad774a17c2d9b7ead159194f8a4c8f89cf2f4d42fad30d06c6638d47e27",
+    "recovery_diagnostic_sha256": "83f1d5e6551e51f34170987f7d70c784f5e54764d85690c457f54bb70de2fee8",
+    "recovery_entrypoint_sha256": "ab9d3082eb0894cdd4a19372e143e6ec69d97a9e192f172a21c0eb47d9fad7b6",
+    "fixture_suite_sha256": "2532289e3f2469263090152b633528477930517dbeb082d8c0ef79ec7e273522",
+    "source_only_release_simulator_sha256": "0d14a10439e4e0bd97bc216ede06b7211c22468585b04ec6660080b1e7d67116"
   },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
   "canary_contract": {
@@ -69,6 +96,8 @@
     "r7_s8_poller_recovery_target": "S8_POLLER_START_LIMIT_ONLY",
     "r7_s8_poller_recovery_preserves_s11_state": true,
     "r7_s8_poller_recovery_retries_canary": false,
+    "r8_child_code_preserved": true,
+    "r8_recovery_diagnostic_stop_no_retry": true,
     "p0_recovery_preserves_s11_state": true,
     "p0_recovery_preserves_latency_evidence": true,
     "p0_recovery_target": "PUBLIC_WMS_ONLY"

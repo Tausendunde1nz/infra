@@ -14,7 +14,8 @@ readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
 readonly FAILED_DEPLOY_CONTROL_COMMIT="42fcbbefda36718540e8a7208f7b5cfaa6902ea0"
 readonly FAILED_DEPLOY_BACKUP="/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260921T161900Z-predeploy"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r7"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r8"
+readonly RECOVERY_DIAGNOSTIC="$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py"
 readonly INCIDENT_EPOCH="2026-09-21T16:21:59.148938Z"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -225,16 +226,26 @@ wait_poller_green() {
 }
 
 run_health_services() {
-  local unit
+  local unit result status invocation diagnostic
   for unit in "${HEALTH_SERVICES[@]}"; do
     if [ "$(systemctl show "$unit" -p ActiveState --value)" = failed ]; then
       systemctl reset-failed "$unit"
     fi
-    systemctl start "$unit"
-    [ "$(systemctl show "$unit" -p Result --value)" = success ] \
-      || { fail "S11_2_R7_S8_HEALTH_SERVICE_RED"; return 2; }
-    [ "$(systemctl show "$unit" -p ExecMainStatus --value)" = 0 ] \
-      || { fail "S11_2_R7_S8_HEALTH_STATUS_RED"; return 2; }
+    status=0
+    systemctl start "$unit" || status=$?
+    result="$(systemctl show "$unit" -p Result --value)"
+    if [ "$status" -ne 0 ] || [ "$result" != success ] \
+      || [ "$(systemctl show "$unit" -p ExecMainStatus --value)" != 0 ]; then
+      invocation="$(systemctl show "$unit" -p InvocationID --value)"
+      [[ "$invocation" =~ ^[0-9a-fA-F]{32}$ ]] \
+        || { fail "S11_2_R8_HEALTH_INVOCATION_ID_RED"; return 2; }
+      diagnostic="$(journalctl --no-pager -o cat -n 20 \
+        "_SYSTEMD_INVOCATION_ID=${invocation}" \
+        | "$RECOVERY_DIAGNOSTIC" --parse-stream)" || true
+      printf '%s\n' "$diagnostic" >&2
+      fail "S11_2_R8_HEALTH_SERVICE_CHILD_RED"
+      return 2
+    fi
   done
 }
 
@@ -429,6 +440,7 @@ recover() {
 usage() {
   printf 'usage: %s preflight TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s recover TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
+  printf '       %s simulate-diagnostic\n' "$0" >&2
   return 2
 }
 
@@ -440,6 +452,10 @@ case "${1:-}" in
   recover)
     [ "$#" -eq 3 ] || { usage; exit 2; }
     recover "$2" "$3"
+    ;;
+  simulate-diagnostic)
+    [ "$#" -eq 1 ] || { usage; exit 2; }
+    "$RECOVERY_DIAGNOSTIC" --simulate-contract
     ;;
   *)
     usage

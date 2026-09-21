@@ -172,3 +172,32 @@ This recovery does not install the r7 controller, switch either repository,
 mutate S11, write/reclassify latency evidence, start a Canary, alter
 acquisition, or authorize a second deployment attempt. S11 remains OFF after
 recovery.
+
+## R8 Community child-code contract
+
+The single R7 recovery start proved S8, its Poller and its lease ready, then
+stopped fail-closed at S9 health. The Application child had emitted a
+privacy-safe Community reason, but `tu1nz_adult_public_s10_1_health.py`
+normalized every unrecognised Community failure to
+`S10_2D_COMMUNITY_STATE_RED`/44. The health-gate and recovery layers therefore
+received the outer class but not the actionable child.
+
+Freeze r8 keeps all legacy outer codes and exit statuses stable while adding a
+strict JSON child contract. The envelope contains only `outer_code`, an exact
+allowlisted `child_code`, an allowlisted `component`, a bounded decision class
+and a bounded next action. It never contains usernames, Telegram identifiers,
+messages, media, credentials, DSNs or free-form provider output. A missing
+child becomes `COMMUNITY_CHILD_CODE_MISSING_RED`; an unallowlisted value
+becomes `COMMUNITY_CHILD_CODE_UNKNOWN_RED`. Both are hard RED.
+
+The five decision classes are retryable runtime readiness, state integrity,
+release binding, provider/external and unknown/hard RED. Classification is
+diagnostic only: every R8 RED decision is `STOP_NO_RETRY`. The exact systemd
+invocation is used to locate the bounded JSON envelope, and raw journal text is
+never copied into the recovery report. The fixture and simulator matrix A-I
+covers GREEN, a valid child, missing and unknown children, release binding,
+lease/Poller readiness, Event Path, retained state and provider state.
+
+No R8 source-validation action starts S8, installs a controller, changes a
+database, mutates Telegram, starts the Canary or alters acquisition. The next
+runtime recovery remains a separate backup-first authorization.

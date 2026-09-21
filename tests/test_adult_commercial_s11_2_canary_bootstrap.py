@@ -352,7 +352,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
         self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r7"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r8"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
@@ -438,7 +438,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             'FAILED_DEPLOY_CONTROL_COMMIT="42fcbbefda36718540e8a7208f7b5cfaa6902ea0"',
             source,
         )
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r7"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r8"', source)
         self.assertIn("exec 9> /run/tu1nz-adult-public-s11-2-control.lock", source)
         self.assertIn("S11_DISABLED|CANARY_RED|false", source)
         self.assertIn("BOT_POLLER_NOT_RUNNING", source)
