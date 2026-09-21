@@ -361,6 +361,12 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertNotIn("FULL_RELEASE", source)
         self.assertIn('FAILED_WMS_COPY_SHA="cdc9a48', source)
         self.assertIn('RECOVERY_WMS_COPY_SHA="86b074', source)
+        handler = source[
+            source.index("recovery_error() {"):
+            source.index("recover() {")
+        ]
+        self.assertLess(handler.index('systemctl stop "$WMS_SERVICE"'), handler.index("failed-wms-copy.json"))
+        self.assertLess(handler.index("failed-wms-copy.json"), handler.index('systemctl start "$WMS_SERVICE"'))
 
     def test_systemd_controller_is_serial_periodic_and_bounded(self):
         service = SERVICE.read_text(encoding="utf-8")

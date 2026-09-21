@@ -339,7 +339,10 @@ recovery_error() {
   local status=$?
   trap - ERR
   if [ "${S11_2_P0_MUTATION_ARMED:-false}" = true ]; then
+    systemctl stop "$WMS_SERVICE" >/dev/null 2>&1 || true
     install -o root -g root -m 0644 "$S11_2_P0_BACKUP_PATH/failed-wms-copy.json" "$WMS_COPY" || true
+    systemctl reset-failed "$WMS_SERVICE" >/dev/null 2>&1 || true
+    systemctl start "$WMS_SERVICE" >/dev/null 2>&1 || true
     printf '{"ok":false,"safe_code":"S11_2_P0_RECOVERY_REVERTED_TO_INPUT_RED"}\n' >&2
   elif [ "${S11_2_P0_PUBLIC_COMMITTED:-false}" = true ]; then
     printf '{"ok":false,"safe_code":"S11_2_P0_POSTPUBLIC_HEALTH_RED"}\n' >&2
