@@ -328,7 +328,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
         self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r4"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r5"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
@@ -353,6 +353,13 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertTrue(
             manifest["rollback_compatibility"]["inherited_setgid_removed_before_backup"]
         )
+        self.assertTrue(
+            manifest["rollback_compatibility"]["local_health_ready_before_public_gate"]
+        )
+        self.assertEqual(
+            manifest["rollback_compatibility"]["local_health_timeout_seconds"],
+            30,
+        )
 
     def test_p0_recovery_is_exact_backup_first_and_does_not_retry_canary(self):
         source = P0_RECOVERY.read_text(encoding="utf-8")
@@ -373,9 +380,19 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("root:root:700", backup)
         self.assertNotIn("root:root:2700", backup)
         recover = source[source.index("recover() {"):source.index("usage() {")]
+        readiness = source[source.index("wait_wms_ready() {"):source.index("require_runtime_health() {")]
+        self.assertIn('LOCAL_WMS_HEALTH="http://127.0.0.1:18110/health"', source)
+        self.assertIn("deadline=$((SECONDS + 30))", readiness)
+        self.assertIn("while (( SECONDS < deadline ))", readiness)
+        self.assertIn("sleep 0.25", readiness)
+        self.assertIn('p.get("ok") is True', readiness)
+        self.assertIn("forbidden_capabilities", readiness)
+        self.assertIn("S11_2_P0_WMS_LOCAL_HEALTH_TIMEOUT", readiness)
+        self.assertNotIn("return 0\n    fi\n    sleep 1", readiness)
         self.assertLess(recover.index("preflight"), recover.index("backup_runtime"))
         self.assertLess(recover.index("require_backup"), recover.index("install -o root"))
         self.assertLess(recover.index("require_candidate_binding"), recover.index("systemctl restart"))
+        self.assertLess(recover.index("wait_wms_ready"), recover.index("require_public_health"))
         self.assertLess(recover.index("require_public_health"), recover.index("run_health_services"))
         self.assertIn("S11_2_P0_PUBLIC_COMMITTED=true", recover)
         self.assertIn("S11_2_P0_S11_STATE_MUTATED", recover)

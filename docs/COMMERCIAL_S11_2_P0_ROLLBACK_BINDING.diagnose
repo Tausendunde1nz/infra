@@ -54,3 +54,20 @@ R4 correction
 - Keep the prior completed R3 backup immutable and use a new backup path.
 - Preserve the same PUBLIC_WMS_ONLY recovery boundary; no S11 deployment or
   evidence mutation is added.
+
+R4 recovery attempt
+
+- Preflight and the complete root:root 0700 backup passed.
+- systemd reported the simple WMS process active before its HTTP listener was
+  ready.
+- The immediate public check failed 194 ms after systemd activation, so the
+  fail-closed handler restored the exact input RED state.
+- Repositories, database, S11 state and evidence remained unchanged.
+
+R5 correction
+
+- Poll the existing local WMS health endpoint for at most 30 seconds.
+- Require parsed ok=true and all forbidden capabilities false while systemd is
+  active before making the unchanged public endpoint checks.
+- Use bounded 250 ms polling, not an unconditional delay or a gate bypass.
+- Keep every previous backup immutable and retain the PUBLIC_WMS_ONLY scope.

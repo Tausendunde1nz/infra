@@ -10,7 +10,7 @@ readonly SOURCE_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
 readonly SOURCE_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
 readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r4"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r5"
 readonly ORIGINAL_DEPLOY_BACKUP="/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260920T202117Z-predeploy"
 readonly WMS_COPY="/etc/tu1nz/adult-commercial-s10-wms-copy.json"
 readonly FAILED_WMS_COPY_SHA="cdc9a48da4380f6730183bd2de23bf582cc7060513aba2f071f0e1ce96f9bf46"
@@ -19,6 +19,7 @@ readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json
 readonly QUALITY_STATE="/var/lib/tu1nz-adult-public-s9/wms-traffic-quality.json"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
+readonly LOCAL_WMS_HEALTH="http://127.0.0.1:18110/health"
 readonly HEALTH_SERVICES=(
   tu1nz-adult-public-s8-health.service
   tu1nz-adult-public-s9-health.service
@@ -293,15 +294,19 @@ require_public_health() {
     >/dev/null || { fail "S11_2_P0_PUBLIC_HEALTH_RED"; return 2; }
 }
 
-wait_wms() {
-  local attempt
-  for attempt in {1..30}; do
-    if [ "$(systemctl show "$WMS_SERVICE" -p ActiveState --value)" = active ]; then
+wait_wms_ready() {
+  local deadline=$((SECONDS + 30))
+  while (( SECONDS < deadline )); do
+    if [ "$(systemctl show "$WMS_SERVICE" -p ActiveState --value)" = active ] \
+      && curl --fail --silent --show-error --max-time 1 "$LOCAL_WMS_HEALTH" 2>/dev/null \
+        | /usr/bin/python3 -c \
+          'import json,sys;p=json.load(sys.stdin);raise SystemExit(0 if p.get("ok") is True and not any(p.get("forbidden_capabilities",{}).values()) else 1)' \
+        >/dev/null 2>&1; then
       return 0
     fi
-    sleep 1
+    sleep 0.25
   done
-  fail "S11_2_P0_WMS_RECOVERY_TIMEOUT"
+  fail "S11_2_P0_WMS_LOCAL_HEALTH_TIMEOUT"
 }
 
 require_runtime_health() {
@@ -377,7 +382,7 @@ recover() {
   require_candidate_binding
   systemctl reset-failed "$WMS_SERVICE" || true
   systemctl restart "$WMS_SERVICE"
-  wait_wms
+  wait_wms_ready
   require_public_health
 
   S11_2_P0_MUTATION_ARMED=false
