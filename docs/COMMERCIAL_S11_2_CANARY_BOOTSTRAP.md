@@ -118,3 +118,24 @@ process-active-only wait with bounded polling of the existing local health
 endpoint. It requires parsed `ok=true` with all forbidden capabilities false
 before the unchanged public gate runs. The 30-second limit remains fail-closed;
 there is no fixed sleep, public-gate bypass or broader recovery scope.
+
+## S11.2-R2 recovery-compatible bootstrap
+
+P0 Recovery R5 restored public WMS and later closed with both S9 and S10
+health GREEN after the historical ambiguous samples naturally left the rolling
+window. R2 keeps that recovery closed and starts from a fresh immutable Canary
+epoch; it neither retries recovery nor rewrites historical evidence.
+
+Freeze r6 carries the R5 startup contract into the Canary deployment and its
+rollback path. After each WMS restart, the controller polls the existing local
+health endpoint for at most 30 seconds and requires parsed `ok=true` with all
+forbidden capabilities false. Only then may it evaluate the unchanged public
+HTTP gate. A process-active state alone is not readiness and there is no fixed
+sleep.
+
+Before switching repositories, the controller also proves that the source and
+target WMS parser surface is unchanged and constructs the exact target WMS
+copy with the current proven parser and live non-secret runtime inputs. This
+keeps forward deployment, feature-off fallback and rollback bound to the same
+compatible Application/copy contract. The S11-disabled public-health result is
+captured as explicit feature-off fallback evidence before `START_CANARY`.

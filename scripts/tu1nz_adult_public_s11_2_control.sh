@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
 readonly TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"
 readonly TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r5"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r6"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -28,6 +28,8 @@ readonly EXPERIENCE_CONTRACT="/etc/tu1nz/adult-commercial-s11-interactive-experi
 readonly EXPERIENCE_COPY="/etc/tu1nz/adult-commercial-s11-interactive-copy.json"
 readonly WMS_CONTRACT="/etc/tu1nz/adult-commercial-s10-wms.json"
 readonly WMS_LANDING_COPY="/etc/tu1nz/adult-commercial-s10-wms-copy.json"
+readonly WMS_SERVICE="tu1nz-adult-public-s10-wms.service"
+readonly LOCAL_WMS_HEALTH="http://127.0.0.1:18110/health"
 readonly WMS_BOT_CONTRACT="/etc/tu1nz/adult-commercial-s10-wms-bot-identity.json"
 readonly COMMUNITY_CONTRACT="/etc/tu1nz/adult-commercial-s10-2d-community.json"
 readonly S8_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service"
@@ -275,6 +277,51 @@ WMSLandingApplication(
 PY
 }
 
+require_target_wms_compatibility() {
+  local path
+  for path in \
+    src/tu1nz_exposure_s10 \
+    src/tu1nz_growth_s9/counter.py \
+    src/tu1nz_public_s8/community.py \
+    src/tu1nz_public_s8/contract.py
+  do
+    git_chatops "$APPLICATION_ROOT" diff --quiet \
+      "$SOURCE_APPLICATION_COMMIT" "$TARGET_APPLICATION_COMMIT" -- "$path" \
+      || { fail "S11_2_TARGET_WMS_PARSER_DRIFT"; return 2; }
+  done
+  runuser -u chatops -- env PYTHONPATH="$APPLICATION_ROOT/src" \
+    "$APPLICATION_ROOT/.venv/bin/python" - \
+    3< <(git_chatops "$APPLICATION_ROOT" show "${TARGET_APPLICATION_COMMIT}:config/commercial-s10-1-wms-copy.v1.json") <<'PY'
+import json
+import os
+from pathlib import Path
+
+from tu1nz_exposure_s10.contract import S10ExposureContract
+from tu1nz_exposure_s10.copy import ExposureCopy
+from tu1nz_exposure_s10.runtime import WMSLandingApplication
+from tu1nz_exposure_s10.traffic import TrafficQualityCounter
+from tu1nz_growth_s9.counter import AggregateCounter
+from tu1nz_public_s8.community import CommunityContract
+from tu1nz_public_s8.contract import S8Contract
+
+raw = json.load(os.fdopen(3))
+copy = ExposureCopy(
+    raw["version"], raw["brand"], raw["design_tokens"], raw["public_copy"],
+    raw["persona_modes"], raw["content_copy"], raw["nurture_copy"], raw["messages"],
+)
+copy.validate()
+WMSLandingApplication(
+    S10ExposureContract.load(Path("/etc/tu1nz/adult-commercial-s10-wms.json")),
+    copy,
+    S8Contract.load(Path("/etc/tu1nz/adult-commercial-s10-wms-bot-identity.json")),
+    AggregateCounter(Path("/var/lib/tu1nz-adult-public-s9/landing-aggregates.json")),
+    CommunityContract.load(Path("/etc/tu1nz/adult-commercial-s10-2d-community.json")),
+    "s10-2d-r3-5",
+    TrafficQualityCounter(Path("/var/lib/tu1nz-adult-public-s9/wms-traffic-quality.json")),
+)
+PY
+}
+
 require_source_state() {
   require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL
@@ -471,6 +518,8 @@ migrations/0033_commercial_s11_2_canary_bootstrap.sql ${MIGRATION_UP_SHA}
 migrations/0033_commercial_s11_2_canary_bootstrap.down.sql ${MIGRATION_DOWN_SHA}
 config/commercial-s10-1-wms-copy.v1.json ${WMS_LANDING_COPY_SHA}
 EOF
+  require_target_wms_compatibility \
+    || { fail "S11_2_TARGET_WMS_RUNTIME_BINDING_RED"; return 2; }
 }
 
 install_from_git() {
@@ -575,6 +624,21 @@ wait_runtime() {
     sleep 1
   done
   fail "S11_2_RUNTIME_READY_TIMEOUT"
+}
+
+wait_wms_ready() {
+  local deadline=$((SECONDS + 30))
+  while (( SECONDS < deadline )); do
+    if [ "$(systemctl show "$WMS_SERVICE" -p ActiveState --value)" = active ] \
+      && curl --fail --silent --show-error --max-time 1 "$LOCAL_WMS_HEALTH" 2>/dev/null \
+        | /usr/bin/python3 -c \
+          'import json,sys;p=json.load(sys.stdin);raise SystemExit(0 if p.get("ok") is True and not any(p.get("forbidden_capabilities",{}).values()) else 1)' \
+        >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  fail "S11_2_WMS_LOCAL_HEALTH_TIMEOUT"
 }
 
 run_runtime_health() {
@@ -685,7 +749,9 @@ restore_source() {
   require_wms_runtime_binding || return 1
   systemctl daemon-reload || return 1
   systemctl restart "$S8_SERVICE" || return 1
-  systemctl restart tu1nz-adult-public-s10-wms.service || return 1
+  systemctl restart "$WMS_SERVICE" || return 1
+  wait_wms_ready || return 1
+  require_public_health || return 1
   wait_runtime || return 1
   require_acquisition_state || return 1
   require_public_health || return 1
@@ -722,9 +788,14 @@ deploy() {
   [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_CODE_OFF_RED"
   systemctl daemon-reload
   systemctl restart "$S8_SERVICE"
-  systemctl restart tu1nz-adult-public-s10-wms.service
+  systemctl restart "$WMS_SERVICE"
+  wait_wms_ready
+  require_public_health
   wait_runtime
   run_runtime_health
+  [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_RED"
+  printf '{"ok":true,"safe_code":"S11_2_FEATURE_OFF_FALLBACK_GREEN"}\n' \
+    > "$backup_path/feature-off-fallback.json"
   run_synthetic_journeys "$backup_path/synthetic-journeys.json"
   technical_latency_fixture "$backup_path/technical-latency-input.json" "$backup_path/technical-latency-values.txt"
   require_hard_gates
@@ -740,6 +811,7 @@ deploy() {
   mv "$backup_path"/synthetic-journeys.json.* "$backup_path/postdeploy/"
   mv "$backup_path/technical-latency-input.json" "$backup_path/postdeploy/technical-latency-input.json"
   mv "$backup_path/technical-latency-values.txt" "$backup_path/postdeploy/technical-latency-values.txt"
+  mv "$backup_path/feature-off-fallback.json" "$backup_path/postdeploy/feature-off-fallback.json"
   database_evidence "$backup_path/postdeploy/database-aggregate.json"
   gate_json true > "$backup_path/postdeploy/canary-gate.json"
   systemctl show "${SERVICES[@]}" "${TIMERS[@]}" tu1nz-adult-public-s11-canary-controller.timer \

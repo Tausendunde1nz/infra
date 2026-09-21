@@ -160,6 +160,27 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         ]
         self.assertIn("S11_2_SOURCE_WMS_RUNTIME_BINDING_RED", preflight)
 
+    def test_target_copy_binding_is_proved_before_source_switch(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        binding = source[
+            source.index("require_target_wms_compatibility() {"):
+            source.index("require_source_state() {")
+        ]
+        self.assertIn("S11_2_TARGET_WMS_PARSER_DRIFT", binding)
+        self.assertIn("TARGET_APPLICATION_COMMIT", binding)
+        self.assertIn("commercial-s10-1-wms-copy.v1.json", binding)
+        self.assertIn("WMSLandingApplication", binding)
+        fetch = source[
+            source.index("fetch_and_require_target() {"):
+            source.index("install_from_git() {")
+        ]
+        self.assertIn("require_target_wms_compatibility", fetch)
+        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        self.assertLess(
+            deploy.index("fetch_and_require_target"),
+            deploy.index("switch --detach"),
+        )
+
     def test_backup_captures_complete_wms_runtime_tuple(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         backup = source[source.index("backup_runtime() {"):source.index("require_backup() {")]
@@ -328,7 +349,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
         self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r5"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r6"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
@@ -360,6 +381,34 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             manifest["rollback_compatibility"]["local_health_timeout_seconds"],
             30,
         )
+        self.assertTrue(
+            manifest["rollback_compatibility"]["canary_controller_uses_local_health_gate"]
+        )
+        self.assertTrue(
+            manifest["rollback_compatibility"]["target_copy_binding_preflight"]
+        )
+        self.assertTrue(
+            manifest["rollback_compatibility"]["feature_off_fallback_gate"]
+        )
+
+    def test_canary_deploy_and_restore_use_r5_readiness_before_public_gate(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        readiness = source[source.index("wait_wms_ready() {"):source.index("run_runtime_health() {")]
+        self.assertIn('LOCAL_WMS_HEALTH="http://127.0.0.1:18110/health"', source)
+        self.assertIn("deadline=$((SECONDS + 30))", readiness)
+        self.assertIn("while (( SECONDS < deadline ))", readiness)
+        self.assertIn("sleep 0.25", readiness)
+        self.assertIn('p.get("ok") is True', readiness)
+        self.assertIn("forbidden_capabilities", readiness)
+        self.assertIn("S11_2_WMS_LOCAL_HEALTH_TIMEOUT", readiness)
+        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        self.assertLess(deploy.index('systemctl restart "$WMS_SERVICE"'), deploy.index("wait_wms_ready"))
+        self.assertLess(deploy.index("wait_wms_ready"), deploy.index("require_public_health"))
+        self.assertLess(deploy.index("require_public_health"), deploy.index("run_runtime_health"))
+        self.assertLess(deploy.index("S11_2_FEATURE_OFF_FALLBACK_GREEN"), deploy.index("database_transition START_CANARY"))
+        restore = source[source.index("restore_source() {"):source.index("deploy() {")]
+        self.assertLess(restore.index('systemctl restart "$WMS_SERVICE"'), restore.index("wait_wms_ready"))
+        self.assertLess(restore.index("wait_wms_ready"), restore.index("require_public_health"))
 
     def test_p0_recovery_is_exact_backup_first_and_does_not_retry_canary(self):
         source = P0_RECOVERY.read_text(encoding="utf-8")

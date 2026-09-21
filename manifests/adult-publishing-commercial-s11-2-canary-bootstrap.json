@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v4",
-  "status": "P0_RECOVERY_R5_SOURCE_READY_FOR_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v5",
+  "status": "S11_2_R2_RECOVERY_COMPAT_SOURCE_READY_FOR_REVIEW",
   "application_release": {
     "commit": "d1c9aeba7d6f3cd692cd8127b565aea7234e13e8",
     "tree": "9b931764246189938225406b7b592d0baf6a50d9",
@@ -9,7 +9,7 @@
     "reviewed_head": "b70bcbe464d28c4f587b746a282a84380630cb05"
   },
   "control_release": {
-    "freeze_tag": "s11-2-canary-bootstrap-freeze-r5",
+    "freeze_tag": "s11-2-canary-bootstrap-freeze-r6",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "gate": "scripts/tu1nz_adult_public_s11_2_gate.py",
@@ -61,6 +61,9 @@
     "inherited_setgid_removed_before_backup": true,
     "local_health_ready_before_public_gate": true,
     "local_health_timeout_seconds": 30,
+    "canary_controller_uses_local_health_gate": true,
+    "target_copy_binding_preflight": true,
+    "feature_off_fallback_gate": true,
     "p0_recovery_preserves_s11_state": true,
     "p0_recovery_preserves_latency_evidence": true,
     "p0_recovery_target": "PUBLIC_WMS_ONLY"
