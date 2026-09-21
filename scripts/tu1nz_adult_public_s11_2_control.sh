@@ -7,13 +7,14 @@ readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
 readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"
+readonly QUALITY_STATE="/var/lib/tu1nz-adult-public-s9/wms-traffic-quality.json"
 readonly SOURCE_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
 readonly SOURCE_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
 readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
 readonly TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"
 readonly TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r2"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r3"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -25,7 +26,10 @@ readonly MIGRATION_DOWN_SHA="4514d3b91dc3924b54116b216baa32896c7091ce4fd114dded6
 readonly WMS_LANDING_COPY_SHA="86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"
 readonly EXPERIENCE_CONTRACT="/etc/tu1nz/adult-commercial-s11-interactive-experience.json"
 readonly EXPERIENCE_COPY="/etc/tu1nz/adult-commercial-s11-interactive-copy.json"
+readonly WMS_CONTRACT="/etc/tu1nz/adult-commercial-s10-wms.json"
 readonly WMS_LANDING_COPY="/etc/tu1nz/adult-commercial-s10-wms-copy.json"
+readonly WMS_BOT_CONTRACT="/etc/tu1nz/adult-commercial-s10-wms-bot-identity.json"
+readonly COMMUNITY_CONTRACT="/etc/tu1nz/adult-commercial-s10-2d-community.json"
 readonly S8_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-telegram.service"
 readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.service"
 readonly S8_HEALTH_SCRIPT="/usr/local/bin/tu1nz_adult_public_s8_health.py"
@@ -240,13 +244,47 @@ require_hard_gates() {
   require_public_health || return $?
 }
 
+require_wms_runtime_binding() {
+  runuser -u chatops -- env PYTHONPATH="$APPLICATION_ROOT/src" \
+    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
+from pathlib import Path
+
+from tu1nz_exposure_s10.contract import S10ExposureContract
+from tu1nz_exposure_s10.copy import ExposureCopy
+from tu1nz_exposure_s10.runtime import WMSLandingApplication
+from tu1nz_exposure_s10.traffic import TrafficQualityCounter
+from tu1nz_growth_s9.counter import AggregateCounter
+from tu1nz_public_s8.community import CommunityContract
+from tu1nz_public_s8.contract import S8Contract
+
+contract = S10ExposureContract.load(Path("/etc/tu1nz/adult-commercial-s10-wms.json"))
+copy = ExposureCopy.load(Path("/etc/tu1nz/adult-commercial-s10-wms-copy.json"))
+bot = S8Contract.load(Path("/etc/tu1nz/adult-commercial-s10-wms-bot-identity.json"))
+community = CommunityContract.load(Path("/etc/tu1nz/adult-commercial-s10-2d-community.json"))
+aggregate = AggregateCounter(Path("/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"))
+quality = TrafficQualityCounter(Path("/var/lib/tu1nz-adult-public-s9/wms-traffic-quality.json"))
+WMSLandingApplication(
+    contract,
+    copy,
+    bot,
+    aggregate,
+    community,
+    "s10-2d-r3-5",
+    quality,
+)
+PY
+}
+
 require_source_state() {
   require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL
   [ -f "$DATABASE_DSN" ] && [ ! -L "$DATABASE_DSN" ] || fail "S11_2_DATABASE_CREDENTIAL_RED"
   [ -f "$AGGREGATE_STATE" ] && [ ! -L "$AGGREGATE_STATE" ] || fail "S11_2_AGGREGATE_STATE_RED"
+  [ -f "$QUALITY_STATE" ] && [ ! -L "$QUALITY_STATE" ] || fail "S11_2_QUALITY_STATE_RED"
   [ "$(database_scalar "SELECT enabled::text||'|'||(live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = "false|true" ] \
     || fail "S11_2_SOURCE_FEATURE_NOT_OFF"
+  require_wms_runtime_binding \
+    || { fail "S11_2_SOURCE_WMS_RUNTIME_BINDING_RED"; return 2; }
   require_hard_gates
 }
 
@@ -365,12 +403,16 @@ backup_runtime() {
   backup_optional "$S8_HEALTH_SCRIPT" "$backup_path/s8-health.py" "$backup_path/S8_HEALTH_SCRIPT_ABSENT"
   backup_optional "$EXPERIENCE_CONTRACT" "$backup_path/experience-contract.json" "$backup_path/EXPERIENCE_CONTRACT_ABSENT"
   backup_optional "$EXPERIENCE_COPY" "$backup_path/experience-copy.json" "$backup_path/EXPERIENCE_COPY_ABSENT"
+  backup_optional "$WMS_CONTRACT" "$backup_path/wms-contract.json" "$backup_path/WMS_CONTRACT_ABSENT"
   backup_optional "$WMS_LANDING_COPY" "$backup_path/wms-landing-copy.json" "$backup_path/WMS_LANDING_COPY_ABSENT"
+  backup_optional "$WMS_BOT_CONTRACT" "$backup_path/wms-bot-contract.json" "$backup_path/WMS_BOT_CONTRACT_ABSENT"
+  backup_optional "$COMMUNITY_CONTRACT" "$backup_path/community-contract.json" "$backup_path/COMMUNITY_CONTRACT_ABSENT"
   backup_optional "$INSTALLED_CONTROLLER" "$backup_path/s11-2-control.sh" "$backup_path/S11_2_CONTROLLER_ABSENT"
   backup_optional "$INSTALLED_GATE" "$backup_path/s11-2-gate.py" "$backup_path/S11_2_GATE_ABSENT"
   backup_optional "$CONTROLLER_UNIT" "$backup_path/s11-2-controller.service" "$backup_path/S11_2_SERVICE_ABSENT"
   backup_optional "$CONTROLLER_TIMER" "$backup_path/s11-2-controller.timer" "$backup_path/S11_2_TIMER_ABSENT"
   install -m 0600 "$AGGREGATE_STATE" "$backup_path/landing-aggregates.exact"
+  install -m 0600 "$QUALITY_STATE" "$backup_path/wms-traffic-quality.exact"
   systemctl show "${SERVICES[@]}" "${TIMERS[@]}" > "$backup_path/runtime-manifest.txt"
   database_evidence "$backup_path/database-aggregate-and-schema.json"
   historical_unknown="$(database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE evidence_class IN ('UNKNOWN','TECHNICAL_ACCEPTANCE') OR sample_type='UNKNOWN' OR interaction_path='UNKNOWN';")"
@@ -640,6 +682,7 @@ restore_source() {
   restore_optional "$backup_path" s11-2-gate.py S11_2_GATE_ABSENT "$INSTALLED_GATE" 0755 || return 1
   restore_optional "$backup_path" s11-2-controller.service S11_2_SERVICE_ABSENT "$CONTROLLER_UNIT" 0644 || return 1
   restore_optional "$backup_path" s11-2-controller.timer S11_2_TIMER_ABSENT "$CONTROLLER_TIMER" 0644 || return 1
+  require_wms_runtime_binding || return 1
   systemctl daemon-reload || return 1
   systemctl restart "$S8_SERVICE" || return 1
   systemctl restart tu1nz-adult-public-s10-wms.service || return 1

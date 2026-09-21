@@ -15,6 +15,7 @@ CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s11_2_control.sh"
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json"
 SERVICE = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service"
 TIMER = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer"
+P0_RECOVERY = ROOT / "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh"
 
 
 def load_gate():
@@ -138,6 +139,39 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("S11_FULL\\|*) return 1", restore)
         self.assertNotIn("0033_commercial_s11_2_canary_bootstrap.down.sql", restore)
         self.assertIn("database_transition CANARY_RED", restore)
+        self.assertLess(
+            restore.index("require_wms_runtime_binding"),
+            restore.index("systemctl restart \"$S8_SERVICE\""),
+        )
+
+    def test_preflight_proves_source_copy_runtime_binding(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        binding = source[
+            source.index("require_wms_runtime_binding() {"):
+            source.index("require_source_state() {")
+        ]
+        self.assertIn("WMSLandingApplication", binding)
+        self.assertIn("ExposureCopy.load", binding)
+        self.assertIn("AggregateCounter", binding)
+        self.assertIn("TrafficQualityCounter", binding)
+        preflight = source[
+            source.index("require_source_state() {"):
+            source.index("preflight() {")
+        ]
+        self.assertIn("S11_2_SOURCE_WMS_RUNTIME_BINDING_RED", preflight)
+
+    def test_backup_captures_complete_wms_runtime_tuple(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        backup = source[source.index("backup_runtime() {"):source.index("require_backup() {")]
+        for artifact in (
+            "wms-contract.json",
+            "wms-landing-copy.json",
+            "wms-bot-contract.json",
+            "community-contract.json",
+            "landing-aggregates.exact",
+            "wms-traffic-quality.exact",
+        ):
+            self.assertIn(artifact, backup)
 
     def test_terminal_transition_leaves_single_controller_read_only(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -294,7 +328,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
         self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r2"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r3"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
@@ -305,6 +339,44 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             manifest["preserved_runtime"]["s8_health_timer"],
             "RETIRED_DISABLED_INACTIVE",
         )
+        self.assertTrue(
+            manifest["rollback_compatibility"]["source_copy_binding_preflight"]
+        )
+        self.assertEqual(
+            manifest["rollback_compatibility"]["p0_recovery_target"],
+            "PUBLIC_WMS_ONLY",
+        )
+
+    def test_p0_recovery_is_exact_backup_first_and_does_not_retry_canary(self):
+        source = P0_RECOVERY.read_text(encoding="utf-8")
+        controller = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn(
+            "exec 9> /run/tu1nz-adult-public-s11-2-control.lock",
+            source,
+        )
+        self.assertIn(
+            "exec 9> /run/tu1nz-adult-public-s11-2-control.lock",
+            controller,
+        )
+        self.assertNotIn("s11-2-p0-recovery.lock", source)
+        recover = source[source.index("recover() {"):source.index("usage() {")]
+        self.assertLess(recover.index("preflight"), recover.index("backup_runtime"))
+        self.assertLess(recover.index("require_backup"), recover.index("install -o root"))
+        self.assertLess(recover.index("require_candidate_binding"), recover.index("systemctl restart"))
+        self.assertLess(recover.index("require_public_health"), recover.index("run_health_services"))
+        self.assertIn("S11_2_P0_PUBLIC_COMMITTED=true", recover)
+        self.assertIn("S11_2_P0_S11_STATE_MUTATED", recover)
+        self.assertNotIn("database_transition", source)
+        self.assertNotIn("START_CANARY", source)
+        self.assertNotIn("FULL_RELEASE", source)
+        self.assertIn('FAILED_WMS_COPY_SHA="cdc9a48', source)
+        self.assertIn('RECOVERY_WMS_COPY_SHA="86b074', source)
+        handler = source[
+            source.index("recovery_error() {"):
+            source.index("recover() {")
+        ]
+        self.assertLess(handler.index('systemctl stop "$WMS_SERVICE"'), handler.index("failed-wms-copy.json"))
+        self.assertLess(handler.index("failed-wms-copy.json"), handler.index('systemctl start "$WMS_SERVICE"'))
 
     def test_systemd_controller_is_serial_periodic_and_bounded(self):
         service = SERVICE.read_text(encoding="utf-8")
