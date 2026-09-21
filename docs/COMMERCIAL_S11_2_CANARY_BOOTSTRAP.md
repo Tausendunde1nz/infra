@@ -139,3 +139,36 @@ copy with the current proven parser and live non-secret runtime inputs. This
 keeps forward deployment, feature-off fallback and rollback bound to the same
 compatible Application/copy contract. The S11-disabled public-health result is
 captured as explicit feature-off fallback evidence before `START_CANARY`.
+
+## R7 gate-field correction and S8/Poller recovery
+
+The R6 deployment reached `START_CANARY`, then failed while extracting the
+already valid gate decision. The compact Python helper printed the requested
+JSON field but used a conditional `raise` expression whose successful branch
+evaluated to `None`; Python then raised `TypeError` and returned non-zero. The
+existing deployment trap correctly moved the Canary to `CANARY_RED` and
+restored the exact Source repositories, units and public WMS configuration.
+The repeated rollback restart left only the S8 Telegram service in the
+observed `start-limit-hit` state; the Poller lease then expired and S9 health
+failed closed. Public WMS and all product boundaries remained safe.
+
+Freeze r7 replaces that expression with an explicit conditional `sys.exit(2)`
+for a missing field and a normal successful `print` for a present value. An
+executable regression test proves exit 0 plus the exact value for a valid gate
+payload and exit 2 for an absent field.
+
+The separate r7 S8/Poller recovery entrypoint accepts only this exact incident:
+clean Source Application and Control commits, the verified R6 deployment
+backup, `S11_DISABLED|CANARY_RED`, absent S11 controller artifacts, unchanged
+acquisition baseline, closed product boundaries, S8 `start-limit-hit`, expired
+Poller state, the matching S9 health failure, green unrelated services and
+green public WMS. It creates and verifies a fresh root-only Git/database/runtime
+backup before resetting and starting S8 once. It then requires a live lease,
+recent successful Polling, Event Path, all S8/S9/S10 one-shot health gates,
+future recurring timer runs, Publication Rotation, public endpoints and clean
+Source repositories. Any post-mutation failure stops S8 fail-closed.
+
+This recovery does not install the r7 controller, switch either repository,
+mutate S11, write/reclassify latency evidence, start a Canary, alter
+acquisition, or authorize a second deployment attempt. S11 remains OFF after
+recovery.

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
+import subprocess
 import sys
 import types
 import unittest
@@ -16,6 +18,7 @@ MANIFEST = ROOT / "manifests/adult-publishing-commercial-s11-2-canary-bootstrap.
 SERVICE = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service"
 TIMER = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer"
 P0_RECOVERY = ROOT / "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh"
+S8_POLLER_RECOVERY = ROOT / "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh"
 
 
 def load_gate():
@@ -349,7 +352,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
         self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r6"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r7"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
@@ -390,6 +393,75 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertTrue(
             manifest["rollback_compatibility"]["feature_off_fallback_gate"]
         )
+        self.assertTrue(
+            manifest["rollback_compatibility"]["r7_gate_field_exit_code_fixed"]
+        )
+        self.assertEqual(
+            manifest["rollback_compatibility"]["r7_s8_poller_recovery_target"],
+            "S8_POLLER_START_LIMIT_ONLY",
+        )
+
+    def test_gate_field_returns_zero_for_present_values_and_two_for_missing(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        match = re.search(
+            r"gate_field\(\) \{\n\s+/usr/bin/python3 -c '([^']+)' \"\$1\"\n\}",
+            source,
+        )
+        self.assertIsNotNone(match)
+        code = match.group(1)
+        present = subprocess.run(
+            ["/usr/bin/python3", "-c", code, "decision"],
+            input='{"decision":"CANARY_COLLECTING_EVIDENCE"}',
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(present.returncode, 0)
+        self.assertEqual(present.stdout.strip(), "CANARY_COLLECTING_EVIDENCE")
+        missing = subprocess.run(
+            ["/usr/bin/python3", "-c", code, "missing"],
+            input='{"decision":"CANARY_COLLECTING_EVIDENCE"}',
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(missing.returncode, 2)
+        self.assertEqual(missing.stdout, "")
+
+    def test_r7_s8_poller_recovery_is_exact_backup_first_and_never_retries_canary(self):
+        source = S8_POLLER_RECOVERY.read_text(encoding="utf-8")
+        self.assertIn(
+            'FAILED_DEPLOY_BACKUP="/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260921T161900Z-predeploy"',
+            source,
+        )
+        self.assertIn(
+            'FAILED_DEPLOY_CONTROL_COMMIT="42fcbbefda36718540e8a7208f7b5cfaa6902ea0"',
+            source,
+        )
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r7"', source)
+        self.assertIn("exec 9> /run/tu1nz-adult-public-s11-2-control.lock", source)
+        self.assertIn("S11_DISABLED|CANARY_RED|false", source)
+        self.assertIn("BOT_POLLER_NOT_RUNNING", source)
+        self.assertIn("start-limit-hit", source)
+        self.assertIn("S11_2_R7_S8_S9_HEALTH_SIGNATURE_DRIFT", source)
+        self.assertIn("root:root:700", source)
+        self.assertNotIn("database_transition", source)
+        self.assertNotIn("START_CANARY", source)
+        self.assertNotIn("FULL_RELEASE", source)
+        self.assertNotIn("switch --detach", source)
+        self.assertNotIn("systemctl restart", source)
+        preflight = source[source.index("preflight() {"):source.index("backup_runtime() {")]
+        self.assertIn("require_failed_deploy_backup", preflight)
+        self.assertIn("require_failure_state", preflight)
+        self.assertIn("require_s11_closed", preflight)
+        recover = source[source.index("recover() {"):source.index("usage() {")]
+        self.assertLess(recover.index("preflight"), recover.index("backup_runtime"))
+        self.assertLess(recover.index("require_backup"), recover.index('systemctl reset-failed "$S8_SERVICE"'))
+        self.assertLess(recover.index('systemctl reset-failed "$S8_SERVICE"'), recover.index('systemctl start "$S8_SERVICE"'))
+        self.assertLess(recover.index("wait_poller_green"), recover.index("run_health_services"))
+        self.assertIn("S11_2_R7_S8_S11_STATE_MUTATED", recover)
+        handler = source[source.index("recovery_error() {"):source.index("recover() {")]
+        self.assertIn('systemctl stop "$S8_SERVICE"', handler)
 
     def test_canary_deploy_and_restore_use_r5_readiness_before_public_gate(self):
         source = CONTROLLER.read_text(encoding="utf-8")
