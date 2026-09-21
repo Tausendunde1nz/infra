@@ -1,0 +1,50 @@
+# S11.2-R8 child-code loss diagnosis
+
+Status: SOURCE-ONLY DIAGNOSIS CONFIRMED
+
+## Observed contract
+
+- S8 process start: GREEN
+- Poller/lease/readiness: GREEN
+- S9 outer code: `S10_2D_COMMUNITY_STATE_RED`
+- process status: `44`
+- child code at recovery boundary: absent
+- fail-closed stop: confirmed
+
+## Exact call graph
+
+1. `tu1nz_public_s8.runtime --health-only` emits one bounded JSON document and
+   returns 0 for GREEN/YELLOW or non-zero for RED/startup failure.
+2. `tu1nz_adult_public_s10_1_health.py::_community` captures stdout and exit
+   status. Before R8 it retained only three child values and mapped every other
+   RED to the generic outer state code.
+3. `tu1nz_adult_public_s10_1_health.py::main` caught `ValueError` and emitted
+   only `ok`, `safe_code` and `state`; any remaining child context was lost.
+4. The S9 systemd unit retained only the process exit status.
+5. `tu1nz_adult_public_s10_2d_health_gate.py` and the r7 recovery entrypoint
+   classified exit 44 generically and could not select a bounded next action.
+
+The information loss therefore occurred in the Control `_community` mapping
+and again in the outer exception serializer. Shell `set -e`, command
+substitution and the recovery trap were not the original loss point.
+
+## R8 contract
+
+Application is unchanged because it already emits technical, privacy-safe
+component reasons and Community state. Control now validates those values
+against an exact allowlist, preserves them in a structured outer envelope and
+keeps legacy outer/exit behaviour. Missing and unknown child values fail
+closed. The health-gate reads only JSON from the exact systemd invocation, and
+the recovery diagnostic emits only bounded fields.
+
+The reproduced latency failure is now:
+
+- outer: `S10_2D_COMMUNITY_STATE_RED`
+- child: `S11_COMMUNITY_LATENCY_SLO_RED`
+- component: `LATENCY_SLO`
+- class: `STATE_INTEGRITY_BLOCKER`
+- next action: `WAIT_FOR_LATENCY_SLO_OR_FIX_PROVENANCE_BEFORE_RECOVERY`
+- decision: `STOP_NO_RETRY`
+- exit: `44`
+
+No runtime recovery or S11 retry belongs to this source-only change.

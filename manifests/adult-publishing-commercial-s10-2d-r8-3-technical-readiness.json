@@ -123,7 +123,7 @@
   "artifact_bindings": {
     "controller_sha256": "9a584e68dfdab884ee4b9f7692db7bdd36e0840421579ed56000b7431fe8cbc5",
     "readiness_contract_sha256": "a4bbb464c8ca40741978f8a6f2113a229dbdc54e35b4da6eba942dd5c5ba4fd9",
-    "release_simulator_sha256": "986f565c2483a4dc27f3df647d7ff3cb757014dce06d9e32efbb143144a3a2e5",
+    "release_simulator_sha256": "0d14a10439e4e0bd97bc216ede06b7211c22468585b04ec6660080b1e7d67116",
     "manifest_schema": "R8_3_TECHNICAL_HUMAN_SEPARATION_V1"
   }
 }

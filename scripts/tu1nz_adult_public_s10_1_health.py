@@ -15,6 +15,17 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+try:
+    from scripts.tu1nz_adult_public_community_health_contract import (
+        CommunityHealthFailure,
+        failure_from_payload,
+    )
+except ModuleNotFoundError:  # direct execution from /usr/local/bin
+    from tu1nz_adult_public_community_health_contract import (
+        CommunityHealthFailure,
+        failure_from_payload,
+    )
+
 
 APPLICATION = Path("/opt/tu1nz_repos/adult-publishing-core")
 S9_RUNTIME = APPLICATION / ".venv/bin/python"
@@ -432,14 +443,9 @@ def _community(arguments: argparse.Namespace) -> dict[str, object] | None:
         payload = json.loads(completed.stdout)
     except json.JSONDecodeError:
         raise ValueError("S10_2D_COMMUNITY_HEALTH_INVALID") from None
-    if completed.returncode != 0:
-        child_code = payload.get("safe_code") if isinstance(payload, dict) else None
-        mapped_code = {
-            "BOT_RUNTIME_CONTRACT_MISMATCH": "S10_2D_COMMUNITY_RUNTIME_CONTRACT_RED",
-            "BOT_POLLER_NOT_RUNNING": "S10_2D_COMMUNITY_POLLER_RED",
-            "BOT_OFFSET_STALLED": "S10_2D_COMMUNITY_OFFSET_RED",
-        }.get(child_code, "S10_2D_COMMUNITY_STATE_RED")
-        raise ValueError(mapped_code)
+    community_failure = failure_from_payload(payload, completed.returncode)
+    if community_failure is not None:
+        raise community_failure
     community = payload.get("community") if isinstance(payload, dict) else None
     provider = community.get("provider") if isinstance(community, dict) else None
     latency = community.get("latency_24h") if isinstance(community, dict) else None
@@ -449,16 +455,6 @@ def _community(arguments: argparse.Namespace) -> dict[str, object] | None:
         isinstance(provider, dict),
         isinstance(latency, dict),
     )):
-        raise ValueError("S10_2D_COMMUNITY_STATE_RED")
-    if provider.get("ok") is not True:
-        raise ValueError("S10_2D_COMMUNITY_PROVIDER_RED")
-    if (
-        payload.get("ok") is not True
-        or payload.get("state") not in {"GREEN", "YELLOW"}
-        or community.get("pending_moderation") != 0
-        or community.get("stuck_restrictions") != 0
-        or community.get("latency_degraded") is not False
-    ):
         raise ValueError("S10_2D_COMMUNITY_STATE_RED")
     return {
         "provider": "GREEN",
@@ -534,6 +530,9 @@ def main() -> int:
         }
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 0
+    except CommunityHealthFailure as error:
+        print(json.dumps(error.as_dict(), sort_keys=True, separators=(",", ":")))
+        return health_exit_status(error.outer_code)
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         safe_code = str(error) if str(error).startswith("S10_") else "S10_1_WMS_HEALTH_RED"
         print(json.dumps({"ok": False, "safe_code": safe_code, "state": "RED"}, sort_keys=True, separators=(",", ":")))

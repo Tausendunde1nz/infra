@@ -296,6 +296,10 @@
 !analysis/COMMERCIAL_S10_2D_R8_1_FULL_SUITE_EXPECTATIONS_2026-09-08.diagnose
 !analysis/COMMERCIAL_S10_2D_R8_1_TEST_RUNTIME_2026-09-08.diagnose
 !analysis/COMMERCIAL_S10_2D_R8_1_EVENT_TRIGGER_ROLLBACK_2026-09-09.diagnose
+!analysis/COMMERCIAL_S11_2_R8_CHILD_CODE_LOSS_2026-09-21.diagnose
+!scripts/tu1nz_adult_public_community_health_contract.py
+!scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py
+!tests/test_adult_commercial_s11_2_r8_child_code_contract.py
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh
 !scripts/tu1nz_adult_public_s10_2d_r7_aggregate_recovery.py
 !scripts/tu1nz_adult_public_s10_2d_state_reconcile.py

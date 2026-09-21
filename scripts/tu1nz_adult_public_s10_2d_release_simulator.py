@@ -473,7 +473,15 @@ class SystemdLikeHealthClient:
                 "ok": provider_ok,
                 "state": "GREEN" if provider_ok else "RED",
                 "community": {
-                    "provider": {"ok": provider_ok, "rules_pinned": True},
+                    "provider": {
+                        "ok": provider_ok,
+                        "rules_pinned": True,
+                        **(
+                            {"safe_code": "S10_2D_COMMUNITY_ADMIN_MISSING"}
+                            if not provider_ok
+                            else {}
+                        ),
+                    },
                     "latency_24h": {
                         "samples": 100,
                         "bot_response_p50_ms": 50,
