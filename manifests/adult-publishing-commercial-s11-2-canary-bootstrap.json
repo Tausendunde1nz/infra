@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v1",
-  "status": "SOURCE_READY_FOR_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v2",
+  "status": "P0_RECOVERY_SOURCE_READY_FOR_REVIEW",
   "application_release": {
     "commit": "d1c9aeba7d6f3cd692cd8127b565aea7234e13e8",
     "tree": "9b931764246189938225406b7b592d0baf6a50d9",
@@ -9,8 +9,9 @@
     "reviewed_head": "b70bcbe464d28c4f587b746a282a84380630cb05"
   },
   "control_release": {
-    "freeze_tag": "s11-2-canary-bootstrap-freeze-r2",
+    "freeze_tag": "s11-2-canary-bootstrap-freeze-r3",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
+    "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "gate": "scripts/tu1nz_adult_public_s11_2_gate.py",
     "timer": "tu1nz-adult-public-s11-canary-controller.timer",
     "parallel_mutating_controller_allowed": false
@@ -50,6 +51,15 @@
     "automatic_full_promotion": true,
     "controller_remains_read_only_at_terminal_state": true,
     "full_rollback_requires_separate_versioned_recovery": true
+  },
+  "rollback_compatibility": {
+    "source_copy_binding_preflight": true,
+    "source_copy_binding_before_restart": true,
+    "aggregate_state_backed_up": true,
+    "traffic_quality_state_backed_up": true,
+    "p0_recovery_preserves_s11_state": true,
+    "p0_recovery_preserves_latency_evidence": true,
+    "p0_recovery_target": "PUBLIC_WMS_ONLY"
   },
   "preserved_runtime": {
     "real_acquisition_active": true,

@@ -1,0 +1,37 @@
+TU1NZ / WANT ME SEEN S11.2 P0 ROLLBACK BINDING
+
+Classification: SOURCE_CONFIG_ROLLBACK_BINDING_GAP
+Public impact: wantmeseen.com returned HTTP 502
+Canary impact: S11 controller absent; Canary and Full remained disabled
+
+Evidence
+
+- Target WMS runtime emitted S10_WMS_PUBLIC_READY before rollback.
+- Application and Control repositories returned to the exact clean source
+  commits after rollback.
+- The restored WMS copy failed the restored Application parser with
+  S10_PUBLIC_COPY_KEYS_INVALID_EN.
+- Contracts, bot identity, community contract, aggregate state and
+  traffic-quality state validated independently.
+- S10 WMS, S9 health and S10 health were RED after rollback.
+
+Root cause
+
+The old preflight bound repository commits but not the complete installed
+runtime/configuration tuple. The backup captured a copy compatible with the
+previously running in-memory code, while rollback restarted the repository
+source commit. Those independently valid artifacts were not compatible as a
+pair.
+
+Recovery contract
+
+1. Require the exact observed failed state and exact original backup.
+2. Create and verify a second full backup before mutation.
+3. Validate the canonical recovery copy using the exact rollback source,
+   installed base contracts and both aggregate state files without binding a
+   network port.
+4. Install only that canonical copy and restart only public WMS.
+5. Commit recovery only after public pages and health are GREEN.
+6. Run S8/S9/S10 health, timer, acquisition and product-boundary gates.
+7. Preserve S11 state, all latency evidence and both repository commits.
+8. Do not retry S11 Canary in this recovery.

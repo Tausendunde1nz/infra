@@ -75,3 +75,30 @@ recovery contract.
 
 Human Telegram acceptance is deferred and is never claimed by this contract.
 Real acquisition remains active with its existing baseline; it is not reset.
+
+## P0 rollback compatibility recovery
+
+The first runtime attempt exposed a source/configuration binding gap. The
+preflight proved repository commits but did not prove that the installed WMS
+copy could be parsed by the exact Application commit selected for rollback.
+The target runtime started successfully; rollback then restored the source
+commit and its independently backed-up copy, and that pair failed closed with
+`S10_PUBLIC_COPY_KEYS_INVALID_EN`. Git returned cleanly while public WMS became
+unavailable.
+
+Freeze r3 adds a read-only WMS construction probe to both deployment preflight
+and the rollback path before any service restart. The backup now also binds the
+base WMS, bot, community, aggregate and traffic-quality inputs needed to prove
+the runtime tuple.
+
+The separate P0 recovery entrypoint accepts only the observed failed state. It
+requires the exact clean pre-deployment repositories, exact failed-copy hash,
+verified original backup, absent S11 controller, disabled S11 state, unchanged
+acquisition baseline and closed product boundaries. It creates another full
+verified backup before installing the canonical copy from the exact rollback
+Application commit. It changes no repository, database state, latency evidence
+or S11 flag. Public WMS becomes the recovery commit point; later health failure
+cannot deliberately reintroduce the known 502 state.
+
+This recovery restores S10.2F availability only. It does not retry the Canary,
+promote S11 or authorize a second S11.2 deployment.
