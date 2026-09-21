@@ -110,3 +110,11 @@ access, the exact contract requires root:root 0700. Freeze r4 explicitly
 removes inherited setgid, verifies exact 0700 before the first backup write and
 rechecks it after permission hardening. The completed r3 backup remains
 immutable, and r4 retains the same public-WMS-only boundary.
+
+R4 then proved the normalized backup GREEN but exposed a separate readiness
+race: systemd marked the simple WMS process active before its HTTP listener was
+ready, and the public gate ran 194 ms later. Freeze r5 replaces that
+process-active-only wait with bounded polling of the existing local health
+endpoint. It requires parsed `ok=true` with all forbidden capabilities false
+before the unchanged public gate runs. The 30-second limit remains fail-closed;
+there is no fixed sleep, public-gate bypass or broader recovery scope.
