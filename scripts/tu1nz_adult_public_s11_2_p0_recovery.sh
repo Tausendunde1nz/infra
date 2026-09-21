@@ -10,7 +10,7 @@ readonly SOURCE_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
 readonly SOURCE_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
 readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r3"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r4"
 readonly ORIGINAL_DEPLOY_BACKUP="/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260920T202117Z-predeploy"
 readonly WMS_COPY="/etc/tu1nz/adult-commercial-s10-wms-copy.json"
 readonly FAILED_WMS_COPY_SHA="cdc9a48da4380f6730183bd2de23bf582cc7060513aba2f071f0e1ce96f9bf46"
@@ -225,6 +225,11 @@ PY
 backup_runtime() {
   local backup_path="$1" target_control="$2"
   install -d -o root -g root -m 0700 "$backup_path"
+  chown root:root "$backup_path"
+  chmod g-s "$backup_path"
+  chmod 0700 "$backup_path"
+  [ "$(stat -c '%U:%G:%a' "$backup_path")" = root:root:700 ] \
+    || fail "S11_2_P0_BACKUP_MODE_NORMALIZATION_RED"
   git_chatops "$APPLICATION_ROOT" bundle create - HEAD > "$backup_path/application.bundle"
   git_chatops "$CONTROL_ROOT" bundle create - HEAD > "$backup_path/control.bundle"
   git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" bundle verify "$backup_path/application.bundle" >/dev/null
@@ -256,6 +261,7 @@ backup_runtime() {
     sha256sum -c SHA256SUMS >/dev/null
   )
   chmod -R go-rwx "$backup_path"
+  chmod g-s "$backup_path"
   chmod 0700 "$backup_path"
   printf '{"ok":true,"safe_code":"S11_2_P0_BACKUP_GREEN"}\n'
 }
@@ -386,6 +392,9 @@ recover() {
   require_public_health
 
   install -d -o root -g root -m 0700 "$backup_path/postrecovery"
+  chown root:root "$backup_path/postrecovery"
+  chmod g-s "$backup_path/postrecovery"
+  chmod 0700 "$backup_path/postrecovery"
   systemctl show "${SERVICES[@]}" "${TIMERS[@]}" "${HEALTH_SERVICES[@]}" \
     > "$backup_path/postrecovery/runtime-manifest.txt"
   database_evidence "$backup_path/postrecovery/database-aggregate.json"

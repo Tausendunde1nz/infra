@@ -35,3 +35,22 @@ Recovery contract
 6. Run S8/S9/S10 health, timer, acquisition and product-boundary gates.
 7. Preserve S11 state, all latency evidence and both repository commits.
 8. Do not retry S11 Canary in this recovery.
+
+R3 recovery attempt
+
+- The second backup completed with all required artifacts and GREEN checksums.
+- The backup parent carries setgid, so the new root-owned directory inherited
+  mode 2700 even though group and other retained no access bits.
+- The verifier requires the documented exact mode root:root 0700 and stopped
+  before the mutation arm.
+- WMS copy, WMS process, repositories, database, S11 state and public state
+  therefore remained unchanged.
+
+R4 correction
+
+- Remove inherited setgid explicitly before writing the backup.
+- Verify exact root:root 0700 both before backup writes and after final
+  permission hardening.
+- Keep the prior completed R3 backup immutable and use a new backup path.
+- Preserve the same PUBLIC_WMS_ONLY recovery boundary; no S11 deployment or
+  evidence mutation is added.
