@@ -1,7 +1,7 @@
 # TU1NZ limited Tailscale SSH hardening — 2026-09-22
 
-Status: PRE-ACTIVATION. The operator authorized only the two-field SSH policy
-change described below. Activation has not occurred at this commit.
+Status: ORIGINAL POLICY RESTORED; exact approved reactivation pending.
+The first activation passed runtime tests but final documentation lint failed.
 
 ## Scope
 Server ubuntu-8gb-nbg1-2 / 100.121.130.51; MacBook 100.98.95.69; account chatops.
@@ -96,4 +96,75 @@ check mode may demand periodic identity confirmation.
    hash, test results and limitations. Commit/push the same branch.
 
 ## Execution results
-Pending validation and activation.
+Pre-activation documentation commit:
+2230493a9b5308a71eb0c0810c8ed718b34cd73a, pushed and remote SHA verified
+before any policy save.
+
+### Server-side preflight
+Tailscale's JSON editor was used with the exact candidate and temporary sshTests:
+owner -> 100.121.130.51 must check chatops and deny root/nobody/daemon.
+A second deliberately incompatible root-accept assertion prevented persistence.
+The server rejected the entire draft, reporting only the control assertion:
+ssh user root: want accept, got deny. No syntax or intended-test failure was
+reported. This expected negative control was not an activation failure.
+All temporary test fields were then removed. Editor content was compared
+byte-for-byte with the protected exact candidate before activation.
+
+### Activation and persistence
+Activation observed between 2026-09-22T18:13:37Z and 18:13:50Z (UTC).
+The UI confirmed Saved tailnet policy file; Save/Discard became disabled.
+After a full reload, copied saved contents matched the exact candidate byte for
+byte, with no sshTests field. Saved length: 2256 UTF-8 bytes.
+Saved SHA-256:
+5c6db5289fbbc0d7131d70f54a7dab516245b58d0da86e6ec3a1002deb394180
+Only SSH src and users changed; grants, action check and autogroup:self unchanged.
+The first activation was rolled back after a documentation-only lint error;
+see recovery record below.
+
+### Independent post-save connection tests
+At 2026-09-22T18:13:50Z, fresh MacBook SSH processes used ControlMaster=no,
+ControlPath=none, BatchMode=yes, strict known-host checking, no password,
+keyboard-interactive, public-key or forwarded-agent authentication.
+- chatops: exit 0, id -un chatops, UID 1001, correct server hostname;
+  authenticated with Tailscale method none.
+- root: exit 255, explicit tailnet policy does not permit SSH as root.
+- nobody: exit 255, explicit tailnet policy rejection.
+- daemon: exit 255, explicit tailnet policy rejection.
+nobody and daemon were independently confirmed to exist locally before testing.
+No root or other forbidden-user session was established. The harmless fallback
+command /usr/bin/false was not reached. Known-host key matched in all tests.
+The original held SSH session was retained throughout the transaction.
+
+### Post-change baseline comparison
+All comparison checks passed:
+- monitored service and timer ActiveState/SubState unchanged;
+- TCP listener bindings unchanged, including OpenSSH port 2222;
+- Tailscale RunSSH, WantRunning and Exit-Node advertised routes unchanged;
+  routes remain 0.0.0.0/0 and ::/0;
+- tailnet DNS resolved to the confirmed server; public DNS resolution succeeded;
+- canonical checkout HEAD unchanged and git status clean.
+Health service finished successfully after activation at 18:14:05Z.
+Latest encrypted backup completed successfully at 03:37:49Z; autorecovery last
+result success at 18:10:38Z; security audit success at 07:00:01Z.
+No job was manually triggered. Full post-activation backup/restore and iPhone/
+Exit-Node end-to-end traffic tests were not performed. Their configuration and
+relevant running services were preserved; do not overstate functional coverage.
+
+### Remaining issues, outside approved scope
+Fail2ban targets TCP 22 instead of OpenSSH 2222. Public OpenSSH bindings and the
+broad Hetzner rule remain, with active local filtering. General network allow-all
+and existing chatops sudo/docker rights remain. check mode can require future
+identity confirmation. The SSH rule remains owner-device scoped, not a unique
+Mac/server pair. Expired device entries remain. No merge or canonical checkout
+deployment was performed.
+
+
+## Documentation-format recovery and reactivation plan
+git diff --cached --check rejected a new blank line at EOF before the final
+documentation commit. No runtime test failed. Following the operator's literal
+rollback instruction, the entire original policy was restored through the UI.
+An independent chatops login succeeded at 2026-09-22T18:15:38Z.
+The only correction is normalized Markdown trailing whitespace/final newline.
+The exact previously validated candidate and its hash remain unchanged.
+Push this recovery record before reapplying that same candidate. Repeat fresh
+positive/negative SSH and baseline checks, then append final evidence.
