@@ -249,3 +249,59 @@ signatures. Both still require `MainPID=0`, `NRestarts=0`, the release-bound
 `BOT_POLLER_NOT_RUNNING` database signature, S9 exit 44, healthy unrelated
 services and GREEN publication rotation. Every other service tuple fails closed
 as `S11_2_R10_1_S8_RECOVERY_STATE_DRIFT`.
+
+## R12 S10 Telegram health child contract
+
+R11 proved that S8, its poller and lease, the event path, technical runtime
+latency, and S9 can all be GREEN while the later S10 Telegram channel check
+returns `S10_TELEGRAM_HEALTH_RED` with exit status 34. The S10 health process
+already emitted that bounded technical code; the loss occurred downstream:
+the recovery stream parser ignored a standalone S10 safe report and the
+systemd health gate only normalised child reports for S9 community exits.
+Both paths therefore collapsed the observed code to
+`COMMUNITY_CHILD_CODE_UNKNOWN_RED`.
+
+R12 keeps the existing outer code `S10_2D_COMMUNITY_STATE_RED` for
+compatibility and preserves `S10_TELEGRAM_HEALTH_RED` as the exact child with
+component `TELEGRAM_CHANNEL_HEALTH`. Its decision class is
+`TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE`, because a later read-only check was
+GREEN, but that classification never authorises an automatic retry. The only
+next action is `READ_ONLY_RECHECK_BEFORE_NEW_RECOVERY_AUTHORIZATION`.
+Repeated RED observations remain a hard provider blocker.
+
+The taxonomy separately represents provider reachability, channel
+configuration, release or bot binding, authorisation or permission, internal
+runtime, and unknown failures using existing canonical child codes. Missing
+or unknown children still fail closed. S9 and S10 health remain independent:
+an S10 Telegram failure does not rewrite an otherwise GREEN S9 result.
+
+The source-only R12 simulator covers a RED-to-GREEN transient candidate,
+three persistent RED observations, configuration and release-binding
+failures, and both complete recovery paths. The RED path models exactly one
+S8 start, exact-child preservation, rollback, and no second start. The GREEN
+path models completion through S10. No runtime process, evidence, database,
+feature flag, or S11 state is changed by R12.
+
+The R11 call graph and R12 result are bounded as follows:
+
+| Layer | Bounded input | Output / exit | R12 classification and action |
+| --- | --- | --- | --- |
+| S8 runtime | release-bound poller state | poller, lease, successful poll and event path GREEN; exit 0 | internal runtime GREEN |
+| S9 health | S8 and community technical health | GREEN report on stdout/journal; exit 0 | remains independently GREEN |
+| S10 channel check | bounded channel-health result | `S10_TELEGRAM_HEALTH_RED` on stdout/journal; exit 34 | Telegram channel health candidate |
+| systemd health gate | S10 unit safe report | outer plus exact child; non-zero | STOP, no retry |
+| recovery stream parser | bounded JSON journal lines | exact child or fail-closed missing/unknown | read-only recheck and new authorisation required |
+| recovery entrypoint | diagnostic result | rollback after the one permitted S8 start | no second start and no S11 |
+
+The Telegram failure taxonomy is deliberately narrower than free-form
+provider error text:
+
+| Semantic class | Existing canonical examples | Decision |
+| --- | --- | --- |
+| transient provider or timing | `S10_TELEGRAM_HEALTH_RED` after later GREEN evidence | STOP and read-only recheck |
+| provider unreachable | transport circuit/error-budget or remote-unavailable codes | STOP |
+| channel configuration | profile/default-permission/rules codes | STOP |
+| release or bot binding | runtime-contract or identity-binding codes | STOP |
+| authorisation or permission | credential/admin-right codes | STOP |
+| internal runtime | poller/event-path/handler codes | STOP under their existing decision class |
+| unknown or missing | canonical missing/unknown child codes | hard STOP and contract extension |

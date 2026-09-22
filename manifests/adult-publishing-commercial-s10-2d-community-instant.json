@@ -35,7 +35,7 @@
     "s9_health_dropin_sha256": "a92967f423cef362d18828f3a012c587f74615784ee395f1a1d81b1a8e9231bc",
     "s10_health_unit_sha256": "4e6b78b4a91e7d833efa35c9291392a518aa6ca93451135c9cb465f78ac7c8c9",
     "s10_wms_unit_sha256": "53237fc837a28cabbab7e34693db67bfaa2736b5153818f6b218c7dbcd65b89a",
-    "health_gate_sha256": "31515ad774a17c2d9b7ead159194f8a4c8f89cf2f4d42fad30d06c6638d47e27",
+    "health_gate_sha256": "c92f85ad6c352643bec9e871049d34c352265d7155e83afabdbbbcc3f76379e7",
     "release_simulator_sha256": "0d14a10439e4e0bd97bc216ede06b7211c22468585b04ec6660080b1e7d67116",
     "exact_post_merge_commit_and_tree_required": true
   },

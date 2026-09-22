@@ -12,6 +12,8 @@ try:
     from scripts.tu1nz_adult_public_community_health_contract import (
         CHILD_MISSING,
         CHILD_UNKNOWN,
+        TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE,
+        TELEGRAM_HEALTH_RED,
         CommunityHealthFailure,
         failure,
         failure_from_payload,
@@ -21,6 +23,8 @@ except ModuleNotFoundError:  # direct execution from /usr/local/bin
     from tu1nz_adult_public_community_health_contract import (
         CHILD_MISSING,
         CHILD_UNKNOWN,
+        TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE,
+        TELEGRAM_HEALTH_RED,
         CommunityHealthFailure,
         failure,
         failure_from_payload,
@@ -37,7 +41,7 @@ def diagnose(report: object) -> dict[str, object]:
             "decision": "HEALTH_GREEN",
             "ok": True,
             "retry": False,
-            "safe_code": "S11_2_R8_RECOVERY_DIAGNOSTIC_GREEN",
+            "safe_code": "S11_2_R12_RECOVERY_DIAGNOSTIC_GREEN",
         }
     health_failure = normalize_report(report)
     return {
@@ -45,7 +49,7 @@ def diagnose(report: object) -> dict[str, object]:
         "decision": "STOP_NO_RETRY",
         "ok": False,
         "retry": False,
-        "safe_code": "S11_2_R8_RECOVERY_DIAGNOSTIC_RED",
+        "safe_code": "S11_2_R12_RECOVERY_DIAGNOSTIC_RED",
     }
 
 
@@ -61,6 +65,7 @@ def parse_stream(material: str) -> object:
         if isinstance(parsed, Mapping) and (
             parsed.get("outer_code") is not None
             or parsed.get("safe_code") == "S10_2D_COMMUNITY_STATE_RED"
+            or parsed.get("safe_code") == TELEGRAM_HEALTH_RED
         ):
             candidate = parsed
     return candidate
@@ -108,6 +113,82 @@ def _runtime_decision(payload: dict[str, object], return_code: int = 0) -> dict[
     return diagnose(runtime_failure.as_dict())
 
 
+def _telegram_health_report(state: str) -> dict[str, object]:
+    if state == "GREEN":
+        return {"ok": True, "safe_code": "S9_TELEGRAM_CHANNEL_GREEN", "state": "GREEN"}
+    if state == "RED":
+        return {"ok": False, "safe_code": TELEGRAM_HEALTH_RED, "state": "RED"}
+    raise ValueError("S11_2_R12_TELEGRAM_SIMULATION_STATE_INVALID")
+
+
+def simulate_telegram_sequence(*states: str) -> dict[str, object]:
+    """Model observations without granting or executing a runtime retry."""
+
+    if not states:
+        raise ValueError("S11_2_R12_TELEGRAM_SIMULATION_EMPTY")
+    observations = [diagnose(_telegram_health_report(state)) for state in states]
+    persistent = len(states) >= 3 and all(state == "RED" for state in states)
+    recovered_after_red = "RED" in states[:-1] and states[-1] == "GREEN"
+    if persistent:
+        classification = "PERSISTENT_PROVIDER_BLOCKER"
+    elif recovered_after_red:
+        classification = TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE
+    elif states[-1] == "RED":
+        classification = TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE
+    else:
+        classification = "TELEGRAM_HEALTH_GREEN"
+    return {
+        "classification": classification,
+        "observations": observations,
+        "ok": all(
+            observation.get("retry") is False
+            and (
+                observation.get("decision") == "HEALTH_GREEN"
+                or observation.get("child_code") == TELEGRAM_HEALTH_RED
+            )
+            for observation in observations
+        ),
+        "runtime_retry_authorized": False,
+    }
+
+
+def simulate_recovery_paths() -> dict[str, object]:
+    telegram_red = diagnose(_telegram_health_report("RED"))
+    telegram_green = diagnose(_telegram_health_report("GREEN"))
+    red_path = {
+        "child_code": telegram_red.get("child_code"),
+        "decision": telegram_red["decision"],
+        "poller": "GREEN",
+        "rollback": True,
+        "s8_start_count": 1,
+        "s9": "GREEN",
+        "s10_telegram": "RED",
+        "second_start": False,
+    }
+    green_path = {
+        "decision": telegram_green["decision"],
+        "poller": "GREEN",
+        "recovery_complete": True,
+        "rollback": False,
+        "s8_start_count": 1,
+        "s9": "GREEN",
+        "s10_telegram": "GREEN",
+        "second_start": False,
+    }
+    ok = (
+        red_path["child_code"] == TELEGRAM_HEALTH_RED
+        and red_path["decision"] == "STOP_NO_RETRY"
+        and red_path["rollback"] is True
+        and red_path["s8_start_count"] == 1
+        and red_path["second_start"] is False
+        and green_path["decision"] == "HEALTH_GREEN"
+        and green_path["recovery_complete"] is True
+        and green_path["s8_start_count"] == 1
+        and green_path["second_start"] is False
+    )
+    return {"green_path": green_path, "ok": ok, "red_path": red_path}
+
+
 def simulate_contract() -> dict[str, object]:
     cases = {
         "A": _runtime_decision(_community_payload("GREEN", "INSUFFICIENT_EVIDENCE")),
@@ -139,6 +220,27 @@ def simulate_contract() -> dict[str, object]:
         and cases[name].get("retry") is False
         for name, expected in expectations.items()
     )
+    telegram = {
+        "transient": simulate_telegram_sequence("RED", "GREEN"),
+        "persistent": simulate_telegram_sequence("RED", "RED", "RED"),
+        "configuration": diagnose(
+            _report("S10_2D_COMMUNITY_ADMIN_RIGHT_MISSING", "PROVIDER")
+        ),
+        "release_binding": diagnose(
+            _report("BOT_RUNTIME_CONTRACT_MISMATCH", "LOCAL_CONFIG_HEALTH")
+        ),
+    }
+    recovery = simulate_recovery_paths()
+    ok = (
+        ok
+        and telegram["transient"]["ok"] is True
+        and telegram["transient"]["runtime_retry_authorized"] is False
+        and telegram["persistent"]["classification"] == "PERSISTENT_PROVIDER_BLOCKER"
+        and telegram["persistent"]["runtime_retry_authorized"] is False
+        and telegram["configuration"]["decision"] == "STOP_NO_RETRY"
+        and telegram["release_binding"]["decision"] == "STOP_NO_RETRY"
+        and recovery["ok"] is True
+    )
     return {
         "cases": {
             name: {
@@ -150,7 +252,9 @@ def simulate_contract() -> dict[str, object]:
             for name, result in cases.items()
         },
         "ok": ok,
-        "safe_code": "S11_2_R10_RECOVERY_SIMULATOR_GREEN" if ok else "S11_2_R10_RECOVERY_SIMULATOR_RED",
+        "recovery": recovery,
+        "safe_code": "S11_2_R12_RECOVERY_SIMULATOR_GREEN" if ok else "S11_2_R12_RECOVERY_SIMULATOR_RED",
+        "telegram": telegram,
     }
 
 
