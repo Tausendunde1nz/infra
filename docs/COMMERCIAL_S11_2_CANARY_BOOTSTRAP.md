@@ -201,3 +201,41 @@ lease/Poller readiness, Event Path, retained state and provider state.
 No R8 source-validation action starts S8, installs a controller, changes a
 database, mutates Telegram, starts the Canary or alters acquisition. The next
 runtime recovery remains a separate backup-first authorization.
+
+## R10 latency evidence and runtime-health integrity
+
+The R9 recovery attempt proved the Poller, lease and successful-poll path, then
+stopped at an S9 child reported as `S11_COMMUNITY_LATENCY_SLO_RED`. Its five
+retained rows were not written by R9: they came from the earlier failed S11.2
+Canary bootstrap. Each row is release- and run-bound `INTERNAL_TEST`, uses
+`S11_CANARY_RESPONSE` plus `INTERNAL_ACCEPTANCE`, and is therefore technical
+Canary evidence rather than real-user evidence.
+
+The rollback intentionally retained the additive schema and evidence while it
+restored an older Application reader. That reader did not recognise the newer
+sample type and mapped it to `UNKNOWN`; the generic S9 wrapper then coupled the
+product-level real-user profile to S8 runtime health. R10 classifies the proven
+root cause as `MULTIPLE_CAUSES`: `WRITER_READER_SCHEMA_MISMATCH` together with
+`PRE_CANARY_HEALTH_WRONGLY_REQUIRES_S11_SLO`.
+
+R10 keeps the evidence immutable and exposes four independent profiles in the
+Application health payload: technical runtime, Canary technical, Canary real
+user, and full real user. The S8/S9 runtime contract blocks only a RED
+`TECHNICAL_RUNTIME_LATENCY`; GREEN or `INSUFFICIENT_EVIDENCE` product profiles
+remain observable without becoming a false runtime RED. Missing or malformed
+profile contracts fail closed as `COMMUNITY_LATENCY_PROFILE_CONTRACT_RED`, and
+a genuinely RED technical runtime fails as `COMMUNITY_RUNTIME_LATENCY_RED`.
+Unknown provenance remains fail-closed.
+
+The strict product contract is unchanged: at least five valid REAL samples,
+p50 below 1000 ms, p95 below 2000 ms and p99 below 5000 ms. Technical samples
+never satisfy that floor. The A-J simulator covers S11 disabled, collecting,
+eligible, product RED, technical-only, unknown, state corruption, release
+mismatch and technical RED scenarios without a retry.
+
+The next recovery contract is still backup-first and permits exactly one S8
+start. Before that start it binds the canonical R10 Application reader and
+Control health contracts; any failure stops S8 and restores the backed-up
+source commits and installed health scripts. It never starts a Canary, changes
+an S11 flag, reclassifies evidence, or authorises a second attempt. R10 itself
+is source-only and performs no server runtime mutation.

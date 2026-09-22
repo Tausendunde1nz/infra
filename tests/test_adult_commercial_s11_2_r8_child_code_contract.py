@@ -24,6 +24,9 @@ RECOVERY = ROOT / "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh"
 
 
 def green_payload() -> dict[str, object]:
+    def profile(name: str, state: str = "GREEN", samples: int = 5) -> dict[str, object]:
+        return {"profile": name, "state": state, "samples": samples}
+
     return {
         "ok": True,
         "safe_code": "S8_DIAGNOSTIC_GREEN",
@@ -37,6 +40,12 @@ def green_payload() -> dict[str, object]:
                 "bot_response_p99_ms": 300,
             },
             "latency_degraded": False,
+            "latency_slo_profiles": {
+                "TECHNICAL_RUNTIME_LATENCY": profile("TECHNICAL_RUNTIME_LATENCY"),
+                "REAL_USER_DIRECT_LATENCY": profile("REAL_USER_DIRECT_LATENCY"),
+                "S11_CANARY_TECHNICAL_LATENCY": profile("S11_CANARY_TECHNICAL_LATENCY"),
+                "S11_CANARY_REAL_USER_LATENCY": profile("S11_CANARY_REAL_USER_LATENCY"),
+            },
             "pending_moderation": 0,
             "provider": {
                 "ok": True,
@@ -89,8 +98,8 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
         report = self._community(green_payload())
         self.assertEqual(report["provider"], "GREEN")
 
-    def test_r8_manifest_hash_binds_every_contract_and_simulator_artifact(self):
-        bindings = json.loads(MANIFEST.read_text(encoding="utf-8"))["r8_artifact_bindings"]
+    def test_r10_manifest_hash_binds_every_contract_and_simulator_artifact(self):
+        bindings = json.loads(MANIFEST.read_text(encoding="utf-8"))["r10_artifact_bindings"]
         expected = {
             "community_health_contract_sha256": ROOT / "scripts/tu1nz_adult_public_community_health_contract.py",
             "s9_health_wrapper_sha256": ROOT / "scripts/tu1nz_adult_public_s10_1_health.py",
@@ -105,16 +114,36 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertEqual(bindings[field], hashlib.sha256(path.read_bytes()).hexdigest())
 
-    def test_case_b_latency_child_is_preserved_under_outer_exit_44(self):
+    def test_case_b_full_product_latency_does_not_red_s8_runtime(self):
         payload = green_payload()
         payload["community"]["latency_degraded"] = True
+        payload["community"]["latency_slo_profiles"]["REAL_USER_DIRECT_LATENCY"]["state"] = "RED"
+        report = self._community(payload)
+        self.assertEqual(report["provider"], "GREEN")
+        self.assertEqual(report["technical_runtime_latency_state"], "GREEN")
+        self.assertEqual(report["s11_full_latency_state"], "RED")
+
+    def test_case_b1_runtime_latency_red_preserves_precise_child(self):
+        payload = green_payload()
+        payload["community"]["latency_slo_profiles"]["TECHNICAL_RUNTIME_LATENCY"]["state"] = "RED"
         with self.assertRaises(contract.CommunityHealthFailure) as caught:
             self._community(payload)
         failure = caught.exception
         self.assertEqual(failure.outer_code, "S10_2D_COMMUNITY_STATE_RED")
-        self.assertEqual(failure.child_code, "S11_COMMUNITY_LATENCY_SLO_RED")
+        self.assertEqual(failure.child_code, "COMMUNITY_RUNTIME_LATENCY_RED")
         self.assertEqual(failure.component, "LATENCY_SLO")
         self.assertEqual(health.health_exit_status(failure.outer_code), 44)
+
+    def test_case_b2_missing_or_malformed_profile_contract_fails_closed(self):
+        missing = green_payload()
+        del missing["community"]["latency_slo_profiles"]["S11_CANARY_REAL_USER_LATENCY"]
+        malformed = green_payload()
+        malformed["community"]["latency_slo_profiles"]["TECHNICAL_RUNTIME_LATENCY"]["state"] = "UNKNOWN"
+        for payload in (missing, malformed):
+            with self.subTest(payload=payload):
+                failure = contract.failure_from_payload(payload, 0)
+                self.assertEqual(failure.child_code, "COMMUNITY_LATENCY_PROFILE_CONTRACT_RED")
+                self.assertEqual(failure.decision_class, contract.RELEASE_BINDING_BLOCKER)
 
     def test_cases_c_and_d_missing_and_unknown_fail_closed(self):
         missing = contract.failure_from_payload(
@@ -233,12 +262,26 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
     def test_recovery_simulator_matrix_and_shell_never_retry(self):
         report = diagnostic.simulate_contract()
         self.assertTrue(report["ok"])
-        self.assertEqual(set(report["cases"]), set("ABCDEFGHI"))
+        self.assertEqual(set(report["cases"]), set("ABCDEFGHIJ"))
         self.assertTrue(all(case["retry"] is False for case in report["cases"].values()))
+        self.assertEqual(report["cases"]["D"]["decision"], "HEALTH_GREEN")
+        self.assertEqual(
+            report["cases"]["I"]["child_code"],
+            "COMMUNITY_RUNTIME_LATENCY_RED",
+        )
         source = RECOVERY.read_text(encoding="utf-8")
         recover = source[source.index("recover() {"):source.index("usage() {")]
         self.assertEqual(recover.count('systemctl start "$S8_SERVICE"'), 1)
+        self.assertLess(
+            recover.index('switch --detach "$TARGET_APPLICATION_COMMIT"'),
+            recover.index('systemctl start "$S8_SERVICE"'),
+        )
         self.assertIn("run_health_services", recover)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10"', source)
+        self.assertIn("restore_source_contracts", source)
+        self.assertIn("S8_POLLER_AND_LATENCY_CONTRACT_RECOVERY_ONCE", source)
+        self.assertNotIn("INSERT INTO", source)
+        self.assertNotIn("UPDATE commercial_", source)
         self.assertNotIn("START_CANARY", source)
         self.assertNotIn("FULL_RELEASE", source)
         self.assertIn("simulate-diagnostic", source)

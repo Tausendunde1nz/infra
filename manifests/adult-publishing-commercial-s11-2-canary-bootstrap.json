@@ -1,15 +1,15 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v7",
-  "status": "S11_2_R8_CHILD_CODE_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v8",
+  "status": "S11_2_R10_LATENCY_INTEGRITY_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
-    "commit": "d1c9aeba7d6f3cd692cd8127b565aea7234e13e8",
-    "tree": "9b931764246189938225406b7b592d0baf6a50d9",
-    "pull_request": 116,
-    "post_merge_ci": 35531091485,
-    "reviewed_head": "b70bcbe464d28c4f587b746a282a84380630cb05"
+    "commit": "23230af0b4dab4c1462a326cc137c2ded39cee4c",
+    "tree": "562e2ba68da01385da838e4499819924adca694c",
+    "pull_request": 117,
+    "post_merge_ci": 35751076585,
+    "reviewed_head": "8b692237bcd7431418ad7623c8254f57f3729148"
   },
   "control_release": {
-    "freeze_tag": "s11-2-canary-bootstrap-freeze-r8",
+    "freeze_tag": "s11-2-canary-bootstrap-freeze-r10",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -42,6 +42,40 @@
     "recovery_diagnostic_sha256": "83f1d5e6551e51f34170987f7d70c784f5e54764d85690c457f54bb70de2fee8",
     "recovery_entrypoint_sha256": "ab9d3082eb0894cdd4a19372e143e6ec69d97a9e192f172a21c0eb47d9fad7b6",
     "fixture_suite_sha256": "2532289e3f2469263090152b633528477930517dbeb082d8c0ef79ec7e273522",
+    "source_only_release_simulator_sha256": "0d14a10439e4e0bd97bc216ede06b7211c22468585b04ec6660080b1e7d67116"
+  },
+  "r10_latency_integrity_contract": {
+    "root_cause": "MULTIPLE_CAUSES",
+    "primary_causes": [
+      "WRITER_READER_SCHEMA_MISMATCH",
+      "PRE_CANARY_HEALTH_WRONGLY_REQUIRES_S11_SLO"
+    ],
+    "runtime_profile": "TECHNICAL_RUNTIME_LATENCY",
+    "canary_technical_profile": "S11_CANARY_TECHNICAL_LATENCY",
+    "canary_real_profile": "S11_CANARY_REAL_USER_LATENCY",
+    "full_real_profile": "REAL_USER_DIRECT_LATENCY",
+    "runtime_red_child": "COMMUNITY_RUNTIME_LATENCY_RED",
+    "profile_contract_red_child": "COMMUNITY_LATENCY_PROFILE_CONTRACT_RED",
+    "insufficient_product_evidence_blocks_s8_runtime": false,
+    "red_technical_runtime_blocks_s8_runtime": true,
+    "unknown_provenance_fails_closed": true,
+    "minimum_real_samples": 5,
+    "p50_strictly_below_ms": 1000,
+    "p95_strictly_below_ms": 2000,
+    "p99_strictly_below_ms": 5000,
+    "fixture_matrix": "A-J",
+    "runtime_retry_performed": false,
+    "evidence_mutated": false,
+    "next_s8_recovery_count": 1,
+    "next_s8_recovery_ready": true
+  },
+  "r10_artifact_bindings": {
+    "community_health_contract_sha256": "5abd0712d9480cf6eeb30722ca8a979b68aeaa70994e2d8858f032af8128e9db",
+    "s9_health_wrapper_sha256": "15cc2cfa6c38e4ee6c5cc3689b62011672b9304a4d0709e3062c87e3d49ba019",
+    "health_gate_sha256": "31515ad774a17c2d9b7ead159194f8a4c8f89cf2f4d42fad30d06c6638d47e27",
+    "recovery_diagnostic_sha256": "7d6fb843cc3135d2ed3c97011e6b4edd316e6a59dc51a44d2d438f48a10cd201",
+    "recovery_entrypoint_sha256": "9296dd0b538c1af2aba8909383edb461147a3dfb1754b610fcb2f71ce9e79a98",
+    "fixture_suite_sha256": "4dc69db6234fad631bb3daec5cc25a2da09029929e6f31dcd61adb29879b7109",
     "source_only_release_simulator_sha256": "0d14a10439e4e0bd97bc216ede06b7211c22468585b04ec6660080b1e7d67116"
   },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
@@ -98,6 +132,11 @@
     "r7_s8_poller_recovery_retries_canary": false,
     "r8_child_code_preserved": true,
     "r8_recovery_diagnostic_stop_no_retry": true,
+    "r10_application_reader_bound_before_recovery": true,
+    "r10_runtime_and_product_latency_profiles_separate": true,
+    "r10_recovery_restores_source_contracts_on_failure": true,
+    "r10_recovery_starts_s8_exactly_once": true,
+    "r10_recovery_retries_canary": false,
     "p0_recovery_preserves_s11_state": true,
     "p0_recovery_preserves_latency_evidence": true,
     "p0_recovery_target": "PUBLIC_WMS_ONLY"

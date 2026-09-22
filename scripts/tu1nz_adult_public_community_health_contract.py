@@ -33,6 +33,7 @@ CHILD_CLASSIFICATION = {
     "S10_2D_MODERATION_DELIVERY_STATE_RED": STATE_INTEGRITY_BLOCKER,
     "S10_2D_RESTRICTION_RELEASE_STATE_RED": STATE_INTEGRITY_BLOCKER,
     "RETAINED_MODERATION_STATE_RED": STATE_INTEGRITY_BLOCKER,
+    "COMMUNITY_RUNTIME_LATENCY_RED": STATE_INTEGRITY_BLOCKER,
     "S11_COMMUNITY_LATENCY_SLO_RED": STATE_INTEGRITY_BLOCKER,
     "S8_PRODUCT_BOUNDARY_RED": STATE_INTEGRITY_BLOCKER,
     "S8_QUEUE_FAILED_DELIVERIES_PRESENT": STATE_INTEGRITY_BLOCKER,
@@ -42,6 +43,7 @@ CHILD_CLASSIFICATION = {
     "S8_DATABASE_CREDENTIAL_INVALID": RELEASE_BINDING_BLOCKER,
     "S8_TELEGRAM_CREDENTIAL_INVALID": RELEASE_BINDING_BLOCKER,
     "S10_2D_COMMUNITY_CONTROL_MISSING": RELEASE_BINDING_BLOCKER,
+    "COMMUNITY_LATENCY_PROFILE_CONTRACT_RED": RELEASE_BINDING_BLOCKER,
     "S10_2D_COMMUNITY_PROFILE_MISMATCH": PROVIDER_EXTERNAL_BLOCKER,
     "S10_2D_COMMUNITY_ADMIN_MISSING": PROVIDER_EXTERNAL_BLOCKER,
     "S10_2D_COMMUNITY_ADMIN_RIGHT_MISSING": PROVIDER_EXTERNAL_BLOCKER,
@@ -111,6 +113,13 @@ _COMPONENT_ORDER = (
     "LANDING_INTEGRATION",
     "BOT_PROCESS",
 )
+_LATENCY_PROFILE_NAMES = (
+    "TECHNICAL_RUNTIME_LATENCY",
+    "REAL_USER_DIRECT_LATENCY",
+    "S11_CANARY_TECHNICAL_LATENCY",
+    "S11_CANARY_REAL_USER_LATENCY",
+)
+_LATENCY_PROFILE_STATES = frozenset({"GREEN", "RED", "INSUFFICIENT_EVIDENCE"})
 
 
 @dataclass(frozen=True)
@@ -177,6 +186,27 @@ def _red_component(payload: Mapping[str, object]) -> tuple[object, str] | None:
     return None
 
 
+def latency_profile_states(community: Mapping[str, object]) -> dict[str, str]:
+    """Return canonical profile states or fail closed on reader-contract drift."""
+
+    profiles = community.get("latency_slo_profiles")
+    if not isinstance(profiles, Mapping):
+        raise failure("COMMUNITY_LATENCY_PROFILE_CONTRACT_RED", "LATENCY_SLO")
+    states: dict[str, str] = {}
+    for name in _LATENCY_PROFILE_NAMES:
+        profile = profiles.get(name)
+        if (
+            not isinstance(profile, Mapping)
+            or profile.get("profile") != name
+            or profile.get("state") not in _LATENCY_PROFILE_STATES
+            or not isinstance(profile.get("samples"), int)
+            or profile.get("samples", -1) < 0
+        ):
+            raise failure("COMMUNITY_LATENCY_PROFILE_CONTRACT_RED", "LATENCY_SLO")
+        states[name] = profile["state"]
+    return states
+
+
 def failure_from_payload(payload: object, return_code: int) -> CommunityHealthFailure | None:
     """Return a strict failure for a child payload, otherwise ``None`` for GREEN."""
 
@@ -207,8 +237,12 @@ def failure_from_payload(payload: object, return_code: int) -> CommunityHealthFa
         return failure("S10_2D_MODERATION_DELIVERY_STATE_RED", "MODERATION")
     if community.get("stuck_restrictions") != 0:
         return failure("S10_2D_RESTRICTION_RELEASE_STATE_RED", "COMMUNITY")
-    if community.get("latency_degraded") is not False:
-        return failure("S11_COMMUNITY_LATENCY_SLO_RED", "LATENCY_SLO")
+    try:
+        latency_states = latency_profile_states(community)
+    except CommunityHealthFailure as latency_failure:
+        return latency_failure
+    if latency_states["TECHNICAL_RUNTIME_LATENCY"] == "RED":
+        return failure("COMMUNITY_RUNTIME_LATENCY_RED", "LATENCY_SLO")
     if payload.get("ok") is not True or payload.get("state") not in {"GREEN", "YELLOW"}:
         component_failure = _red_component(payload)
         return failure(*(component_failure or (None, "COMMUNITY")))

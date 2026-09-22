@@ -1,0 +1,47 @@
+TU1NZ COMMERCIAL S11.2-R10 LATENCY STATE-INTEGRITY ROOT CAUSE
+Date: 2026-09-22
+
+Scope
+-----
+Read-only live diagnosis followed by source-only repair. No S8 start, S11
+activation, database write, evidence rewrite, Telegram mutation, or server
+runtime deployment is part of R10.
+
+Observed evidence
+-----------------
+- The rolling inventory contained five DIRECT rows.
+- All five rows were INTERNAL_TEST / S11_CANARY_RESPONSE /
+  INTERNAL_ACCEPTANCE and shared the frozen runtime release and technical run.
+- Their bounded technical durations were 439, 424, 425, 452, and 428 ms.
+- No REAL row and no UNKNOWN evidence-class row was present.
+- The R9 recovery path wrote zero latency rows. The rows originated in the
+  failed S11.2 bootstrap technical-evidence writer after START_CANARY.
+- S11 remained disabled and CANARY_RED; real acquisition and its baseline were
+  unchanged.
+
+Writer and reader path
+----------------------
+The writer persisted the new S11_CANARY_RESPONSE sample type correctly. The
+rollback retained the additive database schema and rows but restored an older
+Application reader. That reader did not know the new enum and mapped the rows
+to UNKNOWN. Its generic real-user health summary became RED. The Control S9
+wrapper then treated that product-level RED as a mandatory S8 runtime gate.
+
+Classification
+--------------
+H. MULTIPLE_CAUSES
+- G. WRITER_READER_SCHEMA_MISMATCH
+- D. PRE_CANARY_HEALTH_WRONGLY_REQUIRES_S11_SLO
+
+Repair contract
+---------------
+- Bind the canonical reader before the one future S8 recovery.
+- Expose technical runtime, Canary technical, Canary real-user, and full
+  real-user profiles separately.
+- Block S8 runtime only on a RED technical runtime profile or a malformed
+  profile contract.
+- Keep unknown provenance fail-closed.
+- Preserve the strict full-product floor and 1000/2000/5000 ms thresholds.
+- Keep every historical row unchanged.
+- Permit exactly one backup-first future S8 start; restore source contracts and
+  stop S8 on failure; never retry Canary.

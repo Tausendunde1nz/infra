@@ -65,6 +65,15 @@ class CommercialS102DR41HealthGateTests(unittest.TestCase):
                     "pending_moderation": 0,
                     "stuck_restrictions": 0,
                     "latency_degraded": False,
+                    "latency_slo_profiles": {
+                        name: {"profile": name, "state": "GREEN", "samples": 5}
+                        for name in (
+                            "TECHNICAL_RUNTIME_LATENCY",
+                            "REAL_USER_DIRECT_LATENCY",
+                            "S11_CANARY_TECHNICAL_LATENCY",
+                            "S11_CANARY_REAL_USER_LATENCY",
+                        )
+                    },
                 },
             }
             return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")

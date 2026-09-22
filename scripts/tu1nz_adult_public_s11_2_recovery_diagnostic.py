@@ -14,6 +14,7 @@ try:
         CHILD_UNKNOWN,
         CommunityHealthFailure,
         failure,
+        failure_from_payload,
         normalize_report,
     )
 except ModuleNotFoundError:  # direct execution from /usr/local/bin
@@ -22,6 +23,7 @@ except ModuleNotFoundError:  # direct execution from /usr/local/bin
         CHILD_UNKNOWN,
         CommunityHealthFailure,
         failure,
+        failure_from_payload,
         normalize_report,
     )
 
@@ -68,28 +70,68 @@ def _report(child_code: object = None, component: str = "COMMUNITY") -> dict[str
     return failure(child_code, component).as_dict()
 
 
+def _community_payload(
+    technical: str,
+    full: str,
+    *,
+    canary_technical: str = "INSUFFICIENT_EVIDENCE",
+    canary_real: str = "INSUFFICIENT_EVIDENCE",
+    pending_moderation: int = 0,
+) -> dict[str, object]:
+    def profile(name: str, state: str) -> dict[str, object]:
+        return {"profile": name, "state": state, "samples": 0 if state == "INSUFFICIENT_EVIDENCE" else 5}
+
+    return {
+        "ok": True,
+        "state": "GREEN",
+        "community": {
+            "bot_event_path": {"ok": True, "safe_code": "BOT_EVENT_PATH_GREEN"},
+            "latency_24h": {"samples": 0},
+            "latency_degraded": full == "RED",
+            "latency_slo_profiles": {
+                "TECHNICAL_RUNTIME_LATENCY": profile("TECHNICAL_RUNTIME_LATENCY", technical),
+                "REAL_USER_DIRECT_LATENCY": profile("REAL_USER_DIRECT_LATENCY", full),
+                "S11_CANARY_TECHNICAL_LATENCY": profile("S11_CANARY_TECHNICAL_LATENCY", canary_technical),
+                "S11_CANARY_REAL_USER_LATENCY": profile("S11_CANARY_REAL_USER_LATENCY", canary_real),
+            },
+            "pending_moderation": pending_moderation,
+            "provider": {"ok": True, "safe_code": "S10_2D_COMMUNITY_GREEN"},
+            "stuck_restrictions": 0,
+        },
+    }
+
+
+def _runtime_decision(payload: dict[str, object], return_code: int = 0) -> dict[str, object]:
+    runtime_failure = failure_from_payload(payload, return_code)
+    if runtime_failure is None:
+        return {"decision": "HEALTH_GREEN", "ok": True, "retry": False}
+    return diagnose(runtime_failure.as_dict())
+
+
 def simulate_contract() -> dict[str, object]:
     cases = {
-        "A": diagnose({"ok": True, "state": "GREEN"}),
-        "B": diagnose(_report("S11_COMMUNITY_LATENCY_SLO_RED", "LATENCY_SLO")),
-        "C": diagnose({"ok": False, "outer_code": "S10_2D_COMMUNITY_STATE_RED"}),
-        "D": diagnose(_report("NOT_CANONICAL", "COMMUNITY")),
-        "E": diagnose(_report("BOT_RUNTIME_CONTRACT_MISMATCH", "LOCAL_CONFIG_HEALTH")),
-        "F": diagnose(_report("BOT_POLLER_NOT_RUNNING", "POLLING")),
-        "G": diagnose(_report("BOT_EVENT_PATH_RED", "POLLING")),
-        "H": diagnose(_report("RETAINED_MODERATION_STATE_RED", "RETAINED_STATE")),
-        "I": diagnose(_report("S10_2D_COMMUNITY_PROFILE_MISMATCH", "PROVIDER")),
+        "A": _runtime_decision(_community_payload("GREEN", "INSUFFICIENT_EVIDENCE")),
+        "B": _runtime_decision(_community_payload("GREEN", "INSUFFICIENT_EVIDENCE", canary_real="INSUFFICIENT_EVIDENCE")),
+        "C": _runtime_decision(_community_payload("GREEN", "GREEN", canary_technical="GREEN", canary_real="GREEN")),
+        "D": _runtime_decision(_community_payload("GREEN", "RED", canary_technical="GREEN", canary_real="RED")),
+        "E": _runtime_decision(_community_payload("INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", canary_technical="GREEN")),
+        "F": _runtime_decision(_community_payload("RED", "RED")),
+        "G": _runtime_decision(_community_payload("GREEN", "INSUFFICIENT_EVIDENCE", pending_moderation=1)),
+        "H": diagnose(_report("BOT_RUNTIME_CONTRACT_MISMATCH", "LOCAL_CONFIG_HEALTH")),
+        "I": _runtime_decision(_community_payload("RED", "INSUFFICIENT_EVIDENCE")),
+        "J": _runtime_decision(_community_payload("GREEN", "INSUFFICIENT_EVIDENCE")),
     }
     expectations = {
         "A": ("HEALTH_GREEN", None),
-        "B": ("STOP_NO_RETRY", "S11_COMMUNITY_LATENCY_SLO_RED"),
-        "C": ("STOP_NO_RETRY", CHILD_MISSING),
-        "D": ("STOP_NO_RETRY", CHILD_UNKNOWN),
-        "E": ("STOP_NO_RETRY", "BOT_RUNTIME_CONTRACT_MISMATCH"),
-        "F": ("STOP_NO_RETRY", "BOT_POLLER_NOT_RUNNING"),
-        "G": ("STOP_NO_RETRY", "BOT_EVENT_PATH_RED"),
-        "H": ("STOP_NO_RETRY", "RETAINED_MODERATION_STATE_RED"),
-        "I": ("STOP_NO_RETRY", "S10_2D_COMMUNITY_PROFILE_MISMATCH"),
+        "B": ("HEALTH_GREEN", None),
+        "C": ("HEALTH_GREEN", None),
+        "D": ("HEALTH_GREEN", None),
+        "E": ("HEALTH_GREEN", None),
+        "F": ("STOP_NO_RETRY", "COMMUNITY_RUNTIME_LATENCY_RED"),
+        "G": ("STOP_NO_RETRY", "S10_2D_MODERATION_DELIVERY_STATE_RED"),
+        "H": ("STOP_NO_RETRY", "BOT_RUNTIME_CONTRACT_MISMATCH"),
+        "I": ("STOP_NO_RETRY", "COMMUNITY_RUNTIME_LATENCY_RED"),
+        "J": ("HEALTH_GREEN", None),
     }
     ok = all(
         cases[name].get("decision") == expected[0]
@@ -108,7 +150,7 @@ def simulate_contract() -> dict[str, object]:
             for name, result in cases.items()
         },
         "ok": ok,
-        "safe_code": "S11_2_R8_RECOVERY_SIMULATOR_GREEN" if ok else "S11_2_R8_RECOVERY_SIMULATOR_RED",
+        "safe_code": "S11_2_R10_RECOVERY_SIMULATOR_GREEN" if ok else "S11_2_R10_RECOVERY_SIMULATOR_RED",
     }
 
 

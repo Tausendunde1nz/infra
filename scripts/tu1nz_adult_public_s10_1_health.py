@@ -19,11 +19,13 @@ try:
     from scripts.tu1nz_adult_public_community_health_contract import (
         CommunityHealthFailure,
         failure_from_payload,
+        latency_profile_states,
     )
 except ModuleNotFoundError:  # direct execution from /usr/local/bin
     from tu1nz_adult_public_community_health_contract import (
         CommunityHealthFailure,
         failure_from_payload,
+        latency_profile_states,
     )
 
 
@@ -456,6 +458,7 @@ def _community(arguments: argparse.Namespace) -> dict[str, object] | None:
         isinstance(latency, dict),
     )):
         raise ValueError("S10_2D_COMMUNITY_STATE_RED")
+    latency_states = latency_profile_states(community)
     return {
         "provider": "GREEN",
         "rules_pinned": provider.get("rules_pinned") is True,
@@ -466,6 +469,10 @@ def _community(arguments: argparse.Namespace) -> dict[str, object] | None:
         "latency_p50_ms": latency.get("bot_response_p50_ms"),
         "latency_p95_ms": latency.get("bot_response_p95_ms"),
         "latency_p99_ms": latency.get("bot_response_p99_ms"),
+        "technical_runtime_latency_state": latency_states["TECHNICAL_RUNTIME_LATENCY"],
+        "s11_canary_technical_latency_state": latency_states["S11_CANARY_TECHNICAL_LATENCY"],
+        "s11_canary_real_latency_state": latency_states["S11_CANARY_REAL_USER_LATENCY"],
+        "s11_full_latency_state": latency_states["REAL_USER_DIRECT_LATENCY"],
     }
 
 
