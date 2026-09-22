@@ -233,3 +233,44 @@ The previously observed expired iPhone entries require renewed verification
 and an actual iPhone/Exit-Node test before removing allow-all.
 No overall-completion merge has been attempted; the security branch remains
 separate from control-main. Phase 3 result commit: 552a047905045a51203845468fbb9b12eba80401.
+
+## Independent console verified; Phase 4 health preflight failed
+On 2026-09-22 the operator-authorized browser workflow opened project Default,
+server 109772243 and its independent Hetzner web console. Existing local login
+was already active. Actual console commands returned whoami=chatops and
+hostname=ubuntu-8gb-nbg1-2. No credential was requested, read or entered.
+The console is retained open as the recovery path. No root login was used.
+
+Fresh origin/control-main is cedd7ec6648deeaec1468b809e42596c37bd5000.
+Since 333352f it includes 7fd88ec and merge PR #176: S11.2-R12 Telegram health
+child contract, 10 changed files. These changes were fetched/read only; no
+merge/rebase or canonical-checkout update occurred.
+
+Read-only monitoring/container investigation:
+- Grafana host port 3000 and cAdvisor host port 8080 are published on all IPv4
+  interfaces by Docker; both use monitoring_default bridge networking.
+- Prometheus also uses that bridge, with host publication 9090 and a bind-mounted
+  /tausendunde1nz/05_it_security/monitoring/prometheus.yml.
+- Both the file and the actually loaded target API use localhost:8080 for
+  cAdvisor and localhost:9100 for node_exporter. Actual target API reports both
+  DOWN / connection refused, with scrapes observed around 19:01 UTC.
+  In a bridge-networked Prometheus container localhost refers to that container;
+  this explains the mismatch with separately running exporter services.
+- Host-local HTTP requests to 3000/api/health, 8080/healthz and 8090/health each
+  returned 200. These are local checks, not public reachability tests.
+- spicymila_bot remains unhealthy with curl healthcheck exit 7. Configured
+  healthcheck URL is http://127.0.0.1:8090/health inside the container, whereas
+  Docker publishes host 8090 to container 8080. This is a likely incorrect
+  healthcheck port; no container/configuration repair was performed.
+- External direct-client need for Grafana 3000 and cAdvisor 8080 remains
+  unproven. Partial reference search cannot establish absence of consumers.
+
+The required monitoring preflight failed, so Phase 4 stopped before any provider
+rule mutation. Fixing monitoring target addresses or bot healthcheck is outside
+the currently authorized port-only Fail2ban/provider/Tailnet hardening scope.
+Do not silently incorporate those repairs. Require a separately authorized,
+backed-up and documented correction followed by a green monitoring baseline,
+and resolve external port consumers before removing the broad provider rule.
+Phase 5 remains unactivated; iPhone/Exit-Node functional validation still needed.
+Fail2ban Phase 3 remains successfully completed; no new evidence attributes these
+pre-existing container/loopback failures to its restricted port correction.
