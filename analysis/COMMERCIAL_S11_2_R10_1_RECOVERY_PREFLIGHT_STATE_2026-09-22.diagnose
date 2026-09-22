@@ -1,0 +1,33 @@
+TU1NZ COMMERCIAL S11.2-R10.1 RECOVERY PREFLIGHT STATE
+Date: 2026-09-22
+
+Scope
+-----
+Read-only final-preflight diagnosis followed by a source-only contract repair.
+No S8 start, runtime deployment, evidence mutation, Telegram mutation or S11
+activation occurred.
+
+Observed state
+--------------
+- S8 Telegram was inactive/dead with Result=success, MainPID=0 and NRestarts=0.
+- The inactive timestamp followed the R9 fail-closed stop.
+- The release-bound polling row retained BOT_POLLER_NOT_RUNNING with an expired
+  lease and no recent successful poll.
+- S9 health retained exit status 44.
+- S7, S8 Landing, S10 WMS and nginx remained active with NRestarts=0.
+
+Root cause
+----------
+The recovery preflight encoded only the transient failed/start-limit-hit state.
+R9's fail-closed handler subsequently stopped S8, which normalised systemd to
+inactive/dead with a successful stop result. The safe terminal state therefore
+failed a stale preflight assertion even though every release-bound failure
+signature remained intact.
+
+Repair contract
+---------------
+Accept exactly failed/failed/start-limit-hit or inactive/dead/success. Both
+states continue to require MainPID=0, NRestarts=0, the exact polling failure
+signature, S9 exit 44, healthy unrelated services and GREEN publication
+rotation. Every other state fails closed as
+S11_2_R10_1_S8_RECOVERY_STATE_DRIFT.

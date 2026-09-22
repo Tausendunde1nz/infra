@@ -17,7 +17,7 @@ readonly TARGET_APPLICATION_TREE="562e2ba68da01385da838e4499819924adca694c"
 readonly FAILED_DEPLOY_SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly FAILED_DEPLOY_CONTROL_COMMIT="42fcbbefda36718540e8a7208f7b5cfaa6902ea0"
 readonly FAILED_DEPLOY_BACKUP="/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260921T161900Z-predeploy"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10-1"
 readonly RECOVERY_DIAGNOSTIC="$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py"
 readonly INCIDENT_EPOCH="2026-09-21T16:21:59.148938Z"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -191,11 +191,14 @@ require_s11_closed() {
 }
 
 require_failure_state() {
-  local unit
-  [ "$(systemctl show "$S8_SERVICE" -p ActiveState --value)" = failed ] \
-    || { fail "S11_2_R7_S8_SERVICE_NOT_FAILED"; return 2; }
-  [ "$(systemctl show "$S8_SERVICE" -p Result --value)" = start-limit-hit ] \
-    || { fail "S11_2_R7_S8_FAILURE_SIGNATURE_DRIFT"; return 2; }
+  local unit active_state sub_state result
+  active_state="$(systemctl show "$S8_SERVICE" -p ActiveState --value)"
+  sub_state="$(systemctl show "$S8_SERVICE" -p SubState --value)"
+  result="$(systemctl show "$S8_SERVICE" -p Result --value)"
+  case "${active_state}|${sub_state}|${result}" in
+    "failed|failed|start-limit-hit"|"inactive|dead|success") ;;
+    *) fail "S11_2_R10_1_S8_RECOVERY_STATE_DRIFT"; return 2 ;;
+  esac
   [ "$(systemctl show "$S8_SERVICE" -p MainPID --value)" = 0 ] \
     || { fail "S11_2_R7_S8_UNEXPECTED_PROCESS_PRESENT"; return 2; }
   [ "$(systemctl show "$S8_SERVICE" -p NRestarts --value)" = 0 ] \

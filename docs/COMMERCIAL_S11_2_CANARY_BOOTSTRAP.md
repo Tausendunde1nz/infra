@@ -239,3 +239,13 @@ Control health contracts; any failure stops S8 and restores the backed-up
 source commits and installed health scripts. It never starts a Canary, changes
 an S11 flag, reclassifies evidence, or authorises a second attempt. R10 itself
 is source-only and performs no server runtime mutation.
+
+## R10.1 recovery preflight state
+
+The final read-only R10 preflight found that R9's fail-closed stop had already
+normalised S8 from `failed/start-limit-hit` to `inactive/dead` with a successful
+stop result. The recovery contract now accepts exactly those two safe service
+signatures. Both still require `MainPID=0`, `NRestarts=0`, the release-bound
+`BOT_POLLER_NOT_RUNNING` database signature, S9 exit 44, healthy unrelated
+services and GREEN publication rotation. Every other service tuple fails closed
+as `S11_2_R10_1_S8_RECOVERY_STATE_DRIFT`.

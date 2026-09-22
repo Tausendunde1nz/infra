@@ -438,7 +438,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             'FAILED_DEPLOY_CONTROL_COMMIT="42fcbbefda36718540e8a7208f7b5cfaa6902ea0"',
             source,
         )
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10-1"', source)
         self.assertIn(
             'TARGET_APPLICATION_COMMIT="23230af0b4dab4c1462a326cc137c2ded39cee4c"',
             source,
@@ -447,6 +447,8 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("S11_DISABLED|CANARY_RED|false", source)
         self.assertIn("BOT_POLLER_NOT_RUNNING", source)
         self.assertIn("start-limit-hit", source)
+        self.assertIn('"inactive|dead|success"', source)
+        self.assertIn("S11_2_R10_1_S8_RECOVERY_STATE_DRIFT", source)
         self.assertIn("S11_2_R7_S8_S9_HEALTH_SIGNATURE_DRIFT", source)
         self.assertIn("root:root:700", source)
         self.assertNotIn("database_transition", source)
