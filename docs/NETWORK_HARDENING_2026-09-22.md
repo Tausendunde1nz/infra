@@ -207,3 +207,29 @@ first back up and verify the exact new override has not changed; remove only
 fail2ban-client reload sshd. Verify loaded nftables action port is ssh, all
 original jail settings match before.json, and independently retest both SSH
 paths. Do not restore the whole archive over unrelated changes.
+
+## Phase 4 entry gate: paused before any provider change
+Provider firewall 10043301 remains attached to server 109772243, with inbound
+TCP 80-8080, TCP 22, TCP 443 and ICMP from 0.0.0.0/0 and ::/0.
+No provider mutation has occurred. An independent authenticated Hetzner console
+or recovery route has not been established in this task.
+Read-only Docker inventory found host-published Grafana 3000 and cAdvisor 8080
+inside the broad provider interval. External monitoring/consumer requirements
+for these direct ports are unresolved; their removal is not yet authorized by
+a complete dependency matrix. Prometheus is published on 9090; bot ports are
+8081 and 8090, outside the current provider TCP range. n8n and Jellyfin bind
+localhost 5678 and 8096 respectively.
+Read-only enabled nginx directives show public 80/443 routes for API, lighting,
+n8n, trendwatch and WantMeSeen domains, with local upstreams including 8090,
+8081, 5678 and 3011. This is a partial routing inventory, not nginx -T or proof
+that every upstream currently works. No public endpoint test was performed.
+Docker reports spicymila_bot Up 3 days (unhealthy), a pre-existing health issue
+rather than a demonstrated result of the Fail2ban change. Do not claim a green
+whole-server baseline or repair unrelated applications under this task.
+Phase 4 remains NO-GO pending verified independent console, resolved monitoring
+port dependencies and an adequate service baseline. Phase 5 is not activated;
+general Tailnet allow-all and hardened owner/chatops SSH rule remain unchanged.
+The previously observed expired iPhone entries require renewed verification
+and an actual iPhone/Exit-Node test before removing allow-all.
+No overall-completion merge has been attempted; the security branch remains
+separate from control-main. Phase 3 result commit: 552a047905045a51203845468fbb9b12eba80401.
