@@ -488,6 +488,28 @@ class SystemdLikeHealthClient:
                         "bot_response_p95_ms": 95,
                         "bot_response_p99_ms": 99,
                     },
+                    "latency_slo_profiles": {
+                        "TECHNICAL_RUNTIME_LATENCY": {
+                            "profile": "TECHNICAL_RUNTIME_LATENCY",
+                            "state": "GREEN",
+                            "samples": 100,
+                        },
+                        "REAL_USER_DIRECT_LATENCY": {
+                            "profile": "REAL_USER_DIRECT_LATENCY",
+                            "state": "INSUFFICIENT_EVIDENCE",
+                            "samples": 0,
+                        },
+                        "S11_CANARY_TECHNICAL_LATENCY": {
+                            "profile": "S11_CANARY_TECHNICAL_LATENCY",
+                            "state": "INSUFFICIENT_EVIDENCE",
+                            "samples": 0,
+                        },
+                        "S11_CANARY_REAL_USER_LATENCY": {
+                            "profile": "S11_CANARY_REAL_USER_LATENCY",
+                            "state": "INSUFFICIENT_EVIDENCE",
+                            "samples": 0,
+                        },
+                    },
                     "pending_moderation": 0,
                     "stuck_restrictions": 0,
                     "latency_degraded": False,

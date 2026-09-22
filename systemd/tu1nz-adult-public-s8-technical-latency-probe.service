@@ -1,0 +1,29 @@
+[Unit]
+Description=TU1NZ S11.2 R14 bounded technical runtime latency probe
+After=postgresql.service tu1nz-adult-public-s8-telegram.service
+
+[Service]
+Type=oneshot
+User=chatops
+Group=chatops
+WorkingDirectory=/opt/tu1nz_repos/adult-publishing-core
+Environment=PYTHONPATH=/opt/tu1nz_repos/adult-publishing-core/src
+LoadCredential=s8_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
+ExecCondition=/usr/bin/systemctl is-active --quiet tu1nz-adult-public-s8-telegram.service
+ExecStart=/opt/tu1nz_repos/adult-publishing-core/.venv/bin/python -m tu1nz_public_s8.technical_latency_probe --contract /etc/tu1nz/adult-commercial-s8-public-telegram.json --copy /etc/tu1nz/adult-commercial-s8-copy.json --database-dsn %d/s8_database_dsn --runtime-release-id s10-2d-r3-5
+TimeoutStartSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077

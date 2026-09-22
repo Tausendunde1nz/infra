@@ -1,0 +1,61 @@
+{
+  "version": "tu1nz-commercial-s11-2-r14-technical-runtime-latency-v1",
+  "status": "SOURCE_GREEN_PENDING_REVIEW",
+  "base_application_commit": "23230af0b4dab4c1462a326cc137c2ded39cee4c",
+  "base_application_tree": "562e2ba68da01385da838e4499819924adca694c",
+  "base_control_commit": "cedd7ec6648deeaec1468b809e42596c37bd5000",
+  "base_control_tree": "7dfffeb6c59e49aa0754d6a71a4dbeec1f34393b",
+  "runtime_release_id": "s10-2d-r3-5",
+  "artifact_bindings": {
+    "application_probe_sha256": "002c65e11bc57598afcfe33822b953bb7c876d0925f5e68e423941b2a416d5f2",
+    "control_controller_sha256": "5d2f8ad04638fa8967e9061e9d201c63881496f6f71d92d310d37e0668d250fc",
+    "systemd_probe_unit_sha256": "7290e8f0e0af7fd50950c2af4231e3ed6054052891388b310392241d9bbe6df9",
+    "control_document_sha256": "08c06409c4194a63e726723adb11d1f6e8b48ed98b8be1194390ccde60d9f235"
+  },
+  "technical_runtime_contract": {
+    "window_hours": 24,
+    "minimum_samples": 5,
+    "evidence_class": "INTERNAL_TEST",
+    "source": "DIRECT",
+    "sample_type": "DIRECT_BOT_RESPONSE",
+    "interaction_path": "INTERNAL_ACCEPTANCE",
+    "metric": "handler_duration_ms",
+    "p50_strictly_below_ms": 1000,
+    "p95_strictly_below_ms": 2000,
+    "p99_strictly_below_ms": 5000,
+    "unknown_provenance_fails_closed": true
+  },
+  "probe": {
+    "application_module": "tu1nz_public_s8.technical_latency_probe",
+    "systemd_unit": "tu1nz-adult-public-s8-technical-latency-probe.service",
+    "samples_per_invocation": 1,
+    "provider_requests": 0,
+    "telegram_messages": 0,
+    "production_product_state_writes": 0,
+    "production_latency_writes": 1,
+    "manual_database_insert": false,
+    "real_evidence_allowed": false,
+    "unknown_evidence_allowed": false,
+    "parallel_invocations_allowed": false,
+    "timer_installed": false
+  },
+  "runtime_boundaries": {
+    "s8_restart_allowed": false,
+    "poller_restart_allowed": false,
+    "s11_canary_allowed": false,
+    "s11_controller_install_allowed": false,
+    "real_acquisition_state_change_allowed": false,
+    "community_state_change_allowed": false,
+    "adult_media_allowed": false,
+    "real_avs_allowed": false,
+    "payments_allowed": false,
+    "external_publishing_allowed": false,
+    "controlled_beta_allowed": false,
+    "production_allowed": false
+  },
+  "completion": {
+    "p0_recovery_closes_only_on_technical_runtime_green": true,
+    "next_s11_canary_runtime_ready_only_on_all_runtime_gates_green": true,
+    "s11_remains_disabled": true
+  }
+}
