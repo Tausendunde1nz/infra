@@ -1,7 +1,7 @@
 # TU1NZ limited Tailscale SSH hardening — 2026-09-22
 
-Status: ORIGINAL POLICY RESTORED; exact approved reactivation pending.
-The first activation passed runtime tests but final documentation lint failed.
+Status: ACTIVATED AND VERIFIED. The authorized exact two-field restriction is
+active. A documentation-lint rollback and successful reactivation are recorded.
 
 ## Scope
 Server ubuntu-8gb-nbg1-2 / 100.121.130.51; MacBook 100.98.95.69; account chatops.
@@ -168,3 +168,27 @@ The only correction is normalized Markdown trailing whitespace/final newline.
 The exact previously validated candidate and its hash remain unchanged.
 Push this recovery record before reapplying that same candidate. Repeat fresh
 positive/negative SSH and baseline checks, then append final evidence.
+
+## Final completion after reactivation
+Recovery/pre-reactivation documentation commit:
+df3a868b8801993bb3ca431d652333044ed2f8d0, pushed before reactivation.
+
+Final save confirmation: 2026-09-22T18:16:08.840Z (client-observed UTC).
+Fresh independent SSH tests at 2026-09-22T18:16:20Z:
+chatops exit 0 / UID 1001; root, nobody and daemon each exit 255 with explicit
+Tailscale policy denial. The held original SSH session remains open.
+After reload, the actual saved editor text exactly matched the 2256-byte
+candidate with SHA-256 5c6db5289fbbc0d7131d70f54a7dab516245b58d0da86e6ec3a1002deb394180.
+A first clipboard read selected page text rather than the editor; it was
+discarded as invalid evidence. Correct editor-focus comparison passed.
+
+Final baseline recheck: all monitored service/timer states, TCP listener
+bindings and selected Tailscale/Exit-Node preferences identical to the
+pre-activation baseline; tailnet and public DNS succeeded. Latest monitored
+job results were successful. Canonical detached HEAD and clean status unchanged.
+No network-wide grants, SSH/2222, firewall, Fail2ban, sudo or keys were changed.
+No public connection test, restart, backup trigger or merge occurred.
+The documentation-only formatting error was corrected and its required policy
+rollback succeeded before this final reactivation. Protected full rollback
+policy and per-edit documentation backups remain available.
+All previous functional-coverage limitations and out-of-scope issues remain.
