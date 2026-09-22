@@ -115,3 +115,12 @@ mode remained identical. Installed promtool accepted original and candidate,
 and correctly rejected malformed YAML. Reviewed transaction source compiles
 and matches the protected execution copy byte-for-byte. These tests do not
 replace the pending privileged firewall-cause and rollback checks.
+
+## Concurrent canonical checkout observation
+After preparation push, a read-only check found /opt/tu1nz_repos/control clean
+and still detached but now at cedd7ec6648deeaec1468b809e42596c37bd5000. Reflog
+records checkout at 19:11:49 UTC, reversal at 19:11:52, and checkout again at
+19:14:13 on 2026-09-22. Those checkouts were not issued by this hardening task;
+the responsible actor is not established. Do not revert or overwrite them.
+The earlier canonical SHA is historical, not the current state. The isolated
+hardening worktree remains the sole target for our Git/documentation changes.
