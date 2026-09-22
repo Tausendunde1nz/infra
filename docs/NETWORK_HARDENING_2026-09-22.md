@@ -274,3 +274,58 @@ and resolve external port consumers before removing the broad provider rule.
 Phase 5 remains unactivated; iPhone/Exit-Node functional validation still needed.
 Fail2ban Phase 3 remains successfully completed; no new evidence attributes these
 pre-existing container/loopback failures to its restricted port correction.
+
+## Authorized monitoring correction: read-only preflight stopped
+The operator authorized a narrowly scoped monitoring correction but explicitly
+froze all MyChatBuddy/RC4/legacy containers through 2026-09-24 and required an
+immediate stop on any failed internal test. No live correction was activated.
+
+Confirmed Compose source: /tausendunde1nz/05_it_security/monitoring/docker-compose.yml.
+Prometheus (service prometheus, PID 2432) runs on monitoring_default bridge,
+IP 172.29.0.4, aliases prometheus and tu1nz_prometheus. Its command loads the
+bind-mounted /etc/prometheus/prometheus.yml; no lifecycle HTTP flag is enabled.
+cAdvisor (service cadvisor, PID 2466) uses the same bridge, IP 172.29.0.2,
+aliases cadvisor and tu1nz_cadvisor, internal port 8080. Grafana is 172.29.0.3,
+service grafana, internal/host port 3000. Node Exporter (service node_exporter,
+PID 2430) uses network_mode=host and pid=host; it has no bridge DNS alias or
+container IP. The inspected monitoring bridge gateway is 172.29.0.1.
+All four monitoring containers have restart count zero and started 2025-11-01.
+The persisted Prometheus configuration literally targets localhost:9100 and
+localhost:8080. In its bridge network this is Prometheus's own network namespace,
+not either exporter. The historical author/reason for those values is unknown.
+
+Sequential internal read-only tests from the existing Prometheus container,
+using its existing /bin/wget and discarding metrics output:
+- http://cadvisor:8080/metrics: exit 0.
+- http://172.29.0.1:9100/metrics: exit 1, download timed out after five seconds.
+The gateway came from docker network inspect, not a guessed address.
+The timeout blocks adoption of this Node Exporter target. Its cause is not yet
+proven; do not label it definitively as firewall filtering. No alternative
+address, network mutation or partial cAdvisor-only correction was activated.
+No public connection was tested and no exporter data was printed.
+
+spicymila_bot is the unhealthy container, service/project spicymila_bot from
+/opt/spicymila_bot/docker-compose.yml. It started 2026-09-19T08:22:54Z and has
+restart count zero. Host 8090 forwards to container 8080; its Docker healthcheck
+runs curl against 127.0.0.1:8090 inside that container, which is the wrong
+namespace for the host-port mapping. The enabled nginx configuration for
+api.mychatbuddy.dev sends /spicy and /spicymila health/webhook routes to host8090.
+This proves a MyChatBuddy service relationship, though membership in the exact
+72-hour cohort was not independently documented. Treat it as protected and
+defer all healthcheck/container correction until the observation ends.
+api-mychatbuddy is a separate healthy container on proxy network, restart count
+zero; it was not altered. No protected container was exec'd, restarted, recreated
+or otherwise mutated. No provider lease, cost setting or port publication changed.
+
+Current remote control-main remains cedd7ec6648deeaec1468b809e42596c37bd5000.
+It was fetched read-only; no history rewrite or canonical checkout change.
+No branch integration or monitoring activation is claimed. A non-rewriting
+integration and renewed conflict checks remain prerequisites before activation.
+
+Immediate stop follows the failed internal test. Prometheus targets, Compose,
+healthchecks, systemd, Hetzner and Tailnet remain unchanged. Existing Fail2ban
+2222 correction is retained. Further target-route diagnosis and a tested safe
+Node Exporter route are needed before monitoring correction can proceed.
+Port-consumer/log inventory and stable post-correction observation remain
+incomplete; Phase 4 is not cleared. No live-change backups/rollback are claimed
+for a correction that never proceeded beyond read-only preflight.
