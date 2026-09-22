@@ -428,7 +428,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertEqual(missing.returncode, 2)
         self.assertEqual(missing.stdout, "")
 
-    def test_r7_s8_poller_recovery_is_exact_backup_first_and_never_retries_canary(self):
+    def test_r10_s8_poller_recovery_binds_reader_backup_first_and_never_retries_canary(self):
         source = S8_POLLER_RECOVERY.read_text(encoding="utf-8")
         self.assertIn(
             'FAILED_DEPLOY_BACKUP="/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260921T161900Z-predeploy"',
@@ -438,7 +438,11 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             'FAILED_DEPLOY_CONTROL_COMMIT="42fcbbefda36718540e8a7208f7b5cfaa6902ea0"',
             source,
         )
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r8"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10"', source)
+        self.assertIn(
+            'TARGET_APPLICATION_COMMIT="23230af0b4dab4c1462a326cc137c2ded39cee4c"',
+            source,
+        )
         self.assertIn("exec 9> /run/tu1nz-adult-public-s11-2-control.lock", source)
         self.assertIn("S11_DISABLED|CANARY_RED|false", source)
         self.assertIn("BOT_POLLER_NOT_RUNNING", source)
@@ -448,7 +452,6 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertNotIn("database_transition", source)
         self.assertNotIn("START_CANARY", source)
         self.assertNotIn("FULL_RELEASE", source)
-        self.assertNotIn("switch --detach", source)
         self.assertNotIn("systemctl restart", source)
         preflight = source[source.index("preflight() {"):source.index("backup_runtime() {")]
         self.assertIn("require_failed_deploy_backup", preflight)
@@ -457,11 +460,17 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         recover = source[source.index("recover() {"):source.index("usage() {")]
         self.assertLess(recover.index("preflight"), recover.index("backup_runtime"))
         self.assertLess(recover.index("require_backup"), recover.index('systemctl reset-failed "$S8_SERVICE"'))
+        self.assertLess(
+            recover.index('switch --detach "$TARGET_APPLICATION_COMMIT"'),
+            recover.index('systemctl start "$S8_SERVICE"'),
+        )
         self.assertLess(recover.index('systemctl reset-failed "$S8_SERVICE"'), recover.index('systemctl start "$S8_SERVICE"'))
+        self.assertEqual(recover.count('systemctl start "$S8_SERVICE"'), 1)
         self.assertLess(recover.index("wait_poller_green"), recover.index("run_health_services"))
         self.assertIn("S11_2_R7_S8_S11_STATE_MUTATED", recover)
         handler = source[source.index("recovery_error() {"):source.index("recover() {")]
         self.assertIn('systemctl stop "$S8_SERVICE"', handler)
+        self.assertIn("restore_source_contracts", handler)
 
     def test_canary_deploy_and_restore_use_r5_readiness_before_public_gate(self):
         source = CONTROLLER.read_text(encoding="utf-8")

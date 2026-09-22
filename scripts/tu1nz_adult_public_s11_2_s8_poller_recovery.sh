@@ -10,11 +10,14 @@ readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json
 readonly QUALITY_STATE="/var/lib/tu1nz-adult-public-s9/wms-traffic-quality.json"
 readonly SOURCE_APPLICATION_COMMIT="ecc73e2557b3f5bf643fa89d06bda57a9c4d26cc"
 readonly SOURCE_APPLICATION_TREE="1acc0300ca099bd57f2455753c0a2700867a68d5"
-readonly SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
-readonly SOURCE_CONTROL_TREE="78f5b52f1def8a78608033088454a15940639d99"
+readonly SOURCE_CONTROL_COMMIT="0390861869c0c54acc400a9e05481f7c847619e2"
+readonly SOURCE_CONTROL_TREE="c41ebc4d524d19eb4ff7686f9fef16cba6eb5367"
+readonly TARGET_APPLICATION_COMMIT="23230af0b4dab4c1462a326cc137c2ded39cee4c"
+readonly TARGET_APPLICATION_TREE="562e2ba68da01385da838e4499819924adca694c"
+readonly FAILED_DEPLOY_SOURCE_CONTROL_COMMIT="3efd84b3e66fa9c79d58e60943e3be864fa715d4"
 readonly FAILED_DEPLOY_CONTROL_COMMIT="42fcbbefda36718540e8a7208f7b5cfaa6902ea0"
 readonly FAILED_DEPLOY_BACKUP="/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260921T161900Z-predeploy"
-readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r8"
+readonly FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10"
 readonly RECOVERY_DIAGNOSTIC="$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py"
 readonly INCIDENT_EPOCH="2026-09-21T16:21:59.148938Z"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -25,6 +28,9 @@ readonly S11_CONTROLLER="/usr/local/bin/tu1nz_adult_public_s11_2_control.sh"
 readonly S11_GATE="/usr/local/bin/tu1nz_adult_public_s11_2_gate.py"
 readonly S11_UNIT="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service"
 readonly S11_TIMER="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.timer"
+readonly INSTALLED_COMMUNITY_HEALTH="/usr/local/bin/tu1nz_adult_public_community_health_contract.py"
+readonly INSTALLED_S9_HEALTH="/usr/local/bin/tu1nz_adult_public_s10_1_health.py"
+readonly INSTALLED_HEALTH_GATE="/usr/local/bin/tu1nz_adult_public_s10_2d_health_gate.py"
 readonly HEALTH_SERVICES=(
   tu1nz-adult-public-s8-health.service
   tu1nz-adult-public-s9-health.service
@@ -104,6 +110,8 @@ require_clean_commit() {
 
 require_remote_recovery() {
   local target_control="$1"
+  [ "$(git_chatops "$APPLICATION_ROOT" ls-remote origin refs/heads/main | awk 'NR == 1 {print $1}')" = "$TARGET_APPLICATION_COMMIT" ] \
+    || fail "S11_2_R10_REMOTE_APPLICATION_DRIFT"
   [ "$(git_chatops "$CONTROL_ROOT" ls-remote origin "refs/tags/${FINAL_CONTROL_TAG}^{}" | awk 'NR == 1 {print $1}')" = "$target_control" ] \
     || fail "S11_2_R7_S8_REMOTE_FREEZE_DRIFT"
 }
@@ -115,7 +123,7 @@ require_failed_deploy_backup() {
     || fail "S11_2_R7_S8_FAILED_DEPLOY_BACKUP_MODE_RED"
   grep -Fqx "source_application_commit=${SOURCE_APPLICATION_COMMIT}" "$FAILED_DEPLOY_BACKUP/provenance.txt" \
     || fail "S11_2_R7_S8_FAILED_DEPLOY_APPLICATION_BINDING_RED"
-  grep -Fqx "source_control_commit=${SOURCE_CONTROL_COMMIT}" "$FAILED_DEPLOY_BACKUP/provenance.txt" \
+  grep -Fqx "source_control_commit=${FAILED_DEPLOY_SOURCE_CONTROL_COMMIT}" "$FAILED_DEPLOY_BACKUP/provenance.txt" \
     || fail "S11_2_R7_S8_FAILED_DEPLOY_SOURCE_CONTROL_BINDING_RED"
   grep -Fqx "target_control_commit=${FAILED_DEPLOY_CONTROL_COMMIT}" "$FAILED_DEPLOY_BACKUP/provenance.txt" \
     || fail "S11_2_R7_S8_FAILED_DEPLOY_TARGET_CONTROL_BINDING_RED"
@@ -129,6 +137,27 @@ require_failed_deploy_backup() {
     || fail "S11_2_R7_S8_FAILED_DEPLOY_CONTROL_BUNDLE_RED"
   pg_restore --list "$FAILED_DEPLOY_BACKUP/database.dump" >/dev/null \
     || fail "S11_2_R7_S8_FAILED_DEPLOY_DATABASE_BACKUP_RED"
+}
+
+install_from_git() {
+  local repository="$1" commit="$2" path="$3" mode="$4" destination="$5"
+  git_chatops "$repository" show "${commit}:${path}" \
+    | install -o root -g root -m "$mode" /dev/stdin "$destination"
+}
+
+fetch_and_require_target() {
+  local target_control="$1"
+  git_chatops "$APPLICATION_ROOT" fetch --quiet --no-tags origin main
+  git_chatops "$CONTROL_ROOT" fetch --quiet --no-tags origin control-main \
+    "refs/tags/${FINAL_CONTROL_TAG}:refs/tags/${FINAL_CONTROL_TAG}"
+  [ "$(git_chatops "$APPLICATION_ROOT" rev-parse origin/main)" = "$TARGET_APPLICATION_COMMIT" ] \
+    || fail "S11_2_R10_FETCHED_APPLICATION_DRIFT"
+  [ "$(git_chatops "$APPLICATION_ROOT" rev-parse "${TARGET_APPLICATION_COMMIT}^{tree}")" = "$TARGET_APPLICATION_TREE" ] \
+    || fail "S11_2_R10_TARGET_APPLICATION_TREE_DRIFT"
+  [ "$(git_chatops "$CONTROL_ROOT" rev-parse "refs/tags/${FINAL_CONTROL_TAG}^{commit}")" = "$target_control" ] \
+    || fail "S11_2_R10_FETCHED_CONTROL_DRIFT"
+  git_chatops "$CONTROL_ROOT" merge-base --is-ancestor "$target_control" origin/control-main \
+    || fail "S11_2_R10_CONTROL_NOT_CANONICAL"
 }
 
 require_public_health() {
@@ -347,14 +376,18 @@ backup_runtime() {
   [ -s "$backup_path/database.restore-list.txt" ] || fail "S11_2_R7_S8_DATABASE_BACKUP_RED"
   install -m 0600 /etc/systemd/system/tu1nz-adult-public-s8-telegram.service \
     "$backup_path/s8-telegram.service"
+  install -m 0600 "$INSTALLED_COMMUNITY_HEALTH" "$backup_path/community-health-contract.py"
+  install -m 0600 "$INSTALLED_S9_HEALTH" "$backup_path/s9-health.py"
+  install -m 0600 "$INSTALLED_HEALTH_GATE" "$backup_path/health-gate.py"
   install -m 0600 "$AGGREGATE_STATE" "$backup_path/landing-aggregates.exact"
   install -m 0600 "$QUALITY_STATE" "$backup_path/wms-traffic-quality.exact"
   systemctl show "${SERVICES[@]}" "${TIMERS[@]}" "${HEALTH_SERVICES[@]}" "$ROTATION_SERVICE" \
     > "$backup_path/runtime-manifest.txt"
   database_evidence "$backup_path/database-aggregate.json"
-  printf 'source_application_commit=%s\nsource_application_tree=%s\nsource_control_commit=%s\nsource_control_tree=%s\ntarget_control_commit=%s\nfailed_deploy_control_commit=%s\nfailed_deploy_backup=%s\nincident_epoch=%s\noperation=S8_POLLER_START_LIMIT_RECOVERY_ONLY\n' \
+  printf 'source_application_commit=%s\nsource_application_tree=%s\nsource_control_commit=%s\nsource_control_tree=%s\ntarget_application_commit=%s\ntarget_application_tree=%s\ntarget_control_commit=%s\nfailed_deploy_control_commit=%s\nfailed_deploy_backup=%s\nincident_epoch=%s\noperation=S8_POLLER_AND_LATENCY_CONTRACT_RECOVERY_ONCE\n' \
     "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" \
-    "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" "$target_control" \
+    "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" \
+    "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" "$target_control" \
     "$FAILED_DEPLOY_CONTROL_COMMIT" "$FAILED_DEPLOY_BACKUP" "$INCIDENT_EPOCH" \
     > "$backup_path/provenance.txt"
   (
@@ -373,7 +406,8 @@ require_backup() {
   [ -d "$backup_path" ] && [ ! -L "$backup_path" ] || return 1
   [ "$(stat -c '%U:%G:%a' "$backup_path")" = root:root:700 ] || return 1
   grep -Fqx "target_control_commit=${target_control}" "$backup_path/provenance.txt" || return 1
-  grep -Fqx "operation=S8_POLLER_START_LIMIT_RECOVERY_ONLY" "$backup_path/provenance.txt" || return 1
+  grep -Fqx "target_application_commit=${TARGET_APPLICATION_COMMIT}" "$backup_path/provenance.txt" || return 1
+  grep -Fqx "operation=S8_POLLER_AND_LATENCY_CONTRACT_RECOVERY_ONCE" "$backup_path/provenance.txt" || return 1
   (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null) || return 1
   git -c safe.directory="$APPLICATION_ROOT" -C "$APPLICATION_ROOT" \
     bundle verify "$backup_path/application.bundle" >/dev/null || return 1
@@ -382,12 +416,29 @@ require_backup() {
   pg_restore --list "$backup_path/database.dump" >/dev/null || return 1
 }
 
+restore_source_contracts() {
+  local backup_path="$1"
+  git_chatops "$APPLICATION_ROOT" switch --detach "$SOURCE_APPLICATION_COMMIT" >/dev/null || return 1
+  git_chatops "$CONTROL_ROOT" switch --detach "$SOURCE_CONTROL_COMMIT" >/dev/null || return 1
+  runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/python" -m pip install \
+    --no-deps --no-build-isolation "$APPLICATION_ROOT" >/dev/null || return 1
+  install -o root -g root -m 0755 "$backup_path/community-health-contract.py" "$INSTALLED_COMMUNITY_HEALTH" || return 1
+  install -o root -g root -m 0755 "$backup_path/s9-health.py" "$INSTALLED_S9_HEALTH" || return 1
+  install -o root -g root -m 0755 "$backup_path/health-gate.py" "$INSTALLED_HEALTH_GATE" || return 1
+  require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" APPLICATION || return 1
+  require_clean_commit "$CONTROL_ROOT" "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" CONTROL || return 1
+}
+
 recovery_error() {
   local status=$?
   trap - ERR
   if [ "${S11_2_R7_S8_MUTATION_ARMED:-false}" = true ]; then
     systemctl stop "$S8_SERVICE" >/dev/null 2>&1 || true
-    printf '{"ok":false,"safe_code":"S11_2_R7_S8_RECOVERY_FAILED_CLOSED"}\n' >&2
+    if restore_source_contracts "$S11_2_R10_BACKUP_PATH"; then
+      printf '{"ok":false,"safe_code":"S11_2_R10_RECOVERY_ROLLED_BACK_CLOSED"}\n' >&2
+    else
+      printf '{"ok":false,"safe_code":"S11_2_R10_RECOVERY_ROLLBACK_RED"}\n' >&2
+    fi
   else
     printf '{"ok":false,"safe_code":"S11_2_R7_S8_RECOVERY_PREMUTATION_RED"}\n' >&2
   fi
@@ -403,9 +454,21 @@ recover() {
   backup_runtime "$backup_path" "$target_control"
   require_backup "$backup_path" "$target_control" \
     || fail "S11_2_R7_S8_RECOVERY_BACKUP_VERIFY_RED"
+  S11_2_R10_BACKUP_PATH="$backup_path"
   S11_2_R7_S8_MUTATION_ARMED=true
   trap 'recovery_error' ERR
 
+  fetch_and_require_target "$target_control"
+  git_chatops "$APPLICATION_ROOT" switch --detach "$TARGET_APPLICATION_COMMIT" >/dev/null
+  git_chatops "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
+  runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/python" -m pip install \
+    --no-deps --no-build-isolation "$APPLICATION_ROOT" >/dev/null
+  install_from_git "$CONTROL_ROOT" "$target_control" \
+    scripts/tu1nz_adult_public_community_health_contract.py 0755 "$INSTALLED_COMMUNITY_HEALTH"
+  install_from_git "$CONTROL_ROOT" "$target_control" \
+    scripts/tu1nz_adult_public_s10_1_health.py 0755 "$INSTALLED_S9_HEALTH"
+  install_from_git "$CONTROL_ROOT" "$target_control" \
+    scripts/tu1nz_adult_public_s10_2d_health_gate.py 0755 "$INSTALLED_HEALTH_GATE"
   systemctl reset-failed "$S8_SERVICE"
   systemctl start "$S8_SERVICE"
   wait_poller_green
@@ -415,8 +478,8 @@ recover() {
   release_after="$(database_scalar "SELECT enabled::text||'|'||release_state||'|'||promotion_state FROM commercial_s11_runtime_control WHERE singleton;")"
   [ "$release_after" = "$release_before" ] \
     || fail "S11_2_R7_S8_S11_STATE_MUTATED"
-  require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" APPLICATION
-  require_clean_commit "$CONTROL_ROOT" "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" CONTROL
+  require_clean_commit "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" APPLICATION
+  require_clean_commit "$CONTROL_ROOT" "$target_control" "$(git_chatops "$CONTROL_ROOT" rev-parse "${target_control}^{tree}")" CONTROL
 
   install -d -o root -g root -m 0700 "$backup_path/postrecovery"
   chmod g-s "$backup_path/postrecovery"
@@ -434,7 +497,7 @@ recover() {
   chmod -R go-rwx "$backup_path/postrecovery"
   trap - ERR
   S11_2_R7_S8_MUTATION_ARMED=false
-  printf '{"ok":true,"safe_code":"S11_2_R7_S8_POLLER_RECOVERY_GREEN","s11_mutated":false,"canary_retry":false}\n'
+  printf '{"ok":true,"safe_code":"S11_2_R10_S8_LATENCY_CONTRACT_RECOVERY_GREEN","s11_mutated":false,"canary_retry":false}\n'
 }
 
 usage() {
