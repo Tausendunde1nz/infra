@@ -180,3 +180,30 @@ except BaseException:
   print('PHASE3_ROLLED_BACK',flush=True)
  raise
 ```
+
+## Phase 3 completed
+Preparation/checker commit 058425b83eb1acacbaf6e7f3f0d123d3ce0f6ab8 was pushed
+before activation. The operator started the documented privileged transaction.
+Fresh backup and evidence: phase3-20260922T185354Z/ under the private base above.
+The exact local override was created root-owned with mode 0644; configuration
+syntax passed and only the sshd jail was reloaded successfully.
+Loaded nftables action port is 2222; actionstart/actionflush target 2222.
+Loaded filters, ignore networks, timing, actions and banned-IP list matched
+the pre-activation snapshot. Jail active, zero failures and zero bans.
+Independent Mac tests at 2026-09-22T18:54:35Z: chatops on 22 and 2222 exited 0;
+root/nobody/daemon on Tailscale SSH exited 255 with explicit policy rejection.
+Strict host-key checks used throughout. No public connection test performed.
+Backup hash and protected file modes passed; transaction completion recorded at
+2026-09-22T18:54:35.786264+00:00. Its temporary rollback wait has now ended.
+Fail2ban, tailscaled, ssh, nginx and docker are active. Canonical checkout clean
+and still detached at 0390861869c0c54acc400a9e05481f7c847619e2.
+No UFW, OpenSSH, Hetzner or Tailnet policy changes occurred in Phase 3.
+No forced ban was used; validation covers configured/loaded action templates,
+not an induced attack or packet-level ban test.
+
+Post-completion rollback, if required: in a privileged operator terminal,
+first back up and verify the exact new override has not changed; remove only
+/etc/fail2ban/jail.d/99-tu1nz-sshd-port.local, run fail2ban-client -t, then
+fail2ban-client reload sshd. Verify loaded nftables action port is ssh, all
+original jail settings match before.json, and independently retest both SSH
+paths. Do not restore the whole archive over unrelated changes.
