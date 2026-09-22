@@ -1,10 +1,17 @@
 {
   "version": "tu1nz-commercial-s11-2-r14-technical-runtime-latency-v1",
-  "status": "SOURCE_GREEN_PENDING_REVIEW",
+  "status": "APPLICATION_GREEN_CONTROL_PENDING_REVIEW",
   "base_application_commit": "23230af0b4dab4c1462a326cc137c2ded39cee4c",
   "base_application_tree": "562e2ba68da01385da838e4499819924adca694c",
   "base_control_commit": "cedd7ec6648deeaec1468b809e42596c37bd5000",
   "base_control_tree": "7dfffeb6c59e49aa0754d6a71a4dbeec1f34393b",
+  "application_release": {
+    "commit": "77f9079956a42ee411e17f5697da96f6810ba966",
+    "tree": "370001f8ce0491ddf7709c2cee16d452d6098721",
+    "pull_request": 118,
+    "reviewed_head": "8d6842590b1a001ed8c36eafa7b136aa012e58da",
+    "post_merge_ci": 35777850947
+  },
   "runtime_release_id": "s10-2d-r3-5",
   "artifact_bindings": {
     "application_probe_sha256": "002c65e11bc57598afcfe33822b953bb7c876d0925f5e68e423941b2a416d5f2",

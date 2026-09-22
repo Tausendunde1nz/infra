@@ -16,6 +16,11 @@ CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s11_2_r14_control.sh"
 class CommercialS112R14TechnicalLatencyTests(unittest.TestCase):
     def test_manifest_pins_the_canonical_technical_profile(self) -> None:
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(
+            payload["application_release"]["commit"],
+            "77f9079956a42ee411e17f5697da96f6810ba966",
+        )
+        self.assertEqual(payload["application_release"]["post_merge_ci"], 35777850947)
         contract = payload["technical_runtime_contract"]
         self.assertEqual(contract["window_hours"], 24)
         self.assertEqual(contract["minimum_samples"], 5)
