@@ -124,3 +124,24 @@ records checkout at 19:11:49 UTC, reversal at 19:11:52, and checkout again at
 the responsible actor is not established. Do not revert or overwrite them.
 The earlier canonical SHA is historical, not the current state. The isolated
 hardening worktree remains the sole target for our Git/documentation changes.
+
+## Privileged cause confirmation before activation
+Transaction monitor-transaction-20260922T193352Z is waiting at DIAGNOSTIC_READY.
+All protected snapshot SHA-256 values and 0600 file modes passed verification.
+Route confirms source172.29.0.4 -> gateway172.29.0.1 on container eth0.
+The nft/iptables rules confirm local INPUT routing: ufw-not-local matches LOCAL
+and returns; no raw/DNAT rule redirects this destination/port; DOCKER-USER is
+on forwarded traffic, not this locally terminated connection.
+During the four-second expected-blocked probe, counters increased by 4 packets /
+240 bytes at ufw-not-local LOCAL return, ufw-user-input traversal, all subsequent
+INPUT chain jumps and the final INPUT DROP policy. Existing allow rules admit
+80,443 and UDP41641, not TCP9100; ts-input does not match this bridge source.
+This rule-path plus consistent counter evidence establishes local INPUT DROP
+as the timeout cause. No matching kernel log was recorded; no packet capture
+or claimed log evidence is substituted. DROP produces no TCP rejection.
+The dry-run adds exactly the bridge/source/destination/port-specific accept:
+-i br-5f7adc44a8c3 -s 172.29.0.4 -d 172.29.0.1 -p tcp --dport 9100.
+Delete dry-run succeeds and returns the original user rules. Original and
+candidate promtool checks passed. Full live add/delete round-trip remains the
+next guarded activation check before changing or reloading Prometheus.
+No live configuration has yet changed. Push this finding before ACTIVATE.json.
