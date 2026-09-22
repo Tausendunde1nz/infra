@@ -145,3 +145,61 @@ Delete dry-run succeeds and returns the original user rules. Original and
 candidate promtool checks passed. Full live add/delete round-trip remains the
 next guarded activation check before changing or reloading Prometheus.
 No live configuration has yet changed. Push this finding before ACTIVATE.json.
+
+## Completed activation and validation
+Cause/preactivation documentation commit 5b57f6ce6882bc626716bfbe7fbeac4861fd484e
+was pushed and verified before ACTIVATE.json was written.
+The scoped UFW add/delete/re-add succeeded. The delete round-trip restored the
+complete original UFW file map byte-for-byte. Direct internal Node Exporter
+GET then succeeded. Only Prometheus received SIGHUP; no container restarted.
+Targets are now node=172.29.0.1:9100 and cadvisor=cadvisor:8080.
+
+Stability evidence: 21 samples from 2026-09-22T19:35:28.762730+00:00 through
+19:40:38.645454+00:00 (approximately 310 seconds). Both targets stayed up with
+no lastError. CPU metrics identify four CPUs, memory total8127746048 bytes;
+node and cAdvisor metric freshness queries returned approximately 7.5 seconds.
+Independent SSH tests at19:37:59Z: chatops22 and chatops2222 exit0;
+root/nobody/daemon22 exit255 with explicit tailnet policy denial.
+Original held Tailscale SSH session remains alive and Tailnet DNS resolves.
+
+The transaction repeatedly required unchanged Docker container IDs, start
+times, restart counts, port publications, network lists and health states.
+This includes the frozen MyChatBuddy/legacy containers; their existing unhealthy
+state was preserved, not represented as repaired. TCP listener bindings were
+unchanged, and IPv4/IPv6 INPUT default DROP remained active. Loaded Fail2ban
+sshd action port2222 was verified by the privileged runner.
+Semantic comparison of full nft before/after (ignoring handles/counters) found
+no removed objects/rules and exactly one added rule: IPv4 filter ufw-user-input,
+iifname br-5f7adc44a8c3, source172.29.0.4, destination172.29.0.1, TCP dport9100,
+ACCEPT. Thus no public-interface or general-subnet permission was added.
+Health, encrypted-backup and autorecovery latest unit results were success.
+No full backup/restore job was triggered. No provider/lease/cost settings were
+written; naturally accruing billing totals were not claimed unchanged.
+No public connection test was made. Hetzner and Tailnet policies were untouched.
+
+Final transaction COMPLETE timestamp: 2026-09-22T19:41:39.812525+00:00.
+Protected evidence/rollback base:
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/monitor-transaction-20260922T193352Z/
+Includes original/candidate config, Compose backup, UFW archive/per-write copies,
+before/after rules, stable-samples.json, SSH/metrics acknowledgement, COMPLETE.json,
+and FINAL_SHA256SUMS. All private files checked0600; directory0700.
+The in-process rollback guard has ended after final confirmation.
+For a later manual rollback: verify current config still matches the protected
+candidate; back it up; restore original bytes in place (preserve bind-mount inode),
+SIGHUP only tu1nz_prometheus; delete only the exact UFW rule specified above.
+Verify original config/UFW files/defaultDROP, both SSH paths and unrelated
+containers. Original targets were down; rollback is state restoration, not a fix.
+
+## Remaining Phase4 gate
+Grafana log sample (last5000 lines within7days) contains1329 requests from public
+addresses: 910 HTTP302,402 HTTP401,12 HTTP404,1 HTTP500,4 HTTP400; all have no
+positive authenticated user ID. This establishes anonymous public traffic,
+not a legitimate public consumer and not proof that none exists.
+No public consumer requirement was found in the inspected monitoring/infra
+configuration references. The operator was asked whether direct public3000/8080
+access is needed; no answer has yet been received. Do not remove provider access
+based solely on sampled logs. Port8090 serves protected MyChatBuddy via local
+nginx upstream and remains outside the existing Hetzner80-8080 range. Port9100
+now has a verified internal route; no public requirement was introduced.
+Phase4 remains pending that clarification and its own final preflight/rollback;
+Phase5 and whole-hardening merge have not been performed.
