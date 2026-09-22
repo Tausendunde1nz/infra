@@ -1,0 +1,37 @@
+# Network-hardening preflight stop — 2026-09-22
+
+The isolated Fail2ban configuration comparison stopped at an assertion before
+any operational configuration was changed. The candidate is confined to the
+protected offline copy; the live sshd jail still targets ssh/22.
+
+Observed difference: exactly one generated multi-set command for sshd/nftables
+changed. In addition to its port property, Fail2ban expands that port into the
+actionstart and actionflush command templates. The comparison incorrectly
+expected only the port property to change and therefore rejected the otherwise
+expected expansion. This is a validation-harness limitation, not evidence of
+an unexpected live firewall or jail change.
+
+Next validation must compare all generated commands and require differences
+only in sshd/nftables port, actionstart and actionflush, with exact substitution
+of the service ssh by 2222. Every other field must remain byte-identical.
+Then remove the isolated override and verify the original dump is restored.
+Back up the isolated override before removal. No activation until this passes,
+the plan and rollback are committed/pushed, and privileged execution is available.
+
+Protected inventory:
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/privileged-20260922T184509Z
+All captured commands succeeded and SHA-256 checks passed.
+Independent OpenSSH login over Tailscale port 2222 succeeded as chatops using
+strict host-key checking and the independently verified existing host key.
+No public connection test was performed.
+
+SSH documentation PR #177 merged at 333352f59b25a4b7475d5937808f387223dcb58b.
+The new security branch starts from this commit. The canonical detached
+checkout remains unchanged. No Fail2ban, provider-firewall or Tailnet network
+policy activation has occurred in this phase.
+
+## Resolution
+Strict generated-command comparison, positive and negative tests, and complete
+offline rollback passed at 20260922T184932Z. See
+docs/NETWORK_HARDENING_2026-09-22.md for evidence and activation safeguards.
+No live settings changed during correction.
