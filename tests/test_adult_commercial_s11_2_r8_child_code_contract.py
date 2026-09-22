@@ -277,7 +277,10 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
             recover.index('systemctl start "$S8_SERVICE"'),
         )
         self.assertIn("run_health_services", recover)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10-1"', source)
+        self.assertIn('"failed|failed|start-limit-hit"', source)
+        self.assertIn('"inactive|dead|success"', source)
+        self.assertIn("S11_2_R10_1_S8_RECOVERY_STATE_DRIFT", source)
         self.assertIn("restore_source_contracts", source)
         self.assertIn("S8_POLLER_AND_LATENCY_CONTRACT_RECOVERY_ONCE", source)
         self.assertNotIn("INSERT INTO", source)
