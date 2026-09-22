@@ -177,11 +177,12 @@ def _failure_report(
         else f"SYSTEMCTL_START_EXIT_{max(0, min(start_status, 255))}"
     )
     bounded_result = _bounded_result(result)
-    child_failure = (
-        normalize_report(child_report)
-        if unit == HEALTH_UNITS[1] and exit_status in {40, 41, 42, 43, 44}
-        else None
+    preserves_child = (
+        unit == HEALTH_UNITS[1] and exit_status in {40, 41, 42, 43, 44}
+    ) or (
+        unit == HEALTH_UNITS[2] and exit_status == 34
     )
+    child_failure = normalize_report(child_report) if preserves_child else None
     fingerprint_input = {
         "actual_state": actual_state,
         "check_id": check_id,
@@ -212,6 +213,7 @@ def _failure_report(
             "child_code": child_failure.child_code,
             "component": child_failure.component,
             "decision_class": child_failure.decision_class,
+            "failure_class": child_failure.failure_class,
             "next_action": child_failure.next_action,
             "outer_code": child_failure.outer_code,
             "retry": False,

@@ -1,0 +1,42 @@
+TU1NZ / WANT ME SEEN — COMMERCIAL S11.2-R12 DIAGNOSIS
+
+Scope: source-only. No runtime start, deployment, database write, evidence
+rewrite, provider mutation, or S11 transition was performed.
+
+Observed R11 sequence
+
+- S8 runtime readiness, poller, lease, successful poll, event path, technical
+  runtime latency, and S9 health were GREEN.
+- S10 health exited non-zero with status 34.
+- The bounded S10 safe report contained S10_TELEGRAM_HEALTH_RED.
+- The recovery diagnosis instead returned COMMUNITY_CHILD_CODE_UNKNOWN_RED.
+- A later independent read-only check was GREEN, which supports only a
+  possible transient provider or timing condition.
+
+Root cause
+
+The S10 health wrapper already generated the canonical bounded safe code.
+Child loss occurred in two downstream Control paths:
+
+1. The recovery stream parser selected community outer envelopes but ignored
+   the standalone S10_TELEGRAM_HEALTH_RED safe report.
+2. The systemd health gate normalised child reports only for the S9 community
+   exit range and not for S10 exit 34.
+
+Contract decision
+
+- Preserve outer_code S10_2D_COMMUNITY_STATE_RED for compatibility.
+- Preserve child_code S10_TELEGRAM_HEALTH_RED exactly.
+- Set component TELEGRAM_CHANNEL_HEALTH.
+- Classify the observed single RED as TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE.
+- Bound the next action to READ_ONLY_RECHECK_BEFORE_NEW_RECOVERY_AUTHORIZATION.
+- Never convert this classification into an automatic retry.
+- Repeated RED remains a persistent provider blocker.
+- Missing and unknown child codes remain fail-closed.
+- Keep S9 health independent from the later S10 Telegram channel check.
+
+Privacy
+
+Only bounded technical state codes and aggregate simulator decisions are
+retained. No credentials, identifiers, messages, invite material, media,
+network addresses, or connection strings are included.

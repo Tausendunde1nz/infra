@@ -88,6 +88,24 @@ class FakeGateClient:
         return self.report if unit == health_gate.HEALTH_UNITS[1] else None
 
 
+class S10TelegramGateClient:
+    def reset_failed(self, unit: str) -> None:
+        return None
+
+    def start(self, unit: str) -> int:
+        return 1 if unit == health_gate.HEALTH_UNITS[2] else 0
+
+    def show(self, unit: str, property_name: str) -> str:
+        if unit != health_gate.HEALTH_UNITS[2]:
+            return "success" if property_name == "Result" else "0"
+        return "exit-code" if property_name == "Result" else "34"
+
+    def safe_report(self, unit: str) -> dict[str, object] | None:
+        if unit != health_gate.HEALTH_UNITS[2]:
+            return None
+        return {"ok": False, "safe_code": contract.TELEGRAM_HEALTH_RED, "state": "RED"}
+
+
 class S112R8ChildCodeContractTests(unittest.TestCase):
     def _community(self, payload: dict[str, object], returncode: int = 0):
         completed = subprocess.CompletedProcess([], returncode, json.dumps(payload), "")
@@ -98,8 +116,8 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
         report = self._community(green_payload())
         self.assertEqual(report["provider"], "GREEN")
 
-    def test_r10_manifest_hash_binds_every_contract_and_simulator_artifact(self):
-        bindings = json.loads(MANIFEST.read_text(encoding="utf-8"))["r10_artifact_bindings"]
+    def test_r12_manifest_hash_binds_every_contract_and_simulator_artifact(self):
+        bindings = json.loads(MANIFEST.read_text(encoding="utf-8"))["r12_artifact_bindings"]
         expected = {
             "community_health_contract_sha256": ROOT / "scripts/tu1nz_adult_public_community_health_contract.py",
             "s9_health_wrapper_sha256": ROOT / "scripts/tu1nz_adult_public_s10_1_health.py",
@@ -259,6 +277,66 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
         self.assertEqual(gate_report["child_code"], "S11_COMMUNITY_LATENCY_SLO_RED")
         self.assertFalse(gate_report["retry"])
 
+    def test_r11_exact_s10_telegram_red_preserves_child_through_stream_and_gate(self):
+        raw = {"ok": False, "safe_code": contract.TELEGRAM_HEALTH_RED, "state": "RED"}
+        parsed = diagnostic.parse_stream("ignored non-json\n" + json.dumps(raw))
+        report = diagnostic.diagnose(parsed)
+        self.assertEqual(report["outer_code"], "S10_2D_COMMUNITY_STATE_RED")
+        self.assertEqual(report["child_code"], contract.TELEGRAM_HEALTH_RED)
+        self.assertEqual(report["component"], "TELEGRAM_CHANNEL_HEALTH")
+        self.assertEqual(
+            report["decision_class"],
+            contract.TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE,
+        )
+        self.assertEqual(report["failure_class"], contract.TRANSIENT_PROVIDER_OR_TIMING)
+        self.assertEqual(
+            report["next_action"],
+            "READ_ONLY_RECHECK_BEFORE_NEW_RECOVERY_AUTHORIZATION",
+        )
+        self.assertEqual(report["decision"], "STOP_NO_RETRY")
+        self.assertFalse(report["retry"])
+        self.assertEqual(health.health_exit_status(contract.TELEGRAM_HEALTH_RED), 34)
+
+        with self.assertRaises(health_gate.HealthGateFailure) as caught:
+            health_gate.run_health_gates(S10TelegramGateClient())
+        gate_report = caught.exception.report
+        self.assertEqual(gate_report["exit_code"], 34)
+        self.assertEqual(gate_report["outer_code"], "S10_2D_COMMUNITY_STATE_RED")
+        self.assertEqual(gate_report["child_code"], contract.TELEGRAM_HEALTH_RED)
+        self.assertEqual(gate_report["component"], "TELEGRAM_CHANNEL_HEALTH")
+        self.assertEqual(
+            gate_report["decision_class"],
+            contract.TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE,
+        )
+        self.assertFalse(gate_report["retry"])
+
+    def test_r12_telegram_taxonomy_distinguishes_existing_canonical_failures(self):
+        cases = (
+            (contract.TELEGRAM_HEALTH_RED, contract.TRANSIENT_PROVIDER_OR_TIMING),
+            ("S8_TRANSPORT_CIRCUIT_OPEN", contract.PROVIDER_UNREACHABLE),
+            ("S10_2D_COMMUNITY_DEFAULT_PERMISSIONS_MISMATCH", contract.CHANNEL_CONFIGURATION_RED),
+            ("BOT_RUNTIME_CONTRACT_MISMATCH", contract.RELEASE_OR_BOT_BINDING_RED),
+            ("S8_TELEGRAM_CREDENTIAL_INVALID", contract.AUTHORIZATION_OR_PERMISSION_RED),
+            ("BOT_EVENT_PATH_RED", contract.INTERNAL_RUNTIME_RED),
+            (contract.CHILD_UNKNOWN, contract.UNKNOWN_HARD_RED),
+        )
+        for child_code, expected in cases:
+            with self.subTest(child_code=child_code):
+                self.assertEqual(contract.failure(child_code).failure_class, expected)
+
+        missing = contract.normalize_report({"ok": False, "state": "RED"})
+        unknown = contract.normalize_report(
+            {"ok": False, "safe_code": "UNRECOGNIZED_TELEGRAM_RED", "state": "RED"}
+        )
+        unwrapped = contract.normalize_report(
+            {"child_code": contract.TELEGRAM_HEALTH_RED, "component": "TELEGRAM_CHANNEL_HEALTH"}
+        )
+        self.assertEqual(missing.child_code, contract.CHILD_MISSING)
+        self.assertEqual(unknown.child_code, contract.CHILD_UNKNOWN)
+        self.assertEqual(unwrapped.child_code, contract.CHILD_UNKNOWN)
+        self.assertEqual(missing.decision_class, contract.UNKNOWN_HARD_RED)
+        self.assertEqual(unknown.decision_class, contract.UNKNOWN_HARD_RED)
+
     def test_recovery_simulator_matrix_and_shell_never_retry(self):
         report = diagnostic.simulate_contract()
         self.assertTrue(report["ok"])
@@ -269,6 +347,23 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
             report["cases"]["I"]["child_code"],
             "COMMUNITY_RUNTIME_LATENCY_RED",
         )
+        self.assertEqual(
+            report["telegram"]["transient"]["classification"],
+            contract.TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE,
+        )
+        self.assertFalse(report["telegram"]["transient"]["runtime_retry_authorized"])
+        self.assertEqual(
+            report["telegram"]["persistent"]["classification"],
+            "PERSISTENT_PROVIDER_BLOCKER",
+        )
+        self.assertTrue(report["recovery"]["red_path"]["rollback"])
+        self.assertEqual(report["recovery"]["red_path"]["s8_start_count"], 1)
+        self.assertFalse(report["recovery"]["red_path"]["second_start"])
+        self.assertEqual(
+            report["recovery"]["red_path"]["child_code"],
+            contract.TELEGRAM_HEALTH_RED,
+        )
+        self.assertTrue(report["recovery"]["green_path"]["recovery_complete"])
         source = RECOVERY.read_text(encoding="utf-8")
         recover = source[source.index("recover() {"):source.index("usage() {")]
         self.assertEqual(recover.count('systemctl start "$S8_SERVICE"'), 1)
@@ -277,7 +372,7 @@ class S112R8ChildCodeContractTests(unittest.TestCase):
             recover.index('systemctl start "$S8_SERVICE"'),
         )
         self.assertIn("run_health_services", recover)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r10-1"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r12"', source)
         self.assertIn('"failed|failed|start-limit-hit"', source)
         self.assertIn('"inactive|dead|success"', source)
         self.assertIn("S11_2_R10_1_S8_RECOVERY_STATE_DRIFT", source)
