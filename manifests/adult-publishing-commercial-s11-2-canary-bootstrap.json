@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v9",
-  "status": "S11_2_R10_1_RECOVERY_PREFLIGHT_STATE_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v10",
+  "status": "S11_2_R12_TELEGRAM_HEALTH_CHILD_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "23230af0b4dab4c1462a326cc137c2ded39cee4c",
     "tree": "562e2ba68da01385da838e4499819924adca694c",
@@ -9,7 +9,7 @@
     "reviewed_head": "8b692237bcd7431418ad7623c8254f57f3729148"
   },
   "control_release": {
-    "freeze_tag": "s11-2-canary-bootstrap-freeze-r10-1",
+    "freeze_tag": "s11-2-canary-bootstrap-freeze-r12",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -94,6 +94,35 @@
     "runtime_retry_performed": false,
     "evidence_mutated": false
   },
+  "r12_telegram_health_child_contract": {
+    "observed_safe_code": "S10_TELEGRAM_HEALTH_RED",
+    "canonical_child_code": "S10_TELEGRAM_HEALTH_RED",
+    "canonical_component": "TELEGRAM_CHANNEL_HEALTH",
+    "outer_code": "S10_2D_COMMUNITY_STATE_RED",
+    "decision_class": "TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE",
+    "failure_class": "TRANSIENT_PROVIDER_OR_TIMING",
+    "bounded_next_action": "READ_ONLY_RECHECK_BEFORE_NEW_RECOVERY_AUTHORIZATION",
+    "exit_status": 34,
+    "s9_and_s10_health_separate": true,
+    "missing_child_fails_closed": true,
+    "unknown_child_fails_closed": true,
+    "persistent_red_hard_blocks": true,
+    "automatic_retry": false,
+    "runtime_retry_performed": false,
+    "s11_canary_retry_performed": false,
+    "evidence_mutated": false,
+    "source_only_simulation": true,
+    "next_s8_recovery_ready": true
+  },
+  "r12_artifact_bindings": {
+    "community_health_contract_sha256": "9849c2804ee8fe10e7edfb55aad5d7455c17649e0b48a3736b732ea3dea9a5a7",
+    "s9_health_wrapper_sha256": "15cc2cfa6c38e4ee6c5cc3689b62011672b9304a4d0709e3062c87e3d49ba019",
+    "health_gate_sha256": "c92f85ad6c352643bec9e871049d34c352265d7155e83afabdbbbcc3f76379e7",
+    "recovery_diagnostic_sha256": "7b394ed58f48177cb43ffdbace0782c8bcf90255a5aacf98ea7506cb8709698b",
+    "recovery_entrypoint_sha256": "0245f6fa817d2679e9bc3db6519c3f0a2c0c3e24643be42b0ea45c86fdb1142a",
+    "fixture_suite_sha256": "12d4145989384c2f3a6f9810bbd6586d55857a8761fb2b2ed476bceea875f99e",
+    "source_only_release_simulator_sha256": "0d14a10439e4e0bd97bc216ede06b7211c22468585b04ec6660080b1e7d67116"
+  },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
   "canary_contract": {
     "admission": "FIRST_10",
@@ -153,6 +182,9 @@
     "r10_recovery_restores_source_contracts_on_failure": true,
     "r10_recovery_starts_s8_exactly_once": true,
     "r10_recovery_retries_canary": false,
+    "r12_s10_telegram_child_preserved": true,
+    "r12_transient_candidate_never_auto_retries": true,
+    "r12_persistent_telegram_red_hard_blocks": true,
     "p0_recovery_preserves_s11_state": true,
     "p0_recovery_preserves_latency_evidence": true,
     "p0_recovery_target": "PUBLIC_WMS_ONLY"
