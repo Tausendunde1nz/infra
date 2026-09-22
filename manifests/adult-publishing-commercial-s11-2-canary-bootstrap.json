@@ -121,7 +121,7 @@
     "recovery_diagnostic_sha256": "7b394ed58f48177cb43ffdbace0782c8bcf90255a5aacf98ea7506cb8709698b",
     "recovery_entrypoint_sha256": "0245f6fa817d2679e9bc3db6519c3f0a2c0c3e24643be42b0ea45c86fdb1142a",
     "fixture_suite_sha256": "12d4145989384c2f3a6f9810bbd6586d55857a8761fb2b2ed476bceea875f99e",
-    "source_only_release_simulator_sha256": "0d14a10439e4e0bd97bc216ede06b7211c22468585b04ec6660080b1e7d67116"
+    "source_only_release_simulator_sha256": "d6fd9a94a6126b47980941375385d9560d8682274b301c3758b032007553cc01"
   },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
   "canary_contract": {
