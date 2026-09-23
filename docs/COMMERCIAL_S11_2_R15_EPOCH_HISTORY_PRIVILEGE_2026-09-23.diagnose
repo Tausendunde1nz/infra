@@ -73,5 +73,7 @@ R15.2 bounded correction
   handling for an existing non-file or a real move error.
 - Prove the shell contract with isolated zero-, one- and three-companion
   fixtures plus a non-file rejection fixture.
-- Keep the r2 and r3 freezes and their verified backups immutable.  The
-  corrected target is the new r4 freeze and requires a fresh verified backup.
+- Keep the r2 and r3 freezes and their verified backups immutable.  The first
+  r4 tag was rejected before server mutation because two provenance literals
+  did not match the controller's exact contract; it also remains immutable.
+  The corrected deployable target is r5 and requires a fresh verified backup.

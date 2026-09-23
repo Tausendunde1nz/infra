@@ -375,16 +375,16 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
         self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
         self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r4"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r5"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v14")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v15")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_2_OPTIONAL_EVIDENCE_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_2_FREEZE_PROVENANCE_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-bounded-canary-freeze-r4",
+            "s11-2-r15-bounded-canary-freeze-r5",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
@@ -443,6 +443,29 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertEqual(
             manifest["r15_2_optional_evidence"]["fixture_counts"],
             [0, 1, 3],
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["classification"],
+            "FREEZE_PROVENANCE_LITERAL_MISMATCH",
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["rejected_freeze_immutable"],
+            "s11-2-r15-bounded-canary-freeze-r4",
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["corrected_freeze"],
+            "s11-2-r15-bounded-canary-freeze-r5",
+        )
+        self.assertFalse(
+            manifest["r15_2_freeze_provenance"]["server_mutation_before_detection"]
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["required_canary_binding"],
+            "canary_contract=FIRST_10_24H_EPOCH_BOUND",
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["required_promotion_binding"],
+            "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN",
         )
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
