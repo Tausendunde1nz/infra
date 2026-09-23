@@ -1,0 +1,65 @@
+COMMERCIAL S11.2-R15.1 OPTIONAL EVIDENCE GLOB DIAGNOSIS
+
+Date: 2026-09-23
+Status: ROOT_CAUSE_CONFIRMED; AUTOMATIC_ROLLBACK_GREEN; R15_2_FIX_AUTHORIZED
+
+Observed deployment result
+
+- The exact r3 freeze passed canonical preflight and created a fresh verified
+  root-owned mode-0700 backup at
+  `/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260923T191321Z-predeploy`.
+- The R15.1 local PostgreSQL-administrator history readback succeeded.
+- The terminal epoch was archived and rearmed without deleting or mutating
+  latency or product evidence.
+- Feature-OFF health, synthetic journey, technical latency, hard gates,
+  Canary start and target verification all passed.
+- The controller emitted `S11_2_CANARY_RUNTIME_GREEN` with state
+  `S11_CANARY|CANARY_COLLECTING_EVIDENCE`.
+- Final evidence collation then failed because no optional
+  `synthetic-journeys.json.*` companion file existed.
+- The versioned rollback transitioned the active Canary to fail-closed RED,
+  removed the Canary controller, restored the exact source repositories and
+  runtime artifacts, and returned `S11_2_DEPLOYMENT_ROLLED_BACK` with exit 1.
+- Both server repositories are clean at their source commits; S7, S8 Landing,
+  S8 Telegram, S10 WMS and nginx are active with zero restarts; all public WMS
+  endpoints are GREEN; the S11 controller is not installed.
+
+Root cause
+
+The primary synthetic journey JSON is mandatory and was moved successfully.
+The next command uses the optional glob
+`synthetic-journeys.json.*` as though at least one companion were mandatory.
+With no matching file and Bash `nullglob` disabled, the literal pattern is
+passed to `mv`, which returns non-zero and activates the fail-closed rollback.
+
+Classification
+
+OPTIONAL_EVIDENCE_GLOB_FALSE_REQUIRED
+
+Bounded correction
+
+- Keep the primary `synthetic-journeys.json` move mandatory.
+- Move zero or more companion files through an explicit bounded loop that
+  skips the unmatched literal pattern and uses `mv --` for each real file.
+- Do not suppress errors for companion files that actually exist.
+- Add isolated shell-contract tests for zero, one and multiple companions.
+- Keep backup verification and postdeploy checksum generation unchanged.
+- Publish the new immutable r4 freeze only after full local tests, review,
+  merge-commit and post-merge CI are GREEN.
+
+Backup and retry contract
+
+- Preserve both r2 and r3 backups and tags unchanged.
+- The authorized R15.2 retry requires another fresh timestamped root-owned
+  mode-0700 backup and may run exactly once after the source release is GREEN.
+- The archived pre-r3 epoch, failed r3 epoch and all technical evidence remain
+  append-only; no cleanup or reclassification is allowed.
+- The existing terminal-epoch rearm is required again before the R15.2 Canary.
+
+Unchanged boundaries
+
+- Maximum ten REAL SFW Canary sessions and a 24-hour bounded epoch.
+- At least five valid REAL samples plus GREEN technical SLO before promotion.
+- UNKNOWN provenance fails closed; human acceptance remains DEFERRED.
+- Adult media, AVS, payment, external publishing, controlled beta and
+  production remain CLOSED.

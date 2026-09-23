@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"
 readonly TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r3"
+readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r4"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -609,6 +609,17 @@ if any(payload.get(key) is not False for key in ("adult_media","real_avs","payme
 PY
 }
 
+move_optional_synthetic_companions() {
+  local backup_path="$1" postdeploy="$2" companion
+  [ -d "$backup_path" ] || fail "S11_2_SYNTHETIC_SOURCE_DIRECTORY_RED"
+  [ -d "$postdeploy" ] || fail "S11_2_SYNTHETIC_TARGET_DIRECTORY_RED"
+  for companion in "$backup_path"/synthetic-journeys.json.*; do
+    [ -e "$companion" ] || break
+    [ -f "$companion" ] || fail "S11_2_SYNTHETIC_COMPANION_TYPE_RED"
+    mv -- "$companion" "$postdeploy/"
+  done
+}
+
 technical_latency_fixture() {
   local destination="$1" values_file="$2" iteration start_ns end_ns elapsed_ms
   : > "$values_file"
@@ -855,7 +866,7 @@ deploy() {
   verify_target "$target_control"
   install -d -o root -g root -m 0700 "$backup_path/postdeploy"
   mv "$backup_path/synthetic-journeys.json" "$backup_path/postdeploy/synthetic-journeys.json"
-  mv "$backup_path"/synthetic-journeys.json.* "$backup_path/postdeploy/"
+  move_optional_synthetic_companions "$backup_path" "$backup_path/postdeploy"
   mv "$backup_path/technical-latency-input.json" "$backup_path/postdeploy/technical-latency-input.json"
   mv "$backup_path/technical-latency-values.txt" "$backup_path/postdeploy/technical-latency-values.txt"
   mv "$backup_path/feature-off-fallback.json" "$backup_path/postdeploy/feature-off-fallback.json"
