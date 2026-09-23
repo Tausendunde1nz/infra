@@ -69,7 +69,7 @@ r14_require_sha() {
 }
 
 r14_require_backup_path() {
-  [[ "$1" =~ ^/opt/tu1nz_repos/backups/commercial-s11-2-r14-technical-runtime-latency/[0-9]{8}T[0-9]{6}Z$ ]] \
+  [[ "$1" =~ ^/opt/tu1nz_repos/backups/commercial-s11-2-r14-1-journal-cursor/[0-9]{8}T[0-9]{6}Z$ ]] \
     || r14_fail "S11_2_R14_BACKUP_PATH_INVALID"
 }
 
@@ -79,6 +79,24 @@ r14_require_clean_commit() {
     || { r14_fail "S11_2_R14_${r14_code}_COMMIT_DRIFT"; return 2; }
   [ -z "$(r14_git_chatops "$r14_repository" status --porcelain=v1)" ] \
     || { r14_fail "S11_2_R14_${r14_code}_WORKTREE_DIRTY"; return 2; }
+}
+
+r14_require_existing_probe_green() {
+  if ! journalctl --no-pager --quiet -o cat -u "$R14_PROBE_UNIT" \
+    | /usr/bin/python3 -c \
+      'import json,sys; rows=[]
+for line in sys.stdin:
+ try:
+  value=json.loads(line)
+ except json.JSONDecodeError:
+  continue
+ if value.get("safe_code")=="S11_2_R14_TECHNICAL_RUNTIME_PROBE_GREEN": rows.append(value)
+assert len(rows)==1 and rows[0].get("evidence_class")=="INTERNAL_TEST" and rows[0].get("samples_written")==1 and rows[0].get("telegram_requests")==0 and rows[0].get("product_state_writes")==0' \
+    >/dev/null
+  then
+    r14_fail "S11_2_R14_EXISTING_PROBE_JOURNAL_RED"
+    return 2
+  fi
 }
 
 r14_require_public_health() {
@@ -238,9 +256,14 @@ r14_preflight() {
     || r14_fail "S11_2_R14_LOCAL_FREEZE_DRIFT"
   [ "$(r14_git_chatops "$R14_CONTROL_ROOT" ls-remote origin "refs/tags/${r14_freeze_tag}^{}" | awk 'NR==1 {print $1}')" = "$r14_control_commit" ] \
     || r14_fail "S11_2_R14_REMOTE_FREEZE_DRIFT"
-  [ ! -e "$R14_PROBE_UNIT_PATH" ] || r14_fail "S11_2_R14_PROBE_UNIT_ALREADY_PRESENT"
-  [ "$(r14_database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE recorded_at>=CURRENT_TIMESTAMP-INTERVAL '24 hours' AND source='DIRECT' AND evidence_class='INTERNAL_TEST' AND sample_type='DIRECT_BOT_RESPONSE';")" = 0 ] \
-    || r14_fail "S11_2_R14_STARTING_SAMPLE_DRIFT"
+  [ -f "$R14_PROBE_UNIT_PATH" ] || r14_fail "S11_2_R14_PROBE_UNIT_MISSING"
+  cmp -s "$R14_CONTROL_ROOT/systemd/$R14_PROBE_UNIT" "$R14_PROBE_UNIT_PATH" \
+    || r14_fail "S11_2_R14_PROBE_UNIT_DRIFT"
+  [ "$(systemctl is-enabled "$R14_PROBE_UNIT" 2>/dev/null || true)" = static ] \
+    || r14_fail "S11_2_R14_PROBE_UNIT_ENABLEMENT_RED"
+  [ "$(r14_database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE recorded_at>=CURRENT_TIMESTAMP-INTERVAL '24 hours' AND source='DIRECT' AND evidence_class='INTERNAL_TEST' AND sample_type='DIRECT_BOT_RESPONSE' AND interaction_path='INTERNAL_ACCEPTANCE' AND release_id='${R14_RELEASE_ID}' AND run_id IS NOT NULL AND bot_response_latency_ms=0 AND poll_lag_ms=0 AND handler_duration_ms BETWEEN 0 AND 300000 AND send_ack_ms=0;")" = 1 ] \
+    || r14_fail "S11_2_R14_EXISTING_SAMPLE_RECONCILIATION_RED"
+  r14_require_existing_probe_green
   r14_require_s11_closed
   r14_require_runtime_green
 }
@@ -264,7 +287,7 @@ r14_backup() {
   install -m 0600 "$R14_APPLICATION_ROOT/src/tu1nz_public_s8/technical_latency_probe.py" "$r14_runtime_backup/technical-latency-probe.py"
   systemctl show "${R14_SERVICES[@]}" "${R14_TIMERS[@]}" "${R14_HEALTH_SERVICES[@]}" \
     tu1nz-adult-public-s10-2d-rotate.service > "$r14_runtime_backup/runtime-manifest.txt"
-  printf 'application_commit=%s\napplication_tree=%s\ncontrol_commit=%s\ncontrol_tree=%s\nfreeze_tag=%s\noperation=S11_2_R14_TECHNICAL_RUNTIME_LATENCY_EVIDENCE\nrestore=git_bundles_plus_database_custom_dump\n' \
+  printf 'application_commit=%s\napplication_tree=%s\ncontrol_commit=%s\ncontrol_tree=%s\nfreeze_tag=%s\noperation=S11_2_R14_1_JOURNAL_CURSOR_RECOVERY\nrestore=git_bundles_plus_database_custom_dump\n' \
     "$r14_application_commit" "$(r14_git_chatops "$R14_APPLICATION_ROOT" rev-parse 'HEAD^{tree}')" \
     "$r14_control_commit" "$(r14_git_chatops "$R14_CONTROL_ROOT" rev-parse 'HEAD^{tree}')" \
     "$r14_freeze_tag" > "$r14_runtime_backup/provenance.txt"
@@ -273,28 +296,25 @@ r14_backup() {
   pg_restore --list "$r14_runtime_backup/database.dump" >/dev/null
 }
 
-r14_install_probe_unit() {
-  local r14_control_commit="$1"
-  r14_git_chatops "$R14_CONTROL_ROOT" show "${r14_control_commit}:systemd/${R14_PROBE_UNIT}" \
-    | install -o root -g root -m 0644 /dev/stdin "$R14_PROBE_UNIT_PATH"
+r14_verify_probe_unit() {
   cmp -s "$R14_CONTROL_ROOT/systemd/$R14_PROBE_UNIT" "$R14_PROBE_UNIT_PATH" \
     || r14_fail "S11_2_R14_PROBE_UNIT_DRIFT"
-  systemctl daemon-reload
   [ "$(systemctl is-enabled "$R14_PROBE_UNIT" 2>/dev/null || true)" = static ] \
     || r14_fail "S11_2_R14_PROBE_UNIT_ENABLEMENT_RED"
 }
 
 r14_run_one_probe() {
   local r14_iteration="$1" r14_epoch="$2" r14_destination="$3"
-  local r14_invocation r14_count r14_unknown
+  local r14_cursor_output r14_cursor r14_count r14_unknown
+  r14_cursor_output="$(journalctl --no-pager --quiet -u "$R14_PROBE_UNIT" -n 0 --show-cursor)"
+  r14_cursor="$(printf '%s\n' "$r14_cursor_output" | sed -n 's/^-- cursor: //p' | tail -n 1)"
+  [[ "$r14_cursor" == s=* ]] || r14_fail "S11_2_R14_PROBE_JOURNAL_CURSOR_RED"
   systemctl start "$R14_PROBE_UNIT"
   [ "$(systemctl show "$R14_PROBE_UNIT" -p Result --value)" = success ] \
     || r14_fail "S11_2_R14_PROBE_SERVICE_RED"
   [ "$(systemctl show "$R14_PROBE_UNIT" -p ExecMainStatus --value)" = 0 ] \
     || r14_fail "S11_2_R14_PROBE_EXIT_RED"
-  r14_invocation="$(systemctl show "$R14_PROBE_UNIT" -p InvocationID --value)"
-  [[ "$r14_invocation" =~ ^[0-9a-fA-F]{32}$ ]] || r14_fail "S11_2_R14_PROBE_INVOCATION_RED"
-  journalctl --no-pager -o cat "_SYSTEMD_INVOCATION_ID=${r14_invocation}" \
+  journalctl --no-pager --quiet -o cat -u "$R14_PROBE_UNIT" --after-cursor "$r14_cursor" \
     | /usr/bin/python3 -c \
       'import json,sys; rows=[]
 for line in sys.stdin:
@@ -306,7 +326,7 @@ for line in sys.stdin:
 assert len(rows)==1 and rows[0].get("evidence_class")=="INTERNAL_TEST" and rows[0].get("samples_written")==1 and rows[0].get("telegram_requests")==0 and rows[0].get("product_state_writes")==0
 print(json.dumps(rows[0],sort_keys=True,separators=(",",":")))' \
     > "$r14_destination"
-  r14_count="$(r14_database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE recorded_at>='${r14_epoch}'::timestamptz AND source='DIRECT' AND evidence_class='INTERNAL_TEST' AND sample_type='DIRECT_BOT_RESPONSE' AND interaction_path='INTERNAL_ACCEPTANCE' AND release_id='${R14_RELEASE_ID}' AND run_id IS NOT NULL AND bot_response_latency_ms=0 AND poll_lag_ms=0 AND handler_duration_ms BETWEEN 0 AND 300000 AND send_ack_ms=0;")"
+  r14_count="$(r14_database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE recorded_at>=CURRENT_TIMESTAMP-INTERVAL '24 hours' AND source='DIRECT' AND evidence_class='INTERNAL_TEST' AND sample_type='DIRECT_BOT_RESPONSE' AND interaction_path='INTERNAL_ACCEPTANCE' AND release_id='${R14_RELEASE_ID}' AND run_id IS NOT NULL AND bot_response_latency_ms=0 AND poll_lag_ms=0 AND handler_duration_ms BETWEEN 0 AND 300000 AND send_ack_ms=0;")"
   [ "$r14_count" = "$r14_iteration" ] || r14_fail "S11_2_R14_PROBE_COUNT_RED"
   r14_unknown="$(r14_database_scalar "SELECT count(*) FROM commercial_s10_2d_latency_samples WHERE recorded_at>='${r14_epoch}'::timestamptz AND (evidence_class IN ('UNKNOWN','TECHNICAL_ACCEPTANCE') OR sample_type='UNKNOWN' OR interaction_path='UNKNOWN');")"
   [ "$r14_unknown" = 0 ] || r14_fail "S11_2_R14_NEW_UNKNOWN_RED"
@@ -342,7 +362,11 @@ if before["product_counts"] != after["product_counts"]:
     raise SystemExit(2)
 if before["community_states"] != after["community_states"]:
     raise SystemExit(2)
-if after["r14_new_real"] != 0 or after["r14_new_unknown"] != 0 or len(after["r14_technical"]) != 5:
+if after["r14_new_real"] != 0 or after["r14_new_unknown"] != 0:
+    raise SystemExit(2)
+if len(before["technical_window"]) != 1 or len(after["technical_window"]) != 5:
+    raise SystemExit(2)
+if len(after["r14_technical"]) != 4:
     raise SystemExit(2)
 PY
 }
@@ -354,7 +378,7 @@ r14_finalize() {
   install -d -o root -g root -m 0700 "$r14_final/probes"
   r14_snapshot_database "$r14_final/before.json" "$r14_epoch"
   local r14_iteration
-  for r14_iteration in 1 2 3 4 5; do
+  for r14_iteration in 2 3 4 5; do
     r14_run_one_probe "$r14_iteration" "$r14_epoch" \
       "$r14_final/probes/$(printf '%02d' "$r14_iteration").json"
   done
@@ -392,14 +416,15 @@ slo = json.loads((root / "technical-runtime-slo.json").read_text(encoding="ascii
 after = json.loads((root / "after.json").read_text(encoding="ascii"))
 result = {
     "ok": True,
-    "safe_code": "S11_2_R14_TECHNICAL_RUNTIME_LATENCY_GREEN",
+    "safe_code": "S11_2_R14_1_TECHNICAL_RUNTIME_LATENCY_GREEN",
     "application_commit": os.environ["R14_APPLICATION_COMMIT"],
     "control_commit": os.environ["R14_CONTROL_COMMIT"],
     "freeze_tag": os.environ["R14_FREEZE_TAG"],
     "technical_runtime_latency": slo,
     "new_real_count": after["r14_new_real"],
     "new_unknown_count": after["r14_new_unknown"],
-    "technical_samples_written": len(after["r14_technical"]),
+    "technical_samples_reconciled": len(after["technical_window"]),
+    "technical_samples_written_by_recovery": len(after["r14_technical"]),
     "acquisition_contamination": False,
     "community_state_mutation": False,
     "p0_recovery": "CLOSED",
@@ -420,11 +445,11 @@ main() {
   [ "$#" -eq 4 ] || { r14_fail "S11_2_R14_ARGUMENT_RED"; return 2; }
   local r14_application_commit="$1" r14_control_commit="$2" r14_freeze_tag="$3" r14_backup_path="$4"
   local r14_epoch
-  exec 9> /run/tu1nz-adult-public-s11-2-r14.lock
+  exec 9> /run/tu1nz-adult-public-s11-2-r14-1.lock
   flock -n 9 || { r14_fail "S11_2_R14_ALREADY_RUNNING"; return 2; }
   r14_preflight "$r14_application_commit" "$r14_control_commit" "$r14_freeze_tag" "$r14_backup_path"
   r14_backup "$r14_application_commit" "$r14_control_commit" "$r14_freeze_tag" "$r14_backup_path"
-  r14_install_probe_unit "$r14_control_commit"
+  r14_verify_probe_unit
   r14_epoch="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
   r14_finalize "$r14_application_commit" "$r14_control_commit" "$r14_freeze_tag" "$r14_backup_path" "$r14_epoch"
 }

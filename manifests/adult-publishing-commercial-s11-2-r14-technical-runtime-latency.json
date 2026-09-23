@@ -1,10 +1,10 @@
 {
-  "version": "tu1nz-commercial-s11-2-r14-technical-runtime-latency-v1",
-  "status": "APPLICATION_GREEN_CONTROL_PENDING_REVIEW",
-  "base_application_commit": "23230af0b4dab4c1462a326cc137c2ded39cee4c",
-  "base_application_tree": "562e2ba68da01385da838e4499819924adca694c",
-  "base_control_commit": "cedd7ec6648deeaec1468b809e42596c37bd5000",
-  "base_control_tree": "7dfffeb6c59e49aa0754d6a71a4dbeec1f34393b",
+  "version": "tu1nz-commercial-s11-2-r14-1-journal-cursor-recovery-v1",
+  "status": "SOURCE_VALIDATED_RUNTIME_PENDING",
+  "base_application_commit": "77f9079956a42ee411e17f5697da96f6810ba966",
+  "base_application_tree": "370001f8ce0491ddf7709c2cee16d452d6098721",
+  "base_control_commit": "13fd066ace8a2592b27dc12500fdb3bd527cc7ce",
+  "base_control_tree": "989914d524a43927868301205c0531192bab6b77",
   "application_release": {
     "commit": "77f9079956a42ee411e17f5697da96f6810ba966",
     "tree": "370001f8ce0491ddf7709c2cee16d452d6098721",
@@ -15,9 +15,9 @@
   "runtime_release_id": "s10-2d-r3-5",
   "artifact_bindings": {
     "application_probe_sha256": "002c65e11bc57598afcfe33822b953bb7c876d0925f5e68e423941b2a416d5f2",
-    "control_controller_sha256": "5d2f8ad04638fa8967e9061e9d201c63881496f6f71d92d310d37e0668d250fc",
+    "control_controller_sha256": "c9ddcb5acf4d50ba88deed0fae69c92c8584258592e9af3ec68985eb1a6be42e",
     "systemd_probe_unit_sha256": "7290e8f0e0af7fd50950c2af4231e3ed6054052891388b310392241d9bbe6df9",
-    "control_document_sha256": "08c06409c4194a63e726723adb11d1f6e8b48ed98b8be1194390ccde60d9f235"
+    "control_document_sha256": "c2fd2a6c06c13e5509996c0ad21f6b36ff6083f2e43f7d391a329db3b471dd53"
   },
   "technical_runtime_contract": {
     "window_hours": 24,
@@ -45,6 +45,14 @@
     "unknown_evidence_allowed": false,
     "parallel_invocations_allowed": false,
     "timer_installed": false
+  },
+  "recovery": {
+    "existing_samples_required": 1,
+    "existing_samples_mutated": false,
+    "new_samples_required": 4,
+    "journal_binding": "CURSOR_CAPTURED_BEFORE_START",
+    "post_exit_invocation_id_required": false,
+    "second_attempt_of_failed_probe": false
   },
   "runtime_boundaries": {
     "s8_restart_allowed": false,
