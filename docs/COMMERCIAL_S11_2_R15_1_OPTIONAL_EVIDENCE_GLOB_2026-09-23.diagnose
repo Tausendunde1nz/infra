@@ -1,7 +1,7 @@
 COMMERCIAL S11.2-R15.1 OPTIONAL EVIDENCE GLOB DIAGNOSIS
 
 Date: 2026-09-23
-Status: ROOT_CAUSE_CONFIRMED; AUTOMATIC_ROLLBACK_GREEN; R15_2_FIX_AUTHORIZED
+Status: ROOT_CAUSE_CONFIRMED; AUTOMATIC_ROLLBACK_GREEN; R15_2_FREEZE_REBIND_IN_REVIEW
 
 Observed deployment result
 
@@ -44,7 +44,7 @@ Bounded correction
 - Do not suppress errors for companion files that actually exist.
 - Add isolated shell-contract tests for zero, one and multiple companions.
 - Keep backup verification and postdeploy checksum generation unchanged.
-- Publish the new immutable r4 freeze only after full local tests, review,
+- Publish the corrected immutable r5 freeze only after full local tests, review,
   merge-commit and post-merge CI are GREEN.
 
 Backup and retry contract
@@ -55,6 +55,16 @@ Backup and retry contract
 - The archived pre-r3 epoch, failed r3 epoch and all technical evidence remain
   append-only; no cleanup or reclassification is allowed.
 - The existing terminal-epoch rearm is required again before the R15.2 Canary.
+
+Predeploy freeze-provenance check
+
+- The first r4 tag was rejected locally before any server mutation because its
+  canary and promotion descriptions were semantically correct but did not
+  match the controller's required literal provenance bindings.
+- The r4 tag remains immutable and is not a deployable target.
+- R15.2 is rebound to a new r5 tag.  That tag must carry the exact lines
+  `canary_contract=FIRST_10_24H_EPOCH_BOUND` and
+  `promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN`.
 
 Unchanged boundaries
 
