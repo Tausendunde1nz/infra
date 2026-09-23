@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -374,16 +375,16 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
         self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
         self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r3"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r4"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v13")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v14")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_1_ADMIN_READBACK_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_2_OPTIONAL_EVIDENCE_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-bounded-canary-freeze-r3",
+            "s11-2-r15-bounded-canary-freeze-r4",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
@@ -432,6 +433,17 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertFalse(manifest["r15_1_admin_readback"]["runtime_grants_expanded"])
         self.assertTrue(manifest["r15_1_admin_readback"]["query_is_constant"])
         self.assertTrue(manifest["r15_1_admin_readback"]["fresh_backup_required"])
+        self.assertEqual(
+            manifest["r15_2_optional_evidence"]["classification"],
+            "OPTIONAL_EVIDENCE_GLOB_FALSE_REQUIRED",
+        )
+        self.assertTrue(manifest["r15_2_optional_evidence"]["primary_json_required"])
+        self.assertTrue(manifest["r15_2_optional_evidence"]["companions_optional"])
+        self.assertTrue(manifest["r15_2_optional_evidence"]["existing_move_errors_fatal"])
+        self.assertEqual(
+            manifest["r15_2_optional_evidence"]["fixture_counts"],
+            [0, 1, 3],
+        )
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
         self.assertTrue(manifest["canary_contract"]["terminal_epoch_archived_before_rearm"])
@@ -501,6 +513,64 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             'database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;"',
             source,
         )
+
+    def test_optional_synthetic_companions_support_zero_one_and_many(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        helper = source[
+            source.index("move_optional_synthetic_companions() {"):
+            source.index("technical_latency_fixture() {")
+        ]
+        self.assertIn('[ -e "$companion" ] || break', helper)
+        self.assertIn('[ -f "$companion" ] || fail', helper)
+        self.assertIn('mv -- "$companion" "$postdeploy/"', helper)
+        self.assertNotIn("nullglob", helper)
+
+        shell = (
+            "set -Eeuo pipefail\n"
+            "fail() { return 2; }\n"
+            f"{helper}\n"
+            'move_optional_synthetic_companions "$1" "$2"'
+        )
+        for count in (0, 1, 3):
+            with self.subTest(companion_count=count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source_dir = root / "source"
+                target_dir = root / "target"
+                source_dir.mkdir()
+                target_dir.mkdir()
+                for index in range(count):
+                    (source_dir / f"synthetic-journeys.json.{index}.json").write_text(
+                        "{}\n",
+                        encoding="utf-8",
+                    )
+                result = subprocess.run(
+                    ["bash", "-c", shell, "test", str(source_dir), str(target_dir)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    sorted(path.name for path in target_dir.iterdir()),
+                    [f"synthetic-journeys.json.{index}.json" for index in range(count)],
+                )
+                self.assertEqual(list(source_dir.iterdir()), [])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_dir = root / "source"
+            target_dir = root / "target"
+            source_dir.mkdir()
+            target_dir.mkdir()
+            (source_dir / "synthetic-journeys.json.invalid").mkdir()
+            result = subprocess.run(
+                ["bash", "-c", shell, "test", str(source_dir), str(target_dir)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((source_dir / "synthetic-journeys.json.invalid").is_dir())
 
     def test_gate_field_returns_zero_for_present_values_and_two_for_missing(self):
         source = CONTROLLER.read_text(encoding="utf-8")

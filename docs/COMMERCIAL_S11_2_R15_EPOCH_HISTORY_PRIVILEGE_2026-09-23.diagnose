@@ -59,3 +59,19 @@ Unchanged boundaries
 - UNKNOWN provenance fails closed; human acceptance remains DEFERRED.
 - Adult media, AVS, payment, external publishing, controlled beta and
   production remain CLOSED.
+
+R15.2 bounded correction
+
+- The r3 retry proved that the administrator-only history readback, terminal
+  epoch rearm, feature-OFF health, synthetic journey, technical latency, hard
+  gates and Canary activation all work through `S11_2_CANARY_RUNTIME_GREEN`.
+- Final evidence collation then treated the optional
+  `synthetic-journeys.json.*` companions as mandatory.  With no match, Bash
+  passed the literal glob to `mv` and triggered the fail-closed rollback.
+- Keep the primary synthetic journey JSON mandatory.  Move zero, one or many
+  real companion files with an explicit bounded loop, while preserving fatal
+  handling for an existing non-file or a real move error.
+- Prove the shell contract with isolated zero-, one- and three-companion
+  fixtures plus a non-file rejection fixture.
+- Keep the r2 and r3 freezes and their verified backups immutable.  The
+  corrected target is the new r4 freeze and requires a fresh verified backup.
