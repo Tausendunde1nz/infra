@@ -80,3 +80,16 @@ Canonical target after the correction
 - Application PR: #119 (merge commit)
 - Application post-merge CI: 35903748692 (GREEN)
 - Final Control freeze name: s11-2-r15-bounded-canary-freeze-r2
+
+R15.1 bounded correction
+
+- The immutable r2 deployment created and verified its backup, then failed
+  closed because the runtime DSN was used to count rows in the intentionally
+  administrator-only terminal epoch history table.
+- Automatic rollback restored the exact source commits and healthy public
+  runtime.  No Canary activation or terminal-epoch rearm occurred.
+- R15.1 keeps runtime grants unchanged and moves only the two history-count
+  readbacks to a constant local PostgreSQL-administrator query.
+- The r2 tag and backup remain immutable.  The corrected Control target uses
+  the new freeze name `s11-2-r15-bounded-canary-freeze-r3` and requires a new
+  verified predeploy backup before its single authorized retry.

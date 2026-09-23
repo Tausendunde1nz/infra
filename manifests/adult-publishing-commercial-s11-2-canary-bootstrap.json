@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v12",
-  "status": "S11_2_R15_REARM_BOUND_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v13",
+  "status": "S11_2_R15_1_ADMIN_READBACK_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "84619ea0204aeb4b133fe6491f3315beccd635ae",
     "tree": "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
@@ -9,7 +9,7 @@
     "reviewed_head": "beaa3718d4fed6d6a59bbd09ddc71c31efa45a84"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-bounded-canary-freeze-r2",
+    "freeze_tag": "s11-2-r15-bounded-canary-freeze-r3",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -50,6 +50,15 @@
     "archive_is_append_only": true,
     "latency_evidence_mutated": false,
     "product_evidence_mutated": false
+  },
+  "r15_1_admin_readback": {
+    "classification": "CONTROL_ADMIN_READ_INGRESS_MISMATCH",
+    "history_read_ingress": "LOCAL_POSTGRES_ADMIN",
+    "runtime_grants_expanded": false,
+    "query_is_constant": true,
+    "fresh_backup_required": true,
+    "previous_freeze_immutable": "s11-2-r15-bounded-canary-freeze-r2",
+    "previous_backup_immutable": "/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260923T185303Z-predeploy"
   },
   "r8_community_health_contract": {
     "outer_code_preserved": true,

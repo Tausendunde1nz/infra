@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"
 readonly TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r2"
+readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r3"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -154,6 +154,16 @@ if row is None or len(row) != 1:
 value = row[0]
 print("true" if value is True else "false" if value is False else value)
 PY
+}
+
+database_admin_history_count() {
+  local value
+  value="$(runuser -u postgres -- psql --no-psqlrc --quiet --tuples-only --no-align \
+    --set=ON_ERROR_STOP=1 --dbname="$DATABASE" \
+    --command="SELECT count(*) FROM commercial_s11_canary_epoch_history;")" \
+    || fail "S11_2_EPOCH_HISTORY_ADMIN_READ_RED"
+  [[ "$value" =~ ^[0-9]+$ ]] || fail "S11_2_EPOCH_HISTORY_ADMIN_VALUE_RED"
+  printf '%s\n' "$value"
 }
 
 database_transition() {
@@ -567,9 +577,9 @@ apply_migration() {
       return 0
       ;;
     S11_DISABLED\|CANARY_RED|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME)
-      history_before="$(database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;")"
+      history_before="$(database_admin_history_count)"
       database_rearm S11_2_R15_TERMINAL_EPOCH_REARMED
-      history_after="$(database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;")"
+      history_after="$(database_admin_history_count)"
       [ "$history_after" -eq $((history_before + 1)) ] \
         || fail "S11_2_TERMINAL_EPOCH_ARCHIVE_RED"
       [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] \
