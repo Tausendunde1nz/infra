@@ -35,3 +35,13 @@ fresh website/SSH/container baseline and reviewed test matrix. Missing results,
 no-route or unexpected exceptions must fail closed. No provider activation is
 implied by this prerequisite document. Monitoring is currently up/error-free;
 Docs, health and backup last results success. No protected container touched.
+
+## Preflight assertion correction before activation
+Fresh privileged capture phase4-privileged-20260923T190616Z confirmed both
+IPv4/IPv6 filter INPUT DROP and Fail2ban2222. The initial helper mistakenly
+included NAT INPUT chains, whose ACCEPT policy does not override filtering.
+Corrected helper selects type=filter/hook=input and requires exactly the two
+expected ip/ip6 filter INPUT DROP chains. Actual full rules passed; mutations
+to ACCEPT, removal of IPv6 and an unexpected extra filter chain all failed.
+No provider mutation occurred. The helper will be restarted using the existing
+console sudo authorization if still valid; no protection has been loosened.
