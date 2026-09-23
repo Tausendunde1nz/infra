@@ -1,0 +1,61 @@
+COMMERCIAL S11.2-R15 EPOCH HISTORY PRIVILEGE DIAGNOSIS
+
+Date: 2026-09-23
+Status: ROOT_CAUSE_CONFIRMED; AUTOMATIC_ROLLBACK_GREEN; R15_1_FIX_AUTHORIZED
+
+Observed deployment result
+
+- The exact r2 freeze passed the canonical preflight.
+- A root-owned, mode-0700 predeploy backup was created and verified at
+  `/opt/tu1nz_repos/backups/commercial-s11-2-canary-bootstrap/20260923T185303Z-predeploy`.
+- Application and Control switched to the exact r2-bound target commits.
+- Migration 0034 committed successfully and created the append-only terminal
+  epoch history table and the privileged rearm function.
+- The controller then stopped before rearming the terminal epoch because its
+  runtime-DSN read of `commercial_s11_canary_epoch_history` returned PostgreSQL
+  `INSUFFICIENT_PRIVILEGE`.
+- The versioned rollback restored both source commits, packages and bounded
+  runtime artifacts.  Both repositories are clean at their source commits;
+  S7, S8 Landing, S8 Telegram, S10 WMS and nginx are active with zero restarts;
+  all public WMS endpoints are GREEN; the S11 controller is not installed.
+
+Root cause
+
+Migration 0034 intentionally leaves the append-only terminal epoch history
+table private to the database administrator.  The controller nevertheless
+uses `database_scalar`, which connects through the least-privilege runtime DSN,
+to count history rows before and after the administrator-only rearm call.  The
+write path correctly uses local `runuser -u postgres -- psql`; the verification
+read path uses the wrong database ingress.
+
+Classification
+
+CONTROL_ADMIN_READ_INGRESS_MISMATCH
+
+Bounded correction
+
+- Do not grant the runtime role access to the administrator-only history table.
+- Add a narrow controller helper that performs only scalar administrator reads
+  through local `runuser -u postgres -- psql`.
+- Use that helper only for the two epoch-history count reads around the rearm.
+- Keep all ordinary runtime state and health reads on the least-privilege DSN.
+- Add tests proving the runtime DSN is not used for epoch-history reads and the
+  administrator helper cannot accept multi-statement or unbound input.
+- Rebind the controller hashes and immutable r3 freeze only after full tests,
+  review, merge-commit and post-merge CI are GREEN.
+
+Backup and retry contract
+
+- Keep the verified r2 predeploy backup immutable; do not reuse it for retry.
+- A retry requires a new timestamped root-owned mode-0700 backup.
+- Do not move the r2 tag.  Publish a new exact annotated freeze.
+- Run exactly one backup-first retry after the R15.1 source release is GREEN.
+- The existing automatic rollback remains authoritative for any retry failure.
+
+Unchanged boundaries
+
+- Maximum ten REAL SFW Canary sessions and a 24-hour bounded epoch.
+- At least five valid REAL samples plus GREEN technical SLO before promotion.
+- UNKNOWN provenance fails closed; human acceptance remains DEFERRED.
+- Adult media, AVS, payment, external publishing, controlled beta and
+  production remain CLOSED.

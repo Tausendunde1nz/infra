@@ -374,16 +374,16 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
         self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
         self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r2"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r3"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v12")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v13")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_REARM_BOUND_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_1_ADMIN_READBACK_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-bounded-canary-freeze-r2",
+            "s11-2-r15-bounded-canary-freeze-r3",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
@@ -421,6 +421,17 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertTrue(manifest["r15_rearm_artifact_bindings"]["archive_is_append_only"])
         self.assertFalse(manifest["r15_rearm_artifact_bindings"]["latency_evidence_mutated"])
         self.assertFalse(manifest["r15_rearm_artifact_bindings"]["product_evidence_mutated"])
+        self.assertEqual(
+            manifest["r15_1_admin_readback"]["classification"],
+            "CONTROL_ADMIN_READ_INGRESS_MISMATCH",
+        )
+        self.assertEqual(
+            manifest["r15_1_admin_readback"]["history_read_ingress"],
+            "LOCAL_POSTGRES_ADMIN",
+        )
+        self.assertFalse(manifest["r15_1_admin_readback"]["runtime_grants_expanded"])
+        self.assertTrue(manifest["r15_1_admin_readback"]["query_is_constant"])
+        self.assertTrue(manifest["r15_1_admin_readback"]["fresh_backup_required"])
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
         self.assertTrue(manifest["canary_contract"]["terminal_epoch_archived_before_rearm"])
@@ -428,6 +439,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertEqual(manifest["promotion_contract"]["minimum_real_samples"], 5)
         self.assertEqual(manifest["human_acceptance"], "DEFERRED")
         self.assertTrue(manifest["preserved_runtime"]["real_acquisition_active"])
+
         self.assertEqual(
             manifest["preserved_runtime"]["s8_health_timer"],
             "RETIRED_DISABLED_INACTIVE",
@@ -468,6 +480,26 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertEqual(
             manifest["rollback_compatibility"]["r7_s8_poller_recovery_target"],
             "S8_POLLER_START_LIMIT_ONLY",
+        )
+
+    def test_epoch_history_counts_use_bounded_admin_ingress(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        helper = source[
+            source.index("database_admin_history_count() {"):
+            source.index("database_transition() {")
+        ]
+        self.assertIn("runuser -u postgres -- psql", helper)
+        self.assertIn(
+            'SELECT count(*) FROM commercial_s11_canary_epoch_history;',
+            helper,
+        )
+        self.assertNotIn("$1", helper)
+        self.assertNotIn("DATABASE_DSN", helper)
+        self.assertNotIn("database_scalar", helper)
+        self.assertEqual(source.count("database_admin_history_count"), 3)
+        self.assertNotIn(
+            'database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;"',
+            source,
         )
 
     def test_gate_field_returns_zero_for_present_values_and_two_for_missing(self):
