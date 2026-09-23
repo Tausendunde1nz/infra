@@ -70,3 +70,41 @@ provider rules as configuration evidence. Recheck monitoring, health/backup,
 Tailscale and unchanged containers before acknowledgment. Existing TCP sessions
 can survive a provider update; only new probes demonstrate changed admission.
 After success append actual evidence and push. Phase5 stays unactivated.
+
+
+## Activation attempt rolled back — 2026-09-23
+Preparation commit6744d70 was pushed before activation. The transaction's offline
+success and injected-monitoring-failure paths were executed with a mocked provider;
+the latter restored the exact original array. No live rollback was used in that test.
+The actual provider reduction then succeeded and entered external validation.
+The original rules were automatically restored at2026-09-23T18:28:45.523926Z.
+Fresh hcloud describe equals the complete original-firewall.json including rules
+and attachment. New chatops Tailscale SSH passed after rollback. Node/cAdvisor
+remain up with no scrape error. No server/container configuration was changed.
+
+Cause: external checker ran under macOS Python3.9, where socket.timeout is not
+necessarily the built-in TimeoutError used in its exception test. The first new
+public TCP22 attempt timed out (expected blocking), but was incorrectly re-raised.
+Its exception handler requested rollback immediately; the server guard restored
+and readback-verified originals. This is a validation-tool defect, not evidence
+that a protected port accepted a connection or that websites/SSH failed.
+All ten preceding HTTP/HTTPS assertions and both chatops plus three forbidden-user
+SSH assertions had passed. The remaining public port matrix did not complete;
+no successful final Phase4 validation or IPv6 blocking result is claimed.
+The broad original provider rule is therefore active again, including3000/8080.
+
+Corrected versioned checker scripts/tu1nz_public_port_check.py handles both
+socket.timeout and TimeoutError explicitly, plus ETIMEDOUT/ECONNREFUSED. No-route
+is inconclusive and cannot satisfy success; successful connect fails; unrelated
+errors propagate; only the exact two addresses/six ports are accepted. Six offline
+tests passed on the actual Mac Python3.9 runtime. Missing/duplicate result sets
+fail, so the checks were not broadly relaxed. It was not used to reactivate rules.
+Local reviewed checker copy is beside the external backup. A fresh backup/diff
+and a complete repeated transactional validation remain required. No Phase5 action.
+
+Evidence and recovery remain in
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/hetzner-phase4-20260923T182627Z/
+including apply output, after-firewall, container baseline, explicit rollback
+request, rollback output and ROLLED_BACK.json. Independent Mac backup remains
+/Users/daniel/.codex/tu1nz-recovery/20260923T182627Z/.
+Docs pipeline correction and its published PDF remain successfully completed.
