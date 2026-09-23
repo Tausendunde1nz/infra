@@ -45,3 +45,40 @@ expected ip/ip6 filter INPUT DROP chains. Actual full rules passed; mutations
 to ACCEPT, removal of IPv6 and an unexpected extra filter chain all failed.
 No provider mutation occurred. The helper will be restarted using the existing
 console sudo authorization if still valid; no protection has been loosened.
+
+## Final second-attempt activation plan
+Corrected privileged PRE succeeded using phase4-privileged-20260923T190741Z.
+A single read-only console process waits for CHECK_POST and will capture fresh
+kernel rules, loaded Fail2ban/OpenSSH and listeners after the provider change.
+The external Mac supervisor scripts/tu1nz_phase4_mac_supervisor.py establishes
+its held SSH control channel and failure handler before launching the server
+transaction. It records EXTERNAL_ROLLBACK_ARMED locally before any provider write.
+Any external validation exception requests server rollback and, if originals are
+not restored, directly invokes exact provider restoration over the held channel.
+The server's independent600second missing-ack rollback guard remains in force.
+Failure simulation on the Mac injected a post-change supervisor error: external
+restore ran once, exact original state verified, failure remained failure.
+
+Actual Mac --preflight passed five domains with DNS, HTTP/HTTPS, redirects and
+plausible HTML titles plus two successful chatops SSH paths and three explicit
+forbidden-user denials. Actual Python3.9 compiled/executed the supervisor.
+After provider readiness allow3seconds propagation; a successful forbidden-port
+connection is retried at most twice,3seconds apart, within a90second matrix bound.
+Timeout/refused pass; no-route/unexpected error/incomplete set fail. Both public
+IP families first require TCP443 success, then all six required blocked ports;
+additional5432/5678 probes cover current localhost listeners within the old range.
+Exact dual-stack provider rules provide the full80-8080 exclusion proof beyond
+those finite probes; do not claim an exhaustive8001-port live scan.
+Fresh POST kernel rules must equal PRE after stripping only counters/handles/
+metainfo. Listener bindings must match exactly. Require Fail2ban2222, dual-stack
+filter DROP, all three Docs/health/backup service results success, Tailscale
+Running with no Health errors, monitored targets up, and all container state
+fields unchanged throughout. Guard stays active through a stable observation.
+Only then write validation acknowledgment, verify COMPLETE and exact final rules,
+and write the external completion report. Failed final readback still invokes
+external rollback even if the server guard has already completed.
+
+No public direct need for the removed ports exists per operator confirmation.
+No application/monitoring listener or protected container is modified. Historic
+trendwatch/private-alpha/bot-health defects are outside this transaction and not
+represented as repaired. No actual iPhone Exit-Node test is claimed before Phase5.

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Minimal authorized provider-only transaction; automatic exact rules rollback."""
 import pathlib,subprocess,json,hashlib,time,datetime,os,signal,urllib.request
-B=pathlib.Path('/opt/tu1nz_repos/network-hardening-private-2026-09-22/hetzner-phase4-20260923T182627Z')
+B=pathlib.Path('/opt/tu1nz_repos/network-hardening-private-2026-09-22/hetzner-phase4-retry-20260923T185834Z')
 ID='10043301'
 def run(*a):return subprocess.check_output(a,stderr=subprocess.STDOUT,timeout=90)
 def put(n,x):
