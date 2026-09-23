@@ -411,3 +411,49 @@ including apply output, after-firewall, container baseline, explicit rollback
 request, rollback output and ROLLED_BACK.json. Independent Mac backup remains
 /Users/daniel/.codex/tu1nz-recovery/20260923T182627Z/.
 Docs pipeline correction and its published PDF remain successfully completed.
+
+## Verified Phase 4 completion — 2026-09-23 19:12:01 UTC
+
+Second transaction completed successfully; external Mac report and server COMPLETE agree.
+Preparation commits: 319fbfa, fe5a651 and 985f051; earlier timeout correction ffce37d.
+Live firewall 10043301 on server 109772243 now permits inbound TCP 80, TCP 443 and
+ICMP from IPv4/IPv6 only. No outbound rule, UDP grant or Tailnet change was added.
+TCP 80 is required for the verified HTTP-to-HTTPS redirects. UDP 41641 was not
+previously explicitly allowed by Hetzner and a new grant was not necessary for
+the verified Tailscale connectivity. Existing local UDP allowance is unchanged.
+
+All twelve required negative public tests passed: 22,2222,3000,8080,8090,9100
+on both public IP families returned BLOCKED_TIMEOUT, with successful TCP443
+positive controls. Additional 5432/5678 probes passed in both families. Exact
+provider rule readback proves the old broad range is absent; no exhaustive scan
+of every port is claimed. Five domains passed DNS/HTTP/HTTPS and content checks;
+wantmeseen.de retains its expected 308 redirect, other HTTPS pages returned 200.
+Fresh independent chatops SSH connections on Tailscale22 and OpenSSH2222 passed.
+Tailscale SSH rejected root, nobody and daemon explicitly (exit255).
+Privileged PRE/POST: filter INPUT DROP for IPv4/IPv6, Fail2ban2222,
+chatops-only OpenSSH, identical listener bindings and identical nftables rules
+apart from counters/handles/metainfo. Docs, health and encrypted-backup service
+results remained success. Tailscale Running, no Health errors; exit-node capability
+remained enabled. An actual iPhone exit-node client test remains pending.
+
+Fifteen monitoring samples span fresh scrapes 19:10:42–19:11:58 UTC; cAdvisor and
+Node Exporter remained up with empty lastError. All captured container IDs,
+start times, restart counts, health, bindings and networks remained unchanged.
+The pre-existing spicymila_bot health defect was preserved, not repaired. No bot
+message, protected-container restart, cost/lease change or provider lease action
+was performed. This validates observed runtime stability, not a new billing audit.
+
+Server evidence and rollback:
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/hetzner-phase4-retry-20260923T185834Z/
+External copy/report:
+/Users/daniel/.codex/tu1nz-recovery/20260923T185834Z/EXTERNAL_COMPLETE.json
+Privileged evidence: phase4-privileged-20260923T190741Z and
+phase4-privileged-20260923T191128Z under the private base directory.
+Both automatic guards completed after validation. Rollback remains available via
+recovery console as chatops using hcloud firewall replace-rules 10043301 with the
+retry directory's rollback-rules.json; verify exact original readback, then repeat
+website, DNS, SSH and monitoring checks. This intentionally restores the old broad
+rules and must only be used for a demonstrated regression. Local firewall/SSH and
+Tailnet must not be rolled back as part of that provider-only restoration.
+
+Phase5 is prepared separately, NOT activated. See TAILNET_PHASE5_PREPARATION_2026-09-23.md.
