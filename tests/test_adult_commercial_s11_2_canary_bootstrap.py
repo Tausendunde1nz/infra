@@ -350,10 +350,35 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
 
     def test_frozen_release_and_manifest_contract(self):
         source = CONTROLLER.read_text(encoding="utf-8")
-        self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
-        self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r8"', source)
+        self.assertIn('SOURCE_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"', source)
+        self.assertIn('SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"', source)
+        self.assertIn('SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"', source)
+        self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
+        self.assertIn('TARGET_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"', source)
+        self.assertIn('TARGET_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v11")
+        self.assertEqual(
+            manifest["status"],
+            "S11_2_R15_BOUNDED_CANARY_SOURCE_GREEN_PENDING_REVIEW",
+        )
+        self.assertEqual(
+            manifest["control_release"]["freeze_tag"],
+            "s11-2-r15-bounded-canary-freeze",
+        )
+        self.assertEqual(
+            manifest["r15_activation"]["source_application_commit"],
+            "77f9079956a42ee411e17f5697da96f6810ba966",
+        )
+        self.assertEqual(
+            manifest["r15_activation"]["source_control_commit"],
+            "7c634d3b82572e8459d51c69f04dce82c624d766",
+        )
+        self.assertEqual(manifest["r15_activation"]["maximum_real_sessions"], 10)
+        self.assertTrue(manifest["r15_activation"]["p0_recovery_closed"])
+        self.assertTrue(manifest["r15_activation"]["r14_1_runtime_ready"])
+        self.assertEqual(manifest["r15_activation"]["authoritative_controller_count"], 1)
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
         self.assertEqual(manifest["promotion_contract"]["minimum_real_samples"], 5)

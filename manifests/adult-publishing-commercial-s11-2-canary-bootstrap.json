@@ -1,21 +1,41 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v10",
-  "status": "S11_2_R12_TELEGRAM_HEALTH_CHILD_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v11",
+  "status": "S11_2_R15_BOUNDED_CANARY_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
-    "commit": "23230af0b4dab4c1462a326cc137c2ded39cee4c",
-    "tree": "562e2ba68da01385da838e4499819924adca694c",
-    "pull_request": 117,
-    "post_merge_ci": 35751076585,
-    "reviewed_head": "8b692237bcd7431418ad7623c8254f57f3729148"
+    "commit": "77f9079956a42ee411e17f5697da96f6810ba966",
+    "tree": "370001f8ce0491ddf7709c2cee16d452d6098721",
+    "pull_request": 118,
+    "post_merge_ci": 35777850947,
+    "reviewed_head": "8d6842590b1a001ed8c36eafa7b136aa012e58da"
   },
   "control_release": {
-    "freeze_tag": "s11-2-canary-bootstrap-freeze-r12",
+    "freeze_tag": "s11-2-r15-bounded-canary-freeze",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
     "gate": "scripts/tu1nz_adult_public_s11_2_gate.py",
     "timer": "tu1nz-adult-public-s11-canary-controller.timer",
     "parallel_mutating_controller_allowed": false
+  },
+  "r15_activation": {
+    "source_application_commit": "77f9079956a42ee411e17f5697da96f6810ba966",
+    "source_application_tree": "370001f8ce0491ddf7709c2cee16d452d6098721",
+    "source_control_commit": "7c634d3b82572e8459d51c69f04dce82c624d766",
+    "source_control_tree": "1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4",
+    "r14_1_freeze": "s11-2-r14-1-journal-cursor-freeze",
+    "r14_1_runtime_ready": true,
+    "p0_recovery_closed": true,
+    "maximum_real_sessions": 10,
+    "evidence_horizon_hours": 24,
+    "minimum_real_samples_for_promotion": 5,
+    "authoritative_controller_count": 1,
+    "human_acceptance": "DEFERRED",
+    "adult_media": false,
+    "real_avs": false,
+    "payments": false,
+    "external_publishing": false,
+    "controlled_beta": false,
+    "production": false
   },
   "r8_community_health_contract": {
     "outer_code_preserved": true,
