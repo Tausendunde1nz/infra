@@ -1,6 +1,9 @@
-# Commercial S11.2-R14 technical runtime latency evidence
+# Commercial S11.2-R14.1 technical runtime latency recovery
 
-R14 closes only the technical runtime evidence gap left by R13. It does not
+R14.1 recovers the technical runtime evidence run after the first R14 probe
+completed successfully but the controller lost the finished oneshot's
+`InvocationID`. It closes only the technical runtime evidence gap left by R13.
+It does not
 start, stop, or restart S8, does not contact Telegram, and does not create an
 S11 session, community member, acquisition event, or human acceptance claim.
 
@@ -15,6 +18,13 @@ clock, and writes exactly one append-only latency row through
 `PostgresCommunityStore.record_latency`. The row is verified by its generated
 sample identifier before the command reports success. The identifier and all
 user-shaped synthetic fixture values stay internal and are never emitted.
+
+The recovery requires exactly one canonical technical sample at preflight and
+exactly one matching GREEN record in the existing probe-unit journal. It
+preserves that sample unchanged and appends exactly four further samples. Each
+new probe captures a systemd journal cursor before start and accepts exactly
+one GREEN probe record after that cursor. It does not depend on post-exit
+`InvocationID` retention.
 
 The unit carries only the database credential. It has no Telegram credential,
 no timer, and no `[Install]` target. Operations must invoke it serially and

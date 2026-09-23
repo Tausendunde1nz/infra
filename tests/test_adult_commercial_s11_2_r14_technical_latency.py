@@ -21,6 +21,10 @@ class CommercialS112R14TechnicalLatencyTests(unittest.TestCase):
             "77f9079956a42ee411e17f5697da96f6810ba966",
         )
         self.assertEqual(payload["application_release"]["post_merge_ci"], 35777850947)
+        self.assertEqual(
+            payload["base_control_commit"],
+            "13fd066ace8a2592b27dc12500fdb3bd527cc7ce",
+        )
         contract = payload["technical_runtime_contract"]
         self.assertEqual(contract["window_hours"], 24)
         self.assertEqual(contract["minimum_samples"], 5)
@@ -68,6 +72,13 @@ class CommercialS112R14TechnicalLatencyTests(unittest.TestCase):
         self.assertFalse(payload["runtime_boundaries"]["s8_restart_allowed"])
         self.assertFalse(payload["runtime_boundaries"]["s11_canary_allowed"])
         self.assertTrue(payload["completion"]["s11_remains_disabled"])
+        recovery = payload["recovery"]
+        self.assertEqual(recovery["existing_samples_required"], 1)
+        self.assertFalse(recovery["existing_samples_mutated"])
+        self.assertEqual(recovery["new_samples_required"], 4)
+        self.assertEqual(recovery["journal_binding"], "CURSOR_CAPTURED_BEFORE_START")
+        self.assertFalse(recovery["post_exit_invocation_id_required"])
+        self.assertFalse(recovery["second_attempt_of_failed_probe"])
 
     def test_documentation_requires_append_only_serial_provenance_validation(self) -> None:
         source = DOC.read_text(encoding="utf-8")
@@ -75,22 +86,31 @@ class CommercialS112R14TechnicalLatencyTests(unittest.TestCase):
         self.assertIn("serially", source)
         self.assertIn("never deleted", source)
         self.assertIn("S11 remains", source)
+        self.assertIn("journal cursor", source)
+        self.assertIn("exactly four further samples", source)
 
     def test_controller_is_backup_first_serial_and_never_restarts_s8(self) -> None:
         source = CONTROLLER.read_text(encoding="utf-8")
         main = source[source.index("main() {"):]
-        self.assertLess(main.index("r14_backup"), main.index("r14_install_probe_unit"))
-        self.assertLess(main.index("r14_install_probe_unit"), main.index("r14_finalize"))
-        self.assertIn("for r14_iteration in 1 2 3 4 5", source)
+        self.assertLess(main.index("r14_backup"), main.index("r14_verify_probe_unit"))
+        self.assertLess(main.index("r14_verify_probe_unit"), main.index("r14_finalize"))
+        self.assertIn("for r14_iteration in 2 3 4 5", source)
         self.assertIn("r14_run_one_probe", source)
+        self.assertIn("--show-cursor", source)
+        self.assertIn("--after-cursor", source)
+        self.assertNotIn("-p InvocationID", source)
         self.assertNotIn("systemctl restart", source)
         self.assertNotIn("systemctl stop", source)
         self.assertNotIn("DELETE FROM commercial_s10_2d_latency_samples", source)
         self.assertNotIn("UPDATE commercial_s10_2d_latency_samples", source)
-        self.assertIn("S11_2_R14_STARTING_SAMPLE_DRIFT", source)
+        self.assertIn("S11_2_R14_EXISTING_SAMPLE_RECONCILIATION_RED", source)
+        self.assertIn("S11_2_R14_EXISTING_PROBE_JOURNAL_RED", source)
+        self.assertIn('len(before["technical_window"]) != 1', source)
+        self.assertIn('len(after["r14_technical"]) != 4', source)
         self.assertIn('after["r14_new_real"] != 0', source)
         self.assertIn('"p0_recovery": "CLOSED"', source)
         self.assertIn('"next_s11_canary_runtime_ready": True', source)
+        self.assertIn("S11_2_R14_1_TECHNICAL_RUNTIME_LATENCY_GREEN", source)
 
 
 if __name__ == "__main__":

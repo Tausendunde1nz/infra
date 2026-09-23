@@ -1,0 +1,66 @@
+# S11.2-R14 probe invocation binding — 2026-09-23
+
+Status: `STOPPED_SAFE_CONTROLLER_CONTRACT_RED`
+
+## Observed result
+
+- The backup-first controller completed the source/runtime backup and installed
+  the frozen technical-latency probe unit.
+- The first and only probe process completed successfully (`Result=success`,
+  `ExecMainStatus=0`).
+- The unit journal contains exactly one
+  `S11_2_R14_TECHNICAL_RUNTIME_PROBE_GREEN` record.
+- After the oneshot had become `inactive/dead`, systemd exposed an empty
+  `InvocationID` through `systemctl show`.
+- The controller consequently stopped with
+  `S11_2_R14_PROBE_INVOCATION_RED` and exit status 2.
+
+No second probe was started. No sample was deleted, rewritten, reclassified or
+manually inserted. No S11 flag or acquisition/product boundary was changed.
+
+## Root cause
+
+The controller assumes that a completed short-lived oneshot retains its
+`InvocationID` long enough to bind the post-run journal query. That assumption
+does not hold on the target system. The probe itself is GREEN; the RED is a
+post-execution evidence-binding contract failure.
+
+Classification: `SYSTEMD_ONESHOT_INVOCATION_ID_LIFETIME_CONTRACT_BUG`
+
+## Required recovery contract
+
+Before any further runtime probe:
+
+1. Reconcile the existing successful probe against the database using only
+   aggregate, provenance-safe evidence and require exactly one valid R14
+   technical sample.
+2. Replace the post-exit `InvocationID` lookup with a journal cursor captured
+   immediately before each unit start, then validate exactly one GREEN record
+   after that cursor.
+3. Run the full Application and Control test suites, secret/PII scan, CI and
+   review; merge and freeze the repair before activation.
+4. In a separately authorized backup-first R14.1 recovery, produce only the
+   remaining samples required by the original minimum-five contract. If the
+   existing sample cannot be proven valid, stop without modifying it.
+5. Preserve the single-session, serial-execution, no-retry, no-REAL-sample and
+   closed-product-boundary constraints.
+
+R14.1 recovery was explicitly authorized on 2026-09-23. The runtime state
+remains fail-closed until the repaired contract is reviewed, merged, frozen and
+revalidated against the server before any further probe.
+
+## Local validation note
+
+The first repository-wide R14.1 validation run reported two simulator listener
+failures because the paired temporary Application checkout lacked its required
+Python 3.12 dependencies (`psycopg` was unavailable). No source or server state
+caused that failure. After creating the repository-defined Python 3.12 test
+environment, both affected simulator tests passed unchanged before the full
+suite was repeated.
+
+## Publishing note
+
+The first branch push was rejected by GitHub privacy protection because the
+unpublished local commit carried a protected private author address. No remote
+ref was created. The local commit was amended without content changes to use
+the project GitHub `noreply` identity before the branch was pushed again.
