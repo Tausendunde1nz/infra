@@ -1,0 +1,58 @@
+# Docs path drift: confirmed, activation blocked by runner behavior
+
+Read-only investigation after successful Tailscale reauthentication.
+No unit, drop-in, script, timer, application, firewall or Tailnet change made.
+No service test or daemon-reload performed. No production Git checkout changed.
+
+## Confirmed path and repository
+/opt/tu1nz_repos/docs is an existing symlink to /tausendunde1nz/07_docs.
+Target owner/group1001:1001, mode0755. Git origin is
+ git@github.com:Tausendunde1nz/docs.git
+Branch main tracks origin/main; clean tracked/untracked status. Local HEAD
+4644acf (Final correction pass after bulk sweep, PR29). No remote freshness
+or remote write test is claimed for this Docs repository.
+/opt/tu1nz_repos/docs_repo does not exist, including as a dangling symlink.
+The active systemd drop-in alone directs this job there. Runner and builder
+both use /opt/tu1nz_repos/docs. User/group chatops, HOME=/home/chatops.
+Base ExecStart=/usr/local/bin/tu1nz_doc_auto.sh. Timer enabled, active/waiting,
+22:00 UTC daily, Persistent=true. Legacy tu1nz-docs and tu1nz-docagent timers
+are disabled and their services inactive. No legacy service was started.
+A timestamped override backup from20260216-133730 already contains docs_repo;
+its historical existence or symlink role is unproven. Do not infer it never
+existed. Filename/line-only reference scan covered readable systemd and local
+bin files; it did not print environment secrets or full secret configurations.
+
+## Additional blocking finding
+The current builder tu1nz_doc_update.sh appends plain text with echo to a
+System_Dokumentation_Tausendunde1nz_DATE.pdf filename. It performs no PDF
+rendering or validation. The single matching existing daily file dated
+2026-03-15 is67bytes and lacks the %PDF- signature. Its contents were not printed.
+Runner suppresses builder and staging failures with ||true, stages the dated
+file, commits all staged changes if present, then immediately pushes origin/main.
+It also uses unrestricted git reset in its no-change path. Therefore a path-only
+repair re-enables a job that can report misleading success, publish a non-PDF,
+or include concurrent staged work. The present clean index does not remove
+these design issues. The requested review-before-push cannot be satisfied by
+an unmodified normal test run of this runner.
+
+## Decision and bounded next change
+Stop before activation, as required for unexpected scope expansion and failed
+safety gates. No empty replacement directory or symlink was created.
+A separately scoped runner/builder correction is needed: establish the intended
+output format/content, produce and validate that artifact, stage only it after
+clean-index/concurrency checks, expose a no-push test mode, propagate errors,
+and review the exact resulting commit before any push. Only then correct the
+single WorkingDirectory reference with a timestamped backup and tested rollback.
+Do not silently choose an existing similarly named generator without inspecting
+its output contract and side effects. No MyChatBuddy component may be touched.
+Phase4 and Phase5 remain unactivated. No further broad health claim is made.
+
+## Protected snapshot and rollback
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/docs-path-diagnosis-20260923T162554Z
+Directory0700, files0600. manifest.json records source paths, uid/gid/mode and
+SHA256 for base unit, active drop-in, timer, runner and builder. Copied bytes and
+hashes were verified. No live rollback is necessary: all captured live files
+remain unchanged. Future rollback must restore only changed, drift-checked
+files with original metadata and daemon-reload for unit changes. Do not restore
+the entire directory over other actors' changes.
+Only this diagnosis is committed to the existing hardening branch.
