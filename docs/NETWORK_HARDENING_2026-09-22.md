@@ -329,3 +329,47 @@ Node Exporter route are needed before monitoring correction can proceed.
 Port-consumer/log inventory and stable post-correction observation remain
 incomplete; Phase 4 is not cleared. No live-change backups/rollback are claimed
 for a correction that never proceeded beyond read-only preflight.
+
+
+## Live Docs pipeline completed — 2026-09-23T18:12:57Z
+Preparation commit aa66bfc7f23ccc31e732d79988a9d79dc0bd306a was pushed before
+activation. Privileged transaction docs-transaction-20260923T181203Z completed
+with COMPLETE.json at18:12:57.570435Z. Fresh originals, metadata, executable
+rollback, offline proof and validation acknowledgment are in the private base:
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/docs-transaction-20260923T181203Z/
+
+Effective WorkingDirectory is /opt/tu1nz_repos/docs, user/group chatops.
+The safe systemd run at18:12:05-18:12:06Z exited0 with Result=success and staged
+one valid PDF. Docs local and remote HEAD remained4644acf and worktree remained
+clean before explicit publication: no automatic commit or push occurred.
+All PDF checks passed again, extracted content matched the strict allowlist,
+and the actual live page was rendered and visually inspected without clipping.
+Stage: /opt/tu1nz_repos/doc-staging/stage-20260923T181205Z-juhvnebs/
+PDF SHA256:34248f56c3f67fbe1a665f21fdee7f6ca0baf8de2bd8eca9a08a5f17323f7fd2.
+Only after this review was explicit publish invoked as chatops with that hash.
+Docs commit537aa8fd69d755c641246cc1b507c69b3e1cd5f5 contains only
+System_Dokumentation_Tausendunde1nz_2026-09-23.pdf. Push to Docs main and exact
+remote HEAD verified; worktree clean. Timer remains active, next run22:00UTC,
+and now performs staging only. The in-process rollback wait has completed.
+For later configuration rollback use the captured rollback.py --rollback with
+its transaction directory, after checking drift; this does not erase published
+Git history or rewrite historical systemd timestamps.
+
+## Phase4 resumed: no activation yet
+Fresh provider read still shows original TCP80-8080, TCP22, TCP443 and ICMP,
+attached to the same server. No provider mutation occurred.
+External Mac preflight: n8n.mychatbuddy.dev and lighting.tu1nz.com DNS both resolve
+to91.98.112.14; HTTP301 redirects to corresponding HTTPS; HTTPS200 with normal
+certificate validation. These external tests are authorized by the latest order.
+Backup latest run completed03:34:56UTC with Result=success. The doc service is
+no longer in systemctl --failed; protected pre-existing private-alpha failure
+and spicymila_bot unhealthy state remain, untouched. No bot message was sent.
+One enabled nginx config (tu1nz.conf) is not readable as chatops, so the complete
+current routing inventory still needs a privileged read. Do not claim it passed.
+control-main remote is now7c634d3b82572e8459d51c69f04dce82c624d766; upstream
+integration/dependency review remains outstanding. Canonical checkout untouched.
+The previously opened recovery tab was absent; reopening its known console URL
+succeeded, but Chrome then blocked automation because another extension UI was
+open. Recovery login/session could not be freshly verified. Provider activation
+is gated on restoring that independent recovery access and remaining preflight.
+Phase5 remains unactivated. No additional security change or merge performed.
