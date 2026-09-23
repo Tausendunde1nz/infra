@@ -1,0 +1,50 @@
+COMMERCIAL S11.2-R15 CANONICAL REBIND DIAGNOSIS
+
+Date: 2026-09-23
+Scope: source-only, before any R15 server mutation
+
+Observed state
+
+- Canonical Application main is 77f9079956a42ee411e17f5697da96f6810ba966
+  with tree 370001f8ce0491ddf7709c2cee16d452d6098721.
+- Canonical Control control-main is 7c634d3b82572e8459d51c69f04dce82c624d766
+  with tree 1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4.
+- The authoritative R14.1 freeze resolves to that Control commit.
+- Both canonical CI runs are GREEN and both server worktrees are clean.
+- P0_RECOVERY is closed and the R14.1 technical runtime latency profile is GREEN.
+- The deployable S11.2 controller still binds its source precondition and target
+  freeze to the earlier bootstrap release.  Running it unchanged against the
+  R14.1 runtime would correctly stop with repository/freeze drift before backup.
+
+Classification
+
+EXPECTED_RELEASE_BINDING_DRIFT_AFTER_R14_1
+
+Resolution
+
+- Rebind only the existing backup-first S11.2 controller to the current
+  canonical Application and Control source state.
+- Keep the already reviewed S11 product, migration, synthetic journey,
+  admission-cap, provenance, fallback and promotion contracts unchanged.
+- Create a new annotated R15 freeze after merge with exact Application and
+  Control commit/tree provenance.
+- Require the controller to make the full backup before it switches either
+  server repository to the target release.
+
+Unchanged hard boundaries
+
+- Maximum ten REAL SFW Canary sessions.
+- At least five valid REAL samples before promotion.
+- UNKNOWN provenance fails closed.
+- Human acceptance remains DEFERRED.
+- Adult media, AVS, payment, external publishing, controlled beta and
+  production remain CLOSED.
+- Exactly one authoritative Canary/promotion controller; systemd only.
+
+Rollback
+
+The existing controller rollback remains authoritative: verify the root-owned
+0700 backup, disable the Canary controller, transition an active Canary to the
+fail-closed state, restore the exact predeploy Application/Control commits and
+runtime artifacts, restart only the bounded S8/WMS services, then require local
+and public health before returning.
