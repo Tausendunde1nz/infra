@@ -12,9 +12,9 @@ readonly SOURCE_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"
 readonly SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"
 readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
-readonly TARGET_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"
-readonly TARGET_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"
-readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze"
+readonly TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"
+readonly TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"
+readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r2"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -23,6 +23,8 @@ readonly EXPERIENCE_COPY_SHA="bd842016355f7efd7dfdceedbe89e6e7ea0c7ada09dfe5587b
 readonly SYNTHETIC_CONTRACT_SHA="2b9bffc4e485d825dd0e266183bd203fa5a31e876814d8ec2685ae4cc7544bfc"
 readonly MIGRATION_UP_SHA="97cca3f1a59ec125ef621cdb79ce85931682011ec88ad0b5f164617767f68e77"
 readonly MIGRATION_DOWN_SHA="4514d3b91dc3924b54116b216baa32896c7091ce4fd114dded62fbe6f1a1917b"
+readonly MIGRATION_REARM_UP_SHA="8d2d293c1f382bb5f726624c5dbe24e85b8f5c47a037b0d1bb52726d3fc23621"
+readonly MIGRATION_REARM_DOWN_SHA="ca1a286f042f685d7a48d6db1231d7a816973c5496da2702d9562958965f3d73"
 readonly WMS_LANDING_COPY_SHA="86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"
 readonly EXPERIENCE_CONTRACT="/etc/tu1nz/adult-commercial-s11-interactive-experience.json"
 readonly EXPERIENCE_COPY="/etc/tu1nz/adult-commercial-s11-interactive-copy.json"
@@ -162,6 +164,15 @@ database_transition() {
   runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
     --dbname="$DATABASE" \
     --command="SELECT tu1nz_s11_2_transition_runtime_control('${RUNTIME_RELEASE_ID}','${transition}',clock_timestamp(),'${safe_code}');" \
+    >/dev/null
+}
+
+database_rearm() {
+  local safe_code="$1"
+  [[ "$safe_code" =~ ^S11_2_[A-Z0-9_]{1,96}$ ]] || fail "S11_2_REARM_SAFE_CODE_INVALID"
+  runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --dbname="$DATABASE" \
+    --command="SELECT tu1nz_s11_2_rearm_runtime_control('${RUNTIME_RELEASE_ID}',clock_timestamp(),'${safe_code}');" \
     >/dev/null
 }
 
@@ -516,6 +527,8 @@ config/commercial-s11-interactive-copy.v1.json ${EXPERIENCE_COPY_SHA}
 config/commercial-s11-synthetic-experience.v1.json ${SYNTHETIC_CONTRACT_SHA}
 migrations/0033_commercial_s11_2_canary_bootstrap.sql ${MIGRATION_UP_SHA}
 migrations/0033_commercial_s11_2_canary_bootstrap.down.sql ${MIGRATION_DOWN_SHA}
+migrations/0034_commercial_s11_2_canary_rearm.sql ${MIGRATION_REARM_UP_SHA}
+migrations/0034_commercial_s11_2_canary_rearm.down.sql ${MIGRATION_REARM_DOWN_SHA}
 config/commercial-s10-1-wms-copy.v1.json ${WMS_LANDING_COPY_SHA}
 EOF
   require_target_wms_compatibility \
@@ -529,19 +542,43 @@ install_from_git() {
 }
 
 apply_migration() {
-  local installed
-  installed="$(database_scalar "SELECT count(*)=6 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','full_live_start','promotion_state');")"
-  if [ "$installed" = true ]; then
+  local bootstrap_installed rearm_installed current_state history_before history_after
+  bootstrap_installed="$(database_scalar "SELECT count(*)=6 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','full_live_start','promotion_state');")"
+  if [ "$bootstrap_installed" != true ]; then
+    runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --dbname="$DATABASE" \
+      < "$APPLICATION_ROOT/migrations/0033_commercial_s11_2_canary_bootstrap.sql" \
+      >/dev/null
     [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] \
-      || fail "S11_2_EXISTING_CANARY_STATE_RED"
-    return 0
+      || fail "S11_2_MIGRATION_DEFAULT_NOT_OFF"
   fi
-  runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
-    --dbname="$DATABASE" \
-    < "$APPLICATION_ROOT/migrations/0033_commercial_s11_2_canary_bootstrap.sql" \
-    >/dev/null
-  [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] \
-    || fail "S11_2_MIGRATION_DEFAULT_NOT_OFF"
+
+  rearm_installed="$(database_scalar "SELECT (to_regclass('public.commercial_s11_canary_epoch_history') IS NOT NULL AND to_regprocedure('public.tu1nz_s11_2_rearm_runtime_control(text,timestamp with time zone,text)') IS NOT NULL)::text;")"
+  if [ "$rearm_installed" != true ]; then
+    runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --dbname="$DATABASE" \
+      < "$APPLICATION_ROOT/migrations/0034_commercial_s11_2_canary_rearm.sql" \
+      >/dev/null
+  fi
+
+  current_state="$(release_state)"
+  case "$current_state" in
+    S11_DISABLED\|NOT_STARTED)
+      return 0
+      ;;
+    S11_DISABLED\|CANARY_RED|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME)
+      history_before="$(database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;")"
+      database_rearm S11_2_R15_TERMINAL_EPOCH_REARMED
+      history_after="$(database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;")"
+      [ "$history_after" -eq $((history_before + 1)) ] \
+        || fail "S11_2_TERMINAL_EPOCH_ARCHIVE_RED"
+      [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] \
+        || fail "S11_2_TERMINAL_EPOCH_REARM_RED"
+      ;;
+    *)
+      fail "S11_2_EXISTING_CANARY_STATE_RED"
+      ;;
+  esac
 }
 
 run_synthetic_journeys() {

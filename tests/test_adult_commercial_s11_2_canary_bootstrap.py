@@ -117,6 +117,24 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertLess(deploy.index("require_hard_gates"), deploy.index("database_transition START_CANARY"))
         self.assertIn("S11_DISABLED|NOT_STARTED", deploy)
 
+    def test_terminal_epoch_rearm_is_bound_archival_after_backup(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        migration = source[source.index("apply_migration() {"):source.index("run_synthetic_journeys() {")]
+        target = source[source.index("fetch_and_require_target() {"):source.index("install_from_git() {")]
+        self.assertLess(deploy.index("require_backup"), deploy.index("apply_migration"))
+        self.assertIn("0034_commercial_s11_2_canary_rearm.sql", target)
+        self.assertIn("0034_commercial_s11_2_canary_rearm.down.sql", target)
+        self.assertIn("MIGRATION_REARM_UP_SHA", target)
+        self.assertIn("MIGRATION_REARM_DOWN_SHA", target)
+        self.assertIn("S11_DISABLED\\|CANARY_RED", migration)
+        self.assertIn("S11_DISABLED\\|CANARY_INSUFFICIENT_REAL_VOLUME", migration)
+        self.assertIn("database_rearm S11_2_R15_TERMINAL_EPOCH_REARMED", migration)
+        self.assertIn("history_before + 1", migration)
+        self.assertIn("S11_2_TERMINAL_EPOCH_ARCHIVE_RED", migration)
+        self.assertNotIn("DELETE FROM commercial_s10_2d_latency_samples", source)
+        self.assertNotIn("UPDATE commercial_s10_2d_latency_samples", source)
+
     def test_predeploy_evidence_accepts_the_pre_canary_schema(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         evidence = source[source.index("database_evidence() {"):source.index("backup_optional() {")]
@@ -354,19 +372,29 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"', source)
         self.assertIn('SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"', source)
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
-        self.assertIn('TARGET_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"', source)
-        self.assertIn('TARGET_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze"', source)
+        self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
+        self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r2"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v11")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v12")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_BOUNDED_CANARY_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_REARM_BOUND_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-bounded-canary-freeze",
+            "s11-2-r15-bounded-canary-freeze-r2",
         )
+        self.assertEqual(
+            manifest["application_release"]["commit"],
+            "84619ea0204aeb4b133fe6491f3315beccd635ae",
+        )
+        self.assertEqual(
+            manifest["application_release"]["tree"],
+            "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
+        )
+        self.assertEqual(manifest["application_release"]["pull_request"], 119)
+        self.assertEqual(manifest["application_release"]["post_merge_ci"], 35903748692)
         self.assertEqual(
             manifest["r15_activation"]["source_application_commit"],
             "77f9079956a42ee411e17f5697da96f6810ba966",
@@ -379,8 +407,24 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertTrue(manifest["r15_activation"]["p0_recovery_closed"])
         self.assertTrue(manifest["r15_activation"]["r14_1_runtime_ready"])
         self.assertEqual(manifest["r15_activation"]["authoritative_controller_count"], 1)
+        self.assertTrue(manifest["r15_activation"]["terminal_epoch_rearm_required"])
+        self.assertTrue(manifest["r15_activation"]["terminal_epoch_archival_required"])
+        self.assertTrue(manifest["r15_activation"]["latency_evidence_preserved"])
+        self.assertEqual(
+            manifest["r15_rearm_artifact_bindings"]["migration_0034_up_sha256"],
+            "8d2d293c1f382bb5f726624c5dbe24e85b8f5c47a037b0d1bb52726d3fc23621",
+        )
+        self.assertEqual(
+            manifest["r15_rearm_artifact_bindings"]["migration_0034_down_sha256"],
+            "ca1a286f042f685d7a48d6db1231d7a816973c5496da2702d9562958965f3d73",
+        )
+        self.assertTrue(manifest["r15_rearm_artifact_bindings"]["archive_is_append_only"])
+        self.assertFalse(manifest["r15_rearm_artifact_bindings"]["latency_evidence_mutated"])
+        self.assertFalse(manifest["r15_rearm_artifact_bindings"]["product_evidence_mutated"])
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
+        self.assertTrue(manifest["canary_contract"]["terminal_epoch_archived_before_rearm"])
+        self.assertTrue(manifest["canary_contract"]["rearm_serialized_with_promotion_lock"])
         self.assertEqual(manifest["promotion_contract"]["minimum_real_samples"], 5)
         self.assertEqual(manifest["human_acceptance"], "DEFERRED")
         self.assertTrue(manifest["preserved_runtime"]["real_acquisition_active"])

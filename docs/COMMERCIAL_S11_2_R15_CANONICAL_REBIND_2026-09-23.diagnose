@@ -31,6 +31,30 @@ Resolution
 - Require the controller to make the full backup before it switches either
   server repository to the target release.
 
+Second predeploy finding
+
+- The live singleton is intentionally fail-closed at
+  `S11_DISABLED|CANARY_RED` from the earlier bounded recovery attempts.
+- Migration 0033 makes a started Canary epoch immutable and treats a terminal
+  state as final.  The R15 controller therefore cannot legitimately reuse that
+  epoch or reset its timestamps in place.
+- Deploying the first R15 rebind unchanged would create the verified backup and
+  then stop at `S11_2_EXISTING_CANARY_STATE_RED`; no partial activation would be
+  accepted.
+
+Bounded source correction
+
+- Application PR #119 adds migration 0034.  It archives exactly one terminal
+  epoch before rearming the singleton to `S11_DISABLED|NOT_STARTED` under the
+  existing promotion advisory lock and database transition barrier.
+- The correction is append-only for terminal epoch history.  It does not
+  delete, update, reclassify or retimestamp latency or product evidence.
+- The down migration refuses rollback while archived epoch history exists.
+- Full unit tests and the complete PostgreSQL 17/18 acceptance matrix prove
+  both archival/rearm and the subsequent ordinary Canary lifecycle.
+- The final controller binds the migration hashes and invokes the rearm only
+  after the root-owned backup has been created and verified.
+
 Unchanged hard boundaries
 
 - Maximum ten REAL SFW Canary sessions.
@@ -48,3 +72,11 @@ The existing controller rollback remains authoritative: verify the root-owned
 fail-closed state, restore the exact predeploy Application/Control commits and
 runtime artifacts, restart only the bounded S8/WMS services, then require local
 and public health before returning.
+
+Canonical target after the correction
+
+- Application main: 84619ea0204aeb4b133fe6491f3315beccd635ae
+- Application tree: 8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab
+- Application PR: #119 (merge commit)
+- Application post-merge CI: 35903748692 (GREEN)
+- Final Control freeze name: s11-2-r15-bounded-canary-freeze-r2
