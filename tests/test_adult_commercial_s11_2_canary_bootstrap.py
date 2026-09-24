@@ -18,6 +18,7 @@ CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s11_2_control.sh"
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json"
 SERVICE = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service"
 TIMER = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer"
+OLD_SERVICE = ROOT / "tests/fixtures/s11-2-r15-3/controller-without-chatops.service"
 P0_RECOVERY = ROOT / "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh"
 S8_POLLER_RECOVERY = ROOT / "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh"
 
@@ -375,16 +376,20 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
         self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
         self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r5"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r6"', source)
+        self.assertIn(
+            'CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"',
+            source,
+        )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v15")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v16")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_2_FREEZE_PROVENANCE_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_3_SYSTEMD_REPOSITORY_ACCESS_FIX_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-bounded-canary-freeze-r5",
+            "s11-2-r15-bounded-canary-freeze-r6",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
@@ -467,6 +472,16 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             manifest["r15_2_freeze_provenance"]["required_promotion_binding"],
             "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN",
         )
+        access = manifest["r15_3_systemd_repository_access"]
+        self.assertEqual(access["effective_user"], "root")
+        self.assertEqual(access["effective_group"], "root")
+        self.assertEqual(access["old_supplementary_groups"], [])
+        self.assertEqual(access["new_supplementary_groups"], ["chatops"])
+        self.assertFalse(access["repository_permissions_changed"])
+        self.assertFalse(access["sudoers_changed"])
+        self.assertTrue(access["access_preflight_is_product_read_only"])
+        self.assertTrue(access["first_natural_controller_run_required"])
+        self.assertTrue(access["exactly_one_canary_retry"])
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
         self.assertTrue(manifest["canary_contract"]["terminal_epoch_archived_before_rearm"])
@@ -745,10 +760,60 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         )
         self.assertIn("ProtectSystem=strict", service)
         self.assertIn("CapabilityBoundingSet=CAP_SETUID CAP_SETGID", service)
+        self.assertIn("User=root", service)
+        self.assertIn("Group=root", service)
+        self.assertEqual(service.count("SupplementaryGroups=chatops"), 1)
+        self.assertNotIn("NoNewPrivileges=", service)
+        self.assertIn("ReadWritePaths=/run", service)
+        self.assertNotIn("ReadWritePaths=/opt/tu1nz_repos", service)
         self.assertNotIn("Requires=tu1nz-adult-public-s8-telegram.service", service)
         self.assertIn("OnUnitActiveSec=5min", timer)
         self.assertIn("Persistent=true", timer)
         self.assertIn("WantedBy=timers.target", timer)
+
+    def test_r15_3_unit_security_diff_is_exactly_one_group_line(self):
+        old = OLD_SERVICE.read_text(encoding="utf-8")
+        new = SERVICE.read_text(encoding="utf-8")
+        self.assertEqual(new.replace("SupplementaryGroups=chatops\n", ""), old)
+        self.assertEqual(
+            [line for line in new.splitlines() if line.startswith("SupplementaryGroups=")],
+            ["SupplementaryGroups=chatops"],
+        )
+
+    def test_r15_3_exit_126_permission_fixture_and_fixed_contract(self):
+        def execute_allowed(groups):
+            owner_uid = 1001
+            group_gid = 1001
+            effective_uid = 0
+            mode = 0o2770
+            if effective_uid == owner_uid:
+                return bool(mode & 0o100)
+            if group_gid in groups:
+                return bool(mode & 0o010)
+            return bool(mode & 0o001)
+
+        old_exit = 0 if execute_allowed({0}) else 126
+        new_exit = 0 if execute_allowed({0, 1001}) else 126
+        self.assertEqual(old_exit, 126)
+        self.assertEqual(new_exit, 0)
+
+    def test_r15_3_live_access_preflight_precedes_canary_and_natural_run(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        self.assertIn("run_controller_access_check", deploy)
+        self.assertLess(
+            deploy.index("run_controller_access_check"),
+            deploy.index("database_transition START_CANARY"),
+        )
+        self.assertLess(deploy.index("release_lock"), deploy.index("systemctl enable --now"))
+        self.assertLess(
+            deploy.index("systemctl enable --now"),
+            deploy.index("wait_controller_natural_run"),
+        )
+        self.assertIn('safe_code":"S11_2_CONTROLLER_ACCESS_GREEN', source)
+        self.assertIn('safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN', source)
+        self.assertIn("LastTriggerUSec", source)
+        self.assertNotIn("InvocationID", source)
 
 
 if __name__ == "__main__":

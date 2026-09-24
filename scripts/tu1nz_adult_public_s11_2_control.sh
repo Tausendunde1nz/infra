@@ -14,7 +14,8 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"
 readonly TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r5"
+readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r6"
+readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -72,6 +73,11 @@ acquire_lock() {
   flock -n 9 || fail "S11_2_CONTROL_ALREADY_RUNNING"
 }
 
+release_lock() {
+  flock -u 9
+  exec 9>&-
+}
+
 require_sha() {
   [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail "S11_2_SHA_INVALID"
 }
@@ -124,11 +130,15 @@ require_local_freeze() {
   [ "$(target_control_commit)" = "$target_control" ] \
     || { fail "S11_2_FREEZE_COMMIT_DRIFT"; return 2; }
   control_tree="$(target_control_tree)"
+  [ "$(git_chatops "$CONTROL_ROOT" show "${target_control}:systemd/tu1nz-adult-public-s11-canary-controller.service" | sha256sum | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
+    || { fail "S11_2_FREEZE_UNIT_HASH_RED"; return 2; }
   for binding in \
     "application_commit=${TARGET_APPLICATION_COMMIT}" \
     "application_tree=${TARGET_APPLICATION_TREE}" \
     "control_commit=${target_control}" \
     "control_tree=${control_tree}" \
+    "controller_unit_sha256=${CONTROLLER_UNIT_SHA}" \
+    "supplementary_groups=chatops" \
     "canary_contract=FIRST_10_24H_EPOCH_BOUND" \
     "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN"
   do
@@ -136,6 +146,88 @@ require_local_freeze() {
       | grep -Fqx "$binding" \
       || { fail "S11_2_FREEZE_PROVENANCE_RED"; return 2; }
   done
+}
+
+controller_access_check() {
+  local chatops_gid groups
+  require_root
+  [ "$(id -u)" = 0 ] || fail "S11_2_CONTROLLER_EFFECTIVE_USER_RED"
+  [ "$(id -g)" = 0 ] || fail "S11_2_CONTROLLER_EFFECTIVE_GROUP_RED"
+  chatops_gid="$(getent group chatops | cut -d: -f3)"
+  [[ "$chatops_gid" =~ ^[0-9]+$ ]] || fail "S11_2_CHATOPS_GROUP_RED"
+  groups=" $(id -G) "
+  [[ "$groups" == *" ${chatops_gid} "* ]] || fail "S11_2_CONTROLLER_SUPPLEMENTARY_GROUP_RED"
+  [ -x "$APPLICATION_ROOT/.venv/bin/python" ] || fail "S11_2_CONTROLLER_APPLICATION_TRAVERSE_RED"
+  [ -r "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_control.sh" ] \
+    || fail "S11_2_CONTROLLER_CONTROL_READ_RED"
+  [ -x "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_control.sh" ] \
+    || fail "S11_2_CONTROLLER_CONTROL_EXECUTE_RED"
+  "$APPLICATION_ROOT/.venv/bin/python" -c 'raise SystemExit(0)' \
+    || fail "S11_2_CONTROLLER_PYTHON_EXECUTE_RED"
+  runuser -u chatops -- git -C "$APPLICATION_ROOT" rev-parse --verify HEAD >/dev/null \
+    || fail "S11_2_CONTROLLER_APPLICATION_GIT_READ_RED"
+  runuser -u chatops -- git -C "$CONTROL_ROOT" rev-parse --verify HEAD >/dev/null \
+    || fail "S11_2_CONTROLLER_CONTROL_GIT_READ_RED"
+  printf '{"ok":true,"safe_code":"S11_2_CONTROLLER_ACCESS_GREEN"}\n'
+}
+
+verify_controller_unit_contract() {
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p User --value)" = root ] \
+    || fail "S11_2_CONTROLLER_UNIT_USER_RED"
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p Group --value)" = root ] \
+    || fail "S11_2_CONTROLLER_UNIT_GROUP_RED"
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p SupplementaryGroups --value)" = chatops ] \
+    || fail "S11_2_CONTROLLER_UNIT_SUPPLEMENTARY_GROUP_RED"
+  [ "$(sha256sum "$CONTROLLER_UNIT" | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
+    || fail "S11_2_CONTROLLER_UNIT_HASH_RED"
+}
+
+run_controller_access_check() {
+  systemd-run --quiet --wait --collect --pipe \
+    --unit=tu1nz-adult-public-s11-controller-access-preflight.service \
+    --service-type=oneshot \
+    --property=User=root \
+    --property=Group=root \
+    --property=SupplementaryGroups=chatops \
+    --property=PrivateTmp=true \
+    --property=PrivateDevices=true \
+    --property=ProtectSystem=strict \
+    --property=ProtectHome=true \
+    --property=ProtectKernelTunables=true \
+    --property=ProtectKernelModules=true \
+    --property=ProtectKernelLogs=true \
+    --property=ProtectControlGroups=true \
+    --property=ProtectClock=true \
+    --property=ProtectHostname=true \
+    --property=RestrictSUIDSGID=true \
+    --property=RestrictRealtime=true \
+    --property=LockPersonality=true \
+    --property=MemoryDenyWriteExecute=true \
+    --property='SystemCallArchitectures=native' \
+    --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
+    --property='CapabilityBoundingSet=CAP_SETUID CAP_SETGID' \
+    --property=ReadWritePaths=/run \
+    --property=UMask=0077 \
+    "$INSTALLED_CONTROLLER" access-preflight
+}
+
+wait_controller_natural_run() {
+  local previous_trigger="$1" deadline trigger active result exit_status
+  deadline=$((SECONDS + 390))
+  while (( SECONDS < deadline )); do
+    trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value)"
+    active="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p ActiveState --value)"
+    result="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p Result --value)"
+    exit_status="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p ExecMainStatus --value)"
+    if [ -n "$trigger" ] && [ "$trigger" != "$previous_trigger" ] && [ "$active" = inactive ]; then
+      [ "$result" = success ] && [ "$exit_status" = 0 ] \
+        || fail "S11_2_FIRST_NATURAL_CONTROLLER_RUN_RED"
+      printf '{"ok":true,"safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN"}\n'
+      return 0
+    fi
+    sleep 2
+  done
+  fail "S11_2_FIRST_NATURAL_CONTROLLER_RUN_TIMEOUT"
 }
 
 database_scalar() {
@@ -816,7 +908,7 @@ restore_source() {
 }
 
 deploy() {
-  local target_control="$1" backup_path="$2" current_state
+  local target_control="$1" backup_path="$2" current_state previous_trigger
   require_root
   acquire_lock
   preflight "$target_control" "$backup_path"
@@ -845,6 +937,9 @@ deploy() {
   apply_migration
   [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_CODE_OFF_RED"
   systemctl daemon-reload
+  systemctl reset-failed tu1nz-adult-public-s11-canary-controller.service >/dev/null 2>&1 || true
+  verify_controller_unit_contract
+  run_controller_access_check
   systemctl restart "$S8_SERVICE"
   systemctl restart "$WMS_SERVICE"
   wait_wms_ready
@@ -857,11 +952,14 @@ deploy() {
   run_synthetic_journeys "$backup_path/synthetic-journeys.json"
   technical_latency_fixture "$backup_path/technical-latency-input.json" "$backup_path/technical-latency-values.txt"
   require_hard_gates
+  previous_trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value 2>/dev/null || true)"
   database_transition START_CANARY S11_2_CANARY_BOOTSTRAP_LIVE
   insert_technical_evidence "$backup_path/technical-latency-values.txt"
   current_state="$(gate_json true | gate_field decision)"
   [ "$current_state" = CANARY_COLLECTING_EVIDENCE ] || fail "S11_2_INITIAL_CANARY_STATE_RED"
+  release_lock
   systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
+  wait_controller_natural_run "$previous_trigger"
   run_runtime_health
   verify_target "$target_control"
   install -d -o root -g root -m 0700 "$backup_path/postdeploy"
@@ -983,6 +1081,7 @@ rollback() {
 }
 
 usage() {
+  printf 'usage: %s access-preflight\n' "$0" >&2
   printf 'usage: %s preflight TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s deploy TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s observe\n' "$0" >&2
@@ -992,6 +1091,10 @@ usage() {
 }
 
 case "${1:-}" in
+  access-preflight)
+    [ "$#" -eq 1 ] || usage
+    controller_access_check
+    ;;
   hard-gates-read-only)
     [ "$#" -eq 1 ] || usage
     require_root

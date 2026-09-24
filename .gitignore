@@ -307,6 +307,9 @@
 !scripts/tu1nz_adult_public_s11_2_gate.py
 !tests/test_adult_commercial_s10_2d_r8_1_state_reconciliation.py
 !tests/test_adult_commercial_s11_2_canary_bootstrap.py
+!tests/fixtures/
+!tests/fixtures/s11-2-r15-3/
+!tests/fixtures/s11-2-r15-3/controller-without-chatops.service
 !manifests/adult-publishing-commercial-s10-2d-r8-1-retained-state-reconciliation.json
 !manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json
 !systemd/tu1nz-adult-public-s11-canary-controller.service

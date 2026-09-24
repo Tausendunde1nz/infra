@@ -1,0 +1,35 @@
+# Commercial S11.2 R15.3 systemd repository access
+
+## Classification
+
+`CONTROLLER_SUPPLEMENTARY_GROUP_MISSING`
+
+The R15.2 natural controller run executed as `User=root` and `Group=root` with
+only the primary `root` group. The capability boundary intentionally excluded
+`CAP_DAC_OVERRIDE`. Repository parents remained `chatops:chatops:2770`, so the
+controller could not traverse to the application virtual-environment Python
+entrypoint and exited with status 126.
+
+## Minimal contract correction
+
+The canonical unit adds exactly `SupplementaryGroups=chatops`. `User`, `Group`,
+capabilities, sandboxing, read/write paths, repository ownership and repository
+modes remain unchanged. No sudoers, SSH, Tailscale, ACL or firewall setting is
+modified.
+
+The source fixture proves the old effective group set returns the shell-equivalent
+exit status 126 for a protected repository parent, while the corrected group set
+permits traversal. Deployment must additionally execute a product-read-only
+access preflight in the same systemd sandbox before `START_CANARY`.
+
+## Runtime safety contract
+
+The deploy lock is released only after all Canary-OFF gates, synthetic journeys,
+fallback checks and the bounded epoch transition are complete. The timer is then
+enabled and the deployment waits for a distinct timer-driven controller
+invocation. A non-zero result, repeated exit 126 or timeout triggers the existing
+versioned rollback and forbids a second Canary attempt.
+
+Real acquisition and its `2026-09-18T00:41:06.710027Z` baseline are preserved.
+Human acceptance remains deferred. Adult media, real AVS, payments, external
+publishing, Controlled Beta and production remain closed.
