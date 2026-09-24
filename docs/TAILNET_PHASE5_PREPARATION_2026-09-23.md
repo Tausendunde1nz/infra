@@ -88,3 +88,35 @@ References: https://tailscale.com/docs/reference/syntax/grants
 https://tailscale.com/docs/reference/syntax/policy-file
 https://tailscale.com/docs/features/device-posture
 https://tailscale.com/docs/features/exit-nodes
+
+## 2026-09-24 resumed preflight — live policy unchanged
+
+Operator reauthenticated SSH check. Current iPhone100.117.55.81 is online and
+not expired under the confirmed owner. Operator reported exit public IP91.98.112.14,
+matching the TU1NZ main server. The explicit iPhone tu1nz.com HTTPS/DNS baseline
+confirmation is still pending; no post-change client test has occurred.
+Hetzner console was reopened after expiration; live whoami=chatops and
+hostname=ubuntu-8gb-nbg1-2 confirmed. Console remains open.
+Mac over Tailscale: Grafana3000/api/health, cAdvisor8080/healthz, Prometheus9090/-/ready
+and NodeExporter9100/metrics returned200. Prometheus reports both scrape targets up
+with empty lastError. Protected spicymila_bot retains its existing unhealthy state.
+
+Remote control-main is now49294ce432ed59f03b7d75f651bd096106bd7286. Six changed
+files since7c634d3 cover S11.2 canary provenance, migrations and optional evidence;
+no network-hardening files overlap. Objects fetched without updating FETCH_HEAD
+or switching the canonical checkout. Integration remains pending before activation.
+
+Prepared candidate v2 preserves grants and SSH check exactly, adding IPv6 network
+tests and denying server administration from the other Mac and iPhones.
+The unsaved editor's user preview displays the intended autogroup:internet rule;
+it is not evidence of all regression tests passing. Server-side test validation
+remains mandatory before activation. A slow simulated typing attempt timed out;
+its partial unsaved draft was discarded. Atomic paste then displayed the complete
+draft. That draft was also discarded: Save/Discard disabled and original wildcard
+rule restored in preview. No Save action, live-policy change or service change.
+
+Private versioned artifacts and rollback copies: /opt/tu1nz_repos/network-hardening-private-2026-09-22/phase5-preflight-20260924T162249Z
+Directory0700/files0600, SHA256SUMS all passed. v2 is not an activated policy.
+Further gates: iPhone HTTPS baseline, final upstream integration and documentation
+push, full policy test results and armed independent rollback, then controlled
+activation with immediate fresh SSH/monitoring and iPhone exit/DNS/HTTPS retests.
