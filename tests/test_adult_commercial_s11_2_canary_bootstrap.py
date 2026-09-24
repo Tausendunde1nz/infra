@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -116,6 +117,24 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertLess(deploy.index("technical_latency_fixture"), deploy.index("database_transition START_CANARY"))
         self.assertLess(deploy.index("require_hard_gates"), deploy.index("database_transition START_CANARY"))
         self.assertIn("S11_DISABLED|NOT_STARTED", deploy)
+
+    def test_terminal_epoch_rearm_is_bound_archival_after_backup(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        migration = source[source.index("apply_migration() {"):source.index("run_synthetic_journeys() {")]
+        target = source[source.index("fetch_and_require_target() {"):source.index("install_from_git() {")]
+        self.assertLess(deploy.index("require_backup"), deploy.index("apply_migration"))
+        self.assertIn("0034_commercial_s11_2_canary_rearm.sql", target)
+        self.assertIn("0034_commercial_s11_2_canary_rearm.down.sql", target)
+        self.assertIn("MIGRATION_REARM_UP_SHA", target)
+        self.assertIn("MIGRATION_REARM_DOWN_SHA", target)
+        self.assertIn("S11_DISABLED\\|CANARY_RED", migration)
+        self.assertIn("S11_DISABLED\\|CANARY_INSUFFICIENT_REAL_VOLUME", migration)
+        self.assertIn("database_rearm S11_2_R15_TERMINAL_EPOCH_REARMED", migration)
+        self.assertIn("history_before + 1", migration)
+        self.assertIn("S11_2_TERMINAL_EPOCH_ARCHIVE_RED", migration)
+        self.assertNotIn("DELETE FROM commercial_s10_2d_latency_samples", source)
+        self.assertNotIn("UPDATE commercial_s10_2d_latency_samples", source)
 
     def test_predeploy_evidence_accepts_the_pre_canary_schema(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -350,15 +369,112 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
 
     def test_frozen_release_and_manifest_contract(self):
         source = CONTROLLER.read_text(encoding="utf-8")
-        self.assertIn('TARGET_APPLICATION_COMMIT="d1c9aeba7d6f3cd692cd8127b565aea7234e13e8"', source)
-        self.assertIn('TARGET_APPLICATION_TREE="9b931764246189938225406b7b592d0baf6a50d9"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-canary-bootstrap-freeze-r8"', source)
+        self.assertIn('SOURCE_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"', source)
+        self.assertIn('SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"', source)
+        self.assertIn('SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"', source)
+        self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
+        self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
+        self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r5"', source)
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v15")
+        self.assertEqual(
+            manifest["status"],
+            "S11_2_R15_2_FREEZE_PROVENANCE_SOURCE_GREEN_PENDING_REVIEW",
+        )
+        self.assertEqual(
+            manifest["control_release"]["freeze_tag"],
+            "s11-2-r15-bounded-canary-freeze-r5",
+        )
+        self.assertEqual(
+            manifest["application_release"]["commit"],
+            "84619ea0204aeb4b133fe6491f3315beccd635ae",
+        )
+        self.assertEqual(
+            manifest["application_release"]["tree"],
+            "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
+        )
+        self.assertEqual(manifest["application_release"]["pull_request"], 119)
+        self.assertEqual(manifest["application_release"]["post_merge_ci"], 35903748692)
+        self.assertEqual(
+            manifest["r15_activation"]["source_application_commit"],
+            "77f9079956a42ee411e17f5697da96f6810ba966",
+        )
+        self.assertEqual(
+            manifest["r15_activation"]["source_control_commit"],
+            "7c634d3b82572e8459d51c69f04dce82c624d766",
+        )
+        self.assertEqual(manifest["r15_activation"]["maximum_real_sessions"], 10)
+        self.assertTrue(manifest["r15_activation"]["p0_recovery_closed"])
+        self.assertTrue(manifest["r15_activation"]["r14_1_runtime_ready"])
+        self.assertEqual(manifest["r15_activation"]["authoritative_controller_count"], 1)
+        self.assertTrue(manifest["r15_activation"]["terminal_epoch_rearm_required"])
+        self.assertTrue(manifest["r15_activation"]["terminal_epoch_archival_required"])
+        self.assertTrue(manifest["r15_activation"]["latency_evidence_preserved"])
+        self.assertEqual(
+            manifest["r15_rearm_artifact_bindings"]["migration_0034_up_sha256"],
+            "8d2d293c1f382bb5f726624c5dbe24e85b8f5c47a037b0d1bb52726d3fc23621",
+        )
+        self.assertEqual(
+            manifest["r15_rearm_artifact_bindings"]["migration_0034_down_sha256"],
+            "ca1a286f042f685d7a48d6db1231d7a816973c5496da2702d9562958965f3d73",
+        )
+        self.assertTrue(manifest["r15_rearm_artifact_bindings"]["archive_is_append_only"])
+        self.assertFalse(manifest["r15_rearm_artifact_bindings"]["latency_evidence_mutated"])
+        self.assertFalse(manifest["r15_rearm_artifact_bindings"]["product_evidence_mutated"])
+        self.assertEqual(
+            manifest["r15_1_admin_readback"]["classification"],
+            "CONTROL_ADMIN_READ_INGRESS_MISMATCH",
+        )
+        self.assertEqual(
+            manifest["r15_1_admin_readback"]["history_read_ingress"],
+            "LOCAL_POSTGRES_ADMIN",
+        )
+        self.assertFalse(manifest["r15_1_admin_readback"]["runtime_grants_expanded"])
+        self.assertTrue(manifest["r15_1_admin_readback"]["query_is_constant"])
+        self.assertTrue(manifest["r15_1_admin_readback"]["fresh_backup_required"])
+        self.assertEqual(
+            manifest["r15_2_optional_evidence"]["classification"],
+            "OPTIONAL_EVIDENCE_GLOB_FALSE_REQUIRED",
+        )
+        self.assertTrue(manifest["r15_2_optional_evidence"]["primary_json_required"])
+        self.assertTrue(manifest["r15_2_optional_evidence"]["companions_optional"])
+        self.assertTrue(manifest["r15_2_optional_evidence"]["existing_move_errors_fatal"])
+        self.assertEqual(
+            manifest["r15_2_optional_evidence"]["fixture_counts"],
+            [0, 1, 3],
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["classification"],
+            "FREEZE_PROVENANCE_LITERAL_MISMATCH",
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["rejected_freeze_immutable"],
+            "s11-2-r15-bounded-canary-freeze-r4",
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["corrected_freeze"],
+            "s11-2-r15-bounded-canary-freeze-r5",
+        )
+        self.assertFalse(
+            manifest["r15_2_freeze_provenance"]["server_mutation_before_detection"]
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["required_canary_binding"],
+            "canary_contract=FIRST_10_24H_EPOCH_BOUND",
+        )
+        self.assertEqual(
+            manifest["r15_2_freeze_provenance"]["required_promotion_binding"],
+            "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN",
+        )
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
+        self.assertTrue(manifest["canary_contract"]["terminal_epoch_archived_before_rearm"])
+        self.assertTrue(manifest["canary_contract"]["rearm_serialized_with_promotion_lock"])
         self.assertEqual(manifest["promotion_contract"]["minimum_real_samples"], 5)
         self.assertEqual(manifest["human_acceptance"], "DEFERRED")
         self.assertTrue(manifest["preserved_runtime"]["real_acquisition_active"])
+
         self.assertEqual(
             manifest["preserved_runtime"]["s8_health_timer"],
             "RETIRED_DISABLED_INACTIVE",
@@ -400,6 +516,84 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             manifest["rollback_compatibility"]["r7_s8_poller_recovery_target"],
             "S8_POLLER_START_LIMIT_ONLY",
         )
+
+    def test_epoch_history_counts_use_bounded_admin_ingress(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        helper = source[
+            source.index("database_admin_history_count() {"):
+            source.index("database_transition() {")
+        ]
+        self.assertIn("runuser -u postgres -- psql", helper)
+        self.assertIn(
+            'SELECT count(*) FROM commercial_s11_canary_epoch_history;',
+            helper,
+        )
+        self.assertNotIn("$1", helper)
+        self.assertNotIn("DATABASE_DSN", helper)
+        self.assertNotIn("database_scalar", helper)
+        self.assertEqual(source.count("database_admin_history_count"), 3)
+        self.assertNotIn(
+            'database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;"',
+            source,
+        )
+
+    def test_optional_synthetic_companions_support_zero_one_and_many(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        helper = source[
+            source.index("move_optional_synthetic_companions() {"):
+            source.index("technical_latency_fixture() {")
+        ]
+        self.assertIn('[ -e "$companion" ] || break', helper)
+        self.assertIn('[ -f "$companion" ] || fail', helper)
+        self.assertIn('mv -- "$companion" "$postdeploy/"', helper)
+        self.assertNotIn("nullglob", helper)
+
+        shell = (
+            "set -Eeuo pipefail\n"
+            "fail() { return 2; }\n"
+            f"{helper}\n"
+            'move_optional_synthetic_companions "$1" "$2"'
+        )
+        for count in (0, 1, 3):
+            with self.subTest(companion_count=count), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source_dir = root / "source"
+                target_dir = root / "target"
+                source_dir.mkdir()
+                target_dir.mkdir()
+                for index in range(count):
+                    (source_dir / f"synthetic-journeys.json.{index}.json").write_text(
+                        "{}\n",
+                        encoding="utf-8",
+                    )
+                result = subprocess.run(
+                    ["bash", "-c", shell, "test", str(source_dir), str(target_dir)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    sorted(path.name for path in target_dir.iterdir()),
+                    [f"synthetic-journeys.json.{index}.json" for index in range(count)],
+                )
+                self.assertEqual(list(source_dir.iterdir()), [])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_dir = root / "source"
+            target_dir = root / "target"
+            source_dir.mkdir()
+            target_dir.mkdir()
+            (source_dir / "synthetic-journeys.json.invalid").mkdir()
+            result = subprocess.run(
+                ["bash", "-c", shell, "test", str(source_dir), str(target_dir)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((source_dir / "synthetic-journeys.json.invalid").is_dir())
 
     def test_gate_field_returns_zero_for_present_values_and_two_for_missing(self):
         source = CONTROLLER.read_text(encoding="utf-8")

@@ -1,0 +1,95 @@
+COMMERCIAL S11.2-R15 CANONICAL REBIND DIAGNOSIS
+
+Date: 2026-09-23
+Scope: source-only, before any R15 server mutation
+
+Observed state
+
+- Canonical Application main is 77f9079956a42ee411e17f5697da96f6810ba966
+  with tree 370001f8ce0491ddf7709c2cee16d452d6098721.
+- Canonical Control control-main is 7c634d3b82572e8459d51c69f04dce82c624d766
+  with tree 1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4.
+- The authoritative R14.1 freeze resolves to that Control commit.
+- Both canonical CI runs are GREEN and both server worktrees are clean.
+- P0_RECOVERY is closed and the R14.1 technical runtime latency profile is GREEN.
+- The deployable S11.2 controller still binds its source precondition and target
+  freeze to the earlier bootstrap release.  Running it unchanged against the
+  R14.1 runtime would correctly stop with repository/freeze drift before backup.
+
+Classification
+
+EXPECTED_RELEASE_BINDING_DRIFT_AFTER_R14_1
+
+Resolution
+
+- Rebind only the existing backup-first S11.2 controller to the current
+  canonical Application and Control source state.
+- Keep the already reviewed S11 product, migration, synthetic journey,
+  admission-cap, provenance, fallback and promotion contracts unchanged.
+- Create a new annotated R15 freeze after merge with exact Application and
+  Control commit/tree provenance.
+- Require the controller to make the full backup before it switches either
+  server repository to the target release.
+
+Second predeploy finding
+
+- The live singleton is intentionally fail-closed at
+  `S11_DISABLED|CANARY_RED` from the earlier bounded recovery attempts.
+- Migration 0033 makes a started Canary epoch immutable and treats a terminal
+  state as final.  The R15 controller therefore cannot legitimately reuse that
+  epoch or reset its timestamps in place.
+- Deploying the first R15 rebind unchanged would create the verified backup and
+  then stop at `S11_2_EXISTING_CANARY_STATE_RED`; no partial activation would be
+  accepted.
+
+Bounded source correction
+
+- Application PR #119 adds migration 0034.  It archives exactly one terminal
+  epoch before rearming the singleton to `S11_DISABLED|NOT_STARTED` under the
+  existing promotion advisory lock and database transition barrier.
+- The correction is append-only for terminal epoch history.  It does not
+  delete, update, reclassify or retimestamp latency or product evidence.
+- The down migration refuses rollback while archived epoch history exists.
+- Full unit tests and the complete PostgreSQL 17/18 acceptance matrix prove
+  both archival/rearm and the subsequent ordinary Canary lifecycle.
+- The final controller binds the migration hashes and invokes the rearm only
+  after the root-owned backup has been created and verified.
+
+Unchanged hard boundaries
+
+- Maximum ten REAL SFW Canary sessions.
+- At least five valid REAL samples before promotion.
+- UNKNOWN provenance fails closed.
+- Human acceptance remains DEFERRED.
+- Adult media, AVS, payment, external publishing, controlled beta and
+  production remain CLOSED.
+- Exactly one authoritative Canary/promotion controller; systemd only.
+
+Rollback
+
+The existing controller rollback remains authoritative: verify the root-owned
+0700 backup, disable the Canary controller, transition an active Canary to the
+fail-closed state, restore the exact predeploy Application/Control commits and
+runtime artifacts, restart only the bounded S8/WMS services, then require local
+and public health before returning.
+
+Canonical target after the correction
+
+- Application main: 84619ea0204aeb4b133fe6491f3315beccd635ae
+- Application tree: 8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab
+- Application PR: #119 (merge commit)
+- Application post-merge CI: 35903748692 (GREEN)
+- Final Control freeze name: s11-2-r15-bounded-canary-freeze-r2
+
+R15.1 bounded correction
+
+- The immutable r2 deployment created and verified its backup, then failed
+  closed because the runtime DSN was used to count rows in the intentionally
+  administrator-only terminal epoch history table.
+- Automatic rollback restored the exact source commits and healthy public
+  runtime.  No Canary activation or terminal-epoch rearm occurred.
+- R15.1 keeps runtime grants unchanged and moves only the two history-count
+  readbacks to a constant local PostgreSQL-administrator query.
+- The r2 tag and backup remain immutable.  The corrected Control target uses
+  the new freeze name `s11-2-r15-bounded-canary-freeze-r3` and requires a new
+  verified predeploy backup before its single authorized retry.
