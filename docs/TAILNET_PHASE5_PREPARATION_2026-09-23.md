@@ -120,3 +120,40 @@ Directory0700/files0600, SHA256SUMS all passed. v2 is not an activated policy.
 Further gates: iPhone HTTPS baseline, final upstream integration and documentation
 push, full policy test results and armed independent rollback, then controlled
 activation with immediate fresh SSH/monitoring and iPhone exit/DNS/HTTPS retests.
+
+## Phase5 activation gate — 2026-09-24
+
+Operator confirmed iPhone HTTPS success through the main-server exit node and
+public IP91.98.112.14. Fresh read-only preflight at16:25:23UTC passed both chatops
+SSH ports, explicit root/nobody/daemon denial, four monitoring HTTP endpoints,
+public website, node/cAdvisor scrapes, three service results and Tailscale health.
+Container/listener/provider baseline captured for exact post-comparison.
+Remote control-main49294ce integrated without conflict in merge375026d; canonical
+checkout untouched. New bundle verifies and permits isolated worktree recovery.
+
+Actual candidate: candidate-check-v2.json, SHA256 5db8ddf0fd796474de56ecb5438d3e2e5012da73fbe411f060248e0cdaeb7119
+Private transaction directory:
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/phase5-activation-20260924T162425Z/
+External rollback and checker:
+/Users/daniel/.codex/tu1nz-recovery/phase5-20260924T162425Z/
+Original full policy SHA256 remains5c6db5289fbbc0d7131d70f54a7dab516245b58d0da86e6ec3a1002deb394180.
+
+Activation changes only network grants and adds regression assertions. Existing
+owner/chatops SSH check is preserved. Built-in Tailscale validation runs as part
+of Save and must reject a candidate with failed tests before persistence; absence
+of an editor error alone is not treated as a test pass. Record actual UI outcome.
+Use the independent authenticated Tailscale admin page for immediate full-policy
+restoration on failure. Recovery webconsole and held SSH channel remain open.
+No unattended timer/API rollback is available for Tailnet; rollback is externally
+executable and supervised by the active agent through the admin console, independent
+of the server network. Never claim a server-side firewall watchdog covers Tailnet.
+If the admin path becomes unavailable, do not activate. On a failed check stop
+the transaction and restore full original policy; verify editor readback and
+repeat preflight. Original is byte-identical on server and Mac; restore keeps
+owner/chatops restrictions and check, not the historical root-enabled policy.
+
+Run scripts/tu1nz_phase5_readonly_check.py after and stable on the Mac, sequentially,
+with at least60seconds of stable scrapes. Request immediate iPhone exit-IP and HTTPS
+retest after applying. Do not declare completion without that client result.
+No check-to-accept change in this activation. No provider/local firewall/service
+changes. No protected container or bot test message.
