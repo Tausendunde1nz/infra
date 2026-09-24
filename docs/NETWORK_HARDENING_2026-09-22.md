@@ -457,3 +457,30 @@ rules and must only be used for a demonstrated regression. Local firewall/SSH an
 Tailnet must not be rolled back as part of that provider-only restoration.
 
 Phase5 is prepared separately, NOT activated. See TAILNET_PHASE5_PREPARATION_2026-09-23.md.
+
+## Verified complete Phase5 rollback — 2026-09-24 18:22 UTC
+
+Operator explicitly confirmed full restoration at action time. Admin console
+reported Saved tailnet policy file. After fresh reload, all2255characters matched
+the complete original, including comments. Original network allow-all is live;
+owner-only/chatops SSH check remains. Phase5 tests and narrowed grants are absent.
+Phase4 Hetzner restrictions remain unchanged. No further activation performed.
+
+Rollback validation at18:22:03Z passed fresh chatops IPv4 SSH22/2222, explicit
+root/nobody/daemon denial, four monitoring endpoints, public website, node/cAdvisor
+up without error, Tailscale health and three service results. Container IDs, start
+times, restarts, health, ports and networks, listener set and complete Hetzner
+firewall state exactly match pre-activation baseline. No container, local firewall
+or service was changed.
+
+At18:22:29Z IPv6 OpenSSH2222 still timed out under the original policy (exit255).
+The failure persists after removal of the Phase5 restrictions; the specific
+host/routing/filtering cause remains unestablished. No local rule was loosened.
+Phase5 remains STOPPED. No new iPhone post-rollback test is claimed.
+
+Private evidence rollback-verified.json and ipv6-after-rollback.json:
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/phase5-activation-20260924T162425Z/
+External copies: /Users/daniel/.codex/tu1nz-recovery/phase5-20260924T162425Z/
+Original rollback-policy.hujson SHA256:
+5c6db5289fbbc0d7131d70f54a7dab516245b58d0da86e6ec3a1002deb394180.
+Recovery console remains open.
