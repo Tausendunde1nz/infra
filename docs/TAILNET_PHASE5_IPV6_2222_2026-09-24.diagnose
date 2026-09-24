@@ -1,0 +1,34 @@
+# Phase5 stopped after IPv6 OpenSSH timeout
+
+Status at 2026-09-24T16:28:08Z: restricted Phase5 policy is LIVE; rollback is
+prepared in the authenticated admin editor but NOT SAVED. No rollback success
+is claimed. Browser security requires action-time confirmation before expanding
+network access back to the original allow-all rule; operator has been asked.
+
+Preparation pushed0e3cfad after conflict-free upstream merge375026d.
+Tailscale displayed Saved tailnet policy file after candidate-check-v2.json Save;
+its built-in policy tests accepted the candidate. Full live semantic readback
+matched the candidate before preparing rollback; no concurrent policy drift.
+Fresh after-check at16:26:42Z PASSED: chatops IPv4 SSH22/2222, root/nobody/daemon
+denied by Tailscale SSH, monitoring HTTP3000/8080/9090/9100, website, node/cAdvisor
+up, Tailscale health, services and unchanged containers/listeners/Hetzner rules.
+Additional checks reached the assertion after all four IPv4 denied ports and
+IPv6 Tailscale SSH22 had passed. IPv6 OpenSSH2222 returned255. A focused repeat
+at16:28:07Z confirmed Operation timed out, not an authentication rejection.
+The additional IPv6 check did not have a corresponding pre-change live baseline;
+therefore causation by Phase5 is NOT established. Possibilities include existing
+local IPv6 filtering. Do not loosen local rules or silently omit the failed check.
+
+Private evidence/rollback:
+/opt/tu1nz_repos/network-hardening-private-2026-09-22/phase5-activation-20260924T162425Z/
+Mac evidence before.json, after.json, ipv6-failure.json and rollback-policy.hujson:
+/Users/daniel/.codex/tu1nz-recovery/phase5-20260924T162425Z/
+Original SHA2565c6db5289fbbc0d7131d70f54a7dab516245b58d0da86e6ec3a1002deb394180.
+
+After action-time confirmation: save the exact original prepared policy; verify
+full readback, fresh IPv4 chatops22/2222 and monitoring. Then test IPv62222 under
+restored policy to distinguish pre-existing host filtering from policy regression.
+No further hardening activation until diagnosed and revalidated. SSH check stays;
+no check-to-accept, provider, local firewall, sudo, service or container changes.
+Recovery webconsole and held SSH channel remain open. iPhone post-change results
+and stable observation are incomplete; Phase5 is NOT successfully complete.
