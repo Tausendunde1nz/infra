@@ -324,6 +324,11 @@ controller, gate, unit, timer and retired S8 timer are bound in a root-owned
 natural `observe` path verifies only this installed Control contract and never
 reads, executes or Git-checks the Control checkout.
 
+The unchanged Application checkout remains a separate integrity boundary:
+the observer continues to require its exact commit, tree and clean status
+because the canonical runtime interpreter is located there. Removing the
+Control checkout dependency does not weaken that Application fail-closed gate.
+
 `SupplementaryGroups=chatops` remains justified solely for traversal to the
 existing canonical Application runtime virtual environment, where `psycopg`
 is installed. `ExecStart` remains bound to the installed controller and the

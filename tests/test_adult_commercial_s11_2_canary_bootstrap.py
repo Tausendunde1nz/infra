@@ -241,9 +241,12 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             observe.index("verify_runtime_access_contract"),
         )
         self.assertIn("database_transition CANARY_RED S11_2_RUNTIME_INTEGRITY_RED", observe)
-        self.assertNotIn("require_clean_commit", observe)
+        self.assertIn(
+            '"$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE"',
+            observe,
+        )
         self.assertNotIn("require_local_freeze", observe)
-        self.assertNotIn("git_chatops", observe)
+        self.assertNotIn("CONTROL_ROOT", observe)
 
     def test_retired_s8_health_timer_is_preserved_not_reactivated(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -512,6 +515,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             "CANONICAL_APPLICATION_RUNTIME_VENV",
         )
         self.assertFalse(runtime_access["controller_source_checkout_required_at_runtime"])
+        self.assertTrue(runtime_access["application_checkout_integrity_required_at_runtime"])
         self.assertTrue(runtime_access["installed_copy_hash_required"])
         self.assertEqual(runtime_access["installed_copy_owner_group"], "root:root")
         self.assertEqual(runtime_access["installed_controller_mode"], "0755")
@@ -908,18 +912,22 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("current.st_uid", runtime)
         self.assertIn("stat.S_IMODE", runtime)
         self.assertIn("os.access(runtime_python, os.X_OK)", runtime)
+        self.assertIn('payload.get("application_commit")', runtime)
+        self.assertIn('payload.get("application_tree")', runtime)
 
     def test_r15_4_natural_observer_never_uses_control_checkout(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         observe = source[source.index("observe() {"):source.index("rollback() {")]
         self.assertIn("verify_runtime_access_contract", observe)
+        self.assertIn(
+            '"$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE"',
+            observe,
+        )
         for forbidden in (
             "CONTROL_ROOT",
             "target_control_commit",
             "target_control_tree",
-            "require_clean_commit",
             "require_local_freeze",
-            "git_chatops",
             "switch --detach",
             "chmod",
             "chown",

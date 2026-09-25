@@ -108,6 +108,7 @@
     "runtime_interpreter": "/opt/tu1nz_repos/adult-publishing-core/.venv/bin/python",
     "runtime_interpreter_class": "CANONICAL_APPLICATION_RUNTIME_VENV",
     "controller_source_checkout_required_at_runtime": false,
+    "application_checkout_integrity_required_at_runtime": true,
     "installed_copy_hash_required": true,
     "installed_copy_owner_group": "root:root",
     "installed_controller_mode": "0755",

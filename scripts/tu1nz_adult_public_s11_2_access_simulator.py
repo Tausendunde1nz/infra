@@ -73,8 +73,13 @@ def simulate() -> dict[str, object]:
     ]
     if "CONTROL_ROOT/scripts" in access or "git -C" in access:
         raise ContractError("runtime access still requires repository source")
-    if any(token in observe for token in ("git_chatops", "require_clean_commit", "require_local_freeze")):
-        raise ContractError("natural controller still requires Git checkout integrity")
+    if (
+        "require_clean_commit" not in observe
+        or '"$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE"' not in observe
+    ):
+        raise ContractError("natural controller lost Application checkout integrity")
+    if any(token in observe for token in ("CONTROL_ROOT", "target_control_commit", "require_local_freeze")):
+        raise ContractError("natural controller still requires Control checkout integrity")
     if "ExecStart=/usr/local/bin/tu1nz_adult_public_s11_2_control.sh observe" not in service:
         raise ContractError("controller unit is not bound to installed runtime copy")
     if any(line.startswith("WorkingDirectory=/opt/tu1nz_repos") for line in service.splitlines()):

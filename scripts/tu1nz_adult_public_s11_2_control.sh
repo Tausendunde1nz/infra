@@ -285,6 +285,10 @@ if payload.get("source_access_identity") != "chatops":
     raise SystemExit(2)
 if payload.get("runtime_access_identity") != "root:root+chatops":
     raise SystemExit(2)
+if payload.get("application_commit") != "84619ea0204aeb4b133fe6491f3315beccd635ae":
+    raise SystemExit(2)
+if payload.get("application_tree") != "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab":
+    raise SystemExit(2)
 runtime_python = Path(os.environ["S11_RUNTIME_PYTHON"])
 if payload.get("runtime_interpreter") != str(runtime_python) or not os.access(runtime_python, os.X_OK):
     raise SystemExit(2)
@@ -1176,7 +1180,9 @@ observe() {
   require_root
   acquire_lock
   current_state="$(release_state)"
-  if ! verify_runtime_access_contract >/dev/null; then
+  if ! require_clean_commit \
+      "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION \
+    || ! verify_runtime_access_contract >/dev/null; then
     if [[ "$current_state" == S11_CANARY\|* ]]; then
       database_transition CANARY_RED S11_2_RUNTIME_INTEGRITY_RED
       require_public_health

@@ -23,6 +23,11 @@ natural `observe` path verify a root-owned runtime manifest plus installed
 controller, gate, service and timer artefacts by SHA-256, owner, group and
 explicit install mode. Neither path reads or executes the Control checkout.
 
+The Application checkout remains bound independently by its exact commit,
+tree and clean status because it owns the canonical runtime interpreter. This
+preserves the previous Application fail-closed integrity check without
+reintroducing a Control checkout dependency.
+
 The Application virtual environment remains the existing canonical runtime
 interpreter because `psycopg` is intentionally installed there rather than in
 system Python. `SupplementaryGroups=chatops` therefore remains necessary for
