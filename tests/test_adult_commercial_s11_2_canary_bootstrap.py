@@ -15,7 +15,9 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts/tu1nz_adult_public_s11_2_gate.py"
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s11_2_control.sh"
+ACCESS_SIMULATOR = ROOT / "scripts/tu1nz_adult_public_s11_2_access_simulator.py"
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json"
+SSOT = ROOT / "docs/COMMERCIAL_S11_2_CANARY_BOOTSTRAP.md"
 SERVICE = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service"
 TIMER = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer"
 OLD_SERVICE = ROOT / "tests/fixtures/s11-2-r15-3/controller-without-chatops.service"
@@ -234,9 +236,14 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("require_poller_and_rotation || return $?", hard)
         self.assertIn("require_public_health || return $?", hard)
         observe = source[source.index("observe() {"):source.index("rollback() {")]
-        self.assertLess(observe.index('current_state="$(release_state)"'), observe.index("require_clean_commit"))
-        self.assertIn("require_local_freeze", observe)
-        self.assertIn("database_transition CANARY_RED S11_2_REPOSITORY_INTEGRITY_RED", observe)
+        self.assertLess(
+            observe.index('current_state="$(release_state)"'),
+            observe.index("verify_runtime_access_contract"),
+        )
+        self.assertIn("database_transition CANARY_RED S11_2_RUNTIME_INTEGRITY_RED", observe)
+        self.assertNotIn("require_clean_commit", observe)
+        self.assertNotIn("require_local_freeze", observe)
+        self.assertNotIn("git_chatops", observe)
 
     def test_retired_s8_health_timer_is_preserved_not_reactivated(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -257,7 +264,8 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_PATH_DRIFT", gates)
         self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_DROPIN_PRESENT", gates)
         self.assertIn("S11_2_RETIRED_S8_HEALTH_TIMER_UNIT_DRIFT", gates)
-        self.assertIn('cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER"', gates)
+        self.assertIn("RETIRED_S8_HEALTH_TIMER_SHA", gates)
+        self.assertNotIn('cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER"', gates)
         runtime_health = source[
             source.index("run_runtime_health() {"):
             source.index("gate_json() {")
@@ -277,7 +285,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             controller.index("promote_under_barrier_json() {"):
             controller.index("gate_field() {")
         ]
-        self.assertIn('"$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE"', helper)
+        self.assertIn('"$APPLICATION_RUNTIME_PYTHON" "$INSTALLED_GATE"', helper)
         gate = GATE.read_text(encoding="utf-8")
         barrier = gate[gate.index("def promote_under_barrier("):gate.index("def simulate_contract")]
         self.assertLess(barrier.index("FOR UPDATE"), barrier.index("pg_advisory_xact_lock"))
@@ -376,20 +384,20 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
         self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
         self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r6"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-4-runtime-access-freeze-r1"', source)
         self.assertIn(
             'CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"',
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v16")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v17")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_3_SYSTEMD_REPOSITORY_ACCESS_FIX_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_4_SOURCE_RUNTIME_ACCESS_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-bounded-canary-freeze-r6",
+            "s11-2-r15-4-runtime-access-freeze-r1",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
@@ -482,6 +490,44 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertTrue(access["access_preflight_is_product_read_only"])
         self.assertTrue(access["first_natural_controller_run_required"])
         self.assertTrue(access["exactly_one_canary_retry"])
+        runtime_access = manifest["r15_4_source_runtime_access"]
+        self.assertEqual(
+            runtime_access["classification"],
+            "SOURCE_RUNTIME_ACCESS_IDENTITY_CONFLATION",
+        )
+        self.assertEqual(runtime_access["source_identity"], "chatops")
+        self.assertTrue(runtime_access["source_mode_0700_allowed"])
+        self.assertFalse(runtime_access["source_permissions_changed"])
+        self.assertEqual(runtime_access["runtime_identity"], "root:root+chatops")
+        self.assertEqual(
+            runtime_access["runtime_controller_path"],
+            "/usr/local/bin/tu1nz_adult_public_s11_2_control.sh",
+        )
+        self.assertEqual(
+            runtime_access["runtime_access_manifest"],
+            "/etc/tu1nz/adult-commercial-s11-2-runtime-access.json",
+        )
+        self.assertEqual(
+            runtime_access["runtime_interpreter_class"],
+            "CANONICAL_APPLICATION_RUNTIME_VENV",
+        )
+        self.assertFalse(runtime_access["controller_source_checkout_required_at_runtime"])
+        self.assertTrue(runtime_access["installed_copy_hash_required"])
+        self.assertEqual(runtime_access["installed_copy_owner_group"], "root:root")
+        self.assertEqual(runtime_access["installed_controller_mode"], "0755")
+        self.assertTrue(runtime_access["unit_exec_start_is_installed_copy"])
+        self.assertFalse(runtime_access["unit_working_directory_uses_repository"])
+        self.assertEqual(runtime_access["supplementary_groups"], ["chatops"])
+        self.assertEqual(
+            runtime_access["supplementary_group_reason"],
+            "TRAVERSE_CANONICAL_APPLICATION_RUNTIME_VENV",
+        )
+        self.assertTrue(runtime_access["umask_077_regression"])
+        self.assertEqual(runtime_access["deployment_simulator"], "SOURCE_ONLY")
+        self.assertEqual(runtime_access["rollback_simulator"], "SOURCE_ONLY")
+        self.assertFalse(runtime_access["runtime_retry_performed"])
+        self.assertFalse(runtime_access["canary_retry_performed"])
+        self.assertTrue(runtime_access["next_s11_canary_deployment_ready"])
         self.assertEqual(manifest["canary_contract"]["session_cap"], 10)
         self.assertEqual(manifest["canary_contract"]["evidence_epoch_hours"], 24)
         self.assertTrue(manifest["canary_contract"]["terminal_epoch_archived_before_rearm"])
@@ -814,6 +860,109 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN', source)
         self.assertIn("LastTriggerUSec", source)
         self.assertNotIn("InvocationID", source)
+
+    def test_r15_4_source_access_is_chatops_owned_and_accepts_0700(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        contract = source[
+            source.index("source_access_check() {"):
+            source.index("artifact_sha_from_git() {")
+        ]
+        self.assertIn('runuser -u chatops -- test -r "$source_controller"', contract)
+        self.assertIn('runuser -u chatops -- test -x "$source_controller"', contract)
+        self.assertIn('git_chatops "$CONTROL_ROOT"', contract)
+        self.assertNotIn("chmod", contract)
+        self.assertNotIn("chown", contract)
+        preflight = source[
+            source.index("require_source_state() {"):
+            source.index("preflight() {")
+        ]
+        self.assertIn("source_access_check", preflight)
+        ssot = SSOT.read_text(encoding="utf-8")
+        self.assertIn("R15.4 source/runtime access identity contract", ssot)
+        self.assertIn("a `0700` source script is valid", ssot)
+        self.assertIn("R15.4 performs no server", ssot)
+        self.assertIn("installation, controller start or Canary retry", ssot)
+
+    def test_r15_4_runtime_access_is_installed_hash_bound_and_repo_independent(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        access = source[
+            source.index("controller_access_check() {"):
+            source.index("verify_controller_unit_contract() {")
+        ]
+        self.assertIn("verify_runtime_access_contract", access)
+        self.assertIn('"$APPLICATION_RUNTIME_PYTHON" -c \'import psycopg\'', access)
+        self.assertNotIn("CONTROL_ROOT", access)
+        self.assertNotIn("git -C", access)
+        runtime = source[
+            source.index("verify_runtime_access_contract() {"):
+            source.index("controller_access_check() {")
+        ]
+        for path in (
+            "/usr/local/bin/tu1nz_adult_public_s11_2_control.sh",
+            "/usr/local/bin/tu1nz_adult_public_s11_2_gate.py",
+            "/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service",
+            "/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.timer",
+        ):
+            self.assertIn(path, source)
+        self.assertIn("hashlib.sha256(path.read_bytes()).hexdigest()", runtime)
+        self.assertIn("current.st_uid", runtime)
+        self.assertIn("stat.S_IMODE", runtime)
+        self.assertIn("os.access(runtime_python, os.X_OK)", runtime)
+
+    def test_r15_4_natural_observer_never_uses_control_checkout(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        observe = source[source.index("observe() {"):source.index("rollback() {")]
+        self.assertIn("verify_runtime_access_contract", observe)
+        for forbidden in (
+            "CONTROL_ROOT",
+            "target_control_commit",
+            "target_control_tree",
+            "require_clean_commit",
+            "require_local_freeze",
+            "git_chatops",
+            "switch --detach",
+            "chmod",
+            "chown",
+        ):
+            self.assertNotIn(forbidden, observe)
+
+    def test_r15_4_manifest_is_installed_before_live_access_and_restored(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        self.assertLess(
+            deploy.index("install_runtime_access_manifest"),
+            deploy.index("run_controller_access_check"),
+        )
+        backup = source[source.index("backup_runtime() {"):source.index("require_backup() {")]
+        restore = source[source.index("restore_source() {"):source.index("deploy() {")]
+        self.assertIn("s11-2-runtime-access.json", backup)
+        self.assertIn("S11_2_RUNTIME_ACCESS_ABSENT", backup)
+        self.assertIn("s11-2-runtime-access.json", restore)
+        self.assertIn("S11_2_RUNTIME_ACCESS_ABSENT", restore)
+        self.assertIn('install -o root -g root -m 0644 "$temporary" "$RUNTIME_ACCESS_MANIFEST"', source)
+
+    def test_r15_4_source_only_simulator_covers_access_and_rollback_matrix(self):
+        completed = subprocess.run(
+            [sys.executable, str(ACCESS_SIMULATOR)],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["safe_code"], "S11_2_R15_4_SOURCE_ONLY_SIMULATOR_GREEN")
+        self.assertEqual(payload["source_mode"], "0700")
+        self.assertEqual(payload["runtime_mode"], "0755")
+        self.assertEqual(payload["cases"]["A_OLD_DIRECT_REPO_RUNTIME"], "RED_EXIT_126")
+        self.assertEqual(payload["cases"]["B_SOURCE_AS_OWNER"], "GREEN")
+        self.assertEqual(payload["cases"]["C_INSTALLED_RUNTIME_COPY"], "GREEN")
+        self.assertEqual(payload["cases"]["D_INSTALLED_COPY_MISSING"], "RED")
+        self.assertEqual(payload["cases"]["E_INSTALLED_COPY_HASH_MISMATCH"], "RED")
+        self.assertEqual(payload["cases"]["F_INSTALLED_COPY_NON_EXECUTABLE"], "RED")
+        self.assertEqual(payload["cases"]["G_RUNTIME_POINTS_TO_REPOSITORY"], "RED")
+        self.assertEqual(payload["cases"]["NATURAL_ONESHOT_EXECUTION"], "GREEN_NO_EXIT_126")
+        self.assertEqual(payload["cases"]["ROLLBACK_EXACT_BYTES_AND_MODES"], "GREEN")
 
 
 if __name__ == "__main__":
