@@ -1,0 +1,49 @@
+# Commercial S11.2 R15.4 source/runtime access contract
+
+## Classification
+
+`SOURCE_RUNTIME_ACCESS_IDENTITY_CONFLATION`
+
+R15.3 proved that `SupplementaryGroups=chatops` is loaded by systemd and is
+required to traverse the protected `chatops:chatops:2770` parents containing
+the canonical Application runtime virtual environment. The remaining access
+failure was not a missing group: the Control checkout was legitimately
+materialized under `umask 077`, leaving its executable source file owned by
+`chatops` with mode `0700`. A root process without `CAP_DAC_OVERRIDE` cannot use
+the absent group bits even when `chatops` is supplementary.
+
+## Corrected identity boundary
+
+Source validation is performed as `chatops`. Mode `0700` is explicitly valid,
+and no repository owner, group, mode, ACL or sudoers rule is changed.
+
+The systemd controller continues to execute the installed root-owned copy at
+`/usr/local/bin/tu1nz_adult_public_s11_2_control.sh`. Its runtime preflight and
+natural `observe` path verify a root-owned runtime manifest plus installed
+controller, gate, service and timer artefacts by SHA-256, owner, group and
+explicit install mode. Neither path reads or executes the Control checkout.
+
+The Application checkout remains bound independently by its exact commit,
+tree and clean status because it owns the canonical runtime interpreter. This
+preserves the previous Application fail-closed integrity check without
+reintroducing a Control checkout dependency.
+
+The Application virtual environment remains the existing canonical runtime
+interpreter because `psycopg` is intentionally installed there rather than in
+system Python. `SupplementaryGroups=chatops` therefore remains necessary for
+parent traversal, but it grants no new source-file access when a file is mode
+`0700`.
+
+## Regression and simulation
+
+The source-only simulator reproduces the old direct-repository failure, proves
+owner-context source access under `umask 077`, verifies explicit `0755` runtime
+installation and hash binding, rejects missing/mismatched/non-executable
+copies and repository-bound `ExecStart`, executes the installed controller
+without exit 126, and restores prior runtime bytes, modes and absence state
+without touching source permissions.
+
+R15.4 performs no server installation and no Canary retry. Public WMS, real
+acquisition and its existing baseline remain unchanged. Human acceptance stays
+deferred, and Adult media, AVS, payments, publishing, Controlled Beta and
+production remain closed.

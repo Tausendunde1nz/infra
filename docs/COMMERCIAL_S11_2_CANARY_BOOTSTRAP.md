@@ -305,3 +305,36 @@ provider error text:
 | authorisation or permission | credential/admin-right codes | STOP |
 | internal runtime | poller/event-path/handler codes | STOP under their existing decision class |
 | unknown or missing | canonical missing/unknown child codes | hard STOP and contract extension |
+
+## R15.4 source/runtime access identity contract
+
+R15.3 proved that the systemd controller receives the narrowly required
+supplementary `chatops` group. The remaining exit-126 failure was a separate
+identity error: a legitimate Control checkout created under `umask 077` may
+contain a `chatops`-owned controller source file with mode `0700`. Group
+membership cannot grant root execution through absent group bits, and changing
+repository modes, ownership, ACLs or sudoers would weaken the Source contract.
+
+R15.4 therefore separates Source and Runtime explicitly. Source and Git checks
+run as `chatops`; a `0700` source script is valid and remains unchanged. The
+systemd unit continues to execute the explicitly installed root-owned `0755`
+copy at `/usr/local/bin/tu1nz_adult_public_s11_2_control.sh`. The installed
+controller, gate, unit, timer and retired S8 timer are bound in a root-owned
+`0644` runtime manifest by exact path, SHA-256, owner, group and mode. The
+natural `observe` path verifies only this installed Control contract and never
+reads, executes or Git-checks the Control checkout.
+
+The unchanged Application checkout remains a separate integrity boundary:
+the observer continues to require its exact commit, tree and clean status
+because the canonical runtime interpreter is located there. Removing the
+Control checkout dependency does not weaken that Application fail-closed gate.
+
+`SupplementaryGroups=chatops` remains justified solely for traversal to the
+existing canonical Application runtime virtual environment, where `psycopg`
+is installed. `ExecStart` remains bound to the installed controller and the
+unit has no repository `WorkingDirectory`. The source-only A-G simulator
+reproduces the former direct-checkout exit 126, proves owner-context Source
+access and installed-copy execution, rejects missing, mismatched,
+non-executable and repository-bound runtime copies, and verifies an exact
+rollback without changing Source permissions. R15.4 performs no server
+installation, controller start or Canary retry.

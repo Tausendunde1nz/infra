@@ -305,6 +305,7 @@
 !scripts/tu1nz_adult_public_s10_2d_state_reconcile.py
 !scripts/tu1nz_adult_public_s11_2_control.sh
 !scripts/tu1nz_adult_public_s11_2_gate.py
+!scripts/tu1nz_adult_public_s11_2_access_simulator.py
 !tests/test_adult_commercial_s10_2d_r8_1_state_reconciliation.py
 !tests/test_adult_commercial_s11_2_canary_bootstrap.py
 !tests/fixtures/

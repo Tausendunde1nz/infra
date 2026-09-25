@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v16",
-  "status": "S11_2_R15_3_SYSTEMD_REPOSITORY_ACCESS_FIX_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v17",
+  "status": "S11_2_R15_4_SOURCE_RUNTIME_ACCESS_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "84619ea0204aeb4b133fe6491f3315beccd635ae",
     "tree": "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
@@ -9,11 +9,12 @@
     "reviewed_head": "beaa3718d4fed6d6a59bbd09ddc71c31efa45a84"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-bounded-canary-freeze-r6",
+    "freeze_tag": "s11-2-r15-4-runtime-access-freeze-r1",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
     "gate": "scripts/tu1nz_adult_public_s11_2_gate.py",
+    "access_simulator": "scripts/tu1nz_adult_public_s11_2_access_simulator.py",
     "timer": "tu1nz-adult-public-s11-canary-controller.timer",
     "parallel_mutating_controller_allowed": false
   },
@@ -94,6 +95,35 @@
     "exactly_one_canary_retry": true,
     "previous_freeze_immutable": "s11-2-r15-bounded-canary-freeze-r5",
     "fresh_backup_required": true
+  },
+  "r15_4_source_runtime_access": {
+    "classification": "SOURCE_RUNTIME_ACCESS_IDENTITY_CONFLATION",
+    "source_identity": "chatops",
+    "source_mode_0700_allowed": true,
+    "source_permissions_changed": false,
+    "runtime_identity": "root:root+chatops",
+    "runtime_controller_path": "/usr/local/bin/tu1nz_adult_public_s11_2_control.sh",
+    "runtime_gate_path": "/usr/local/bin/tu1nz_adult_public_s11_2_gate.py",
+    "runtime_access_manifest": "/etc/tu1nz/adult-commercial-s11-2-runtime-access.json",
+    "runtime_interpreter": "/opt/tu1nz_repos/adult-publishing-core/.venv/bin/python",
+    "runtime_interpreter_class": "CANONICAL_APPLICATION_RUNTIME_VENV",
+    "controller_source_checkout_required_at_runtime": false,
+    "application_checkout_integrity_required_at_runtime": true,
+    "installed_copy_hash_required": true,
+    "installed_copy_owner_group": "root:root",
+    "installed_controller_mode": "0755",
+    "unit_exec_start_is_installed_copy": true,
+    "unit_working_directory_uses_repository": false,
+    "supplementary_groups": [
+      "chatops"
+    ],
+    "supplementary_group_reason": "TRAVERSE_CANONICAL_APPLICATION_RUNTIME_VENV",
+    "umask_077_regression": true,
+    "deployment_simulator": "SOURCE_ONLY",
+    "rollback_simulator": "SOURCE_ONLY",
+    "runtime_retry_performed": false,
+    "canary_retry_performed": false,
+    "next_s11_canary_deployment_ready": true
   },
   "r8_community_health_contract": {
     "outer_code_preserved": true,
