@@ -942,6 +942,10 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('install -o root -g root -m 0644 "$temporary" "$RUNTIME_ACCESS_MANIFEST"', source)
 
     def test_r15_4_source_only_simulator_covers_access_and_rollback_matrix(self):
+        simulator_source = ACCESS_SIMULATOR.read_text(encoding="utf-8")
+        self.assertIn("MODELED_RUNTIME_UID = 0", simulator_source)
+        self.assertIn("MODELED_SOURCE_UID = 1001", simulator_source)
+        self.assertNotIn("source_owner = source.stat().st_uid", simulator_source)
         completed = subprocess.run(
             [sys.executable, str(ACCESS_SIMULATOR)],
             cwd=ROOT,

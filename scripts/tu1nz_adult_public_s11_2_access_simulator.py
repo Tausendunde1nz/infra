@@ -18,6 +18,10 @@ CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s11_2_control.sh"
 GATE = ROOT / "scripts/tu1nz_adult_public_s11_2_gate.py"
 SERVICE = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service"
 TIMER = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer"
+MODELED_RUNTIME_UID = 0
+MODELED_RUNTIME_GID = 0
+MODELED_SOURCE_UID = 1001
+MODELED_SOURCE_GID = 1001
 
 
 class ContractError(RuntimeError):
@@ -94,14 +98,25 @@ def simulate() -> dict[str, object]:
         if _mode(source) != 0o700:
             raise ContractError("umask 077 did not produce source mode 0700")
 
-        source_owner = source.stat().st_uid
-        source_group = source.stat().st_gid
         old_runtime_allowed = _model_execute(
-            0o700, source_owner, source_group, 0, {0, source_group}
+            0o700,
+            MODELED_SOURCE_UID,
+            MODELED_SOURCE_GID,
+            MODELED_RUNTIME_UID,
+            {MODELED_RUNTIME_GID, MODELED_SOURCE_GID},
         )
         cases["A_OLD_DIRECT_REPO_RUNTIME"] = "RED_EXIT_126" if not old_runtime_allowed else "UNEXPECTED_GREEN"
         if old_runtime_allowed:
             raise ContractError("old direct-repository runtime model unexpectedly passed")
+        source_owner_allowed = _model_execute(
+            0o700,
+            MODELED_SOURCE_UID,
+            MODELED_SOURCE_GID,
+            MODELED_SOURCE_UID,
+            {MODELED_SOURCE_GID},
+        )
+        if not source_owner_allowed:
+            raise ContractError("modeled source owner cannot access legitimate 0700 source")
         if not (os.access(source, os.R_OK) and os.access(source, os.X_OK)):
             raise ContractError("source owner cannot access legitimate 0700 source")
         cases["B_SOURCE_AS_OWNER"] = "GREEN"
