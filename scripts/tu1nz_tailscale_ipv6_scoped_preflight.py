@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 """Protected snapshot + isolated netns tests. NO live activation path."""
-import os, sys, json, pathlib, subprocess, socket, hashlib, stat, datetime
+import os, sys, json, pathlib, subprocess, socket, hashlib, stat, datetime, time
+from tu1nz_ipv6_network_compare import compare_network
 P=pathlib.Path
-BASE=P('/opt/tu1nz_repos/network-hardening-private-2026-09-22/ipv6-scoped-20260926T065529Z')
+BASE=P('/opt/tu1nz_repos/network-hardening-private-2026-09-22/ipv6-scoped-20260926T070708Z')
 TARGET=P('/proc/sys/net/ipv6/conf/tailscale0/disable_ipv6')
 def run(args, timeout=30, check=True):
     p=subprocess.run(args,capture_output=True,text=True,timeout=timeout)
@@ -89,7 +90,7 @@ def main():
         p.chmod(0o600);os.chown(p,uid,gid)
     def capture(name,args,timeout=30):
         r=run(args,timeout=timeout);save(name,r);return r
-    beforeflags=flags();beforestate=netstate();save('host-flags-before.json',beforeflags);save('host-net-before.json',beforestate)
+    started=time.monotonic();beforeflags=flags();beforestate=netstate();save('host-flags-before.json',beforeflags);save('host-net-before.json',beforestate)
     commands={
         'tailscale-status.json':['tailscale','status','--json'],
         'tailscale-prefs.json':['tailscale','debug','prefs'],
@@ -125,8 +126,11 @@ def main():
     p=subprocess.run(['unshare','--net','--',sys.executable,str(P(__file__).resolve()),'--isolated'],capture_output=True,text=True,timeout=30,env=env)
     save('isolated-test.json',{'rc':p.returncode,'stdout':p.stdout,'stderr':p.stderr})
     afterflags=flags();afterstate=netstate();save('host-flags-after.json',afterflags);save('host-net-after.json',afterstate)
-    unchanged=(beforeflags==afterflags and beforestate==afterstate)
-    save('result.json',{'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'namespace_pass':p.returncode==0,'host_network_exactly_unchanged':unchanged,'live_activated':False})
+    elapsed=time.monotonic()-started
+    same,countdowns=compare_network(beforestate,afterstate,elapsed)
+    unchanged=(beforeflags==afterflags and same)
+    save('network-comparison.json',{'elapsed_seconds':elapsed,'allowed_lifetime_countdowns':countdowns,'flags_equal':beforeflags==afterflags,'network_semantically_equal':same})
+    save('result.json',{'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'namespace_pass':p.returncode==0,'host_network_semantically_unchanged':unchanged,'live_activated':False})
     sums={str(f.relative_to(out)):hashlib.sha256(f.read_bytes()).hexdigest() for f in out.rglob('*') if f.is_file()}
     save('manifest.json',sums)
     for d in [store,out]:os.chown(d,uid,gid)
