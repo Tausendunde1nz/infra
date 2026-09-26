@@ -1,7 +1,5 @@
 import unittest,json,copy,tempfile,pathlib,time,os
 from unittest.mock import patch
-import sys
-sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/"scripts"))
 import tu1nz_policy_watchdog as w
 class FakeAPI:
  def __init__(self,current=None):
@@ -42,15 +40,15 @@ class Tests(unittest.TestCase):
   a=w.API({'id':'DUMMY','secret':'DUMMY'});a.wire=lambda *x,**k:(b'{"access_token":"DUMMY","token_type":"Bearer","expires_in":3600,"scope":"all"}',{},200)
   with self.assertRaises(w.SafeError):a.auth()
  def test_marker(self):
-  checks={k:True for k in w.REQUIRED};report=json.dumps({'checks':checks,'completed_epoch':11}).encode();manifest={'transaction':'a','candidate_sha256':'b','candidate_semantic_hex':b'{}'.hex(),'stage':'phase5','started_epoch':10,'deadline_epoch':20};marker={'transaction':'a','candidate_sha256':'b','report_sha256':w.sha(report)}
-  self.assertTrue(w.valid_completion(marker,manifest,report,{'json':b'{}'},12))
-  for name,value in [('transaction','x'),('candidate_sha256','x'),('report_sha256','x')]:
-   bad=dict(marker,**{name:value});self.assertFalse(w.valid_completion(bad,manifest,report,{'json':b'{}'},12))
-  self.assertFalse(w.valid_completion(marker,manifest,report,{'json':b'{}'},21))
-  self.assertFalse(w.valid_completion(marker,manifest,report,{'json':b'{"x":1}'},12))
-  for key in checks:
-   bad=copy.deepcopy(checks);bad[key]=False;r=json.dumps({'checks':bad,'completed_epoch':11}).encode();m=dict(marker,report_sha256=w.sha(r));self.assertFalse(w.valid_completion(m,manifest,r,{'json':b'{}'},12))
-  self.assertFalse(w.valid_completion(marker,dict(manifest,stage='accept'),report,{'json':b'{}'},12))
+  from test_monotonic_observer import fixture
+  manifest,activation,observation,report,marker=fixture()
+  check=lambda m=marker,mf=manifest,r=report,cur={'json':b'{}'},clock=112_000_000_000:w.valid_completion(m,mf,r,cur,clock,activation,observation)
+  self.assertTrue(check())
+  for name,value in [('transaction','x'),('candidate_sha256','x'),('report_sha256','x')]:self.assertFalse(check(m=dict(marker,**{name:value})))
+  self.assertFalse(check(clock=121_000_000_000));self.assertFalse(check(cur={'json':b'{"x":1}'}))
+  for key in w.REQUIRED:
+   bad=json.loads(report);bad['checks'][key]=False;r=json.dumps(bad).encode();self.assertFalse(check(m=dict(marker,report_sha256=w.sha(r)),r=r))
+  self.assertFalse(check(mf=dict(manifest,stage='accept')))
  def test_private_and_symlink(self):
   with tempfile.TemporaryDirectory() as d:
    p=pathlib.Path(d)/'file';w.write_new(p,b'ok');self.assertEqual(p.stat().st_mode&0o777,0o600);self.assertEqual(w.read_private(p),b'ok')

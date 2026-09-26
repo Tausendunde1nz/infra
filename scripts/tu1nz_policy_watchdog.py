@@ -3,6 +3,7 @@
 import socket
 import argparse, datetime, getpass, hashlib, json, os, pathlib, resource, signal, stat, subprocess, sys, time, urllib.request, urllib.error, urllib.parse, uuid
 from tu1nz_keychain import Keychain
+from tu1nz_monotonic_observer import valid_observation, monotonic_ns
 BASE='https://api.tailscale.com/api/v2'
 ACL='/tailnet/-/acl'
 SCOPES={'policy_file','devices:core:read','devices:posture_attributes'}
@@ -78,9 +79,10 @@ def restore(api,original,candidate_semantic,force=False):
  result=api.snapshot();api.validate(result['raw'])
  if not same(result,original):raise SafeError('rollback readback mismatch')
  return {'verified':True,'exact_bytes':result['raw']==original['raw'],'original_sha256':sha(original['raw']),'readback_sha256':sha(result['raw']),'semantic_equal':result['json']==original['json']}
-def valid_completion(marker,manifest,report,current,clock):
+def valid_completion(marker,manifest,report,current,now_ns,activation,observation):
  required=REQUIRED|({'independent_ssh_logins_no_check'} if manifest['stage']=='accept' else set())
- return (marker.get('transaction')==manifest['transaction'] and marker.get('candidate_sha256')==manifest['candidate_sha256'] and marker.get('report_sha256')==sha(report) and current['json']==bytes.fromhex(manifest['candidate_semantic_hex']) and set(json.loads(report).get('checks',{}))==required and all(v is True for v in json.loads(report)['checks'].values()) and manifest['started_epoch']<=json.loads(report).get('completed_epoch',0)<=clock and clock<manifest['deadline_epoch'])
+ r=json.loads(report)
+ return (marker.get('transaction')==manifest['transaction'] and marker.get('candidate_sha256')==manifest['candidate_sha256'] and marker.get('report_sha256')==sha(report) and current['json']==bytes.fromhex(manifest['candidate_semantic_hex']) and set(r.get('checks',{}))==required and all(v is True for v in r['checks'].values()) and r.get('observation_sha256')==sha(observation) and activation['sha256']==manifest['candidate_sha256'] and valid_observation(json.loads(observation),activation,manifest['transaction'],now_ns) and json.loads(observation)['completed_monotonic_ns']<=r.get('completed_monotonic_ns',0)<=now_ns<manifest['deadline_monotonic_ns'])
 def run_transaction(directory,candidate_path,seconds,stage,api=None):
  protect();directory=pathlib.Path(directory)
  if stage=='selftest':
@@ -98,7 +100,7 @@ def run_transaction(directory,candidate_path,seconds,stage,api=None):
   candidate_sem=original['json'] if stage=='selftest' else canonical(candidate)
   api.validate(candidate)
   write_new(directory/'original.hujson',original['raw']);write_new(directory/'original.json',original['json']);write_new(directory/'candidate.hujson',candidate)
-  started=time.time();manifest={'transaction':str(uuid.uuid4()),'stage':stage,'utc':now(),'started_epoch':started,'deadline_epoch':started+seconds,'original_sha256':sha(original['raw']),'candidate_sha256':sha(candidate),'candidate_semantic_hex':candidate_sem.hex(),'original_etag':original['etag']}
+  started=time.time();deadline_ns=monotonic_ns()+seconds*1_000_000_000;manifest={'transaction':str(uuid.uuid4()),'stage':stage,'utc':now(),'started_epoch':started,'deadline_epoch':started+seconds,'deadline_monotonic_ns':deadline_ns,'original_sha256':sha(original['raw']),'candidate_sha256':sha(candidate),'candidate_semantic_hex':candidate_sem.hex(),'original_etag':original['etag']}
   write_new(directory/'manifest.json',manifest)
   awake=subprocess.Popen(['/usr/bin/caffeinate','-is','-w',str(os.getpid())],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,close_fds=True)
   time.sleep(.1)
@@ -110,14 +112,15 @@ def run_transaction(directory,candidate_path,seconds,stage,api=None):
    if not same(current,original):raise SafeError('policy drift before activation')
    api.set(candidate,current['etag'])
    if api.snapshot()['json']!=candidate_sem:raise SafeError('candidate readback mismatch')
-   write_new(directory/'ACTIVATED.json',{'utc':now(),'sha256':sha(candidate)})
-  deadline=time.monotonic()+max(0,manifest['deadline_epoch']-time.time())
-  while not rollback_requested and time.monotonic()<deadline:
+   observation_start_ns=monotonic_ns()
+   write_new(directory/'ACTIVATED.json',{'utc':now(),'sha256':sha(candidate),'observation_start_ns':observation_start_ns})
+  while not rollback_requested and monotonic_ns()<deadline_ns:
    if (directory/'ROLLBACK_NOW').exists():break
    if stage!='selftest' and (directory/'COMPLETE.json').exists():
     try:
-     marker=json.loads(read_private(directory/'COMPLETE.json'));report=read_private(directory/'test-report.json')
-     if valid_completion(marker,manifest,report,api.snapshot(),time.time()):
+     marker=json.loads(read_private(directory/'COMPLETE.json'));report=read_private(directory/'test-report.json');activation=json.loads(read_private(directory/'ACTIVATED.json'));observation=read_private(directory/'OBSERVATION.json')
+     current=api.snapshot()
+     if valid_completion(marker,manifest,report,current,monotonic_ns(),activation,observation):
       write_new(directory/'SUCCESS.json',{'utc':now(),'transaction':manifest['transaction']});armed=False;return
     except (SafeError,ValueError,OSError):pass
    time.sleep(1)
