@@ -113,27 +113,27 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
     def test_deploy_is_backup_first_and_canary_starts_after_gates(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        phases = source[source.index("run_remaining_phases() {"):source.index("finalize_deployment_evidence() {")]
         self.assertLess(deploy.index("backup_runtime"), deploy.index("fetch_and_require_target"))
-        self.assertLess(deploy.index("require_backup"), deploy.index("switch --detach"))
-        self.assertLess(deploy.index("apply_migration"), deploy.index("database_transition START_CANARY"))
-        self.assertLess(deploy.index("run_synthetic_journeys"), deploy.index("database_transition START_CANARY"))
-        self.assertLess(deploy.index("technical_latency_fixture"), deploy.index("database_transition START_CANARY"))
-        self.assertLess(deploy.index("require_hard_gates"), deploy.index("database_transition START_CANARY"))
-        self.assertIn("S11_DISABLED|NOT_STARTED", deploy)
+        self.assertLess(phases.index("TECHNICAL_EVIDENCE_COMPLETE)"), phases.index("CANARY_ACTIVE)"))
+        self.assertLess(phases.index("SYNTHETIC_VALIDATION_GREEN)"), phases.index("CANARY_ACTIVE)"))
+        self.assertLess(phases.index("EVIDENCE_EPOCH_SET)"), phases.index("CANARY_ACTIVE)"))
+        self.assertLess(phases.index("require_hard_gates"), phases.index("database_transition START_CANARY"))
+        self.assertNotIn("technical_latency_fixture", source)
 
     def test_terminal_epoch_rearm_is_bound_archival_after_backup(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
         migration = source[source.index("apply_migration() {"):source.index("run_synthetic_journeys() {")]
         target = source[source.index("fetch_and_require_target() {"):source.index("install_from_git() {")]
-        self.assertLess(deploy.index("require_backup"), deploy.index("apply_migration"))
+        self.assertLess(deploy.index("require_backup"), deploy.index("run_remaining_phases"))
         self.assertIn("0034_commercial_s11_2_canary_rearm.sql", target)
         self.assertIn("0034_commercial_s11_2_canary_rearm.down.sql", target)
         self.assertIn("MIGRATION_REARM_UP_SHA", target)
         self.assertIn("MIGRATION_REARM_DOWN_SHA", target)
         self.assertIn("S11_DISABLED\\|CANARY_RED", migration)
         self.assertIn("S11_DISABLED\\|CANARY_INSUFFICIENT_REAL_VOLUME", migration)
-        self.assertIn("database_rearm S11_2_R15_TERMINAL_EPOCH_REARMED", migration)
+        self.assertIn("database_rearm S11_2_R15_8_TERMINAL_EPOCH_REARMED", migration)
         self.assertIn("history_before + 1", migration)
         self.assertIn("S11_2_TERMINAL_EPOCH_ARCHIVE_RED", migration)
         self.assertNotIn("DELETE FROM commercial_s10_2d_latency_samples", source)
@@ -154,8 +154,9 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertNotIn("UPDATE commercial_s10_2d_latency_samples", source)
         self.assertNotIn("real_acquisition_baseline_start=", source)
         self.assertIn('ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"', source)
-        self.assertIn("INTERNAL_TEST", source)
-        self.assertIn("INTERNAL_ACCEPTANCE", source)
+        orchestration = (ROOT / "scripts/tu1nz_adult_public_s11_2_orchestration.py").read_text(encoding="utf-8")
+        self.assertIn("INTERNAL_TEST", orchestration)
+        self.assertIn("INTERNAL_ACCEPTANCE", orchestration)
         self.assertNotIn("evidence_class,'REAL'", source)
 
     def test_rollback_is_evidence_preserving_and_rejects_full(self):
@@ -200,10 +201,10 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             source.index("install_from_git() {")
         ]
         self.assertIn("require_target_wms_compatibility", fetch)
-        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        install = source[source.index("install_s11_disabled() {"):source.index("run_remaining_phases() {")]
         self.assertLess(
-            deploy.index("fetch_and_require_target"),
-            deploy.index("switch --detach"),
+            install.index("fetch_and_require_target"),
+            install.index("switch --detach"),
         )
 
     def test_backup_captures_complete_wms_runtime_tuple(self):
@@ -385,33 +386,33 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"', source)
         self.assertIn('SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"', source)
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
-        self.assertIn('TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"', source)
-        self.assertIn('TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-4-runtime-access-freeze-r1"', source)
+        self.assertIn('TARGET_APPLICATION_COMMIT="dc901d01fd20bedd92a9c2565bd1d3370f7f3e14"', source)
+        self.assertIn('TARGET_APPLICATION_TREE="52b9960eff5348310c06f8480971260c00fa20ef"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-8-orchestration-freeze-r1"', source)
         self.assertIn(
             'CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"',
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v18")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v19")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_6_S10_HEALTH_CHILD_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_8_ORCHESTRATION_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-4-runtime-access-freeze-r1",
+            "s11-2-r15-8-orchestration-freeze-r1",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
-            "84619ea0204aeb4b133fe6491f3315beccd635ae",
+            "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
         )
         self.assertEqual(
             manifest["application_release"]["tree"],
-            "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
+            "52b9960eff5348310c06f8480971260c00fa20ef",
         )
-        self.assertEqual(manifest["application_release"]["pull_request"], 119)
-        self.assertEqual(manifest["application_release"]["post_merge_ci"], 35903748692)
+        self.assertEqual(manifest["application_release"]["pull_request"], 121)
+        self.assertEqual(manifest["application_release"]["post_merge_ci"], 36233672918)
         self.assertEqual(
             manifest["r15_activation"]["source_application_commit"],
             "77f9079956a42ee411e17f5697da96f6810ba966",
@@ -606,7 +607,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         helper = source[
             source.index("move_optional_synthetic_companions() {"):
-            source.index("technical_latency_fixture() {")
+            source.index("write_technical_profile() {")
         ]
         self.assertIn('[ -e "$companion" ] || break', helper)
         self.assertIn('[ -f "$companion" ] || fail', helper)
@@ -743,11 +744,11 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('p.get("ok") is True', readiness)
         self.assertIn("forbidden_capabilities", readiness)
         self.assertIn("S11_2_WMS_LOCAL_HEALTH_TIMEOUT", readiness)
-        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
-        self.assertLess(deploy.index('systemctl restart "$WMS_SERVICE"'), deploy.index("wait_wms_ready"))
-        self.assertLess(deploy.index("wait_wms_ready"), deploy.index("require_public_health"))
-        self.assertLess(deploy.index("require_public_health"), deploy.index("run_runtime_health"))
-        self.assertLess(deploy.index("S11_2_FEATURE_OFF_FALLBACK_GREEN"), deploy.index("database_transition START_CANARY"))
+        phases = source[source.index("run_remaining_phases() {"):source.index("finalize_deployment_evidence() {")]
+        self.assertLess(phases.index('systemctl restart "$WMS_SERVICE"'), phases.index("wait_wms_ready"))
+        self.assertLess(phases.index("wait_wms_ready"), phases.index("require_public_health"))
+        self.assertLess(phases.index("require_public_health"), phases.index("run_runtime_health"))
+        self.assertLess(phases.index("S11_2_FEATURE_OFF_FALLBACK_GREEN"), phases.index("database_transition START_CANARY"))
         restore = source[source.index("restore_source() {"):source.index("deploy() {")]
         self.assertLess(restore.index('systemctl restart "$WMS_SERVICE"'), restore.index("wait_wms_ready"))
         self.assertLess(restore.index("wait_wms_ready"), restore.index("require_public_health"))
@@ -849,16 +850,16 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
 
     def test_r15_3_live_access_preflight_precedes_canary_and_natural_run(self):
         source = CONTROLLER.read_text(encoding="utf-8")
-        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
-        self.assertIn("run_controller_access_check", deploy)
+        phases = source[source.index("install_s11_disabled() {"):source.index("finalize_deployment_evidence() {")]
+        self.assertIn("run_controller_access_check", phases)
         self.assertLess(
-            deploy.index("run_controller_access_check"),
-            deploy.index("database_transition START_CANARY"),
+            phases.index("run_controller_access_check"),
+            phases.index("database_transition START_CANARY"),
         )
-        self.assertLess(deploy.index("release_lock"), deploy.index("systemctl enable --now"))
+        self.assertLess(phases.index("release_lock"), phases.index("systemctl enable --now"))
         self.assertLess(
-            deploy.index("systemctl enable --now"),
-            deploy.index("wait_controller_natural_run"),
+            phases.index("systemctl enable --now"),
+            phases.index("wait_controller_natural_run"),
         )
         self.assertIn('safe_code":"S11_2_CONTROLLER_ACCESS_GREEN', source)
         self.assertIn('safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN', source)
@@ -936,10 +937,10 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
 
     def test_r15_4_manifest_is_installed_before_live_access_and_restored(self):
         source = CONTROLLER.read_text(encoding="utf-8")
-        deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        install = source[source.index("install_s11_disabled() {"):source.index("run_remaining_phases() {")]
         self.assertLess(
-            deploy.index("install_runtime_access_manifest"),
-            deploy.index("run_controller_access_check"),
+            install.index("install_runtime_access_manifest"),
+            install.index("run_controller_access_check"),
         )
         backup = source[source.index("backup_runtime() {"):source.index("require_backup() {")]
         restore = source[source.index("restore_source() {"):source.index("deploy() {")]
