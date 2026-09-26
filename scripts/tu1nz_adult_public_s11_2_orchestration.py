@@ -224,6 +224,7 @@ def technical_plan(profile: dict[str, Any]) -> dict[str, Any]:
 
 def simulate(case: str, completed_through: str | None = None) -> dict[str, Any]:
     fixtures = {
+        "empty-0-of-5": (0, "INSUFFICIENT_EVIDENCE", "GREEN", "valid"),
         "happy-4-of-5": (4, "INSUFFICIENT_EVIDENCE", "GREEN", "valid"),
         "zero-missing-5-of-5": (5, "GREEN", "GREEN", "valid"),
         "two-missing-3-of-5": (3, "INSUFFICIENT_EVIDENCE", "GREEN", "valid"),
@@ -253,6 +254,25 @@ def simulate(case: str, completed_through: str | None = None) -> dict[str, Any]:
             "restore_runtime_manifests": True,
             "source_permission_changes": False,
             "canonical_fallback": case == "rollback-after-canary",
+        }
+    if case in {
+        "failure-before-mutation",
+        "pre-canary-health-red-after-mutation",
+        "nounset-after-mutation",
+        "rollback-idempotent",
+    }:
+        after_mutation = case != "failure-before-mutation"
+        return {
+            "ok": True,
+            "case": case,
+            "stopped": True,
+            "mutation_started": after_mutation,
+            "technical_probes": 0,
+            "canary_starts": 0,
+            "rollback_requests": 2 if case == "rollback-idempotent" else int(after_mutation),
+            "restore_executions": int(after_mutation),
+            "rollback_completed": after_mutation,
+            "automatic_retry": False,
         }
     if case not in fixtures:
         raise ContractError("S11_2_SIMULATION_CASE_INVALID")

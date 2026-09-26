@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="dc901d01fd20bedd92a9c2565bd1d3370f7f3e14"
 readonly TARGET_APPLICATION_TREE="52b9960eff5348310c06f8480971260c00fa20ef"
-readonly FINAL_CONTROL_TAG="s11-2-r15-8-orchestration-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-r15-10-bash-safety-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -93,6 +93,14 @@ release_lock() {
   exec 9>&-
 }
 
+release_inherited_lock() {
+  flock -u 9
+}
+
+reacquire_inherited_lock() {
+  flock -n 9 || fail "S11_2_CONTROL_ALREADY_RUNNING"
+}
+
 require_sha() {
   [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail "S11_2_SHA_INVALID"
 }
@@ -169,7 +177,10 @@ require_local_freeze() {
     "phase_contract=S11_2_R15_8_ORCHESTRATION_V1" \
     "health_contract=S10_1_HEALTH_CHILD_V1" \
     "technical_evidence_contract=DYNAMIC_MISSING_SAMPLE_HARD_CAP" \
-    "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY"
+    "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
+    "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
+    "phase_error_contract=EXPLICIT_CHILD_SUPERVISION" \
+    "rollback_contract=EXACTLY_ONCE_IDEMPOTENT"
   do
     git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${FINAL_CONTROL_TAG}" \
       | grep -Fqx "$binding" \
@@ -236,7 +247,7 @@ from pathlib import Path
 
 payload = {
     "schema": "TU1NZ_S11_2_RUNTIME_ACCESS_V1",
-    "freeze_tag": "s11-2-r15-8-orchestration-freeze-r1",
+    "freeze_tag": "s11-2-r15-10-bash-safety-freeze-r1",
     "application_commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
     "application_tree": "52b9960eff5348310c06f8480971260c00fa20ef",
     "control_commit": os.environ["S11_TARGET_CONTROL"],
@@ -305,7 +316,7 @@ if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 
 payload = json.loads(manifest_path.read_text(encoding="ascii"))
 if payload.get("schema") != "TU1NZ_S11_2_RUNTIME_ACCESS_V1":
     raise SystemExit(2)
-if payload.get("freeze_tag") != "s11-2-r15-8-orchestration-freeze-r1":
+if payload.get("freeze_tag") != "s11-2-r15-10-bash-safety-freeze-r1":
     raise SystemExit(2)
 if payload.get("source_access_identity") != "chatops":
     raise SystemExit(2)
@@ -1068,7 +1079,9 @@ move_optional_synthetic_companions() {
 }
 
 write_technical_profile() {
-  local destination="$1" gate_file="${destination}.gate"
+  local destination gate_file
+  destination="$1"
+  gate_file="${destination}.gate"
   gate_json true > "$gate_file" || { fail "S11_2_TECHNICAL_GATE_READ_RED"; return 2; }
   S11_DATABASE_DSN="$DATABASE_DSN" S11_GATE_FILE="$gate_file" S11_PROFILE_DESTINATION="$destination" \
     "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
@@ -1118,7 +1131,9 @@ technical_plan_field() {
 }
 
 complete_technical_evidence() {
-  local backup_path="$1" profile="$backup_path/technical-profile.json"
+  local backup_path profile
+  backup_path="$1"
+  profile="$backup_path/technical-profile.json"
   local plan="$backup_path/technical-plan.json" missing before after state iteration
   require_phase HEALTH_CONTRACT_INSTALLED
   systemctl start tu1nz-adult-public-s8-health.service tu1nz-adult-public-s9-health.service
@@ -1194,7 +1209,9 @@ run_runtime_health() {
 }
 
 pre_canary_health() {
-  local destination="$1" structured="${destination}.ndjson" cursor start_green=true
+  local destination structured cursor start_green=true
+  destination="$1"
+  structured="${destination}.ndjson"
   cursor="$(journalctl --quiet --no-pager -u tu1nz-adult-public-s10-health.service \
     -n 1 --show-cursor | sed -n 's/^-- cursor: //p')"
   [ -n "$cursor" ] || fail "S11_2_PRE_CANARY_HEALTH_CURSOR_RED"
@@ -1475,10 +1492,10 @@ run_remaining_phases() {
       SYSTEMD_HANDOFF)
         require_phase CANARY_ACTIVE
         previous_trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value 2>/dev/null || true)"
-        release_lock
+        release_inherited_lock
         systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
         wait_controller_natural_run "$previous_trigger"
-        acquire_lock
+        reacquire_inherited_lock
         run_runtime_health
         verify_target "$target_control"
         complete_phase SYSTEMD_HANDOFF
@@ -1524,6 +1541,80 @@ finalize_deployment_evidence() {
   (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null)
 }
 
+deploy_mutations() {
+  local target_control="$1" backup_path="$2"
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_orchestration.py 0755 "$INSTALLED_ORCHESTRATION"
+  initialize_phase_state
+  run_remaining_phases "$target_control" "$backup_path"
+  finalize_deployment_evidence "$backup_path"
+}
+
+resume_mutations() {
+  local target_control="$1" backup_path="$2"
+  run_remaining_phases "$target_control" "$backup_path"
+  finalize_deployment_evidence "$backup_path"
+}
+
+perform_rollback_once() {
+  local backup_path="$1" target_control="$2"
+  if [ -e "$backup_path/ROLLBACK_COMPLETED" ]; then
+    require_source_state
+    return 0
+  fi
+  if [ ! -e "$backup_path/ROLLBACK_STARTED" ]; then
+    printf 'rollback_started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      > "$backup_path/ROLLBACK_STARTED" || return 1
+    chmod 0600 "$backup_path/ROLLBACK_STARTED" || return 1
+  fi
+  restore_source "$backup_path" "$target_control" || return 1
+  printf 'rollback_completed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "$backup_path/ROLLBACK_COMPLETED" || return 1
+  chmod 0600 "$backup_path/ROLLBACK_COMPLETED" || return 1
+}
+
+run_rollback_strict() {
+  local exit_status
+  set +e
+  (
+    set -Eeuo pipefail
+    perform_rollback_once "$1" "$2"
+  )
+  exit_status=$?
+  set -e
+  S11_2_ROLLBACK_EXIT_STATUS="$exit_status"
+}
+
+run_pre_mutation_target_check() {
+  local target_control="$1" safe_code="$2" exit_status
+  set +e
+  (
+    set -Eeuo pipefail
+    fetch_and_require_target "$target_control"
+  )
+  exit_status=$?
+  set -e
+  if [ "$exit_status" -ne 0 ]; then
+    fail "$safe_code"
+    return 2
+  fi
+}
+
+run_guarded_deployment() {
+  local exit_status
+  set +e
+  (
+    set -Eeuo pipefail
+    : > "$S11_2_BACKUP_PATH/MUTATION_STARTED"
+    chmod 0600 "$S11_2_BACKUP_PATH/MUTATION_STARTED"
+    "$@"
+  )
+  exit_status=$?
+  set -e
+  if [ "$exit_status" -ne 0 ]; then
+    deployment_error "$exit_status"
+  fi
+}
+
 deploy() {
   local target_control="$1" backup_path="$2"
   require_root
@@ -1531,18 +1622,16 @@ deploy() {
   preflight "$target_control" "$backup_path"
   backup_runtime "$backup_path" "$target_control"
   require_backup "$backup_path" "$target_control" || fail "S11_2_BACKUP_VERIFY_RED"
-  S11_2_ROLLBACK_ARMED=true
   S11_2_BACKUP_PATH="$backup_path"
   S11_2_TARGET_CONTROL="$target_control"
   S11_2_RUN_ID="$(basename "$backup_path")"
-  trap 'deployment_error' ERR
-  fetch_and_require_target "$target_control"
-  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_orchestration.py 0755 "$INSTALLED_ORCHESTRATION"
-  initialize_phase_state
-  run_remaining_phases "$target_control" "$backup_path"
-  finalize_deployment_evidence "$backup_path"
-  trap - ERR
   S11_2_ROLLBACK_ARMED=false
+  run_pre_mutation_target_check \
+    "$target_control" S11_2_PRE_MUTATION_TARGET_FETCH_RED
+  S11_2_ROLLBACK_ARMED=true
+  run_guarded_deployment deploy_mutations "$target_control" "$backup_path"
+  S11_2_ROLLBACK_ARMED=false
+  release_lock
   printf '{"ok":true,"safe_code":"S11_2_DEPLOYMENT_GREEN","canary_state":"CANARY_COLLECTING_EVIDENCE","human_acceptance":"DEFERRED"}\n'
 }
 
@@ -1560,32 +1649,31 @@ resume() {
   S11_2_RUN_ID="$(basename "$backup_path")"
   [ -x "$INSTALLED_ORCHESTRATION" ] || fail "S11_2_RESUME_ORCHESTRATOR_MISSING"
   phase_command inspect >/dev/null
-  fetch_and_require_target "$target_control"
+  run_pre_mutation_target_check \
+    "$target_control" S11_2_RESUME_PRE_MUTATION_TARGET_FETCH_RED
   S11_2_ROLLBACK_ARMED=true
-  trap 'deployment_error' ERR
-  run_remaining_phases "$target_control" "$backup_path"
-  finalize_deployment_evidence "$backup_path"
-  trap - ERR
+  run_guarded_deployment resume_mutations "$target_control" "$backup_path"
   S11_2_ROLLBACK_ARMED=false
+  release_lock
   printf '{"ok":true,"safe_code":"S11_2_RESUMED_DEPLOYMENT_GREEN"}\n'
 }
 
 deployment_error() {
-  local exit_status=$?
+  local exit_status="$1"
   trap - ERR
-  if [ "${S11_2_ROLLBACK_ARMED:-false}" = true ]; then
-    printf 'rollback_started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      > "$S11_2_BACKUP_PATH/ROLLBACK_STARTED"
-    chmod 0600 "$S11_2_BACKUP_PATH/ROLLBACK_STARTED"
-  fi
-  if [ "${S11_2_ROLLBACK_ARMED:-false}" = true ] \
-    && restore_source "$S11_2_BACKUP_PATH" "$S11_2_TARGET_CONTROL"; then
-    printf 'rollback_completed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      > "$S11_2_BACKUP_PATH/ROLLBACK_COMPLETED"
-    chmod 0600 "$S11_2_BACKUP_PATH/ROLLBACK_COMPLETED"
-    printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLED_BACK"}\n' >&2
-  else
+  if [ "${S11_2_ROLLBACK_ARMED:-false}" != true ] \
+    || [ ! -e "$S11_2_BACKUP_PATH/MUTATION_STARTED" ]; then
+    printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_STOPPED_BEFORE_MUTATION"}\n' >&2
+  elif ! reacquire_inherited_lock; then
     printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLBACK_RED"}\n' >&2
+  else
+    run_rollback_strict "$S11_2_BACKUP_PATH" "$S11_2_TARGET_CONTROL"
+    if [ "$S11_2_ROLLBACK_EXIT_STATUS" -eq 0 ]; then
+      S11_2_ROLLBACK_ARMED=false
+      printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLED_BACK"}\n' >&2
+    else
+      printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLBACK_RED"}\n' >&2
+    fi
   fi
   exit "$exit_status"
 }
@@ -1670,13 +1758,11 @@ rollback() {
   require_sha "$target_control"
   require_backup_path "$backup_path"
   require_backup "$backup_path" "$target_control" || fail "S11_2_ROLLBACK_BACKUP_RED"
-  printf 'rollback_started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    > "$backup_path/ROLLBACK_STARTED"
-  chmod 0600 "$backup_path/ROLLBACK_STARTED"
-  restore_source "$backup_path" "$target_control" || fail "S11_2_ROLLBACK_RED"
-  printf 'rollback_completed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    > "$backup_path/ROLLBACK_COMPLETED"
-  chmod 0600 "$backup_path/ROLLBACK_COMPLETED"
+  run_rollback_strict "$backup_path" "$target_control"
+  if [ "$S11_2_ROLLBACK_EXIT_STATUS" -ne 0 ]; then
+    fail "S11_2_ROLLBACK_RED"
+    return 2
+  fi
   printf '{"ok":true,"safe_code":"S11_2_ROLLBACK_GREEN"}\n'
 }
 
