@@ -12,9 +12,9 @@ readonly SOURCE_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"
 readonly SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"
 readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
-readonly TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"
-readonly TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-4-runtime-access-freeze-r1"
+readonly TARGET_APPLICATION_COMMIT="dc901d01fd20bedd92a9c2565bd1d3370f7f3e14"
+readonly TARGET_APPLICATION_TREE="52b9960eff5348310c06f8480971260c00fa20ef"
+readonly FINAL_CONTROL_TAG="s11-2-r15-8-orchestration-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -27,6 +27,8 @@ readonly MIGRATION_UP_SHA="97cca3f1a59ec125ef621cdb79ce85931682011ec88ad0b5f1646
 readonly MIGRATION_DOWN_SHA="4514d3b91dc3924b54116b216baa32896c7091ce4fd114dded62fbe6f1a1917b"
 readonly MIGRATION_REARM_UP_SHA="8d2d293c1f382bb5f726624c5dbe24e85b8f5c47a037b0d1bb52726d3fc23621"
 readonly MIGRATION_REARM_DOWN_SHA="ca1a286f042f685d7a48d6db1231d7a816973c5496da2702d9562958965f3d73"
+readonly MIGRATION_EPOCH_UP_SHA="c745307910c117df9a8f8fbf98f54d9b1e6bb382841e95dccc23e1ebf0e477db"
+readonly MIGRATION_EPOCH_DOWN_SHA="08aff95bc309b28c4d9b967ce9b53a73750a979d0246b4ca427e6fec9057573c"
 readonly WMS_LANDING_COPY_SHA="86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"
 readonly EXPERIENCE_CONTRACT="/etc/tu1nz/adult-commercial-s11-interactive-experience.json"
 readonly EXPERIENCE_COPY="/etc/tu1nz/adult-commercial-s11-interactive-copy.json"
@@ -41,6 +43,15 @@ readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.servic
 readonly S8_HEALTH_SCRIPT="/usr/local/bin/tu1nz_adult_public_s8_health.py"
 readonly INSTALLED_CONTROLLER="/usr/local/bin/tu1nz_adult_public_s11_2_control.sh"
 readonly INSTALLED_GATE="/usr/local/bin/tu1nz_adult_public_s11_2_gate.py"
+readonly INSTALLED_ORCHESTRATION="/usr/local/bin/tu1nz_adult_public_s11_2_orchestration.py"
+readonly HEALTH_CONTRACT_MANIFEST="/etc/tu1nz/adult-commercial-s11-2-r15-6-health-contract.json"
+readonly HEALTH_CONTRACT_VERSION="S10_1_HEALTH_CHILD_V1"
+readonly S10_HEALTH_CHILD_CONTRACT_SHA="f462d98567e4e2186e83364aed633c961214e5d2fd5eb81b50816487e3771f4c"
+readonly S10_HEALTH_ENTRYPOINT_SHA="36a9d1f1e12779fc1459336a83a8c14c5ba2d21f21357096ffb0d72e6fd97298"
+readonly S10_HEALTH_GATE_SHA="a5e49e15088d7e2999e106e8511c6b55b77141cc3a097138461ce4cceda0423e"
+readonly S11_HEALTH_PREFLIGHT_SHA="ee6a7cdd5a695c0f7a0141827435d484480d053e0d2c8c1dfbffe19c9b5214c8"
+readonly S11_RECOVERY_DIAGNOSTIC_SHA="affb9364f09145bd8b00bd2628004d45e1072fbe52f753bdb86b885cdc9720ea"
+readonly TECHNICAL_PROBE_SERVICE="tu1nz-adult-public-s8-technical-latency-probe.service"
 readonly APPLICATION_RUNTIME_PYTHON="${APPLICATION_ROOT}/.venv/bin/python"
 readonly RUNTIME_ACCESS_MANIFEST="/etc/tu1nz/adult-commercial-s11-2-runtime-access.json"
 readonly CONTROLLER_UNIT="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service"
@@ -128,7 +139,7 @@ require_remote_target() {
 }
 
 require_local_freeze() {
-  local target_control="$1" control_tree controller_sha gate_sha timer_sha
+  local target_control="$1" control_tree controller_sha gate_sha orchestration_sha timer_sha
   [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${FINAL_CONTROL_TAG}")" = tag ] \
     || { fail "S11_2_FREEZE_NOT_ANNOTATED"; return 2; }
   [ "$(target_control_commit)" = "$target_control" ] \
@@ -136,6 +147,7 @@ require_local_freeze() {
   control_tree="$(target_control_tree)"
   controller_sha="$(git_chatops "$CONTROL_ROOT" show "${target_control}:scripts/tu1nz_adult_public_s11_2_control.sh" | sha256sum | awk '{print $1}')"
   gate_sha="$(git_chatops "$CONTROL_ROOT" show "${target_control}:scripts/tu1nz_adult_public_s11_2_gate.py" | sha256sum | awk '{print $1}')"
+  orchestration_sha="$(git_chatops "$CONTROL_ROOT" show "${target_control}:scripts/tu1nz_adult_public_s11_2_orchestration.py" | sha256sum | awk '{print $1}')"
   timer_sha="$(git_chatops "$CONTROL_ROOT" show "${target_control}:systemd/tu1nz-adult-public-s11-canary-controller.timer" | sha256sum | awk '{print $1}')"
   [ "$(git_chatops "$CONTROL_ROOT" show "${target_control}:systemd/tu1nz-adult-public-s11-canary-controller.service" | sha256sum | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
     || { fail "S11_2_FREEZE_UNIT_HASH_RED"; return 2; }
@@ -146,13 +158,18 @@ require_local_freeze() {
     "control_tree=${control_tree}" \
     "runtime_controller_sha256=${controller_sha}" \
     "runtime_gate_sha256=${gate_sha}" \
+    "runtime_orchestration_sha256=${orchestration_sha}" \
     "controller_unit_sha256=${CONTROLLER_UNIT_SHA}" \
     "controller_timer_sha256=${timer_sha}" \
     "runtime_access_contract=SOURCE_CHATOPS_RUNTIME_INSTALLED_V1" \
     "umask_077_regression=GREEN" \
     "supplementary_groups=chatops" \
     "canary_contract=FIRST_10_24H_EPOCH_BOUND" \
-    "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN"
+    "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN" \
+    "phase_contract=S11_2_R15_8_ORCHESTRATION_V1" \
+    "health_contract=S10_1_HEALTH_CHILD_V1" \
+    "technical_evidence_contract=DYNAMIC_MISSING_SAMPLE_HARD_CAP" \
+    "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY"
   do
     git_chatops "$CONTROL_ROOT" for-each-ref --format='%(contents)' "refs/tags/${FINAL_CONTROL_TAG}" \
       | grep -Fqx "$binding" \
@@ -182,10 +199,11 @@ artifact_sha_from_git() {
 }
 
 install_runtime_access_manifest() {
-  local target_control="$1" control_tree controller_sha gate_sha unit_sha timer_sha retired_sha temporary
+  local target_control="$1" control_tree controller_sha gate_sha orchestration_sha unit_sha timer_sha retired_sha temporary
   control_tree="$(target_control_tree)"
   controller_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_control.sh)"
   gate_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_gate.py)"
+  orchestration_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_orchestration.py)"
   unit_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.service)"
   timer_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.timer)"
   retired_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s8-health.timer)"
@@ -193,6 +211,8 @@ install_runtime_access_manifest() {
     || fail "S11_2_RUNTIME_CONTROLLER_SOURCE_HASH_RED"
   [ "$(sha256sum "$INSTALLED_GATE" | awk '{print $1}')" = "$gate_sha" ] \
     || fail "S11_2_RUNTIME_GATE_SOURCE_HASH_RED"
+  [ "$(sha256sum "$INSTALLED_ORCHESTRATION" | awk '{print $1}')" = "$orchestration_sha" ] \
+    || fail "S11_2_RUNTIME_ORCHESTRATION_SOURCE_HASH_RED"
   [ "$(sha256sum "$CONTROLLER_UNIT" | awk '{print $1}')" = "$unit_sha" ] \
     || fail "S11_2_RUNTIME_UNIT_SOURCE_HASH_RED"
   [ "$(sha256sum "$CONTROLLER_TIMER" | awk '{print $1}')" = "$timer_sha" ] \
@@ -205,6 +225,7 @@ install_runtime_access_manifest() {
   S11_TARGET_CONTROL_TREE="$control_tree" \
   S11_CONTROLLER_SHA="$controller_sha" \
   S11_GATE_SHA="$gate_sha" \
+  S11_ORCHESTRATION_SHA="$orchestration_sha" \
   S11_UNIT_SHA="$unit_sha" \
   S11_TIMER_SHA="$timer_sha" \
   S11_RETIRED_TIMER_SHA="$retired_sha" \
@@ -215,9 +236,9 @@ from pathlib import Path
 
 payload = {
     "schema": "TU1NZ_S11_2_RUNTIME_ACCESS_V1",
-    "freeze_tag": "s11-2-r15-4-runtime-access-freeze-r1",
-    "application_commit": "84619ea0204aeb4b133fe6491f3315beccd635ae",
-    "application_tree": "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
+    "freeze_tag": "s11-2-r15-8-orchestration-freeze-r1",
+    "application_commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
+    "application_tree": "52b9960eff5348310c06f8480971260c00fa20ef",
     "control_commit": os.environ["S11_TARGET_CONTROL"],
     "control_tree": os.environ["S11_TARGET_CONTROL_TREE"],
     "source_access_identity": "chatops",
@@ -231,6 +252,10 @@ payload = {
         "gate": {
             "path": "/usr/local/bin/tu1nz_adult_public_s11_2_gate.py",
             "sha256": os.environ["S11_GATE_SHA"], "owner": 0, "group": 0, "mode": "0755",
+        },
+        "orchestration": {
+            "path": "/usr/local/bin/tu1nz_adult_public_s11_2_orchestration.py",
+            "sha256": os.environ["S11_ORCHESTRATION_SHA"], "owner": 0, "group": 0, "mode": "0755",
         },
         "controller_unit": {
             "path": "/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service",
@@ -259,6 +284,7 @@ verify_runtime_access_contract() {
   S11_RUNTIME_PYTHON="$APPLICATION_RUNTIME_PYTHON" \
   S11_INSTALLED_CONTROLLER="$INSTALLED_CONTROLLER" \
   S11_INSTALLED_GATE="$INSTALLED_GATE" \
+  S11_INSTALLED_ORCHESTRATION="$INSTALLED_ORCHESTRATION" \
   S11_CONTROLLER_UNIT="$CONTROLLER_UNIT" \
   S11_CONTROLLER_TIMER="$CONTROLLER_TIMER" \
   S11_RETIRED_TIMER="$RETIRED_S8_HEALTH_TIMER_PATH" \
@@ -279,15 +305,15 @@ if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 
 payload = json.loads(manifest_path.read_text(encoding="ascii"))
 if payload.get("schema") != "TU1NZ_S11_2_RUNTIME_ACCESS_V1":
     raise SystemExit(2)
-if payload.get("freeze_tag") != "s11-2-r15-4-runtime-access-freeze-r1":
+if payload.get("freeze_tag") != "s11-2-r15-8-orchestration-freeze-r1":
     raise SystemExit(2)
 if payload.get("source_access_identity") != "chatops":
     raise SystemExit(2)
 if payload.get("runtime_access_identity") != "root:root+chatops":
     raise SystemExit(2)
-if payload.get("application_commit") != "84619ea0204aeb4b133fe6491f3315beccd635ae":
+if payload.get("application_commit") != "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14":
     raise SystemExit(2)
-if payload.get("application_tree") != "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab":
+if payload.get("application_tree") != "52b9960eff5348310c06f8480971260c00fa20ef":
     raise SystemExit(2)
 runtime_python = Path(os.environ["S11_RUNTIME_PYTHON"])
 if payload.get("runtime_interpreter") != str(runtime_python) or not os.access(runtime_python, os.X_OK):
@@ -301,6 +327,7 @@ if subprocess.run(
 expected = {
     "controller": (Path(os.environ["S11_INSTALLED_CONTROLLER"]), 0o755),
     "gate": (Path(os.environ["S11_INSTALLED_GATE"]), 0o755),
+    "orchestration": (Path(os.environ["S11_INSTALLED_ORCHESTRATION"]), 0o755),
     "controller_unit": (Path(os.environ["S11_CONTROLLER_UNIT"]), 0o644),
     "controller_timer": (Path(os.environ["S11_CONTROLLER_TIMER"]), 0o644),
     "retired_s8_health_timer": (Path(os.environ["S11_RETIRED_TIMER"]), 0o644),
@@ -435,7 +462,7 @@ database_admin_history_count() {
 
 database_transition() {
   local transition="$1" safe_code="$2"
-  [[ "$transition" =~ ^(START_CANARY|CANARY_READY_FOR_PROMOTION|FULL_RELEASE|CANARY_RED|CANARY_INSUFFICIENT_REAL_VOLUME)$ ]] \
+  [[ "$transition" =~ ^(SET_EVIDENCE_EPOCH|CANCEL_EVIDENCE_EPOCH|START_CANARY|CANARY_READY_FOR_PROMOTION|FULL_RELEASE|CANARY_RED|CANARY_INSUFFICIENT_REAL_VOLUME)$ ]] \
     || fail "S11_2_TRANSITION_INVALID"
   [[ "$safe_code" =~ ^S11_2_[A-Z0-9_]{1,96}$ ]] || fail "S11_2_SAFE_CODE_INVALID"
   runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
@@ -744,6 +771,13 @@ backup_runtime() {
   backup_optional "$COMMUNITY_CONTRACT" "$backup_path/community-contract.json" "$backup_path/COMMUNITY_CONTRACT_ABSENT"
   backup_optional "$INSTALLED_CONTROLLER" "$backup_path/s11-2-control.sh" "$backup_path/S11_2_CONTROLLER_ABSENT"
   backup_optional "$INSTALLED_GATE" "$backup_path/s11-2-gate.py" "$backup_path/S11_2_GATE_ABSENT"
+  backup_optional "$INSTALLED_ORCHESTRATION" "$backup_path/s11-2-orchestration.py" "$backup_path/S11_2_ORCHESTRATION_ABSENT"
+  backup_optional /usr/local/bin/tu1nz_adult_public_s10_health_child_contract.py "$backup_path/s10-health-child-contract.py" "$backup_path/S10_HEALTH_CHILD_CONTRACT_ABSENT"
+  backup_optional /usr/local/bin/tu1nz_adult_public_s10_1_health.py "$backup_path/s10-1-health.py" "$backup_path/S10_1_HEALTH_ABSENT"
+  backup_optional /usr/local/bin/tu1nz_adult_public_s10_2d_health_gate.py "$backup_path/s10-2d-health-gate.py" "$backup_path/S10_2D_HEALTH_GATE_ABSENT"
+  backup_optional /usr/local/bin/tu1nz_adult_public_s11_2_health_preflight.py "$backup_path/s11-2-health-preflight.py" "$backup_path/S11_2_HEALTH_PREFLIGHT_ABSENT"
+  backup_optional /usr/local/bin/tu1nz_adult_public_s11_2_recovery_diagnostic.py "$backup_path/s11-2-recovery-diagnostic.py" "$backup_path/S11_2_RECOVERY_DIAGNOSTIC_ABSENT"
+  backup_optional "$HEALTH_CONTRACT_MANIFEST" "$backup_path/s11-2-r15-6-health-contract.json" "$backup_path/S11_2_R15_6_HEALTH_CONTRACT_ABSENT"
   backup_optional "$RUNTIME_ACCESS_MANIFEST" "$backup_path/s11-2-runtime-access.json" "$backup_path/S11_2_RUNTIME_ACCESS_ABSENT"
   backup_optional "$CONTROLLER_UNIT" "$backup_path/s11-2-controller.service" "$backup_path/S11_2_SERVICE_ABSENT"
   backup_optional "$CONTROLLER_TIMER" "$backup_path/s11-2-controller.timer" "$backup_path/S11_2_TIMER_ABSENT"
@@ -765,7 +799,7 @@ backup_runtime() {
     | sort > "$backup_path/owners-and-modes.txt"
   (
     cd "$backup_path"
-    find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+    find . -type f ! -name SHA256SUMS ! -name phase-state.json -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
     sha256sum -c SHA256SUMS >/dev/null
   )
   printf '{"ok":true,"safe_code":"S11_2_RUNTIME_BACKUP_GREEN"}\n'
@@ -807,6 +841,8 @@ migrations/0033_commercial_s11_2_canary_bootstrap.sql ${MIGRATION_UP_SHA}
 migrations/0033_commercial_s11_2_canary_bootstrap.down.sql ${MIGRATION_DOWN_SHA}
 migrations/0034_commercial_s11_2_canary_rearm.sql ${MIGRATION_REARM_UP_SHA}
 migrations/0034_commercial_s11_2_canary_rearm.down.sql ${MIGRATION_REARM_DOWN_SHA}
+migrations/0035_commercial_s11_2_pre_canary_epoch.sql ${MIGRATION_EPOCH_UP_SHA}
+migrations/0035_commercial_s11_2_pre_canary_epoch.down.sql ${MIGRATION_EPOCH_DOWN_SHA}
 config/commercial-s10-1-wms-copy.v1.json ${WMS_LANDING_COPY_SHA}
 EOF
   require_target_wms_compatibility \
@@ -819,8 +855,134 @@ install_from_git() {
     | install -o root -g root -m "$mode" /dev/stdin "$destination"
 }
 
+phase_state_path() {
+  printf '%s/phase-state.json\n' "$S11_2_BACKUP_PATH"
+}
+
+phase_command() {
+  "$INSTALLED_ORCHESTRATION" "$@" \
+    --state "$(phase_state_path)" \
+    --release-id "$EXPERIENCE_RELEASE_ID" \
+    --run-id "$S11_2_RUN_ID"
+}
+
+initialize_phase_state() {
+  phase_command init >/dev/null
+  phase_command complete --phase PRECHECK >/dev/null
+  phase_command complete --phase BACKUP_COMPLETE >/dev/null
+}
+
+complete_phase() {
+  phase_command complete --phase "$1" >/dev/null
+}
+
+require_phase() {
+  phase_command require --phase "$1" >/dev/null
+}
+
+install_health_contract() {
+  local target_control="$1" temporary
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_orchestration.py 0755 "$INSTALLED_ORCHESTRATION"
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s10_health_child_contract.py 0755 /usr/local/bin/tu1nz_adult_public_s10_health_child_contract.py
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s10_1_health.py 0755 /usr/local/bin/tu1nz_adult_public_s10_1_health.py
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s10_2d_health_gate.py 0755 /usr/local/bin/tu1nz_adult_public_s10_2d_health_gate.py
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_health_preflight.py 0755 /usr/local/bin/tu1nz_adult_public_s11_2_health_preflight.py
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py 0755 /usr/local/bin/tu1nz_adult_public_s11_2_recovery_diagnostic.py
+  temporary="$(mktemp /run/tu1nz-s11-2-r15-6-health-contract.XXXXXX)"
+  S11_HEALTH_MANIFEST_DESTINATION="$temporary" \
+  S11_HEALTH_TARGET_CONTROL="$target_control" \
+  S11_HEALTH_CONTROL_TREE="$(target_control_tree)" \
+    /usr/bin/python3 - <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+
+artifacts = {}
+for name, path in {
+    "s10_health_child_contract": "/usr/local/bin/tu1nz_adult_public_s10_health_child_contract.py",
+    "s10_health_entrypoint": "/usr/local/bin/tu1nz_adult_public_s10_1_health.py",
+    "s10_health_gate": "/usr/local/bin/tu1nz_adult_public_s10_2d_health_gate.py",
+    "r15_5_preflight": "/usr/local/bin/tu1nz_adult_public_s11_2_health_preflight.py",
+    "recovery_diagnostic": "/usr/local/bin/tu1nz_adult_public_s11_2_recovery_diagnostic.py",
+}.items():
+    source = Path(path)
+    artifacts[name] = {
+        "path": path,
+        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "owner": 0,
+        "group": 0,
+        "mode": "0755",
+    }
+payload = {
+    "schema": "TU1NZ_S11_2_R15_6_HEALTH_CONTRACT_MANIFEST_V1",
+    "contract_version": "S10_1_HEALTH_CHILD_V1",
+    "control_commit": os.environ["S11_HEALTH_TARGET_CONTROL"],
+    "control_tree": os.environ["S11_HEALTH_CONTROL_TREE"],
+    "artifacts": artifacts,
+}
+Path(os.environ["S11_HEALTH_MANIFEST_DESTINATION"]).write_text(
+    json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="ascii"
+)
+PY
+  install -o root -g root -m 0644 "$temporary" "$HEALTH_CONTRACT_MANIFEST"
+  rm -f -- "$temporary"
+}
+
+verify_health_contract() {
+  [ "$(sha256sum /usr/local/bin/tu1nz_adult_public_s10_health_child_contract.py | awk '{print $1}')" = "$S10_HEALTH_CHILD_CONTRACT_SHA" ] || fail "S11_2_HEALTH_CHILD_SOURCE_HASH_RED"
+  [ "$(sha256sum /usr/local/bin/tu1nz_adult_public_s10_1_health.py | awk '{print $1}')" = "$S10_HEALTH_ENTRYPOINT_SHA" ] || fail "S11_2_HEALTH_ENTRYPOINT_SOURCE_HASH_RED"
+  [ "$(sha256sum /usr/local/bin/tu1nz_adult_public_s10_2d_health_gate.py | awk '{print $1}')" = "$S10_HEALTH_GATE_SHA" ] || fail "S11_2_HEALTH_GATE_SOURCE_HASH_RED"
+  [ "$(sha256sum /usr/local/bin/tu1nz_adult_public_s11_2_health_preflight.py | awk '{print $1}')" = "$S11_HEALTH_PREFLIGHT_SHA" ] || fail "S11_2_HEALTH_PREFLIGHT_SOURCE_HASH_RED"
+  [ "$(sha256sum /usr/local/bin/tu1nz_adult_public_s11_2_recovery_diagnostic.py | awk '{print $1}')" = "$S11_RECOVERY_DIAGNOSTIC_SHA" ] || fail "S11_2_RECOVERY_DIAGNOSTIC_SOURCE_HASH_RED"
+  S11_HEALTH_MANIFEST="$HEALTH_CONTRACT_MANIFEST" \
+  S11_HEALTH_EXPECTED_CONTROL="$S11_2_TARGET_CONTROL" \
+  S11_HEALTH_EXPECTED_TREE="$(target_control_tree)" \
+    /usr/bin/python3 - <<'PY' || { fail "S11_2_R15_6_HEALTH_CONTRACT_RED"; return 2; }
+import hashlib
+import json
+import os
+import stat
+from pathlib import Path
+
+manifest = Path(os.environ["S11_HEALTH_MANIFEST"])
+metadata = manifest.lstat()
+if stat.S_ISLNK(metadata.st_mode) or (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 0o644):
+    raise SystemExit(2)
+payload = json.loads(manifest.read_text(encoding="ascii"))
+if payload.get("schema") != "TU1NZ_S11_2_R15_6_HEALTH_CONTRACT_MANIFEST_V1" or payload.get("contract_version") != "S10_1_HEALTH_CHILD_V1":
+    raise SystemExit(2)
+if payload.get("control_commit") != os.environ["S11_HEALTH_EXPECTED_CONTROL"] or payload.get("control_tree") != os.environ["S11_HEALTH_EXPECTED_TREE"]:
+    raise SystemExit(2)
+expected = {
+    "s10_health_child_contract",
+    "s10_health_entrypoint",
+    "s10_health_gate",
+    "r15_5_preflight",
+    "recovery_diagnostic",
+}
+artifacts = payload.get("artifacts")
+if not isinstance(artifacts, dict) or set(artifacts) != expected:
+    raise SystemExit(2)
+for record in artifacts.values():
+    path = Path(record["path"])
+    current = path.lstat()
+    if stat.S_ISLNK(current.st_mode) or (current.st_uid, current.st_gid, stat.S_IMODE(current.st_mode)) != (0, 0, 0o755):
+        raise SystemExit(2)
+    if record != {
+        "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "owner": 0,
+        "group": 0,
+        "mode": "0755",
+    }:
+        raise SystemExit(2)
+PY
+  printf '{"ok":true,"safe_code":"S11_2_R15_6_HEALTH_CONTRACT_GREEN"}\n'
+}
+
 apply_migration() {
-  local bootstrap_installed rearm_installed current_state history_before history_after
+  local bootstrap_installed rearm_installed epoch_installed current_state
   bootstrap_installed="$(database_scalar "SELECT count(*)=6 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','full_live_start','promotion_state');")"
   if [ "$bootstrap_installed" != true ]; then
     runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
@@ -839,24 +1001,41 @@ apply_migration() {
       >/dev/null
   fi
 
+  epoch_installed="$(database_scalar "SELECT COALESCE(position('CANCEL_EVIDENCE_EPOCH' IN pg_get_functiondef(to_regprocedure('public.tu1nz_s11_2_transition_runtime_control(text,text,timestamp with time zone,text)'))) > 0,false);")"
+  if [ "$epoch_installed" != true ]; then
+    runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --dbname="$DATABASE" \
+      < "$APPLICATION_ROOT/migrations/0035_commercial_s11_2_pre_canary_epoch.sql" \
+      >/dev/null
+  fi
+
   current_state="$(release_state)"
   case "$current_state" in
-    S11_DISABLED\|NOT_STARTED)
-      return 0
-      ;;
-    S11_DISABLED\|CANARY_RED|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME)
-      history_before="$(database_admin_history_count)"
-      database_rearm S11_2_R15_TERMINAL_EPOCH_REARMED
-      history_after="$(database_admin_history_count)"
-      [ "$history_after" -eq $((history_before + 1)) ] \
-        || fail "S11_2_TERMINAL_EPOCH_ARCHIVE_RED"
-      [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] \
-        || fail "S11_2_TERMINAL_EPOCH_REARM_RED"
-      ;;
+    S11_DISABLED\|NOT_STARTED|S11_DISABLED\|CANARY_RED|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME) return 0 ;;
     *)
       fail "S11_2_EXISTING_CANARY_STATE_RED"
       ;;
   esac
+}
+
+rearm_canary() {
+  local current_state history_before history_after
+  current_state="$(release_state)"
+  case "$current_state" in
+    S11_DISABLED\|NOT_STARTED)
+      [ "$(database_scalar "SELECT (canary_evidence_start IS NULL AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+        || fail "S11_2_PRE_CANARY_EPOCH_NOT_CLEAR"
+      ;;
+    S11_DISABLED\|CANARY_RED|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME)
+      history_before="$(database_admin_history_count)"
+      database_rearm S11_2_R15_8_TERMINAL_EPOCH_REARMED
+      history_after="$(database_admin_history_count)"
+      [ "$history_after" -eq $((history_before + 1)) ] || fail "S11_2_TERMINAL_EPOCH_ARCHIVE_RED"
+      [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_TERMINAL_EPOCH_REARM_RED"
+      ;;
+    *) fail "S11_2_REARM_STATE_RED" ;;
+  esac
+  complete_phase CANARY_REARMED
 }
 
 run_synthetic_journeys() {
@@ -888,55 +1067,89 @@ move_optional_synthetic_companions() {
   done
 }
 
-technical_latency_fixture() {
-  local destination="$1" values_file="$2" iteration start_ns end_ns elapsed_ms
-  : > "$values_file"
-  for iteration in 1 2 3 4 5; do
-    start_ns="$(date +%s%N)"
-    run_synthetic_journeys "${destination}.${iteration}.json"
-    end_ns="$(date +%s%N)"
-    elapsed_ms=$(( (end_ns - start_ns + 999999) / 1000000 ))
-    printf '%s\n' "$elapsed_ms" >> "$values_file"
-  done
-  /usr/bin/python3 - "$values_file" "$destination" <<'PY'
+write_technical_profile() {
+  local destination="$1" gate_file="${destination}.gate"
+  gate_json true > "$gate_file" || { fail "S11_2_TECHNICAL_GATE_READ_RED"; return 2; }
+  S11_DATABASE_DSN="$DATABASE_DSN" S11_GATE_FILE="$gate_file" S11_PROFILE_DESTINATION="$destination" \
+    "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
 import json
-import sys
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-values=[int(value) for value in Path(sys.argv[1]).read_text().splitlines()]
-start=datetime.now(timezone.utc)-timedelta(seconds=1)
-payload={
- "release_state":"S11_CANARY","promotion_state":"CANARY_COLLECTING_EVIDENCE",
- "now":datetime.now(timezone.utc).isoformat(),"evidence_start":start.isoformat(),
- "horizon_at":(start+timedelta(hours=24)).isoformat(),"session_cap":10,
- "admitted_count":0,"technical_values_ms":values,"real_values_ms":[],
- "new_unknown_count":0,"historical_unknown_count":0,"experience_sessions":0,
- "product_event_count":0,"hard_gates_green":True,
+import psycopg
+
+gate = json.loads(Path(os.environ["S11_GATE_FILE"]).read_text(encoding="ascii"))
+dsn = Path(os.environ["S11_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
+now = datetime.now(timezone.utc)
+with psycopg.connect(dsn) as connection:
+    binding = connection.execute(
+        "SELECT target_release_id,technical_evidence_run_id "
+        "FROM commercial_s10_2d_runtime_control WHERE singleton"
+    ).fetchone()
+    if binding is None or not all(binding):
+        raise SystemExit(2)
+    rows = connection.execute(
+        "SELECT source,evidence_class,sample_type,interaction_path "
+        "FROM commercial_s10_2d_latency_samples WHERE source='DIRECT' "
+        "AND release_id=%s AND run_id=%s AND recorded_at >= %s AND recorded_at <= %s "
+        "ORDER BY recorded_at,sample_id",
+        (binding[0], binding[1], now - timedelta(hours=24), now),
+    ).fetchall()
+technical = gate["technical_latency"]
+payload = {
+    "required_floor": technical["minimum_samples"],
+    "current_valid_samples": technical["samples"],
+    "state": technical["state"],
+    "samples": [
+        {"source": row[0], "evidence_class": row[1], "sample_type": row[2], "interaction_path": row[3]}
+        for row in rows
+    ],
+    "health": "GREEN",
 }
-Path(sys.argv[2]).write_text(json.dumps(payload,sort_keys=True,separators=(",",":"))+"\n")
+Path(os.environ["S11_PROFILE_DESTINATION"]).write_text(
+    json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="ascii"
+)
 PY
-  "$APPLICATION_RUNTIME_PYTHON" "$INSTALLED_GATE" --input "$destination" \
-    | /usr/bin/python3 -c 'import json,sys;p=json.load(sys.stdin);raise SystemExit(0 if p["technical_latency"]["state"]=="GREEN" else 2)' \
-    || fail "S11_2_TECHNICAL_LATENCY_RED"
+  rm -f -- "$gate_file"
 }
 
-insert_technical_evidence() {
-  local values_file="$1" value
-  while read -r value; do
-    [[ "$value" =~ ^[0-9]+$ ]] || fail "S11_2_TECHNICAL_LATENCY_VALUE_RED"
-    runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
-      --dbname="$DATABASE" --command="
-        INSERT INTO commercial_s10_2d_latency_samples (
-          sample_id,source,bot_response_latency_ms,poll_lag_ms,handler_duration_ms,
-          send_ack_ms,occurred_at,release_id,run_id,evidence_class,
-          cutover_started_at,sample_type,interaction_path
-        )
-        SELECT gen_random_uuid(),'DIRECT',${value},0,${value},0,clock_timestamp(),
-               target_release_id,technical_evidence_run_id,'INTERNAL_TEST',
-               cutover_started_at,'S11_CANARY_RESPONSE','INTERNAL_ACCEPTANCE'
-        FROM commercial_s10_2d_runtime_control
-        WHERE singleton AND target_release_id='${RUNTIME_RELEASE_ID}';" >/dev/null
-  done < "$values_file"
+technical_plan_field() {
+  /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$1"
+}
+
+complete_technical_evidence() {
+  local backup_path="$1" profile="$backup_path/technical-profile.json"
+  local plan="$backup_path/technical-plan.json" missing before after state iteration
+  require_phase HEALTH_CONTRACT_INSTALLED
+  systemctl start tu1nz-adult-public-s8-health.service tu1nz-adult-public-s9-health.service
+  [ "$(systemctl show tu1nz-adult-public-s8-health.service -p Result --value)" = success ] \
+    || fail "S11_2_S8_HEALTH_RED"
+  [ "$(systemctl show tu1nz-adult-public-s9-health.service -p Result --value)" = success ] \
+    || fail "S11_2_S9_HEALTH_RED"
+  pre_canary_health "$backup_path/pre-canary-health.json"
+  require_hard_gates
+  write_technical_profile "$profile"
+  "$INSTALLED_ORCHESTRATION" technical-plan --input "$profile" > "$plan" \
+    || { fail "S11_2_TECHNICAL_PROFILE_RED"; return 2; }
+  missing="$(technical_plan_field missing_samples < "$plan")"
+  before="$(technical_plan_field current_valid_samples < "$plan")"
+  [[ "$missing" =~ ^[0-9]+$ ]] || fail "S11_2_TECHNICAL_MISSING_COUNT_RED"
+  for ((iteration=1; iteration<=missing; iteration++)); do
+    systemctl start "$TECHNICAL_PROBE_SERVICE"
+    [ "$(systemctl show "$TECHNICAL_PROBE_SERVICE" -p Result --value)" = success ] \
+      || fail "S11_2_TECHNICAL_PROBE_RED"
+    write_technical_profile "$profile"
+    "$INSTALLED_ORCHESTRATION" technical-plan --input "$profile" > "$plan" \
+      || { fail "S11_2_TECHNICAL_PROVENANCE_OR_SLO_RED"; return 2; }
+    after="$(technical_plan_field current_valid_samples < "$plan")"
+    [ "$after" -eq $((before + 1)) ] || fail "S11_2_TECHNICAL_PROBE_CARDINALITY_RED"
+    before="$after"
+    state="$(technical_plan_field state < "$plan")"
+    [ "$state" != GREEN ] || break
+  done
+  state="$(technical_plan_field state < "$plan")"
+  [ "$state" = GREEN ] || fail "S11_2_TECHNICAL_EVIDENCE_INSUFFICIENT"
+  complete_phase TECHNICAL_EVIDENCE_COMPLETE
 }
 
 wait_runtime() {
@@ -980,6 +1193,35 @@ run_runtime_health() {
   done
 }
 
+pre_canary_health() {
+  local destination="$1" structured="${destination}.ndjson" cursor start_green=true
+  cursor="$(journalctl --quiet --no-pager -u tu1nz-adult-public-s10-health.service \
+    -n 1 --show-cursor | sed -n 's/^-- cursor: //p')"
+  [ -n "$cursor" ] || fail "S11_2_PRE_CANARY_HEALTH_CURSOR_RED"
+  if ! systemctl start tu1nz-adult-public-s10-health.service >/dev/null 2>&1; then
+    start_green=false
+  fi
+  journalctl --quiet --no-pager --output=cat \
+    -u tu1nz-adult-public-s10-health.service --after-cursor "$cursor" > "$structured"
+  [ -s "$structured" ] || fail "S11_2_PRE_CANARY_HEALTH_RUN_MISSING"
+  if ! /usr/local/bin/tu1nz_adult_public_s11_2_health_preflight.py \
+      --structured-runs "$structured" > "$destination"; then
+    cat "$destination" >&2
+    fail "S11_2_PRE_CANARY_HEALTH_CHILD_RED"
+    return 2
+  fi
+  [ "$start_green" = true ] || fail "S11_2_PRE_CANARY_HEALTH_SERVICE_RED"
+  /usr/bin/python3 - "$destination" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
+if payload.get("ok") is not True or payload.get("current_health_state") != "GREEN":
+    raise SystemExit(2)
+PY
+}
+
 gate_json() {
   local hard="$1"
   if [ "$hard" = true ]; then
@@ -1009,9 +1251,11 @@ verify_target() {
   [ "$(sha256sum "$WMS_LANDING_COPY" | awk '{print $1}')" = "$WMS_LANDING_COPY_SHA" ] || fail "S11_2_INSTALLED_LANDING_COPY_DRIFT"
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_control.sh" "$INSTALLED_CONTROLLER" || fail "S11_2_INSTALLED_CONTROLLER_DRIFT"
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_gate.py" "$INSTALLED_GATE" || fail "S11_2_INSTALLED_GATE_DRIFT"
+  cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_orchestration.py" "$INSTALLED_ORCHESTRATION" || fail "S11_2_INSTALLED_ORCHESTRATION_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.service" "$CONTROLLER_UNIT" || fail "S11_2_INSTALLED_SERVICE_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.timer" "$CONTROLLER_TIMER" || fail "S11_2_INSTALLED_TIMER_DRIFT"
   verify_runtime_access_contract >/dev/null
+  verify_health_contract >/dev/null
   state="$(release_state)"
   case "$state" in
     S11_CANARY\|CANARY_COLLECTING_EVIDENCE|S11_FULL\|FULL_RELEASE) ;;
@@ -1045,7 +1289,7 @@ restore_optional() {
 }
 
 restore_source() {
-  local backup_path="$1" target_control="$2" current_state
+  local backup_path="$1" target_control="$2" current_state pre_canary_epoch_state
   require_backup "$backup_path" "$target_control" || return 1
   if ! current_state="$(release_state 2>/dev/null)"; then
     return 1
@@ -1058,6 +1302,17 @@ restore_source() {
   systemctl disable --now tu1nz-adult-public-s11-canary-controller.timer >/dev/null 2>&1 || true
   if [[ "$current_state" == S11_CANARY\|* ]]; then
     database_transition CANARY_RED S11_2_DEPLOYMENT_ROLLBACK || return 1
+  elif [ "$current_state" = "S11_DISABLED|NOT_STARTED" ]; then
+    pre_canary_epoch_state="$(database_scalar "SELECT CASE WHEN NOT enabled AND release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_release_id='${RUNTIME_RELEASE_ID}' AND canary_evidence_start IS NOT NULL AND canary_live_start IS NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' THEN 'ARMED' WHEN NOT enabled AND release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_release_id IS NULL AND canary_evidence_start IS NULL AND canary_live_start IS NULL AND canary_horizon_at IS NULL THEN 'UNSET' ELSE 'INVALID' END FROM commercial_s11_runtime_control WHERE singleton;")" || return 1
+    case "$pre_canary_epoch_state" in
+      ARMED)
+        database_transition CANCEL_EVIDENCE_EPOCH S11_2_R15_8_PRE_CANARY_EPOCH_ROLLBACK || return 1
+        [ "$(database_scalar "SELECT (NOT enabled AND release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_release_id IS NULL AND canary_evidence_start IS NULL AND canary_live_start IS NULL AND canary_horizon_at IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+          || return 1
+        ;;
+      UNSET) ;;
+      *) return 1 ;;
+    esac
   fi
   git_chatops "$APPLICATION_ROOT" switch --detach "$SOURCE_APPLICATION_COMMIT" >/dev/null || return 1
   git_chatops "$CONTROL_ROOT" switch --detach "$SOURCE_CONTROL_COMMIT" >/dev/null || return 1
@@ -1071,6 +1326,13 @@ restore_source() {
   restore_optional "$backup_path" wms-landing-copy.json WMS_LANDING_COPY_ABSENT "$WMS_LANDING_COPY" 0644 || return 1
   restore_optional "$backup_path" s11-2-control.sh S11_2_CONTROLLER_ABSENT "$INSTALLED_CONTROLLER" 0755 || return 1
   restore_optional "$backup_path" s11-2-gate.py S11_2_GATE_ABSENT "$INSTALLED_GATE" 0755 || return 1
+  restore_optional "$backup_path" s11-2-orchestration.py S11_2_ORCHESTRATION_ABSENT "$INSTALLED_ORCHESTRATION" 0755 || return 1
+  restore_optional "$backup_path" s10-health-child-contract.py S10_HEALTH_CHILD_CONTRACT_ABSENT /usr/local/bin/tu1nz_adult_public_s10_health_child_contract.py 0755 || return 1
+  restore_optional "$backup_path" s10-1-health.py S10_1_HEALTH_ABSENT /usr/local/bin/tu1nz_adult_public_s10_1_health.py 0755 || return 1
+  restore_optional "$backup_path" s10-2d-health-gate.py S10_2D_HEALTH_GATE_ABSENT /usr/local/bin/tu1nz_adult_public_s10_2d_health_gate.py 0755 || return 1
+  restore_optional "$backup_path" s11-2-health-preflight.py S11_2_HEALTH_PREFLIGHT_ABSENT /usr/local/bin/tu1nz_adult_public_s11_2_health_preflight.py 0755 || return 1
+  restore_optional "$backup_path" s11-2-recovery-diagnostic.py S11_2_RECOVERY_DIAGNOSTIC_ABSENT /usr/local/bin/tu1nz_adult_public_s11_2_recovery_diagnostic.py 0755 || return 1
+  restore_optional "$backup_path" s11-2-r15-6-health-contract.json S11_2_R15_6_HEALTH_CONTRACT_ABSENT "$HEALTH_CONTRACT_MANIFEST" 0644 || return 1
   restore_optional "$backup_path" s11-2-runtime-access.json S11_2_RUNTIME_ACCESS_ABSENT "$RUNTIME_ACCESS_MANIFEST" 0644 || return 1
   restore_optional "$backup_path" s11-2-controller.service S11_2_SERVICE_ABSENT "$CONTROLLER_UNIT" 0644 || return 1
   restore_optional "$backup_path" s11-2-controller.timer S11_2_TIMER_ABSENT "$CONTROLLER_TIMER" 0644 || return 1
@@ -1085,18 +1347,20 @@ restore_source() {
   require_public_health || return 1
 }
 
-deploy() {
-  local target_control="$1" backup_path="$2" current_state previous_trigger
-  require_root
-  acquire_lock
-  preflight "$target_control" "$backup_path"
-  backup_runtime "$backup_path" "$target_control"
-  require_backup "$backup_path" "$target_control" || fail "S11_2_BACKUP_VERIFY_RED"
-  S11_2_ROLLBACK_ARMED=true
-  S11_2_BACKUP_PATH="$backup_path"
-  S11_2_TARGET_CONTROL="$target_control"
-  trap 'deployment_error' ERR
+phase_next() {
+  phase_command inspect \
+    | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin)["next_phase"]; print(value or "COMPLETE")'
+}
 
+install_s11_disabled() {
+  local target_control="$1" resume_profile="$S11_2_BACKUP_PATH/technical-resume-profile.json"
+  local resume_plan="$S11_2_BACKUP_PATH/technical-resume-plan.json" resume_state
+  require_phase TECHNICAL_EVIDENCE_COMPLETE
+  verify_health_contract >/dev/null
+  write_technical_profile "$resume_profile"
+  "$INSTALLED_ORCHESTRATION" technical-plan --input "$resume_profile" > "$resume_plan"
+  resume_state="$(technical_plan_field state < "$resume_plan")"
+  [ "$resume_state" = GREEN ] || fail "S11_2_RESUME_TECHNICAL_STATE_RED"
   fetch_and_require_target "$target_control"
   git_chatops "$APPLICATION_ROOT" switch --detach "$TARGET_APPLICATION_COMMIT" >/dev/null
   git_chatops "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
@@ -1110,43 +1374,143 @@ deploy() {
   install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s8_health.py 0755 "$S8_HEALTH_SCRIPT"
   install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_control.sh 0755 "$INSTALLED_CONTROLLER"
   install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_gate.py 0755 "$INSTALLED_GATE"
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_orchestration.py 0755 "$INSTALLED_ORCHESTRATION"
   install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.service 0644 "$CONTROLLER_UNIT"
   install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.timer 0644 "$CONTROLLER_TIMER"
   install_runtime_access_manifest "$target_control"
   apply_migration
-  [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_CODE_OFF_RED"
+  [ "$(database_scalar "SELECT (NOT enabled AND live_start IS NULL AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+    || fail "S11_2_CODE_OFF_RED"
   systemctl daemon-reload
   systemctl reset-failed tu1nz-adult-public-s11-canary-controller.service >/dev/null 2>&1 || true
   verify_controller_unit_contract
   run_controller_access_check
-  systemctl restart "$S8_SERVICE"
-  systemctl restart "$WMS_SERVICE"
-  wait_wms_ready
-  require_public_health
-  wait_runtime
-  run_runtime_health
-  [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_RED"
-  printf '{"ok":true,"safe_code":"S11_2_FEATURE_OFF_FALLBACK_GREEN"}\n' \
-    > "$backup_path/feature-off-fallback.json"
-  run_synthetic_journeys "$backup_path/synthetic-journeys.json"
-  technical_latency_fixture "$backup_path/technical-latency-input.json" "$backup_path/technical-latency-values.txt"
-  require_hard_gates
-  previous_trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value 2>/dev/null || true)"
-  database_transition START_CANARY S11_2_CANARY_BOOTSTRAP_LIVE
-  insert_technical_evidence "$backup_path/technical-latency-values.txt"
-  current_state="$(gate_json true | gate_field decision)"
-  [ "$current_state" = CANARY_COLLECTING_EVIDENCE ] || fail "S11_2_INITIAL_CANARY_STATE_RED"
-  release_lock
-  systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
-  wait_controller_natural_run "$previous_trigger"
-  run_runtime_health
-  verify_target "$target_control"
+  complete_phase S11_INSTALLED_DISABLED
+}
+
+run_remaining_phases() {
+  local target_control="$1" backup_path="$2" next current_state previous_trigger plan_state
+  while true; do
+    next="$(phase_next)"
+    case "$next" in
+      HEALTH_CONTRACT_INSTALLED)
+        require_phase BACKUP_COMPLETE
+        install_health_contract "$target_control"
+        verify_health_contract >/dev/null
+        install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_gate.py 0755 "$INSTALLED_GATE"
+        complete_phase HEALTH_CONTRACT_INSTALLED
+        ;;
+      TECHNICAL_EVIDENCE_COMPLETE)
+        complete_technical_evidence "$backup_path"
+        ;;
+      S11_INSTALLED_DISABLED)
+        install_s11_disabled "$target_control"
+        ;;
+      SYNTHETIC_VALIDATION_GREEN)
+        require_phase S11_INSTALLED_DISABLED
+        run_synthetic_journeys "$backup_path/synthetic-journeys.json"
+        complete_phase SYNTHETIC_VALIDATION_GREEN
+        ;;
+      FALLBACK_GREEN)
+        require_phase SYNTHETIC_VALIDATION_GREEN
+        systemctl restart "$S8_SERVICE"
+        systemctl restart "$WMS_SERVICE"
+        wait_wms_ready
+        require_public_health
+        wait_runtime
+        run_runtime_health
+        [ "$(database_scalar "SELECT (NOT enabled AND live_start IS NULL AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+          || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_RED"
+        printf '{"ok":true,"safe_code":"S11_2_FEATURE_OFF_FALLBACK_GREEN"}\n' \
+          > "$backup_path/feature-off-fallback.json"
+        complete_phase FALLBACK_GREEN
+        ;;
+      CANARY_REARMED)
+        require_phase FALLBACK_GREEN
+        rearm_canary
+        ;;
+      EVIDENCE_EPOCH_SET)
+        require_phase CANARY_REARMED
+        require_phase TECHNICAL_EVIDENCE_COMPLETE
+        require_hard_gates
+        current_state="$(database_scalar "SELECT CASE WHEN release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_evidence_start IS NULL AND canary_horizon_at IS NULL AND canary_live_start IS NULL THEN 'UNSET' WHEN release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_evidence_start IS NOT NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' AND canary_live_start IS NULL THEN 'SET' ELSE 'INVALID' END FROM commercial_s11_runtime_control WHERE singleton;")"
+        case "$current_state" in
+          UNSET)
+            database_transition SET_EVIDENCE_EPOCH S11_2_R15_8_EVIDENCE_EPOCH_SET
+            ;;
+          SET) ;;
+          *) fail "S11_2_EVIDENCE_EPOCH_RESUME_STATE_RED" ;;
+        esac
+        [ "$(database_scalar "SELECT (release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_evidence_start IS NOT NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+          || fail "S11_2_EVIDENCE_EPOCH_RED"
+        complete_phase EVIDENCE_EPOCH_SET
+        ;;
+      CANARY_ACTIVE)
+        require_phase HEALTH_CONTRACT_INSTALLED
+        require_phase TECHNICAL_EVIDENCE_COMPLETE
+        require_phase S11_INSTALLED_DISABLED
+        require_phase SYNTHETIC_VALIDATION_GREEN
+        require_phase FALLBACK_GREEN
+        require_phase EVIDENCE_EPOCH_SET
+        write_technical_profile "$backup_path/technical-profile.json"
+        "$INSTALLED_ORCHESTRATION" technical-plan --input "$backup_path/technical-profile.json" \
+          > "$backup_path/technical-plan.json"
+        plan_state="$(technical_plan_field state < "$backup_path/technical-plan.json")"
+        [ "$plan_state" = GREEN ] || fail "S11_2_TECHNICAL_PRE_CANARY_RED"
+        require_hard_gates
+        current_state="$(release_state)"
+        case "$current_state" in
+          S11_DISABLED\|NOT_STARTED)
+            database_transition START_CANARY S11_2_CANARY_BOOTSTRAP_LIVE
+            ;;
+          S11_CANARY\|CANARY_COLLECTING_EVIDENCE) ;;
+          *) fail "S11_2_CANARY_RESUME_STATE_RED" ;;
+        esac
+        current_state="$(gate_json true | gate_field decision)"
+        [ "$current_state" = CANARY_COLLECTING_EVIDENCE ] || fail "S11_2_INITIAL_CANARY_STATE_RED"
+        [ "$(database_scalar "SELECT (enabled AND live_start IS NOT NULL AND canary_live_start IS NOT NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+          || fail "S11_2_CANARY_ACTIVATION_RED"
+        complete_phase CANARY_ACTIVE
+        ;;
+      SYSTEMD_HANDOFF)
+        require_phase CANARY_ACTIVE
+        previous_trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value 2>/dev/null || true)"
+        release_lock
+        systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
+        wait_controller_natural_run "$previous_trigger"
+        acquire_lock
+        run_runtime_health
+        verify_target "$target_control"
+        complete_phase SYSTEMD_HANDOFF
+        ;;
+      COMPLETE) return 0 ;;
+      *) fail "S11_2_PHASE_STATE_UNKNOWN" ;;
+    esac
+  done
+}
+
+finalize_deployment_evidence() {
+  local backup_path="$1"
+  require_phase SYSTEMD_HANDOFF
+  if [ -f "$backup_path/postdeploy/POSTDEPLOY_SHA256SUMS" ]; then
+    (cd "$backup_path/postdeploy" && sha256sum -c POSTDEPLOY_SHA256SUMS >/dev/null) \
+      || fail "S11_2_POSTDEPLOY_EVIDENCE_RED"
+    return 0
+  fi
+  [ ! -e "$backup_path/postdeploy" ] || fail "S11_2_POSTDEPLOY_PARTIAL_STATE_RED"
   install -d -o root -g root -m 0700 "$backup_path/postdeploy"
   mv "$backup_path/synthetic-journeys.json" "$backup_path/postdeploy/synthetic-journeys.json"
   move_optional_synthetic_companions "$backup_path" "$backup_path/postdeploy"
-  mv "$backup_path/technical-latency-input.json" "$backup_path/postdeploy/technical-latency-input.json"
-  mv "$backup_path/technical-latency-values.txt" "$backup_path/postdeploy/technical-latency-values.txt"
+  mv "$backup_path/technical-profile.json" "$backup_path/postdeploy/technical-profile.json"
+  mv "$backup_path/technical-plan.json" "$backup_path/postdeploy/technical-plan.json"
+  if [ -f "$backup_path/technical-resume-profile.json" ]; then
+    mv "$backup_path/technical-resume-profile.json" "$backup_path/postdeploy/technical-resume-profile.json"
+    mv "$backup_path/technical-resume-plan.json" "$backup_path/postdeploy/technical-resume-plan.json"
+  fi
+  mv "$backup_path/pre-canary-health.json" "$backup_path/postdeploy/pre-canary-health.json"
+  mv "$backup_path/pre-canary-health.json.ndjson" "$backup_path/postdeploy/pre-canary-health.json.ndjson"
   mv "$backup_path/feature-off-fallback.json" "$backup_path/postdeploy/feature-off-fallback.json"
+  install -m 0600 "$(phase_state_path)" "$backup_path/postdeploy/phase-state.json"
   database_evidence "$backup_path/postdeploy/database-aggregate.json"
   gate_json true > "$backup_path/postdeploy/canary-gate.json"
   systemctl show "${SERVICES[@]}" "${TIMERS[@]}" tu1nz-adult-public-s11-canary-controller.timer \
@@ -1158,16 +1522,67 @@ deploy() {
     sha256sum -c POSTDEPLOY_SHA256SUMS >/dev/null
   )
   (cd "$backup_path" && sha256sum -c SHA256SUMS >/dev/null)
+}
+
+deploy() {
+  local target_control="$1" backup_path="$2"
+  require_root
+  acquire_lock
+  preflight "$target_control" "$backup_path"
+  backup_runtime "$backup_path" "$target_control"
+  require_backup "$backup_path" "$target_control" || fail "S11_2_BACKUP_VERIFY_RED"
+  S11_2_ROLLBACK_ARMED=true
+  S11_2_BACKUP_PATH="$backup_path"
+  S11_2_TARGET_CONTROL="$target_control"
+  S11_2_RUN_ID="$(basename "$backup_path")"
+  trap 'deployment_error' ERR
+  fetch_and_require_target "$target_control"
+  install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_orchestration.py 0755 "$INSTALLED_ORCHESTRATION"
+  initialize_phase_state
+  run_remaining_phases "$target_control" "$backup_path"
+  finalize_deployment_evidence "$backup_path"
   trap - ERR
   S11_2_ROLLBACK_ARMED=false
   printf '{"ok":true,"safe_code":"S11_2_DEPLOYMENT_GREEN","canary_state":"CANARY_COLLECTING_EVIDENCE","human_acceptance":"DEFERRED"}\n'
 }
 
+resume() {
+  local target_control="$1" backup_path="$2"
+  require_root
+  acquire_lock
+  require_sha "$target_control"
+  require_backup_path "$backup_path"
+  require_backup "$backup_path" "$target_control" || fail "S11_2_RESUME_BACKUP_RED"
+  [ ! -e "$backup_path/ROLLBACK_STARTED" ] \
+    || fail "S11_2_RESUME_AFTER_ROLLBACK_RED"
+  S11_2_BACKUP_PATH="$backup_path"
+  S11_2_TARGET_CONTROL="$target_control"
+  S11_2_RUN_ID="$(basename "$backup_path")"
+  [ -x "$INSTALLED_ORCHESTRATION" ] || fail "S11_2_RESUME_ORCHESTRATOR_MISSING"
+  phase_command inspect >/dev/null
+  fetch_and_require_target "$target_control"
+  S11_2_ROLLBACK_ARMED=true
+  trap 'deployment_error' ERR
+  run_remaining_phases "$target_control" "$backup_path"
+  finalize_deployment_evidence "$backup_path"
+  trap - ERR
+  S11_2_ROLLBACK_ARMED=false
+  printf '{"ok":true,"safe_code":"S11_2_RESUMED_DEPLOYMENT_GREEN"}\n'
+}
+
 deployment_error() {
   local exit_status=$?
   trap - ERR
+  if [ "${S11_2_ROLLBACK_ARMED:-false}" = true ]; then
+    printf 'rollback_started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      > "$S11_2_BACKUP_PATH/ROLLBACK_STARTED"
+    chmod 0600 "$S11_2_BACKUP_PATH/ROLLBACK_STARTED"
+  fi
   if [ "${S11_2_ROLLBACK_ARMED:-false}" = true ] \
     && restore_source "$S11_2_BACKUP_PATH" "$S11_2_TARGET_CONTROL"; then
+    printf 'rollback_completed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      > "$S11_2_BACKUP_PATH/ROLLBACK_COMPLETED"
+    chmod 0600 "$S11_2_BACKUP_PATH/ROLLBACK_COMPLETED"
     printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLED_BACK"}\n' >&2
   else
     printf '{"ok":false,"safe_code":"S11_2_DEPLOYMENT_ROLLBACK_RED"}\n' >&2
@@ -1254,7 +1669,14 @@ rollback() {
   acquire_lock
   require_sha "$target_control"
   require_backup_path "$backup_path"
+  require_backup "$backup_path" "$target_control" || fail "S11_2_ROLLBACK_BACKUP_RED"
+  printf 'rollback_started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "$backup_path/ROLLBACK_STARTED"
+  chmod 0600 "$backup_path/ROLLBACK_STARTED"
   restore_source "$backup_path" "$target_control" || fail "S11_2_ROLLBACK_RED"
+  printf 'rollback_completed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "$backup_path/ROLLBACK_COMPLETED"
+  chmod 0600 "$backup_path/ROLLBACK_COMPLETED"
   printf '{"ok":true,"safe_code":"S11_2_ROLLBACK_GREEN"}\n'
 }
 
@@ -1262,6 +1684,7 @@ usage() {
   printf 'usage: %s access-preflight\n' "$0" >&2
   printf 'usage: %s preflight TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s deploy TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
+  printf '       %s resume TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s observe\n' "$0" >&2
   printf '       %s verify TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s rollback BACKUP_PATH TARGET_CONTROL\n' "$0" >&2
@@ -1285,6 +1708,10 @@ case "${1:-}" in
   deploy)
     [ "$#" -eq 3 ] || usage
     deploy "$2" "$3"
+    ;;
+  resume)
+    [ "$#" -eq 3 ] || usage
+    resume "$2" "$3"
     ;;
   observe)
     [ "$#" -eq 1 ] || usage
