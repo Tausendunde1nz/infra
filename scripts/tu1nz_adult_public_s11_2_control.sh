@@ -14,7 +14,9 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="84619ea0204aeb4b133fe6491f3315beccd635ae"
 readonly TARGET_APPLICATION_TREE="8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-bounded-canary-freeze-r5"
+readonly FINAL_CONTROL_TAG="s11-2-r15-4-runtime-access-freeze-r1"
+readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
+readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
 readonly EXPERIENCE_RELEASE_ID="s11-2-canary-bootstrap-r1"
@@ -39,10 +41,13 @@ readonly S8_HEALTH_UNIT="/etc/systemd/system/tu1nz-adult-public-s8-health.servic
 readonly S8_HEALTH_SCRIPT="/usr/local/bin/tu1nz_adult_public_s8_health.py"
 readonly INSTALLED_CONTROLLER="/usr/local/bin/tu1nz_adult_public_s11_2_control.sh"
 readonly INSTALLED_GATE="/usr/local/bin/tu1nz_adult_public_s11_2_gate.py"
+readonly APPLICATION_RUNTIME_PYTHON="${APPLICATION_ROOT}/.venv/bin/python"
+readonly RUNTIME_ACCESS_MANIFEST="/etc/tu1nz/adult-commercial-s11-2-runtime-access.json"
 readonly CONTROLLER_UNIT="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service"
 readonly CONTROLLER_TIMER="/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.timer"
 readonly S8_SERVICE="tu1nz-adult-public-s8-telegram.service"
 readonly RETIRED_S8_HEALTH_TIMER="tu1nz-adult-public-s8-health.timer"
+readonly RETIRED_S8_HEALTH_TIMER_PATH="/etc/systemd/system/${RETIRED_S8_HEALTH_TIMER}"
 readonly SERVICES=(
   tu1nz-adult-public-s7.service
   tu1nz-adult-public-s8-landing.service
@@ -70,6 +75,11 @@ require_root() {
 acquire_lock() {
   exec 9> /run/tu1nz-adult-public-s11-2-control.lock
   flock -n 9 || fail "S11_2_CONTROL_ALREADY_RUNNING"
+}
+
+release_lock() {
+  flock -u 9
+  exec 9>&-
 }
 
 require_sha() {
@@ -118,17 +128,29 @@ require_remote_target() {
 }
 
 require_local_freeze() {
-  local target_control="$1" control_tree
+  local target_control="$1" control_tree controller_sha gate_sha timer_sha
   [ "$(git_chatops "$CONTROL_ROOT" cat-file -t "refs/tags/${FINAL_CONTROL_TAG}")" = tag ] \
     || { fail "S11_2_FREEZE_NOT_ANNOTATED"; return 2; }
   [ "$(target_control_commit)" = "$target_control" ] \
     || { fail "S11_2_FREEZE_COMMIT_DRIFT"; return 2; }
   control_tree="$(target_control_tree)"
+  controller_sha="$(git_chatops "$CONTROL_ROOT" show "${target_control}:scripts/tu1nz_adult_public_s11_2_control.sh" | sha256sum | awk '{print $1}')"
+  gate_sha="$(git_chatops "$CONTROL_ROOT" show "${target_control}:scripts/tu1nz_adult_public_s11_2_gate.py" | sha256sum | awk '{print $1}')"
+  timer_sha="$(git_chatops "$CONTROL_ROOT" show "${target_control}:systemd/tu1nz-adult-public-s11-canary-controller.timer" | sha256sum | awk '{print $1}')"
+  [ "$(git_chatops "$CONTROL_ROOT" show "${target_control}:systemd/tu1nz-adult-public-s11-canary-controller.service" | sha256sum | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
+    || { fail "S11_2_FREEZE_UNIT_HASH_RED"; return 2; }
   for binding in \
     "application_commit=${TARGET_APPLICATION_COMMIT}" \
     "application_tree=${TARGET_APPLICATION_TREE}" \
     "control_commit=${target_control}" \
     "control_tree=${control_tree}" \
+    "runtime_controller_sha256=${controller_sha}" \
+    "runtime_gate_sha256=${gate_sha}" \
+    "controller_unit_sha256=${CONTROLLER_UNIT_SHA}" \
+    "controller_timer_sha256=${timer_sha}" \
+    "runtime_access_contract=SOURCE_CHATOPS_RUNTIME_INSTALLED_V1" \
+    "umask_077_regression=GREEN" \
+    "supplementary_groups=chatops" \
     "canary_contract=FIRST_10_24H_EPOCH_BOUND" \
     "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN"
   do
@@ -138,10 +160,255 @@ require_local_freeze() {
   done
 }
 
+source_access_check() {
+  local source_controller="${CONTROL_ROOT}/scripts/tu1nz_adult_public_s11_2_control.sh"
+  runuser -u chatops -- test -r "$source_controller" \
+    || fail "S11_2_SOURCE_CONTROLLER_READ_RED"
+  runuser -u chatops -- test -x "$source_controller" \
+    || fail "S11_2_SOURCE_CONTROLLER_EXECUTE_RED"
+  git_chatops "$APPLICATION_ROOT" rev-parse --verify HEAD >/dev/null \
+    || fail "S11_2_SOURCE_APPLICATION_GIT_READ_RED"
+  git_chatops "$CONTROL_ROOT" rev-parse --verify HEAD >/dev/null \
+    || fail "S11_2_SOURCE_CONTROL_GIT_READ_RED"
+  [ -z "$(git_chatops "$APPLICATION_ROOT" status --porcelain)" ] \
+    || fail "S11_2_SOURCE_APPLICATION_DIRTY"
+  [ -z "$(git_chatops "$CONTROL_ROOT" status --porcelain)" ] \
+    || fail "S11_2_SOURCE_CONTROL_DIRTY"
+  printf '{"ok":true,"safe_code":"S11_2_SOURCE_ACCESS_AS_CHATOPS_GREEN"}\n'
+}
+
+artifact_sha_from_git() {
+  git_chatops "$1" show "${2}:${3}" | sha256sum | awk '{print $1}'
+}
+
+install_runtime_access_manifest() {
+  local target_control="$1" control_tree controller_sha gate_sha unit_sha timer_sha retired_sha temporary
+  control_tree="$(target_control_tree)"
+  controller_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_control.sh)"
+  gate_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_gate.py)"
+  unit_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.service)"
+  timer_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.timer)"
+  retired_sha="$(artifact_sha_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s8-health.timer)"
+  [ "$(sha256sum "$INSTALLED_CONTROLLER" | awk '{print $1}')" = "$controller_sha" ] \
+    || fail "S11_2_RUNTIME_CONTROLLER_SOURCE_HASH_RED"
+  [ "$(sha256sum "$INSTALLED_GATE" | awk '{print $1}')" = "$gate_sha" ] \
+    || fail "S11_2_RUNTIME_GATE_SOURCE_HASH_RED"
+  [ "$(sha256sum "$CONTROLLER_UNIT" | awk '{print $1}')" = "$unit_sha" ] \
+    || fail "S11_2_RUNTIME_UNIT_SOURCE_HASH_RED"
+  [ "$(sha256sum "$CONTROLLER_TIMER" | awk '{print $1}')" = "$timer_sha" ] \
+    || fail "S11_2_RUNTIME_TIMER_SOURCE_HASH_RED"
+  [ "$(sha256sum "$RETIRED_S8_HEALTH_TIMER_PATH" | awk '{print $1}')" = "$retired_sha" ] \
+    || fail "S11_2_RETIRED_S8_HEALTH_TIMER_SOURCE_HASH_RED"
+  temporary="$(mktemp /run/tu1nz-s11-2-runtime-access.XXXXXX)"
+  S11_MANIFEST_DESTINATION="$temporary" \
+  S11_TARGET_CONTROL="$target_control" \
+  S11_TARGET_CONTROL_TREE="$control_tree" \
+  S11_CONTROLLER_SHA="$controller_sha" \
+  S11_GATE_SHA="$gate_sha" \
+  S11_UNIT_SHA="$unit_sha" \
+  S11_TIMER_SHA="$timer_sha" \
+  S11_RETIRED_TIMER_SHA="$retired_sha" \
+    /usr/bin/python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = {
+    "schema": "TU1NZ_S11_2_RUNTIME_ACCESS_V1",
+    "freeze_tag": "s11-2-r15-4-runtime-access-freeze-r1",
+    "application_commit": "84619ea0204aeb4b133fe6491f3315beccd635ae",
+    "application_tree": "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
+    "control_commit": os.environ["S11_TARGET_CONTROL"],
+    "control_tree": os.environ["S11_TARGET_CONTROL_TREE"],
+    "source_access_identity": "chatops",
+    "runtime_access_identity": "root:root+chatops",
+    "runtime_interpreter": "/opt/tu1nz_repos/adult-publishing-core/.venv/bin/python",
+    "artifacts": {
+        "controller": {
+            "path": "/usr/local/bin/tu1nz_adult_public_s11_2_control.sh",
+            "sha256": os.environ["S11_CONTROLLER_SHA"], "owner": 0, "group": 0, "mode": "0755",
+        },
+        "gate": {
+            "path": "/usr/local/bin/tu1nz_adult_public_s11_2_gate.py",
+            "sha256": os.environ["S11_GATE_SHA"], "owner": 0, "group": 0, "mode": "0755",
+        },
+        "controller_unit": {
+            "path": "/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service",
+            "sha256": os.environ["S11_UNIT_SHA"], "owner": 0, "group": 0, "mode": "0644",
+        },
+        "controller_timer": {
+            "path": "/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.timer",
+            "sha256": os.environ["S11_TIMER_SHA"], "owner": 0, "group": 0, "mode": "0644",
+        },
+        "retired_s8_health_timer": {
+            "path": "/etc/systemd/system/tu1nz-adult-public-s8-health.timer",
+            "sha256": os.environ["S11_RETIRED_TIMER_SHA"], "owner": 0, "group": 0, "mode": "0644",
+        },
+    },
+}
+Path(os.environ["S11_MANIFEST_DESTINATION"]).write_text(
+    json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="ascii"
+)
+PY
+  install -o root -g root -m 0644 "$temporary" "$RUNTIME_ACCESS_MANIFEST"
+  rm -f -- "$temporary"
+}
+
+verify_runtime_access_contract() {
+  S11_RUNTIME_MANIFEST="$RUNTIME_ACCESS_MANIFEST" \
+  S11_RUNTIME_PYTHON="$APPLICATION_RUNTIME_PYTHON" \
+  S11_INSTALLED_CONTROLLER="$INSTALLED_CONTROLLER" \
+  S11_INSTALLED_GATE="$INSTALLED_GATE" \
+  S11_CONTROLLER_UNIT="$CONTROLLER_UNIT" \
+  S11_CONTROLLER_TIMER="$CONTROLLER_TIMER" \
+  S11_RETIRED_TIMER="$RETIRED_S8_HEALTH_TIMER_PATH" \
+    /usr/bin/python3 - <<'PY' || { fail "S11_2_RUNTIME_ACCESS_CONTRACT_RED"; return 2; }
+import hashlib
+import json
+import os
+import stat
+import subprocess
+from pathlib import Path
+
+manifest_path = Path(os.environ["S11_RUNTIME_MANIFEST"])
+metadata = manifest_path.lstat()
+if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+    raise SystemExit(2)
+if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 0o644):
+    raise SystemExit(2)
+payload = json.loads(manifest_path.read_text(encoding="ascii"))
+if payload.get("schema") != "TU1NZ_S11_2_RUNTIME_ACCESS_V1":
+    raise SystemExit(2)
+if payload.get("freeze_tag") != "s11-2-r15-4-runtime-access-freeze-r1":
+    raise SystemExit(2)
+if payload.get("source_access_identity") != "chatops":
+    raise SystemExit(2)
+if payload.get("runtime_access_identity") != "root:root+chatops":
+    raise SystemExit(2)
+if payload.get("application_commit") != "84619ea0204aeb4b133fe6491f3315beccd635ae":
+    raise SystemExit(2)
+if payload.get("application_tree") != "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab":
+    raise SystemExit(2)
+runtime_python = Path(os.environ["S11_RUNTIME_PYTHON"])
+if payload.get("runtime_interpreter") != str(runtime_python) or not os.access(runtime_python, os.X_OK):
+    raise SystemExit(2)
+if subprocess.run(
+    [str(runtime_python), "-c", "import psycopg"],
+    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    check=False,
+).returncode != 0:
+    raise SystemExit(2)
+expected = {
+    "controller": (Path(os.environ["S11_INSTALLED_CONTROLLER"]), 0o755),
+    "gate": (Path(os.environ["S11_INSTALLED_GATE"]), 0o755),
+    "controller_unit": (Path(os.environ["S11_CONTROLLER_UNIT"]), 0o644),
+    "controller_timer": (Path(os.environ["S11_CONTROLLER_TIMER"]), 0o644),
+    "retired_s8_health_timer": (Path(os.environ["S11_RETIRED_TIMER"]), 0o644),
+}
+artifacts = payload.get("artifacts")
+if not isinstance(artifacts, dict) or set(artifacts) != set(expected):
+    raise SystemExit(2)
+for name, (path, mode) in expected.items():
+    record = artifacts[name]
+    if record.get("path") != str(path) or record.get("owner") != 0 or record.get("group") != 0:
+        raise SystemExit(2)
+    if record.get("mode") != f"0{mode:o}":
+        raise SystemExit(2)
+    current = path.lstat()
+    if stat.S_ISLNK(current.st_mode) or not stat.S_ISREG(current.st_mode):
+        raise SystemExit(2)
+    if (current.st_uid, current.st_gid, stat.S_IMODE(current.st_mode)) != (0, 0, mode):
+        raise SystemExit(2)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if record.get("sha256") != digest:
+        raise SystemExit(2)
+unit_text = Path(os.environ["S11_CONTROLLER_UNIT"]).read_text(encoding="ascii")
+if "ExecStart=/usr/local/bin/tu1nz_adult_public_s11_2_control.sh observe" not in unit_text:
+    raise SystemExit(2)
+if any(line.startswith("WorkingDirectory=/opt/tu1nz_repos") for line in unit_text.splitlines()):
+    raise SystemExit(2)
+PY
+  printf '{"ok":true,"safe_code":"S11_2_RUNTIME_INSTALLED_COPY_GREEN"}\n'
+}
+
+controller_access_check() {
+  local chatops_gid groups
+  require_root
+  [ "$(id -u)" = 0 ] || fail "S11_2_CONTROLLER_EFFECTIVE_USER_RED"
+  [ "$(id -g)" = 0 ] || fail "S11_2_CONTROLLER_EFFECTIVE_GROUP_RED"
+  chatops_gid="$(getent group chatops | cut -d: -f3)"
+  [[ "$chatops_gid" =~ ^[0-9]+$ ]] || fail "S11_2_CHATOPS_GROUP_RED"
+  groups=" $(id -G) "
+  [[ "$groups" == *" ${chatops_gid} "* ]] || fail "S11_2_CONTROLLER_SUPPLEMENTARY_GROUP_RED"
+  verify_runtime_access_contract >/dev/null
+  "$APPLICATION_RUNTIME_PYTHON" -c 'import psycopg' \
+    || fail "S11_2_CONTROLLER_RUNTIME_PYTHON_RED"
+  printf '{"ok":true,"safe_code":"S11_2_CONTROLLER_ACCESS_GREEN"}\n'
+}
+
+verify_controller_unit_contract() {
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p User --value)" = root ] \
+    || fail "S11_2_CONTROLLER_UNIT_USER_RED"
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p Group --value)" = root ] \
+    || fail "S11_2_CONTROLLER_UNIT_GROUP_RED"
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p SupplementaryGroups --value)" = chatops ] \
+    || fail "S11_2_CONTROLLER_UNIT_SUPPLEMENTARY_GROUP_RED"
+  [ "$(sha256sum "$CONTROLLER_UNIT" | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
+    || fail "S11_2_CONTROLLER_UNIT_HASH_RED"
+}
+
+run_controller_access_check() {
+  systemd-run --quiet --wait --collect --pipe \
+    --unit=tu1nz-adult-public-s11-controller-access-preflight.service \
+    --service-type=oneshot \
+    --property=User=root \
+    --property=Group=root \
+    --property=SupplementaryGroups=chatops \
+    --property=PrivateTmp=true \
+    --property=PrivateDevices=true \
+    --property=ProtectSystem=strict \
+    --property=ProtectHome=true \
+    --property=ProtectKernelTunables=true \
+    --property=ProtectKernelModules=true \
+    --property=ProtectKernelLogs=true \
+    --property=ProtectControlGroups=true \
+    --property=ProtectClock=true \
+    --property=ProtectHostname=true \
+    --property=RestrictSUIDSGID=true \
+    --property=RestrictRealtime=true \
+    --property=LockPersonality=true \
+    --property=MemoryDenyWriteExecute=true \
+    --property='SystemCallArchitectures=native' \
+    --property='RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
+    --property='CapabilityBoundingSet=CAP_SETUID CAP_SETGID' \
+    --property=ReadWritePaths=/run \
+    --property=UMask=0077 \
+    "$INSTALLED_CONTROLLER" access-preflight
+}
+
+wait_controller_natural_run() {
+  local previous_trigger="$1" deadline trigger active result exit_status
+  deadline=$((SECONDS + 390))
+  while (( SECONDS < deadline )); do
+    trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value)"
+    active="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p ActiveState --value)"
+    result="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p Result --value)"
+    exit_status="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p ExecMainStatus --value)"
+    if [ -n "$trigger" ] && [ "$trigger" != "$previous_trigger" ] && [ "$active" = inactive ]; then
+      [ "$result" = success ] && [ "$exit_status" = 0 ] \
+        || fail "S11_2_FIRST_NATURAL_CONTROLLER_RUN_RED"
+      printf '{"ok":true,"safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN"}\n'
+      return 0
+    fi
+    sleep 2
+  done
+  fail "S11_2_FIRST_NATURAL_CONTROLLER_RUN_TIMEOUT"
+}
+
 database_scalar() {
   local statement="$1"
   S11_DATABASE_DSN="$DATABASE_DSN" S11_STATEMENT="$statement" \
-    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
+    "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
 import os
 from pathlib import Path
 import psycopg
@@ -231,8 +498,7 @@ require_services_and_timers() {
     || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_PATH_DRIFT"; return 2; }
   [ -z "$(systemctl show "$RETIRED_S8_HEALTH_TIMER" -p DropInPaths --value)" ] \
     || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_DROPIN_PRESENT"; return 2; }
-  cmp -s "$CONTROL_ROOT/systemd/$RETIRED_S8_HEALTH_TIMER" \
-    "/etc/systemd/system/$RETIRED_S8_HEALTH_TIMER" \
+  [ "$(sha256sum "$RETIRED_S8_HEALTH_TIMER_PATH" | awk '{print $1}')" = "$RETIRED_S8_HEALTH_TIMER_SHA" ] \
     || { fail "S11_2_RETIRED_S8_HEALTH_TIMER_UNIT_DRIFT"; return 2; }
 }
 
@@ -269,7 +535,7 @@ require_hard_gates() {
 
 require_wms_runtime_binding() {
   runuser -u chatops -- env PYTHONPATH="$APPLICATION_ROOT/src" \
-    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
+    "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
 from pathlib import Path
 
 from tu1nz_exposure_s10.contract import S10ExposureContract
@@ -311,7 +577,7 @@ require_target_wms_compatibility() {
       || { fail "S11_2_TARGET_WMS_PARSER_DRIFT"; return 2; }
   done
   runuser -u chatops -- env PYTHONPATH="$APPLICATION_ROOT/src" \
-    "$APPLICATION_ROOT/.venv/bin/python" - \
+    "$APPLICATION_RUNTIME_PYTHON" - \
     3< <(git_chatops "$APPLICATION_ROOT" show "${TARGET_APPLICATION_COMMIT}:config/commercial-s10-1-wms-copy.v1.json") <<'PY'
 import json
 import os
@@ -344,6 +610,7 @@ PY
 }
 
 require_source_state() {
+  source_access_check >/dev/null
   require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL
   [ -f "$DATABASE_DSN" ] && [ ! -L "$DATABASE_DSN" ] || fail "S11_2_DATABASE_CREDENTIAL_RED"
@@ -370,7 +637,7 @@ preflight() {
 database_evidence() {
   local destination="$1"
   S11_DATABASE_DSN="$DATABASE_DSN" S11_DESTINATION="$destination" \
-    "$APPLICATION_ROOT/.venv/bin/python" - <<'PY'
+    "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -477,6 +744,7 @@ backup_runtime() {
   backup_optional "$COMMUNITY_CONTRACT" "$backup_path/community-contract.json" "$backup_path/COMMUNITY_CONTRACT_ABSENT"
   backup_optional "$INSTALLED_CONTROLLER" "$backup_path/s11-2-control.sh" "$backup_path/S11_2_CONTROLLER_ABSENT"
   backup_optional "$INSTALLED_GATE" "$backup_path/s11-2-gate.py" "$backup_path/S11_2_GATE_ABSENT"
+  backup_optional "$RUNTIME_ACCESS_MANIFEST" "$backup_path/s11-2-runtime-access.json" "$backup_path/S11_2_RUNTIME_ACCESS_ABSENT"
   backup_optional "$CONTROLLER_UNIT" "$backup_path/s11-2-controller.service" "$backup_path/S11_2_SERVICE_ABSENT"
   backup_optional "$CONTROLLER_TIMER" "$backup_path/s11-2-controller.timer" "$backup_path/S11_2_TIMER_ABSENT"
   install -m 0600 "$AGGREGATE_STATE" "$backup_path/landing-aggregates.exact"
@@ -647,7 +915,7 @@ payload={
 }
 Path(sys.argv[2]).write_text(json.dumps(payload,sort_keys=True,separators=(",",":"))+"\n")
 PY
-  "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" --input "$destination" \
+  "$APPLICATION_RUNTIME_PYTHON" "$INSTALLED_GATE" --input "$destination" \
     | /usr/bin/python3 -c 'import json,sys;p=json.load(sys.stdin);raise SystemExit(0 if p["technical_latency"]["state"]=="GREEN" else 2)' \
     || fail "S11_2_TECHNICAL_LATENCY_RED"
 }
@@ -715,15 +983,15 @@ run_runtime_health() {
 gate_json() {
   local hard="$1"
   if [ "$hard" = true ]; then
-    "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" \
+    "$APPLICATION_RUNTIME_PYTHON" "$INSTALLED_GATE" \
       --dsn-file "$DATABASE_DSN" --hard-gates-green
   else
-    "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN"
+    "$APPLICATION_RUNTIME_PYTHON" "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN"
   fi
 }
 
 promote_under_barrier_json() {
-  "$APPLICATION_ROOT/.venv/bin/python" "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN" \
+  "$APPLICATION_RUNTIME_PYTHON" "$INSTALLED_GATE" --dsn-file "$DATABASE_DSN" \
     --promote-under-barrier --expected-release-id "$RUNTIME_RELEASE_ID"
 }
 
@@ -743,6 +1011,7 @@ verify_target() {
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_gate.py" "$INSTALLED_GATE" || fail "S11_2_INSTALLED_GATE_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.service" "$CONTROLLER_UNIT" || fail "S11_2_INSTALLED_SERVICE_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.timer" "$CONTROLLER_TIMER" || fail "S11_2_INSTALLED_TIMER_DRIFT"
+  verify_runtime_access_contract >/dev/null
   state="$(release_state)"
   case "$state" in
     S11_CANARY\|CANARY_COLLECTING_EVIDENCE|S11_FULL\|FULL_RELEASE) ;;
@@ -792,7 +1061,7 @@ restore_source() {
   fi
   git_chatops "$APPLICATION_ROOT" switch --detach "$SOURCE_APPLICATION_COMMIT" >/dev/null || return 1
   git_chatops "$CONTROL_ROOT" switch --detach "$SOURCE_CONTROL_COMMIT" >/dev/null || return 1
-  runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/python" -m pip install \
+  runuser -u chatops -- "$APPLICATION_RUNTIME_PYTHON" -m pip install \
     --no-deps --no-build-isolation "$APPLICATION_ROOT" >/dev/null || return 1
   restore_optional "$backup_path" s8-telegram.service S8_UNIT_ABSENT "$S8_UNIT" 0644 || return 1
   restore_optional "$backup_path" s8-health.service S8_HEALTH_UNIT_ABSENT "$S8_HEALTH_UNIT" 0644 || return 1
@@ -802,6 +1071,7 @@ restore_source() {
   restore_optional "$backup_path" wms-landing-copy.json WMS_LANDING_COPY_ABSENT "$WMS_LANDING_COPY" 0644 || return 1
   restore_optional "$backup_path" s11-2-control.sh S11_2_CONTROLLER_ABSENT "$INSTALLED_CONTROLLER" 0755 || return 1
   restore_optional "$backup_path" s11-2-gate.py S11_2_GATE_ABSENT "$INSTALLED_GATE" 0755 || return 1
+  restore_optional "$backup_path" s11-2-runtime-access.json S11_2_RUNTIME_ACCESS_ABSENT "$RUNTIME_ACCESS_MANIFEST" 0644 || return 1
   restore_optional "$backup_path" s11-2-controller.service S11_2_SERVICE_ABSENT "$CONTROLLER_UNIT" 0644 || return 1
   restore_optional "$backup_path" s11-2-controller.timer S11_2_TIMER_ABSENT "$CONTROLLER_TIMER" 0644 || return 1
   require_wms_runtime_binding || return 1
@@ -816,7 +1086,7 @@ restore_source() {
 }
 
 deploy() {
-  local target_control="$1" backup_path="$2" current_state
+  local target_control="$1" backup_path="$2" current_state previous_trigger
   require_root
   acquire_lock
   preflight "$target_control" "$backup_path"
@@ -830,7 +1100,7 @@ deploy() {
   fetch_and_require_target "$target_control"
   git_chatops "$APPLICATION_ROOT" switch --detach "$TARGET_APPLICATION_COMMIT" >/dev/null
   git_chatops "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
-  runuser -u chatops -- "$APPLICATION_ROOT/.venv/bin/python" -m pip install \
+  runuser -u chatops -- "$APPLICATION_RUNTIME_PYTHON" -m pip install \
     --no-deps --no-build-isolation "$APPLICATION_ROOT" >/dev/null
   install_from_git "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" config/commercial-s11-interactive-experience.sfw.json 0644 "$EXPERIENCE_CONTRACT"
   install_from_git "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" config/commercial-s11-interactive-copy.v1.json 0644 "$EXPERIENCE_COPY"
@@ -842,9 +1112,13 @@ deploy() {
   install_from_git "$CONTROL_ROOT" "$target_control" scripts/tu1nz_adult_public_s11_2_gate.py 0755 "$INSTALLED_GATE"
   install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.service 0644 "$CONTROLLER_UNIT"
   install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.timer 0644 "$CONTROLLER_TIMER"
+  install_runtime_access_manifest "$target_control"
   apply_migration
   [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_CODE_OFF_RED"
   systemctl daemon-reload
+  systemctl reset-failed tu1nz-adult-public-s11-canary-controller.service >/dev/null 2>&1 || true
+  verify_controller_unit_contract
+  run_controller_access_check
   systemctl restart "$S8_SERVICE"
   systemctl restart "$WMS_SERVICE"
   wait_wms_ready
@@ -857,11 +1131,14 @@ deploy() {
   run_synthetic_journeys "$backup_path/synthetic-journeys.json"
   technical_latency_fixture "$backup_path/technical-latency-input.json" "$backup_path/technical-latency-values.txt"
   require_hard_gates
+  previous_trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value 2>/dev/null || true)"
   database_transition START_CANARY S11_2_CANARY_BOOTSTRAP_LIVE
   insert_technical_evidence "$backup_path/technical-latency-values.txt"
   current_state="$(gate_json true | gate_field decision)"
   [ "$current_state" = CANARY_COLLECTING_EVIDENCE ] || fail "S11_2_INITIAL_CANARY_STATE_RED"
+  release_lock
   systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
+  wait_controller_natural_run "$previous_trigger"
   run_runtime_health
   verify_target "$target_control"
   install -d -o root -g root -m 0700 "$backup_path/postdeploy"
@@ -899,20 +1176,19 @@ deployment_error() {
 }
 
 observe() {
-  local target_control hard=true payload decision transition current_state
+  local hard=true payload decision transition current_state
   require_root
   acquire_lock
   current_state="$(release_state)"
-  if ! target_control="$(target_control_commit)" \
-    || ! require_clean_commit "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION \
-    || ! require_clean_commit "$CONTROL_ROOT" "$target_control" "$(target_control_tree)" TARGET_CONTROL \
-    || ! require_local_freeze "$target_control"; then
+  if ! require_clean_commit \
+      "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION \
+    || ! verify_runtime_access_contract >/dev/null; then
     if [[ "$current_state" == S11_CANARY\|* ]]; then
-      database_transition CANARY_RED S11_2_REPOSITORY_INTEGRITY_RED
+      database_transition CANARY_RED S11_2_RUNTIME_INTEGRITY_RED
       require_public_health
-      printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_REPOSITORY_INTEGRITY_RED"}\n' >&2
+      printf '{"ok":false,"safe_code":"S11_2_CANARY_DISABLED_RUNTIME_INTEGRITY_RED"}\n' >&2
     else
-      fail "S11_2_REPOSITORY_INTEGRITY_RED"
+      fail "S11_2_RUNTIME_INTEGRITY_RED"
     fi
     return 2
   fi
@@ -983,6 +1259,7 @@ rollback() {
 }
 
 usage() {
+  printf 'usage: %s access-preflight\n' "$0" >&2
   printf 'usage: %s preflight TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s deploy TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
   printf '       %s observe\n' "$0" >&2
@@ -992,6 +1269,10 @@ usage() {
 }
 
 case "${1:-}" in
+  access-preflight)
+    [ "$#" -eq 1 ] || usage
+    controller_access_check
+    ;;
   hard-gates-read-only)
     [ "$#" -eq 1 ] || usage
     require_root

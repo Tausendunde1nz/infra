@@ -8,7 +8,6 @@ Type=oneshot
 TimeoutStartSec=300
 User=root
 Group=root
-SupplementaryGroups=chatops
 ExecStart=/usr/local/bin/tu1nz_adult_public_s11_2_control.sh observe
 PrivateTmp=true
 PrivateDevices=true

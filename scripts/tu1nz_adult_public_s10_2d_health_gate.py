@@ -9,12 +9,23 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Mapping, Protocol
 
 try:
     from scripts.tu1nz_adult_public_community_health_contract import normalize_report
 except ModuleNotFoundError:  # direct execution from /usr/local/bin
     from tu1nz_adult_public_community_health_contract import normalize_report
+
+try:
+    from scripts.tu1nz_adult_public_s10_health_child_contract import (
+        OUTER_CODE as S10_HEALTH_OUTER_CODE,
+        normalize_report as normalize_s10_report,
+    )
+except ModuleNotFoundError:  # direct execution from /usr/local/bin
+    from tu1nz_adult_public_s10_health_child_contract import (
+        OUTER_CODE as S10_HEALTH_OUTER_CODE,
+        normalize_report as normalize_s10_report,
+    )
 
 
 HEALTH_UNITS = (
@@ -177,12 +188,22 @@ def _failure_report(
         else f"SYSTEMCTL_START_EXIT_{max(0, min(start_status, 255))}"
     )
     bounded_result = _bounded_result(result)
-    preserves_child = (
+    preserves_community_child = (
         unit == HEALTH_UNITS[1] and exit_status in {40, 41, 42, 43, 44}
     ) or (
         unit == HEALTH_UNITS[2] and exit_status == 34
     )
-    child_failure = normalize_report(child_report) if preserves_child else None
+    preserves_s10_child = (
+        unit == HEALTH_UNITS[2]
+        and isinstance(child_report, Mapping)
+        and child_report.get("outer_code") == S10_HEALTH_OUTER_CODE
+    )
+    if preserves_s10_child:
+        child_failure = normalize_s10_report(child_report)
+    elif preserves_community_child:
+        child_failure = normalize_report(child_report)
+    else:
+        child_failure = None
     fingerprint_input = {
         "actual_state": actual_state,
         "check_id": check_id,
@@ -209,11 +230,17 @@ def _failure_report(
         "stage": "HEALTH_GATE_START",
     }
     if child_failure is not None:
+        decision_class = getattr(
+            child_failure,
+            "decision_class",
+            getattr(child_failure, "classification", "UNKNOWN_HARD_RED"),
+        )
         report.update({
             "child_code": child_failure.child_code,
             "component": child_failure.component,
-            "decision_class": child_failure.decision_class,
-            "failure_class": child_failure.failure_class,
+            "classification": decision_class,
+            "decision_class": decision_class,
+            "failure_class": getattr(child_failure, "failure_class", decision_class),
             "next_action": child_failure.next_action,
             "outer_code": child_failure.outer_code,
             "retry": False,

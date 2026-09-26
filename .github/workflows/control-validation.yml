@@ -795,17 +795,24 @@ jobs:
           scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh
           && python3 -m py_compile
           scripts/tu1nz_adult_public_community_health_contract.py
+          scripts/tu1nz_adult_public_s10_health_child_contract.py
           scripts/tu1nz_adult_public_s10_1_health.py
           scripts/tu1nz_adult_public_s10_2d_health_gate.py
           scripts/tu1nz_adult_public_s11_2_gate.py
+          scripts/tu1nz_adult_public_s11_2_access_simulator.py
           scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py
+          scripts/tu1nz_adult_public_s11_2_health_preflight.py
           tests/test_adult_commercial_s11_2_canary_bootstrap.py
           tests/test_adult_commercial_s11_2_r8_child_code_contract.py
+          tests/test_adult_commercial_s11_2_r15_6_health_child.py
           && python3 -m unittest -v
           tests.test_adult_commercial_s11_2_canary_bootstrap
           tests.test_adult_commercial_s11_2_r8_child_code_contract
+          tests.test_adult_commercial_s11_2_r15_6_health_child
           && python3 scripts/tu1nz_adult_public_s11_2_gate.py --simulate-contract
+          && python3 scripts/tu1nz_adult_public_s11_2_access_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py --simulate-contract
+          && python3 scripts/tu1nz_adult_public_s11_2_health_preflight.py --simulate-contract
       - name: Validate Commercial S11.2 Canary systemd controller
         shell: bash
         run: |
@@ -823,18 +830,24 @@ jobs:
           files=(
             manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json
             docs/COMMERCIAL_S11_2_CANARY_BOOTSTRAP.md
+            docs/COMMERCIAL_S11_2_R15_4_SOURCE_RUNTIME_ACCESS_2026-09-25.diagnose
             analysis/COMMERCIAL_S11_2_R8_CHILD_CODE_LOSS_2026-09-21.diagnose
+            analysis/COMMERCIAL_S11_2_R15_6_S10_HEALTH_CHILD_CODE_2026-09-26.diagnose
             scripts/tu1nz_adult_public_community_health_contract.py
+            scripts/tu1nz_adult_public_s10_health_child_contract.py
             scripts/tu1nz_adult_public_s10_1_health.py
             scripts/tu1nz_adult_public_s10_2d_health_gate.py
             scripts/tu1nz_adult_public_s11_2_control.sh
             scripts/tu1nz_adult_public_s11_2_gate.py
+            scripts/tu1nz_adult_public_s11_2_access_simulator.py
             scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py
+            scripts/tu1nz_adult_public_s11_2_health_preflight.py
             scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh
             systemd/tu1nz-adult-public-s11-canary-controller.service
             systemd/tu1nz-adult-public-s11-canary-controller.timer
             tests/test_adult_commercial_s11_2_canary_bootstrap.py
             tests/test_adult_commercial_s11_2_r8_child_code_contract.py
+            tests/test_adult_commercial_s11_2_r15_6_health_child.py
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
           ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP) PRIVATE KEY-----' -- "${files[@]}"
