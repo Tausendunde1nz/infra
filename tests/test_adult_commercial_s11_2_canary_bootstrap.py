@@ -393,33 +393,33 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"', source)
         self.assertIn('SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"', source)
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
-        self.assertIn('TARGET_APPLICATION_COMMIT="dc901d01fd20bedd92a9c2565bd1d3370f7f3e14"', source)
-        self.assertIn('TARGET_APPLICATION_TREE="52b9960eff5348310c06f8480971260c00fa20ef"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-10-bash-safety-freeze-r1"', source)
+        self.assertIn('TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"', source)
+        self.assertIn('TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-12-community-health-envelope-freeze-r1"', source)
         self.assertIn(
             'CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"',
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v20")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v21")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_10_BASH_SAFETY_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_12_COMMUNITY_HEALTH_ENVELOPE_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-10-bash-safety-freeze-r1",
+            "s11-2-r15-12-community-health-envelope-freeze-r1",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
-            "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
+            "db87896697d56b24f192fc1cd0324b6fe46d734b",
         )
         self.assertEqual(
             manifest["application_release"]["tree"],
-            "52b9960eff5348310c06f8480971260c00fa20ef",
+            "b915a04e19eef8a244c300b16577a44cea89e2ab",
         )
-        self.assertEqual(manifest["application_release"]["pull_request"], 121)
-        self.assertEqual(manifest["application_release"]["post_merge_ci"], 36233672918)
+        self.assertEqual(manifest["application_release"]["pull_request"], 122)
+        self.assertEqual(manifest["application_release"]["post_merge_ci"], 36270365443)
         self.assertEqual(
             manifest["r15_activation"]["source_application_commit"],
             "77f9079956a42ee411e17f5697da96f6810ba966",

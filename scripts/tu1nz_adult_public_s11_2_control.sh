@@ -12,9 +12,9 @@ readonly SOURCE_APPLICATION_COMMIT="77f9079956a42ee411e17f5697da96f6810ba966"
 readonly SOURCE_APPLICATION_TREE="370001f8ce0491ddf7709c2cee16d452d6098721"
 readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
-readonly TARGET_APPLICATION_COMMIT="dc901d01fd20bedd92a9c2565bd1d3370f7f3e14"
-readonly TARGET_APPLICATION_TREE="52b9960eff5348310c06f8480971260c00fa20ef"
-readonly FINAL_CONTROL_TAG="s11-2-r15-10-bash-safety-freeze-r1"
+readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
+readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
+readonly FINAL_CONTROL_TAG="s11-2-r15-12-community-health-envelope-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -30,6 +30,8 @@ readonly MIGRATION_REARM_DOWN_SHA="ca1a286f042f685d7a48d6db1231d7a816973c5496da2
 readonly MIGRATION_EPOCH_UP_SHA="c745307910c117df9a8f8fbf98f54d9b1e6bb382841e95dccc23e1ebf0e477db"
 readonly MIGRATION_EPOCH_DOWN_SHA="08aff95bc309b28c4d9b967ce9b53a73750a979d0246b4ca427e6fec9057573c"
 readonly WMS_LANDING_COPY_SHA="86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"
+readonly APPLICATION_COMMUNITY_HEALTH_CONTRACT_SHA="c4c3605233ed33c1c7e3d2004f412fc28cf476081999914e48a221a00d9a65dc"
+readonly APPLICATION_COMMUNITY_HEALTH_FIXTURE_SHA="0900d979c8029bc8b998476fe326e01b84ee149167296ac482d14daca7486728"
 readonly EXPERIENCE_CONTRACT="/etc/tu1nz/adult-commercial-s11-interactive-experience.json"
 readonly EXPERIENCE_COPY="/etc/tu1nz/adult-commercial-s11-interactive-copy.json"
 readonly WMS_CONTRACT="/etc/tu1nz/adult-commercial-s10-wms.json"
@@ -176,6 +178,9 @@ require_local_freeze() {
     "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN" \
     "phase_contract=S11_2_R15_8_ORCHESTRATION_V1" \
     "health_contract=S10_1_HEALTH_CHILD_V1" \
+    "application_health_schema=S8_HEALTH_V2" \
+    "community_failure_envelope=COMMUNITY_FAILURE_V1" \
+    "control_community_reader=CONTROL_COMMUNITY_READER_V2" \
     "technical_evidence_contract=DYNAMIC_MISSING_SAMPLE_HARD_CAP" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
@@ -247,9 +252,9 @@ from pathlib import Path
 
 payload = {
     "schema": "TU1NZ_S11_2_RUNTIME_ACCESS_V1",
-    "freeze_tag": "s11-2-r15-10-bash-safety-freeze-r1",
-    "application_commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
-    "application_tree": "52b9960eff5348310c06f8480971260c00fa20ef",
+    "freeze_tag": "s11-2-r15-12-community-health-envelope-freeze-r1",
+    "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
+    "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
     "control_commit": os.environ["S11_TARGET_CONTROL"],
     "control_tree": os.environ["S11_TARGET_CONTROL_TREE"],
     "source_access_identity": "chatops",
@@ -316,15 +321,15 @@ if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 
 payload = json.loads(manifest_path.read_text(encoding="ascii"))
 if payload.get("schema") != "TU1NZ_S11_2_RUNTIME_ACCESS_V1":
     raise SystemExit(2)
-if payload.get("freeze_tag") != "s11-2-r15-10-bash-safety-freeze-r1":
+if payload.get("freeze_tag") != "s11-2-r15-12-community-health-envelope-freeze-r1":
     raise SystemExit(2)
 if payload.get("source_access_identity") != "chatops":
     raise SystemExit(2)
 if payload.get("runtime_access_identity") != "root:root+chatops":
     raise SystemExit(2)
-if payload.get("application_commit") != "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14":
+if payload.get("application_commit") != "db87896697d56b24f192fc1cd0324b6fe46d734b":
     raise SystemExit(2)
-if payload.get("application_tree") != "52b9960eff5348310c06f8480971260c00fa20ef":
+if payload.get("application_tree") != "b915a04e19eef8a244c300b16577a44cea89e2ab":
     raise SystemExit(2)
 runtime_python = Path(os.environ["S11_RUNTIME_PYTHON"])
 if payload.get("runtime_interpreter") != str(runtime_python) or not os.access(runtime_python, os.X_OK):
@@ -647,6 +652,34 @@ WMSLandingApplication(
 PY
 }
 
+require_target_community_health_compatibility() {
+  local target_control="$1" temporary
+  temporary="$(mktemp -d /run/tu1nz-s11-2-community-compatibility.XXXXXX)" \
+    || { fail "S11_2_COMMUNITY_HEALTH_COMPATIBILITY_RED"; return 2; }
+  if ! (
+    git_chatops "$APPLICATION_ROOT" show \
+      "${TARGET_APPLICATION_COMMIT}:src/tu1nz_public_s8/community_health.py" \
+      | install -m 0600 /dev/stdin "$temporary/application_community_health.py"
+    git_chatops "$APPLICATION_ROOT" show \
+      "${TARGET_APPLICATION_COMMIT}:tests/fixtures/s11_2_r15_12_application_event_path_red.json" \
+      | install -m 0600 /dev/stdin "$temporary/application_fixture.json"
+    git_chatops "$CONTROL_ROOT" show \
+      "${target_control}:scripts/tu1nz_adult_public_community_health_contract.py" \
+      | install -m 0600 /dev/stdin "$temporary/tu1nz_adult_public_community_health_contract.py"
+    git_chatops "$CONTROL_ROOT" show \
+      "${target_control}:scripts/tu1nz_adult_public_s11_2_community_compatibility.py" \
+      | install -m 0700 /dev/stdin "$temporary/compatibility.py"
+    PYTHONPATH="$temporary" /usr/bin/python3 "$temporary/compatibility.py" \
+      --application-contract "$temporary/application_community_health.py" \
+      --fixture "$temporary/application_fixture.json" >/dev/null
+  ); then
+    rm -rf -- "$temporary"
+    fail "S11_2_COMMUNITY_HEALTH_COMPATIBILITY_RED"
+    return 2
+  fi
+  rm -rf -- "$temporary"
+}
+
 require_source_state() {
   source_access_check >/dev/null
   require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION
@@ -855,7 +888,11 @@ migrations/0034_commercial_s11_2_canary_rearm.down.sql ${MIGRATION_REARM_DOWN_SH
 migrations/0035_commercial_s11_2_pre_canary_epoch.sql ${MIGRATION_EPOCH_UP_SHA}
 migrations/0035_commercial_s11_2_pre_canary_epoch.down.sql ${MIGRATION_EPOCH_DOWN_SHA}
 config/commercial-s10-1-wms-copy.v1.json ${WMS_LANDING_COPY_SHA}
+src/tu1nz_public_s8/community_health.py ${APPLICATION_COMMUNITY_HEALTH_CONTRACT_SHA}
+tests/fixtures/s11_2_r15_12_application_event_path_red.json ${APPLICATION_COMMUNITY_HEALTH_FIXTURE_SHA}
 EOF
+  require_target_community_health_compatibility "$target_control" \
+    || { fail "S11_2_COMMUNITY_HEALTH_COMPATIBILITY_RED"; return 2; }
   require_target_wms_compatibility \
     || { fail "S11_2_TARGET_WMS_RUNTIME_BINDING_RED"; return 2; }
 }
