@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Mac-only public-API transaction. Credentials in Keychain; bearer tokens in RAM."""
+import socket
 import argparse, datetime, getpass, hashlib, json, os, pathlib, resource, signal, stat, subprocess, sys, time, urllib.request, urllib.error, urllib.parse, uuid
 from tu1nz_keychain import Keychain
 BASE='https://api.tailscale.com/api/v2'
@@ -37,7 +38,7 @@ class API:
    except urllib.error.HTTPError as e:
     code=e.code;e.close()
     if code not in [429,500,502,503,504] or attempt==3:raise SafeError('API HTTP '+str(code)) from None
-   except (urllib.error.URLError,TimeoutError,OSError):
+   except (urllib.error.URLError,socket.timeout,TimeoutError,OSError):
     if attempt==3:raise SafeError('API network retry budget exhausted') from None
    self.sleep(2**attempt)
  def auth(self):
