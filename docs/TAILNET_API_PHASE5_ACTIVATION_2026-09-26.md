@@ -35,3 +35,13 @@ After all baseline gates pass, fresh watchdog snapshot and 1800-second deadline;
 ## Git
 
 Clean hardening base8d049a1; current control-main656e854 reviewed: changes since4147890 concern S11/S10 health-code/runtime contracts, manifests, CI and documentation, not this policy or watchdog. A protected verified bundle precedes a non-rewriting merge in the isolated worktree. Canonical detached checkout untouched. Only intended new helper/documentation staged; full private policy/evidence and credentials are not committed.
+
+## Fresh privileged baseline — 2026-09-26 12:08 UTC
+
+The recovery-console read-only snapshot PASSED at12:08:04 UTC: loaded sshd Fail2ban action=nftables and port=2222. Actual nftables IPv4 and IPv6 filter INPUT/FORWARD policies are DROP. Protected server snapshot: api-phase5-20260926/before-20260926T120803Z/. Fresh12:08:58 UTC Mac checks passed chatops22/2222, prohibited-user denials, monitoring, website, targets and service results. Original API policy is unchanged and candidate validation passed again. Mac baseline/evidence: /Users/daniel/.codex/tu1nz-recovery/api-rollback-20260926T084526Z/final-preflight-20260926T120858Z/.
+
+The extended sequential Mac evidence collector is staged in scripts/tu1nz_phase5_extended_mac_check.py; it cannot write policy or disarm the watchdog. It requires unchanged server baseline, both SSH families with denied users, IPv6 OpenSSH closure, public negative checks, live denied Tailnet ports and, for accept, three new logins without check. It writes evidence even on failure. Separate privileged after-snapshot, policy API tests, iPhone results and stable observation remain required. No activation occurred.
+
+control-main advanced again to0a85e5c4e6228f067730031aba3280dae50645a0; fetched/read-only review shows S11.2 deployment orchestration code, tests, manifest, docs and ignore rules. No policy/watchdog overlap; no new deployment or canonical checkout modification performed here. Prior integration656e854 remains in this branch; later unrelated commits are not merged automatically.
+
+The operator's latest 'fertig' is verified as successful sudo input. It is not treated as evidence that iPhone Exit Node, website/DNS and external IPv4 checks all passed. An explicit bundled iPhone baseline confirmation has been requested. Production activation and watchdog arming remain pending that critical client result. The temporary OAuth credential and Keychain entry are retained solely for the pending authorized transactions; no active production-change watchdog is running and no token is persisted to disk.
