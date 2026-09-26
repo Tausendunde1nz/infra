@@ -113,8 +113,13 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
     def test_deploy_is_backup_first_and_canary_starts_after_gates(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        precheck = source[
+            source.index("run_pre_mutation_target_check() {"):
+            source.index("run_guarded_deployment() {")
+        ]
         phases = source[source.index("run_remaining_phases() {"):source.index("finalize_deployment_evidence() {")]
-        self.assertLess(deploy.index("backup_runtime"), deploy.index("fetch_and_require_target"))
+        self.assertLess(deploy.index("backup_runtime"), deploy.index("run_pre_mutation_target_check"))
+        self.assertIn("fetch_and_require_target", precheck)
         self.assertLess(phases.index("TECHNICAL_EVIDENCE_COMPLETE)"), phases.index("CANARY_ACTIVE)"))
         self.assertLess(phases.index("SYNTHETIC_VALIDATION_GREEN)"), phases.index("CANARY_ACTIVE)"))
         self.assertLess(phases.index("EVIDENCE_EPOCH_SET)"), phases.index("CANARY_ACTIVE)"))
@@ -124,9 +129,11 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
     def test_terminal_epoch_rearm_is_bound_archival_after_backup(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         deploy = source[source.index("deploy() {"):source.index("deployment_error() {")]
+        mutations = source[source.index("deploy_mutations() {"):source.index("resume_mutations() {")]
         migration = source[source.index("apply_migration() {"):source.index("run_synthetic_journeys() {")]
         target = source[source.index("fetch_and_require_target() {"):source.index("install_from_git() {")]
-        self.assertLess(deploy.index("require_backup"), deploy.index("run_remaining_phases"))
+        self.assertLess(deploy.index("require_backup"), deploy.index("run_guarded_deployment"))
+        self.assertIn("run_remaining_phases", mutations)
         self.assertIn("0034_commercial_s11_2_canary_rearm.sql", target)
         self.assertIn("0034_commercial_s11_2_canary_rearm.down.sql", target)
         self.assertIn("MIGRATION_REARM_UP_SHA", target)
@@ -388,20 +395,20 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
         self.assertIn('TARGET_APPLICATION_COMMIT="dc901d01fd20bedd92a9c2565bd1d3370f7f3e14"', source)
         self.assertIn('TARGET_APPLICATION_TREE="52b9960eff5348310c06f8480971260c00fa20ef"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-8-orchestration-freeze-r1"', source)
+        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-10-bash-safety-freeze-r1"', source)
         self.assertIn(
             'CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"',
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v19")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v20")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_8_ORCHESTRATION_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_10_BASH_SAFETY_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-8-orchestration-freeze-r1",
+            "s11-2-r15-10-bash-safety-freeze-r1",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
@@ -856,10 +863,17 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             phases.index("run_controller_access_check"),
             phases.index("database_transition START_CANARY"),
         )
-        self.assertLess(phases.index("release_lock"), phases.index("systemctl enable --now"))
+        self.assertLess(
+            phases.index("release_inherited_lock"),
+            phases.index("systemctl enable --now"),
+        )
         self.assertLess(
             phases.index("systemctl enable --now"),
             phases.index("wait_controller_natural_run"),
+        )
+        self.assertLess(
+            phases.index("wait_controller_natural_run"),
+            phases.index("reacquire_inherited_lock"),
         )
         self.assertIn('safe_code":"S11_2_CONTROLLER_ACCESS_GREEN', source)
         self.assertIn('safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN', source)

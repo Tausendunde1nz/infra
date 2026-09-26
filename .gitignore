@@ -314,6 +314,7 @@
 !tests/test_adult_commercial_s10_2d_r8_1_state_reconciliation.py
 !tests/test_adult_commercial_s11_2_canary_bootstrap.py
 !tests/test_adult_commercial_s11_2_r15_8_orchestration.py
+!tests/test_adult_commercial_s11_2_r15_10_bash_safety.py
 !tests/fixtures/
 !tests/fixtures/s11-2-r15-3/
 !tests/fixtures/s11-2-r15-3/controller-without-chatops.service

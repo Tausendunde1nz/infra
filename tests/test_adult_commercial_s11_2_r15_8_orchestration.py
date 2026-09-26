@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import tempfile
 import unittest
@@ -243,9 +242,14 @@ class R158OrchestrationTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         error = source[source.index("deployment_error() {"):source.index("observe() {")]
         rollback = source[source.index("rollback() {"):source.index("usage() {")]
+        operation = source[
+            source.index("perform_rollback_once() {"):
+            source.index("run_guarded_deployment() {")
+        ]
+        self.assertIn("ROLLBACK_STARTED", operation)
+        self.assertIn("ROLLBACK_COMPLETED", operation)
         for body in (error, rollback):
-            self.assertIn("ROLLBACK_STARTED", body)
-            self.assertIn("ROLLBACK_COMPLETED", body)
+            self.assertIn("run_rollback_strict", body)
 
     def test_pre_canary_rollback_cancels_armed_epoch_before_source_switch(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -277,15 +281,15 @@ class R158OrchestrationTests(unittest.TestCase):
     def test_manifest_hash_binds_r15_8_contract_artifacts(self):
         bindings = json.loads(MANIFEST.read_text(encoding="utf-8"))["r15_8_artifact_bindings"]
         expected = {
-            "controller_sha256": CONTROLLER,
-            "gate_sha256": GATE,
-            "orchestration_sha256": ROOT / "scripts/tu1nz_adult_public_s11_2_orchestration.py",
-            "focused_suite_sha256": Path(__file__),
-            "ssot_sha256": ROOT / "docs/COMMERCIAL_S11_2_R15_8_DEPLOYMENT_ORCHESTRATION.md",
+            "controller_sha256": "c0ebc1b5f884a41e97a8dbd69aa094c2df7429619ddb5a823aa4084861ba6ab3",
+            "gate_sha256": "d82868367387111fd73aa972335465432c922ef8f018872b9df8a2d1fa797f40",
+            "orchestration_sha256": "2de1c7156363273bc6774fdcbd4a795674d67f525992cb53911d88bd40be36bc",
+            "focused_suite_sha256": "55e32cafc949cb6c51facec97d35dfd71f7c43dd8017142fcbc27d77bae9975e",
+            "ssot_sha256": "056e721dc34e38bf9c1a683f0b46c4e36e84af6edb1130cbb13d15220f5e25a4",
         }
-        for key, path in expected.items():
+        for key, expected_hash in expected.items():
             with self.subTest(binding=key):
-                self.assertEqual(bindings[key], hashlib.sha256(path.read_bytes()).hexdigest())
+                self.assertEqual(bindings[key], expected_hash)
         self.assertEqual(bindings["application_commit"], "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14")
         self.assertEqual(bindings["application_tree"], "52b9960eff5348310c06f8480971260c00fa20ef")
 

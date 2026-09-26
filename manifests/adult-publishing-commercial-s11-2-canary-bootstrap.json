@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v19",
-  "status": "S11_2_R15_8_ORCHESTRATION_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v20",
+  "status": "S11_2_R15_10_BASH_SAFETY_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
     "tree": "52b9960eff5348310c06f8480971260c00fa20ef",
@@ -9,7 +9,7 @@
     "reviewed_head": "3fc963cc5e366f613805590ba2f9adc859be2049"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-8-orchestration-freeze-r1",
+    "freeze_tag": "s11-2-r15-10-bash-safety-freeze-r1",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -202,6 +202,37 @@
     "ssot_sha256": "056e721dc34e38bf9c1a683f0b46c4e36e84af6edb1130cbb13d15220f5e25a4",
     "migration_0035_up_sha256": "c745307910c117df9a8f8fbf98f54d9b1e6bb382841e95dccc23e1ebf0e477db",
     "migration_0035_down_sha256": "08aff95bc309b28c4d9b967ce9b53a73750a979d0246b4ca427e6fec9057573c",
+    "application_commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
+    "application_tree": "52b9960eff5348310c06f8480971260c00fa20ef"
+  },
+  "r15_10_bash_safety": {
+    "source_only": true,
+    "runtime_mutation_performed": false,
+    "root_cause": "SAME_LOCAL_NOUNSET_EXPANSION",
+    "set_u_preserved": true,
+    "same_local_dependency_count_before": 3,
+    "same_local_dependency_count_after": 0,
+    "err_trap_is_only_advisory": true,
+    "explicit_phase_failure_supervisor": true,
+    "systemd_handoff_reuses_inherited_lock_descriptor": true,
+    "pre_mutation_failure_rolls_back": false,
+    "mutation_boundary_marker": "MUTATION_STARTED",
+    "post_mutation_failure_rolls_back": true,
+    "rollback_exactly_once": true,
+    "rollback_idempotent": true,
+    "phase_contract_version": "S11_2_R15_8_ORCHESTRATION_V1",
+    "health_contract_version": "S10_1_HEALTH_CHILD_V1",
+    "runtime_access_contract": "SOURCE_CHATOPS_RUNTIME_INSTALLED_V1",
+    "technical_start_counts": [0, 3, 4, 5],
+    "automatic_retry": false,
+    "s11_canary_started": false,
+    "next_r15_11_runtime_deployment_ready": true
+  },
+  "r15_10_artifact_bindings": {
+    "controller_sha256": "9b7611890aa46a36f6a82b583cfd4cb2451551122098cc999bd698b0bf310cd9",
+    "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
+    "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
+    "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
     "application_commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
     "application_tree": "52b9960eff5348310c06f8480971260c00fa20ef"
   },
