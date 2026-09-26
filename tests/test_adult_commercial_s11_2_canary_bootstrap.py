@@ -393,10 +393,10 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v17")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v18")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_4_SOURCE_RUNTIME_ACCESS_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_6_S10_HEALTH_CHILD_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],

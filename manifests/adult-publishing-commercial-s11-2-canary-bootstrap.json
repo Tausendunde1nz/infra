@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v17",
-  "status": "S11_2_R15_4_SOURCE_RUNTIME_ACCESS_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v18",
+  "status": "S11_2_R15_6_S10_HEALTH_CHILD_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "84619ea0204aeb4b133fe6491f3315beccd635ae",
     "tree": "8f90cfc39b038e6438a6ee6bf2b96c029c4ebbab",
@@ -125,6 +125,40 @@
     "canary_retry_performed": false,
     "next_s11_canary_deployment_ready": true
   },
+  "r15_6_s10_health_child_contract": {
+    "source_only": true,
+    "observed_red_at": "2026-09-26T06:25:58Z",
+    "natural_green_at": "2026-09-26T06:31:01Z",
+    "original_outer_code": "S10_1_WMS_HEALTH_RED",
+    "original_exit_code": 2,
+    "historical_child_recoverable": false,
+    "loss_location": "S10_1_HEALTH_FINAL_GENERIC_EXCEPTION_HANDLER",
+    "structured_contract_version": "S10_1_HEALTH_CHILD_V1",
+    "outer_code_preserved": true,
+    "child_code_allowlisted": true,
+    "component_allowlisted": true,
+    "transient_classification": "TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE",
+    "persistent_classification": "PERSISTENT_BLOCKER",
+    "missing_child_code": "S10_HEALTH_CHILD_CODE_MISSING_RED",
+    "unknown_child_code": "S10_HEALTH_CHILD_CODE_UNKNOWN_RED",
+    "automatic_retry": false,
+    "health_gate_bypass": false,
+    "current_and_historical_state_separate": true,
+    "structured_run_boundary": "contract_version+observed_at",
+    "fixture_matrix": "A-L",
+    "r15_4_access_contract_unchanged": true,
+    "runtime_deployment_performed": false,
+    "s11_canary_started": false,
+    "next_r15_5_runtime_deployment_ready": true
+  },
+  "r15_6_artifact_bindings": {
+    "s10_health_child_contract_sha256": "f462d98567e4e2186e83364aed633c961214e5d2fd5eb81b50816487e3771f4c",
+    "s10_health_entrypoint_sha256": "36a9d1f1e12779fc1459336a83a8c14c5ba2d21f21357096ffb0d72e6fd97298",
+    "s10_health_gate_sha256": "a5e49e15088d7e2999e106e8511c6b55b77141cc3a097138461ce4cceda0423e",
+    "r15_5_preflight_sha256": "ee6a7cdd5a695c0f7a0141827435d484480d053e0d2c8c1dfbffe19c9b5214c8",
+    "recovery_diagnostic_sha256": "affb9364f09145bd8b00bd2628004d45e1072fbe52f753bdb86b885cdc9720ea",
+    "fixture_suite_sha256": "f1a81cdf21233b52dad3d283b24169089e07fe5bf6aaed87043b5dfe2d4f74a2"
+  },
   "r8_community_health_contract": {
     "outer_code_preserved": true,
     "child_code_allowlisted": true,
@@ -223,10 +257,10 @@
     "next_s8_recovery_ready": true
   },
   "r12_artifact_bindings": {
-    "community_health_contract_sha256": "9849c2804ee8fe10e7edfb55aad5d7455c17649e0b48a3736b732ea3dea9a5a7",
-    "s9_health_wrapper_sha256": "15cc2cfa6c38e4ee6c5cc3689b62011672b9304a4d0709e3062c87e3d49ba019",
-    "health_gate_sha256": "c92f85ad6c352643bec9e871049d34c352265d7155e83afabdbbbcc3f76379e7",
-    "recovery_diagnostic_sha256": "7b394ed58f48177cb43ffdbace0782c8bcf90255a5aacf98ea7506cb8709698b",
+    "community_health_contract_sha256": "8807a38fb191966ee20210b31c4ba016bef78e40d91eba3774afa13fc38708d0",
+    "s9_health_wrapper_sha256": "36a9d1f1e12779fc1459336a83a8c14c5ba2d21f21357096ffb0d72e6fd97298",
+    "health_gate_sha256": "a5e49e15088d7e2999e106e8511c6b55b77141cc3a097138461ce4cceda0423e",
+    "recovery_diagnostic_sha256": "affb9364f09145bd8b00bd2628004d45e1072fbe52f753bdb86b885cdc9720ea",
     "recovery_entrypoint_sha256": "0245f6fa817d2679e9bc3db6519c3f0a2c0c3e24643be42b0ea45c86fdb1142a",
     "fixture_suite_sha256": "12d4145989384c2f3a6f9810bbd6586d55857a8761fb2b2ed476bceea875f99e",
     "source_only_release_simulator_sha256": "d6fd9a94a6126b47980941375385d9560d8682274b301c3758b032007553cc01"

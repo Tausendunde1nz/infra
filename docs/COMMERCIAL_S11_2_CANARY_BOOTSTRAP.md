@@ -338,3 +338,38 @@ access and installed-copy execution, rejects missing, mismatched,
 non-executable and repository-bound runtime copies, and verifies an exact
 rollback without changing Source permissions. R15.4 performs no server
 installation, controller start or Canary retry.
+
+## R15.6 S10 health child-code diagnostic contract
+
+R15.5 stopped before sudo when the S10 health service returned exit 2 with
+only `S10_1_WMS_HEALTH_RED`; the next natural timer run recovered to GREEN.
+The exact loss was the final general exception handler in the S10.1 health
+entrypoint. Community failures were already structured, but a timeout or
+other unstructured subprocess/I/O failure lost both its child type and its
+calling component before the journal or Phase-A reader could observe them.
+The roughly 33-second historical runtime is compatible with the existing
+30-second child timeout, but the old report cannot prove which child failed.
+
+R15.6 adds a strict general S10 envelope without changing the existing
+Community contract. A RED report now binds the stable outer code to an
+allowlisted child, component, classification, bounded next action and matching
+exit code. Missing or unknown children fail closed. Telegram/channel or child
+timeout failures may be labelled
+`TRANSIENT_PROVIDER_OR_TIMING_CANDIDATE`, but that label never means ignore,
+continue or retry. Two consecutive identical transient observations become a
+`PERSISTENT_BLOCKER`; database/state, aggregate, release, configuration,
+product-boundary and unknown failures always remain hard blockers.
+
+The future R15.5 reader consumes only versioned structured JSON records with
+an embedded UTC observation boundary. It does not use free text or depend on
+a post-process systemd invocation lookup. Current health and retained failure
+evidence are separate: a natural later GREEN records recovery but cannot
+resume the stopped deployment. Every path still requires a distinct future
+deployment authorisation, and every current RED stops before deployment.
+
+The A-L source simulator covers GREEN, transient and persistent Telegram RED,
+poller, lease and event-path RED, database/state and release blockers,
+missing/unknown children, natural RED-to-GREEN recovery and public WMS RED.
+It performs no server action. R15.4 source/runtime identities and installed
+copy bindings remain unchanged. R15.6 itself is source-only: no health unit,
+S8 runtime, controller, timer, evidence, S11 state or Canary is changed.
