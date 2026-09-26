@@ -1,15 +1,15 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v20",
-  "status": "S11_2_R15_10_BASH_SAFETY_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v21",
+  "status": "S11_2_R15_12_COMMUNITY_HEALTH_ENVELOPE_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
-    "commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
-    "tree": "52b9960eff5348310c06f8480971260c00fa20ef",
-    "pull_request": 121,
-    "post_merge_ci": 36233672918,
-    "reviewed_head": "3fc963cc5e366f613805590ba2f9adc859be2049"
+    "commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
+    "tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
+    "pull_request": 122,
+    "post_merge_ci": 36270365443,
+    "reviewed_head": "99936d15c800c25bef35701c9568de30f04d227e"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-10-bash-safety-freeze-r1",
+    "freeze_tag": "s11-2-r15-12-community-health-envelope-freeze-r1",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -24,8 +24,8 @@
     "source_application_tree": "370001f8ce0491ddf7709c2cee16d452d6098721",
     "source_control_commit": "7c634d3b82572e8459d51c69f04dce82c624d766",
     "source_control_tree": "1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4",
-    "target_application_commit": "dc901d01fd20bedd92a9c2565bd1d3370f7f3e14",
-    "target_application_tree": "52b9960eff5348310c06f8480971260c00fa20ef",
+    "target_application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
+    "target_application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
     "r14_1_freeze": "s11-2-r14-1-journal-cursor-freeze",
     "r14_1_runtime_ready": true,
     "p0_recovery_closed": true,
@@ -229,7 +229,7 @@
     "next_r15_11_runtime_deployment_ready": true
   },
   "r15_10_artifact_bindings": {
-    "controller_sha256": "9b7611890aa46a36f6a82b583cfd4cb2451551122098cc999bd698b0bf310cd9",
+    "controller_sha256": "dba63b2459358f6a1297f53e686f71b5ed920d5befb84b30e7aebc335624a0d3",
     "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
     "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
     "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
@@ -334,13 +334,52 @@
     "next_s8_recovery_ready": true
   },
   "r12_artifact_bindings": {
-    "community_health_contract_sha256": "8807a38fb191966ee20210b31c4ba016bef78e40d91eba3774afa13fc38708d0",
+    "community_health_contract_sha256": "5414932b02badcbc7bb66579b209ba868b71bf5aa2993fcb1be48155667bb568",
     "s9_health_wrapper_sha256": "36a9d1f1e12779fc1459336a83a8c14c5ba2d21f21357096ffb0d72e6fd97298",
     "health_gate_sha256": "a5e49e15088d7e2999e106e8511c6b55b77141cc3a097138461ce4cceda0423e",
     "recovery_diagnostic_sha256": "affb9364f09145bd8b00bd2628004d45e1072fbe52f753bdb86b885cdc9720ea",
     "recovery_entrypoint_sha256": "0245f6fa817d2679e9bc3db6519c3f0a2c0c3e24643be42b0ea45c86fdb1142a",
     "fixture_suite_sha256": "12d4145989384c2f3a6f9810bbd6586d55857a8761fb2b2ed476bceea875f99e",
     "source_only_release_simulator_sha256": "d6fd9a94a6126b47980941375385d9560d8682274b301c3758b032007553cc01"
+  },
+  "r15_12_community_health_envelope": {
+    "source_only": true,
+    "runtime_mutation_performed": false,
+    "runtime_retry_performed": false,
+    "s11_canary_started": false,
+    "root_cause": "APPLICATION_CONTROL_NONZERO_FAILURE_PROPAGATION_ASYMMETRY",
+    "application_health_schema": "S8_HEALTH_V2",
+    "community_failure_schema": "TU1NZ_COMMUNITY_FAILURE",
+    "community_failure_envelope_version": "COMMUNITY_FAILURE_V1",
+    "control_community_reader_version": "CONTROL_COMMUNITY_READER_V2",
+    "envelope_fields": ["schema", "version", "child_code", "component"],
+    "failure_priority": ["PROVIDER", "POLLING", "MODERATION", "COMMUNITY", "LATENCY_SLO"],
+    "return_code_symmetry": true,
+    "legacy_structured_compatibility_used": true,
+    "legacy_free_text_parsing": false,
+    "malformed_explicit_envelope_falls_back": false,
+    "missing_child_fails_closed": true,
+    "unknown_child_fails_closed": true,
+    "product_latency_separate_from_runtime_health": true,
+    "predeploy_compatibility_before_dependent_health": true,
+    "r15_6_health_child_contract": "S10_1_HEALTH_CHILD_V1",
+    "r15_8_orchestration_contract": "S11_2_R15_8_ORCHESTRATION_V1",
+    "r15_10_bash_safety_unchanged": true,
+    "r15_4_runtime_access_unchanged": true,
+    "next_r15_13_runtime_deployment_ready": true
+  },
+  "r15_12_artifact_bindings": {
+    "application_community_health_contract_sha256": "c4c3605233ed33c1c7e3d2004f412fc28cf476081999914e48a221a00d9a65dc",
+    "application_integration_fixture_sha256": "0900d979c8029bc8b998476fe326e01b84ee149167296ac482d14daca7486728",
+    "control_community_reader_sha256": "5414932b02badcbc7bb66579b209ba868b71bf5aa2993fcb1be48155667bb568",
+    "compatibility_gate_sha256": "95f6583c4b64c8f39277b305bc4c7c353590400c63097beb27847345a56cff8c",
+    "r15_13_simulator_sha256": "60b9a9d63eb249d31b071d8f0280de008ce4d3f824c92da01b7457ee50be9bd8",
+    "focused_envelope_suite_sha256": "84c25b47b952f0bfb5614875163307adb40d7c4b2ec5785f0c140d835467ada9",
+    "focused_compatibility_suite_sha256": "d1e06b883e8babe3bb5c0bab52533396b8c0a6d5b3707c0d744c4cd347308b2b",
+    "controller_sha256": "dba63b2459358f6a1297f53e686f71b5ed920d5befb84b30e7aebc335624a0d3",
+    "ssot_sha256": "ecf837dc94e7a389341e3b5665bcc794d4308ad43a392e246915dc4b46e3880d",
+    "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
+    "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
   },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
   "canary_contract": {
