@@ -1,0 +1,69 @@
+TU1NZ / WANT ME SEEN S11.2-R15.6 S10 HEALTH CHILD-CODE DIAGNOSIS
+
+Classification: GENERIC_S10_EXCEPTION_ENVELOPE_DROPPED_CHILD_CONTEXT
+Scope: source-only; no server, runtime, evidence or product-state mutation
+
+Observed evidence
+
+- The R15.5 Phase-A S10 health run started at 2026-09-26T06:25:58Z and
+  ended with exit status 2 and only `S10_1_WMS_HEALTH_RED`.
+- The next natural timer run at 2026-09-26T06:31:01Z ended with status 0.
+- Public WMS remained HTTP 200 and the S10 WMS service remained active with
+  zero restarts. No R15.5 sudo, deployment, S11 start or Canary occurred.
+- The failed run took approximately 33 seconds. This is consistent with a
+  child process reaching the entrypoint's 30-second timeout, but the original
+  generic report does not prove which child timed out. R15.6 does not invent
+  that missing historical fact.
+
+Exact loss location
+
+The S10.1 entrypoint invokes local/public WMS, aggregate state, changeset,
+growth, Community and systemd checks. Community failures already have a strict
+outer/child/component contract. Every other `OSError`, `SubprocessError` and
+non-canonical `ValueError` reached the final generic exception handler in
+`tu1nz_adult_public_s10_1_health.py`. That handler retained a string only when
+it began with `S10_`; otherwise it emitted `S10_1_WMS_HEALTH_RED`. A
+`subprocess.TimeoutExpired` therefore lost both its child type and the calling
+component and retained only exit class 2. The old R15.5 Phase-A check consumed
+the resulting unit status and had no structured child to recover from the
+journal. There is no shell-pipe, stderr, systemd or R15.4 access-contract loss
+before this point.
+
+Call graph and contracts
+
+| Layer | Input | Output | Failure contract |
+| --- | --- | --- | --- |
+| S10 timer/service | scheduled unit | one health process | systemd result and process exit |
+| S10.1 entrypoint | versioned contracts and read-only states | one bounded JSON report | general S10 or existing Community envelope |
+| growth/S9 | S9 and S10 contracts | growth and channel health | existing S10 growth/Telegram child codes |
+| Community/S8 | poller, lease, event path, provider, latency | Community health JSON | existing strict Community outer/child contract |
+| WMS | local/public SFW endpoints | bounded health result | public/product-boundary child codes |
+| state checks | aggregate, changeset, database-facing child checks | bounded state result | state/release child codes |
+| systemd checks | allowlisted services/timers | active/restart/liveness result | system-state child codes |
+| S10 wrapper | child exception plus bounded component | outer, child, component, classification, action and exit | missing/unknown fail closed |
+| future R15.5 preflight | versioned structured JSON runs | current state plus retained last failure | STOP on current RED; never retries |
+
+R15.6 contract
+
+- The general outer code remains `S10_1_WMS_HEALTH_RED`.
+- Existing specific S10 and Community child codes are preserved.
+- General missing and unknown children map to dedicated hard-stop codes.
+- A child timeout and `S10_TELEGRAM_HEALTH_RED` are diagnostic transient
+  candidates only. Their next action is a read-only recheck before a new,
+  separate deployment authorisation.
+- Two consecutive identical transient RED observations are classified as a
+  persistent blocker. Hard DB/state/release/config/product-boundary failures
+  never degrade to transient.
+- Each health report carries the fixed contract version and an UTC
+  `observed_at` run boundary. The future parser reads only those structured
+  JSON reports and ignores unstructured journal text.
+- A current GREEN is represented independently from the retained most recent
+  failure and recovery time. A current RED always stops Phase A.
+- The A-L simulator never starts deployment and requires a separate future
+  authorisation even when a natural later GREEN confirms transience.
+
+Unchanged boundaries
+
+The R15.4 installed-copy/runtime-access contract, Tailscale SSH, `chatops`,
+sudoers, firewall, ACLs, systemd units, server runtime, databases, evidence,
+Telegram state, S11 flags and Adult product boundaries are unchanged.

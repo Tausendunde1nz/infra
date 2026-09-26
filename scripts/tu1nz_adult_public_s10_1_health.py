@@ -28,6 +28,21 @@ except ModuleNotFoundError:  # direct execution from /usr/local/bin
         latency_profile_states,
     )
 
+try:
+    from scripts.tu1nz_adult_public_s10_health_child_contract import (
+        CONTRACT_VERSION as HEALTH_CONTRACT_VERSION,
+        S10HealthFailure,
+        exit_status as general_health_exit_status,
+        failure_from_exception as general_failure_from_exception,
+    )
+except ModuleNotFoundError:  # direct execution from /usr/local/bin
+    from tu1nz_adult_public_s10_health_child_contract import (
+        CONTRACT_VERSION as HEALTH_CONTRACT_VERSION,
+        S10HealthFailure,
+        exit_status as general_health_exit_status,
+        failure_from_exception as general_failure_from_exception,
+    )
+
 
 APPLICATION = Path("/opt/tu1nz_repos/adult-publishing-core")
 S9_RUNTIME = APPLICATION / ".venv/bin/python"
@@ -149,7 +164,34 @@ def health_exit_status(safe_code: str) -> int:
         return 33
     if safe_code.startswith("S10_TELEGRAM_"):
         return 34
-    return 2
+    return general_health_exit_status(safe_code)
+
+
+def _checked(component: str, function, *arguments):
+    """Attach a bounded component to otherwise unstructured health failures."""
+
+    try:
+        return function(*arguments)
+    except (CommunityHealthFailure, S10HealthFailure):
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        raise general_failure_from_exception(error, component) from None
+
+
+def _validate_inputs(arguments: argparse.Namespace) -> None:
+    required_paths = (
+        arguments.contract, arguments.copy, arguments.s8_contract,
+        arguments.s9_contract, arguments.database_dsn, arguments.telegram_token,
+    )
+    if not all(path.is_file() for path in required_paths):
+        raise ValueError("S10_REQUIRED_FILE_MISSING")
+    if arguments.community_contract is not None and arguments.s8_copy is None:
+        raise ValueError("S10_2D_COMMUNITY_S8_COPY_MISSING")
+    if any(
+        path is not None and not path.is_file()
+        for path in (arguments.s8_copy, arguments.community_contract, arguments.community_copy)
+    ):
+        raise ValueError("S10_2D_COMMUNITY_REQUIRED_FILE_MISSING")
 
 
 def _run(command: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -495,20 +537,9 @@ def main() -> int:
     mode.add_argument("--local-only", action="store_true")
     mode.add_argument("--pre-growth", action="store_true")
     arguments = parser.parse_args()
+    observed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
-        required_paths = (
-            arguments.contract, arguments.copy, arguments.s8_contract,
-            arguments.s9_contract, arguments.database_dsn, arguments.telegram_token,
-        )
-        if not all(path.is_file() for path in required_paths):
-            raise ValueError("S10_REQUIRED_FILE_MISSING")
-        if arguments.community_contract is not None and arguments.s8_copy is None:
-            raise ValueError("S10_2D_COMMUNITY_S8_COPY_MISSING")
-        if any(
-            path is not None and not path.is_file()
-            for path in (arguments.s8_copy, arguments.community_contract, arguments.community_copy)
-        ):
-            raise ValueError("S10_2D_COMMUNITY_REQUIRED_FILE_MISSING")
+        _checked("CONFIG_AUTH", _validate_inputs, arguments)
         safe_code = (
             "S10_1_WMS_LOCAL_SFW_GREEN"
             if arguments.local_only
@@ -517,16 +548,23 @@ def main() -> int:
             else "S10_1_WMS_PUBLIC_SFW_GREEN"
         )
         payload = {
+            "contract_version": HEALTH_CONTRACT_VERSION,
+            "observed_at": observed_at,
             "ok": True,
             "safe_code": safe_code,
             "state": "GREEN",
-            "web_local": _web(LOCAL_ORIGIN),
-            "web_public": None if arguments.local_only else _web(PUBLIC_ORIGIN),
-            "traffic_quality": _traffic_quality(arguments.traffic_quality_state),
-            "s10_2f_changeset": _changeset(arguments.changeset_state),
-            "growth": _growth(arguments),
-            "community": _community(arguments),
-            "system": _system(arguments.local_only, not arguments.local_only and not arguments.pre_growth),
+            "web_local": _checked("WMS_LOCAL_HEALTH", _web, LOCAL_ORIGIN),
+            "web_public": None if arguments.local_only else _checked("WMS_PUBLIC_HEALTH", _web, PUBLIC_ORIGIN),
+            "traffic_quality": _checked("AGGREGATE_STATE", _traffic_quality, arguments.traffic_quality_state),
+            "s10_2f_changeset": _checked("RELEASE_BINDING", _changeset, arguments.changeset_state),
+            "growth": _checked("GROWTH", _growth, arguments),
+            "community": _checked("COMMUNITY", _community, arguments),
+            "system": _checked(
+                "SYSTEMD",
+                _system,
+                arguments.local_only,
+                not arguments.local_only and not arguments.pre_growth,
+            ),
             "adult_content": False,
             "real_avs": False,
             "payments": False,
@@ -538,12 +576,25 @@ def main() -> int:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 0
     except CommunityHealthFailure as error:
-        print(json.dumps(error.as_dict(), sort_keys=True, separators=(",", ":")))
-        return health_exit_status(error.outer_code)
+        exit_code = health_exit_status(error.outer_code)
+        report = {
+            **error.as_dict(),
+            "contract_version": HEALTH_CONTRACT_VERSION,
+            "exit_code": exit_code,
+            "observed_at": observed_at,
+            "retry": False,
+        }
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+        return exit_code
+    except S10HealthFailure as error:
+        report = {**error.as_dict(), "observed_at": observed_at}
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+        return error.exit_code
     except (OSError, subprocess.SubprocessError, ValueError) as error:
-        safe_code = str(error) if str(error).startswith("S10_") else "S10_1_WMS_HEALTH_RED"
-        print(json.dumps({"ok": False, "safe_code": safe_code, "state": "RED"}, sort_keys=True, separators=(",", ":")))
-        return health_exit_status(safe_code)
+        failure = general_failure_from_exception(error, "INTERNAL_HEALTH_CONTRACT")
+        report = {**failure.as_dict(), "observed_at": observed_at}
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+        return failure.exit_code
 
 
 if __name__ == "__main__":

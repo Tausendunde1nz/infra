@@ -31,6 +31,17 @@ except ModuleNotFoundError:  # direct execution from /usr/local/bin
         normalize_report,
     )
 
+try:
+    from scripts.tu1nz_adult_public_s10_health_child_contract import (
+        OUTER_CODE as S10_HEALTH_OUTER_CODE,
+        normalize_report as normalize_s10_report,
+    )
+except ModuleNotFoundError:  # direct execution from /usr/local/bin
+    from tu1nz_adult_public_s10_health_child_contract import (
+        OUTER_CODE as S10_HEALTH_OUTER_CODE,
+        normalize_report as normalize_s10_report,
+    )
+
 
 MAXIMUM_INPUT_BYTES = 64 * 1024
 
@@ -43,9 +54,17 @@ def diagnose(report: object) -> dict[str, object]:
             "retry": False,
             "safe_code": "S11_2_R12_RECOVERY_DIAGNOSTIC_GREEN",
         }
-    health_failure = normalize_report(report)
+    if isinstance(report, Mapping) and (
+        report.get("outer_code") == S10_HEALTH_OUTER_CODE
+        or report.get("safe_code") == S10_HEALTH_OUTER_CODE
+    ):
+        health_failure = normalize_s10_report(report)
+        failure_report = health_failure.as_dict()
+    else:
+        health_failure = normalize_report(report)
+        failure_report = health_failure.as_dict()
     return {
-        **health_failure.as_dict(),
+        **failure_report,
         "decision": "STOP_NO_RETRY",
         "ok": False,
         "retry": False,
