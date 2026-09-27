@@ -14,8 +14,8 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-16-4-technical-profile-serialization-freeze-r1"
-readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
+readonly FINAL_CONTROL_TAG="s11-2-r15-17-1-systemd-handoff-contract-freeze-r1"
+readonly CONTROLLER_UNIT_SHA="b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -185,7 +185,7 @@ require_local_freeze() {
     "gate_diagnostic_contract=GATE_DIAGNOSTIC_V1" \
     "gate_error_allowlist=CANONICAL_EXACT_ONLY" \
     "controller_gate_reader=CONTROL_GATE_READER_V1" \
-    "r15_15_simulator=SOURCE_ONLY_GREEN" \
+    "r15_15_simulator=CURRENT_INVOCATION_FINITE_FUTURE_V1" \
     "technical_evidence_contract=PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
@@ -250,6 +250,7 @@ install_runtime_access_manifest() {
   S11_UNIT_SHA="$unit_sha" \
   S11_TIMER_SHA="$timer_sha" \
   S11_RETIRED_TIMER_SHA="$retired_sha" \
+  S11_FREEZE_TAG="$FINAL_CONTROL_TAG" \
     /usr/bin/python3 - <<'PY'
 import json
 import os
@@ -257,7 +258,7 @@ from pathlib import Path
 
 payload = {
     "schema": "TU1NZ_S11_2_RUNTIME_ACCESS_V1",
-    "freeze_tag": "s11-2-r15-12-community-health-envelope-freeze-r1",
+    "freeze_tag": os.environ["S11_FREEZE_TAG"],
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
     "control_commit": os.environ["S11_TARGET_CONTROL"],
@@ -309,6 +310,7 @@ verify_runtime_access_contract() {
   S11_CONTROLLER_UNIT="$CONTROLLER_UNIT" \
   S11_CONTROLLER_TIMER="$CONTROLLER_TIMER" \
   S11_RETIRED_TIMER="$RETIRED_S8_HEALTH_TIMER_PATH" \
+  S11_RUNTIME_FREEZE_TAG="$FINAL_CONTROL_TAG" \
     /usr/bin/python3 - <<'PY' || { fail "S11_2_RUNTIME_ACCESS_CONTRACT_RED"; return 2; }
 import hashlib
 import json
@@ -326,7 +328,7 @@ if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 
 payload = json.loads(manifest_path.read_text(encoding="ascii"))
 if payload.get("schema") != "TU1NZ_S11_2_RUNTIME_ACCESS_V1":
     raise SystemExit(2)
-if payload.get("freeze_tag") != "s11-2-r15-12-community-health-envelope-freeze-r1":
+if payload.get("freeze_tag") != os.environ["S11_RUNTIME_FREEZE_TAG"]:
     raise SystemExit(2)
 if payload.get("source_access_identity") != "chatops":
     raise SystemExit(2)
@@ -373,6 +375,8 @@ for name, (path, mode) in expected.items():
 unit_text = Path(os.environ["S11_CONTROLLER_UNIT"]).read_text(encoding="ascii")
 if "ExecStart=/usr/local/bin/tu1nz_adult_public_s11_2_control.sh observe" not in unit_text:
     raise SystemExit(2)
+if "RefuseManualStart=yes" not in unit_text.splitlines():
+    raise SystemExit(2)
 if any(line.startswith("WorkingDirectory=/opt/tu1nz_repos") for line in unit_text.splitlines()):
     raise SystemExit(2)
 PY
@@ -401,6 +405,8 @@ verify_controller_unit_contract() {
     || fail "S11_2_CONTROLLER_UNIT_GROUP_RED"
   [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p SupplementaryGroups --value)" = chatops ] \
     || fail "S11_2_CONTROLLER_UNIT_SUPPLEMENTARY_GROUP_RED"
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p RefuseManualStart --value)" = yes ] \
+    || fail "S11_2_CONTROLLER_MANUAL_START_OPEN_RED"
   [ "$(sha256sum "$CONTROLLER_UNIT" | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
     || fail "S11_2_CONTROLLER_UNIT_HASH_RED"
 }
@@ -434,20 +440,259 @@ run_controller_access_check() {
     "$INSTALLED_CONTROLLER" access-preflight
 }
 
+normalized_timer_value() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+timer_value_is_missing() {
+  local normalized
+  normalized="$(normalized_timer_value "$1")"
+  case "$normalized" in
+    ""|n/a|0|infinity|infinite|never|-) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+monotonic_now_usec() {
+  /usr/bin/python3 - <<'PY'
+import time
+
+print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1000)
+PY
+}
+
+systemd_timespan_usec() {
+  local value="$1" parsed
+  if timer_value_is_missing "$value"; then
+    return 1
+  fi
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  parsed="$(LC_ALL=C systemd-analyze timespan "$value" 2>/dev/null | awk 'NR == 2 {print $2}')"
+  [[ "$parsed" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$parsed"
+}
+
+timer_has_finite_future_values() {
+  local realtime="$1" monotonic="$2" now_realtime="$3" now_monotonic="$4" parsed
+  if ! timer_value_is_missing "$realtime"; then
+    parsed="$(date --date="$realtime" +%s%6N 2>/dev/null || true)"
+    if [[ "$parsed" =~ ^[0-9]+$ ]] && (( parsed > now_realtime )); then
+      return 0
+    fi
+  fi
+  if ! timer_value_is_missing "$monotonic"; then
+    parsed="$(systemd_timespan_usec "$monotonic" 2>/dev/null || true)"
+    if [[ "$parsed" =~ ^[0-9]+$ ]] \
+      && [ "$parsed" != 18446744073709551615 ] \
+      && (( parsed > now_monotonic )); then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+timer_has_finite_future() {
+  local unit="$1" attempt realtime monotonic now_realtime now_monotonic
+  for attempt in 1 2 3 4 5; do
+    realtime="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
+    monotonic="$(systemctl show "$unit" -p NextElapseUSecMonotonic --value)"
+    now_realtime="$(date +%s%6N)"
+    now_monotonic="$(monotonic_now_usec)"
+    if timer_has_finite_future_values \
+        "$realtime" "$monotonic" "$now_realtime" "$now_monotonic"; then
+      return 0
+    fi
+    [ "$attempt" -eq 5 ] || sleep 1
+  done
+  return 1
+}
+
+first_invocation_after_trigger() {
+  local handoff_realtime="$1" trigger="$2" trigger_usec
+  trigger_usec="$(systemd_timespan_usec "$trigger" 2>/dev/null || true)"
+  [[ "$trigger_usec" =~ ^[0-9]+$ ]] || return 0
+  journalctl --quiet --no-pager --output=json \
+      --unit=tu1nz-adult-public-s11-canary-controller.service \
+      --since="$handoff_realtime" 2>/dev/null \
+    | S11_TRIGGER_USEC="$trigger_usec" /usr/bin/python3 -c '
+import json
+import os
+import sys
+
+trigger = int(os.environ["S11_TRIGGER_USEC"])
+first = None
+for line in sys.stdin:
+    try:
+        entry = json.loads(line)
+        timestamp = int(entry.get("__MONOTONIC_TIMESTAMP", "0"))
+        invocation = entry.get("INVOCATION_ID", "")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        continue
+    if entry.get("_PID") != "1":
+        continue
+    if entry.get("UNIT") != "tu1nz-adult-public-s11-canary-controller.service":
+        continue
+    if entry.get("JOB_TYPE") != "start":
+        continue
+    if entry.get("MESSAGE_ID") != "7d4958e842da4a758f6c1cdc7b36dcc5":
+        continue
+    if timestamp < trigger or not isinstance(invocation, str) or not invocation:
+        continue
+    candidate = (timestamp, invocation)
+    if first is None or candidate < first:
+        first = candidate
+if first is not None:
+    print(first[1])
+'
+}
+
+handoff_snapshot_decision() {
+  local handoff_monotonic="$1" trigger="$2" previous_invocation="$3"
+  local invocation="$4" start_monotonic="$5" service_active="$6"
+  local result="$7" exit_status="$8" timer_enabled="$9" timer_active="${10}"
+  local timer_substate="${11}" next_realtime="${12}" next_monotonic="${13}"
+  local now_realtime="${14}" now_monotonic="${15}"
+  local first_trigger_invocation="${16}" trigger_usec start_usec
+  [[ "$handoff_monotonic" =~ ^[0-9]+$ ]] || { printf 'RED\n'; return 0; }
+  trigger_usec="$(systemd_timespan_usec "$trigger" 2>/dev/null || true)"
+  if [[ ! "$trigger_usec" =~ ^[0-9]+$ ]] || (( trigger_usec <= handoff_monotonic )); then
+    printf 'WAIT\n'
+    return 0
+  fi
+  start_usec="$(systemd_timespan_usec "$start_monotonic" 2>/dev/null || true)"
+  if [ -z "$invocation" ] || [ "$invocation" = "$previous_invocation" ] \
+    || [[ ! "$start_usec" =~ ^[0-9]+$ ]] || (( start_usec <= handoff_monotonic )); then
+    printf 'WAIT\n'
+    return 0
+  fi
+  if (( start_usec < trigger_usec )); then
+    printf 'WAIT\n'
+    return 0
+  fi
+  if [ -z "$first_trigger_invocation" ]; then
+    printf 'WAIT\n'
+    return 0
+  fi
+  if [ "$first_trigger_invocation" != "$invocation" ]; then
+    printf 'RED\n'
+    return 0
+  fi
+  case "$service_active" in
+    active|activating|deactivating) printf 'WAIT\n'; return 0 ;;
+    inactive) ;;
+    *) printf 'RED\n'; return 0 ;;
+  esac
+  if [ "$result" != success ] || [ "$exit_status" != 0 ]; then
+    printf 'RED\n'
+    return 0
+  fi
+  if [ "$timer_enabled" != enabled ] || [ "$timer_active" != active ] \
+    || [ "$timer_substate" != waiting ]; then
+    printf 'RED\n'
+    return 0
+  fi
+  if ! timer_has_finite_future_values \
+      "$next_realtime" "$next_monotonic" "$now_realtime" "$now_monotonic"; then
+    printf 'WAIT\n'
+    return 0
+  fi
+  printf 'GREEN\n'
+}
+
 wait_controller_natural_run() {
-  local previous_trigger="$1" deadline trigger active result exit_status
+  local handoff_realtime="$1" handoff_monotonic="$2" previous_trigger="$3"
+  local previous_invocation="$4" destination="$5" deadline decision trigger
+  local invocation start_monotonic active result exit_status timer_enabled timer_active
+  local timer_substate next_realtime next_monotonic now_realtime now_monotonic
+  local first_trigger_invocation
   deadline=$((SECONDS + 390))
   while (( SECONDS < deadline )); do
-    trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value)"
+    trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSecMonotonic --value)"
+    invocation="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p InvocationID --value)"
+    start_monotonic="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p ExecMainStartTimestampMonotonic --value)"
     active="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p ActiveState --value)"
     result="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p Result --value)"
     exit_status="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p ExecMainStatus --value)"
-    if [ -n "$trigger" ] && [ "$trigger" != "$previous_trigger" ] && [ "$active" = inactive ]; then
-      [ "$result" = success ] && [ "$exit_status" = 0 ] \
-        || fail "S11_2_FIRST_NATURAL_CONTROLLER_RUN_RED"
-      printf '{"ok":true,"safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN"}\n'
-      return 0
-    fi
+    timer_enabled="$(systemctl is-enabled tu1nz-adult-public-s11-canary-controller.timer 2>/dev/null || true)"
+    timer_active="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p ActiveState --value)"
+    timer_substate="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p SubState --value)"
+    next_realtime="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p NextElapseUSecRealtime --value)"
+    next_monotonic="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p NextElapseUSecMonotonic --value)"
+    now_realtime="$(date +%s%6N)"
+    now_monotonic="$(monotonic_now_usec)"
+    first_trigger_invocation="$(first_invocation_after_trigger \
+      "$handoff_realtime" "$trigger")"
+    decision="$(handoff_snapshot_decision \
+      "$handoff_monotonic" "$trigger" "$previous_invocation" "$invocation" \
+      "$start_monotonic" "$active" "$result" "$exit_status" \
+      "$timer_enabled" "$timer_active" "$timer_substate" \
+      "$next_realtime" "$next_monotonic" "$now_realtime" "$now_monotonic" \
+      "$first_trigger_invocation")"
+    case "$decision" in
+      GREEN)
+        journalctl --quiet --no-pager --output=cat \
+          "_SYSTEMD_INVOCATION_ID=${invocation}" -n 1 | grep -q . \
+          || { fail "S11_2_FIRST_NATURAL_CONTROLLER_JOURNAL_RED"; return 2; }
+        S11_HANDOFF_DESTINATION="$destination" \
+        S11_HANDOFF_STARTED_AT="$handoff_realtime" \
+        S11_HANDOFF_STARTED_MONOTONIC="$handoff_monotonic" \
+        S11_HANDOFF_PREVIOUS_TRIGGER="$previous_trigger" \
+        S11_HANDOFF_TRIGGER="$trigger" \
+        S11_HANDOFF_INVOCATION="$invocation" \
+        S11_HANDOFF_FIRST_TRIGGER_INVOCATION="$first_trigger_invocation" \
+        S11_HANDOFF_CONTROLLER_START="$start_monotonic" \
+        S11_HANDOFF_RESULT="$result" \
+        S11_HANDOFF_EXIT_STATUS="$exit_status" \
+        S11_HANDOFF_TIMER_ACTIVE="$timer_active" \
+        S11_HANDOFF_TIMER_SUBSTATE="$timer_substate" \
+        S11_HANDOFF_NEXT_REALTIME="$next_realtime" \
+        S11_HANDOFF_NEXT_MONOTONIC="$next_monotonic" \
+          /usr/bin/python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+payload = {
+    "ok": True,
+    "safe_code": "S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN",
+    "handoff_started_at": os.environ["S11_HANDOFF_STARTED_AT"],
+    "handoff_started_monotonic_usec": int(os.environ["S11_HANDOFF_STARTED_MONOTONIC"]),
+    "pre_handoff_trigger": os.environ["S11_HANDOFF_PREVIOUS_TRIGGER"],
+    "accepted_trigger_monotonic": os.environ["S11_HANDOFF_TRIGGER"],
+    "accepted_invocation_id": os.environ["S11_HANDOFF_INVOCATION"],
+    "first_invocation_after_trigger": os.environ["S11_HANDOFF_FIRST_TRIGGER_INVOCATION"],
+    "accepted_controller_start_monotonic": os.environ["S11_HANDOFF_CONTROLLER_START"],
+    "service_result": os.environ["S11_HANDOFF_RESULT"],
+    "exec_main_status": int(os.environ["S11_HANDOFF_EXIT_STATUS"]),
+    "timer_active_state": os.environ["S11_HANDOFF_TIMER_ACTIVE"],
+    "timer_sub_state": os.environ["S11_HANDOFF_TIMER_SUBSTATE"],
+    "next_elapse_realtime": os.environ["S11_HANDOFF_NEXT_REALTIME"],
+    "next_elapse_monotonic": os.environ["S11_HANDOFF_NEXT_MONOTONIC"],
+    "finite_future": True,
+}
+Path(os.environ["S11_HANDOFF_DESTINATION"]).write_text(
+    json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+    encoding="ascii",
+)
+PY
+        printf '{"ok":true,"safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN"}\n'
+        return 0
+        ;;
+      RED)
+        fail "S11_2_FIRST_NATURAL_CONTROLLER_RUN_RED"
+        return 2
+        ;;
+      WAIT) ;;
+      *)
+        fail "S11_2_FIRST_NATURAL_CONTROLLER_STATE_RED"
+        return 2
+        ;;
+    esac
     sleep 2
   done
   fail "S11_2_FIRST_NATURAL_CONTROLLER_RUN_TIMEOUT"
@@ -514,7 +759,7 @@ require_product_boundaries() {
 }
 
 require_services_and_timers() {
-  local unit next_realtime next_monotonic
+  local unit
   for unit in "${SERVICES[@]}"; do
     [ "$(systemctl show "$unit" -p ActiveState --value)" = active ] \
       || { fail "S11_2_SERVICE_RED"; return 2; }
@@ -526,10 +771,7 @@ require_services_and_timers() {
       || { fail "S11_2_TIMER_RED"; return 2; }
     [ "$(systemctl is-enabled "$unit")" = enabled ] \
       || { fail "S11_2_TIMER_DISABLED"; return 2; }
-    next_realtime="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
-    next_monotonic="$(systemctl show "$unit" -p NextElapseUSecMonotonic --value)"
-    if { [ -z "$next_realtime" ] || [ "$next_realtime" = n/a ]; } \
-      && { [ -z "$next_monotonic" ] || [ "$next_monotonic" = n/a ] || [ "$next_monotonic" = 0 ]; }; then
+    if ! timer_has_finite_future "$unit"; then
       fail "S11_2_TIMER_FUTURE_RUN_MISSING"
       return 2
     fi
@@ -1457,7 +1699,7 @@ gate_field() {
 }
 
 verify_target() {
-  local target_control="$1" state technical historical_before historical_after next_realtime next_monotonic
+  local target_control="$1" state technical historical_before historical_after
   require_clean_commit "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$target_control" "$(target_control_tree)" TARGET_CONTROL
   require_local_freeze "$target_control"
@@ -1469,6 +1711,7 @@ verify_target() {
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_orchestration.py" "$INSTALLED_ORCHESTRATION" || fail "S11_2_INSTALLED_ORCHESTRATION_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.service" "$CONTROLLER_UNIT" || fail "S11_2_INSTALLED_SERVICE_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.timer" "$CONTROLLER_TIMER" || fail "S11_2_INSTALLED_TIMER_DRIFT"
+  verify_controller_unit_contract
   verify_runtime_access_contract >/dev/null
   verify_health_contract >/dev/null
   state="$(release_state)"
@@ -1485,12 +1728,10 @@ verify_target() {
   [ "$historical_after" = "$historical_before" ] || fail "S11_2_HISTORICAL_UNKNOWN_MUTATED"
   [ "$(systemctl is-enabled tu1nz-adult-public-s11-canary-controller.timer)" = enabled ] || fail "S11_2_CONTROLLER_TIMER_DISABLED"
   [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p ActiveState --value)" = active ] || fail "S11_2_CONTROLLER_TIMER_RED"
-  next_realtime="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p NextElapseUSecRealtime --value)"
-  next_monotonic="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p NextElapseUSecMonotonic --value)"
-  if { [ -z "$next_realtime" ] || [ "$next_realtime" = n/a ]; } \
-    && { [ -z "$next_monotonic" ] || [ "$next_monotonic" = n/a ] || [ "$next_monotonic" = 0 ]; }; then
-    fail "S11_2_CONTROLLER_FUTURE_RUN_MISSING"
-  fi
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p SubState --value)" = waiting ] \
+    || fail "S11_2_CONTROLLER_TIMER_SUBSTATE_RED"
+  timer_has_finite_future tu1nz-adult-public-s11-canary-controller.timer \
+    || fail "S11_2_CONTROLLER_FUTURE_RUN_MISSING"
   printf '{"ok":true,"safe_code":"S11_2_CANARY_RUNTIME_GREEN","state":"%s"}\n' "$state"
 }
 
@@ -1605,6 +1846,7 @@ install_s11_disabled() {
 
 run_remaining_phases() {
   local target_control="$1" backup_path="$2" next current_state previous_trigger plan_state
+  local handoff_realtime handoff_monotonic previous_invocation
   while true; do
     next="$(phase_next)"
     case "$next" in
@@ -1690,9 +1932,14 @@ run_remaining_phases() {
       SYSTEMD_HANDOFF)
         require_phase CANARY_ACTIVE
         previous_trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value 2>/dev/null || true)"
+        previous_invocation="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p InvocationID --value 2>/dev/null || true)"
+        handoff_realtime="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
+        handoff_monotonic="$(monotonic_now_usec)"
         release_inherited_lock
         systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
-        wait_controller_natural_run "$previous_trigger"
+        wait_controller_natural_run \
+          "$handoff_realtime" "$handoff_monotonic" "$previous_trigger" \
+          "$previous_invocation" "$backup_path/systemd-handoff.json"
         reacquire_inherited_lock
         run_runtime_health
         verify_target "$target_control"
@@ -1725,6 +1972,7 @@ finalize_deployment_evidence() {
   mv "$backup_path/pre-canary-health.json" "$backup_path/postdeploy/pre-canary-health.json"
   mv "$backup_path/pre-canary-health.json.ndjson" "$backup_path/postdeploy/pre-canary-health.json.ndjson"
   mv "$backup_path/feature-off-fallback.json" "$backup_path/postdeploy/feature-off-fallback.json"
+  mv "$backup_path/systemd-handoff.json" "$backup_path/postdeploy/systemd-handoff.json"
   install -m 0600 "$(phase_state_path)" "$backup_path/postdeploy/phase-state.json"
   database_evidence "$backup_path/postdeploy/database-aggregate.json"
   gate_json true > "$backup_path/postdeploy/canary-gate.json"
@@ -1964,6 +2212,15 @@ rollback() {
   printf '{"ok":true,"safe_code":"S11_2_ROLLBACK_GREEN"}\n'
 }
 
+standalone_verify() {
+  local target_control="$1" backup_path="$2"
+  S11_2_TARGET_CONTROL="$target_control"
+  S11_2_BACKUP_PATH="$backup_path"
+  require_root
+  acquire_lock
+  verify_target "$target_control"
+}
+
 usage() {
   printf 'usage: %s access-preflight\n' "$0" >&2
   printf 'usage: %s preflight TARGET_CONTROL BACKUP_PATH\n' "$0" >&2
@@ -2003,10 +2260,7 @@ case "${1:-}" in
     ;;
   verify)
     [ "$#" -eq 3 ] || usage
-    require_root
-    acquire_lock
-    S11_2_BACKUP_PATH="$3"
-    verify_target "$2"
+    standalone_verify "$2" "$3"
     ;;
   rollback)
     [ "$#" -eq 3 ] || usage
