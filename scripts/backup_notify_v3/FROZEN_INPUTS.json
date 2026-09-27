@@ -1,0 +1,30 @@
+{
+  "commit": "ae1e11a8227d7ca8531b94c7fe821b83bd714ca5",
+  "files": {
+    "vendor/BASHLEX_LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+    "vendor/bashlex/__init__.py": "99fedb241aaec2cc9d0cb5000907d73b55f198d9b73480bfb6da81b9929f155c",
+    "vendor/bashlex/ast.py": "bef964b46d2418504ed93929ef72a56bc85bf83333aee04dcb66d958b64db615",
+    "vendor/bashlex/errors.py": "769504ca772ca3f5b5d403a4e84c896830b180d4573ba2c02c7ba425ed20bcd3",
+    "vendor/bashlex/flags.py": "0a2805efaaa807570a019ffbea3de3b394cf24e41bc58ed3036a13c98974522d",
+    "vendor/bashlex/heredoc.py": "ff3a51cef6b496dfdfb98fd8e7ed9f7f3013ac9afa377f73e9d9b14e73772449",
+    "vendor/bashlex/parser.py": "a0a4b82ddc81141e73e39961a6dcdab75f6c2ade86dfadc27c0361fa67035adb",
+    "vendor/bashlex/shutils.py": "739908891397422faf8d4dceff47c5ffa18148f4fd7691766c4119ba66645a5f",
+    "vendor/bashlex/state.py": "620b7a35cea8de35a48e6fe218020a3b8480bb0ac74e1b8a6470a293ea5ca418",
+    "vendor/bashlex/subst.py": "9b822ca200d0e5419716f1f52671da4fcc6f5a3390110f1aada3fcddaff233ce",
+    "vendor/bashlex/tokenizer.py": "3eb6f050057b92e7ec0024627698a01d636ae3acaf27135ae1e68b68c0fd8268",
+    "vendor/bashlex/utils.py": "71720b4dadecba24115900bb54ff1281d63570ccdb539016e896c01e088b9444",
+    "vendor/bashlex/yacc.py": "f2a044227a29ca85e816ba6627672785cd3841349150a26f0bd2bac658901aa4"
+  },
+  "frozen_v2_files": {
+    "CALLER_BINDINGS.json": "42d0ab91f96d86d1bb336441c72f23cea619fa968f46c219f56123753841c6fb",
+    "PARSER_MANIFEST.json": "79088009291ac202df8958d46d3587396a9da9845e46f19db5f3cb86328a71d6",
+    "reader_runtime.py": "56bfe2ac649b78102466e2b1836f1a2fbdad4dcc467acdc2c67ce50f09a763ce"
+  },
+  "patches": [
+    "Disable parser table writes explicitly",
+    "Replace evaluation of fixed grammar literals with ast.literal_eval",
+    "Normalize trailing whitespace in ast.py, parser.py and yacc.py; no grammar change"
+  ],
+  "tag": "0.18",
+  "upstream": "https://github.com/idank/bashlex"
+}

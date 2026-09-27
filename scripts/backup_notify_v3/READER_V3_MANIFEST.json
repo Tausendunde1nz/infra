@@ -1,0 +1,15 @@
+{
+  "activation_ready": false,
+  "files": {
+    "FROZEN_INPUTS.json": "65c948d6198184391cdae4e1e2843d0d5f944b04423f8b4f9f057ed80b1b5d17",
+    "README.md": "1f179a4af954e8afcfddc841997d802b466e2945578532468f4782dfba473e03",
+    "build_reader_v3.py": "ae868a8464a67f65449617b44d689031375efe322f19ad171a05b1138114cb1c",
+    "engine_v3.py": "db4023eb98b4a39070c9ede7e9624b05f3f523d8179bb3b03c95db0a62d5b7f8",
+    "runtime_v3.py": "52ecd70511ad990d00630303bbae174df54b48458bf5ab2fcf4aa4e4bd24d459",
+    "test_v3.py": "243a175351fabc45f03b0e83b82c936a383092a009266f53cf2bed29f50c7f40",
+    "tu1nz_backup_notify_launcher_v3.py": "a06427cb0c17ea319a93906edc2c1c6593d47c4b50010c3ebba8bbd54d2ceb82",
+    "tu1nz_backup_notify_reader_v3.py": "651cf33d3607d0aae425bbd6dde28ba5a6e20ee4c3ba3e1317caa84d35e376ea"
+  },
+  "privileged_run_performed": false,
+  "version": "3.0.0"
+}
