@@ -31,6 +31,8 @@ bound to the current handoff:
 - the monotonic timer trigger is later than the deployment-local handoff marker;
 - the service `InvocationID` is non-empty and differs from the pre-handoff ID;
 - `ExecMainStartTimestampMonotonic` is later than the handoff marker;
+- the accepted service start is not earlier than the accepted timer trigger, so
+  an independently started invocation cannot be certified as the timer run;
 - the accepted invocation has journal evidence;
 - the completed service is inactive with `Result=success` and
   `ExecMainStatus=0`;

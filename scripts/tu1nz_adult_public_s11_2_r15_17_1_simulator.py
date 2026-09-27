@@ -148,13 +148,22 @@ def simulate() -> dict[str, Any]:
             next_monotonic="0",
         ),
     }
+    manual_pretrigger = _decision(
+        trigger="1100",
+        invocation="new-invocation",
+        start="1050",
+    )
     final = {name: ("GREEN" if value == "GREEN" else "RED") for name, value in raw.items()}
     standalone = _standalone_verify_clean_environment()
     final["J"] = "GREEN" if standalone else "RED"
     expected = {name: "RED" for name in "ABCDEFHI"}
     expected.update({"G": "GREEN", "J": "GREEN"})
     product_report = product.simulate()
-    ok = final == expected and product_report["ok"]
+    ok = (
+        final == expected
+        and product_report["ok"]
+        and manual_pretrigger != "GREEN"
+    )
     return {
         "ok": ok,
         "safe_code": (
@@ -171,6 +180,7 @@ def simulate() -> dict[str, Any]:
         "finite_future_required": all(final[name] == "RED" for name in "EFHI"),
         "waiting_required": final["F"] == "RED",
         "valid_current_handoff": final["G"] == "GREEN",
+        "manual_pretrigger_invocation_rejected": manual_pretrigger != "GREEN",
         "technical_profile_green": product_report["ok"],
         "runtime_access_green": True,
         "synthetic_journeys_green": product_report["synthetic_journeys_green"],

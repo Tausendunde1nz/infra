@@ -59,6 +59,7 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         self.assertEqual(report["automatic_retries"], 0)
         self.assertEqual(report["runtime_mutations"], 0)
         self.assertTrue(report["next_runtime_deployment_ready"])
+        self.assertTrue(report["manual_pretrigger_invocation_rejected"])
 
     def test_historical_success_never_substitutes_for_current_invocation(self):
         report = simulator.simulate()
@@ -76,6 +77,16 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         ):
             with self.subTest(evidence=evidence):
                 self.assertIn(evidence, source)
+
+    def test_service_invocation_must_not_predate_timer_trigger(self):
+        decision = simulator._decision(
+            trigger="1100",
+            invocation="new-invocation",
+            start="1050",
+        )
+        self.assertNotEqual(decision, "GREEN")
+        source = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn("start_usec < trigger_usec", source)
 
     def test_finite_future_helper_is_canonical_and_rejects_no_event_values(self):
         source = CONTROLLER.read_text(encoding="utf-8")

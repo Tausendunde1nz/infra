@@ -516,6 +516,10 @@ handoff_snapshot_decision() {
     printf 'WAIT\n'
     return 0
   fi
+  if (( start_usec < trigger_usec )); then
+    printf 'WAIT\n'
+    return 0
+  fi
   case "$service_active" in
     active|activating|deactivating) printf 'WAIT\n'; return 0 ;;
     inactive) ;;
