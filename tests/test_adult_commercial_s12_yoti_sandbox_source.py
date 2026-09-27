@@ -143,6 +143,16 @@ class CommercialS12YotiSandboxSourceControlTests(unittest.TestCase):
         self.assertEqual(
             freeze.verify_annotation(unknown, expected)["unknown"], ["extra_binding"]
         )
+        wrong_title = annotation.replace(
+            "TU1NZ S12 Yoti Sandbox-only source freeze",
+            "TU1NZ S12 unsafe title",
+            1,
+        )
+        self.assertFalse(freeze.verify_annotation(wrong_title, expected)["format_exact"])
+        contradictory_text = annotation + "THIS TAG ENABLES PRODUCTION\n"
+        contradiction = freeze.verify_annotation(contradictory_text, expected)
+        self.assertFalse(contradiction["ok"])
+        self.assertFalse(contradiction["format_exact"])
 
     def test_control_ssot_names_no_activation_or_secret_value(self) -> None:
         raw = MANIFEST.read_text(encoding="utf-8") + DOC.read_text(encoding="utf-8")
@@ -229,6 +239,31 @@ class CommercialS12YotiSandboxSourceControlTests(unittest.TestCase):
                 "S12_FREEZE_TAGGED_MANIFEST_RED",
             ):
                 freeze.validate_tagged_manifest(repository, commit)
+
+    def test_verify_tag_cli_returns_bounded_json_for_missing_tag(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/tu1nz_adult_commercial_s12_freeze.py"),
+                "verify-tag",
+                "--control-repo",
+                str(ROOT),
+                "--application-repo",
+                str(ROOT),
+                "--tag",
+                "s12-definitely-missing-test-tag",
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 1)
+        self.assertNotIn("Traceback", completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["safe_code"], "S12_FREEZE_PROVENANCE_RED")
+        self.assertEqual(report["failure"], "S12_FREEZE_GIT_RED")
 
 
 if __name__ == "__main__":

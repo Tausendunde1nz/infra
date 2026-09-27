@@ -187,6 +187,7 @@ def parse_annotation(annotation: str) -> list[tuple[str, str]]:
 
 
 def verify_annotation(annotation: str, expected: Mapping[str, str]) -> dict[str, object]:
+    canonical = render_annotation(expected)
     parsed = parse_annotation(annotation)
     counts = Counter(key for key, _ in parsed)
     actual = {key: value for key, value in parsed}
@@ -205,8 +206,11 @@ def verify_annotation(annotation: str, expected: Mapping[str, str]) -> dict[str,
         counts[key] == 1 and actual.get(key) == expected[key]
         for key in REQUIRED_KEYS
     )
-    ok = not (missing or duplicates or incorrect or aliases or unknown) and matching == len(
-        REQUIRED_KEYS
+    format_exact = annotation == canonical
+    ok = (
+        not (missing or duplicates or incorrect or aliases or unknown)
+        and matching == len(REQUIRED_KEYS)
+        and format_exact
     )
     return {
         "ok": ok,
@@ -214,6 +218,7 @@ def verify_annotation(annotation: str, expected: Mapping[str, str]) -> dict[str,
         "required_count": len(REQUIRED_KEYS),
         "binding_count": len(parsed),
         "matching_count": matching,
+        "format_exact": format_exact,
         "missing": missing,
         "duplicates": duplicates,
         "incorrect": incorrect,
@@ -351,25 +356,41 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
-    if arguments.command == "verify-manifest":
-        report = validate_manifest(arguments.manifest)
+    try:
+        if arguments.command == "verify-manifest":
+            report = validate_manifest(arguments.manifest)
+            print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+            return 0 if report["ok"] else 1
+        if arguments.command == "generate":
+            print(
+                render_annotation(
+                    expected_bindings(
+                        arguments.control_repo,
+                        arguments.application_repo,
+                        arguments.control_commit,
+                    )
+                ),
+                end="",
+            )
+            return 0
+        report = verify_tag(arguments.control_repo, arguments.application_repo, arguments.tag)
         print(json.dumps(report, sort_keys=True, separators=(",", ":")))
         return 0 if report["ok"] else 1
-    if arguments.command == "generate":
-        print(
-            render_annotation(
-                expected_bindings(
-                    arguments.control_repo,
-                    arguments.application_repo,
-                    arguments.control_commit,
-                )
-            ),
-            end="",
-        )
-        return 0
-    report = verify_tag(arguments.control_repo, arguments.application_repo, arguments.tag)
+    except FreezeError as error:
+        failure = str(error)
+    except subprocess.CalledProcessError:
+        failure = "S12_FREEZE_GIT_RED"
+    except UnicodeError:
+        failure = "S12_FREEZE_ENCODING_RED"
+    except OSError:
+        failure = "S12_FREEZE_IO_RED"
+    report = {
+        "ok": False,
+        "safe_code": "S12_FREEZE_PROVENANCE_RED",
+        "failure": failure,
+    }
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
-    return 0 if report["ok"] else 1
+    return 1
 
 
 if __name__ == "__main__":
