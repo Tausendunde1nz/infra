@@ -229,7 +229,7 @@
     "next_r15_11_runtime_deployment_ready": true
   },
   "r15_10_artifact_bindings": {
-    "controller_sha256": "a0c21069827dfb26dd008a3ad4928b2bca01c22a9fe2995bf9dc72c2e99b6376",
+    "controller_sha256": "c3f27345258b38068f557765a9445a4528f02af89080aee5459bd2528609b0ca",
     "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
     "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
     "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
@@ -376,7 +376,7 @@
     "r15_13_simulator_sha256": "60b9a9d63eb249d31b071d8f0280de008ce4d3f824c92da01b7457ee50be9bd8",
     "focused_envelope_suite_sha256": "84c25b47b952f0bfb5614875163307adb40d7c4b2ec5785f0c140d835467ada9",
     "focused_compatibility_suite_sha256": "d1e06b883e8babe3bb5c0bab52533396b8c0a6d5b3707c0d744c4cd347308b2b",
-    "controller_sha256": "a0c21069827dfb26dd008a3ad4928b2bca01c22a9fe2995bf9dc72c2e99b6376",
+    "controller_sha256": "c3f27345258b38068f557765a9445a4528f02af89080aee5459bd2528609b0ca",
     "ssot_sha256": "ecf837dc94e7a389341e3b5665bcc794d4308ad43a392e246915dc4b46e3880d",
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
@@ -469,7 +469,7 @@
     "real_metric_never_substituted": true,
     "technical_evidence_contract": "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
     "artifact_bindings": {
-      "controller_sha256": "a0c21069827dfb26dd008a3ad4928b2bca01c22a9fe2995bf9dc72c2e99b6376",
+      "controller_sha256": "c3f27345258b38068f557765a9445a4528f02af89080aee5459bd2528609b0ca",
       "gate_sha256": "8f506bc3b081c5a92c7982eddcb0850920926d34a4f14bffd70892c8b6ff99e6",
       "freeze_helper_sha256": "7f093b09d067c3707408adb0bed10416f2c1a01b6a70e881225869d9f37b0572",
       "r15_16_simulator_sha256": "06bb82c32f1bc2a75911c65dd8de10d6a486a1302cc1ddd6bfff81013a9edb29",
@@ -502,7 +502,7 @@
     "shared_run_binding_intentional": true,
     "technical_evidence_contract": "PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3",
     "artifact_bindings": {
-      "controller_sha256": "a0c21069827dfb26dd008a3ad4928b2bca01c22a9fe2995bf9dc72c2e99b6376",
+      "controller_sha256": "c3f27345258b38068f557765a9445a4528f02af89080aee5459bd2528609b0ca",
       "freeze_helper_sha256": "7f093b09d067c3707408adb0bed10416f2c1a01b6a70e881225869d9f37b0572",
       "r15_17_simulator_sha256": "0be6762b0f2b15ca7d4b360f4b7946b1e387eca91be121453424848d000bffab",
       "focused_suite_sha256": "a6f323f854a05e87526ebbe505cd16e7dda26600f8761555fc0c684e5e60f80b",
@@ -547,11 +547,11 @@
     "replacement_freeze": "s11-2-r15-17-1-systemd-handoff-contract-freeze-r1",
     "canonical_binding_count": 29,
     "artifact_bindings": {
-      "controller_sha256": "a0c21069827dfb26dd008a3ad4928b2bca01c22a9fe2995bf9dc72c2e99b6376",
+      "controller_sha256": "c3f27345258b38068f557765a9445a4528f02af89080aee5459bd2528609b0ca",
       "freeze_helper_sha256": "7f093b09d067c3707408adb0bed10416f2c1a01b6a70e881225869d9f37b0572",
       "simulator_sha256": "937aa8f46d8ba7b36eb743a1b1168e9c06087763d9d097fb4c6765f0fd1af589",
-      "focused_suite_sha256": "a5b2f13219304e29ad8e06295ce7bc7348ac7e84289d7464202da72bdba08599",
-      "ssot_sha256": "696889171dec5853dbac7b8f399429305f33234c79a981dd8a8fab761612195b"
+      "focused_suite_sha256": "cfae72ba7c5b3e1eb64c5f403067a13964a31634aa5ee71507324280b3d05428",
+      "ssot_sha256": "a1aa5f6560f172574f3bdfccb706d78f82aa4c61a0b10ebb171f9155898acf24"
     },
     "next_runtime_deployment_ready_after_actual_tag_verification": true,
     "real_avs": false,

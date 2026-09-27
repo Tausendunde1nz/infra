@@ -452,7 +452,11 @@ timer_value_is_missing() {
 }
 
 monotonic_now_usec() {
-  awk '{printf "%.0f\n", $1 * 1000000}' /proc/uptime
+  /usr/bin/python3 - <<'PY'
+import time
+
+print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1000)
+PY
 }
 
 systemd_timespan_usec() {

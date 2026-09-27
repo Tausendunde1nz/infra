@@ -51,7 +51,9 @@ One canonical helper is used by dependency timer checks, final target
 verification, and Systemd handoff acceptance. It rejects empty values, `n/a`,
 `0`, `infinity`, `infinite`, `never`, `-`, and equivalent case variants. A
 realtime value must parse to a future epoch. A monotonic value must parse through
-the host Systemd timespan parser and exceed current monotonic uptime. The S11
+the host Systemd timespan parser and exceed a current `CLOCK_MONOTONIC` marker
+from the same clock domain Systemd uses for this non-waking timer. Suspend-aware
+boot uptime is deliberately not used. The S11
 recurring timer additionally requires `SubState=waiting`; `elapsed` is always
 RED.
 

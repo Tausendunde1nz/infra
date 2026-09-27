@@ -113,6 +113,16 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         self.assertIn("date --date", helper)
         self.assertIn("systemd-analyze timespan", source)
 
+    def test_comparison_markers_use_systemd_monotonic_clock(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        helper = source[
+            source.index("monotonic_now_usec() {") :
+            source.index("systemd_timespan_usec() {")
+        ]
+        self.assertIn("time.CLOCK_MONOTONIC", helper)
+        self.assertIn("time.clock_gettime_ns", helper)
+        self.assertNotIn("/proc/uptime", helper)
+
     def test_recurring_timer_requires_waiting_and_preserves_unit_semantics(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('SubState --value)" = waiting', source)
