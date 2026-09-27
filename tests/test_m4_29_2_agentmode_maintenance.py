@@ -8,6 +8,8 @@ import stat
 import subprocess
 import tempfile
 import unittest
+
+from scripts.tu1nz_agentmode_state_init_v2 import initialize_fixture
 from pathlib import Path
 
 
@@ -136,6 +138,8 @@ class AgentmodeMaintenanceTest(unittest.TestCase):
         return git(seed, "rev-parse", "HEAD")
 
     def run_sync(self, mode: str, *, extra_env: dict[str, str] | None = None, check: bool = True):
+        if mode == "--observe-once":
+            initialize_fixture(self.root, integrity=True)
         environment = dict(self.base_env)
         if extra_env:
             environment.update(extra_env)
