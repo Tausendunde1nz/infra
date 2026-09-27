@@ -629,8 +629,8 @@
     "canonical_binding_count": 29,
     "source_simulator": "scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py",
     "artifact_bindings": {
-      "controller_sha256": "c6ed8735666a4c1e37e505b6aec6283b24e98fe87d91d87d2c2bb7689949d61c",
-      "freeze_helper_sha256": "e78764984c127213c8503c98e41de04c56cc3a1f489133573ec5b5c86d32d52f",
+      "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
+      "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
       "simulator_sha256": "be419a154a2d77e31c86675b61801a6cb1cb4a7460643da4f7a6c392232be241",
       "focused_suite_sha256": "4a3029b13d9b25786dde0dfa0f3ad8d2d3f96e9352f9ce9e0e9f7dcaebdec639",
       "ssot_sha256": "588bcf07579989002af333abd17961cfa2197eb2991601c0a97a1c0bdd903296",

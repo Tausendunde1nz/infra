@@ -102,14 +102,15 @@ class R15181TimerRearmTests(unittest.TestCase):
         contract = manifest["r15_18_1_timer_rearm_contract"]
         self.assertEqual(contract["fresh_arm_attempts_per_deployment"], 1)
         self.assertTrue(DOC.is_file())
-        for key in {
-            "controller_sha256",
-            "freeze_helper_sha256",
-            "simulator_sha256",
-            "focused_suite_sha256",
-            "ssot_sha256",
-            "controller_unit_sha256",
-            "controller_timer_sha256",
-        }:
+        expected_historical_bindings = {
+            "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
+            "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
+            "simulator_sha256": "be419a154a2d77e31c86675b61801a6cb1cb4a7460643da4f7a6c392232be241",
+            "focused_suite_sha256": "4a3029b13d9b25786dde0dfa0f3ad8d2d3f96e9352f9ce9e0e9f7dcaebdec639",
+            "ssot_sha256": "588bcf07579989002af333abd17961cfa2197eb2991601c0a97a1c0bdd903296",
+            "controller_unit_sha256": "b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f",
+            "controller_timer_sha256": "cb21506ba674c33c7ec654010cb4d51ca91b84a8db0dff7256d92533fe971ebd",
+        }
+        for key, expected in expected_historical_bindings.items():
             with self.subTest(key=key):
-                self.assertRegex(contract["artifact_bindings"][key], r"^[0-9a-f]{64}$")
+                self.assertEqual(contract["artifact_bindings"][key], expected)
