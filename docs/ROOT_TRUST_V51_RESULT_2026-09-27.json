@@ -1,0 +1,96 @@
+{
+  "activation_ready": false,
+  "collection_finished": true,
+  "export_bytes": 20964281,
+  "export_sha256": "339684d21fdd56046fcc76143aad816a8a409150dd629cf7547e5aeeb2baf484",
+  "graph_edges": 13296,
+  "graph_nodes": 6349,
+  "journal_command_mentions": {
+    "build_system_doc.sh": 7,
+    "check_system_doc.sh": 84,
+    "trendwatch_post.sh": 0
+  },
+  "manifest_independently_rehashed": false,
+  "node_classifications": {
+    "NOT_PRESENT": 953,
+    "REVIEW_REQUIRED": 5396
+  },
+  "node_errors": {
+    "NotADirectoryError": 2,
+    "OSError": 10,
+    "ValueError": 52
+  },
+  "processes_observed": 200,
+  "reported_manifest_sha256": "17ab9113ec1cfa8f88379e18c68418cab5c028647a90f68554e6783e9b3280e7",
+  "reviewed_edges": [
+    {
+      "evidence": "Root script directly executes chatops-owned renderer; unchanged.",
+      "from": "system_doc_build root cron",
+      "id": "legacy-doc-root-repository-execution",
+      "status": "BLOCKER",
+      "to": "/opt/tu1nz_repos/docs/system_manifest/render_kapitel3.sh"
+    },
+    {
+      "evidence": "chatops-controlled directory; offline replacement not installed.",
+      "from": "Trendwatch root services",
+      "id": "trendwatch-root-output",
+      "status": "BLOCKER",
+      "to": "/opt/trendwatch"
+    },
+    {
+      "evidence": "Enabled, currently inactive, default root, docker compose up; cwd absent but chatops can create it. Latent automatic execution path, not proof of a current execution.",
+      "from": "tu1nz-bot.service",
+      "id": "root-compose-from-user-directory",
+      "status": "BLOCKER",
+      "to": "/home/chatops/bot-template-telegram"
+    },
+    {
+      "evidence": "UID map 0->0, PID 2444/start 1989; chatops controls mount source. Violates requested no-UID0-writer authority boundary; no host escape demonstrated.",
+      "from": "telegram_bot_mommyramona host uid 0",
+      "id": "mommyramona-host-uid0-mount",
+      "status": "BLOCKER",
+      "to": "/opt/telegram_chatbot -> /app RW"
+    },
+    {
+      "evidence": "UID map 0->0, PID 2452/start 1992; chatops controls source parents. No write or escape test executed.",
+      "from": "jellyfin host uid 0",
+      "id": "jellyfin-host-uid0-mount",
+      "status": "BLOCKER",
+      "to": "/opt/homeserver/jellyfin/{config,cache} RW"
+    },
+    {
+      "evidence": "Read-only flags confirmed. Docker API authorization and mount boundary need explicit reviewed contract; not claimed to be a writable bind.",
+      "from": "tu1nz_cadvisor host uid 0",
+      "id": "cadvisor-ro-contract",
+      "status": "REVIEW_REQUIRED",
+      "to": "/rootfs and /var/run read-only host mounts"
+    },
+    {
+      "evidence": "Includes original public services, Agentmode, user sessions and mychatbuddy-private-alpha.service. Snapshot includes transient collection processes; fresh enumeration required before revocation.",
+      "from": "17 observed processes with docker GID 987",
+      "id": "docker-gid-carriers",
+      "status": "BLOCKER",
+      "to": "/run/docker.sock"
+    },
+    {
+      "evidence": "Literal candidates and command hashes do not prove semantic closure. No new privileged process environment read performed.",
+      "from": "root interpreters and delegated services",
+      "id": "root-environment-import-closure",
+      "status": "REVIEW_REQUIRED",
+      "to": "runtime environment, imports, conditional hooks and indirect programs"
+    }
+  ],
+  "root_evidence_directory": "/var/lib/tu1nz-root-trust-v51/run-20260927T145810Z-09700d05ed357f5d",
+  "schema": 1,
+  "sections_ok": 26,
+  "sections_total": 26,
+  "security_status": "INCOMPLETE",
+  "source_commit": "8ce85becb0fd2c260e4e2591e6a48517e085576e",
+  "symlink_classification": "EXPECTED_SAFE_SYMLINK",
+  "unit_query_errors": {
+    "root_mount_option_parsing": 1,
+    "root_mount_resolved_readonly": true,
+    "total": 45,
+    "uninstantiated_templates": 44
+  }
+}

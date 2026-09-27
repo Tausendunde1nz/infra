@@ -1,0 +1,11 @@
+{
+  "activation_ready": false,
+  "additional_sudo_run": false,
+  "canonical_clean_detached": true,
+  "canonical_head": "f1c3b9a323761f71c80dadd9b5a1dad3a968d582",
+  "hardening_hashes_matched": 42,
+  "live_configuration_changed": false,
+  "tests_passed": 203,
+  "utc": "2026-09-27T15:05:40.048724+00:00",
+  "v3_hashes_matched": 1125
+}
