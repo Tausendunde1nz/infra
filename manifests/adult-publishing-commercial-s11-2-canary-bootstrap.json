@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v27",
-  "status": "S11_2_R15_17_2_DISABLED_STATE_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v28",
+  "status": "S11_2_R15_18_1_TIMER_REARM_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
@@ -9,7 +9,7 @@
     "reviewed_head": "99936d15c800c25bef35701c9568de30f04d227e"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-17-2-disabled-state-contract-freeze-r1",
+    "freeze_tag": "s11-2-r15-18-1-timer-rearm-contract-freeze-r1",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -229,7 +229,7 @@
     "next_r15_11_runtime_deployment_ready": true
   },
   "r15_10_artifact_bindings": {
-    "controller_sha256": "ff8a346b5f147a229f58e84c0bf70e015570c115ddb084922efd9a7a721c8084",
+    "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
     "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
     "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
     "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
@@ -376,7 +376,7 @@
     "r15_13_simulator_sha256": "60b9a9d63eb249d31b071d8f0280de008ce4d3f824c92da01b7457ee50be9bd8",
     "focused_envelope_suite_sha256": "84c25b47b952f0bfb5614875163307adb40d7c4b2ec5785f0c140d835467ada9",
     "focused_compatibility_suite_sha256": "d1e06b883e8babe3bb5c0bab52533396b8c0a6d5b3707c0d744c4cd347308b2b",
-    "controller_sha256": "ff8a346b5f147a229f58e84c0bf70e015570c115ddb084922efd9a7a721c8084",
+    "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
     "ssot_sha256": "ecf837dc94e7a389341e3b5665bcc794d4308ad43a392e246915dc4b46e3880d",
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
@@ -469,9 +469,9 @@
     "real_metric_never_substituted": true,
     "technical_evidence_contract": "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
     "artifact_bindings": {
-      "controller_sha256": "ff8a346b5f147a229f58e84c0bf70e015570c115ddb084922efd9a7a721c8084",
+      "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
       "gate_sha256": "8f506bc3b081c5a92c7982eddcb0850920926d34a4f14bffd70892c8b6ff99e6",
-      "freeze_helper_sha256": "4e6b139436d1740564e5239420add1d48201dc56705885d444217d0c8be3c364",
+      "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
       "r15_16_simulator_sha256": "06bb82c32f1bc2a75911c65dd8de10d6a486a1302cc1ddd6bfff81013a9edb29",
       "focused_suite_sha256": "545804b9f4ba156ec278f4a962c76059a2dd1e59eda442027f6ab2bf7885dee6",
       "profile_fixture_sha256": "8234884c5d08d92757f11c2f00dc6eb3657b6a3e353badd26ce8d6fe9dfc0992",
@@ -502,8 +502,8 @@
     "shared_run_binding_intentional": true,
     "technical_evidence_contract": "PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3",
     "artifact_bindings": {
-      "controller_sha256": "ff8a346b5f147a229f58e84c0bf70e015570c115ddb084922efd9a7a721c8084",
-      "freeze_helper_sha256": "4e6b139436d1740564e5239420add1d48201dc56705885d444217d0c8be3c364",
+      "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
+      "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
       "r15_17_simulator_sha256": "0be6762b0f2b15ca7d4b360f4b7946b1e387eca91be121453424848d000bffab",
       "focused_suite_sha256": "a6f323f854a05e87526ebbe505cd16e7dda26600f8761555fc0c684e5e60f80b",
       "ssot_sha256": "d70471f2e8651cab63da6877592f9d65de7411f1932fc9b97992979fadb98c86"
@@ -547,8 +547,8 @@
     "replacement_freeze": "s11-2-r15-17-1-systemd-handoff-contract-freeze-r1",
     "canonical_binding_count": 29,
     "artifact_bindings": {
-      "controller_sha256": "ff8a346b5f147a229f58e84c0bf70e015570c115ddb084922efd9a7a721c8084",
-      "freeze_helper_sha256": "4e6b139436d1740564e5239420add1d48201dc56705885d444217d0c8be3c364",
+      "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
+      "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
       "simulator_sha256": "bf279b25682f37128ca4516b49a838c8946d661a41f9e684db9faf8bf016b338",
       "controller_unit_sha256": "b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f",
       "focused_suite_sha256": "427921a98a2bb5588d53b339b0e3895d4c4dea084b100e0d7002cbbd238dee9f",
@@ -594,11 +594,48 @@
     "replacement_freeze": "s11-2-r15-17-2-disabled-state-contract-freeze-r1",
     "canonical_binding_count": 29,
     "artifact_bindings": {
-      "controller_sha256": "ff8a346b5f147a229f58e84c0bf70e015570c115ddb084922efd9a7a721c8084",
-      "freeze_helper_sha256": "4e6b139436d1740564e5239420add1d48201dc56705885d444217d0c8be3c364",
+      "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
+      "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
       "simulator_sha256": "50af85732ef09203617972fdbe05a0898f613aae068299bafeffe91088798511",
       "focused_suite_sha256": "86411c69d6c4132ba88d7ebb0646711c813753372824b7ef3b612ae85153780a",
       "ssot_sha256": "cd8b8825875da7e4022bb2474360ba01589c5417d09be9ca33c365b231fa1ad6"
+    },
+    "next_runtime_deployment_attempts_allowed": 1,
+    "adult_media": false,
+    "real_avs": false,
+    "external_publishing": false,
+    "payments": false,
+    "controlled_beta": false,
+    "production": false
+  },
+  "r15_18_1_timer_rearm_contract": {
+    "classification": "SYSTEMD_TIMER_STALE_ACTIVE_ELAPSED_ACTIVATION",
+    "precise_failure": "ENABLE_NOW_DID_NOT_CREATE_FRESH_TIMER_STARTUNIT",
+    "source_only": true,
+    "runtime_mutation_performed": false,
+    "rejected_runtime_safe_code": "S11_2_FIRST_NATURAL_CONTROLLER_RUN_TIMEOUT",
+    "activation_contract": "S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1",
+    "enablement_separate_from_activation": true,
+    "fresh_timer_startunit_required": true,
+    "fresh_arm_attempts_per_deployment": 1,
+    "timer_start_retry_loop": false,
+    "controller_service_manual_start": false,
+    "refuse_manual_start_preserved": true,
+    "natural_invocation_acceptance_weakened": false,
+    "fixture_matrix": "A-L",
+    "exact_r15_18_regression": "OLD_TIMEOUT_NEW_GREEN",
+    "previous_freeze_immutable": "s11-2-r15-17-2-disabled-state-contract-freeze-r1",
+    "replacement_freeze": "s11-2-r15-18-1-timer-rearm-contract-freeze-r1",
+    "canonical_binding_count": 29,
+    "source_simulator": "scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py",
+    "artifact_bindings": {
+      "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
+      "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
+      "simulator_sha256": "be419a154a2d77e31c86675b61801a6cb1cb4a7460643da4f7a6c392232be241",
+      "focused_suite_sha256": "4a3029b13d9b25786dde0dfa0f3ad8d2d3f96e9352f9ce9e0e9f7dcaebdec639",
+      "ssot_sha256": "588bcf07579989002af333abd17961cfa2197eb2991601c0a97a1c0bdd903296",
+      "controller_unit_sha256": "b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f",
+      "controller_timer_sha256": "cb21506ba674c33c7ec654010cb4d51ca91b84a8db0dff7256d92533fe971ebd"
     },
     "next_runtime_deployment_attempts_allowed": 1,
     "adult_media": false,
