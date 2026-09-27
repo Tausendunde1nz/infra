@@ -1181,11 +1181,20 @@ TECHNICAL_PROFILE = (
     "DIRECT_BOT_RESPONSE",
     "INTERNAL_ACCEPTANCE",
 )
+REAL_PROFILE = (
+    "DIRECT",
+    "REAL",
+    "DIRECT_BOT_RESPONSE",
+    "TELEGRAM_DIRECT",
+)
 TECHNICAL_SNAPSHOT_DRIFT_CODE = "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED"
 
 
 def serialize_technical_profile(technical, rows):
-    technical_rows = [row for row in rows if tuple(row) == TECHNICAL_PROFILE]
+    snapshot_rows = [tuple(row) for row in rows]
+    if any(row not in {TECHNICAL_PROFILE, REAL_PROFILE} for row in snapshot_rows):
+        raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
+    technical_rows = [row for row in snapshot_rows if row == TECHNICAL_PROFILE]
     if len(technical_rows) != technical["samples"]:
         raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
     return {

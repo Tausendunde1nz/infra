@@ -71,6 +71,18 @@ class R15164TechnicalProfileSerializationTests(unittest.TestCase):
         )
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('"safe_code": TECHNICAL_SNAPSHOT_DRIFT_CODE', source)
+        self.assertIn("row not in {TECHNICAL_PROFILE, REAL_PROFILE}", source)
+
+    def test_concurrent_unknown_and_malformed_rows_fail_snapshot_closed(self):
+        report = simulator.simulate()
+        self.assertEqual(
+            report["unknown_snapshot_drift_code"],
+            "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED",
+        )
+        self.assertEqual(
+            report["malformed_snapshot_drift_code"],
+            "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED",
+        )
 
     def test_unknown_and_malformed_stay_gate_owned_and_fail_closed(self):
         report = simulator.simulate()

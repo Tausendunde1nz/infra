@@ -36,15 +36,17 @@ The serializer compares its Technical-only cardinality with the Gate's
 Technical sample count. A mismatch stops fail-closed with
 `S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED`. Additional concurrent REAL rows
 do not change that count. A concurrent Technical row does, and therefore
-stops. The orchestration invariant requiring the serialized list length to
-equal `current_valid_samples` remains intact as defense in depth.
+stops. A concurrent unknown or malformed DIRECT row is explicitly rejected
+with the same bounded snapshot-drift code instead of being discarded. The
+orchestration invariant requiring the serialized list length to equal
+`current_valid_samples` remains intact as defense in depth.
 
 ## Regression and readiness contract
 
 Source fixtures cover zero, four and five Technical rows mixed with REAL;
 multiple and concurrently arriving REAL rows; concurrent Technical drift;
-UNKNOWN and malformed provenance; deterministic probe cardinality; dynamic
-missing counts; and Technical SLO RED. The source-only R15.17 simulator models
+concurrent UNKNOWN and malformed snapshot drift; deterministic probe
+cardinality; dynamic missing counts; and Technical SLO RED. The source-only R15.17 simulator models
 five serial Technical probes while REAL remains present, the complete ordered
 S11 phase handoff, exactly one Canary start and no automatic retry.
 
