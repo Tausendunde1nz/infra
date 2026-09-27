@@ -447,7 +447,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"', source)
         self.assertIn('TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"', source)
         self.assertIn(
-            'FINAL_CONTROL_TAG="s11-2-r15-16-4-technical-profile-serialization-freeze-r1"',
+            'FINAL_CONTROL_TAG="s11-2-r15-17-1-systemd-handoff-contract-freeze-r1"',
             source,
         )
         self.assertIn(
@@ -455,14 +455,14 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v25")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v26")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_16_4_TECHNICAL_PROFILE_SERIALIZATION_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_17_1_SYSTEMD_HANDOFF_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-16-4-technical-profile-serialization-freeze-r1",
+            "s11-2-r15-17-1-systemd-handoff-contract-freeze-r1",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
@@ -932,7 +932,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('safe_code":"S11_2_CONTROLLER_ACCESS_GREEN', source)
         self.assertIn('safe_code":"S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN', source)
         self.assertIn("LastTriggerUSec", source)
-        self.assertNotIn("InvocationID", source)
+        self.assertIn("InvocationID", source)
 
     def test_r15_4_source_access_is_chatops_owned_and_accepts_0700(self):
         source = CONTROLLER.read_text(encoding="utf-8")

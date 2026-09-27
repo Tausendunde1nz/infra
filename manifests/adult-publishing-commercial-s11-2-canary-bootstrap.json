@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v25",
-  "status": "S11_2_R15_16_4_TECHNICAL_PROFILE_SERIALIZATION_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v26",
+  "status": "S11_2_R15_17_1_SYSTEMD_HANDOFF_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
@@ -9,7 +9,7 @@
     "reviewed_head": "99936d15c800c25bef35701c9568de30f04d227e"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-16-4-technical-profile-serialization-freeze-r1",
+    "freeze_tag": "s11-2-r15-17-1-systemd-handoff-contract-freeze-r1",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -229,7 +229,7 @@
     "next_r15_11_runtime_deployment_ready": true
   },
   "r15_10_artifact_bindings": {
-    "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
+    "controller_sha256": "503e4cb4891d9ca7ec769459767332407095590c2f4769b022a01a169962805d",
     "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
     "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
     "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
@@ -376,7 +376,7 @@
     "r15_13_simulator_sha256": "60b9a9d63eb249d31b071d8f0280de008ce4d3f824c92da01b7457ee50be9bd8",
     "focused_envelope_suite_sha256": "84c25b47b952f0bfb5614875163307adb40d7c4b2ec5785f0c140d835467ada9",
     "focused_compatibility_suite_sha256": "d1e06b883e8babe3bb5c0bab52533396b8c0a6d5b3707c0d744c4cd347308b2b",
-    "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
+    "controller_sha256": "503e4cb4891d9ca7ec769459767332407095590c2f4769b022a01a169962805d",
     "ssot_sha256": "ecf837dc94e7a389341e3b5665bcc794d4308ad43a392e246915dc4b46e3880d",
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
@@ -469,9 +469,9 @@
     "real_metric_never_substituted": true,
     "technical_evidence_contract": "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
     "artifact_bindings": {
-      "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
+      "controller_sha256": "503e4cb4891d9ca7ec769459767332407095590c2f4769b022a01a169962805d",
       "gate_sha256": "8f506bc3b081c5a92c7982eddcb0850920926d34a4f14bffd70892c8b6ff99e6",
-      "freeze_helper_sha256": "d9376df5426fb8d1ade7902296d74e81e1b45c13b17f5d34a0bedc5c589789d5",
+      "freeze_helper_sha256": "7f093b09d067c3707408adb0bed10416f2c1a01b6a70e881225869d9f37b0572",
       "r15_16_simulator_sha256": "06bb82c32f1bc2a75911c65dd8de10d6a486a1302cc1ddd6bfff81013a9edb29",
       "focused_suite_sha256": "545804b9f4ba156ec278f4a962c76059a2dd1e59eda442027f6ab2bf7885dee6",
       "profile_fixture_sha256": "8234884c5d08d92757f11c2f00dc6eb3657b6a3e353badd26ce8d6fe9dfc0992",
@@ -502,8 +502,8 @@
     "shared_run_binding_intentional": true,
     "technical_evidence_contract": "PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3",
     "artifact_bindings": {
-      "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
-      "freeze_helper_sha256": "d9376df5426fb8d1ade7902296d74e81e1b45c13b17f5d34a0bedc5c589789d5",
+      "controller_sha256": "503e4cb4891d9ca7ec769459767332407095590c2f4769b022a01a169962805d",
+      "freeze_helper_sha256": "7f093b09d067c3707408adb0bed10416f2c1a01b6a70e881225869d9f37b0572",
       "r15_17_simulator_sha256": "0be6762b0f2b15ca7d4b360f4b7946b1e387eca91be121453424848d000bffab",
       "focused_suite_sha256": "a6f323f854a05e87526ebbe505cd16e7dda26600f8761555fc0c684e5e60f80b",
       "ssot_sha256": "d70471f2e8651cab63da6877592f9d65de7411f1932fc9b97992979fadb98c86"
@@ -519,6 +519,47 @@
     "s11_starts": 0,
     "canary_starts": 0,
     "yoti_calls": 0
+  },
+  "r15_17_1_systemd_handoff_contract": {
+    "classification": "HISTORICAL_SYSTEMD_STATE_FALSE_POSITIVE",
+    "source_only": true,
+    "runtime_mutation_performed": false,
+    "rejected_runtime_rollback": "S11_2_ROLLBACK_GREEN",
+    "rejected_runtime_deployment_attempts": 1,
+    "rollback_invocations": 1,
+    "natural_run_proof": "CURRENT_INVOCATION_AFTER_HANDOFF",
+    "handoff_marker_clock": "MONOTONIC_USEC",
+    "trigger_clock": "LastTriggerUSecMonotonic",
+    "service_start_clock": "ExecMainStartTimestampMonotonic",
+    "invocation_identity": "InvocationID",
+    "journal_identity_binding": true,
+    "service_success_required": true,
+    "exec_main_status_zero_required": true,
+    "future_timer_contract": "FINITE_AND_WAITING",
+    "invalid_future_values": ["", "n/a", "0", "infinity", "infinite", "never", "-"],
+    "timer_active_state": "active",
+    "timer_sub_state": "waiting",
+    "standalone_verify_clean_environment": true,
+    "fixture_matrix": "A-J",
+    "automatic_retry": false,
+    "next_runtime_deployment_attempts_allowed": 1,
+    "previous_freeze_immutable": "s11-2-r15-16-4-technical-profile-serialization-freeze-r1",
+    "replacement_freeze": "s11-2-r15-17-1-systemd-handoff-contract-freeze-r1",
+    "canonical_binding_count": 29,
+    "artifact_bindings": {
+      "controller_sha256": "503e4cb4891d9ca7ec769459767332407095590c2f4769b022a01a169962805d",
+      "freeze_helper_sha256": "7f093b09d067c3707408adb0bed10416f2c1a01b6a70e881225869d9f37b0572",
+      "simulator_sha256": "e65d8730967b24260859add03f5fefb98a67e7e1d6491b430c278894a438c34f",
+      "focused_suite_sha256": "e06d37d5b37997d948a8681275e4e68dbfcc6106a5a211043c17237ae3e20d82",
+      "ssot_sha256": "2203cf642f8d3cd748c94519e4b96e79ddf275c7df0ad43818ef8dbe2405985f"
+    },
+    "next_runtime_deployment_ready_after_actual_tag_verification": true,
+    "real_avs": false,
+    "adult_media": false,
+    "external_publishing": false,
+    "payments": false,
+    "controlled_beta": false,
+    "production": false
   },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
   "canary_contract": {
