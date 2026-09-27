@@ -1,0 +1,36 @@
+# Commercial S11.2-R15.14 Gate error loss diagnosis
+
+Date: 2026-09-27
+Scope: Source-only diagnosis; no runtime mutation
+
+## Observed result
+
+The single authorised R15.13 runtime attempt stopped before any Technical
+probe, S11 installation or Canary start. The controller exposed only
+`S11_2_TECHNICAL_GATE_READ_RED`; the Gate output available to the controller
+contained only the Python exception type `ValueError`.
+
+## First information-loss location
+
+`scripts/tu1nz_adult_public_s11_2_gate.py` caught `ValueError` and serialized
+`type(error).__name__`. A canonical error such as
+`S11_2_TECHNICAL_BINDING_MISSING` therefore became `ValueError`. Arbitrary
+exception text was not exposed, but the actionable safe code was destroyed.
+
+## Second information-loss location
+
+`write_technical_profile()` in
+`scripts/tu1nz_adult_public_s11_2_control.sh` redirected Gate stdout to a file
+and used a generic shell failure branch. Any non-zero Gate exit became only
+`S11_2_TECHNICAL_GATE_READ_RED`; the Gate envelope, component, classification
+and exit status were not validated or preserved.
+
+## Correction boundary
+
+R15.14 adds one exact allowlist, `GATE_FAILURE_V1`, and
+`GATE_DIAGNOSTIC_V1`. Unknown/free-form `ValueError` text and database, OS or
+JSON detail are mapped to bounded codes. The controller validates size, JSON
+shape, schema, version, child allowlist, taxonomy and exit consistency before
+preserving stable outer context plus exact safe inner cause. A non-zero Gate
+still stops before probes, S11 and Canary. No runtime deployment or retry is
+part of this correction.

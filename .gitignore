@@ -304,6 +304,7 @@
 !scripts/tu1nz_adult_public_s11_2_health_preflight.py
 !tests/test_adult_commercial_s11_2_r8_child_code_contract.py
 !tests/test_adult_commercial_s11_2_r15_6_health_child.py
+!tests/test_adult_commercial_s11_2_r15_14_gate_error_contract.py
 !scripts/tu1nz_adult_public_s9_timer_liveness_repair.sh
 !scripts/tu1nz_adult_public_s10_2d_r7_aggregate_recovery.py
 !scripts/tu1nz_adult_public_s10_2d_state_reconcile.py
@@ -311,10 +312,12 @@
 !scripts/tu1nz_adult_public_s11_2_gate.py
 !scripts/tu1nz_adult_public_s11_2_access_simulator.py
 !scripts/tu1nz_adult_public_s11_2_orchestration.py
+!scripts/tu1nz_adult_public_s11_2_r15_15_simulator.py
 !tests/test_adult_commercial_s10_2d_r8_1_state_reconciliation.py
 !tests/test_adult_commercial_s11_2_canary_bootstrap.py
 !tests/test_adult_commercial_s11_2_r15_8_orchestration.py
 !tests/test_adult_commercial_s11_2_r15_10_bash_safety.py
+!analysis/COMMERCIAL_S11_2_R15_14_GATE_ERROR_LOSS_2026-09-27.diagnose
 !tests/fixtures/
 !tests/fixtures/s11-2-r15-3/
 !tests/fixtures/s11-2-r15-3/controller-without-chatops.service
