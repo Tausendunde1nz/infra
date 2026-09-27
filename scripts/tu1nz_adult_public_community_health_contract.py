@@ -11,6 +11,10 @@ OUTER_STATE_RED = "S10_2D_COMMUNITY_STATE_RED"
 CHILD_MISSING = "COMMUNITY_CHILD_CODE_MISSING_RED"
 CHILD_UNKNOWN = "COMMUNITY_CHILD_CODE_UNKNOWN_RED"
 TELEGRAM_HEALTH_RED = "S10_TELEGRAM_HEALTH_RED"
+APPLICATION_HEALTH_SCHEMA_VERSION = "S8_HEALTH_V2"
+COMMUNITY_FAILURE_ENVELOPE_SCHEMA = "TU1NZ_COMMUNITY_FAILURE"
+COMMUNITY_FAILURE_ENVELOPE_VERSION = "COMMUNITY_FAILURE_V1"
+CONTROL_COMMUNITY_READER_VERSION = "CONTROL_COMMUNITY_READER_V2"
 
 RETRYABLE_RUNTIME_READINESS = "RETRYABLE_RUNTIME_READINESS"
 STATE_INTEGRITY_BLOCKER = "STATE_INTEGRITY_BLOCKER"
@@ -258,11 +262,59 @@ def latency_profile_states(community: Mapping[str, object]) -> dict[str, str]:
     return states
 
 
+def _explicit_failure(payload: Mapping[str, object]) -> CommunityHealthFailure | None:
+    """Validate the versioned Application envelope without downgrade fallback."""
+
+    envelope = payload.get("community_failure")
+    if not isinstance(envelope, Mapping):
+        return failure(CHILD_UNKNOWN)
+    if (
+        payload.get("health_schema_version") != APPLICATION_HEALTH_SCHEMA_VERSION
+        or set(envelope) != {"schema", "version", "child_code", "component"}
+        or envelope.get("schema") != COMMUNITY_FAILURE_ENVELOPE_SCHEMA
+        or envelope.get("version") != COMMUNITY_FAILURE_ENVELOPE_VERSION
+    ):
+        return failure(CHILD_UNKNOWN)
+    child_code = envelope.get("child_code")
+    if not isinstance(child_code, str) or not child_code:
+        return failure(CHILD_MISSING)
+    component = envelope.get("component")
+    if component not in ALLOWED_COMPONENTS:
+        return failure(CHILD_UNKNOWN)
+    return failure(child_code, component)
+
+
+def _legacy_community_failure(payload: Mapping[str, object]) -> CommunityHealthFailure | None:
+    """Read only bounded legacy Community fields in canonical priority order."""
+
+    community = payload.get("community")
+    if not isinstance(community, Mapping):
+        return None
+    provider = community.get("provider")
+    if isinstance(provider, Mapping) and provider.get("ok") is not True:
+        return failure(provider.get("safe_code"), "PROVIDER")
+    event_path = community.get("bot_event_path")
+    if isinstance(event_path, Mapping) and event_path.get("ok") is not True:
+        return failure(event_path.get("safe_code"), "POLLING")
+    pending = community.get("pending_moderation")
+    if isinstance(pending, int) and not isinstance(pending, bool) and pending != 0:
+        return failure("S10_2D_MODERATION_DELIVERY_STATE_RED", "MODERATION")
+    stuck = community.get("stuck_restrictions")
+    if isinstance(stuck, int) and not isinstance(stuck, bool) and stuck != 0:
+        return failure("S10_2D_RESTRICTION_RELEASE_STATE_RED", "COMMUNITY")
+    return None
+
+
 def failure_from_payload(payload: object, return_code: int) -> CommunityHealthFailure | None:
     """Return a strict failure for a child payload, otherwise ``None`` for GREEN."""
 
     if not isinstance(payload, Mapping):
         return failure(None)
+    if "community_failure" in payload:
+        return _explicit_failure(payload)
+    legacy_failure = _legacy_community_failure(payload)
+    if legacy_failure is not None:
+        return legacy_failure
     community = payload.get("community")
     if return_code != 0:
         safe_code = payload.get("safe_code")

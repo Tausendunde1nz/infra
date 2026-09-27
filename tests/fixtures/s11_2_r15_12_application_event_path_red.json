@@ -1,0 +1,24 @@
+{
+  "community": {
+    "bot_event_path": {
+      "ok": false,
+      "safe_code": "BOT_EVENT_PATH_WAITING"
+    },
+    "pending_moderation": 0,
+    "provider": {
+      "ok": true,
+      "safe_code": "S10_2D_COMMUNITY_GREEN"
+    },
+    "stuck_restrictions": 0
+  },
+  "community_failure": {
+    "child_code": "BOT_EVENT_PATH_WAITING",
+    "component": "POLLING",
+    "schema": "TU1NZ_COMMUNITY_FAILURE",
+    "version": "COMMUNITY_FAILURE_V1"
+  },
+  "health_schema_version": "S8_HEALTH_V2",
+  "ok": false,
+  "safe_code": "S8_DIAGNOSTIC_RED",
+  "state": "RED"
+}

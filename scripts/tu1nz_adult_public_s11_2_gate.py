@@ -155,7 +155,7 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("S11_2_CANARY_CAP_INVALID")
     if type(payload["hard_gates_green"]) is not bool:
         raise ValueError("S11_2_HARD_GATE_INVALID")
-    technical = _profile(payload["technical_values_ms"], "S11_CANARY_TECHNICAL_LATENCY")
+    technical = _profile(payload["technical_values_ms"], "TECHNICAL_RUNTIME_LATENCY")
     real = _profile(payload["real_values_ms"], "S11_CANARY_REAL_USER_LATENCY")
     base = {
         "release_state": release_state,
@@ -259,7 +259,31 @@ def _runtime_payload(connection: psycopg.Connection, now: datetime, hard_gates: 
         raise ValueError("S11_2_RELEASE_BINDING_MISSING")
     epoch_start = evidence_start or now
     epoch_end = min(now, horizon_at) if horizon_at is not None else now
-    samples = connection.execute(
+    technical_binding = connection.execute(
+        "SELECT target_release_id,technical_evidence_run_id "
+        "FROM commercial_s10_2d_runtime_control WHERE singleton"
+    ).fetchone()
+    if technical_binding is None or not all(technical_binding):
+        raise ValueError("S11_2_TECHNICAL_BINDING_MISSING")
+    technical_release_id, technical_run_id = technical_binding
+    technical_samples = connection.execute(
+        "SELECT evidence_class,sample_type,interaction_path,handler_duration_ms "
+        "FROM commercial_s10_2d_latency_samples WHERE source='DIRECT' "
+        "AND release_id=%s AND run_id=%s "
+        "AND recorded_at >= %s AND recorded_at <= %s "
+        "ORDER BY recorded_at,sample_id",
+        (technical_release_id, technical_run_id, now - timedelta(hours=24), now),
+    ).fetchall()
+    technical_values = [
+        value[3]
+        for value in technical_samples
+        if value[0] == "INTERNAL_TEST"
+        and value[1] == "DIRECT_BOT_RESPONSE"
+        and value[2] == "INTERNAL_ACCEPTANCE"
+    ]
+    if len(technical_values) != len(technical_samples):
+        raise ValueError("S11_2_TECHNICAL_PROVENANCE_RED")
+    canary_samples = connection.execute(
         "SELECT evidence_class,sample_type,interaction_path,bot_response_latency_ms,"
         "handler_duration_ms FROM commercial_s10_2d_latency_samples "
         "WHERE source='DIRECT' AND release_id=%s "
@@ -267,16 +291,9 @@ def _runtime_payload(connection: psycopg.Connection, now: datetime, hard_gates: 
         "ORDER BY recorded_at,sample_id",
         (canary_release_id, epoch_start, epoch_end),
     ).fetchall()
-    technical_values = [
-        value[4]
-        for value in samples
-        if value[0] == "INTERNAL_TEST"
-        and value[1] == "S11_CANARY_RESPONSE"
-        and value[2] == "INTERNAL_ACCEPTANCE"
-    ]
     real_values = [
         value[3]
-        for value in samples
+        for value in canary_samples
         if value[0] == "REAL"
         and value[1] == "S11_CANARY_RESPONSE"
         and value[2] == "TELEGRAM_DIRECT"
@@ -285,7 +302,7 @@ def _runtime_payload(connection: psycopg.Connection, now: datetime, hard_gates: 
         value[0] in {"UNKNOWN", "TECHNICAL_ACCEPTANCE"}
         or value[1] == "UNKNOWN"
         or value[2] == "UNKNOWN"
-        for value in samples
+        for value in canary_samples
     )
     historical_unknown = connection.execute(
         "SELECT count(*) FROM commercial_s10_2d_latency_samples "
