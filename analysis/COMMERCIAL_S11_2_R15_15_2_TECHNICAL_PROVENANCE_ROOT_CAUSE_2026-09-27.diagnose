@@ -1,0 +1,161 @@
+# Commercial S11.2-R15.15.2 technical provenance root cause
+
+Date: 2026-09-27
+Mode: read-only forensic analysis
+Primary classification: `EXPECTED_SHARED_BINDING_CONTRACT_MISMATCH`
+
+## Scope and preservation
+
+- No database row, release binding, service, timer, repository source, probe, Canary, S11 state, or public runtime was changed.
+- No Telegram identifiers, message contents, media, or other personal data were queried or copied.
+- Exactly one interactive sudo checkpoint was used. Every SQL transaction began `READ ONLY`; the sudo timestamp was invalidated after collection.
+- R15.15 was not retried and no technical probe was generated.
+
+## Canonical source and freeze
+
+- Application commit/tree: `db87896697d56b24f192fc1cd0324b6fe46d734b` / `b915a04e19eef8a244c300b16577a44cea89e2ab`
+- Control commit/tree before this diagnosis: `dbed49d183c0310242b51e785c51c28294ada95f` / `8c6f2ab0f21f5c0e521e5d3bca4336d46093e048`
+- Freeze: `s11-2-r15-14-1-freeze-provenance-r1`
+- Annotated tag object/target: `8f2dd04fb0c455c9c95e9564e9941b8e8c98ea8a` / `dbed49d183c0310242b51e785c51c28294ada95f`
+- Freeze verification: `S11_2_FREEZE_TAG_GREEN`, 29/29 exact bindings, no aliases, duplicates, missing, unknown, or incorrect bindings.
+
+The installed Application checkout was clean at `77f9079956a42ee411e17f5697da96f6810ba966`. Its `community_store.py` and `technical_latency_probe.py` hashes exactly matched canonical source. The installed `runtime.py` differed only in later health-envelope handling; its latency writer path was unchanged.
+
+## Preserved database evidence
+
+Read-only transaction time:
+
+- UTC: `2026-09-27 07:48:56.737122`
+- Europe/Berlin: `2026-09-27 09:48:56.737122`
+- rolling window: `[2026-09-26 07:48:56.737122, 2026-09-27 07:48:56.737122]` UTC
+
+Current S10.2D runtime binding:
+
+- `target_release_id=s10-2d-r3-5`
+- `technical_evidence_run_id=a391ef45-7bb7-4dd7-a330-a04762984539`
+- `cutover_started_at=2026-09-07 15:37:04.788047 UTC`
+- row `updated_at=2026-09-18 00:41:06.710027 UTC`
+- real acquisition: ready/active in authoritative DB, baseline `2026-09-18 00:41:06.710027 UTC`
+
+The schema has no separate `bound_at`, `run_started_at`, or binding-history table. Source inventory found one legitimate assignment owner: migration `0030_commercial_s10_2d_r3_5_stabilization.sql`, which assigns the target release, generates the UUID once, and records `cutover_started_at`. Later canonical source reads these fields but does not reassign them. The row update and cutover timestamps both predate the sample; no evidence supports a post-sample rebind.
+
+Current bound 24-hour distribution contained exactly one row:
+
+- internal sample ID: `ac037e85-e3e3-4e90-9ebb-58a187c4810c`
+- `recorded_at`/`occurred_at`: `2026-09-26 12:27:47.362241 UTC` / `2026-09-26 14:27:47.362241 Europe/Berlin`
+- natural expiry: `2026-09-27 12:27:47.362241 UTC` / `2026-09-27 14:27:47.362241 Europe/Berlin`
+- age at query: `69669.374881` seconds (`19:21:09.374881`)
+- provenance: `DIRECT / REAL / DIRECT_BOT_RESPONSE / TELEGRAM_DIRECT`
+- release/run: exactly the current values above
+- privacy-safe timings: response `1362 ms`, poll lag `981 ms`, handler `169 ms`, send acknowledgement `187 ms`
+- sample `cutover_started_at`: exactly the current binding cutover timestamp
+
+The sample is a legitimate REAL product measurement. It is not corrupt and was not reclassified.
+
+## Writer-origin proof
+
+The production S8 Telegram unit was configured with:
+
+- `--runtime-release-id s10-2d-r3-5`
+- `--latency-evidence-class REAL`
+
+The S8 invocation present around the sample used invocation ID `8912da5a5eda437189e6891ce71cde46`; privacy-safe journal metadata spans `2026-09-26T12:20:46Z` through `2026-09-26T13:57:02Z`, enclosing the sample timestamp. The four-minute sample window contained an S8 record and no technical-probe record.
+
+The technical probe had zero journal records from `2026-09-25T00:00:00Z` through the read-only collection on 2026-09-27. Its unit was inactive/dead. Canonical probe source hard-codes `INTERNAL_TEST / DIRECT_BOT_RESPONSE / INTERNAL_ACCEPTANCE`, so it cannot produce the observed `REAL / ... / TELEGRAM_DIRECT` tuple.
+
+Canonical source inventory found only two database-writing call paths to `PostgresCommunityStore.record_latency`: the S8 runtime and the technical probe. The release simulator uses only an in-memory recorder. Therefore:
+
+`WRITER_ORIGIN_PROVEN=tu1nz-adult-public-s8-telegram.service`
+
+Confidence is high: unique canonical provenance path, exact live unit arguments, enclosing invocation metadata, and absence of a probe execution.
+
+## Reader/writer contracts
+
+### Shared writer binding
+
+`PostgresCommunityStore.record_latency` unconditionally selects both `target_release_id` and `technical_evidence_run_id` from the singleton runtime-control row for every latency insert. It does so for REAL runtime rows and INTERNAL_TEST probe rows alike.
+
+- REAL direct writer: direct inbound update with an outbound response; service class `REAL`; S11 disabled makes the type `DIRECT_BOT_RESPONSE`; path becomes `TELEGRAM_DIRECT`.
+- Technical writer: non-provider bounded probe; class `INTERNAL_TEST`; type `DIRECT_BOT_RESPONSE`; path `INTERNAL_ACCEPTANCE`.
+- Both writers use the same current release and run UUID.
+
+This shared model is intentional in the broader canonical source: the S11 transition SQL selects technical and REAL profiles by provenance within the same release/run store, and PostgreSQL acceptance fixtures insert legitimate REAL rows using the current `technical_evidence_run_id`.
+
+### Exclusive Control Gate reader
+
+The current Control Gate first selects every `DIRECT` row for current release + current technical run + rolling 24 hours. It then retains only `INTERNAL_TEST / DIRECT_BOT_RESPONSE / INTERNAL_ACCEPTANCE` handler values. Finally, it raises `S11_2_TECHNICAL_PROVENANCE_RED` whenever the retained count differs from the broad selected count.
+
+Consequently any legitimate REAL direct response sharing the intentional runtime binding makes the Technical Gate RED, even though profile-level readers and the database transition contract separate rows by provenance.
+
+## Namespace and profile findings
+
+- Release namespace: `SHARED_RELEASE_ID_EXPECTED`.
+- Run namespace: shared by design in the current writer; this is not an independently generated UUID collision.
+- Binding lifecycle: the sample was written while the current binding was already active; the binding was not later pointed at a pre-existing REAL row.
+- Technical writer contract: internally consistent.
+- REAL writer contract: internally consistent and the observed sample is valid.
+- Technical Gate reader contract: incompatible with the intentionally shared writer binding.
+
+Profile selectors:
+
+| Profile | Release/run selector | Provenance selector | Window/metric |
+|---|---|---|---|
+| `TECHNICAL_RUNTIME_LATENCY` in the Gate | current target release + current technical run | `DIRECT / INTERNAL_TEST / DIRECT_BOT_RESPONSE / INTERNAL_ACCEPTANCE` | rolling 24 h / handler |
+| `S11_CANARY_REAL_USER_LATENCY` | Canary release; no run selector | `DIRECT / REAL / S11_CANARY_RESPONSE / TELEGRAM_DIRECT` | Canary epoch/horizon / response |
+| `REAL_USER_DIRECT_LATENCY` health profile | current 24-hour input; no release/run selector in `health_latency_profiles` | `DIRECT / REAL / DIRECT_BOT_RESPONSE` | rolling 24 h / response |
+
+## Root cause and recurrence
+
+Primary cause:
+
+`EXPECTED_SHARED_BINDING_CONTRACT_MISMATCH`
+
+The writer and broader profile model intentionally share the binding and separate profiles by provenance. The Control Gate alone treats the same binding as exclusively technical. The current REAL row is therefore expected product evidence in the writer contract but an invalid contaminant in the Gate contract.
+
+Secondary contributing causes:
+
+1. `technical_evidence_run_id` is named as if it were exclusive although it is the global latency run binding.
+2. The Gate query is broad and converts legitimate cross-profile coexistence into a provenance error.
+3. No immutable writer-identity column exists; origin required source, unit, and journal correlation.
+4. No per-field binding history exists; timeline proof relies on cutover/update timestamps plus source ownership.
+5. The Control regression suite tests a REAL row as a RED case, but never models valid technical rows coexisting with a legitimate `REAL / TELEGRAM_DIRECT` row under the same release/run.
+
+Waiting for expiry would only make this instance disappear. The running REAL writer can create the same valid tuple again under the same shared run binding. Therefore:
+
+`WAITING_IS_NOT_ROOT_CAUSE_RESOLUTION=true`
+
+## Minimal next source-only correction
+
+R15.15.3 should remain a separate source/freeze/authorization cycle and should:
+
+1. Make the Technical Gate select canonical technical provenance at SQL/profile scope rather than requiring all bound rows to be technical.
+2. Preserve a separate fail-closed query for `UNKNOWN`, `TECHNICAL_ACCEPTANCE`, malformed, or otherwise ambiguous provenance; legitimate known REAL profiles must not satisfy or invalidate the technical floor.
+3. Add a mixed-provenance regression: five valid technical rows plus a legitimate REAL direct-response row in the same release/run must evaluate technical evidence only.
+4. Retain negative fixtures for UNKNOWN/malformed rows and confirm they remain RED.
+5. Align Control documentation with the already canonical shared writer/profile contract. A later schema change may rename the run field or add writer identity/binding history, but it is not required for the minimal reader correction.
+
+No sample cleanup, run reset, binding rewrite, probe generation, or retry is part of that correction.
+
+## End state
+
+- S11: `S11_DISABLED`, `enabled=false`, `live_start=NULL`
+- Canary: `NOT_STARTED`; no release/epoch/live-start
+- S11 controller: not installed
+- Public WMS root, health, privacy, terms, and imprint: HTTP 200; health `ok=true`
+- Legacy domain redirect: HTTP 308 to the canonical WMS root
+- S7, S8 Landing, S8 Telegram, S10 WMS, nginx: active/running, `NRestarts=0`
+- Adult media, identity intake/real AVS, payments, external publishing, controlled beta, and production: closed
+- Yoti accessed: false
+- Next after a successful future S11 handoff: `YOTI_SANDBOX_READINESS`
+
+## Decision
+
+- Provenance root cause: GO (proven)
+- Technical binding integrity: NO-GO (reader/writer contract is inconsistent; evidence itself is intact)
+- Technical reader contract: NO-GO
+- REAL writer contract: GO
+- Technical writer contract: GO
+- R15.15 runtime retry: NO-GO
+- Public WMS: GO
+- S11 Canary: NO-GO / not started
+- Yoti Sandbox: NO-GO / not accessed
