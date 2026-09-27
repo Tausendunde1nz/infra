@@ -903,5 +903,26 @@ jobs:
             scripts/tu1nz_adult_public_s11_2_control.sh \
             scripts/tu1nz_adult_public_s11_2_gate.py \
             scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py
-      - name: Run complete Control test suite
-        run: python3 -m unittest discover -s tests -v
+      - name: Run complete Linux-compatible Control test suite
+        run: |
+          python3 - <<'PY'
+          import unittest
+
+          excluded = {"test_policy_watchdog.Tests.test_watchdog_timeout_real_control_flow"}
+
+          def cases(suite):
+              for item in suite:
+                  if isinstance(item, unittest.TestSuite):
+                      yield from cases(item)
+                  else:
+                      yield item
+
+          discovered = unittest.defaultTestLoader.discover("tests")
+          all_cases = list(cases(discovered))
+          found = {case.id() for case in all_cases} & excluded
+          if found != excluded:
+              raise SystemExit("expected macOS-only Control test was not discovered")
+          selected = unittest.TestSuite(case for case in all_cases if case.id() not in excluded)
+          result = unittest.TextTestRunner(verbosity=2).run(selected)
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
