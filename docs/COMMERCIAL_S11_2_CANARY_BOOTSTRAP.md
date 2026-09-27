@@ -433,3 +433,23 @@ is `s11-2-r15-15-3-profile-scoped-technical-freeze-r1`; the prior tag stays
 unchanged and verifiable under its historical value. This change is
 source-only and does not deploy, write evidence, run a probe, start S11 or a
 Canary, or access Yoti.
+
+## R15.16.4 Technical profile serialization parity
+
+R15.16.3 proved that the Gate reader correctly accepted a shared binding with
+zero Technical rows and one legitimate REAL row, while the controller then
+serialized every DIRECT row into the Technical payload. The consumer's valid
+cardinality invariant consequently rejected one serialized row against zero
+Technical samples. R15.16.4 fixes the producer only: the broad Gate read still
+validates UNKNOWN and malformed rows fail-closed, then the controller emits
+only DIRECT/INTERNAL_TEST/DIRECT_BOT_RESPONSE/INTERNAL_ACCEPTANCE rows.
+
+The serializer verifies that its Technical-only row count exactly equals the
+Gate Technical count. A concurrent REAL row is irrelevant; a concurrent
+Technical row stops with `S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED`. The
+consumer invariant, both writers, and the intentionally shared Release/Run
+binding remain unchanged. The contract value is
+`PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3`; the new controller-bound tag
+is `s11-2-r15-16-4-technical-profile-serialization-freeze-r1`. Earlier tags
+remain immutable. The complete evidence contract is documented in
+`COMMERCIAL_S11_2_R15_16_4_TECHNICAL_PROFILE_SERIALIZATION.md`.

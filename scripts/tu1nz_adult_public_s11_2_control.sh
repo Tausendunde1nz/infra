@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-15-3-profile-scoped-technical-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-r15-16-4-technical-profile-serialization-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -186,7 +186,7 @@ require_local_freeze() {
     "gate_error_allowlist=CANONICAL_EXACT_ONLY" \
     "controller_gate_reader=CONTROL_GATE_READER_V1" \
     "r15_15_simulator=SOURCE_ONLY_GREEN" \
-    "technical_evidence_contract=PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2" \
+    "technical_evidence_contract=PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
     "phase_error_contract=EXPLICIT_CHILD_SUPERVISION" \
@@ -1169,9 +1169,41 @@ PY
     "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
 import json
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import psycopg
+
+# R15_16_4_PROFILE_SERIALIZER_START
+TECHNICAL_PROFILE = (
+    "DIRECT",
+    "INTERNAL_TEST",
+    "DIRECT_BOT_RESPONSE",
+    "INTERNAL_ACCEPTANCE",
+)
+TECHNICAL_SNAPSHOT_DRIFT_CODE = "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED"
+
+
+def serialize_technical_profile(technical, rows):
+    technical_rows = [row for row in rows if tuple(row) == TECHNICAL_PROFILE]
+    if len(technical_rows) != technical["samples"]:
+        raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
+    return {
+        "required_floor": technical["minimum_samples"],
+        "current_valid_samples": technical["samples"],
+        "state": technical["state"],
+        "samples": [
+            {
+                "source": row[0],
+                "evidence_class": row[1],
+                "sample_type": row[2],
+                "interaction_path": row[3],
+            }
+            for row in technical_rows
+        ],
+        "health": "GREEN",
+    }
+# R15_16_4_PROFILE_SERIALIZER_END
 
 gate = json.loads(Path(os.environ["S11_GATE_FILE"]).read_text(encoding="ascii"))
 dsn = Path(os.environ["S11_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
@@ -1191,16 +1223,20 @@ with psycopg.connect(dsn) as connection:
         (binding[0], binding[1], now - timedelta(hours=24), now),
     ).fetchall()
 technical = gate["technical_latency"]
-payload = {
-    "required_floor": technical["minimum_samples"],
-    "current_valid_samples": technical["samples"],
-    "state": technical["state"],
-    "samples": [
-        {"source": row[0], "evidence_class": row[1], "sample_type": row[2], "interaction_path": row[3]}
-        for row in rows
-    ],
-    "health": "GREEN",
-}
+try:
+    payload = serialize_technical_profile(technical, rows)
+except ValueError as error:
+    if str(error) != TECHNICAL_SNAPSHOT_DRIFT_CODE:
+        raise
+    print(
+        json.dumps(
+            {"ok": False, "safe_code": TECHNICAL_SNAPSHOT_DRIFT_CODE},
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        file=sys.stderr,
+    )
+    raise SystemExit(2) from None
 Path(os.environ["S11_PROFILE_DESTINATION"]).write_text(
     json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="ascii"
 )
