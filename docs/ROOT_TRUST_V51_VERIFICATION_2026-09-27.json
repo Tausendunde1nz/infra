@@ -1,0 +1,18 @@
+{
+  "canonical_clean": true,
+  "canonical_detached": true,
+  "canonical_head": "f1c3b9a323761f71c80dadd9b5a1dad3a968d582",
+  "hardening_42_unchanged": true,
+  "source_hashes": {
+    "test_root_trust_v51.py": "cfb5b3abd5f44b9e6afb13c82129adbcddb0f42340677d1d2648de9f0f194e6b",
+    "test_root_trust_v51_components.py": "3c1c4d8bdd2f4769138c5cbc693218a94e6d3030a8717dbc0b6a0db27a03ba0f",
+    "test_root_trust_v51_launcher.py": "ad8b2962695a39e3d5117292cd7c7b33e96927d0b4a015717f7325f8687a6130",
+    "tu1nz_root_trust_v51.py": "404031fc2e87658292cef731fef44cf1623520df363d3bdf92640211226a77ab",
+    "tu1nz_root_trust_v51_launcher.py": "7283fe3e9261d938110eb780613acb51cd9c37ccb9f8adb06e31202244109e38"
+  },
+  "tests_passed": 203,
+  "utc": "2026-09-27T14:32:13.859133+00:00",
+  "v3_1125_unchanged": true,
+  "v51_executed": false,
+  "v5_source_unchanged": true
+}
