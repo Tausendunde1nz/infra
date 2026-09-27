@@ -395,20 +395,23 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"', source)
         self.assertIn('TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"', source)
         self.assertIn('TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"', source)
-        self.assertIn('FINAL_CONTROL_TAG="s11-2-r15-14-1-freeze-provenance-r1"', source)
+        self.assertIn(
+            'FINAL_CONTROL_TAG="s11-2-r15-15-3-profile-scoped-technical-freeze-r1"',
+            source,
+        )
         self.assertIn(
             'CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"',
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v23")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v24")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_14_1_FREEZE_PROVENANCE_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_15_3_PROFILE_SCOPED_TECHNICAL_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-14-1-freeze-provenance-r1",
+            "s11-2-r15-15-3-profile-scoped-technical-freeze-r1",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],

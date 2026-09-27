@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v23",
-  "status": "S11_2_R15_14_1_FREEZE_PROVENANCE_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v24",
+  "status": "S11_2_R15_15_3_PROFILE_SCOPED_TECHNICAL_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
@@ -9,7 +9,7 @@
     "reviewed_head": "99936d15c800c25bef35701c9568de30f04d227e"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-14-1-freeze-provenance-r1",
+    "freeze_tag": "s11-2-r15-15-3-profile-scoped-technical-freeze-r1",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -229,7 +229,7 @@
     "next_r15_11_runtime_deployment_ready": true
   },
   "r15_10_artifact_bindings": {
-    "controller_sha256": "5f344afb501d2d26e90a06897d4c18df2550b2f608b9bbaa5387a6d6da2f52ee",
+    "controller_sha256": "1401b646c8364b75d5d238c04ca740ed7c7ca29c8b05de517e1090c27b9a1c03",
     "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
     "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
     "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
@@ -376,7 +376,7 @@
     "r15_13_simulator_sha256": "60b9a9d63eb249d31b071d8f0280de008ce4d3f824c92da01b7457ee50be9bd8",
     "focused_envelope_suite_sha256": "84c25b47b952f0bfb5614875163307adb40d7c4b2ec5785f0c140d835467ada9",
     "focused_compatibility_suite_sha256": "d1e06b883e8babe3bb5c0bab52533396b8c0a6d5b3707c0d744c4cd347308b2b",
-    "controller_sha256": "5f344afb501d2d26e90a06897d4c18df2550b2f608b9bbaa5387a6d6da2f52ee",
+    "controller_sha256": "1401b646c8364b75d5d238c04ca740ed7c7ca29c8b05de517e1090c27b9a1c03",
     "ssot_sha256": "ecf837dc94e7a389341e3b5665bcc794d4308ad43a392e246915dc4b46e3880d",
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
@@ -453,6 +453,35 @@
     "unknown_bindings_rejected": true,
     "final_values_derived_after_merge": true,
     "next_r15_15_runtime_deployment_ready_after_actual_tag_verification": true
+  },
+  "r15_15_3_profile_scoped_technical_reader": {
+    "classification": "EXPECTED_SHARED_BINDING_CONTRACT_MISMATCH",
+    "source_only": true,
+    "application_profile_authority": "TECHNICAL_RUNTIME_LATENCY",
+    "shared_release_binding_intentional": true,
+    "shared_run_binding_intentional": true,
+    "real_writer_changed": false,
+    "technical_writer_changed": false,
+    "known_real_direct_ignored_for_technical": true,
+    "known_s11_canary_real_ignored_for_technical": true,
+    "unknown_and_malformed_fail_closed": true,
+    "technical_metric": "handler_duration_ms",
+    "real_metric_never_substituted": true,
+    "technical_evidence_contract": "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
+    "artifact_bindings": {
+      "controller_sha256": "1401b646c8364b75d5d238c04ca740ed7c7ca29c8b05de517e1090c27b9a1c03",
+      "gate_sha256": "8f506bc3b081c5a92c7982eddcb0850920926d34a4f14bffd70892c8b6ff99e6",
+      "freeze_helper_sha256": "a0151632b33cc0583dca0a996f30736b31b04ba710dcc80c6d2be6e347cae5e3",
+      "r15_16_simulator_sha256": "06bb82c32f1bc2a75911c65dd8de10d6a486a1302cc1ddd6bfff81013a9edb29",
+      "focused_suite_sha256": "545804b9f4ba156ec278f4a962c76059a2dd1e59eda442027f6ab2bf7885dee6",
+      "profile_fixture_sha256": "8234884c5d08d92757f11c2f00dc6eb3657b6a3e353badd26ce8d6fe9dfc0992",
+      "ssot_sha256": "26e273ee612fd3a86668b582b400b837839695f362a139ef49f463d0d689be1e"
+    },
+    "previous_freeze_immutable": "s11-2-r15-14-1-freeze-provenance-r1",
+    "replacement_freeze": "s11-2-r15-15-3-profile-scoped-technical-freeze-r1",
+    "canonical_binding_count": 29,
+    "runtime_mutation_performed": false,
+    "next_r15_16_runtime_deployment_ready_after_actual_tag_verification": true
   },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
   "canary_contract": {
