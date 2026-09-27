@@ -1,0 +1,32 @@
+{
+  "activation_ready": false,
+  "base_commit": "7b24db9286e85200efde4981d5f21b6d717e6e04",
+  "edge_categories": {
+    "UNRESOLVED_LITERAL": 13251
+  },
+  "export_sha256": "339684d21fdd56046fcc76143aad816a8a409150dd629cf7547e5aeeb2baf484",
+  "findings": {
+    "QUERY_FAILED_OR_UNKNOWN": 85,
+    "SOURCE_RESOLUTION_NOT_CLOSED": 239,
+    "UNKNOWN_PRIVILEGE_CONTEXT": 58
+  },
+  "launcher_sha256": "56a67c546bb7c64dfa5cbe9c5127a60aa4703eee5fddcf8d2dbf215526e2ce77",
+  "private_review_sha256": "bd2095f5d7d0b6f9b98b0a9d0ba2279eb9acf4c567fea436053886cb536557fd",
+  "projected_literal_edges": 13251,
+  "projection_entries": 403,
+  "reached_sources": 239,
+  "reader_sha256": "3b9e28472b66c6c17c438a8075fe29eca2d86c835fae76a3dc7f369ece3dd64b",
+  "remaining_work": [
+    "Protected archive semantics and caller resolution",
+    "Complete reachable-entry semantic contracts",
+    "Deployable replacement adapters, installer, systemd watchdog integration and end-to-end failure validation"
+  ],
+  "schema": "tu1nz-scope-v7",
+  "scope_decisions": {
+    "cadvisor": "Separate monitoring contract; must bind post-revocation chatops influence, not infer from read-only mounts",
+    "detached_checkout": "Not intrinsically blocking; bind actual automation dependencies and fresh preflight only",
+    "jellyfin": "Application 1001:1001; root init not an independent migration blocker",
+    "mommyramona": "Not a UID-0 blocker; active host consumer unresolved",
+    "mychatbuddy": "Dedicated Docker group retained; no restart planned. App-state integrity separate. Systemd StateDirectory/root path traversal not yet proved safe or exploitable"
+  }
+}
