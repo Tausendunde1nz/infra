@@ -28,15 +28,17 @@ class Tests(unittest.TestCase):
             store.close()
     @unittest.skipUnless(sys.platform.startswith('linux'),'Linux process evidence')
     def test_descendant_timeout_cleanup(self):
-        code='import subprocess,sys,time; p=subprocess.Popen([sys.executable,"-I","-c","import time;time.sleep(60)"]);print(p.pid,flush=True);time.sleep(60)'
-        status,data=m.run((sys.executable,'-I','-c',code),timeout=.3)
-        self.assertTrue(status['timeout']);pid=int(data.strip());deadline=time.monotonic()+2
-        while time.monotonic()<deadline:
-            try:state=Path('/proc/'+str(pid)+'/stat').read_text().rsplit(')',1)[1].split()[0]
-            except FileNotFoundError:break
-            if state=='Z':break
-            time.sleep(.02)
-        else:self.fail('Descendant still executing')
+        import tu1nz_process_exit_evidence as evidence
+        report = 'import os,json,pathlib; f=pathlib.Path("/proc/self/stat").read_text().rsplit(")",1)[1].split(); print(json.dumps({"pid":os.getpid(),"pgrp":int(f[2]),"start":int(f[19])}),flush=True);'
+        child = report + 'import time;time.sleep(60)'
+        code = report + 'import subprocess,sys,time;subprocess.Popen([sys.executable,"-I","-c",'+repr(child)+']);time.sleep(60)'
+        status,data=m.run((sys.executable,'-I','-c',code),timeout=.5)
+        self.assertTrue(status['timeout'])
+        expected=[json.loads(line) for line in data.splitlines()]
+        self.assertEqual(len(expected),2)
+        self.assertEqual(expected[0]['pid'],expected[0]['pgrp'])
+        self.assertEqual(expected[0]['pgrp'],expected[1]['pgrp'])
+        evidence.await_stopped(expected)
     def test_fixed_environment(self):
         status,data=m.run((sys.executable,'-I','-c','import os,json;print(json.dumps(dict(os.environ)))'))
         env=json.loads(data)

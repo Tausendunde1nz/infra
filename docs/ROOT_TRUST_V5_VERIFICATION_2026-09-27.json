@@ -1,0 +1,20 @@
+{
+  "canonical_clean": true,
+  "canonical_detached": true,
+  "canonical_head_observed": "f1c3b9a323761f71c80dadd9b5a1dad3a968d582",
+  "collector_executed": false,
+  "hardening_hashes_matched": 42,
+  "source_hashes": {
+    "test_process_exit_evidence.py": "b88ff3d8c62984880b72e1f97d01d15fb3125ac32b56ea0e35b3f73b55caba6f",
+    "test_root_trust_v5.py": "6ff0fd046b68c39ffcf446e5df8e38fce56b0ad9f513e0a66bfeddfb950aeae3",
+    "test_root_trust_v5_launcher.py": "5addc88060502dc50ad66286b9a617535afa927f72445258d3dc359ec8e56a2f",
+    "tu1nz_process_exit_evidence.py": "ba443ac4530c4337cb601366c0c065706ab3f1ebc0eec95d2c9cbce180ed43bb",
+    "tu1nz_root_trust_v5.py": "9f45b7d28dfd6c1e0ff41c0ed3e2f6b1d51109de08cdd9508052849e521009f8",
+    "tu1nz_root_trust_v5_launcher.py": "bf63a672e4b374cbc75a74780a7674a013b10fc1670d7bb594bbf05595b5a590"
+  },
+  "test_returncode": 0,
+  "tests": 167,
+  "utc": "2026-09-27T14:17:35.546126+00:00",
+  "v3_hashes_matched": 1125,
+  "v4_source_unchanged": true
+}

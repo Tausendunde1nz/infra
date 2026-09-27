@@ -1,0 +1,132 @@
+{
+  "activation_ready": false,
+  "edges": [
+    {
+      "from": "/etc/cron.d/system_doc_build",
+      "kind": "ROOT_CRON_0_22_DAILY",
+      "status": "REVIEW_REQUIRED",
+      "to": "/usr/local/bin/build_system_doc.sh"
+    },
+    {
+      "from": "/usr/local/bin/build_system_doc.sh",
+      "kind": "ROOT_EXEC",
+      "status": "REVIEW_REQUIRED",
+      "to": "/opt/tu1nz_repos/docs/system_manifest/render_kapitel3.sh"
+    },
+    {
+      "from": "/usr/local/bin/build_system_doc.sh",
+      "kind": "ROOT_WRITE",
+      "status": "REVIEW_REQUIRED",
+      "to": "/opt/Tausendunde1nz/_Doku"
+    },
+    {
+      "from": "/etc/cron.d/system_doc_check",
+      "kind": "ROOT_CRON_EVERY_TWO_HOURS",
+      "status": "REVIEW_REQUIRED",
+      "to": "/usr/local/bin/check_system_doc.sh"
+    },
+    {
+      "from": "/usr/local/bin/check_system_doc.sh",
+      "kind": "READ",
+      "status": "REVIEW_REQUIRED",
+      "to": "/opt/Tausendunde1nz/_Doku/System_Dokumentation_latest.pdf"
+    },
+    {
+      "from": "/usr/local/bin/check_system_doc.sh",
+      "kind": "APPEND",
+      "status": "REVIEW_REQUIRED",
+      "to": "/var/log/system_doc_check.log"
+    },
+    {
+      "from": "/usr/local/bin/check_system_doc.sh",
+      "kind": "CURL_NOTIFICATION",
+      "status": "REVIEW_REQUIRED",
+      "to": "telegram-api"
+    }
+  ],
+  "evidence_commit": "29ce14e2510a616a91c1ccdb5dbf9d8beef7eefe",
+  "nodes": [
+    {
+      "evidence": "Root Trendwatch writes below chatops-controlled /opt/trendwatch; offline component is not deployed.",
+      "id": "trendwatch-root-writer",
+      "status": "BLOCKER"
+    },
+    {
+      "evidence": "Root system_doc_build directly executes chatops-owned render_kapitel3.sh.",
+      "id": "legacy-doc-root-code",
+      "status": "BLOCKER"
+    },
+    {
+      "evidence": "Root writes below replaceable /opt/Tausendunde1nz/_Doku entry.",
+      "id": "legacy-doc-root-output",
+      "status": "BLOCKER"
+    },
+    {
+      "evidence": "Docker socket and inherited Docker GIDs preserve host-root control.",
+      "id": "chatops-docker",
+      "status": "BLOCKER"
+    },
+    {
+      "evidence": "Existing broad commands remain live; candidate removal is offline only.",
+      "id": "five-sudo-grants",
+      "status": "BLOCKER"
+    },
+    {
+      "evidence": "/var/spool/cron/atjobs 1770 daemon:daemon; chatops cannot enumerate.",
+      "id": "protected-at-jobs",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "evidence": "Fresh /etc/sudoers and /etc/sudoers.d cannot be read by chatops.",
+      "id": "protected-sudo-includes",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "evidence": "/etc/polkit-1/rules.d cannot be enumerated by chatops.",
+      "id": "protected-local-polkit",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "evidence": "Fresh spool enumeration denied; older V4 root-crontab absence is historical only.",
+      "id": "protected-crontabs",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "evidence": "338 service,76 timer,29 socket,9 path,10 mount unit files; all effective and transitive edges not yet resolved.",
+      "id": "systemd-transitive-closure",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "evidence": "Root cron PATH, Python markdown/yaml import origins, inherited environment and effective cwd need proof.",
+      "id": "legacy-doc-runtime-imports",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "evidence": "Checker consumes latest PDF; governance references renderer; complete external consumers and retention are unproven.",
+      "id": "legacy-doc-consumers",
+      "status": "REVIEW_REQUIRED"
+    },
+    {
+      "evidence": "Separate lstat/readlink/canonical nofollow read with pre/post component identity; original V4 INCOMPLETE preserved.",
+      "id": "expected-system-summary-link",
+      "status": "SAFE"
+    },
+    {
+      "evidence": "lstat returned ENOENT in current unprivileged inventory.",
+      "id": "etc-anacrontab",
+      "status": "NOT_PRESENT"
+    },
+    {
+      "evidence": "lstat returned ENOENT in current unprivileged inventory.",
+      "id": "etc-rc-local",
+      "status": "NOT_PRESENT"
+    },
+    {
+      "evidence": "/etc/NetworkManager/dispatcher.d absent; other network dispatchers present.",
+      "id": "networkmanager-dispatcher",
+      "status": "NOT_PRESENT"
+    }
+  ],
+  "schema": 1,
+  "status": "INCOMPLETE"
+}
