@@ -1,0 +1,16 @@
+{
+  "activation_allowed": false,
+  "base_commit": "1c1bc5fbbdd85b12c54261f4f304a23d192c0785",
+  "bundle_sha256": "9fd61c16c55c16a617bd76c4ab2ca228aa33f7b04e15f5c861ef8b5302012f51",
+  "files": {
+    "CALLER_BINDINGS.json": "42d0ab91f96d86d1bb336441c72f23cea619fa968f46c219f56123753841c6fb",
+    "PARSER_MANIFEST.json": "79088009291ac202df8958d46d3587396a9da9845e46f19db5f3cb86328a71d6",
+    "build_reader_v2.py": "b9efb8e9775291409c8c006e5e25b97a6d26be7694c0b6919e24d5625e44b529",
+    "reader_runtime.py": "56bfe2ac649b78102466e2b1836f1a2fbdad4dcc467acdc2c67ce50f09a763ce",
+    "tu1nz_backup_notify_launcher_v2.py": "1e5ff7a36d7a690920350dfeeb45681b9f6e183878b40933c67fa5c4af5ee656",
+    "tu1nz_backup_notify_reader_v2.py": "7342e55dcfe6c8628477570fd433ad60d66ba345fcfaf29e1a6376e033a4e3d2",
+    "tu1nz_backup_notify_v2_engine.py": "57fb615b0e071fe77f275cdbbda1f067d8fd6d4b86823fcfc2b223ab8a10b8ae"
+  },
+  "historical_v7_result_sha256": "501fbb7fb0944439b9e86df60f8644a5ebf3e65f47d437764f3f0a286df93271",
+  "version": "2.0.0"
+}
