@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import re
 import subprocess
 import sys
@@ -68,6 +70,55 @@ def fixture(real=None, **overrides):
 
 
 class CommercialS112CanaryBootstrapTests(unittest.TestCase):
+    def _assert_access_simulator_fixture_acl(self, inherited_acl):
+        if shutil.which("setfacl") is None:
+            self.fail("setfacl is required to validate both fixture ACL environments")
+        with tempfile.TemporaryDirectory(prefix="s112-access-acl-regression-") as temporary:
+            parent = Path(temporary)
+            subprocess.run(["setfacl", "-b", str(parent)], check=True)
+            subprocess.run(["setfacl", "-k", str(parent)], check=True)
+            if inherited_acl:
+                subprocess.run([
+                    "setfacl", "-m",
+                    "d:u::rwx,d:g::rwx,d:m::rwx,d:o::---", str(parent),
+                ], check=True)
+            # Establish that the selected environment really reproduces the cause.
+            probe = parent / "creation-probe"
+            previous = os.umask(0o077)
+            try:
+                fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o777)
+                os.close(fd)
+            finally:
+                os.umask(previous)
+            self.assertEqual(probe.stat().st_mode & 0o7777, 0o770 if inherited_acl else 0o700)
+            completed = subprocess.run(
+                [sys.executable, str(ACCESS_SIMULATOR)],
+                cwd=parent, env=dict(os.environ, TMPDIR=str(parent)),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["source_mode"], "0700")
+            self.assertEqual(payload["runtime_mode"], "0755")
+            self.assertEqual(payload["cases"], {
+                "A_OLD_DIRECT_REPO_RUNTIME": "RED_EXIT_126",
+                "B_SOURCE_AS_OWNER": "GREEN",
+                "C_INSTALLED_RUNTIME_COPY": "GREEN",
+                "D_INSTALLED_COPY_MISSING": "RED",
+                "E_INSTALLED_COPY_HASH_MISMATCH": "RED",
+                "F_INSTALLED_COPY_NON_EXECUTABLE": "RED",
+                "G_RUNTIME_POINTS_TO_REPOSITORY": "RED",
+                "NATURAL_ONESHOT_EXECUTION": "GREEN_NO_EXIT_126",
+                "ROLLBACK_EXACT_BYTES_AND_MODES": "GREEN",
+            })
+
+    def test_r15_4_fixture_under_inherited_default_acl(self):
+        self._assert_access_simulator_fixture_acl(True)
+
+    def test_r15_4_fixture_without_default_acl(self):
+        self._assert_access_simulator_fixture_acl(False)
+
     def test_contract_simulator_covers_required_matrix(self):
         result = MODULE.simulate_contract()
         self.assertTrue(result["ok"])

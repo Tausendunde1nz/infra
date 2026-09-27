@@ -1,0 +1,56 @@
+# Tailscale IPv6 kernel diagnosis — 2026-09-26
+
+Status: diagnosis complete; live correction NOT activated. Phase 5 and SSH check-to-accept remain blocked by an unproven safe rollback and cross-interface effects.
+
+## Confirmed evidence
+
+The original network allow-all policy was fully restored on 2026-09-24 (see TAILNET_PHASE5_IPV6_2222_2026-09-24.diagnose). The IPv6 OpenSSH timeout persisted after that rollback. The Phase-5 candidate is therefore not the cause of this timeout.
+
+Server tailscale IPv4/IPv6: 100.121.130.51 / fd7a:115c:a1e0::7a32:8233. Mac: 100.98.95.69 / fd7a:115c:a1e0::4132:5f45. The Mac route uses utun9; Tailscale ping and TSMP succeed. ICMPv6 and TCP 2222 time out. Tailscale userspace SSH and kernel OpenSSH take different paths.
+
+The single authorized bounded header capture was completed at 2026-09-26 06:25:47–06:25:51 UTC, during one Mac socket connection attempt. It recorded five SYN transmissions/retransmissions for the same connection on tailscale0, no reply and no capture drops. Snap length was 60 bytes on the raw IP interface, with no payload-output options. No further capture was performed.
+
+Privileged results:
+- all.disable_ipv6=1; default.disable_ipv6=1; tailscale0.disable_ipv6=1; eth0.disable_ipv6=0.
+- All inspected host Docker bridges/veth interfaces and lo have disable_ipv6=1.
+- tailscale0 has no IPv6 address; there is no IPv6 Tailscale table-52 route/policy rule. Route lookup for the Mac IPv6 selects the public eth0 default route.
+- OpenSSH listens on [::]:2222 and 0.0.0.0:2222. Effective configuration allows chatops only, prohibits root, enables public-key authentication and disables password/keyboard-interactive authentication (existing settings).
+- IPv6 INPUT/FORWARD policies are DROP; there are no Tailscale IPv6 firewall chains. Terminal DROP counters did not increase across the capture snapshots. Concurrent background traffic prevents attributing every counter delta to this test.
+- Journal reports ipv6=true but ipv6os=false.
+- /etc/sysctl.conf persistently sets net.ipv6.conf.all.disable_ipv6 = 1; /etc/sysctl.d/99-sysctl.conf is its symlink. Forwarding is separately enabled.
+
+Conclusion: the SYN reaches the server tunnel, but IPv6 is disabled on the receiving kernel interface and the expected local address/return path is absent. A missing listener or failure to reach the server is excluded. A firewall-only change cannot repair this state. Additional downstream firewall effects cannot be conclusively tested until the kernel IPv6 path exists.
+
+## Correction safety gate — NO-GO
+
+Linux documents that writing conf/all/disable_ipv6 changes default and every interface. Reading all=1 alone is not proof of IPv6 being disabled everywhere; eth0 is explicitly enabled here. The official Tailscale main-branch CheckIPv6 implementation nonetheless rejects all.disable_ipv6=1. The exact deployed 1.102.2 source revision could not be retrieved, so main-branch behavior is corroborating evidence, not an exact-version proof.
+
+A bare all.disable_ipv6=0 would also enable IPv6 on currently disabled Docker bridges/veth devices. Restoring all=1 would also disable IPv6 on eth0 and remove affected addresses/routes. Reapplying only original scalar sysctls would not constitute a complete rollback. A tailscaled restart could additionally recreate IPv6 routing/firewall state and briefly affect the recovery path/Exit Node. Neither these effects nor a full state restoration have been validated offline.
+
+Accordingly no sysctl, interface, route, firewall, daemon, container, Tailnet policy or provider rule was changed. No speculative static address/route workaround was applied. The authorization for a small reversible correction does not waive the required rollback proof or container/network isolation constraints.
+
+Before activation: design and test a persistent per-interface-preserving initialization; establish exact deployed Tailscale IPv6 initialization behavior; back up addresses, routes, policy rules, firewall state, interface flags and affected files; prove rollback including public eth0 IPv6 and Tailscale-managed rules; stage and push the reviewed transaction and offline tests; retain the independent recovery console. Do not run sysctl -p or toggle the global flag as a shortcut.
+
+## Evidence and integrity
+
+Server protected evidence: /opt/tu1nz_repos/network-hardening-private-2026-09-22/ipv6-diagnose-20260925T144007Z/
+Mac verified copy: /Users/daniel/.codex/tu1nz-recovery/ipv6-kernel-20260926T062916Z/
+30 files copied; all existing SHA256SUMS entries verified; Mac directory 0700 and files 0600. Original file owners, modes and hashes are recorded in file-metadata.json. No private keys or credentials are committed.
+Diagnostic script SHA256: 861f195085a9092cd8deed155979dc10ff32f8e7e2a9685f03809a9c3e4d35a5.
+Header evidence SHA256: beb26606853b4bab8d6e560986796a0bccaa3adb62308b77db3592e2dff67eaa.
+Original sysctl.conf SHA256: 9d85c709e657e62835df915fd2e8d996af4be6a260d5c852bd4a127eb72f5beb.
+
+## Access and remaining validation
+
+The pending Tailscale SSH authentication completed successfully on this continuation. OpenSSH IPv4 2222 independently executed the read-only evidence/Git checks. No new key was installed. No public probe or repeat packet capture was performed in this continuation. The complete post-correction test matrix has NOT passed because no correction was activated; historical health results must not be represented as fresh results.
+
+Keep original network policy and SSH action=check. Do not retry Phase 5 until both families on 22/2222, prohibited users, public negative tests, provider-only 80/443/ICMP, Fail2ban 2222, monitoring, website/DNS, Exit Node, listeners and unchanged containers are validated. Phase 5 also requires a proven automatic rollback and fresh iPhone validation. Check-to-accept is a separate later transaction.
+
+## Repository handling
+
+Hardening base and remote were a52c64d743bb45b4d072b4de7ad6a6301897f9a6 with a clean worktree. Remote control-main is 41478902234c2e901f83668cfe88a57cf52e73d4. Fetched and reviewed changes since 49294ce concern commercial S11 access/runtime contracts, workflow, ignore rules, tests and documentation; this new diagnosis does not edit those files. No merge, rebase, force-push or canonical detached checkout change was performed. Only this diagnosis is staged and committed. A protected UTC prechange manifest records its previous absence and the original HEAD.
+
+## Primary references
+
+- https://www.kernel.org/doc/html/latest/networking/ip-sysctl.html — conf/all/disable_ipv6 semantics.
+- https://raw.githubusercontent.com/tailscale/tailscale/main/util/linuxfw/linuxfw.go — CheckIPv6; main branch, not verified deployed revision.

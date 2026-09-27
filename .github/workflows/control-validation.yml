@@ -377,6 +377,8 @@ jobs:
             sed 's|^ExecStart=.*$|ExecStart=/bin/true|' "$source" >"$temporary_unit"
             systemd-analyze verify "$temporary_unit"
           done
+      - name: Verify Agentmode state provisioning v2 under inherited ACLs
+        run: python3 -m unittest -v tests.test_agentmode_state_init_v2
       - name: Compile and run M4.29.2 maintenance contract
         run: >-
           python3 -m py_compile

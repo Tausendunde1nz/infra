@@ -98,10 +98,12 @@ def simulate() -> dict[str, object]:
             descriptor = os.open(source, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o777)
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(CONTROLLER.read_bytes())
+                # Default ACLs can override umask; pin this isolated fixture only.
+                os.fchmod(handle.fileno(), 0o700)
         finally:
             os.umask(old_umask)
         if _mode(source) != 0o700:
-            raise ContractError("umask 077 did not produce source mode 0700")
+            raise ContractError("source fixture mode is not 0700")
 
         old_runtime_allowed = _model_execute(
             0o700,
