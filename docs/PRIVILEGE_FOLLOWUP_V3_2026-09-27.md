@@ -123,3 +123,13 @@ Ungeklärte Rechte dürfen nicht durch eine heuristische Ersatzregel kaschiert w
 /opt/tu1nz_repos/network-hardening-private-2026-09-22/followup-v3-finaltest-72nejihz/tests.txt.
 Keine PKCheck-Autorisierungsprüfung wurde im Vorbereitungslauf ausgeführt; nur
 die vorhandene --help-Ausgabe wurde gelesen. Kein alter Launcher gestartet.
+
+## Abweichung des kanonischen Checkouts
+
+Die abschließende lesende Prüfung fand /opt/tu1nz_repos/control sauber auf
+e266830433e139b3e4c8f7ed7c3fe88fd392bba4 statt des früher erfassten7c634d3.
+Das HEAD-Reflog bestätigt den Checkout-Wechsel. In diesem Arbeitslauf wurde
+kein solcher Checkout-Befehl ausgeführt. Zeitpunkt/Veranlasser werden hier nicht
+behauptet. Keine fremde Änderung zurückgesetzt. Für spätere Transaktionsplanung
+gilt nur eine neue frische Bestandsaufnahme, nicht die alte Commitannahme.
+Die v1- und v2-Ergebnisdateien wurden erneut per SHA geprüft und sind unverändert.
