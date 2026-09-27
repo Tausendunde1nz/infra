@@ -773,9 +773,32 @@ classify_disabled_state_fields() {
   esac
 }
 
+classify_legacy_disabled_state_fields() {
+  case "${1}|${2}" in
+    false\|NULL) printf 'CLEAN_NOT_STARTED\n' ;;
+    *) printf 'INVALID_DISABLED_STATE\n' ;;
+  esac
+}
+
 disabled_state_classification() {
-  local snapshot enabled live_start state promotion canary_release
+  local bootstrap_columns snapshot enabled live_start state promotion canary_release
   local evidence_start canary_live horizon full_live
+  bootstrap_columns="$(database_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','full_live_start','promotion_state');")" \
+    || return 1
+  case "$bootstrap_columns" in
+    0)
+      snapshot="$(database_scalar "SELECT enabled::text||'|'||CASE WHEN live_start IS NULL THEN 'NULL' ELSE 'SET' END FROM commercial_s11_runtime_control WHERE singleton;")" \
+        || return 1
+      IFS='|' read -r enabled live_start <<< "$snapshot"
+      classify_legacy_disabled_state_fields "$enabled" "$live_start"
+      return
+      ;;
+    6) ;;
+    *)
+      printf 'INVALID_DISABLED_STATE\n'
+      return
+      ;;
+  esac
   snapshot="$(database_scalar "SELECT enabled::text||'|'||CASE WHEN live_start IS NULL THEN 'NULL' ELSE 'SET' END||'|'||release_state||'|'||promotion_state||'|'||CASE WHEN canary_release_id IS NULL THEN 'NULL' WHEN canary_release_id='${RUNTIME_RELEASE_ID}' THEN 'CURRENT' ELSE 'SET' END||'|'||CASE WHEN canary_evidence_start IS NULL THEN 'NULL' ELSE 'SET' END||'|'||CASE WHEN canary_live_start IS NULL THEN 'NULL' ELSE 'SET' END||'|'||CASE WHEN canary_horizon_at IS NULL THEN 'NULL' WHEN canary_evidence_start IS NOT NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' THEN 'VALID' ELSE 'INVALID' END||'|'||CASE WHEN full_live_start IS NULL THEN 'NULL' ELSE 'SET' END FROM commercial_s11_runtime_control WHERE singleton;")" \
     || return 1
   IFS='|' read -r enabled live_start state promotion canary_release \

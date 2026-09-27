@@ -4,6 +4,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,58 @@ MANIFEST = ROOT / "manifests/adult-publishing-commercial-s11-2-canary-bootstrap.
 
 
 class R15172DisabledStateTests(unittest.TestCase):
+    def test_prebootstrap_legacy_schema_is_clean_only_when_code_is_off(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        prelude_source = source[: source.index('\ncase "${1:-}" in')]
+        for enabled, live_start, expected in (
+            ("false", "NULL", "CLEAN_NOT_STARTED"),
+            ("true", "NULL", "INVALID_DISABLED_STATE"),
+            ("false", "SET", "INVALID_DISABLED_STATE"),
+        ):
+            with self.subTest(enabled=enabled, live_start=live_start):
+                with tempfile.TemporaryDirectory() as directory:
+                    prelude = Path(directory) / "controller-prelude.sh"
+                    prelude.write_text(prelude_source, encoding="utf-8")
+                    completed = subprocess.run(
+                        ["bash", "-s", "--", str(prelude), enabled, live_start],
+                        input=(
+                            'set -Eeuo pipefail\nsource "$1"\n'
+                            'fixture_enabled="$2"\nfixture_live="$3"\n'
+                            'database_scalar() {\n'
+                            '  if [[ "$1" == *"information_schema.columns"* ]]; then printf "0\\n"; '
+                            '  else printf "%s|%s\\n" "$fixture_enabled" "$fixture_live"; fi\n'
+                            '}\n'
+                            'disabled_state_classification\n'
+                        ),
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout.strip(), expected)
+
+    def test_partial_bootstrap_schema_is_invalid_without_postmigration_query(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        prelude_source = source[: source.index('\ncase "${1:-}" in')]
+        with tempfile.TemporaryDirectory() as directory:
+            prelude = Path(directory) / "controller-prelude.sh"
+            prelude.write_text(prelude_source, encoding="utf-8")
+            completed = subprocess.run(
+                ["bash", "-s", "--", str(prelude)],
+                input=(
+                    'set -Eeuo pipefail\nsource "$1"\n'
+                    'database_scalar() {\n'
+                    '  [[ "$1" == *"information_schema.columns"* ]] || return 99\n'
+                    '  printf "3\\n"\n'
+                    '}\n'
+                    'test "$(disabled_state_classification)" = INVALID_DISABLED_STATE\n'
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_state_classifier_matrix_a_through_j(self):
         report = simulator.simulate()
         self.assertEqual(
