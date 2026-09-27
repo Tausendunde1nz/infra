@@ -149,3 +149,34 @@ Inventur, Netzwerkdaten, Referenzen/Historie, Socket-Stichproben, Ereignisring,
 Nginx-/Bot-Routenzähler, alte n8n-Netzwerkdaten, Ref-Abdeckung und Erhaltungsnachweis
 liegen getrennt vor. Ein SHA256-Manifest bindet die Dateien. Keine Rohlogs oder
 vollständigen Secret-Umgebungen werden committed.
+
+
+## Nachtrag: privilegierter Sammellauf nach Bereitschaftsbestätigung
+
+Daniel hat seine Bereitschaft bestätigt und das Passwort selbst verdeckt im Terminal
+ eingegeben. Der gepinnte Sammler wurde einmal ausgeführt. Ergebnis: Exit-Code1,
+stdout-Datei0 Bytes, SHA256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Statusdatei: `privileged-20260927T093928Z.json.status.json` im obigen Nachweisverzeichnis.
+
+Die root-Journalabfrage wurde als laufender Prozess beobachtet; danach scheiterte der
+Sammellauf innerhalb seines Zeitlimits. Wahrscheinliche Ursache ist der konfigurierte
+120-Sekunden-Timeout. Stderr wurde nur im Terminal ausgegeben und nicht gesichert;
+die genaue Exception ist deshalb **nicht abschließend nachgewiesen**.
+
+Der Sammler erzeugt sein JSON erst nach allen Teilabfragen. Dadurch gingen bei diesem
+Fehler auch die zuvor nur im Speicher gesammelten Datei-Metadaten verloren. Es liegt
+kein verwertbarer privilegierter Prüfnachweis vor. Root-Crontab, geschützte Dateien und
+DNAT-Prüfung bleiben offen; ihre erfolgreiche Prüfung wird nicht behauptet.
+Keine zweite sudo-Ausführung oder erneute Passwortabfrage wurde gestartet.
+
+Vor einer Wiederholung muss der Sammler separate, sofort gespeicherte Abschnittsergebnisse
+und einen geschützten Fehlernachweis liefern. Die Journalabfrage muss gezielt filtern und
+ihre Zeit-/Ergebnisgrenzen explizit ausweisen; ein Timeout darf die Datei- und NAT-Ergebnisse
+nicht verlieren lassen. Der unveränderte Sammler soll nicht erneut ausgeführt werden.
+
+Abschließender Vergleich nach dem Fehllauf bestätigt unveränderte Produktionskonfiguration,
+Container-IDs, Startzeiten, Restartzähler, beide Bot-Endpoints und Compose-Prüfsumme.
+Die42 Hardening-Dateien bleiben bytegleich; der detached Checkout ist unverändert und sauber.
+Die Entscheidung bleibt **Zweck ungeklärt; keine Aktivierung und keine Entfernung**.
+Der bekannte unhealthy-Status und der ungültige alte Aktivierungslauncher bleiben bestehen.
