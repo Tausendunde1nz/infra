@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-17-1-systemd-handoff-contract-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-r15-17-2-disabled-state-contract-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -185,7 +185,7 @@ require_local_freeze() {
     "gate_diagnostic_contract=GATE_DIAGNOSTIC_V1" \
     "gate_error_allowlist=CANONICAL_EXACT_ONLY" \
     "controller_gate_reader=CONTROL_GATE_READER_V1" \
-    "r15_15_simulator=CURRENT_INVOCATION_FINITE_FUTURE_V1" \
+    "r15_15_simulator=DISABLED_STATE_REARM_REPEAT_DEPLOY_V1" \
     "technical_evidence_contract=PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
@@ -750,6 +750,126 @@ release_state() {
   database_scalar "SELECT release_state||'|'||promotion_state FROM commercial_s11_runtime_control WHERE singleton;"
 }
 
+classify_disabled_state_fields() {
+  local enabled="$1" live_start="$2" state="$3" promotion="$4"
+  local canary_release="$5" evidence_start="$6" canary_live="$7"
+  local horizon="$8" full_live="$9"
+  case "${enabled}|${live_start}|${state}|${promotion}|${canary_release}|${evidence_start}|${canary_live}|${horizon}|${full_live}" in
+    false\|NULL\|S11_DISABLED\|NOT_STARTED\|NULL\|NULL\|NULL\|NULL\|NULL)
+      printf 'CLEAN_NOT_STARTED\n'
+      ;;
+    false\|NULL\|S11_DISABLED\|CANARY_RED\|SET\|SET\|SET\|VALID\|NULL|\
+    false\|NULL\|S11_DISABLED\|CANARY_RED\|CURRENT\|SET\|SET\|VALID\|NULL|\
+    false\|NULL\|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME\|SET\|SET\|SET\|VALID\|NULL|\
+    false\|NULL\|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME\|CURRENT\|SET\|SET\|VALID\|NULL)
+      printf 'TERMINAL_REARMABLE\n'
+      ;;
+    false\|NULL\|S11_DISABLED\|NOT_STARTED\|CURRENT\|SET\|NULL\|VALID\|NULL)
+      printf 'PRE_CANARY_ARMED\n'
+      ;;
+    *)
+      printf 'INVALID_DISABLED_STATE\n'
+      ;;
+  esac
+}
+
+classify_legacy_disabled_state_fields() {
+  case "${1}|${2}" in
+    false\|NULL) printf 'CLEAN_NOT_STARTED\n' ;;
+    *) printf 'INVALID_DISABLED_STATE\n' ;;
+  esac
+}
+
+disabled_state_classification() {
+  local bootstrap_columns snapshot enabled live_start state promotion canary_release
+  local evidence_start canary_live horizon full_live
+  bootstrap_columns="$(database_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','canary_horizon_at','full_live_start','promotion_state');")" \
+    || return 1
+  case "$bootstrap_columns" in
+    0)
+      snapshot="$(database_scalar "SELECT enabled::text||'|'||CASE WHEN live_start IS NULL THEN 'NULL' ELSE 'SET' END FROM commercial_s11_runtime_control WHERE singleton;")" \
+        || return 1
+      IFS='|' read -r enabled live_start <<< "$snapshot"
+      classify_legacy_disabled_state_fields "$enabled" "$live_start"
+      return
+      ;;
+    7) ;;
+    *)
+      printf 'INVALID_DISABLED_STATE\n'
+      return
+      ;;
+  esac
+  snapshot="$(database_scalar "SELECT enabled::text||'|'||CASE WHEN live_start IS NULL THEN 'NULL' ELSE 'SET' END||'|'||release_state||'|'||promotion_state||'|'||CASE WHEN canary_release_id IS NULL THEN 'NULL' WHEN canary_release_id='${RUNTIME_RELEASE_ID}' THEN 'CURRENT' ELSE 'SET' END||'|'||CASE WHEN canary_evidence_start IS NULL THEN 'NULL' ELSE 'SET' END||'|'||CASE WHEN canary_live_start IS NULL THEN 'NULL' ELSE 'SET' END||'|'||CASE WHEN canary_horizon_at IS NULL THEN 'NULL' WHEN canary_evidence_start IS NOT NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' THEN 'VALID' ELSE 'INVALID' END||'|'||CASE WHEN full_live_start IS NULL THEN 'NULL' ELSE 'SET' END FROM commercial_s11_runtime_control WHERE singleton;")" \
+    || return 1
+  IFS='|' read -r enabled live_start state promotion canary_release \
+    evidence_start canary_live horizon full_live <<< "$snapshot"
+  classify_disabled_state_fields "$enabled" "$live_start" "$state" "$promotion" \
+    "$canary_release" "$evidence_start" "$canary_live" "$horizon" "$full_live"
+}
+
+require_code_off_disabled_state() {
+  case "$1" in
+    CLEAN_NOT_STARTED|TERMINAL_REARMABLE) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+write_disabled_state_evidence() {
+  local destination="$1" phase="$2" before="$3" after="$4" history_delta="${5:-0}"
+  local safe_code="${6:-S11_2_DISABLED_STATE_CONTRACT_GREEN}"
+  [[ "$destination" == "$S11_2_BACKUP_PATH/"* ]] || fail "S11_2_DISABLED_STATE_EVIDENCE_PATH_RED"
+  [[ "$phase" =~ ^[A-Z0-9_]{1,64}$ ]] || fail "S11_2_DISABLED_STATE_EVIDENCE_PHASE_RED"
+  [[ "$before" =~ ^(CLEAN_NOT_STARTED|TERMINAL_REARMABLE|PRE_CANARY_ARMED|INVALID_DISABLED_STATE)$ ]] \
+    || fail "S11_2_DISABLED_STATE_EVIDENCE_BEFORE_RED"
+  [[ "$after" =~ ^(CLEAN_NOT_STARTED|TERMINAL_REARMABLE|PRE_CANARY_ARMED|INVALID_DISABLED_STATE)$ ]] \
+    || fail "S11_2_DISABLED_STATE_EVIDENCE_AFTER_RED"
+  [[ "$history_delta" =~ ^[0-9]+$ ]] || fail "S11_2_DISABLED_STATE_EVIDENCE_HISTORY_RED"
+  [[ "$safe_code" =~ ^S11_2_[A-Z0-9_]{1,96}$ ]] || fail "S11_2_DISABLED_STATE_EVIDENCE_CODE_RED"
+  printf '{"ok":true,"safe_code":"%s","phase":"%s","before":"%s","after":"%s","history_delta":%s}\n' \
+    "$safe_code" "$phase" "$before" "$after" "$history_delta" > "$destination"
+  chmod 0600 "$destination"
+}
+
+rearm_intent_path() {
+  printf '%s/canary-rearm-intent.json\n' "$S11_2_BACKUP_PATH"
+}
+
+write_rearm_intent() {
+  local history_before="$1" destination temporary
+  [[ "$history_before" =~ ^[0-9]+$ ]] || fail "S11_2_REARM_INTENT_HISTORY_RED"
+  destination="$(rearm_intent_path)"
+  [[ "$destination" == "$S11_2_BACKUP_PATH/"* ]] || fail "S11_2_REARM_INTENT_PATH_RED"
+  [ ! -e "$destination" ] || fail "S11_2_REARM_INTENT_ALREADY_EXISTS_RED"
+  temporary="${destination}.tmp.$$"
+  printf '{"schema":"S11_2_TERMINAL_REARM_INTENT_V1","before":"TERMINAL_REARMABLE","history_before":%s}\n' \
+    "$history_before" > "$temporary"
+  chmod 0600 "$temporary"
+  mv "$temporary" "$destination"
+}
+
+read_rearm_intent_history_before() {
+  local source
+  source="$(rearm_intent_path)"
+  [ -f "$source" ] && [ ! -L "$source" ] || fail "S11_2_REARM_INTENT_MISSING_RED"
+  /usr/bin/python3 - "$source" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if set(payload) != {"schema", "before", "history_before"}:
+    raise SystemExit(2)
+if payload["schema"] != "S11_2_TERMINAL_REARM_INTENT_V1":
+    raise SystemExit(2)
+if payload["before"] != "TERMINAL_REARMABLE":
+    raise SystemExit(2)
+value = payload["history_before"]
+if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    raise SystemExit(2)
+print(value)
+PY
+}
+
 require_acquisition_state() {
   [ "$(database_scalar "SELECT wms_real_acquisition_ready::text||'|'||to_char(real_acquisition_baseline_start AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM commercial_s10_2d_runtime_control WHERE singleton;")" = "true|${ACQUISITION_BASELINE}" ]
 }
@@ -928,13 +1048,15 @@ require_target_community_health_compatibility() {
 }
 
 require_source_state() {
+  local disabled_state
   source_access_check >/dev/null
   require_clean_commit "$APPLICATION_ROOT" "$SOURCE_APPLICATION_COMMIT" "$SOURCE_APPLICATION_TREE" SOURCE_APPLICATION
   require_clean_commit "$CONTROL_ROOT" "$SOURCE_CONTROL_COMMIT" "$SOURCE_CONTROL_TREE" SOURCE_CONTROL
   [ -f "$DATABASE_DSN" ] && [ ! -L "$DATABASE_DSN" ] || fail "S11_2_DATABASE_CREDENTIAL_RED"
   [ -f "$AGGREGATE_STATE" ] && [ ! -L "$AGGREGATE_STATE" ] || fail "S11_2_AGGREGATE_STATE_RED"
   [ -f "$QUALITY_STATE" ] && [ ! -L "$QUALITY_STATE" ] || fail "S11_2_QUALITY_STATE_RED"
-  [ "$(database_scalar "SELECT enabled::text||'|'||(live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = "false|true" ] \
+  disabled_state="$(disabled_state_classification)" || fail "S11_2_SOURCE_FEATURE_STATE_READ_RED"
+  require_code_off_disabled_state "$disabled_state" \
     || fail "S11_2_SOURCE_FEATURE_NOT_OFF"
   require_wms_runtime_binding \
     || { fail "S11_2_SOURCE_WMS_RUNTIME_BINDING_RED"; return 2; }
@@ -942,14 +1064,15 @@ require_source_state() {
 }
 
 preflight() {
-  local target_control="$1" backup_path="$2"
+  local target_control="$1" backup_path="$2" disabled_state
   require_root
   require_sha "$target_control"
   require_backup_path "$backup_path"
   [ ! -e "$backup_path" ] || fail "S11_2_BACKUP_ALREADY_EXISTS"
   require_source_state
   require_remote_target "$target_control"
-  printf '{"ok":true,"safe_code":"S11_2_PREFLIGHT_GREEN"}\n'
+  disabled_state="$(disabled_state_classification)"
+  printf '{"ok":true,"safe_code":"S11_2_PREFLIGHT_GREEN","disabled_state":"%s"}\n' "$disabled_state"
 }
 
 database_evidence() {
@@ -1277,7 +1400,7 @@ PY
 }
 
 apply_migration() {
-  local bootstrap_installed rearm_installed epoch_installed current_state
+  local bootstrap_installed rearm_installed epoch_installed disabled_state
   bootstrap_installed="$(database_scalar "SELECT count(*)=6 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','full_live_start','promotion_state');")"
   if [ "$bootstrap_installed" != true ]; then
     runuser -u postgres -- psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
@@ -1304,32 +1427,53 @@ apply_migration() {
       >/dev/null
   fi
 
-  current_state="$(release_state)"
-  case "$current_state" in
-    S11_DISABLED\|NOT_STARTED|S11_DISABLED\|CANARY_RED|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME) return 0 ;;
-    *)
-      fail "S11_2_EXISTING_CANARY_STATE_RED"
-      ;;
-  esac
+  disabled_state="$(disabled_state_classification)" \
+    || fail "S11_2_EXISTING_CANARY_STATE_READ_RED"
+  require_code_off_disabled_state "$disabled_state" \
+    || fail "S11_2_EXISTING_CANARY_STATE_RED"
 }
 
 rearm_canary() {
-  local current_state history_before history_after
-  current_state="$(release_state)"
-  case "$current_state" in
-    S11_DISABLED\|NOT_STARTED)
-      [ "$(database_scalar "SELECT (canary_evidence_start IS NULL AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
-        || fail "S11_2_PRE_CANARY_EPOCH_NOT_CLEAR"
+  local before after history_before history_after history_delta=0 intent_path
+  before="$(disabled_state_classification)" \
+    || fail "S11_2_REARM_STATE_READ_RED"
+  intent_path="$(rearm_intent_path)"
+  case "$before" in
+    CLEAN_NOT_STARTED)
+      after="$(disabled_state_classification)"
+      if [ -e "$intent_path" ]; then
+        history_before="$(read_rearm_intent_history_before)" \
+          || fail "S11_2_REARM_INTENT_READ_RED"
+        history_after="$(database_admin_history_count)"
+        [ "$history_after" -eq $((history_before + 1)) ] \
+          || fail "S11_2_TERMINAL_EPOCH_RESUME_ARCHIVE_RED"
+        history_delta=1
+        before=TERMINAL_REARMABLE
+      fi
       ;;
-    S11_DISABLED\|CANARY_RED|S11_DISABLED\|CANARY_INSUFFICIENT_REAL_VOLUME)
+    TERMINAL_REARMABLE)
       history_before="$(database_admin_history_count)"
+      if [ -e "$intent_path" ]; then
+        [ "$(read_rearm_intent_history_before)" -eq "$history_before" ] \
+          || fail "S11_2_REARM_INTENT_HISTORY_DRIFT_RED"
+      else
+        write_rearm_intent "$history_before"
+        [ "$(read_rearm_intent_history_before)" -eq "$history_before" ] \
+          || fail "S11_2_REARM_INTENT_VERIFY_RED"
+      fi
       database_rearm S11_2_R15_8_TERMINAL_EPOCH_REARMED
       history_after="$(database_admin_history_count)"
       [ "$history_after" -eq $((history_before + 1)) ] || fail "S11_2_TERMINAL_EPOCH_ARCHIVE_RED"
-      [ "$(release_state)" = "S11_DISABLED|NOT_STARTED" ] || fail "S11_2_TERMINAL_EPOCH_REARM_RED"
+      history_delta=$((history_after - history_before))
+      after="$(disabled_state_classification)"
+      [ "$after" = CLEAN_NOT_STARTED ] || fail "S11_2_TERMINAL_EPOCH_REARM_RED"
       ;;
     *) fail "S11_2_REARM_STATE_RED" ;;
   esac
+  [ "$after" = CLEAN_NOT_STARTED ] || fail "S11_2_REARM_FINAL_STATE_RED"
+  write_disabled_state_evidence \
+    "$S11_2_BACKUP_PATH/canary-rearm.json" CANARY_REARM "$before" "$after" "$history_delta" \
+    S11_2_TERMINAL_EPOCH_REARM_GREEN
   complete_phase CANARY_REARMED
 }
 
@@ -1745,7 +1889,7 @@ restore_optional() {
 }
 
 restore_source() {
-  local backup_path="$1" target_control="$2" current_state pre_canary_epoch_state
+  local backup_path="$1" target_control="$2" current_state disabled_state
   require_backup "$backup_path" "$target_control" || return 1
   if ! current_state="$(release_state 2>/dev/null)"; then
     return 1
@@ -1758,18 +1902,16 @@ restore_source() {
   systemctl disable --now tu1nz-adult-public-s11-canary-controller.timer >/dev/null 2>&1 || true
   if [[ "$current_state" == S11_CANARY\|* ]]; then
     database_transition CANARY_RED S11_2_DEPLOYMENT_ROLLBACK || return 1
-  elif [ "$current_state" = "S11_DISABLED|NOT_STARTED" ]; then
-    pre_canary_epoch_state="$(database_scalar "SELECT CASE WHEN NOT enabled AND release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_release_id='${RUNTIME_RELEASE_ID}' AND canary_evidence_start IS NOT NULL AND canary_live_start IS NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' THEN 'ARMED' WHEN NOT enabled AND release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_release_id IS NULL AND canary_evidence_start IS NULL AND canary_live_start IS NULL AND canary_horizon_at IS NULL THEN 'UNSET' ELSE 'INVALID' END FROM commercial_s11_runtime_control WHERE singleton;")" || return 1
-    case "$pre_canary_epoch_state" in
-      ARMED)
-        database_transition CANCEL_EVIDENCE_EPOCH S11_2_R15_8_PRE_CANARY_EPOCH_ROLLBACK || return 1
-        [ "$(database_scalar "SELECT (NOT enabled AND release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_release_id IS NULL AND canary_evidence_start IS NULL AND canary_live_start IS NULL AND canary_horizon_at IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
-          || return 1
-        ;;
-      UNSET) ;;
-      *) return 1 ;;
-    esac
   fi
+  disabled_state="$(disabled_state_classification)" || return 1
+  case "$disabled_state" in
+    PRE_CANARY_ARMED)
+      database_transition CANCEL_EVIDENCE_EPOCH S11_2_R15_8_PRE_CANARY_EPOCH_ROLLBACK || return 1
+      [ "$(disabled_state_classification)" = CLEAN_NOT_STARTED ] || return 1
+      ;;
+    CLEAN_NOT_STARTED|TERMINAL_REARMABLE) ;;
+    *) return 1 ;;
+  esac
   git_chatops "$APPLICATION_ROOT" switch --detach "$SOURCE_APPLICATION_COMMIT" >/dev/null || return 1
   git_chatops "$CONTROL_ROOT" switch --detach "$SOURCE_CONTROL_COMMIT" >/dev/null || return 1
   runuser -u chatops -- "$APPLICATION_RUNTIME_PYTHON" -m pip install \
@@ -1811,12 +1953,17 @@ phase_next() {
 install_s11_disabled() {
   local target_control="$1" resume_profile="$S11_2_BACKUP_PATH/technical-resume-profile.json"
   local resume_plan="$S11_2_BACKUP_PATH/technical-resume-plan.json" resume_state
+  local disabled_state_before disabled_state_after
   require_phase TECHNICAL_EVIDENCE_COMPLETE
   verify_health_contract >/dev/null
   write_technical_profile "$resume_profile"
   "$INSTALLED_ORCHESTRATION" technical-plan --input "$resume_profile" > "$resume_plan"
   resume_state="$(technical_plan_field state < "$resume_plan")"
   [ "$resume_state" = GREEN ] || fail "S11_2_RESUME_TECHNICAL_STATE_RED"
+  disabled_state_before="$(disabled_state_classification)" \
+    || fail "S11_2_INSTALL_DISABLED_STATE_READ_RED"
+  require_code_off_disabled_state "$disabled_state_before" \
+    || fail "S11_2_INSTALL_DISABLED_STATE_RED"
   fetch_and_require_target "$target_control"
   git_chatops "$APPLICATION_ROOT" switch --detach "$TARGET_APPLICATION_COMMIT" >/dev/null
   git_chatops "$CONTROL_ROOT" switch --detach "$target_control" >/dev/null
@@ -1835,8 +1982,15 @@ install_s11_disabled() {
   install_from_git "$CONTROL_ROOT" "$target_control" systemd/tu1nz-adult-public-s11-canary-controller.timer 0644 "$CONTROLLER_TIMER"
   install_runtime_access_manifest "$target_control"
   apply_migration
-  [ "$(database_scalar "SELECT (NOT enabled AND live_start IS NULL AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+  disabled_state_after="$(disabled_state_classification)" \
+    || fail "S11_2_CODE_OFF_STATE_READ_RED"
+  require_code_off_disabled_state "$disabled_state_after" \
     || fail "S11_2_CODE_OFF_RED"
+  [ "$disabled_state_after" = "$disabled_state_before" ] \
+    || fail "S11_2_INSTALL_DISABLED_STATE_MUTATED_RED"
+  write_disabled_state_evidence \
+    "$S11_2_BACKUP_PATH/install-disabled-state.json" INSTALL_DISABLED \
+    "$disabled_state_before" "$disabled_state_after" 0 S11_2_INSTALL_DISABLED_STATE_GREEN
   systemctl daemon-reload
   systemctl reset-failed tu1nz-adult-public-s11-canary-controller.service >/dev/null 2>&1 || true
   verify_controller_unit_contract
@@ -1846,6 +2000,7 @@ install_s11_disabled() {
 
 run_remaining_phases() {
   local target_control="$1" backup_path="$2" next current_state previous_trigger plan_state
+  local disabled_state_before disabled_state_after
   local handoff_realtime handoff_monotonic previous_invocation
   while true; do
     next="$(phase_next)"
@@ -1870,16 +2025,23 @@ run_remaining_phases() {
         ;;
       FALLBACK_GREEN)
         require_phase SYNTHETIC_VALIDATION_GREEN
+        disabled_state_before="$(disabled_state_classification)" \
+          || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_READ_RED"
+        require_code_off_disabled_state "$disabled_state_before" \
+          || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_RED"
         systemctl restart "$S8_SERVICE"
         systemctl restart "$WMS_SERVICE"
         wait_wms_ready
         require_public_health
         wait_runtime
         run_runtime_health
-        [ "$(database_scalar "SELECT (NOT enabled AND live_start IS NULL AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
-          || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_RED"
-        printf '{"ok":true,"safe_code":"S11_2_FEATURE_OFF_FALLBACK_GREEN"}\n' \
-          > "$backup_path/feature-off-fallback.json"
+        disabled_state_after="$(disabled_state_classification)" \
+          || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_READ_RED"
+        [ "$disabled_state_after" = "$disabled_state_before" ] \
+          || fail "S11_2_FEATURE_OFF_FALLBACK_STATE_MUTATED_RED"
+        write_disabled_state_evidence \
+          "$backup_path/feature-off-fallback.json" FEATURE_OFF_FALLBACK \
+          "$disabled_state_before" "$disabled_state_after" 0 S11_2_FEATURE_OFF_FALLBACK_GREEN
         complete_phase FALLBACK_GREEN
         ;;
       CANARY_REARMED)
@@ -1890,16 +2052,20 @@ run_remaining_phases() {
         require_phase CANARY_REARMED
         require_phase TECHNICAL_EVIDENCE_COMPLETE
         require_hard_gates
-        current_state="$(database_scalar "SELECT CASE WHEN release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_evidence_start IS NULL AND canary_horizon_at IS NULL AND canary_live_start IS NULL THEN 'UNSET' WHEN release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_evidence_start IS NOT NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' AND canary_live_start IS NULL THEN 'SET' ELSE 'INVALID' END FROM commercial_s11_runtime_control WHERE singleton;")"
+        current_state="$(disabled_state_classification)"
         case "$current_state" in
-          UNSET)
+          CLEAN_NOT_STARTED)
             database_transition SET_EVIDENCE_EPOCH S11_2_R15_8_EVIDENCE_EPOCH_SET
             ;;
-          SET) ;;
+          PRE_CANARY_ARMED) ;;
           *) fail "S11_2_EVIDENCE_EPOCH_RESUME_STATE_RED" ;;
         esac
-        [ "$(database_scalar "SELECT (release_state='S11_DISABLED' AND promotion_state='NOT_STARTED' AND canary_evidence_start IS NOT NULL AND canary_horizon_at=canary_evidence_start+INTERVAL '24 hours' AND canary_live_start IS NULL)::text FROM commercial_s11_runtime_control WHERE singleton;")" = true ] \
+        disabled_state_after="$(disabled_state_classification)"
+        [ "$disabled_state_after" = PRE_CANARY_ARMED ] \
           || fail "S11_2_EVIDENCE_EPOCH_RED"
+        write_disabled_state_evidence \
+          "$backup_path/evidence-epoch-state.json" EVIDENCE_EPOCH \
+          "$current_state" "$disabled_state_after" 0 S11_2_EVIDENCE_EPOCH_STATE_GREEN
         complete_phase EVIDENCE_EPOCH_SET
         ;;
       CANARY_ACTIVE)
@@ -1918,6 +2084,8 @@ run_remaining_phases() {
         current_state="$(release_state)"
         case "$current_state" in
           S11_DISABLED\|NOT_STARTED)
+            [ "$(disabled_state_classification)" = PRE_CANARY_ARMED ] \
+              || fail "S11_2_CANARY_START_DISABLED_STATE_RED"
             database_transition START_CANARY S11_2_CANARY_BOOTSTRAP_LIVE
             ;;
           S11_CANARY\|CANARY_COLLECTING_EVIDENCE) ;;
@@ -1969,9 +2137,15 @@ finalize_deployment_evidence() {
     mv "$backup_path/technical-resume-profile.json" "$backup_path/postdeploy/technical-resume-profile.json"
     mv "$backup_path/technical-resume-plan.json" "$backup_path/postdeploy/technical-resume-plan.json"
   fi
+  mv "$backup_path/install-disabled-state.json" "$backup_path/postdeploy/install-disabled-state.json"
   mv "$backup_path/pre-canary-health.json" "$backup_path/postdeploy/pre-canary-health.json"
   mv "$backup_path/pre-canary-health.json.ndjson" "$backup_path/postdeploy/pre-canary-health.json.ndjson"
   mv "$backup_path/feature-off-fallback.json" "$backup_path/postdeploy/feature-off-fallback.json"
+  if [ -f "$backup_path/canary-rearm-intent.json" ]; then
+    mv "$backup_path/canary-rearm-intent.json" "$backup_path/postdeploy/canary-rearm-intent.json"
+  fi
+  mv "$backup_path/canary-rearm.json" "$backup_path/postdeploy/canary-rearm.json"
+  mv "$backup_path/evidence-epoch-state.json" "$backup_path/postdeploy/evidence-epoch-state.json"
   mv "$backup_path/systemd-handoff.json" "$backup_path/postdeploy/systemd-handoff.json"
   install -m 0600 "$(phase_state_path)" "$backup_path/postdeploy/phase-state.json"
   database_evidence "$backup_path/postdeploy/database-aggregate.json"

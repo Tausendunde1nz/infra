@@ -233,8 +233,8 @@ class R158OrchestrationTests(unittest.TestCase):
         phases = source[source.index("run_remaining_phases() {"):source.index("finalize_deployment_evidence() {")]
         epoch = phases[phases.index("EVIDENCE_EPOCH_SET)"):phases.index("CANARY_ACTIVE)")]
         canary = phases[phases.index("CANARY_ACTIVE)"):phases.index("SYSTEMD_HANDOFF)")]
-        self.assertIn("UNSET)", epoch)
-        self.assertIn("SET)", epoch)
+        self.assertIn("CLEAN_NOT_STARTED)", epoch)
+        self.assertIn("PRE_CANARY_ARMED)", epoch)
         self.assertEqual(epoch.count("database_transition SET_EVIDENCE_EPOCH"), 1)
         self.assertIn("S11_CANARY\\|CANARY_COLLECTING_EVIDENCE", canary)
         self.assertEqual(canary.count("database_transition START_CANARY"), 1)
@@ -267,10 +267,8 @@ class R158OrchestrationTests(unittest.TestCase):
         )
         self.assertLess(cancel, application_switch)
         self.assertLess(cancel, control_switch)
-        self.assertIn("canary_release_id IS NULL", restore[cancel:application_switch])
-        self.assertIn("canary_evidence_start IS NULL", restore[cancel:application_switch])
-        self.assertIn("canary_live_start IS NULL", restore[cancel:application_switch])
-        self.assertIn("canary_horizon_at IS NULL", restore[cancel:application_switch])
+        self.assertIn("disabled_state_classification", restore[cancel:application_switch])
+        self.assertIn("CLEAN_NOT_STARTED", restore[cancel:application_switch])
 
     def test_epoch_migration_detection_binds_the_actual_transition_contract(self):
         source = CONTROLLER.read_text(encoding="utf-8")

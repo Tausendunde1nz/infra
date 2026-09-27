@@ -1,0 +1,33 @@
+TU1NZ Commercial S11.2-R15.17.2 server Control drift diagnosis
+Observed: 2026-09-27T13:56Z
+Classification: CONFLICTING_LONG_LIVED_CONTROL_SYNC
+
+Read-only findings
+
+- Canonical remote `control-main` remained at
+  `949170da30fe86e620b56079ac4f00f004658f59`.
+- The server Control checkout was clean but detached at unrelated commit
+  `f1c3b9a323761f71c80dadd9b5a1dad3a968d582`, tree
+  `8dbdefe778c243b14aac52b947c98dd4a31d7070`.
+- The expected restored S11 source baseline is
+  `7c634d3b82572e8459d51c69f04dce82c624d766`, tree
+  `1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4`.
+- The unexpected checkout is neither an ancestor nor a descendant of the
+  expected S11 source baseline.
+- Reflog evidence records a checkout from the expected S11 source baseline to
+  the unrelated commit at 2026-09-27 13:43:37 UTC.
+- A long-lived `tu1nz_sync_all.sh --loop` process was active and is the concrete
+  competing-mutator candidate. It was not stopped or changed.
+- Application source baseline, public services and public health remained
+  intact during this read-only check.
+
+Safety decision
+
+Source-only R15.17.2 development may proceed in its isolated worktree. Runtime
+deployment must not begin while the competing process or unrelated checkout
+can change the Control repository. The predeployment check must re-read process,
+repository, remote and service state. If the conflict remains, classify the
+runtime operation `WAITING_OPERATOR_CONFLICTING_CONTROL_SYNC` and stop before
+backup or mutation. Do not kill the process, overwrite the unrelated checkout,
+or bypass the canonical controller's clean-source requirement as part of this
+S11.2 deployment.
