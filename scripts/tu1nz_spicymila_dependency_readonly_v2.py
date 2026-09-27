@@ -1,4 +1,4 @@
-"""Version 2: fixed-scope read-only collection, durable metadata-only evidence.
+"""Version 2.1: fixed-scope read-only collection, durable metadata-only evidence.
 
 Exit 0: COMPLETE; 2: safe partial results / INCOMPLETE; 3: no safe result store.
 No sudo invocation is made by this program. Production CLI accepts no arguments.
@@ -17,7 +17,7 @@ import sys
 import time
 import uuid
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 BASE = Path('/opt/tu1nz_repos/network-hardening-private-2026-09-22')
 TERMS = ('tausendunde1nz_net', '172.25.0.3', '172.25.0.2',
          'spicymila_bot', 'telegram_bot_mommyramona', 'docker network connect',
@@ -371,6 +371,23 @@ class Collector:
         return 2 if self.incomplete else 0
 
 
+def classify_journal_result(command, result):
+    """Only journalctl --grep's precise empty-result case is NO_MATCH.
+
+    Keep observed returncode 1; remove only the generic error generated for that code.
+    Never reinterpret parser/limit/timeout/process errors or output-bearing failures.
+    """
+    generic_exit_error = safe_error(kind='returncode')
+    if (command and command[0] == '/usr/bin/journalctl' and '--grep' in command
+            and result.get('returncode') == 1 and result.get('timeout') is False
+            and result.get('stdout_bytes') == 0 and result.get('stderr_bytes') == 0
+            and result.get('records') == [] and result.get('errors') == [generic_exit_error]):
+        result = dict(result)
+        result['errors'] = []
+        result['outcome'] = 'NO_MATCH'
+    return result
+
+
 def journal_sections(now):
     start = dt.datetime(2025, 10, 12, tzinfo=dt.timezone.utc)
     index = 0
@@ -381,7 +398,7 @@ def journal_sections(now):
                '--until', end.isoformat(), '-u', 'docker.service', '-u', 'cron.service',
                '--grep', '|'.join(re.escape(t) for t in TERMS)]
         def collect(cmd=cmd, start=start, end=end):
-            r = stream(cmd, journal_record, timeout=15)
+            r = classify_journal_result(cmd, stream(cmd, journal_record, timeout=15))
             r['window'] = {'since': start.isoformat(), 'until': end.isoformat(), 'inclusive_boundaries': True}
             return r
         yield ('journal-%03d' % index, collect)

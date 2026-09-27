@@ -1,7 +1,0 @@
---- a/docker-compose.yml
-+++ b/docker-compose.yml
-@@ -16,3 +16,3 @@
-     healthcheck:
--      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/health"]
-+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
-       interval: 30s

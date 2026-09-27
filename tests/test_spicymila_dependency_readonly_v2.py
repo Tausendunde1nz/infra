@@ -275,5 +275,57 @@ sys.exit(rc)
                 p.stdout.close(); p.stderr.close()
 
 
+class NoMatchTests(unittest.TestCase):
+    command = ['/usr/bin/journalctl', '--grep', 'spicymila_bot']
+
+    def result(self, code):
+        return m.stream([sys.executable, '-c', code], m.journal_record, timeout=.2)
+
+    def test_exact_no_match(self):
+        r = self.result('raise SystemExit(1)')
+        classified = m.classify_journal_result(self.command, r)
+        self.assertEqual(classified['outcome'], 'NO_MATCH')
+        self.assertEqual(classified['returncode'], 1)
+        self.assertEqual(classified['errors'], [])
+        self.assertTrue(r['errors'])  # original result is not rewritten
+
+    def test_code_one_with_stderr(self):
+        r = self.result('import sys; print("diagnostic",file=sys.stderr);sys.exit(1)')
+        self.assertEqual(m.classify_journal_result(self.command, r), r)
+        self.assertTrue(r['errors'])
+
+    def test_code_one_with_valid_output(self):
+        record = json.dumps({'__REALTIME_TIMESTAMP': '1', 'MESSAGE': 'spicymila_bot'})
+        r = self.result('print(%r);raise SystemExit(1)' % record)
+        self.assertEqual(m.classify_journal_result(self.command, r), r)
+
+    def test_timeout_stays_incomplete(self):
+        r = self.result('import time;time.sleep(5)')
+        self.assertTrue(r['timeout'])
+        self.assertEqual(m.classify_journal_result(self.command, r), r)
+
+    def test_parser_error_not_no_match(self):
+        r = self.result('print("invalid json");raise SystemExit(1)')
+        self.assertTrue(any(e['kind'] == 'invalid_json' for e in r['errors']))
+        self.assertEqual(m.classify_journal_result(self.command, r), r)
+        r.update(stdout_bytes=0, records=[])
+        self.assertEqual(m.classify_journal_result(self.command, r), r)
+
+    def test_other_nonzero_codes(self):
+        for code in (2, 17):
+            r = self.result('raise SystemExit(%d)' % code)
+            self.assertEqual(m.classify_journal_result(self.command, r), r)
+
+    def test_only_journalctl_grep(self):
+        r = self.result('raise SystemExit(1)')
+        for command in (['/usr/bin/journalctl'], ['/usr/sbin/iptables-save', '--grep']):
+            self.assertEqual(m.classify_journal_result(command, r), r)
+
+    def test_additional_error_blocks(self):
+        r = self.result('raise SystemExit(1)')
+        r['errors'].append(m.safe_error(PermissionError()))
+        self.assertEqual(m.classify_journal_result(self.command, r), r)
+
+
 if __name__ == '__main__':
     unittest.main()
