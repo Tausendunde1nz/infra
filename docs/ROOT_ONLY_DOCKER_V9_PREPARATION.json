@@ -1,0 +1,88 @@
+{
+  "activation_preflight_required": true,
+  "base_commit": "9302309fdec1fd49a9c050ba8d46b703de281cef",
+  "baseline_canonical_sha256": "b535a8071441b523d5da2827031a94f28086504ac9a675a9ae70e74ee56039bf",
+  "branch": "security/codex-privileged-ops-2026-09-27",
+  "capsule_sha256": "865b33e81db52f497fe834293619ef933f1bfa38ab80b715e91b51c98c342690",
+  "client_sha256": "68e3c68e2d34ceebfe204100c9bc17c78316745933596f8ade6acab67db9654d",
+  "expected_tests": {
+    "historical": 457,
+    "new": 130
+  },
+  "live_activation": false,
+  "mount_order_proof_sha256": "118698f1985c6d94799fc97da0886a32e6785007e000f0737c2cebe6b8403113",
+  "original_baseline_sha256": "777f307218e25d7a5dcf5e80059051d72700645a91073ee5dc237e18bc28cf19",
+  "preserved": {
+    "detached_head": "18080ac534eae99b2d35faeba77e739fc169d6c0",
+    "hardening_files": 42,
+    "historical_evidence": 1125,
+    "tracked_files": 701
+  },
+  "root_graph_scope": "fixed authority boundary of this migration; historical lexical graph not globally closed",
+  "root_readers_executed": 0,
+  "runtime_continuity": {
+    "configuration_files": 12,
+    "containers": 15,
+    "mount_order_permutation_proven": true,
+    "units": 10
+  },
+  "sources": {
+    "audit_v9.py": "c7d13f161bf1be7c9b4dd99b44c82244147f87ed90ad73c5f78dcbd1b3713793",
+    "candidates_v9.py": "7e4f9ff5e5e1c5e447609a328d1a8f46d04cb1edc630dcbcf58d55b187d118c1",
+    "capsule_v9.py": "6ebf6a3ab11ac6370cf097698410f1020d06d3408a15971e33a7d10a7bb694ea",
+    "client_v9.py": "68e3c68e2d34ceebfe204100c9bc17c78316745933596f8ade6acab67db9654d",
+    "command_v9.py": "dcf595bcc2c773b963255d307768664a87c5eedc49f7b726081bab9e164e9619",
+    "contracts_v9.py": "0090b5fc3d8c301f9241226028b3a0e325726d81ec406aef0b8fb3d6e603f498",
+    "entry_v9.py": "e5781e6208ea452e05f556c908e000f48ad457d9af9e5d5c0243fefdb3e43d81",
+    "files_v9.py": "1771edef05f142cbe15b9218bc49610bdd320705899224c3a7093c253921f3c3",
+    "graph_v9.py": "c24b3028e86d634bee5c0b5a719f698f74df8a0b42c5090a39a2710452ca4419",
+    "host_v9.py": "90d0118c76537e8145e2e21868cf54fab9c6c84a40b916342ec15f122f776884",
+    "lifecycle_v9.py": "b5566241a3d14f0e90960bd4405f5186e64439d955bddd6381d223d1e87a2077",
+    "loader_v9.py": "8e2f6a18b0a14dfce262c0c9c634c96001cb91a882ea6e462312322cd0e43797",
+    "namespaces_v9.py": "d9d033320eaba1f6b34b57e0ee7d5bc8527d57583dbfd8f8670c0d39130017b3",
+    "policy_v9.py": "971b3b5501200bb62dae674f5362729945e95228c0f44c501fe62ffb0bd69338",
+    "prepare_v9.py": "3193ab7b63285eecf059b2f4f9574d3b6b8c23118e2122ab7b5cbc06c2f537a5",
+    "probes_v9.py": "73570d91bd71755330cbccb8b380b76daa57d0d8f5f4ae27f10a74109203fb65",
+    "public_v9.py": "dc6fd3dab9f93bf3ae850a7c28ca7708ec936c6eabc4b0aebfcf939bbdb96f97",
+    "runtime_v9.py": "d93c5bc3d041b203602d5caf10f69985653e42cac0df79ba24d4bff9f1141ba2",
+    "sudo_candidate_v9.py": "f3a7953f81747ab5ab27d940c55cca704cd06acacdc39f4dc0fe6b82ea790008",
+    "test_boundaries_v9.py": "5c7feb4b48d94b2cad5942a08885babb8fc4fc108060bb75b56cd307dbdac605",
+    "test_components_v9.py": "04840e0e34457c045661657374269f53e591c3e213b08939c32cc6249b2848b8",
+    "test_entry_v9.py": "071b26e2d41bc47634fb8b193b5daad3a70e5986541b0f9b7f34ea558a345d91",
+    "test_files_v9.py": "0a6b97f0b0734af7ea1ef20e6c5569b07a4468ebd4d125488f233ff769ee6c48",
+    "test_graph_v9.py": "3a40fa0d7409326fdc6d4a8ecdce98df69f8faeeb5ae8f348ade64cbaeee318f",
+    "test_host_v9.py": "02e2b5ff16791341049aac26e9387a45045b53b2f608885f74433c9e857860d4",
+    "test_policy_v9.py": "c99102b02cbdbcd56b3d8d17bfb9a340d4721d52b4c568312a7adf4c4899bb43",
+    "test_transaction_v9.py": "5b1c7bd6611dcec26c3cdb59f75ffd7ea61dfac8dae86fb0e7595cf7c2e8daa8",
+    "transaction_v9.py": "58ab3c5c7d4c934e99d6cf9bb72c909e68fd793eca38fe04678c19583c6d9b5b",
+    "tu1nz_codex_broker_v9.py": "b993ac472045e7e21d43d4c432caba354c7281c590e72af2f81206c39e458094",
+    "verification_v9.py": "61e95b76e7a9b6c921d767bb67597c6ee22be937c3f2f32a84f4ac88943aafa2"
+  },
+  "status": "OFFLINE_VALIDATED_ACTIVATION_PREPARED",
+  "test_results": {
+    "historical_linux": {
+      "passed": 457,
+      "seconds": 5.102
+    },
+    "new_python312": {
+      "passed": 130,
+      "seconds": 17.395
+    },
+    "new_python39": {
+      "passed": 130,
+      "seconds": 1.863
+    },
+    "sudoers_final_fixture": {
+      "rc": 0
+    },
+    "sudoers_temporary_fixture": {
+      "rc": 0
+    },
+    "systemd_isolated_root": {
+      "rc": 0,
+      "stderr_bytes": 0
+    }
+  },
+  "version": 9,
+  "watchdog_started": false
+}
