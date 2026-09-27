@@ -146,6 +146,67 @@ class R15172DisabledStateTests(unittest.TestCase):
         self.assertNotIn("UPDATE commercial_s11_runtime_control", rearm)
         self.assertNotIn("DELETE FROM commercial_s11_canary_epoch_history", source)
 
+    def test_rearm_resume_proves_the_committed_archive_from_persisted_intent(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        prelude_source = source[: source.index('\ncase "${1:-}" in')]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            prelude = root / "controller-prelude.sh"
+            backup = root / "backup"
+            backup.mkdir()
+            prelude.write_text(prelude_source, encoding="utf-8")
+            completed = subprocess.run(
+                ["bash", "-s", "--", str(prelude), str(backup)],
+                input=(
+                    'set -Eeuo pipefail\nsource "$1"\nS11_2_BACKUP_PATH="$2"\n'
+                    'fixture_state=TERMINAL_REARMABLE\nfixture_history=7\n'
+                    'disabled_state_classification() { printf "%s\\n" "$fixture_state"; }\n'
+                    'database_admin_history_count() { printf "%s\\n" "$fixture_history"; }\n'
+                    'database_rearm() { fixture_state=CLEAN_NOT_STARTED; fixture_history=8; }\n'
+                    'complete_phase() { :; }\n'
+                    'write_rearm_intent "$fixture_history"\n'
+                    'database_rearm S11_2_R15_8_TERMINAL_EPOCH_REARMED\n'
+                    'rearm_canary\n'
+                    'python3 - "$S11_2_BACKUP_PATH/canary-rearm.json" <<\'PY\'\n'
+                    'import json, sys\n'
+                    'payload=json.load(open(sys.argv[1], encoding="utf-8"))\n'
+                    'assert payload["before"] == "TERMINAL_REARMABLE"\n'
+                    'assert payload["after"] == "CLEAN_NOT_STARTED"\n'
+                    'assert payload["history_delta"] == 1\n'
+                    'PY\n'
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_rearm_resume_fails_closed_when_persisted_history_delta_is_not_one(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        prelude_source = source[: source.index('\ncase "${1:-}" in')]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            prelude = root / "controller-prelude.sh"
+            backup = root / "backup"
+            backup.mkdir()
+            prelude.write_text(prelude_source, encoding="utf-8")
+            completed = subprocess.run(
+                ["bash", "-s", "--", str(prelude), str(backup)],
+                input=(
+                    'set -Eeuo pipefail\nsource "$1"\nS11_2_BACKUP_PATH="$2"\n'
+                    'disabled_state_classification() { printf "CLEAN_NOT_STARTED\\n"; }\n'
+                    'database_admin_history_count() { printf "7\\n"; }\n'
+                    'complete_phase() { :; }\n'
+                    'write_rearm_intent 7\n'
+                    'rearm_canary\n'
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("S11_2_TERMINAL_EPOCH_RESUME_ARCHIVE_RED", completed.stderr)
+
     def test_runtime_evidence_contains_only_aggregate_classifications(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         helper = source[source.index("write_disabled_state_evidence() {"):source.index("require_acquisition_state() {")]

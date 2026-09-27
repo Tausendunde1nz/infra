@@ -830,6 +830,46 @@ write_disabled_state_evidence() {
   chmod 0600 "$destination"
 }
 
+rearm_intent_path() {
+  printf '%s/canary-rearm-intent.json\n' "$S11_2_BACKUP_PATH"
+}
+
+write_rearm_intent() {
+  local history_before="$1" destination temporary
+  [[ "$history_before" =~ ^[0-9]+$ ]] || fail "S11_2_REARM_INTENT_HISTORY_RED"
+  destination="$(rearm_intent_path)"
+  [[ "$destination" == "$S11_2_BACKUP_PATH/"* ]] || fail "S11_2_REARM_INTENT_PATH_RED"
+  [ ! -e "$destination" ] || fail "S11_2_REARM_INTENT_ALREADY_EXISTS_RED"
+  temporary="${destination}.tmp.$$"
+  printf '{"schema":"S11_2_TERMINAL_REARM_INTENT_V1","before":"TERMINAL_REARMABLE","history_before":%s}\n' \
+    "$history_before" > "$temporary"
+  chmod 0600 "$temporary"
+  mv "$temporary" "$destination"
+}
+
+read_rearm_intent_history_before() {
+  local source
+  source="$(rearm_intent_path)"
+  [ -f "$source" ] && [ ! -L "$source" ] || fail "S11_2_REARM_INTENT_MISSING_RED"
+  /usr/bin/python3 - "$source" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if set(payload) != {"schema", "before", "history_before"}:
+    raise SystemExit(2)
+if payload["schema"] != "S11_2_TERMINAL_REARM_INTENT_V1":
+    raise SystemExit(2)
+if payload["before"] != "TERMINAL_REARMABLE":
+    raise SystemExit(2)
+value = payload["history_before"]
+if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    raise SystemExit(2)
+print(value)
+PY
+}
+
 require_acquisition_state() {
   [ "$(database_scalar "SELECT wms_real_acquisition_ready::text||'|'||to_char(real_acquisition_baseline_start AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM commercial_s10_2d_runtime_control WHERE singleton;")" = "true|${ACQUISITION_BASELINE}" ]
 }
@@ -1394,15 +1434,33 @@ apply_migration() {
 }
 
 rearm_canary() {
-  local before after history_before history_after history_delta=0
+  local before after history_before history_after history_delta=0 intent_path
   before="$(disabled_state_classification)" \
     || fail "S11_2_REARM_STATE_READ_RED"
+  intent_path="$(rearm_intent_path)"
   case "$before" in
     CLEAN_NOT_STARTED)
       after="$(disabled_state_classification)"
+      if [ -e "$intent_path" ]; then
+        history_before="$(read_rearm_intent_history_before)" \
+          || fail "S11_2_REARM_INTENT_READ_RED"
+        history_after="$(database_admin_history_count)"
+        [ "$history_after" -eq $((history_before + 1)) ] \
+          || fail "S11_2_TERMINAL_EPOCH_RESUME_ARCHIVE_RED"
+        history_delta=1
+        before=TERMINAL_REARMABLE
+      fi
       ;;
     TERMINAL_REARMABLE)
       history_before="$(database_admin_history_count)"
+      if [ -e "$intent_path" ]; then
+        [ "$(read_rearm_intent_history_before)" -eq "$history_before" ] \
+          || fail "S11_2_REARM_INTENT_HISTORY_DRIFT_RED"
+      else
+        write_rearm_intent "$history_before"
+        [ "$(read_rearm_intent_history_before)" -eq "$history_before" ] \
+          || fail "S11_2_REARM_INTENT_VERIFY_RED"
+      fi
       database_rearm S11_2_R15_8_TERMINAL_EPOCH_REARMED
       history_after="$(database_admin_history_count)"
       [ "$history_after" -eq $((history_before + 1)) ] || fail "S11_2_TERMINAL_EPOCH_ARCHIVE_RED"
@@ -2083,6 +2141,9 @@ finalize_deployment_evidence() {
   mv "$backup_path/pre-canary-health.json" "$backup_path/postdeploy/pre-canary-health.json"
   mv "$backup_path/pre-canary-health.json.ndjson" "$backup_path/postdeploy/pre-canary-health.json.ndjson"
   mv "$backup_path/feature-off-fallback.json" "$backup_path/postdeploy/feature-off-fallback.json"
+  if [ -f "$backup_path/canary-rearm-intent.json" ]; then
+    mv "$backup_path/canary-rearm-intent.json" "$backup_path/postdeploy/canary-rearm-intent.json"
+  fi
   mv "$backup_path/canary-rearm.json" "$backup_path/postdeploy/canary-rearm.json"
   mv "$backup_path/evidence-epoch-state.json" "$backup_path/postdeploy/evidence-epoch-state.json"
   mv "$backup_path/systemd-handoff.json" "$backup_path/postdeploy/systemd-handoff.json"

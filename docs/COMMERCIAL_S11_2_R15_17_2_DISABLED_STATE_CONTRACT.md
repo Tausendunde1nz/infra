@@ -45,7 +45,11 @@ Allowed controller flow:
    feature-off fallback.
 3. `CANARY_REARMED` records the history count, invokes only
    `tu1nz_s11_2_rearm_runtime_control`, requires exactly one new history row and
-   then requires `CLEAN_NOT_STARTED`.
+   then requires `CLEAN_NOT_STARTED`. Before invoking the database function it
+   atomically persists a privacy-safe rearm intent with the pre-rearm history
+   count. If execution is interrupted after the transaction commits, resume
+   accepts the already-clean state only after proving the persisted count grew
+   by exactly one; it never replaces that proof with a zero-delta artifact.
 4. `SET_EVIDENCE_EPOCH` changes clean state to `PRE_CANARY_ARMED`.
 5. Only `START_CANARY` changes `PRE_CANARY_ARMED` to
    `S11_CANARY/CANARY_COLLECTING_EVIDENCE`.
