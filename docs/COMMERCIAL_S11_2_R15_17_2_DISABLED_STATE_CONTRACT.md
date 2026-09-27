@@ -19,7 +19,7 @@ product-boundary expansion.
 The controller reads the singleton once and classifies it with the same helper
 used by preflight, installation, fallback, rearm and rollback:
 
-Before migration 0033, absence of all six bootstrap columns is an explicit
+Before migration 0033, absence of all seven bootstrap columns is an explicit
 legacy schema. Only `enabled=false` with `live_start=NULL` maps to
 `CLEAN_NOT_STARTED`; a partially installed bootstrap schema or any live legacy
 state maps to `INVALID_DISABLED_STATE`. This preserves first-install support

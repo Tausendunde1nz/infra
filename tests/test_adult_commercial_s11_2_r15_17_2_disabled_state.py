@@ -52,6 +52,21 @@ class R15172DisabledStateTests(unittest.TestCase):
 
     def test_partial_bootstrap_schema_is_invalid_without_postmigration_query(self):
         source = CONTROLLER.read_text(encoding="utf-8")
+        classifier = source[
+            source.index("disabled_state_classification() {"):
+            source.index("require_code_off_disabled_state() {")
+        ]
+        for column in (
+            "release_state",
+            "canary_release_id",
+            "canary_evidence_start",
+            "canary_live_start",
+            "canary_horizon_at",
+            "full_live_start",
+            "promotion_state",
+        ):
+            self.assertIn(column, classifier)
+        self.assertIn("    7) ;;", classifier)
         prelude_source = source[: source.index('\ncase "${1:-}" in')]
         with tempfile.TemporaryDirectory() as directory:
             prelude = Path(directory) / "controller-prelude.sh"

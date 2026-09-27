@@ -783,7 +783,7 @@ classify_legacy_disabled_state_fields() {
 disabled_state_classification() {
   local bootstrap_columns snapshot enabled live_start state promotion canary_release
   local evidence_start canary_live horizon full_live
-  bootstrap_columns="$(database_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','full_live_start','promotion_state');")" \
+  bootstrap_columns="$(database_scalar "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_s11_runtime_control' AND column_name IN ('release_state','canary_release_id','canary_evidence_start','canary_live_start','canary_horizon_at','full_live_start','promotion_state');")" \
     || return 1
   case "$bootstrap_columns" in
     0)
@@ -793,7 +793,7 @@ disabled_state_classification() {
       classify_legacy_disabled_state_fields "$enabled" "$live_start"
       return
       ;;
-    6) ;;
+    7) ;;
     *)
       printf 'INVALID_DISABLED_STATE\n'
       return
