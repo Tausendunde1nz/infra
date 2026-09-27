@@ -315,6 +315,7 @@
 !scripts/tu1nz_adult_public_s11_2_r15_15_simulator.py
 !scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
 !scripts/tu1nz_adult_public_s11_2_r15_17_2_simulator.py
+!scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py
 !scripts/tu1nz_adult_public_s11_2_freeze.py
 !tests/test_adult_commercial_s10_2d_r8_1_state_reconciliation.py
 !tests/test_adult_commercial_s11_2_canary_bootstrap.py
@@ -323,6 +324,7 @@
 !tests/test_adult_commercial_s11_2_r15_14_1_freeze_provenance.py
 !tests/test_adult_commercial_s11_2_r15_16_4_profile_serialization.py
 !tests/test_adult_commercial_s11_2_r15_17_2_disabled_state.py
+!tests/test_adult_commercial_s11_2_r15_18_1_timer_rearm.py
 !analysis/COMMERCIAL_S11_2_R15_14_GATE_ERROR_LOSS_2026-09-27.diagnose
 !analysis/COMMERCIAL_S11_2_R15_14_1_FREEZE_PROVENANCE_RED_2026-09-27.diagnose
 !analysis/COMMERCIAL_S11_2_R15_14_1_LOCAL_TEST_ENVIRONMENT_2026-09-27.diagnose

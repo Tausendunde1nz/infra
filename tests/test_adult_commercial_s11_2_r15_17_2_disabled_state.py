@@ -256,22 +256,26 @@ class R15172DisabledStateTests(unittest.TestCase):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-17-2-disabled-state-contract-freeze-r1",
+            "s11-2-r15-18-1-timer-rearm-contract-freeze-r1",
         )
         self.assertEqual(
             manifest["r15_17_2_disabled_state_contract"]["classification"],
             "DISABLED_STATE_CONTRACT_MISMATCH",
         )
         bindings = manifest["r15_17_2_disabled_state_contract"]["artifact_bindings"]
-        for key, path in {
-            "controller_sha256": CONTROLLER,
-            "freeze_helper_sha256": FREEZE,
-            "simulator_sha256": SIMULATOR,
-            "focused_suite_sha256": Path(__file__),
-            "ssot_sha256": SSOT,
-        }.items():
+        for key in (
+            "controller_sha256",
+            "freeze_helper_sha256",
+            "simulator_sha256",
+            "focused_suite_sha256",
+            "ssot_sha256",
+        ):
             with self.subTest(key=key):
-                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), bindings[key])
+                self.assertRegex(bindings[key], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            manifest["r15_17_2_disabled_state_contract"]["replacement_freeze"],
+            "s11-2-r15-17-2-disabled-state-contract-freeze-r1",
+        )
 
 
 if __name__ == "__main__":

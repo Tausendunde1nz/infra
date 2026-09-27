@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-17-2-disabled-state-contract-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-r15-18-1-timer-rearm-contract-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -176,7 +176,7 @@ require_local_freeze() {
     "supplementary_groups=chatops" \
     "canary_contract=FIRST_10_24H_EPOCH_BOUND" \
     "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN" \
-    "phase_contract=S11_2_R15_8_ORCHESTRATION_V1" \
+    "phase_contract=S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1" \
     "health_contract=S10_1_HEALTH_CHILD_V1" \
     "application_health_schema=S8_HEALTH_V2" \
     "community_failure_envelope=COMMUNITY_FAILURE_V1" \
@@ -185,7 +185,7 @@ require_local_freeze() {
     "gate_diagnostic_contract=GATE_DIAGNOSTIC_V1" \
     "gate_error_allowlist=CANONICAL_EXACT_ONLY" \
     "controller_gate_reader=CONTROL_GATE_READER_V1" \
-    "r15_15_simulator=DISABLED_STATE_REARM_REPEAT_DEPLOY_V1" \
+    "r15_15_simulator=EXPLICIT_SINGLE_FRESH_TIMER_ARM_V1" \
     "technical_evidence_contract=PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
@@ -512,6 +512,126 @@ timer_has_finite_future() {
   return 1
 }
 
+arm_controller_timer_for_handoff() {
+  local target_control="$1" destination="$2"
+  local timer="tu1nz-adult-public-s11-canary-controller.timer"
+  local service="tu1nz-adult-public-s11-canary-controller.service"
+  local source_timer_sha installed_timer_sha service_active service_substate
+  local pre_timer_enabled pre_timer_active pre_timer_substate
+  local pre_next_realtime pre_next_monotonic arm_exit
+  local post_timer_enabled post_timer_active post_timer_substate
+  local post_next_realtime post_next_monotonic
+
+  verify_controller_unit_contract
+  source_timer_sha="$(git_chatops "$CONTROL_ROOT" show \
+    "${target_control}:systemd/${timer}" | sha256sum | awk '{print $1}')"
+  installed_timer_sha="$(sha256sum "$CONTROLLER_TIMER" | awk '{print $1}')"
+  [ "$installed_timer_sha" = "$source_timer_sha" ] \
+    || fail "S11_2_CONTROLLER_TIMER_HASH_RED"
+  systemctl daemon-reload
+
+  service_active="$(systemctl show "$service" -p ActiveState --value)"
+  service_substate="$(systemctl show "$service" -p SubState --value)"
+  case "$service_active" in
+    inactive|failed) ;;
+    *) fail "S11_2_CONTROLLER_UNEXPECTEDLY_RUNNING_RED"; return 2 ;;
+  esac
+
+  pre_timer_enabled="$(systemctl is-enabled "$timer" 2>/dev/null || true)"
+  pre_timer_active="$(systemctl show "$timer" -p ActiveState --value)"
+  pre_timer_substate="$(systemctl show "$timer" -p SubState --value)"
+  pre_next_realtime="$(systemctl show "$timer" -p NextElapseUSecRealtime --value)"
+  pre_next_monotonic="$(systemctl show "$timer" -p NextElapseUSecMonotonic --value)"
+  S11_HANDOFF_PREVIOUS_TRIGGER="$(systemctl show "$timer" -p LastTriggerUSecMonotonic --value 2>/dev/null || true)"
+  S11_HANDOFF_PREVIOUS_INVOCATION="$(systemctl show "$service" -p InvocationID --value 2>/dev/null || true)"
+
+  systemctl enable "$timer" >/dev/null
+  systemctl stop "$timer"
+  systemctl reset-failed "$timer" "$service"
+  service_active="$(systemctl show "$service" -p ActiveState --value)"
+  service_substate="$(systemctl show "$service" -p SubState --value)"
+  [ "$service_active" = inactive ] \
+    || { fail "S11_2_CONTROLLER_UNEXPECTEDLY_RUNNING_RED"; return 2; }
+
+  S11_HANDOFF_REALTIME="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
+  S11_HANDOFF_MONOTONIC="$(monotonic_now_usec)"
+  arm_exit=0
+  systemctl start "$timer" || arm_exit=$?
+
+  post_timer_enabled="$(systemctl is-enabled "$timer" 2>/dev/null || true)"
+  post_timer_active="$(systemctl show "$timer" -p ActiveState --value)"
+  post_timer_substate="$(systemctl show "$timer" -p SubState --value)"
+  post_next_realtime="$(systemctl show "$timer" -p NextElapseUSecRealtime --value)"
+  post_next_monotonic="$(systemctl show "$timer" -p NextElapseUSecMonotonic --value)"
+
+  S11_TIMER_ARM_DESTINATION="$destination" \
+  S11_TIMER_ARM_HANDOFF_REALTIME="$S11_HANDOFF_REALTIME" \
+  S11_TIMER_ARM_HANDOFF_MONOTONIC="$S11_HANDOFF_MONOTONIC" \
+  S11_TIMER_ARM_PREVIOUS_TRIGGER="$S11_HANDOFF_PREVIOUS_TRIGGER" \
+  S11_TIMER_ARM_PREVIOUS_INVOCATION="$S11_HANDOFF_PREVIOUS_INVOCATION" \
+  S11_TIMER_ARM_SERVICE_ACTIVE="$service_active" \
+  S11_TIMER_ARM_SERVICE_SUBSTATE="$service_substate" \
+  S11_TIMER_ARM_PRE_ENABLED="$pre_timer_enabled" \
+  S11_TIMER_ARM_PRE_ACTIVE="$pre_timer_active" \
+  S11_TIMER_ARM_PRE_SUBSTATE="$pre_timer_substate" \
+  S11_TIMER_ARM_PRE_NEXT_REALTIME="$pre_next_realtime" \
+  S11_TIMER_ARM_PRE_NEXT_MONOTONIC="$pre_next_monotonic" \
+  S11_TIMER_ARM_EXIT="$arm_exit" \
+  S11_TIMER_ARM_POST_ENABLED="$post_timer_enabled" \
+  S11_TIMER_ARM_POST_ACTIVE="$post_timer_active" \
+  S11_TIMER_ARM_POST_SUBSTATE="$post_timer_substate" \
+  S11_TIMER_ARM_POST_NEXT_REALTIME="$post_next_realtime" \
+  S11_TIMER_ARM_POST_NEXT_MONOTONIC="$post_next_monotonic" \
+    /usr/bin/python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+exit_status = int(os.environ["S11_TIMER_ARM_EXIT"])
+payload = {
+    "ok": exit_status == 0,
+    "safe_code": (
+        "S11_2_CONTROLLER_TIMER_FRESH_ARM_GREEN"
+        if exit_status == 0
+        else "S11_2_CONTROLLER_TIMER_FRESH_ARM_RED"
+    ),
+    "contract_version": "S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1",
+    "handoff_started_at": os.environ["S11_TIMER_ARM_HANDOFF_REALTIME"],
+    "handoff_started_monotonic_usec": int(os.environ["S11_TIMER_ARM_HANDOFF_MONOTONIC"]),
+    "pre_handoff_trigger": os.environ["S11_TIMER_ARM_PREVIOUS_TRIGGER"],
+    "pre_handoff_invocation_id": os.environ["S11_TIMER_ARM_PREVIOUS_INVOCATION"],
+    "service_pre_arm": {
+        "active_state": os.environ["S11_TIMER_ARM_SERVICE_ACTIVE"],
+        "sub_state": os.environ["S11_TIMER_ARM_SERVICE_SUBSTATE"],
+    },
+    "timer_pre_arm": {
+        "enabled_state": os.environ["S11_TIMER_ARM_PRE_ENABLED"],
+        "active_state": os.environ["S11_TIMER_ARM_PRE_ACTIVE"],
+        "sub_state": os.environ["S11_TIMER_ARM_PRE_SUBSTATE"],
+        "next_elapse_realtime": os.environ["S11_TIMER_ARM_PRE_NEXT_REALTIME"],
+        "next_elapse_monotonic": os.environ["S11_TIMER_ARM_PRE_NEXT_MONOTONIC"],
+    },
+    "fresh_arm_attempts": 1,
+    "fresh_arm_command": "systemctl start tu1nz-adult-public-s11-canary-controller.timer",
+    "fresh_arm_exit_status": exit_status,
+    "timer_post_arm": {
+        "enabled_state": os.environ["S11_TIMER_ARM_POST_ENABLED"],
+        "active_state": os.environ["S11_TIMER_ARM_POST_ACTIVE"],
+        "sub_state": os.environ["S11_TIMER_ARM_POST_SUBSTATE"],
+        "next_elapse_realtime": os.environ["S11_TIMER_ARM_POST_NEXT_REALTIME"],
+        "next_elapse_monotonic": os.environ["S11_TIMER_ARM_POST_NEXT_MONOTONIC"],
+    },
+}
+Path(os.environ["S11_TIMER_ARM_DESTINATION"]).write_text(
+    json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+    encoding="ascii",
+)
+PY
+  [ "$arm_exit" -eq 0 ] \
+    || { fail "S11_2_CONTROLLER_TIMER_FRESH_ARM_RED"; return 2; }
+  printf '{"ok":true,"safe_code":"S11_2_CONTROLLER_TIMER_FRESH_ARM_GREEN"}\n'
+}
+
 first_invocation_after_trigger() {
   local handoff_realtime="$1" trigger="$2" trigger_usec
   trigger_usec="$(systemd_timespan_usec "$trigger" 2>/dev/null || true)"
@@ -606,7 +726,7 @@ handoff_snapshot_decision() {
 
 wait_controller_natural_run() {
   local handoff_realtime="$1" handoff_monotonic="$2" previous_trigger="$3"
-  local previous_invocation="$4" destination="$5" deadline decision trigger
+  local previous_invocation="$4" arm_evidence="$5" destination="$6" deadline decision trigger
   local invocation start_monotonic active result exit_status timer_enabled timer_active
   local timer_substate next_realtime next_monotonic now_realtime now_monotonic
   local first_trigger_invocation
@@ -648,15 +768,20 @@ wait_controller_natural_run() {
         S11_HANDOFF_CONTROLLER_START="$start_monotonic" \
         S11_HANDOFF_RESULT="$result" \
         S11_HANDOFF_EXIT_STATUS="$exit_status" \
+        S11_HANDOFF_TIMER_ENABLED="$timer_enabled" \
         S11_HANDOFF_TIMER_ACTIVE="$timer_active" \
         S11_HANDOFF_TIMER_SUBSTATE="$timer_substate" \
         S11_HANDOFF_NEXT_REALTIME="$next_realtime" \
         S11_HANDOFF_NEXT_MONOTONIC="$next_monotonic" \
+        S11_HANDOFF_ARM_EVIDENCE="$arm_evidence" \
           /usr/bin/python3 - <<'PY'
 import json
 import os
 from pathlib import Path
 
+activation = json.loads(Path(os.environ["S11_HANDOFF_ARM_EVIDENCE"]).read_text(encoding="ascii"))
+if not activation.get("ok") or activation.get("fresh_arm_attempts") != 1:
+    raise SystemExit(2)
 payload = {
     "ok": True,
     "safe_code": "S11_2_FIRST_NATURAL_CONTROLLER_RUN_GREEN",
@@ -669,11 +794,13 @@ payload = {
     "accepted_controller_start_monotonic": os.environ["S11_HANDOFF_CONTROLLER_START"],
     "service_result": os.environ["S11_HANDOFF_RESULT"],
     "exec_main_status": int(os.environ["S11_HANDOFF_EXIT_STATUS"]),
+    "timer_enabled_state": os.environ["S11_HANDOFF_TIMER_ENABLED"],
     "timer_active_state": os.environ["S11_HANDOFF_TIMER_ACTIVE"],
     "timer_sub_state": os.environ["S11_HANDOFF_TIMER_SUBSTATE"],
     "next_elapse_realtime": os.environ["S11_HANDOFF_NEXT_REALTIME"],
     "next_elapse_monotonic": os.environ["S11_HANDOFF_NEXT_MONOTONIC"],
     "finite_future": True,
+    "timer_activation": activation,
 }
 Path(os.environ["S11_HANDOFF_DESTINATION"]).write_text(
     json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
@@ -1999,9 +2126,8 @@ install_s11_disabled() {
 }
 
 run_remaining_phases() {
-  local target_control="$1" backup_path="$2" next current_state previous_trigger plan_state
+  local target_control="$1" backup_path="$2" next current_state plan_state
   local disabled_state_before disabled_state_after
-  local handoff_realtime handoff_monotonic previous_invocation
   while true; do
     next="$(phase_next)"
     case "$next" in
@@ -2099,15 +2225,13 @@ run_remaining_phases() {
         ;;
       SYSTEMD_HANDOFF)
         require_phase CANARY_ACTIVE
-        previous_trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSec --value 2>/dev/null || true)"
-        previous_invocation="$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p InvocationID --value 2>/dev/null || true)"
-        handoff_realtime="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
-        handoff_monotonic="$(monotonic_now_usec)"
         release_inherited_lock
-        systemctl enable --now tu1nz-adult-public-s11-canary-controller.timer
+        arm_controller_timer_for_handoff \
+          "$target_control" "$backup_path/timer-arm.json"
         wait_controller_natural_run \
-          "$handoff_realtime" "$handoff_monotonic" "$previous_trigger" \
-          "$previous_invocation" "$backup_path/systemd-handoff.json"
+          "$S11_HANDOFF_REALTIME" "$S11_HANDOFF_MONOTONIC" \
+          "$S11_HANDOFF_PREVIOUS_TRIGGER" "$S11_HANDOFF_PREVIOUS_INVOCATION" \
+          "$backup_path/timer-arm.json" "$backup_path/systemd-handoff.json"
         reacquire_inherited_lock
         run_runtime_health
         verify_target "$target_control"
@@ -2146,6 +2270,7 @@ finalize_deployment_evidence() {
   fi
   mv "$backup_path/canary-rearm.json" "$backup_path/postdeploy/canary-rearm.json"
   mv "$backup_path/evidence-epoch-state.json" "$backup_path/postdeploy/evidence-epoch-state.json"
+  mv "$backup_path/timer-arm.json" "$backup_path/postdeploy/timer-arm.json"
   mv "$backup_path/systemd-handoff.json" "$backup_path/postdeploy/systemd-handoff.json"
   install -m 0600 "$(phase_state_path)" "$backup_path/postdeploy/phase-state.json"
   database_evidence "$backup_path/postdeploy/database-aggregate.json"

@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s11-2-r15-17-2-disabled-state-contract-freeze-r1"
+FREEZE_TAG = "s11-2-r15-18-1-timer-rearm-contract-freeze-r1"
+DISABLED_STATE_FREEZE_TAG = "s11-2-r15-17-2-disabled-state-contract-freeze-r1"
 SYSTEMD_HANDOFF_FREEZE_TAG = "s11-2-r15-17-1-systemd-handoff-contract-freeze-r1"
 SERIALIZATION_FREEZE_TAG = "s11-2-r15-16-4-technical-profile-serialization-freeze-r1"
 PROFILE_SCOPED_FREEZE_TAG = "s11-2-r15-15-3-profile-scoped-technical-freeze-r1"
@@ -68,9 +69,15 @@ SYSTEMD_HANDOFF_STATIC_BINDINGS = {
     "r15_15_simulator": "CURRENT_INVOCATION_FINITE_FUTURE_V1",
 }
 
-STATIC_BINDINGS = {
+DISABLED_STATE_STATIC_BINDINGS = {
     **SYSTEMD_HANDOFF_STATIC_BINDINGS,
     "r15_15_simulator": "DISABLED_STATE_REARM_REPEAT_DEPLOY_V1",
+}
+
+STATIC_BINDINGS = {
+    **DISABLED_STATE_STATIC_BINDINGS,
+    "phase_contract": "S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1",
+    "r15_15_simulator": "EXPLICIT_SINGLE_FRESH_TIMER_ARM_V1",
 }
 
 REQUIRED_KEYS = (
@@ -151,7 +158,7 @@ def controller_binding_keys(source: str) -> tuple[str, ...]:
 
 def render_annotation(
     bindings: Mapping[str, str],
-    title: str = "TU1NZ S11.2-R15.17.2 disabled-state contract freeze",
+    title: str = "TU1NZ S11.2-R15.18.1 explicit timer-rearm contract freeze",
 ) -> str:
     if tuple(bindings) != REQUIRED_KEYS:
         raise FreezeError("S11_2_FREEZE_BINDING_SSOT_RED")
@@ -249,6 +256,7 @@ def verify_tag(repo: Path, tag: str = FREEZE_TAG) -> dict[str, object]:
         PROFILE_SCOPED_FREEZE_TAG: PROFILE_SCOPED_STATIC_BINDINGS,
         SERIALIZATION_FREEZE_TAG: SERIALIZATION_STATIC_BINDINGS,
         SYSTEMD_HANDOFF_FREEZE_TAG: SYSTEMD_HANDOFF_STATIC_BINDINGS,
+        DISABLED_STATE_FREEZE_TAG: DISABLED_STATE_STATIC_BINDINGS,
     }.get(tag, STATIC_BINDINGS)
     expected = expected_bindings(repo, target, static_bindings=static_bindings)
     annotation_report = verify_annotation(tag_annotation(repo, tag), expected)
