@@ -38,14 +38,20 @@ Technical sample count. A mismatch stops fail-closed with
 do not change that count. A concurrent Technical row does, and therefore
 stops. A concurrent unknown or malformed DIRECT row is explicitly rejected
 with the same bounded snapshot-drift code instead of being discarded. The
-orchestration invariant requiring the serialized list length to equal
-`current_valid_samples` remains intact as defense in depth.
+fresh serializer snapshot accepts every canonical Gate provenance profile,
+revalidates all four bounded latency metrics, and still serializes only the
+Technical subset. Canonical SYNTHETIC, HEALTH, PROVIDER_PROBE, REAL and
+non-Technical S11 Canary rows therefore coexist without false drift, while a
+concurrent malformed metric fails closed. The orchestration invariant
+requiring the serialized list length to equal `current_valid_samples` remains
+intact as defense in depth.
 
 ## Regression and readiness contract
 
 Source fixtures cover zero, four and five Technical rows mixed with REAL;
 multiple and concurrently arriving REAL rows; concurrent Technical drift;
-concurrent UNKNOWN and malformed snapshot drift; deterministic probe
+all canonical non-Technical profiles; concurrent UNKNOWN, malformed
+provenance and malformed-metric snapshot drift; deterministic probe
 cardinality; dynamic missing counts; and Technical SLO RED. The source-only R15.17 simulator models
 five serial Technical probes while REAL remains present, the complete ordered
 S11 phase handoff, exactly one Canary start and no automatic retry.

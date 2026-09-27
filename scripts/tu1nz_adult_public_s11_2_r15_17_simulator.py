@@ -55,8 +55,24 @@ def _technical_row(handler_ms: int) -> tuple[Any, ...]:
     )
 
 
-def _serialized_row(row: tuple[Any, ...]) -> tuple[str, str, str, str]:
-    return ("DIRECT", str(row[0]), str(row[1]), str(row[2]))
+def _serialized_row(row: tuple[Any, ...]) -> tuple[Any, ...]:
+    return ("DIRECT", *row)
+
+
+def _canonical_nontechnical_rows() -> list[tuple[Any, ...]]:
+    rows = []
+    for evidence_class, interaction_path in gate.DIRECT_PROFILE_PATHS.items():
+        for sample_type in sorted(gate.DIRECT_SAMPLE_TYPES):
+            if (
+                evidence_class,
+                sample_type,
+                interaction_path,
+            ) == gate.TECHNICAL_PROFILE:
+                continue
+            rows.append(
+                (evidence_class, sample_type, interaction_path, 250, 10, 20, 30)
+            )
+    return rows
 
 
 def _gate_result(rows: list[tuple[Any, ...]]) -> dict[str, Any]:
@@ -117,6 +133,10 @@ def simulate() -> dict[str, Any]:
     )
     real_concurrency = orchestration.technical_plan(real_concurrency_profile)
 
+    canonical_nontechnical = orchestration.technical_plan(
+        _profile(_canonical_nontechnical_rows())
+    )
+
     snapshot_drift_code = None
     try:
         _profile([_real_row()], [_real_row(), _technical_row(100)])
@@ -140,6 +160,18 @@ def simulate() -> dict[str, Any]:
         )
     except ValueError as error:
         malformed_snapshot_drift_code = str(error)
+
+    malformed_metric_snapshot_codes = {}
+    for name, row in {
+        "null": ("REAL", "DIRECT_BOT_RESPONSE", "TELEGRAM_DIRECT", None, 10, 20, 30),
+        "negative": ("HEALTH", "DIRECT_BOT_RESPONSE", "RUNTIME_HEALTH", 100, -1, 20, 30),
+        "oversized": ("SYNTHETIC", "S11_CANARY_RESPONSE", "SYNTHETIC_FIXTURE", 100, 10, 300001, 30),
+        "wrong_type": ("PROVIDER_PROBE", "DIRECT_BOT_RESPONSE", "PROVIDER_PROBE", 100, 10, "20", 30),
+    }.items():
+        try:
+            _profile([_real_row()], [_real_row(), row])
+        except ValueError as error:
+            malformed_metric_snapshot_codes[name] = str(error)
 
     progression = []
     previous = -1
@@ -206,9 +238,13 @@ def simulate() -> dict[str, Any]:
         and five_plus_real["missing_samples"] == 0
         and five_plus_real["state"] == "GREEN"
         and real_concurrency["current_valid_samples"] == 0
+        and canonical_nontechnical["current_valid_samples"] == 0
+        and canonical_nontechnical["missing_samples"] == 5
         and snapshot_drift_code == SNAPSHOT_DRIFT_CODE
         and unknown_snapshot_drift_code == SNAPSHOT_DRIFT_CODE
         and malformed_snapshot_drift_code == SNAPSHOT_DRIFT_CODE
+        and set(malformed_metric_snapshot_codes.values()) == {SNAPSHOT_DRIFT_CODE}
+        and len(malformed_metric_snapshot_codes) == 4
         and probe_cardinality_green
         and [item["technical"] for item in progression] == list(range(6))
         and [item["missing"] for item in progression] == [5, 4, 3, 2, 1, 0]
@@ -229,9 +265,11 @@ def simulate() -> dict[str, Any]:
         "four_technical_plus_real": four_plus_real,
         "five_technical_plus_real": five_plus_real,
         "real_concurrency": real_concurrency,
+        "canonical_nontechnical_profiles": canonical_nontechnical,
         "technical_snapshot_drift_code": snapshot_drift_code,
         "unknown_snapshot_drift_code": unknown_snapshot_drift_code,
         "malformed_snapshot_drift_code": malformed_snapshot_drift_code,
+        "malformed_metric_snapshot_codes": malformed_metric_snapshot_codes,
         "probe_progression": progression,
         "probe_cardinality_green": probe_cardinality_green,
         "technical_slo_red_code": slo_red_code,

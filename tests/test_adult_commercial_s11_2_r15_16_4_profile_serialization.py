@@ -71,7 +71,25 @@ class R15164TechnicalProfileSerializationTests(unittest.TestCase):
         )
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('"safe_code": TECHNICAL_SNAPSHOT_DRIFT_CODE', source)
-        self.assertIn("row not in {TECHNICAL_PROFILE, REAL_PROFILE}", source)
+        self.assertIn("DIRECT_PROFILE_PATHS", source)
+        self.assertIn("DIRECT_SAMPLE_TYPES", source)
+
+    def test_all_canonical_nontechnical_profiles_are_accepted_and_excluded(self):
+        report = simulator.simulate()
+        profile = report["canonical_nontechnical_profiles"]
+        self.assertEqual(profile["current_valid_samples"], 0)
+        self.assertEqual(profile["missing_samples"], 5)
+
+    def test_concurrent_canonical_rows_with_invalid_metrics_fail_snapshot_closed(self):
+        report = simulator.simulate()
+        self.assertEqual(
+            set(report["malformed_metric_snapshot_codes"].values()),
+            {"S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED"},
+        )
+        self.assertEqual(len(report["malformed_metric_snapshot_codes"]), 4)
+        source = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn("bot_response_latency_ms,poll_lag_ms,handler_duration_ms,send_ack_ms", source)
+        self.assertIn("not 0 <= metric <= 300000", source)
 
     def test_concurrent_unknown_and_malformed_rows_fail_snapshot_closed(self):
         report = simulator.simulate()

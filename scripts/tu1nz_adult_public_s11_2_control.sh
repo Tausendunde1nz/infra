@@ -1181,20 +1181,33 @@ TECHNICAL_PROFILE = (
     "DIRECT_BOT_RESPONSE",
     "INTERNAL_ACCEPTANCE",
 )
-REAL_PROFILE = (
-    "DIRECT",
-    "REAL",
-    "DIRECT_BOT_RESPONSE",
-    "TELEGRAM_DIRECT",
-)
+DIRECT_PROFILE_PATHS = {
+    "REAL": "TELEGRAM_DIRECT",
+    "INTERNAL_TEST": "INTERNAL_ACCEPTANCE",
+    "SYNTHETIC": "SYNTHETIC_FIXTURE",
+    "HEALTH": "RUNTIME_HEALTH",
+    "PROVIDER_PROBE": "PROVIDER_PROBE",
+}
+DIRECT_SAMPLE_TYPES = {"DIRECT_BOT_RESPONSE", "S11_CANARY_RESPONSE"}
 TECHNICAL_SNAPSHOT_DRIFT_CODE = "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED"
 
 
 def serialize_technical_profile(technical, rows):
     snapshot_rows = [tuple(row) for row in rows]
-    if any(row not in {TECHNICAL_PROFILE, REAL_PROFILE} for row in snapshot_rows):
-        raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
-    technical_rows = [row for row in snapshot_rows if row == TECHNICAL_PROFILE]
+    for row in snapshot_rows:
+        if len(row) != 8:
+            raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
+        source, evidence_class, sample_type, interaction_path, *metrics = row
+        expected_path = DIRECT_PROFILE_PATHS.get(evidence_class)
+        if (
+            source != "DIRECT"
+            or expected_path is None
+            or sample_type not in DIRECT_SAMPLE_TYPES
+            or interaction_path != expected_path
+            or any(type(metric) is not int or not 0 <= metric <= 300000 for metric in metrics)
+        ):
+            raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
+    technical_rows = [row for row in snapshot_rows if row[:4] == TECHNICAL_PROFILE]
     if len(technical_rows) != technical["samples"]:
         raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
     return {
@@ -1225,7 +1238,8 @@ with psycopg.connect(dsn) as connection:
     if binding is None or not all(binding):
         raise SystemExit(2)
     rows = connection.execute(
-        "SELECT source,evidence_class,sample_type,interaction_path "
+        "SELECT source,evidence_class,sample_type,interaction_path,"
+        "bot_response_latency_ms,poll_lag_ms,handler_duration_ms,send_ack_ms "
         "FROM commercial_s10_2d_latency_samples WHERE source='DIRECT' "
         "AND release_id=%s AND run_id=%s AND recorded_at >= %s AND recorded_at <= %s "
         "ORDER BY recorded_at,sample_id",
