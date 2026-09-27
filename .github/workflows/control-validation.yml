@@ -814,6 +814,7 @@ jobs:
           scripts/tu1nz_adult_public_s11_2_r15_16_simulator.py
           scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
           scripts/tu1nz_adult_public_s11_2_r15_17_1_simulator.py
+          scripts/tu1nz_adult_public_s11_2_r15_17_2_simulator.py
           tests/test_adult_commercial_s11_2_canary_bootstrap.py
           tests/test_adult_commercial_s11_2_r8_child_code_contract.py
           tests/test_adult_commercial_s11_2_r15_6_health_child.py
@@ -825,6 +826,7 @@ jobs:
           tests/test_adult_commercial_s11_2_r15_15_3_profile_scoped_reader.py
           tests/test_adult_commercial_s11_2_r15_16_4_profile_serialization.py
           tests/test_adult_commercial_s11_2_r15_17_1_systemd_handoff.py
+          tests/test_adult_commercial_s11_2_r15_17_2_disabled_state.py
           && python3 -m unittest -v
           tests.test_adult_commercial_s11_2_canary_bootstrap
           tests.test_adult_commercial_s11_2_r8_child_code_contract
@@ -837,6 +839,7 @@ jobs:
           tests.test_adult_commercial_s11_2_r15_15_3_profile_scoped_reader
           tests.test_adult_commercial_s11_2_r15_16_4_profile_serialization
           tests.test_adult_commercial_s11_2_r15_17_1_systemd_handoff
+          tests.test_adult_commercial_s11_2_r15_17_2_disabled_state
           && python3 scripts/tu1nz_adult_public_s11_2_gate.py --simulate-contract
           && python3 scripts/tu1nz_adult_public_s11_2_access_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py --simulate-contract
@@ -845,6 +848,7 @@ jobs:
           && python3 scripts/tu1nz_adult_public_s11_2_r15_16_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_r15_17_1_simulator.py
+          && python3 scripts/tu1nz_adult_public_s11_2_r15_17_2_simulator.py
       - name: Validate Commercial S11.2 Canary systemd controller
         shell: bash
         run: |
@@ -867,8 +871,10 @@ jobs:
             docs/COMMERCIAL_S11_2_R15_15_3_PROFILE_SCOPED_TECHNICAL_READER.md
             docs/COMMERCIAL_S11_2_R15_16_4_TECHNICAL_PROFILE_SERIALIZATION.md
             docs/COMMERCIAL_S11_2_R15_17_1_SYSTEMD_HANDOFF_CONTRACT.md
+            docs/COMMERCIAL_S11_2_R15_17_2_DISABLED_STATE_CONTRACT.md
             analysis/COMMERCIAL_S11_2_R15_14_1_FREEZE_PROVENANCE_RED_2026-09-27.diagnose
             analysis/COMMERCIAL_S11_2_R15_14_1_LOCAL_TEST_ENVIRONMENT_2026-09-27.diagnose
+            analysis/COMMERCIAL_S11_2_R15_17_2_SERVER_CONTROL_DRIFT_2026-09-27.diagnose
             docs/COMMERCIAL_S11_2_R15_4_SOURCE_RUNTIME_ACCESS_2026-09-25.diagnose
             analysis/COMMERCIAL_S11_2_R8_CHILD_CODE_LOSS_2026-09-21.diagnose
             analysis/COMMERCIAL_S11_2_R15_6_S10_HEALTH_CHILD_CODE_2026-09-26.diagnose
@@ -887,6 +893,7 @@ jobs:
             scripts/tu1nz_adult_public_s11_2_r15_16_simulator.py
             scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
             scripts/tu1nz_adult_public_s11_2_r15_17_1_simulator.py
+            scripts/tu1nz_adult_public_s11_2_r15_17_2_simulator.py
             scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh
             systemd/tu1nz-adult-public-s11-canary-controller.service
             systemd/tu1nz-adult-public-s11-canary-controller.timer
@@ -901,6 +908,7 @@ jobs:
             tests/test_adult_commercial_s11_2_r15_15_3_profile_scoped_reader.py
             tests/test_adult_commercial_s11_2_r15_16_4_profile_serialization.py
             tests/test_adult_commercial_s11_2_r15_17_1_systemd_handoff.py
+            tests/test_adult_commercial_s11_2_r15_17_2_disabled_state.py
             tests/fixtures/s11-2-r15-15-3/application-latency-profile-contract.json
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"

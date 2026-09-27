@@ -189,8 +189,10 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("0034_commercial_s11_2_canary_rearm.down.sql", target)
         self.assertIn("MIGRATION_REARM_UP_SHA", target)
         self.assertIn("MIGRATION_REARM_DOWN_SHA", target)
-        self.assertIn("S11_DISABLED\\|CANARY_RED", migration)
-        self.assertIn("S11_DISABLED\\|CANARY_INSUFFICIENT_REAL_VOLUME", migration)
+        classifier = source[source.index("classify_disabled_state_fields() {"):source.index("require_acquisition_state() {")]
+        self.assertIn("CANARY_RED", classifier)
+        self.assertIn("CANARY_INSUFFICIENT_REAL_VOLUME", classifier)
+        self.assertIn("TERMINAL_REARMABLE", migration)
         self.assertIn("database_rearm S11_2_R15_8_TERMINAL_EPOCH_REARMED", migration)
         self.assertIn("history_before + 1", migration)
         self.assertIn("S11_2_TERMINAL_EPOCH_ARCHIVE_RED", migration)
@@ -447,7 +449,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn('TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"', source)
         self.assertIn('TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"', source)
         self.assertIn(
-            'FINAL_CONTROL_TAG="s11-2-r15-17-1-systemd-handoff-contract-freeze-r1"',
+            'FINAL_CONTROL_TAG="s11-2-r15-17-2-disabled-state-contract-freeze-r1"',
             source,
         )
         self.assertIn(
@@ -455,14 +457,14 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v26")
+        self.assertEqual(manifest["version"], "tu1nz-commercial-s11-2-canary-bootstrap-v27")
         self.assertEqual(
             manifest["status"],
-            "S11_2_R15_17_1_SYSTEMD_HANDOFF_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+            "S11_2_R15_17_2_DISABLED_STATE_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
         )
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-17-1-systemd-handoff-contract-freeze-r1",
+            "s11-2-r15-17-2-disabled-state-contract-freeze-r1",
         )
         self.assertEqual(
             manifest["application_release"]["commit"],
