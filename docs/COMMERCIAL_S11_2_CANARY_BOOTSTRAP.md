@@ -373,3 +373,26 @@ missing/unknown children, natural RED-to-GREEN recovery and public WMS RED.
 It performs no server action. R15.4 source/runtime identities and installed
 copy bindings remain unchanged. R15.6 itself is source-only: no health unit,
 S8 runtime, controller, timer, evidence, S11 state or Canary is changed.
+
+## R15.14 Technical Gate structured error contract
+
+The single R15.13 deployment attempt stopped at the Technical Gate before any
+probe, S11 installation or Canary start. The Gate had reduced the exact
+canonical `ValueError` cause to the class name `ValueError`; the controller
+then reduced that output again to `S11_2_TECHNICAL_GATE_READ_RED`.
+
+R15.14 keeps that outer code and adds the versioned `GATE_FAILURE_V1` and
+`GATE_DIAGNOSTIC_V1` contracts. The Gate may expose only exact allowlisted
+codes plus bounded component and classification values. Unknown ValueError,
+database, OS and JSON failures receive fixed generic codes; raw exception
+messages, SQL and connection details never cross the process boundary. The
+controller validates size, JSON shape, schema, version, taxonomy and exit-code
+consistency, then preserves the exact inner code. Malformed and unknown child
+results remain hard RED.
+
+Valid 0/5 and 4/5 profiles still plan only the missing five or one serial
+Technical probes; 5/5 GREEN plans none. A valid but RED Technical SLO remains
+distinct from a Gate contract failure. Promotion, Community Health, R15.10
+Bash safety, R15.8 phase ordering and R15.4 runtime access semantics are
+unchanged. R15.14 is source-only and does not install, deploy, probe, start S11,
+start a Canary, touch Telegram or access Yoti.

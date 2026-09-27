@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import os
+import re
 import stat
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,225 @@ PROMOTION_STATES = {
     "FULL_RELEASE",
 }
 HARD_GATE_CONTROLLER = "/usr/local/bin/tu1nz_adult_public_s11_2_control.sh"
+GATE_FAILURE_SCHEMA = "TU1NZ_S11_2_GATE_FAILURE"
+GATE_FAILURE_VERSION = "GATE_FAILURE_V1"
+GATE_DIAGNOSTIC_SCHEMA = "TU1NZ_S11_2_GATE_DIAGNOSTIC"
+GATE_DIAGNOSTIC_VERSION = "GATE_DIAGNOSTIC_V1"
+TECHNICAL_GATE_OUTER_CODE = "S11_2_TECHNICAL_GATE_READ_RED"
+
+# Exact canonical codes are the only ValueError messages that may cross the
+# process boundary. Unknown/free-form exception text is never serialized.
+FAILURE_TAXONOMY = {
+    "S11_2_PSYCOPG_UNAVAILABLE": ("DATABASE", "DATABASE_BLOCKER"),
+    "S11_2_INPUT_UNSAFE": ("INPUT_CONTRACT", "INPUT_CONTRACT_BLOCKER"),
+    "S11_2_LATENCY_VALUE_INVALID": ("TECHNICAL_EVIDENCE", "TECHNICAL_EVIDENCE_BLOCKER"),
+    "S11_2_GATE_PAYLOAD_INVALID": ("INPUT_CONTRACT", "INPUT_CONTRACT_BLOCKER"),
+    "S11_2_GATE_STATE_INVALID": ("CANARY_STATE", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_GATE_COUNT_INVALID": ("INPUT_CONTRACT", "INPUT_CONTRACT_BLOCKER"),
+    "S11_2_CANARY_CAP_INVALID": ("CANARY_STATE", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_HARD_GATE_INVALID": ("INPUT_CONTRACT", "INPUT_CONTRACT_BLOCKER"),
+    "S11_2_FULL_STATE_INVALID": ("CANARY_STATE", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_DISABLED_STATE_INVALID": ("CANARY_STATE", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_CANARY_WINDOW_MISSING": ("CANARY_STATE", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_CANARY_WINDOW_INVALID": ("CANARY_STATE", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_CONTROL_ROW_MISSING": ("RUNTIME_CONTROL", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_RELEASE_BINDING_MISSING": ("RELEASE_BINDING", "RELEASE_BINDING_BLOCKER"),
+    "S11_2_TECHNICAL_BINDING_MISSING": ("TECHNICAL_EVIDENCE", "RELEASE_BINDING_BLOCKER"),
+    "S11_2_TECHNICAL_PROVENANCE_RED": ("TECHNICAL_EVIDENCE", "TECHNICAL_EVIDENCE_BLOCKER"),
+    "S11_2_RELEASE_BINDING_INVALID": ("RELEASE_BINDING", "RELEASE_BINDING_BLOCKER"),
+    "S11_2_RELEASE_BINDING_CHANGED": ("RELEASE_BINDING", "RELEASE_BINDING_BLOCKER"),
+    "S11_2_IN_BARRIER_HARD_GATE_RED": ("PROMOTION_BARRIER", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_BARRIER_TIME_MISSING": ("PROMOTION_BARRIER", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_PROMOTION_BARRIER_NOT_GREEN": ("PROMOTION_BARRIER", "STATE_INTEGRITY_BLOCKER"),
+    "S11_2_PROMOTION_ARGUMENTS_INVALID": ("PROMOTION_BARRIER", "INPUT_CONTRACT_BLOCKER"),
+    "S11_2_GATE_DATABASE_ERROR_RED": ("DATABASE", "DATABASE_BLOCKER"),
+    "S11_2_GATE_IO_ERROR_RED": ("INPUT_CONTRACT", "INPUT_CONTRACT_BLOCKER"),
+    "S11_2_GATE_JSON_ERROR_RED": ("INPUT_CONTRACT", "INPUT_CONTRACT_BLOCKER"),
+    "S11_2_GATE_UNKNOWN_ERROR_RED": ("INPUT_CONTRACT", "UNKNOWN_HARD_RED"),
+}
+
+CONTROLLER_FAILURE_TAXONOMY = {
+    "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED": (
+        "INPUT_CONTRACT",
+        "STATE_INTEGRITY_BLOCKER",
+    ),
+    "S11_2_TECHNICAL_GATE_CHILD_UNKNOWN_RED": (
+        "INPUT_CONTRACT",
+        "UNKNOWN_HARD_RED",
+    ),
+    "S11_2_TECHNICAL_GATE_EXIT_MISMATCH_RED": (
+        "INPUT_CONTRACT",
+        "STATE_INTEGRITY_BLOCKER",
+    ),
+}
+
+FAILURE_ENVELOPE_FIELDS = {
+    "schema",
+    "version",
+    "ok",
+    "safe_code",
+    "component",
+    "classification",
+}
+
+
+def failure_envelope(error: BaseException) -> dict[str, Any]:
+    """Map an exception to a bounded, privacy-safe Gate failure envelope."""
+    if isinstance(error, json.JSONDecodeError):
+        safe_code = "S11_2_GATE_JSON_ERROR_RED"
+    elif isinstance(error, psycopg.Error):
+        safe_code = "S11_2_GATE_DATABASE_ERROR_RED"
+    elif isinstance(error, OSError):
+        safe_code = "S11_2_GATE_IO_ERROR_RED"
+    elif isinstance(error, ValueError) and str(error) in FAILURE_TAXONOMY:
+        safe_code = str(error)
+    else:
+        safe_code = "S11_2_GATE_UNKNOWN_ERROR_RED"
+    component, classification = FAILURE_TAXONOMY[safe_code]
+    return {
+        "schema": GATE_FAILURE_SCHEMA,
+        "version": GATE_FAILURE_VERSION,
+        "ok": False,
+        "safe_code": safe_code,
+        "component": component,
+        "classification": classification,
+    }
+
+
+def _controller_diagnostic(
+    inner_safe_code: str,
+    *,
+    gate_exit_code: int,
+    run_id: str,
+    observed_at: str,
+) -> dict[str, Any]:
+    taxonomy = FAILURE_TAXONOMY | CONTROLLER_FAILURE_TAXONOMY
+    component, classification = taxonomy[inner_safe_code]
+    return {
+        "schema": GATE_DIAGNOSTIC_SCHEMA,
+        "version": GATE_DIAGNOSTIC_VERSION,
+        "ok": False,
+        "outer_code": TECHNICAL_GATE_OUTER_CODE,
+        "inner_safe_code": inner_safe_code,
+        "component": component,
+        "classification": classification,
+        "gate_exit_code": gate_exit_code,
+        "contract_version": GATE_FAILURE_VERSION,
+        "observed_at": observed_at,
+        "run_id": run_id,
+    }
+
+
+def _technical_success_payload(payload: Any) -> bool:
+    if not isinstance(payload, dict) or type(payload.get("ok")) is not bool:
+        return False
+    if payload.get("schema") == GATE_FAILURE_SCHEMA:
+        return False
+    technical = payload.get("technical_latency")
+    return (
+        isinstance(technical, dict)
+        and type(technical.get("samples")) is int
+        and type(technical.get("minimum_samples")) is int
+        and technical.get("state") in {"GREEN", "RED", "INSUFFICIENT_EVIDENCE"}
+    )
+
+
+def normalize_technical_gate_output(
+    path: Path,
+    *,
+    gate_exit_code: int,
+    run_id: str,
+    observed_at: str,
+) -> tuple[dict[str, Any], bool]:
+    """Validate a Gate process result without copying untrusted error text."""
+    valid_exit_code = type(gate_exit_code) is int and 0 <= gate_exit_code <= 255
+    safe_exit_code = gate_exit_code if valid_exit_code else 255
+    valid_run_id = isinstance(run_id, str) and re.fullmatch(
+        r"[A-Za-z0-9._:-]{1,128}", run_id
+    )
+    valid_observed_at = isinstance(observed_at, str)
+    if valid_observed_at:
+        try:
+            _timestamp(observed_at)
+        except (ValueError, AttributeError):
+            valid_observed_at = False
+    safe_observed_at = (
+        observed_at if valid_observed_at else "1970-01-01T00:00:00Z"
+    )
+    if (
+        not valid_exit_code
+        or not valid_run_id
+        or not valid_observed_at
+    ):
+        return (
+            _controller_diagnostic(
+                "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED",
+                gate_exit_code=safe_exit_code,
+                run_id=run_id if valid_run_id else "INVALID_RUN_ID",
+                observed_at=safe_observed_at,
+            ),
+            False,
+        )
+    try:
+        if not path.is_absolute() or path.is_symlink() or not path.is_file():
+            raise ValueError
+        metadata = path.stat()
+        if not stat.S_ISREG(metadata.st_mode) or not 1 <= metadata.st_size <= 8192:
+            raise ValueError
+        payload = json.loads(path.read_text(encoding="ascii"))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        return (
+            _controller_diagnostic(
+                "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED",
+                gate_exit_code=gate_exit_code,
+                run_id=run_id,
+                observed_at=observed_at,
+            ),
+            False,
+        )
+    if gate_exit_code == 0:
+        if _technical_success_payload(payload):
+            return payload, True
+        code = (
+            "S11_2_TECHNICAL_GATE_EXIT_MISMATCH_RED"
+            if isinstance(payload, dict) and payload.get("schema") == GATE_FAILURE_SCHEMA
+            else "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED"
+        )
+        return (
+            _controller_diagnostic(
+                code,
+                gate_exit_code=gate_exit_code,
+                run_id=run_id,
+                observed_at=observed_at,
+            ),
+            False,
+        )
+    if not isinstance(payload, dict) or set(payload) != FAILURE_ENVELOPE_FIELDS:
+        code = "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED"
+    elif (
+        payload.get("schema") != GATE_FAILURE_SCHEMA
+        or payload.get("version") != GATE_FAILURE_VERSION
+        or payload.get("ok") is not False
+        or not isinstance(payload.get("safe_code"), str)
+        or not isinstance(payload.get("component"), str)
+        or not isinstance(payload.get("classification"), str)
+    ):
+        code = "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED"
+    elif payload["safe_code"] not in FAILURE_TAXONOMY:
+        code = "S11_2_TECHNICAL_GATE_CHILD_UNKNOWN_RED"
+    elif (payload["component"], payload["classification"]) != FAILURE_TAXONOMY[payload["safe_code"]]:
+        code = "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED"
+    else:
+        code = payload["safe_code"]
+    return (
+        _controller_diagnostic(
+            code,
+            gate_exit_code=gate_exit_code,
+            run_id=run_id,
+            observed_at=observed_at,
+        ),
+        False,
+    )
 
 
 def _timestamp(value: str) -> datetime:
@@ -454,10 +674,14 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--simulate-contract", action="store_true")
     mode.add_argument("--input", type=Path)
     mode.add_argument("--dsn-file", type=Path)
+    mode.add_argument("--validate-gate-output", type=Path)
     parser.add_argument("--now", type=_timestamp)
     parser.add_argument("--hard-gates-green", action="store_true")
     parser.add_argument("--promote-under-barrier", action="store_true")
     parser.add_argument("--expected-release-id")
+    parser.add_argument("--gate-exit-code", type=int)
+    parser.add_argument("--run-id")
+    parser.add_argument("--observed-at")
     return parser
 
 
@@ -480,8 +704,30 @@ def main() -> int:
     arguments = _parser().parse_args()
     if arguments.simulate_contract:
         result = simulate_contract()
+        result_ok = True
     elif arguments.input is not None:
         result = evaluate(json.loads(_private_text(arguments.input, 65536)))
+        result_ok = True
+    elif arguments.validate_gate_output is not None:
+        if (
+            arguments.gate_exit_code is None
+            or arguments.run_id is None
+            or arguments.observed_at is None
+        ):
+            result = _controller_diagnostic(
+                "S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED",
+                gate_exit_code=255,
+                run_id="INVALID_RUN_ID",
+                observed_at=_iso(datetime.now(timezone.utc)) or "1970-01-01T00:00:00Z",
+            )
+            result_ok = False
+        else:
+            result, result_ok = normalize_technical_gate_output(
+                arguments.validate_gate_output,
+                gate_exit_code=arguments.gate_exit_code,
+                run_id=arguments.run_id,
+                observed_at=arguments.observed_at,
+            )
     else:
         assert arguments.dsn_file is not None
         dsn = _private_text(arguments.dsn_file, 8192)
@@ -499,19 +745,14 @@ def main() -> int:
                 if arguments.expected_release_id is not None:
                     raise ValueError("S11_2_PROMOTION_ARGUMENTS_INVALID")
                 result = evaluate(_runtime_payload(connection, now, arguments.hard_gates_green))
+        result_ok = True
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
-    return 0
+    return 0 if result_ok else 2
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, ValueError, json.JSONDecodeError, psycopg.Error) as error:
-        print(
-            json.dumps(
-                {"ok": False, "safe_code": type(error).__name__},
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-        )
+    except Exception as error:
+        print(json.dumps(failure_envelope(error), sort_keys=True, separators=(",", ":")))
         raise SystemExit(2) from None

@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-12-community-health-envelope-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-r15-14-gate-error-envelope-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -181,6 +181,11 @@ require_local_freeze() {
     "application_health_schema=S8_HEALTH_V2" \
     "community_failure_envelope=COMMUNITY_FAILURE_V1" \
     "control_community_reader=CONTROL_COMMUNITY_READER_V2" \
+    "gate_failure_contract=GATE_FAILURE_V1" \
+    "gate_diagnostic_contract=GATE_DIAGNOSTIC_V1" \
+    "gate_error_allowlist=CANONICAL_EXACT_ONLY" \
+    "controller_gate_reader=CONTROL_GATE_READER_V1" \
+    "r15_15_simulator=SOURCE_ONLY_GREEN" \
     "technical_evidence_contract=DYNAMIC_MISSING_SAMPLE_HARD_CAP" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
@@ -1116,10 +1121,50 @@ move_optional_synthetic_companions() {
 }
 
 write_technical_profile() {
-  local destination gate_file
+  local destination gate_file validated_file diagnostic_file gate_exit validation_exit observed_at
   destination="$1"
   gate_file="${destination}.gate"
-  gate_json true > "$gate_file" || { fail "S11_2_TECHNICAL_GATE_READ_RED"; return 2; }
+  validated_file="${destination}.gate-validated"
+  diagnostic_file="${destination}.gate-diagnostic"
+  if gate_json true > "$gate_file"; then
+    gate_exit=0
+  else
+    gate_exit=$?
+  fi
+  observed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if "$APPLICATION_RUNTIME_PYTHON" "$INSTALLED_GATE" \
+      --validate-gate-output "$gate_file" \
+      --gate-exit-code "$gate_exit" \
+      --run-id "$S11_2_RUN_ID" \
+      --observed-at "$observed_at" > "$validated_file"; then
+    validation_exit=0
+  else
+    validation_exit=$?
+  fi
+  if [ "$validation_exit" -ne 0 ]; then
+    if [ -s "$validated_file" ]; then
+      mv -- "$validated_file" "$diagnostic_file"
+    else
+      printf '%s\n' '{"classification":"STATE_INTEGRITY_BLOCKER","component":"INPUT_CONTRACT","contract_version":"GATE_FAILURE_V1","gate_exit_code":255,"inner_safe_code":"S11_2_TECHNICAL_GATE_ENVELOPE_INVALID_RED","observed_at":"UNAVAILABLE","ok":false,"outer_code":"S11_2_TECHNICAL_GATE_READ_RED","run_id":"UNAVAILABLE","schema":"TU1NZ_S11_2_GATE_DIAGNOSTIC","version":"GATE_DIAGNOSTIC_V1"}' > "$diagnostic_file"
+    fi
+    /usr/bin/python3 - "$diagnostic_file" <<'PY' >&2
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="ascii"))
+allowed = {
+    "schema", "version", "ok", "outer_code", "inner_safe_code",
+    "component", "classification", "gate_exit_code", "contract_version",
+    "observed_at", "run_id",
+}
+if set(payload) != allowed:
+    raise SystemExit(2)
+print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+PY
+    return 2
+  fi
+  mv -- "$validated_file" "$gate_file"
   S11_DATABASE_DSN="$DATABASE_DSN" S11_GATE_FILE="$gate_file" S11_PROFILE_DESTINATION="$destination" \
     "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
 import json
