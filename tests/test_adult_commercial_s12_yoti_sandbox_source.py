@@ -175,6 +175,61 @@ class CommercialS12YotiSandboxSourceControlTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertEqual(report["safe_code"], "S12_CONTROL_MANIFEST_GREEN")
 
+    def test_manifest_rejects_duplicate_keys(self) -> None:
+        payload = MANIFEST.read_text(encoding="utf-8").replace(
+            '"deployed": false,',
+            '"deployed": true, "deployed": false,',
+            1,
+        )
+        report = freeze.validate_manifest_payload(payload)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["safe_code"], "S12_CONTROL_MANIFEST_RED")
+        self.assertEqual(report["failures"], ["S12_CONTROL_MANIFEST_JSON_RED"])
+
+    def test_freeze_rejects_unsafe_manifest_at_bound_control_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "config", "user.name", "S12 Test"],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repository),
+                    "config",
+                    "user.email",
+                    "s12-test@invalid",
+                ],
+                check=True,
+            )
+            manifest_path = (
+                repository
+                / "manifests/adult-publishing-commercial-s12-yoti-sandbox-source.json"
+            )
+            manifest_path.parent.mkdir(parents=True)
+            unsafe = json.loads(MANIFEST.read_text(encoding="utf-8"))
+            unsafe["runtime"]["deployed"] = True
+            manifest_path.write_text(json.dumps(unsafe), encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "commit", "-qm", "unsafe fixture"],
+                check=True,
+            )
+            commit = subprocess.run(
+                ["git", "-C", str(repository), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            with self.assertRaisesRegex(
+                freeze.FreezeError,
+                "S12_FREEZE_TAGGED_MANIFEST_RED",
+            ):
+                freeze.validate_tagged_manifest(repository, commit)
+
 
 if __name__ == "__main__":
     unittest.main()

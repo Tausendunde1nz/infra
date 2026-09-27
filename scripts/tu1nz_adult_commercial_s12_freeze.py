@@ -94,6 +94,43 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise FreezeError("S12_CONTROL_MANIFEST_DUPLICATE_KEY_RED")
+        value[key] = item
+    return value
+
+
+def parse_manifest(payload: str) -> dict[str, object]:
+    try:
+        value = json.loads(payload, object_pairs_hook=_reject_duplicate_keys)
+    except (json.JSONDecodeError, FreezeError) as error:
+        raise FreezeError("S12_CONTROL_MANIFEST_JSON_RED") from error
+    if not isinstance(value, dict):
+        raise FreezeError("S12_CONTROL_MANIFEST_ROOT_RED")
+    return value
+
+
+def validate_tagged_manifest(
+    control_repo: Path,
+    control_commit: str,
+) -> dict[str, object]:
+    payload = bytes(
+        _git(
+            control_repo,
+            "show",
+            f"{control_commit}:manifests/adult-publishing-commercial-s12-yoti-sandbox-source.json",
+            text=False,
+        )
+    ).decode("utf-8")
+    report = validate_manifest_payload(payload)
+    if not report["ok"]:
+        raise FreezeError("S12_FREEZE_TAGGED_MANIFEST_RED")
+    return report
+
+
 def expected_bindings(
     control_repo: Path,
     application_repo: Path,
@@ -110,6 +147,7 @@ def expected_bindings(
         _git(control_repo, "rev-parse", f"{control_commit}^{{commit}}")
     ).strip()
     ctrl_tree = str(_git(control_repo, "rev-parse", f"{ctrl_commit}^{{tree}}")).strip()
+    validate_tagged_manifest(control_repo, ctrl_commit)
     values: dict[str, str] = {
         "application_commit": app_commit,
         "application_tree": app_tree,
@@ -214,8 +252,15 @@ def verify_tag(
     }
 
 
-def validate_manifest(path: Path) -> dict[str, object]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+def validate_manifest_payload(payload: str) -> dict[str, object]:
+    try:
+        raw = parse_manifest(payload)
+    except FreezeError as error:
+        return {
+            "ok": False,
+            "safe_code": "S12_CONTROL_MANIFEST_RED",
+            "failures": [str(error)],
+        }
     expected = {
         "application": {"commit": APPLICATION_COMMIT, "tree": APPLICATION_TREE},
         "boundaries": {
@@ -282,6 +327,10 @@ def validate_manifest(path: Path) -> dict[str, object]:
         "safe_code": "S12_CONTROL_MANIFEST_GREEN" if ok else "S12_CONTROL_MANIFEST_RED",
         "failures": sorted(set(failures)),
     }
+
+
+def validate_manifest(path: Path) -> dict[str, object]:
+    return validate_manifest_payload(path.read_text(encoding="utf-8"))
 
 
 def _parser() -> argparse.ArgumentParser:
