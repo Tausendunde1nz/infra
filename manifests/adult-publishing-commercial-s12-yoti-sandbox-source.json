@@ -1,0 +1,61 @@
+{
+  "application": {
+    "commit": "41340900abdff09a03891761ac114646958eff9a",
+    "tree": "b7285dca2218d7249769f5369a53ff8d7e5d6f14"
+  },
+  "boundaries": {
+    "adult_media_enabled": false,
+    "controlled_beta_enabled": false,
+    "external_publishing_enabled": false,
+    "payments_enabled": false,
+    "production_enabled": false,
+    "real_avs_enabled": false,
+    "sandbox_only": true
+  },
+  "contract_version": "tu1nz-commercial-s12-yoti-sandbox-source-v1",
+  "credentials": {
+    "private_key_reference": "/etc/tu1nz/adult-commercial-s5.yoti-private-key",
+    "sdk_id_reference": "/etc/tu1nz/adult-commercial-s5.yoti-sdk-id",
+    "status": "ABSENT",
+    "values_committed": false
+  },
+  "decision": "SOURCE_GREEN_RUNTIME_NOT_AUTHORIZED",
+  "environment": "SANDBOX",
+  "external_blocker": "YOTI_SANDBOX_CREDENTIALS_REQUIRED",
+  "feature_flags": {
+    "ADULT_MEDIA_ENABLED": false,
+    "CONTROLLED_BETA_ENABLED": false,
+    "EXTERNAL_PUBLISHING_ENABLED": false,
+    "PAYMENTS_ENABLED": false,
+    "PRODUCTION_ENABLED": false,
+    "REAL_AVS_ENABLED": false,
+    "YOTI_SANDBOX_ENABLED": false
+  },
+  "network": {
+    "allowed_hosts": [
+      "age.yoti.com",
+      "auth.api.yoti.com"
+    ],
+    "enabled": false,
+    "production_endpoint_allowed": false
+  },
+  "next_s12_sandbox_runtime_ready": true,
+  "provider": "YOTI",
+  "provider_readiness": "YOTI_SANDBOX_CREDENTIALS_ABSENT",
+  "runtime": {
+    "deployed": false,
+    "installed": false,
+    "started": false,
+    "unit_present": false
+  },
+  "sandbox_policy": {
+    "allowed_methods": [
+      "AGE_ESTIMATION"
+    ],
+    "provider_result_authority": "AUTHENTICATED_RESULT_FETCH",
+    "real_identity_allowed": false,
+    "synthetic_subject_only": true,
+    "threshold": 18
+  },
+  "source_readiness": "S12_SANDBOX_SOURCE_GREEN"
+}

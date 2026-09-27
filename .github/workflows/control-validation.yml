@@ -932,6 +932,31 @@ jobs:
             scripts/tu1nz_adult_public_s11_2_control.sh \
             scripts/tu1nz_adult_public_s11_2_gate.py \
             scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py
+      - name: Validate Commercial S12 Sandbox-only source Control SSOT
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s12-yoti-sandbox-source.json >/dev/null
+          && python3 -m py_compile
+          scripts/tu1nz_adult_commercial_s12_freeze.py
+          tests/test_adult_commercial_s12_yoti_sandbox_source.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s12_yoti_sandbox_source
+          && python3 scripts/tu1nz_adult_commercial_s12_freeze.py
+          verify-manifest
+          --manifest manifests/adult-publishing-commercial-s12-yoti-sandbox-source.json
+      - name: Reject Commercial S12 secrets runtime mutation and boundary expansion
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s12-yoti-sandbox-source.json
+            docs/COMMERCIAL_S12_YOTI_SANDBOX_SOURCE_CONTROL.md
+            scripts/tu1nz_adult_commercial_s12_freeze.py
+            tests/test_adult_commercial_s12_yoti_sandbox_source.py
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP|ENCRYPTED)? ?PRIVATE KEY-----' -- "${files[@]}"
+          ! git grep -nEi '(^|[[:space:]])crontab([[:space:]]|$)' -- "${files[@]}"
+          ! git grep -nE 'subprocess\.(run|Popen).*\b(systemctl|install|cp|mv|rm|chmod|chown)\b' -- "${files[@]}"
       - name: Run complete Linux-compatible Control test suite
         run: |
           python3 - <<'PY'
