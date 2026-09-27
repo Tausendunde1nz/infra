@@ -256,7 +256,7 @@ class R15172DisabledStateTests(unittest.TestCase):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(
             manifest["control_release"]["freeze_tag"],
-            "s11-2-r15-18-1-timer-rearm-contract-freeze-r1",
+            "s11-2-r15-18-2-activation-relative-timer-freeze-r1",
         )
         self.assertEqual(
             manifest["r15_17_2_disabled_state_contract"]["classification"],

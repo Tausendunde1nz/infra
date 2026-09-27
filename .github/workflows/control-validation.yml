@@ -815,6 +815,8 @@ jobs:
           scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
           scripts/tu1nz_adult_public_s11_2_r15_17_1_simulator.py
           scripts/tu1nz_adult_public_s11_2_r15_17_2_simulator.py
+          scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py
+          scripts/tu1nz_adult_public_s11_2_r15_18_2_timer_semantics.py
           tests/test_adult_commercial_s11_2_canary_bootstrap.py
           tests/test_adult_commercial_s11_2_r8_child_code_contract.py
           tests/test_adult_commercial_s11_2_r15_6_health_child.py
@@ -827,6 +829,8 @@ jobs:
           tests/test_adult_commercial_s11_2_r15_16_4_profile_serialization.py
           tests/test_adult_commercial_s11_2_r15_17_1_systemd_handoff.py
           tests/test_adult_commercial_s11_2_r15_17_2_disabled_state.py
+          tests/test_adult_commercial_s11_2_r15_18_1_timer_rearm.py
+          tests/test_adult_commercial_s11_2_r15_18_2_activation_relative_timer.py
           && python3 -m unittest -v
           tests.test_adult_commercial_s11_2_canary_bootstrap
           tests.test_adult_commercial_s11_2_r8_child_code_contract
@@ -840,6 +844,8 @@ jobs:
           tests.test_adult_commercial_s11_2_r15_16_4_profile_serialization
           tests.test_adult_commercial_s11_2_r15_17_1_systemd_handoff
           tests.test_adult_commercial_s11_2_r15_17_2_disabled_state
+          tests.test_adult_commercial_s11_2_r15_18_1_timer_rearm
+          tests.test_adult_commercial_s11_2_r15_18_2_activation_relative_timer
           && python3 scripts/tu1nz_adult_public_s11_2_gate.py --simulate-contract
           && python3 scripts/tu1nz_adult_public_s11_2_access_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py --simulate-contract
@@ -849,6 +855,8 @@ jobs:
           && python3 scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_r15_17_1_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_r15_17_2_simulator.py
+          && python3 scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py
+          && python3 scripts/tu1nz_adult_public_s11_2_r15_18_2_timer_semantics.py
       - name: Validate Commercial S11.2 Canary systemd controller
         shell: bash
         run: |
@@ -872,6 +880,8 @@ jobs:
             docs/COMMERCIAL_S11_2_R15_16_4_TECHNICAL_PROFILE_SERIALIZATION.md
             docs/COMMERCIAL_S11_2_R15_17_1_SYSTEMD_HANDOFF_CONTRACT.md
             docs/COMMERCIAL_S11_2_R15_17_2_DISABLED_STATE_CONTRACT.md
+            docs/COMMERCIAL_S11_2_R15_18_1_TIMER_REARM_CONTRACT.md
+            docs/COMMERCIAL_S11_2_R15_18_2_ACTIVATION_RELATIVE_TIMER_CONTRACT.md
             analysis/COMMERCIAL_S11_2_R15_14_1_FREEZE_PROVENANCE_RED_2026-09-27.diagnose
             analysis/COMMERCIAL_S11_2_R15_14_1_LOCAL_TEST_ENVIRONMENT_2026-09-27.diagnose
             analysis/COMMERCIAL_S11_2_R15_17_2_SERVER_CONTROL_DRIFT_2026-09-27.diagnose
@@ -894,6 +904,8 @@ jobs:
             scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
             scripts/tu1nz_adult_public_s11_2_r15_17_1_simulator.py
             scripts/tu1nz_adult_public_s11_2_r15_17_2_simulator.py
+            scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py
+            scripts/tu1nz_adult_public_s11_2_r15_18_2_timer_semantics.py
             scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh
             systemd/tu1nz-adult-public-s11-canary-controller.service
             systemd/tu1nz-adult-public-s11-canary-controller.timer
@@ -909,6 +921,8 @@ jobs:
             tests/test_adult_commercial_s11_2_r15_16_4_profile_serialization.py
             tests/test_adult_commercial_s11_2_r15_17_1_systemd_handoff.py
             tests/test_adult_commercial_s11_2_r15_17_2_disabled_state.py
+            tests/test_adult_commercial_s11_2_r15_18_1_timer_rearm.py
+            tests/test_adult_commercial_s11_2_r15_18_2_activation_relative_timer.py
             tests/fixtures/s11-2-r15-15-3/application-latency-profile-contract.json
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"

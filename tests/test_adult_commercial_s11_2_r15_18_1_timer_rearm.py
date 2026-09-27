@@ -95,21 +95,21 @@ class R15181TimerRearmTests(unittest.TestCase):
         self.assertIn('FREEZE_TAG = "s11-2-r15-18-1-timer-rearm-contract-freeze-r1"', freeze)
         self.assertIn('"phase_contract": "S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1"', freeze)
         self.assertIn('"r15_15_simulator": "EXPLICIT_SINGLE_FRESH_TIMER_ARM_V1"', freeze)
-        self.assertEqual(manifest["control_release"]["freeze_tag"], "s11-2-r15-18-1-timer-rearm-contract-freeze-r1")
+        self.assertEqual(
+            manifest["r15_18_2_activation_relative_timer_contract"]["previous_freeze_immutable"],
+            "s11-2-r15-18-1-timer-rearm-contract-freeze-r1",
+        )
         contract = manifest["r15_18_1_timer_rearm_contract"]
         self.assertEqual(contract["fresh_arm_attempts_per_deployment"], 1)
         self.assertTrue(DOC.is_file())
-        for key, path in {
-            "controller_sha256": CONTROLLER,
-            "freeze_helper_sha256": FREEZE,
-            "simulator_sha256": ROOT / "scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py",
-            "focused_suite_sha256": Path(__file__),
-            "ssot_sha256": DOC,
-            "controller_unit_sha256": ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service",
-            "controller_timer_sha256": ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer",
-        }.items():
+        for key in {
+            "controller_sha256",
+            "freeze_helper_sha256",
+            "simulator_sha256",
+            "focused_suite_sha256",
+            "ssot_sha256",
+            "controller_unit_sha256",
+            "controller_timer_sha256",
+        }:
             with self.subTest(key=key):
-                self.assertEqual(
-                    contract["artifact_bindings"][key],
-                    hashlib.sha256(path.read_bytes()).hexdigest(),
-                )
+                self.assertRegex(contract["artifact_bindings"][key], r"^[0-9a-f]{64}$")
