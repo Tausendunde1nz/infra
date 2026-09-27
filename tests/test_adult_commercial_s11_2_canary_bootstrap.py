@@ -660,7 +660,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertNotIn("$1", helper)
         self.assertNotIn("DATABASE_DSN", helper)
         self.assertNotIn("database_scalar", helper)
-        self.assertEqual(source.count("database_admin_history_count"), 3)
+        self.assertEqual(source.count("database_admin_history_count"), 4)
         self.assertNotIn(
             'database_scalar "SELECT count(*) FROM commercial_s11_canary_epoch_history;"',
             source,
