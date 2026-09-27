@@ -520,8 +520,16 @@ for line in sys.stdin:
     try:
         entry = json.loads(line)
         timestamp = int(entry.get("__MONOTONIC_TIMESTAMP", "0"))
-        invocation = entry.get("_SYSTEMD_INVOCATION_ID", "")
+        invocation = entry.get("INVOCATION_ID", "")
     except (TypeError, ValueError, json.JSONDecodeError):
+        continue
+    if entry.get("_PID") != "1":
+        continue
+    if entry.get("UNIT") != "tu1nz-adult-public-s11-canary-controller.service":
+        continue
+    if entry.get("JOB_TYPE") != "start":
+        continue
+    if entry.get("MESSAGE_ID") != "7d4958e842da4a758f6c1cdc7b36dcc5":
         continue
     if timestamp < trigger or not isinstance(invocation, str) or not invocation:
         continue

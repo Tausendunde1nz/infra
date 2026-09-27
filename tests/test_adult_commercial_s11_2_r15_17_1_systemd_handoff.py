@@ -99,12 +99,26 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         self.assertEqual(decision, "RED")
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn("first_invocation_after_trigger", source)
-        self.assertIn("_SYSTEMD_INVOCATION_ID", source)
         self.assertIn("__MONOTONIC_TIMESTAMP", source)
+        self.assertIn('entry.get("INVOCATION_ID"', source)
+        self.assertIn('entry.get("JOB_TYPE") != "start"', source)
+        self.assertIn("7d4958e842da4a758f6c1cdc7b36dcc5", source)
+        self.assertIn("_SYSTEMD_INVOCATION_ID", source)
         self.assertIn(
             '| S11_TRIGGER_USEC="$trigger_usec" /usr/bin/python3',
             source,
         )
+
+    def test_manager_start_record_covers_silent_failed_process(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        helper = source[
+            source.index("first_invocation_after_trigger() {") :
+            source.index("handoff_snapshot_decision() {")
+        ]
+        self.assertIn('entry.get("_PID") != "1"', helper)
+        self.assertIn('entry.get("UNIT") !=', helper)
+        self.assertIn('entry.get("INVOCATION_ID"', helper)
+        self.assertNotIn('entry.get("_SYSTEMD_INVOCATION_ID"', helper)
 
     def test_finite_future_helper_is_canonical_and_rejects_no_event_values(self):
         source = CONTROLLER.read_text(encoding="utf-8")

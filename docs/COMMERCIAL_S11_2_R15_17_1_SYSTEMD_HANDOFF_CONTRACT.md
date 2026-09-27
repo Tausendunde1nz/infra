@@ -33,10 +33,11 @@ bound to the current handoff:
 - `ExecMainStartTimestampMonotonic` is later than the handoff marker;
 - the accepted service start is not earlier than the accepted timer trigger, so
   an independently started invocation cannot be certified as the timer run;
-- invocation-scoped journal records identify the earliest service invocation
-  at or after the accepted timer trigger, and that identity must equal the
-  completed invocation being accepted; a failed timer invocation therefore
-  cannot be masked by a later manual success;
+- PID 1's Systemd manager `UNIT_STARTING` journal record identifies the earliest
+  service `INVOCATION_ID` at or after the accepted timer trigger, and that
+  identity must equal the completed invocation being accepted; this record is
+  emitted independently of application output, so a silent failed or killed
+  timer process cannot be masked by a later manual success;
 - the accepted invocation has journal evidence;
 - the completed service is inactive with `Result=success` and
   `ExecMainStatus=0`;
