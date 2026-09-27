@@ -41,7 +41,7 @@ def old_expected_fixture() -> dict[str, str]:
         "controller_unit_sha256": "afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031",
         "controller_timer_sha256": "cb21506ba674c33c7ec654010cb4d51ca91b84a8db0dff7256d92533fe971ebd",
     }
-    values.update(freeze.STATIC_BINDINGS)
+    values.update(freeze.LEGACY_STATIC_BINDINGS)
     return values
 
 
@@ -61,6 +61,23 @@ class FreezeProvenanceTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertEqual(report["matching_count"], 29)
         self.assertEqual(report["binding_count"], 29)
+
+    def test_current_and_legacy_contracts_keep_the_same_29_keys(self):
+        self.assertEqual(tuple(freeze.STATIC_BINDINGS), tuple(freeze.LEGACY_STATIC_BINDINGS))
+        self.assertEqual(
+            freeze.LEGACY_STATIC_BINDINGS["technical_evidence_contract"],
+            "DYNAMIC_MISSING_SAMPLE_HARD_CAP",
+        )
+        self.assertEqual(
+            freeze.STATIC_BINDINGS["technical_evidence_contract"],
+            "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
+        )
+        legacy = old_expected_fixture()
+        report = freeze.verify_annotation(
+            freeze.render_annotation(legacy, "TU1NZ S11.2-R15.14.1 immutable source freeze"),
+            legacy,
+        )
+        self.assertTrue(report["ok"])
 
     def test_28_of_29_is_red(self):
         expected = expected_fixture()

@@ -1,0 +1,58 @@
+{
+  "source": "src/tu1nz_public_s8/latency_slo.py",
+  "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
+  "selection_contract": {
+    "unknown_provenance_state": "RED",
+    "unknown_provenance_reason": "UNKNOWN_PROVENANCE",
+    "metric_bounds_ms": [0, 300000],
+    "minimum_samples": 5,
+    "technical_metric": "HANDLER",
+    "technical_writer_interaction_path": "INTERNAL_ACCEPTANCE"
+  },
+  "profiles": {
+    "TECHNICAL_RUNTIME_LATENCY": {
+      "source": "DIRECT",
+      "evidence_class": "INTERNAL_TEST",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": null,
+      "writer_interaction_path": "INTERNAL_ACCEPTANCE",
+      "metric": "HANDLER",
+      "window_hours": 24,
+      "release_selector": "target_release_id",
+      "run_selector": "technical_evidence_run_id"
+    },
+    "REAL_USER_DIRECT_LATENCY": {
+      "source": "DIRECT",
+      "evidence_class": "REAL",
+      "sample_type": "DIRECT_BOT_RESPONSE",
+      "interaction_path": null,
+      "writer_interaction_path": "TELEGRAM_DIRECT",
+      "metric": "BOT_RESPONSE",
+      "window_hours": 24,
+      "release_selector": "target_release_id",
+      "run_selector": "technical_evidence_run_id"
+    },
+    "S11_CANARY_TECHNICAL_LATENCY": {
+      "source": "DIRECT",
+      "evidence_class": "INTERNAL_TEST",
+      "sample_type": "S11_CANARY_RESPONSE",
+      "interaction_path": "INTERNAL_ACCEPTANCE",
+      "writer_interaction_path": "INTERNAL_ACCEPTANCE",
+      "metric": "HANDLER",
+      "window_hours": 24,
+      "release_selector": "canary_release_id",
+      "run_selector": null
+    },
+    "S11_CANARY_REAL_USER_LATENCY": {
+      "source": "DIRECT",
+      "evidence_class": "REAL",
+      "sample_type": "S11_CANARY_RESPONSE",
+      "interaction_path": "TELEGRAM_DIRECT",
+      "writer_interaction_path": "TELEGRAM_DIRECT",
+      "metric": "BOT_RESPONSE",
+      "window_hours": 24,
+      "release_selector": "canary_release_id",
+      "run_selector": null
+    }
+  }
+}

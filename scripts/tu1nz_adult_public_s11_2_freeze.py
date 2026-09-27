@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s11-2-r15-14-1-freeze-provenance-r1"
+FREEZE_TAG = "s11-2-r15-15-3-profile-scoped-technical-freeze-r1"
+LEGACY_FREEZE_TAG = "s11-2-r15-14-1-freeze-provenance-r1"
 APPLICATION_COMMIT = "db87896697d56b24f192fc1cd0324b6fe46d734b"
 APPLICATION_TREE = "b915a04e19eef8a244c300b16577a44cea89e2ab"
 
@@ -26,7 +27,7 @@ ARTIFACT_PATHS = {
     "controller_timer_sha256": "systemd/tu1nz-adult-public-s11-canary-controller.timer",
 }
 
-STATIC_BINDINGS = {
+LEGACY_STATIC_BINDINGS = {
     "runtime_access_contract": "SOURCE_CHATOPS_RUNTIME_INSTALLED_V1",
     "umask_077_regression": "GREEN",
     "supplementary_groups": "chatops",
@@ -47,6 +48,11 @@ STATIC_BINDINGS = {
     "nounset_contract": "SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES",
     "phase_error_contract": "EXPLICIT_CHILD_SUPERVISION",
     "rollback_contract": "EXACTLY_ONCE_IDEMPOTENT",
+}
+
+STATIC_BINDINGS = {
+    **LEGACY_STATIC_BINDINGS,
+    "technical_evidence_contract": "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
 }
 
 REQUIRED_KEYS = (
@@ -95,6 +101,7 @@ def expected_bindings(
     control_commit: str,
     application_commit: str = APPLICATION_COMMIT,
     application_tree: str = APPLICATION_TREE,
+    static_bindings: Mapping[str, str] = STATIC_BINDINGS,
 ) -> dict[str, str]:
     commit = str(_git(repo, "rev-parse", f"{control_commit}^{{commit}}")).strip()
     tree = str(_git(repo, "rev-parse", f"{commit}^{{tree}}")).strip()
@@ -106,7 +113,7 @@ def expected_bindings(
     }
     for key, path in ARTIFACT_PATHS.items():
         values[key] = _sha256(bytes(_git(repo, "show", f"{commit}:{path}", text=False)))
-    values.update(STATIC_BINDINGS)
+    values.update(static_bindings)
     if tuple(values) != REQUIRED_KEYS or len(values) != 29:
         raise FreezeError("S11_2_FREEZE_BINDING_SSOT_RED")
     return values
@@ -124,10 +131,13 @@ def controller_binding_keys(source: str) -> tuple[str, ...]:
     )
 
 
-def render_annotation(bindings: Mapping[str, str]) -> str:
+def render_annotation(
+    bindings: Mapping[str, str],
+    title: str = "TU1NZ S11.2-R15.15.3 profile-scoped Technical freeze",
+) -> str:
     if tuple(bindings) != REQUIRED_KEYS:
         raise FreezeError("S11_2_FREEZE_BINDING_SSOT_RED")
-    return "TU1NZ S11.2-R15.14.1 immutable source freeze\n\n" + "".join(
+    return title + "\n\n" + "".join(
         f"{key}={bindings[key]}\n" for key in REQUIRED_KEYS
     )
 
@@ -182,7 +192,11 @@ def verify_annotation(
     }
 
 
-def verify_controller_contract(repo: Path, control_commit: str) -> dict[str, object]:
+def verify_controller_contract(
+    repo: Path,
+    control_commit: str,
+    freeze_tag: str = FREEZE_TAG,
+) -> dict[str, object]:
     source = bytes(
         _git(
             repo,
@@ -192,7 +206,7 @@ def verify_controller_contract(repo: Path, control_commit: str) -> dict[str, obj
         )
     ).decode("utf-8")
     keys = controller_binding_keys(source)
-    ok = keys == REQUIRED_KEYS and source.count(f'FINAL_CONTROL_TAG="{FREEZE_TAG}"') == 1
+    ok = keys == REQUIRED_KEYS and source.count(f'FINAL_CONTROL_TAG="{freeze_tag}"') == 1
     return {
         "ok": ok,
         "safe_code": (
@@ -212,9 +226,12 @@ def tag_annotation(repo: Path, tag: str) -> str:
 def verify_tag(repo: Path, tag: str = FREEZE_TAG) -> dict[str, object]:
     tag_type = str(_git(repo, "cat-file", "-t", f"refs/tags/{tag}")).strip()
     target = str(_git(repo, "rev-parse", f"refs/tags/{tag}^{{commit}}")).strip()
-    expected = expected_bindings(repo, target)
+    static_bindings = (
+        LEGACY_STATIC_BINDINGS if tag == LEGACY_FREEZE_TAG else STATIC_BINDINGS
+    )
+    expected = expected_bindings(repo, target, static_bindings=static_bindings)
     annotation_report = verify_annotation(tag_annotation(repo, tag), expected)
-    controller_report = verify_controller_contract(repo, target)
+    controller_report = verify_controller_contract(repo, target, tag)
     ok = tag_type == "tag" and annotation_report["ok"] and controller_report["ok"]
     return {
         "ok": ok,
