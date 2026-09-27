@@ -38,6 +38,10 @@ bound to the current handoff:
   identity must equal the completed invocation being accepted; this record is
   emitted independently of application output, so a silent failed or killed
   timer process cannot be masked by a later manual success;
+- the controller service declares and verifies `RefuseManualStart=yes`, so an
+  already-active manual invocation cannot consume a timer event without a new
+  timer-created start job; dependency activation by the recurring timer remains
+  allowed;
 - the accepted invocation has journal evidence;
 - the completed service is inactive with `Result=success` and
   `ExecMainStatus=0`;

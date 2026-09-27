@@ -15,7 +15,7 @@ readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
 readonly FINAL_CONTROL_TAG="s11-2-r15-17-1-systemd-handoff-contract-freeze-r1"
-readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
+readonly CONTROLLER_UNIT_SHA="b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
 readonly RUNTIME_RELEASE_ID="s10-2d-r3-5"
@@ -375,6 +375,8 @@ for name, (path, mode) in expected.items():
 unit_text = Path(os.environ["S11_CONTROLLER_UNIT"]).read_text(encoding="ascii")
 if "ExecStart=/usr/local/bin/tu1nz_adult_public_s11_2_control.sh observe" not in unit_text:
     raise SystemExit(2)
+if "RefuseManualStart=yes" not in unit_text.splitlines():
+    raise SystemExit(2)
 if any(line.startswith("WorkingDirectory=/opt/tu1nz_repos") for line in unit_text.splitlines()):
     raise SystemExit(2)
 PY
@@ -403,6 +405,8 @@ verify_controller_unit_contract() {
     || fail "S11_2_CONTROLLER_UNIT_GROUP_RED"
   [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p SupplementaryGroups --value)" = chatops ] \
     || fail "S11_2_CONTROLLER_UNIT_SUPPLEMENTARY_GROUP_RED"
+  [ "$(systemctl show tu1nz-adult-public-s11-canary-controller.service -p RefuseManualStart --value)" = yes ] \
+    || fail "S11_2_CONTROLLER_MANUAL_START_OPEN_RED"
   [ "$(sha256sum "$CONTROLLER_UNIT" | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
     || fail "S11_2_CONTROLLER_UNIT_HASH_RED"
 }
@@ -1701,6 +1705,7 @@ verify_target() {
   cmp -s "$CONTROL_ROOT/scripts/tu1nz_adult_public_s11_2_orchestration.py" "$INSTALLED_ORCHESTRATION" || fail "S11_2_INSTALLED_ORCHESTRATION_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.service" "$CONTROLLER_UNIT" || fail "S11_2_INSTALLED_SERVICE_DRIFT"
   cmp -s "$CONTROL_ROOT/systemd/tu1nz-adult-public-s11-canary-controller.timer" "$CONTROLLER_TIMER" || fail "S11_2_INSTALLED_TIMER_DRIFT"
+  verify_controller_unit_contract
   verify_runtime_access_contract >/dev/null
   verify_health_contract >/dev/null
   state="$(release_state)"

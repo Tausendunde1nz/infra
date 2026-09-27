@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,7 @@ from scripts import tu1nz_adult_public_s11_2_r15_17_1_simulator as simulator
 ROOT = Path(__file__).resolve().parents[1]
 CONTROLLER = ROOT / "scripts/tu1nz_adult_public_s11_2_control.sh"
 TIMER = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer"
+SERVICE = ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service"
 SIMULATOR = ROOT / "scripts/tu1nz_adult_public_s11_2_r15_17_1_simulator.py"
 SSOT = ROOT / "docs/COMMERCIAL_S11_2_R15_17_1_SYSTEMD_HANDOFF_CONTRACT.md"
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s11-2-canary-bootstrap.json"
@@ -119,6 +121,17 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         self.assertIn('entry.get("UNIT") !=', helper)
         self.assertIn('entry.get("INVOCATION_ID"', helper)
         self.assertNotIn('entry.get("_SYSTEMD_INVOCATION_ID"', helper)
+
+    def test_manual_controller_starts_are_refused_during_handoff(self):
+        unit = SERVICE.read_text(encoding="ascii")
+        self.assertIn("RefuseManualStart=yes", unit.splitlines())
+        source = CONTROLLER.read_text(encoding="utf-8")
+        verifier = source[
+            source.index("verify_controller_unit_contract() {") :
+            source.index("run_controller_access_check() {")
+        ]
+        self.assertIn("RefuseManualStart --value", verifier)
+        self.assertIn("S11_2_CONTROLLER_MANUAL_START_OPEN_RED", verifier)
 
     def test_finite_future_helper_is_canonical_and_rejects_no_event_values(self):
         source = CONTROLLER.read_text(encoding="utf-8")
@@ -244,6 +257,10 @@ standalone_verify \
         self.assertEqual(contract["future_timer_contract"], "FINITE_AND_WAITING")
         self.assertTrue(contract["standalone_verify_clean_environment"])
         self.assertFalse(contract["runtime_mutation_performed"])
+        self.assertEqual(
+            contract["artifact_bindings"]["controller_unit_sha256"],
+            hashlib.sha256(SERVICE.read_bytes()).hexdigest(),
+        )
         self.assertTrue(SSOT.is_file())
 
 

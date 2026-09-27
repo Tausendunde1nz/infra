@@ -451,7 +451,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"',
+            'CONTROLLER_UNIT_SHA="b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f"',
             source,
         )
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -875,6 +875,7 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("User=root", service)
         self.assertIn("Group=root", service)
         self.assertEqual(service.count("SupplementaryGroups=chatops"), 1)
+        self.assertEqual(service.count("RefuseManualStart=yes"), 1)
         self.assertNotIn("NoNewPrivileges=", service)
         self.assertIn("ReadWritePaths=/run", service)
         self.assertNotIn("ReadWritePaths=/opt/tu1nz_repos", service)
@@ -883,13 +884,22 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         self.assertIn("Persistent=true", timer)
         self.assertIn("WantedBy=timers.target", timer)
 
-    def test_r15_3_unit_security_diff_is_exactly_one_group_line(self):
+    def test_controller_unit_security_deltas_are_explicit(self):
         old = OLD_SERVICE.read_text(encoding="utf-8")
         new = SERVICE.read_text(encoding="utf-8")
-        self.assertEqual(new.replace("SupplementaryGroups=chatops\n", ""), old)
+        self.assertEqual(
+            new.replace("SupplementaryGroups=chatops\n", "").replace(
+                "RefuseManualStart=yes\n", ""
+            ),
+            old,
+        )
         self.assertEqual(
             [line for line in new.splitlines() if line.startswith("SupplementaryGroups=")],
             ["SupplementaryGroups=chatops"],
+        )
+        self.assertEqual(
+            [line for line in new.splitlines() if line.startswith("RefuseManualStart=")],
+            ["RefuseManualStart=yes"],
         )
 
     def test_r15_3_exit_126_permission_fixture_and_fixed_contract(self):
