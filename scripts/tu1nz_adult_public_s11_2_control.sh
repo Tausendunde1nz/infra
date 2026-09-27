@@ -1175,6 +1175,8 @@ from pathlib import Path
 import psycopg
 
 # R15_16_4_PROFILE_SERIALIZER_START
+import math
+
 TECHNICAL_PROFILE = (
     "DIRECT",
     "INTERNAL_TEST",
@@ -1190,6 +1192,49 @@ DIRECT_PROFILE_PATHS = {
 }
 DIRECT_SAMPLE_TYPES = {"DIRECT_BOT_RESPONSE", "S11_CANARY_RESPONSE"}
 TECHNICAL_SNAPSHOT_DRIFT_CODE = "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED"
+
+
+def _percentile(values, quantile):
+    position = (len(values) - 1) * quantile
+    lower, upper = math.floor(position), math.ceil(position)
+    if lower == upper:
+        return values[lower]
+    return round(values[lower] + (values[upper] - values[lower]) * (position - lower))
+
+
+def _technical_snapshot(technical_rows, technical):
+    values = sorted(row[6] for row in technical_rows)
+    snapshot = {
+        "samples": len(values),
+        "minimum_samples": technical["minimum_samples"],
+        "p50_ms": None,
+        "p95_ms": None,
+        "p99_ms": None,
+        "maximum_ms": max(values) if values else None,
+        "limits_ms": technical["limits_ms"],
+    }
+    if len(values) < technical["minimum_samples"]:
+        return {
+            **snapshot,
+            "state": "INSUFFICIENT_EVIDENCE",
+            "reason": "SAMPLE_FLOOR_NOT_MET",
+        }
+    percentiles = {
+        "p50_ms": _percentile(values, 0.50),
+        "p95_ms": _percentile(values, 0.95),
+        "p99_ms": _percentile(values, 0.99),
+    }
+    state = (
+        "GREEN"
+        if all(percentiles[key] < limit for key, limit in technical["limits_ms"].items())
+        else "RED"
+    )
+    return {
+        **snapshot,
+        **percentiles,
+        "state": state,
+        "reason": "THRESHOLDS_MET" if state == "GREEN" else "THRESHOLD_EXCEEDED",
+    }
 
 
 def serialize_technical_profile(technical, rows):
@@ -1208,7 +1253,19 @@ def serialize_technical_profile(technical, rows):
         ):
             raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
     technical_rows = [row for row in snapshot_rows if row[:4] == TECHNICAL_PROFILE]
-    if len(technical_rows) != technical["samples"]:
+    snapshot = _technical_snapshot(technical_rows, technical)
+    comparable = {
+        "samples",
+        "minimum_samples",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+        "maximum_ms",
+        "limits_ms",
+        "state",
+        "reason",
+    }
+    if any(snapshot[key] != technical[key] for key in comparable):
         raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
     return {
         "required_floor": technical["minimum_samples"],

@@ -173,6 +173,14 @@ def simulate() -> dict[str, Any]:
         except ValueError as error:
             malformed_metric_snapshot_codes[name] = str(error)
 
+    equal_count_slo_snapshot_drift_code = None
+    good_technical = [_technical_row(value) for value in (100, 110, 120, 130, 140)]
+    bad_technical = [_technical_row(value) for value in (100, 200, 300, 400, 6000)]
+    try:
+        _profile([_real_row(), *good_technical], [_real_row(), *bad_technical])
+    except ValueError as error:
+        equal_count_slo_snapshot_drift_code = str(error)
+
     progression = []
     previous = -1
     probe_cardinality_green = True
@@ -245,6 +253,7 @@ def simulate() -> dict[str, Any]:
         and malformed_snapshot_drift_code == SNAPSHOT_DRIFT_CODE
         and set(malformed_metric_snapshot_codes.values()) == {SNAPSHOT_DRIFT_CODE}
         and len(malformed_metric_snapshot_codes) == 4
+        and equal_count_slo_snapshot_drift_code == SNAPSHOT_DRIFT_CODE
         and probe_cardinality_green
         and [item["technical"] for item in progression] == list(range(6))
         and [item["missing"] for item in progression] == [5, 4, 3, 2, 1, 0]
@@ -270,6 +279,7 @@ def simulate() -> dict[str, Any]:
         "unknown_snapshot_drift_code": unknown_snapshot_drift_code,
         "malformed_snapshot_drift_code": malformed_snapshot_drift_code,
         "malformed_metric_snapshot_codes": malformed_metric_snapshot_codes,
+        "equal_count_slo_snapshot_drift_code": equal_count_slo_snapshot_drift_code,
         "probe_progression": progression,
         "probe_cardinality_green": probe_cardinality_green,
         "technical_slo_red_code": slo_red_code,

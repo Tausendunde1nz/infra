@@ -229,7 +229,7 @@
     "next_r15_11_runtime_deployment_ready": true
   },
   "r15_10_artifact_bindings": {
-    "controller_sha256": "400a5a401e89a760526cf912d6719c1e7e35241662796bffc6ea36b10ffd6bb4",
+    "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
     "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
     "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
     "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
@@ -376,7 +376,7 @@
     "r15_13_simulator_sha256": "60b9a9d63eb249d31b071d8f0280de008ce4d3f824c92da01b7457ee50be9bd8",
     "focused_envelope_suite_sha256": "84c25b47b952f0bfb5614875163307adb40d7c4b2ec5785f0c140d835467ada9",
     "focused_compatibility_suite_sha256": "d1e06b883e8babe3bb5c0bab52533396b8c0a6d5b3707c0d744c4cd347308b2b",
-    "controller_sha256": "400a5a401e89a760526cf912d6719c1e7e35241662796bffc6ea36b10ffd6bb4",
+    "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
     "ssot_sha256": "ecf837dc94e7a389341e3b5665bcc794d4308ad43a392e246915dc4b46e3880d",
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
@@ -469,7 +469,7 @@
     "real_metric_never_substituted": true,
     "technical_evidence_contract": "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
     "artifact_bindings": {
-      "controller_sha256": "400a5a401e89a760526cf912d6719c1e7e35241662796bffc6ea36b10ffd6bb4",
+      "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
       "gate_sha256": "8f506bc3b081c5a92c7982eddcb0850920926d34a4f14bffd70892c8b6ff99e6",
       "freeze_helper_sha256": "d9376df5426fb8d1ade7902296d74e81e1b45c13b17f5d34a0bedc5c589789d5",
       "r15_16_simulator_sha256": "06bb82c32f1bc2a75911c65dd8de10d6a486a1302cc1ddd6bfff81013a9edb29",
@@ -502,11 +502,11 @@
     "shared_run_binding_intentional": true,
     "technical_evidence_contract": "PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3",
     "artifact_bindings": {
-      "controller_sha256": "400a5a401e89a760526cf912d6719c1e7e35241662796bffc6ea36b10ffd6bb4",
+      "controller_sha256": "b3fceb9e0b03e2758cd9877bcc45423bf4362bef3466cb1b2a16a8e630d853be",
       "freeze_helper_sha256": "d9376df5426fb8d1ade7902296d74e81e1b45c13b17f5d34a0bedc5c589789d5",
-      "r15_17_simulator_sha256": "ddc14d5136aaad232bdc5f5ef17bb717e59b3ffb23df0f210fa3a133f95c091b",
-      "focused_suite_sha256": "18750971e3772104ecb1a5ccdf71038c56b001b9ee51057766d2f93943442f3f",
-      "ssot_sha256": "d163905245233ac5e8b256618ab4ef57d0be156f9bd125b6d2db1e9d4ce12604"
+      "r15_17_simulator_sha256": "0be6762b0f2b15ca7d4b360f4b7946b1e387eca91be121453424848d000bffab",
+      "focused_suite_sha256": "a6f323f854a05e87526ebbe505cd16e7dda26600f8761555fc0c684e5e60f80b",
+      "ssot_sha256": "d70471f2e8651cab63da6877592f9d65de7411f1932fc9b97992979fadb98c86"
     },
     "previous_freeze_immutable": "s11-2-r15-15-3-profile-scoped-technical-freeze-r1",
     "replacement_freeze": "s11-2-r15-16-4-technical-profile-serialization-freeze-r1",

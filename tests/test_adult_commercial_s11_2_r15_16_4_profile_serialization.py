@@ -50,7 +50,11 @@ class R15164TechnicalProfileSerializationTests(unittest.TestCase):
         self.assertEqual(report["zero_technical_plus_real"]["missing_samples"], 5)
         self.assertEqual(report["multiple_real"]["missing_samples"], 5)
         source = CONTROLLER.read_text(encoding="utf-8")
-        self.assertIn('if len(technical_rows) != technical["samples"]:', source)
+        self.assertIn("snapshot = _technical_snapshot(technical_rows, technical)", source)
+        self.assertIn(
+            "if any(snapshot[key] != technical[key] for key in comparable):",
+            source,
+        )
         orchestration_source = (ROOT / "scripts/tu1nz_adult_public_s11_2_orchestration.py").read_text(encoding="utf-8")
         self.assertIn("len(samples) != current", orchestration_source)
         self.assertIn("S11_2_TECHNICAL_SAMPLE_SET_INVALID", orchestration_source)
@@ -90,6 +94,17 @@ class R15164TechnicalProfileSerializationTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn("bot_response_latency_ms,poll_lag_ms,handler_duration_ms,send_ack_ms", source)
         self.assertIn("not 0 <= metric <= 300000", source)
+
+    def test_equal_count_slo_change_fails_snapshot_closed(self):
+        report = simulator.simulate()
+        self.assertEqual(
+            report["equal_count_slo_snapshot_drift_code"],
+            "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED",
+        )
+        source = CONTROLLER.read_text(encoding="utf-8")
+        for field in ("p50_ms", "p95_ms", "p99_ms", "maximum_ms", "state", "reason"):
+            with self.subTest(field=field):
+                self.assertIn(f'"{field}"', source)
 
     def test_concurrent_unknown_and_malformed_rows_fail_snapshot_closed(self):
         report = simulator.simulate()
