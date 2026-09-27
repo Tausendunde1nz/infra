@@ -62,20 +62,36 @@ class FreezeProvenanceTests(unittest.TestCase):
         self.assertEqual(report["matching_count"], 29)
         self.assertEqual(report["binding_count"], 29)
 
-    def test_current_and_legacy_contracts_keep_the_same_29_keys(self):
+    def test_current_and_historical_contracts_keep_the_same_29_keys(self):
         self.assertEqual(tuple(freeze.STATIC_BINDINGS), tuple(freeze.LEGACY_STATIC_BINDINGS))
+        self.assertEqual(
+            tuple(freeze.STATIC_BINDINGS), tuple(freeze.PROFILE_SCOPED_STATIC_BINDINGS)
+        )
         self.assertEqual(
             freeze.LEGACY_STATIC_BINDINGS["technical_evidence_contract"],
             "DYNAMIC_MISSING_SAMPLE_HARD_CAP",
         )
         self.assertEqual(
-            freeze.STATIC_BINDINGS["technical_evidence_contract"],
+            freeze.PROFILE_SCOPED_STATIC_BINDINGS["technical_evidence_contract"],
             "PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2",
+        )
+        self.assertEqual(
+            freeze.STATIC_BINDINGS["technical_evidence_contract"],
+            "PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3",
         )
         legacy = old_expected_fixture()
         report = freeze.verify_annotation(
             freeze.render_annotation(legacy, "TU1NZ S11.2-R15.14.1 immutable source freeze"),
             legacy,
+        )
+        self.assertTrue(report["ok"])
+
+    def test_profile_scoped_v2_contract_remains_verifiable(self):
+        values = expected_fixture()
+        values.update(freeze.PROFILE_SCOPED_STATIC_BINDINGS)
+        report = freeze.verify_annotation(
+            freeze.render_annotation(values, "TU1NZ S11.2-R15.15.3 profile-scoped Technical freeze"),
+            values,
         )
         self.assertTrue(report["ok"])
 

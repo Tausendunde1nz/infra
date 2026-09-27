@@ -812,29 +812,35 @@ jobs:
           scripts/tu1nz_adult_public_s11_2_freeze.py
           scripts/tu1nz_adult_public_s11_2_r15_15_simulator.py
           scripts/tu1nz_adult_public_s11_2_r15_16_simulator.py
+          scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
           tests/test_adult_commercial_s11_2_canary_bootstrap.py
           tests/test_adult_commercial_s11_2_r8_child_code_contract.py
           tests/test_adult_commercial_s11_2_r15_6_health_child.py
           tests/test_adult_commercial_s11_2_r15_8_orchestration.py
           tests/test_adult_commercial_s11_2_r15_10_bash_safety.py
+          tests/test_adult_commercial_s11_2_r15_12_compatibility.py
           tests/test_adult_commercial_s11_2_r15_14_gate_error_contract.py
           tests/test_adult_commercial_s11_2_r15_14_1_freeze_provenance.py
           tests/test_adult_commercial_s11_2_r15_15_3_profile_scoped_reader.py
+          tests/test_adult_commercial_s11_2_r15_16_4_profile_serialization.py
           && python3 -m unittest -v
           tests.test_adult_commercial_s11_2_canary_bootstrap
           tests.test_adult_commercial_s11_2_r8_child_code_contract
           tests.test_adult_commercial_s11_2_r15_6_health_child
           tests.test_adult_commercial_s11_2_r15_8_orchestration
           tests.test_adult_commercial_s11_2_r15_10_bash_safety
+          tests.test_adult_commercial_s11_2_r15_12_compatibility
           tests.test_adult_commercial_s11_2_r15_14_gate_error_contract
           tests.test_adult_commercial_s11_2_r15_14_1_freeze_provenance
           tests.test_adult_commercial_s11_2_r15_15_3_profile_scoped_reader
+          tests.test_adult_commercial_s11_2_r15_16_4_profile_serialization
           && python3 scripts/tu1nz_adult_public_s11_2_gate.py --simulate-contract
           && python3 scripts/tu1nz_adult_public_s11_2_access_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py --simulate-contract
           && python3 scripts/tu1nz_adult_public_s11_2_health_preflight.py --simulate-contract
           && python3 scripts/tu1nz_adult_public_s11_2_r15_15_simulator.py
           && python3 scripts/tu1nz_adult_public_s11_2_r15_16_simulator.py
+          && python3 scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
       - name: Validate Commercial S11.2 Canary systemd controller
         shell: bash
         run: |
@@ -855,6 +861,7 @@ jobs:
             docs/COMMERCIAL_S11_2_R15_10_BASH_SAFETY.md
             docs/COMMERCIAL_S11_2_R15_14_1_FREEZE_PROVENANCE.md
             docs/COMMERCIAL_S11_2_R15_15_3_PROFILE_SCOPED_TECHNICAL_READER.md
+            docs/COMMERCIAL_S11_2_R15_16_4_TECHNICAL_PROFILE_SERIALIZATION.md
             analysis/COMMERCIAL_S11_2_R15_14_1_FREEZE_PROVENANCE_RED_2026-09-27.diagnose
             analysis/COMMERCIAL_S11_2_R15_14_1_LOCAL_TEST_ENVIRONMENT_2026-09-27.diagnose
             docs/COMMERCIAL_S11_2_R15_4_SOURCE_RUNTIME_ACCESS_2026-09-25.diagnose
@@ -873,6 +880,7 @@ jobs:
             scripts/tu1nz_adult_public_s11_2_freeze.py
             scripts/tu1nz_adult_public_s11_2_r15_15_simulator.py
             scripts/tu1nz_adult_public_s11_2_r15_16_simulator.py
+            scripts/tu1nz_adult_public_s11_2_r15_17_simulator.py
             scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh
             systemd/tu1nz-adult-public-s11-canary-controller.service
             systemd/tu1nz-adult-public-s11-canary-controller.timer
@@ -881,9 +889,11 @@ jobs:
             tests/test_adult_commercial_s11_2_r15_6_health_child.py
             tests/test_adult_commercial_s11_2_r15_8_orchestration.py
             tests/test_adult_commercial_s11_2_r15_10_bash_safety.py
+            tests/test_adult_commercial_s11_2_r15_12_compatibility.py
             tests/test_adult_commercial_s11_2_r15_14_gate_error_contract.py
             tests/test_adult_commercial_s11_2_r15_14_1_freeze_provenance.py
             tests/test_adult_commercial_s11_2_r15_15_3_profile_scoped_reader.py
+            tests/test_adult_commercial_s11_2_r15_16_4_profile_serialization.py
             tests/fixtures/s11-2-r15-15-3/application-latency-profile-contract.json
           )
           ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
@@ -893,3 +903,26 @@ jobs:
             scripts/tu1nz_adult_public_s11_2_control.sh \
             scripts/tu1nz_adult_public_s11_2_gate.py \
             scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py
+      - name: Run complete Linux-compatible Control test suite
+        run: |
+          python3 - <<'PY'
+          import unittest
+
+          excluded = {"test_policy_watchdog.Tests.test_watchdog_timeout_real_control_flow"}
+
+          def cases(suite):
+              for item in suite:
+                  if isinstance(item, unittest.TestSuite):
+                      yield from cases(item)
+                  else:
+                      yield item
+
+          discovered = unittest.defaultTestLoader.discover("tests")
+          all_cases = list(cases(discovered))
+          found = {case.id() for case in all_cases} & excluded
+          if found != excluded:
+              raise SystemExit("expected macOS-only Control test was not discovered")
+          selected = unittest.TestSuite(case for case in all_cases if case.id() not in excluded)
+          result = unittest.TextTestRunner(verbosity=2).run(selected)
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY

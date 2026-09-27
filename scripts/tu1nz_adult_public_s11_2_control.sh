@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-15-3-profile-scoped-technical-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-r15-16-4-technical-profile-serialization-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="afa0ea4801404b34483adde8c63289b0b05f9b3392b2821fda0c1c52c1a22031"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -186,7 +186,7 @@ require_local_freeze() {
     "gate_error_allowlist=CANONICAL_EXACT_ONLY" \
     "controller_gate_reader=CONTROL_GATE_READER_V1" \
     "r15_15_simulator=SOURCE_ONLY_GREEN" \
-    "technical_evidence_contract=PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2" \
+    "technical_evidence_contract=PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
     "phase_error_contract=EXPLICIT_CHILD_SUPERVISION" \
@@ -1169,9 +1169,120 @@ PY
     "$APPLICATION_RUNTIME_PYTHON" - <<'PY'
 import json
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import psycopg
+
+# R15_16_4_PROFILE_SERIALIZER_START
+import math
+
+TECHNICAL_PROFILE = (
+    "DIRECT",
+    "INTERNAL_TEST",
+    "DIRECT_BOT_RESPONSE",
+    "INTERNAL_ACCEPTANCE",
+)
+DIRECT_PROFILE_PATHS = {
+    "REAL": "TELEGRAM_DIRECT",
+    "INTERNAL_TEST": "INTERNAL_ACCEPTANCE",
+    "SYNTHETIC": "SYNTHETIC_FIXTURE",
+    "HEALTH": "RUNTIME_HEALTH",
+    "PROVIDER_PROBE": "PROVIDER_PROBE",
+}
+DIRECT_SAMPLE_TYPES = {"DIRECT_BOT_RESPONSE", "S11_CANARY_RESPONSE"}
+TECHNICAL_SNAPSHOT_DRIFT_CODE = "S11_2_TECHNICAL_PROFILE_SNAPSHOT_DRIFT_RED"
+
+
+def _percentile(values, quantile):
+    position = (len(values) - 1) * quantile
+    lower, upper = math.floor(position), math.ceil(position)
+    if lower == upper:
+        return values[lower]
+    return round(values[lower] + (values[upper] - values[lower]) * (position - lower))
+
+
+def _technical_snapshot(technical_rows, technical):
+    values = sorted(row[6] for row in technical_rows)
+    snapshot = {
+        "samples": len(values),
+        "minimum_samples": technical["minimum_samples"],
+        "p50_ms": None,
+        "p95_ms": None,
+        "p99_ms": None,
+        "maximum_ms": max(values) if values else None,
+        "limits_ms": technical["limits_ms"],
+    }
+    if len(values) < technical["minimum_samples"]:
+        return {
+            **snapshot,
+            "state": "INSUFFICIENT_EVIDENCE",
+            "reason": "SAMPLE_FLOOR_NOT_MET",
+        }
+    percentiles = {
+        "p50_ms": _percentile(values, 0.50),
+        "p95_ms": _percentile(values, 0.95),
+        "p99_ms": _percentile(values, 0.99),
+    }
+    state = (
+        "GREEN"
+        if all(percentiles[key] < limit for key, limit in technical["limits_ms"].items())
+        else "RED"
+    )
+    return {
+        **snapshot,
+        **percentiles,
+        "state": state,
+        "reason": "THRESHOLDS_MET" if state == "GREEN" else "THRESHOLD_EXCEEDED",
+    }
+
+
+def serialize_technical_profile(technical, rows):
+    snapshot_rows = [tuple(row) for row in rows]
+    for row in snapshot_rows:
+        if len(row) != 8:
+            raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
+        source, evidence_class, sample_type, interaction_path, *metrics = row
+        expected_path = DIRECT_PROFILE_PATHS.get(evidence_class)
+        if (
+            source != "DIRECT"
+            or expected_path is None
+            or sample_type not in DIRECT_SAMPLE_TYPES
+            or interaction_path != expected_path
+            or any(type(metric) is not int or not 0 <= metric <= 300000 for metric in metrics)
+        ):
+            raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
+    technical_rows = [row for row in snapshot_rows if row[:4] == TECHNICAL_PROFILE]
+    snapshot = _technical_snapshot(technical_rows, technical)
+    comparable = {
+        "samples",
+        "minimum_samples",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+        "maximum_ms",
+        "limits_ms",
+        "state",
+        "reason",
+    }
+    if any(snapshot[key] != technical[key] for key in comparable):
+        raise ValueError(TECHNICAL_SNAPSHOT_DRIFT_CODE)
+    return {
+        "required_floor": technical["minimum_samples"],
+        "current_valid_samples": technical["samples"],
+        "state": technical["state"],
+        "samples": [
+            {
+                "source": row[0],
+                "evidence_class": row[1],
+                "sample_type": row[2],
+                "interaction_path": row[3],
+            }
+            for row in technical_rows
+        ],
+        "health": "GREEN",
+    }
+# R15_16_4_PROFILE_SERIALIZER_END
 
 gate = json.loads(Path(os.environ["S11_GATE_FILE"]).read_text(encoding="ascii"))
 dsn = Path(os.environ["S11_DATABASE_DSN"]).read_text(encoding="utf-8").strip()
@@ -1184,23 +1295,28 @@ with psycopg.connect(dsn) as connection:
     if binding is None or not all(binding):
         raise SystemExit(2)
     rows = connection.execute(
-        "SELECT source,evidence_class,sample_type,interaction_path "
+        "SELECT source,evidence_class,sample_type,interaction_path,"
+        "bot_response_latency_ms,poll_lag_ms,handler_duration_ms,send_ack_ms "
         "FROM commercial_s10_2d_latency_samples WHERE source='DIRECT' "
         "AND release_id=%s AND run_id=%s AND recorded_at >= %s AND recorded_at <= %s "
         "ORDER BY recorded_at,sample_id",
         (binding[0], binding[1], now - timedelta(hours=24), now),
     ).fetchall()
 technical = gate["technical_latency"]
-payload = {
-    "required_floor": technical["minimum_samples"],
-    "current_valid_samples": technical["samples"],
-    "state": technical["state"],
-    "samples": [
-        {"source": row[0], "evidence_class": row[1], "sample_type": row[2], "interaction_path": row[3]}
-        for row in rows
-    ],
-    "health": "GREEN",
-}
+try:
+    payload = serialize_technical_profile(technical, rows)
+except ValueError as error:
+    if str(error) != TECHNICAL_SNAPSHOT_DRIFT_CODE:
+        raise
+    print(
+        json.dumps(
+            {"ok": False, "safe_code": TECHNICAL_SNAPSHOT_DRIFT_CODE},
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        file=sys.stderr,
+    )
+    raise SystemExit(2) from None
 Path(os.environ["S11_PROFILE_DESTINATION"]).write_text(
     json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="ascii"
 )
