@@ -1,0 +1,28 @@
+# S11.2-R15.14.1 freeze provenance diagnosis — 2026-09-27
+
+## Observed failure
+
+The source-level R15.15 preflight returned
+`S11_2_FREEZE_PROVENANCE_RED`. It stopped before every runtime boundary.
+The immutable R15.14 tag target is correct, but its annotation satisfies 22
+of 29 exact controller bindings.
+
+## Root cause
+
+The tag annotation was manually assembled with five shortened artifact-key
+aliases and omitted two runtime-contract bindings. The controller intentionally
+uses exact full-line matching, so aliases cannot satisfy canonical names.
+This is `IMMUTABLE_FREEZE_CANONICAL_KEY_DRIFT`, not a runtime or product
+failure.
+
+## Safe correction
+
+Preserve the old tag unchanged. Bind the minimally changed controller to a
+new tag and use one versioned generator/verifier for the exact ordered 29-key
+set. Tests prove 29/29 GREEN; 28/29, alias substitution, duplicate key, wrong
+artifact hash, wrong commit, wrong tree and the historical annotation all
+fail closed.
+
+The final tag values are calculated only after the merge commit exists. No
+tag force-update, runtime retry, server access or evidence mutation is part of
+this correction.

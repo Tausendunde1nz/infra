@@ -1,0 +1,25 @@
+# R15.14.1 local full-suite environment diagnosis — 2026-09-27
+
+The first complete Control-suite run executed 657 tests. The new and focused
+R15.14.1 tests were GREEN. One expected platform test was skipped. Three tests
+failed:
+
+- one R15.12 manifest assertion correctly detected that the current controller
+  SHA-256 changed with `FINAL_CONTROL_TAG`;
+- two historical S10.2D simulator tests reported the shared bounded code
+  `SIMULATOR_LISTENER_SCENARIO_RED`.
+
+Read-only reproduction of the listener subprocess showed the local checkout
+had no Application `.venv` and the system Python lacked the pinned `psycopg`
+dependency. The subprocess therefore stopped before opening its isolated
+localhost test listener. This is a local test-runtime dependency gap, not a
+source, listener-contract, product or server failure. No S10.2D source is
+changed.
+
+The R15.12 current-controller binding is updated to the freshly calculated
+controller SHA-256. Python 3.9 cannot resolve the pinned dependency, so the
+full suite is rerun with the bundled Python 3.12 workspace runtime and the
+Application's exact pinned `psycopg[binary]==3.3.4` installed into a private
+temporary test-only dependency directory. That directory is outside both
+repositories and is not part of any release, runtime or deployment. The rerun
+is GREEN: 657 tests, one expected platform skip.
