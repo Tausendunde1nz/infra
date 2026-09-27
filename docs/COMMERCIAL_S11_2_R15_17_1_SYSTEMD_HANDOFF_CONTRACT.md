@@ -62,7 +62,12 @@ verification, and Systemd handoff acceptance. It rejects empty values, `n/a`,
 realtime value must parse to a future epoch. A monotonic value must parse through
 the host Systemd timespan parser and exceed a current `CLOCK_MONOTONIC` marker
 from the same clock domain Systemd uses for this non-waking timer. Suspend-aware
-boot uptime is deliberately not used. The S11
+boot uptime is deliberately not used. The canonical live helper performs at
+most five one-second re-reads when a captured next event crosses the separately
+read current clock; this absorbs only the bounded Systemd reschedule race.
+Persistent missing or non-finite values remain RED. The handoff loop treats the
+same transient crossing as WAIT and is still bounded by its deployment-local
+deadline. The S11
 recurring timer additionally requires `SubState=waiting`; `elapsed` is always
 RED.
 

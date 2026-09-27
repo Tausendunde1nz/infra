@@ -168,6 +168,42 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         self.assertIn("time.clock_gettime_ns", helper)
         self.assertNotIn("/proc/uptime", helper)
 
+    def test_future_timer_snapshot_retries_a_crossed_event(self):
+        result = run_bash(
+            r'''
+set -Eeuo pipefail
+source "$1"
+state="$(mktemp)"
+printf '0\n' >"$state"
+systemctl() {
+  if [[ "$*" == *NextElapseUSecRealtime* ]]; then
+    printf '\n'
+    return 0
+  fi
+  count="$(cat "$state")"
+  if [ "$count" -eq 0 ]; then printf '1000\n'; else printf '3000\n'; fi
+  printf '%s\n' "$((count + 1))" >"$state"
+}
+date() { printf '2000\n'; }
+monotonic_now_usec() { printf '2000\n'; }
+sleep() { :; }
+timer_has_finite_future fixture.timer
+test "$(cat "$state")" -eq 2
+rm -f "$state"
+'''
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_future_timer_snapshot_remains_bounded_and_fail_closed(self):
+        source = CONTROLLER.read_text(encoding="utf-8")
+        helper = source[
+            source.index("timer_has_finite_future() {") :
+            source.index("first_invocation_after_trigger() {")
+        ]
+        self.assertIn("for attempt in 1 2 3 4 5", helper)
+        self.assertIn('[ "$attempt" -eq 5 ] || sleep 1', helper)
+        self.assertIn("return 1", helper)
+
     def test_recurring_timer_requires_waiting_and_preserves_unit_semantics(self):
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn('SubState --value)" = waiting', source)

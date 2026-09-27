@@ -497,13 +497,19 @@ timer_has_finite_future_values() {
 }
 
 timer_has_finite_future() {
-  local unit="$1" realtime monotonic now_realtime now_monotonic
-  realtime="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
-  monotonic="$(systemctl show "$unit" -p NextElapseUSecMonotonic --value)"
-  now_realtime="$(date +%s%6N)"
-  now_monotonic="$(monotonic_now_usec)"
-  timer_has_finite_future_values \
-    "$realtime" "$monotonic" "$now_realtime" "$now_monotonic"
+  local unit="$1" attempt realtime monotonic now_realtime now_monotonic
+  for attempt in 1 2 3 4 5; do
+    realtime="$(systemctl show "$unit" -p NextElapseUSecRealtime --value)"
+    monotonic="$(systemctl show "$unit" -p NextElapseUSecMonotonic --value)"
+    now_realtime="$(date +%s%6N)"
+    now_monotonic="$(monotonic_now_usec)"
+    if timer_has_finite_future_values \
+        "$realtime" "$monotonic" "$now_realtime" "$now_monotonic"; then
+      return 0
+    fi
+    [ "$attempt" -eq 5 ] || sleep 1
+  done
+  return 1
 }
 
 first_invocation_after_trigger() {
@@ -592,7 +598,7 @@ handoff_snapshot_decision() {
   fi
   if ! timer_has_finite_future_values \
       "$next_realtime" "$next_monotonic" "$now_realtime" "$now_monotonic"; then
-    printf 'RED\n'
+    printf 'WAIT\n'
     return 0
   fi
   printf 'GREEN\n'
