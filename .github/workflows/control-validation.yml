@@ -903,3 +903,5 @@ jobs:
             scripts/tu1nz_adult_public_s11_2_control.sh \
             scripts/tu1nz_adult_public_s11_2_gate.py \
             scripts/tu1nz_adult_public_s11_2_recovery_diagnostic.py
+      - name: Run complete Control test suite
+        run: python3 -m unittest discover -s tests -v
