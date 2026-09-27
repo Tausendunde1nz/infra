@@ -60,6 +60,7 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         self.assertEqual(report["runtime_mutations"], 0)
         self.assertTrue(report["next_runtime_deployment_ready"])
         self.assertTrue(report["manual_pretrigger_invocation_rejected"])
+        self.assertTrue(report["failed_timer_cannot_be_masked_by_manual_success"])
 
     def test_historical_success_never_substitutes_for_current_invocation(self):
         report = simulator.simulate()
@@ -87,6 +88,23 @@ class R15171SystemdHandoffTests(unittest.TestCase):
         self.assertNotEqual(decision, "GREEN")
         source = CONTROLLER.read_text(encoding="utf-8")
         self.assertIn("start_usec < trigger_usec", source)
+
+    def test_failed_timer_invocation_cannot_be_masked_by_manual_success(self):
+        decision = simulator._decision(
+            trigger="1100",
+            invocation="later-manual-success",
+            start="1200",
+            first_invocation="failed-timer-invocation",
+        )
+        self.assertEqual(decision, "RED")
+        source = CONTROLLER.read_text(encoding="utf-8")
+        self.assertIn("first_invocation_after_trigger", source)
+        self.assertIn("_SYSTEMD_INVOCATION_ID", source)
+        self.assertIn("__MONOTONIC_TIMESTAMP", source)
+        self.assertIn(
+            '| S11_TRIGGER_USEC="$trigger_usec" /usr/bin/python3',
+            source,
+        )
 
     def test_finite_future_helper_is_canonical_and_rejects_no_event_values(self):
         source = CONTROLLER.read_text(encoding="utf-8")

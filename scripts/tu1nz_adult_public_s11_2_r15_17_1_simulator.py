@@ -7,7 +7,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 if __package__:
     from . import tu1nz_adult_public_s11_2_r15_17_simulator as product
@@ -50,7 +50,10 @@ def _decision(
     timer_substate: str = "waiting",
     next_realtime: str = "",
     next_monotonic: str = "2000",
+    first_invocation: Optional[str] = None,
 ) -> str:
+    if first_invocation is None:
+        first_invocation = invocation
     arguments = (
         "1000",
         trigger,
@@ -67,6 +70,7 @@ def _decision(
         next_monotonic,
         "1760000000000000",
         "1500",
+        first_invocation,
     )
     completed = _run_bash(
         'set -Eeuo pipefail\nsource "$1"\nshift\nhandoff_snapshot_decision "$@"\n',
@@ -153,6 +157,12 @@ def simulate() -> dict[str, Any]:
         invocation="new-invocation",
         start="1050",
     )
+    masked_failed_timer = _decision(
+        trigger="1100",
+        invocation="later-manual-success",
+        start="1200",
+        first_invocation="failed-timer-invocation",
+    )
     final = {name: ("GREEN" if value == "GREEN" else "RED") for name, value in raw.items()}
     standalone = _standalone_verify_clean_environment()
     final["J"] = "GREEN" if standalone else "RED"
@@ -163,6 +173,7 @@ def simulate() -> dict[str, Any]:
         final == expected
         and product_report["ok"]
         and manual_pretrigger != "GREEN"
+        and masked_failed_timer == "RED"
     )
     return {
         "ok": ok,
@@ -181,6 +192,7 @@ def simulate() -> dict[str, Any]:
         "waiting_required": final["F"] == "RED",
         "valid_current_handoff": final["G"] == "GREEN",
         "manual_pretrigger_invocation_rejected": manual_pretrigger != "GREEN",
+        "failed_timer_cannot_be_masked_by_manual_success": masked_failed_timer == "RED",
         "technical_profile_green": product_report["ok"],
         "runtime_access_green": True,
         "synthetic_journeys_green": product_report["synthetic_journeys_green"],

@@ -502,12 +502,44 @@ timer_has_finite_future() {
     "$realtime" "$monotonic" "$now_realtime" "$now_monotonic"
 }
 
+first_invocation_after_trigger() {
+  local handoff_realtime="$1" trigger="$2" trigger_usec
+  trigger_usec="$(systemd_timespan_usec "$trigger" 2>/dev/null || true)"
+  [[ "$trigger_usec" =~ ^[0-9]+$ ]] || return 0
+  journalctl --quiet --no-pager --output=json \
+      --unit=tu1nz-adult-public-s11-canary-controller.service \
+      --since="$handoff_realtime" 2>/dev/null \
+    | S11_TRIGGER_USEC="$trigger_usec" /usr/bin/python3 -c '
+import json
+import os
+import sys
+
+trigger = int(os.environ["S11_TRIGGER_USEC"])
+first = None
+for line in sys.stdin:
+    try:
+        entry = json.loads(line)
+        timestamp = int(entry.get("__MONOTONIC_TIMESTAMP", "0"))
+        invocation = entry.get("_SYSTEMD_INVOCATION_ID", "")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        continue
+    if timestamp < trigger or not isinstance(invocation, str) or not invocation:
+        continue
+    candidate = (timestamp, invocation)
+    if first is None or candidate < first:
+        first = candidate
+if first is not None:
+    print(first[1])
+'
+}
+
 handoff_snapshot_decision() {
   local handoff_monotonic="$1" trigger="$2" previous_invocation="$3"
   local invocation="$4" start_monotonic="$5" service_active="$6"
   local result="$7" exit_status="$8" timer_enabled="$9" timer_active="${10}"
   local timer_substate="${11}" next_realtime="${12}" next_monotonic="${13}"
-  local now_realtime="${14}" now_monotonic="${15}" trigger_usec start_usec
+  local now_realtime="${14}" now_monotonic="${15}"
+  local first_trigger_invocation="${16}" trigger_usec start_usec
   [[ "$handoff_monotonic" =~ ^[0-9]+$ ]] || { printf 'RED\n'; return 0; }
   trigger_usec="$(systemd_timespan_usec "$trigger" 2>/dev/null || true)"
   if [[ ! "$trigger_usec" =~ ^[0-9]+$ ]] || (( trigger_usec <= handoff_monotonic )); then
@@ -522,6 +554,14 @@ handoff_snapshot_decision() {
   fi
   if (( start_usec < trigger_usec )); then
     printf 'WAIT\n'
+    return 0
+  fi
+  if [ -z "$first_trigger_invocation" ]; then
+    printf 'WAIT\n'
+    return 0
+  fi
+  if [ "$first_trigger_invocation" != "$invocation" ]; then
+    printf 'RED\n'
     return 0
   fi
   case "$service_active" in
@@ -551,6 +591,7 @@ wait_controller_natural_run() {
   local previous_invocation="$4" destination="$5" deadline decision trigger
   local invocation start_monotonic active result exit_status timer_enabled timer_active
   local timer_substate next_realtime next_monotonic now_realtime now_monotonic
+  local first_trigger_invocation
   deadline=$((SECONDS + 390))
   while (( SECONDS < deadline )); do
     trigger="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p LastTriggerUSecMonotonic --value)"
@@ -566,11 +607,14 @@ wait_controller_natural_run() {
     next_monotonic="$(systemctl show tu1nz-adult-public-s11-canary-controller.timer -p NextElapseUSecMonotonic --value)"
     now_realtime="$(date +%s%6N)"
     now_monotonic="$(monotonic_now_usec)"
+    first_trigger_invocation="$(first_invocation_after_trigger \
+      "$handoff_realtime" "$trigger")"
     decision="$(handoff_snapshot_decision \
       "$handoff_monotonic" "$trigger" "$previous_invocation" "$invocation" \
       "$start_monotonic" "$active" "$result" "$exit_status" \
       "$timer_enabled" "$timer_active" "$timer_substate" \
-      "$next_realtime" "$next_monotonic" "$now_realtime" "$now_monotonic")"
+      "$next_realtime" "$next_monotonic" "$now_realtime" "$now_monotonic" \
+      "$first_trigger_invocation")"
     case "$decision" in
       GREEN)
         journalctl --quiet --no-pager --output=cat \
@@ -582,6 +626,7 @@ wait_controller_natural_run() {
         S11_HANDOFF_PREVIOUS_TRIGGER="$previous_trigger" \
         S11_HANDOFF_TRIGGER="$trigger" \
         S11_HANDOFF_INVOCATION="$invocation" \
+        S11_HANDOFF_FIRST_TRIGGER_INVOCATION="$first_trigger_invocation" \
         S11_HANDOFF_CONTROLLER_START="$start_monotonic" \
         S11_HANDOFF_RESULT="$result" \
         S11_HANDOFF_EXIT_STATUS="$exit_status" \
@@ -602,6 +647,7 @@ payload = {
     "pre_handoff_trigger": os.environ["S11_HANDOFF_PREVIOUS_TRIGGER"],
     "accepted_trigger_monotonic": os.environ["S11_HANDOFF_TRIGGER"],
     "accepted_invocation_id": os.environ["S11_HANDOFF_INVOCATION"],
+    "first_invocation_after_trigger": os.environ["S11_HANDOFF_FIRST_TRIGGER_INVOCATION"],
     "accepted_controller_start_monotonic": os.environ["S11_HANDOFF_CONTROLLER_START"],
     "service_result": os.environ["S11_HANDOFF_RESULT"],
     "exec_main_status": int(os.environ["S11_HANDOFF_EXIT_STATUS"]),
