@@ -208,4 +208,21 @@ class RecreationTests(unittest.TestCase):
         with self.assertRaises(m.Refuse): m.activate(f)
         self.assertIn('rollback', f.calls)
 
+class NetworkCoverageTests(unittest.TestCase):
+    def model(self):
+        return {'services': {m.NAME: {'networks': {'default': None}}},
+                'networks': {'default': {'name': 'isolated'}}}
+    def test_exact_network_coverage(self):
+        m.require_compose_network_coverage(self.model(), container())
+    def test_extra_live_network_refuses_before_recreation(self):
+        baseline = container()
+        baseline['NetworkSettings']['Networks']['unmodeled'] = {'NetworkID': 'other', 'Aliases': []}
+        with self.assertRaisesRegex(m.Refuse, 'recreation blocked'):
+            m.require_compose_network_coverage(self.model(), baseline)
+    def test_missing_or_unresolved_network_is_refused(self):
+        model = self.model(); model['networks']['default'].pop('name')
+        with self.assertRaises(m.Refuse): m.require_compose_network_coverage(model, container())
+        model = self.model(); model['services'][m.NAME]['networks'] = {}
+        with self.assertRaises(m.Refuse): m.require_compose_network_coverage(model, container())
+
 if __name__ == '__main__': unittest.main()

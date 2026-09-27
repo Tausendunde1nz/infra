@@ -54,6 +54,16 @@ def normalized(container, candidate=False):
     result['published_ports'] = container['NetworkSettings']['Ports']
     return result
 
+def require_compose_network_coverage(resolved, baseline):
+    service_networks = resolved['services'][NAME].get('networks', {})
+    declared = set()
+    for key in service_networks:
+        network = resolved.get('networks', {}).get(key, {})
+        require(bool(network.get('name')), 'unresolved Compose network name')
+        declared.add(network['name'])
+    actual = set(baseline['NetworkSettings']['Networks'])
+    require(declared == actual, 'out-of-Compose network attachment; recreation blocked')
+
 class Runtime:
     def __init__(self, backup, manifest_sha):
         self.backup = Path(backup)
@@ -145,6 +155,7 @@ class Runtime:
         wanted = json.loads(read_private(self.backup / ('compose.resolved.candidate.json' if candidate
                                                        else 'compose.resolved.original.json')))
         require(resolved == wanted, 'resolved Compose/environment drift')
+        require_compose_network_coverage(resolved, self.baseline)
         d = self.inspect()
         require(normalized(d, candidate) == normalized(self.baseline), 'effective container configuration drift')
         require(d['State']['Running'] and d['RestartCount'] == 0, 'running/restart precondition failed')
