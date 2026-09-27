@@ -396,3 +396,19 @@ distinct from a Gate contract failure. Promotion, Community Health, R15.10
 Bash safety, R15.8 phase ordering and R15.4 runtime access semantics are
 unchanged. R15.14 is source-only and does not install, deploy, probe, start S11,
 start a Canary, touch Telegram or access Yoti.
+
+## R15.14.1 immutable Freeze provenance
+
+The first R15.15 source preflight correctly stopped at
+`S11_2_FREEZE_PROVENANCE_RED`: the immutable R15.14 tag used five artifact
+aliases and omitted two required runtime-contract keys. It therefore matched
+22 of the controller's exact 29 bindings. No runtime boundary had been
+crossed.
+
+R15.14.1 preserves that tag unchanged and binds the controller to the new
+`s11-2-r15-14-1-freeze-provenance-r1` tag. The versioned Freeze helper owns
+the exact ordered 29-key generation and verification representation. Tests
+require it to equal the binding literals in `require_local_freeze()` and
+reject missing, duplicate, aliased, unknown or incorrectly valued bindings.
+Final commit, tree and artifact hashes are derived only from the post-merge
+commit. Runtime, S11, Canary and Yoti remain untouched.

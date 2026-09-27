@@ -10,9 +10,11 @@ from typing import Any
 
 if __package__:
     from . import tu1nz_adult_public_s11_2_gate as gate
+    from . import tu1nz_adult_public_s11_2_freeze as freeze
     from . import tu1nz_adult_public_s11_2_orchestration as orchestration
 else:
     import tu1nz_adult_public_s11_2_gate as gate
+    import tu1nz_adult_public_s11_2_freeze as freeze
     import tu1nz_adult_public_s11_2_orchestration as orchestration
 
 
@@ -82,6 +84,17 @@ def _technical_plan(values: list[int]) -> dict[str, Any]:
 
 
 def simulate() -> dict[str, Any]:
+    modeled_bindings = {
+        "application_commit": freeze.APPLICATION_COMMIT,
+        "application_tree": freeze.APPLICATION_TREE,
+        "control_commit": "1" * 40,
+        "control_tree": "2" * 40,
+    }
+    modeled_bindings.update({key: "3" * 64 for key in freeze.ARTIFACT_PATHS})
+    modeled_bindings.update(freeze.STATIC_BINDINGS)
+    freeze_report = freeze.verify_annotation(
+        freeze.render_annotation(modeled_bindings), modeled_bindings
+    )
     plans = {
         "0_of_5": _technical_plan([]),
         "4_of_5": _technical_plan([100, 110, 120, 130]),
@@ -95,6 +108,8 @@ def simulate() -> dict[str, Any]:
     except orchestration.ContractError as error:
         slo_red_code = str(error)
     happy_path = {
+        "first_gate": "FREEZE_PROVENANCE",
+        "next_gate": "PRE_S11_DEPENDENCY",
         "ordered_phases": list(orchestration.PHASES),
         "technical_start_0_of_5": {
             "serial_probes": plans["0_of_5"]["missing_samples"],
@@ -130,7 +145,9 @@ def simulate() -> dict[str, Any]:
         "automatic_retry": False,
     }
     ok = (
-        failure_valid is False
+        freeze_report["ok"] is True
+        and freeze_report["matching_count"] == 29
+        and failure_valid is False
         and diagnostic["inner_safe_code"] == "S11_2_TECHNICAL_BINDING_MISSING"
         and slo_red_code == "S11_2_TECHNICAL_SLO_RED"
         and plans["0_of_5"]["missing_samples"] == 5
@@ -148,6 +165,7 @@ def simulate() -> dict[str, Any]:
         ),
         "happy_path": happy_path,
         "negative_gate_path": negative_path,
+        "freeze_provenance_green": freeze_report["ok"],
         "technical_slo_red_code": slo_red_code,
         "runtime_mutation": False,
         "adult_media": False,
