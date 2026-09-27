@@ -269,7 +269,12 @@ def validate_manifest(path: Path) -> dict[str, object]:
         },
         "source_readiness": "S12_SANDBOX_SOURCE_GREEN",
     }
-    failures = [key for key, value in expected.items() if raw.get(key) != value]
+    failures = [
+        key
+        for key, value in expected.items()
+        if json.dumps(raw.get(key), sort_keys=True, separators=(",", ":"))
+        != json.dumps(value, sort_keys=True, separators=(",", ":"))
+    ]
     failures.extend(f"unexpected:{key}" for key in raw if key not in expected)
     ok = not failures
     return {

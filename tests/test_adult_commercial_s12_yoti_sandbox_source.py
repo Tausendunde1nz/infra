@@ -91,6 +91,15 @@ class CommercialS12YotiSandboxSourceControlTests(unittest.TestCase):
         changed = copy.deepcopy(original)
         changed["unexpected"] = False
         mutations.append(("unexpected_top_level_key", changed))
+        changed = copy.deepcopy(original)
+        changed["runtime"]["deployed"] = 0
+        mutations.append(("runtime.numeric_false", changed))
+        changed = copy.deepcopy(original)
+        changed["boundaries"]["sandbox_only"] = 1
+        mutations.append(("boundaries.numeric_true", changed))
+        changed = copy.deepcopy(original)
+        changed["sandbox_policy"]["threshold"] = 18.0
+        mutations.append(("sandbox_policy.numeric_type", changed))
         for name, value in mutations:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "manifest.json"
