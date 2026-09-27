@@ -412,3 +412,24 @@ require it to equal the binding literals in `require_local_freeze()` and
 reject missing, duplicate, aliased, unknown or incorrectly valued bindings.
 Final commit, tree and artifact hashes are derived only from the post-merge
 commit. Runtime, S11, Canary and Yoti remain untouched.
+
+## R15.15.3 profile-scoped Technical reader
+
+R15.15.2 proved that the Release and Run binding is intentionally shared by
+Technical and REAL Direct writers. The former Control reader incorrectly
+required every bounded DIRECT row to have Technical provenance, so one valid
+REAL row made the Technical Gate RED. R15.15.3 retains the broad 24-hour read,
+validates UNKNOWN and malformed provenance before selection, and evaluates
+only canonical INTERNAL_TEST/DIRECT_BOT_RESPONSE/INTERNAL_ACCEPTANCE handler
+values. Known REAL, S11 Canary REAL, Synthetic, Health, Provider Probe and
+Canary Technical profiles remain available to their proper consumers and do
+not contaminate the Technical SLO.
+
+The detailed cross-profile table and regression contract are in
+`COMMERCIAL_S11_2_R15_15_3_PROFILE_SCOPED_TECHNICAL_READER.md`. The existing
+29 Freeze keys remain stable while `technical_evidence_contract` advances to
+`PROFILE_SCOPED_MIXED_PROVENANCE_DYNAMIC_HARD_CAP_V2`. The new immutable tag
+is `s11-2-r15-15-3-profile-scoped-technical-freeze-r1`; the prior tag stays
+unchanged and verifiable under its historical value. This change is
+source-only and does not deploy, write evidence, run a probe, start S11 or a
+Canary, or access Yoti.

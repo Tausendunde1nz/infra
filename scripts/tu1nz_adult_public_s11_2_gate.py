@@ -48,6 +48,24 @@ GATE_DIAGNOSTIC_SCHEMA = "TU1NZ_S11_2_GATE_DIAGNOSTIC"
 GATE_DIAGNOSTIC_VERSION = "GATE_DIAGNOSTIC_V1"
 TECHNICAL_GATE_OUTER_CODE = "S11_2_TECHNICAL_GATE_READ_RED"
 
+# This is a source-local mirror of the canonical Application latency
+# provenance contract. The runtime does not import from the Application
+# checkout: installed Control remains independently deployable. DIRECT rows
+# share one release/run binding and are separated by profile provenance.
+DIRECT_PROFILE_PATHS = {
+    "REAL": "TELEGRAM_DIRECT",
+    "INTERNAL_TEST": "INTERNAL_ACCEPTANCE",
+    "SYNTHETIC": "SYNTHETIC_FIXTURE",
+    "HEALTH": "RUNTIME_HEALTH",
+    "PROVIDER_PROBE": "PROVIDER_PROBE",
+}
+DIRECT_SAMPLE_TYPES = {"DIRECT_BOT_RESPONSE", "S11_CANARY_RESPONSE"}
+TECHNICAL_PROFILE = (
+    "INTERNAL_TEST",
+    "DIRECT_BOT_RESPONSE",
+    "INTERNAL_ACCEPTANCE",
+)
+
 # Exact canonical codes are the only ValueError messages that may cross the
 # process boundary. Unknown/free-form exception text is never serialized.
 FAILURE_TAXONOMY = {
@@ -333,6 +351,32 @@ def _profile(values: list[int], name: str) -> dict[str, Any]:
     }
 
 
+def technical_profile_values(samples: list[tuple[Any, ...]]) -> list[int]:
+    """Validate bounded DIRECT rows and select only Technical handler values.
+
+    Rows belong to a deliberately shared release/run binding. Known canonical
+    profiles coexist there; only the Technical Runtime profile contributes to
+    this SLO. Unknown, malformed, or impossible provenance remains fail-closed.
+    """
+
+    values: list[int] = []
+    for sample in samples:
+        if not isinstance(sample, (tuple, list)) or len(sample) != 7:
+            raise ValueError("S11_2_TECHNICAL_PROVENANCE_RED")
+        evidence_class, sample_type, interaction_path, *metrics = sample
+        expected_path = DIRECT_PROFILE_PATHS.get(evidence_class)
+        if (
+            expected_path is None
+            or sample_type not in DIRECT_SAMPLE_TYPES
+            or interaction_path != expected_path
+            or any(type(metric) is not int or not 0 <= metric <= 300000 for metric in metrics)
+        ):
+            raise ValueError("S11_2_TECHNICAL_PROVENANCE_RED")
+        if (evidence_class, sample_type, interaction_path) == TECHNICAL_PROFILE:
+            values.append(metrics[2])
+    return values
+
+
 def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
     required = {
         "release_state",
@@ -487,22 +531,15 @@ def _runtime_payload(connection: psycopg.Connection, now: datetime, hard_gates: 
         raise ValueError("S11_2_TECHNICAL_BINDING_MISSING")
     technical_release_id, technical_run_id = technical_binding
     technical_samples = connection.execute(
-        "SELECT evidence_class,sample_type,interaction_path,handler_duration_ms "
+        "SELECT evidence_class,sample_type,interaction_path,bot_response_latency_ms,"
+        "poll_lag_ms,handler_duration_ms,send_ack_ms "
         "FROM commercial_s10_2d_latency_samples WHERE source='DIRECT' "
         "AND release_id=%s AND run_id=%s "
         "AND recorded_at >= %s AND recorded_at <= %s "
         "ORDER BY recorded_at,sample_id",
         (technical_release_id, technical_run_id, now - timedelta(hours=24), now),
     ).fetchall()
-    technical_values = [
-        value[3]
-        for value in technical_samples
-        if value[0] == "INTERNAL_TEST"
-        and value[1] == "DIRECT_BOT_RESPONSE"
-        and value[2] == "INTERNAL_ACCEPTANCE"
-    ]
-    if len(technical_values) != len(technical_samples):
-        raise ValueError("S11_2_TECHNICAL_PROVENANCE_RED")
+    technical_values = technical_profile_values(technical_samples)
     canary_samples = connection.execute(
         "SELECT evidence_class,sample_type,interaction_path,bot_response_latency_ms,"
         "handler_duration_ms FROM commercial_s10_2d_latency_samples "

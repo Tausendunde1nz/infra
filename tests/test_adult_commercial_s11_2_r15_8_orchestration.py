@@ -211,8 +211,9 @@ class R158OrchestrationTests(unittest.TestCase):
         source = GATE.read_text(encoding="utf-8")
         runtime = source[source.index("def _runtime_payload"):source.index("def simulate_contract")]
         self.assertIn("technical_evidence_run_id", runtime)
-        self.assertIn('value[1] == "DIRECT_BOT_RESPONSE"', runtime)
-        self.assertIn('value[0] == "INTERNAL_TEST"', runtime)
+        self.assertIn("technical_profile_values(technical_samples)", runtime)
+        self.assertIn("bot_response_latency_ms", runtime)
+        self.assertIn("handler_duration_ms", runtime)
         self.assertIn("now - timedelta(hours=24)", runtime)
         self.assertNotIn('value[1] == "S11_CANARY_RESPONSE"\n        and value[2] == "INTERNAL_ACCEPTANCE"', runtime)
 
