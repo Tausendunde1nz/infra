@@ -1,6 +1,6 @@
 {
-  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v22",
-  "status": "S11_2_R15_14_GATE_FAILURE_CONTRACT_SOURCE_GREEN_PENDING_REVIEW",
+  "version": "tu1nz-commercial-s11-2-canary-bootstrap-v23",
+  "status": "S11_2_R15_14_1_FREEZE_PROVENANCE_SOURCE_GREEN_PENDING_REVIEW",
   "application_release": {
     "commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
@@ -9,7 +9,7 @@
     "reviewed_head": "99936d15c800c25bef35701c9568de30f04d227e"
   },
   "control_release": {
-    "freeze_tag": "s11-2-r15-14-gate-error-envelope-freeze-r1",
+    "freeze_tag": "s11-2-r15-14-1-freeze-provenance-r1",
     "controller": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "p0_recovery": "scripts/tu1nz_adult_public_s11_2_p0_recovery.sh",
     "s8_poller_recovery": "scripts/tu1nz_adult_public_s11_2_s8_poller_recovery.sh",
@@ -229,7 +229,7 @@
     "next_r15_11_runtime_deployment_ready": true
   },
   "r15_10_artifact_bindings": {
-    "controller_sha256": "2a7978fa34041935e2c1192c21aecbe350680da68617d4cac3b0d2b2bb84c54b",
+    "controller_sha256": "5f344afb501d2d26e90a06897d4c18df2550b2f608b9bbaa5387a6d6da2f52ee",
     "orchestration_sha256": "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c",
     "focused_suite_sha256": "6e58bd7259b9824cad528ca70bd187bc7653306fcb48c34f31e6a35cce05bfa9",
     "ssot_sha256": "6ff4208e3e49d1a424f215487fb6b2ed0281f6cbacc5cc82e3d29c2e099469ca",
@@ -376,7 +376,7 @@
     "r15_13_simulator_sha256": "60b9a9d63eb249d31b071d8f0280de008ce4d3f824c92da01b7457ee50be9bd8",
     "focused_envelope_suite_sha256": "84c25b47b952f0bfb5614875163307adb40d7c4b2ec5785f0c140d835467ada9",
     "focused_compatibility_suite_sha256": "d1e06b883e8babe3bb5c0bab52533396b8c0a6d5b3707c0d744c4cd347308b2b",
-    "controller_sha256": "2a7978fa34041935e2c1192c21aecbe350680da68617d4cac3b0d2b2bb84c54b",
+    "controller_sha256": "5f344afb501d2d26e90a06897d4c18df2550b2f608b9bbaa5387a6d6da2f52ee",
     "ssot_sha256": "ecf837dc94e7a389341e3b5665bcc794d4308ad43a392e246915dc4b46e3880d",
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
@@ -430,6 +430,29 @@
     "contract_document_sha256": "3a99736bd8b060128adb5df6df0e3887f79c4db88d5336618c01074d6bab1932",
     "application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab"
+  },
+  "r15_14_1_freeze_provenance": {
+    "source_only": true,
+    "runtime_mutation_performed": false,
+    "ssh_used": false,
+    "sudo_used": false,
+    "technical_probes_started": 0,
+    "s11_canary_started": false,
+    "yoti_accessed": false,
+    "classification": "IMMUTABLE_FREEZE_CANONICAL_KEY_DRIFT",
+    "old_freeze_immutable": "s11-2-r15-14-gate-error-envelope-freeze-r1",
+    "old_required_count": 29,
+    "old_matching_count": 22,
+    "old_missing_count": 7,
+    "replacement_freeze": "s11-2-r15-14-1-freeze-provenance-r1",
+    "canonical_binding_count": 29,
+    "binding_ssot": "scripts/tu1nz_adult_public_s11_2_freeze.py",
+    "controller_equivalence_check": true,
+    "aliases_rejected": true,
+    "duplicates_rejected": true,
+    "unknown_bindings_rejected": true,
+    "final_values_derived_after_merge": true,
+    "next_r15_15_runtime_deployment_ready_after_actual_tag_verification": true
   },
   "release_states": ["S11_DISABLED", "S11_CANARY", "S11_FULL"],
   "canary_contract": {
