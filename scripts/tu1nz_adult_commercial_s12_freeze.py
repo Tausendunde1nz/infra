@@ -218,41 +218,59 @@ def validate_manifest(path: Path) -> dict[str, object]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     expected = {
         "application": {"commit": APPLICATION_COMMIT, "tree": APPLICATION_TREE},
+        "boundaries": {
+            "adult_media_enabled": False,
+            "controlled_beta_enabled": False,
+            "external_publishing_enabled": False,
+            "payments_enabled": False,
+            "production_enabled": False,
+            "real_avs_enabled": False,
+            "sandbox_only": True,
+        },
         "contract_version": CONTRACT_VERSION,
-        "environment": "SANDBOX",
-        "provider": "YOTI",
+        "credentials": {
+            "private_key_reference": "/etc/tu1nz/adult-commercial-s5.yoti-private-key",
+            "sdk_id_reference": "/etc/tu1nz/adult-commercial-s5.yoti-sdk-id",
+            "status": "ABSENT",
+            "values_committed": False,
+        },
         "decision": "SOURCE_GREEN_RUNTIME_NOT_AUTHORIZED",
-        "provider_readiness": "YOTI_SANDBOX_CREDENTIALS_ABSENT",
-        "source_readiness": "S12_SANDBOX_SOURCE_GREEN",
-        "next_s12_sandbox_runtime_ready": True,
+        "environment": "SANDBOX",
         "external_blocker": "YOTI_SANDBOX_CREDENTIALS_REQUIRED",
+        "feature_flags": {
+            "ADULT_MEDIA_ENABLED": False,
+            "CONTROLLED_BETA_ENABLED": False,
+            "EXTERNAL_PUBLISHING_ENABLED": False,
+            "PAYMENTS_ENABLED": False,
+            "PRODUCTION_ENABLED": False,
+            "REAL_AVS_ENABLED": False,
+            "YOTI_SANDBOX_ENABLED": False,
+        },
+        "network": {
+            "allowed_hosts": ["age.yoti.com", "auth.api.yoti.com"],
+            "enabled": False,
+            "production_endpoint_allowed": False,
+        },
+        "next_s12_sandbox_runtime_ready": True,
+        "provider": "YOTI",
+        "provider_readiness": "YOTI_SANDBOX_CREDENTIALS_ABSENT",
+        "runtime": {
+            "deployed": False,
+            "installed": False,
+            "started": False,
+            "unit_present": False,
+        },
+        "sandbox_policy": {
+            "allowed_methods": ["AGE_ESTIMATION"],
+            "provider_result_authority": "AUTHENTICATED_RESULT_FETCH",
+            "real_identity_allowed": False,
+            "synthetic_subject_only": True,
+            "threshold": 18,
+        },
+        "source_readiness": "S12_SANDBOX_SOURCE_GREEN",
     }
     failures = [key for key, value in expected.items() if raw.get(key) != value]
-    boundaries = raw.get("boundaries", {})
-    flags = raw.get("feature_flags", {})
-    runtime = raw.get("runtime", {})
-    credentials = raw.get("credentials", {})
-    network = raw.get("network", {})
-    if boundaries.get("sandbox_only") is not True or any(
-        boundaries.get(key) is not False
-        for key in (
-            "real_avs_enabled",
-            "adult_media_enabled",
-            "external_publishing_enabled",
-            "payments_enabled",
-            "controlled_beta_enabled",
-            "production_enabled",
-        )
-    ):
-        failures.append("boundaries")
-    if any(value is not False for value in flags.values()):
-        failures.append("feature_flags")
-    if any(value is not False for value in runtime.values()):
-        failures.append("runtime")
-    if credentials.get("status") != "ABSENT" or credentials.get("values_committed") is not False:
-        failures.append("credentials")
-    if network.get("enabled") is not False or network.get("production_endpoint_allowed") is not False:
-        failures.append("network")
+    failures.extend(f"unexpected:{key}" for key in raw if key not in expected)
     ok = not failures
     return {
         "ok": ok,

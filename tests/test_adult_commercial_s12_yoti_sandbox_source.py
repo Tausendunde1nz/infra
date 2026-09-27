@@ -65,6 +65,32 @@ class CommercialS12YotiSandboxSourceControlTests(unittest.TestCase):
         changed = copy.deepcopy(original)
         changed["credentials"]["values_committed"] = True
         mutations.append(("credentials.values_committed", changed))
+        changed = copy.deepcopy(original)
+        changed["sandbox_policy"]["real_identity_allowed"] = True
+        mutations.append(("sandbox_policy.real_identity_allowed", changed))
+        changed = copy.deepcopy(original)
+        changed["network"]["allowed_hosts"].append("api.yoti.com")
+        mutations.append(("network.allowed_hosts", changed))
+        changed = copy.deepcopy(original)
+        changed["credentials"]["private_key_reference"] = "/tmp/unapproved-key"
+        mutations.append(("credentials.private_key_reference", changed))
+        for section in (
+            "boundaries",
+            "credentials",
+            "feature_flags",
+            "network",
+            "runtime",
+            "sandbox_policy",
+        ):
+            changed = copy.deepcopy(original)
+            changed[section] = {}
+            mutations.append((section + ".empty", changed))
+        changed = copy.deepcopy(original)
+        del changed["runtime"]["unit_present"]
+        mutations.append(("runtime.missing_key", changed))
+        changed = copy.deepcopy(original)
+        changed["unexpected"] = False
+        mutations.append(("unexpected_top_level_key", changed))
         for name, value in mutations:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "manifest.json"
