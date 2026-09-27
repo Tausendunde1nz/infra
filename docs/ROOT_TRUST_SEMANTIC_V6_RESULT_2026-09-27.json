@@ -1,0 +1,332 @@
+{
+  "activation_ready": false,
+  "base_commit": "a0016bf213cc8d5bfce147a8a163dda85852570f",
+  "decisions": [
+    {
+      "classification": "BLOCKER",
+      "code": "/usr/bin/docker compose up -d",
+      "controller": "root unit; chatops can create absent WorkingDirectory",
+      "id": "root-compose",
+      "impact": "root Docker authority from user-controlled configuration",
+      "inputs": "/home/chatops/bot-template-telegram implicit Compose and .env",
+      "rollback": "exact unit, enablement and inactive state",
+      "source": "/etc/systemd/system/tu1nz-bot.service",
+      "target": "conditionally disable/mask obsolete unit without ExecStop; preserve created container"
+    },
+    {
+      "classification": "BLOCKER",
+      "code": "/usr/local/bin/build_system_doc.sh",
+      "controller": "root cron / chatops renderer and output ancestors",
+      "id": "root-doc",
+      "impact": "root execution of user-controlled renderer",
+      "inputs": "/opt/tu1nz_repos/docs/system_manifest/render_kapitel3.sh",
+      "rollback": "exact cron, scripts, units, output metadata and state",
+      "source": "/etc/cron.d/system_doc_build",
+      "target": "unprivileged rendering with separately pinned publication contract"
+    },
+    {
+      "classification": "REVIEW_REQUIRED",
+      "container_uid": 0,
+      "docker_socket": false,
+      "host_root_mount": false,
+      "id": "mommyramona",
+      "missing": "Host-consumer semantics of protected backup_notify.sh and its activation; UID 0 alone is not blocker",
+      "privileged": false,
+      "source": "telegram_bot_mommyramona"
+    },
+    {
+      "application_gid": 1001,
+      "application_uid": 1001,
+      "classification": "REVIEW_REQUIRED",
+      "docker_socket": false,
+      "host_root_mount": false,
+      "id": "jellyfin",
+      "init_uid": 0,
+      "missing": "Complete root-consumer closure of config/cache/media; no host escalation established",
+      "privileged": false,
+      "source": "jellyfin"
+    },
+    {
+      "classification": "BLOCKER",
+      "controller": "dedicated uid 10001 explicit SupplementaryGroups=docker",
+      "id": "mychatbuddy-docker",
+      "impact": "Removing chatops membership leaves this Docker authority intact",
+      "missing": "Proof of quiescence and duplicate-free restart; unexpired lease and send-before-record window exist",
+      "source": "mychatbuddy-private-alpha.service"
+    },
+    {
+      "classification": "BLOCKER",
+      "id": "cadvisor-host-root",
+      "impact": "Host-root and runtime mounts require explicit authority contract; read-only mount not proof of isolation",
+      "source": "cadvisor",
+      "target": "dedicated reviewed monitoring contract; no live change prepared"
+    }
+  ],
+  "docker_gid_snapshot": [
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1083409,
+      "start_ticks": "2668681184",
+      "uid": 1001,
+      "units": [
+        "user@1001.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1120123,
+      "start_ticks": "2851599194",
+      "uid": 1001,
+      "units": [
+        "tu1nz-adult-public-s8-telegram.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1120131,
+      "start_ticks": "2851599211",
+      "uid": 1001,
+      "units": [
+        "tu1nz-adult-public-s10-wms.service"
+      ]
+    },
+    {
+      "groups": [
+        987,
+        10001
+      ],
+      "pid": 1132911,
+      "start_ticks": "2851782950",
+      "uid": 10001,
+      "units": [
+        "mychatbuddy-private-alpha.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1156217,
+      "start_ticks": "2852082416",
+      "uid": 1001,
+      "units": []
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1156218,
+      "start_ticks": "2852082421",
+      "uid": 1001,
+      "units": []
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1156263,
+      "start_ticks": "2852082610",
+      "uid": 1001,
+      "units": [
+        "tu1nz_agentmode.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1163968,
+      "start_ticks": "29156519",
+      "uid": 1001,
+      "units": []
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1389949,
+      "start_ticks": "2595241741",
+      "uid": 1001,
+      "units": [
+        "tu1nz_agentmode.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1852533,
+      "start_ticks": "2607707160",
+      "uid": 1001,
+      "units": []
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1852534,
+      "start_ticks": "2607707161",
+      "uid": 1001,
+      "units": [
+        "user@1001.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 1852535,
+      "start_ticks": "2607707162",
+      "uid": 1001,
+      "units": [
+        "user@1001.service",
+        "dbus.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 3688681,
+      "start_ticks": "2729745316",
+      "uid": 1001,
+      "units": [
+        "tu1nz-adult-public-s8-landing.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 3707516,
+      "start_ticks": "2652524184",
+      "uid": 1001,
+      "units": [
+        "tu1nz-adult-public-s7.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 4413,
+      "start_ticks": "5058",
+      "uid": 1001,
+      "units": [
+        "user@1001.service"
+      ]
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 742654,
+      "start_ticks": "2845482278",
+      "uid": 0,
+      "units": []
+    },
+    {
+      "groups": [
+        4,
+        27,
+        100,
+        987,
+        999,
+        1001
+      ],
+      "pid": 742754,
+      "start_ticks": "2845482372",
+      "uid": 1001,
+      "units": []
+    }
+  ],
+  "edge_closure": false,
+  "export_sha256": "339684d21fdd56046fcc76143aad816a8a409150dd629cf7547e5aeeb2baf484",
+  "graph_nodes": 6349,
+  "implementation": "offline gates and in-memory failure model; no live installer",
+  "lexical_edges": 13296,
+  "private_edge_ledger_sha256": "d949058c91123a889d9693227b4b81090993643b9ebdf73cad244f3fdf2d5c5b",
+  "reported_root_manifest_sha256": "17ab9113ec1cfa8f88379e18c68418cab5c028647a90f68554e6783e9b3280e7",
+  "schema": "tu1nz-semantic-v6-offline-review"
+}
