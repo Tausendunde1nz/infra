@@ -1,0 +1,33 @@
+# Tailscale IPv4-only target and failed IPv6 negative baseline — 2026-09-26
+
+## Binding target decision
+
+The operator has replaced the prior dual-stack acceptance requirement. Tailscale IPv4 is the intended production path for SSH, administration and Exit Node use. No global IPv6 activation, Docker change, manual tunnel IPv6 address or route, or other interface modification is authorized. Existing IPv6 diagnoses and rollback evidence must be retained. Future tunnel IPv6 support is a separately planned infrastructure project.
+
+Precisely distinguish the global disable flag from all interfaces: all.disable_ipv6=1, default=1 and tailscale0=1 remain unchanged, while eth0.disable_ipv6=0 and its public IPv6 remain configured. The decision does not authorize disabling public IPv6 or changing any interface.
+
+## Actual state contradicts the assumed fail-closed baseline
+
+A fresh bounded Mac TCP connection to the exact server Tailscale IPv6 fd7a:115c:a1e0::7a32:8233 on port 22 succeeded and returned SSH-2.0-Tailscale. The same address on port 2222 timed out after four seconds. No credentials were sent and no login was attempted in this diagnostic. IPv4 OpenSSH 2222 remained usable for read-only checks and documentation.
+
+Thus it is FALSE to state that no service is reachable over Tailscale IPv6. Kernel IPv6 disablement does not establish closure of Tailscale's userspace SSH listener. Prior 2026-09-24 evidence also records successful IPv6 Tailscale SSH22. This is not proof of unauthorized account access; existing SSH identity/chatops restrictions are distinct from transport reachability.
+
+The new negative acceptance criterion requires TCP22 to be unreachable over the tunnel IPv6 as well. The IPv4-only target is documented as a desired architecture, not an achieved security result. A candidate policy must explicitly avoid grants that authorize that IPv6 transport, and its behavior must be validated rather than inferred from kernel flags. No new IPv6 grant is authorized.
+
+## Fresh policy observation and activation gates
+
+The authenticated Tailscale admin editor was reloaded without edits. Full editor text still shows the unrestricted grants rule src=[*], dst=[*], ip=[*]; SSH remains action=check, confirmed-owner-only source, dst=autogroup:self, users=[chatops]. Save and Discard were disabled. No Save, draft mutation, policy activation or rollback occurred. autogroup:self is owner-scoped, not an assertion of an exact single server.
+
+The previous workflow only supplied a manually supervised admin-console restoration path. It explicitly recorded that no unattended Tailnet API/timer rollback was available. That does not meet the newly mandatory automatic rollback requirement. No callable Tailscale API connector was available in this session; no credential was searched for, created, disclosed or requested. A server watchdog cannot restore a Tailnet policy without an authenticated independent policy-write mechanism. An automatic rollback has NOT been prepared, offline validated or armed. Do not substitute a manual console backup and call it automatic.
+
+STOP before activation: a required negative baseline test failed, and the automatic rollback gate remains unmet. Since no policy was changed, the original policy remains live and no restoration write is needed. A complete new policy diff, compiler tests, full post-change matrix and check-to-accept transaction have NOT been completed. No claims of public IPv4/IPv6 negative-test success, fresh iPhone Exit Node verification, backup/monitoring/container acceptance or final hardening completion are made by this document.
+
+After resolving the rollback mechanism, derive the candidate from a fresh full live-policy backup and device/Exit Node mapping. Scope server-management grants to confirmed IPv4 devices/ports; retain required owner-device internet/Exit Node connectivity without broad peer access; validate that no rule unintentionally grants the server IPv6 SSH path. Preserve the SSH owner/chatops restriction and separately verify the exact server target. Complete policy tests, independent Mac/iPhone tests and all required negatives before disarming rollback. Only then consider check-to-accept as a separate transaction with its own backup and rollback to check.
+
+## Evidence and repository
+
+Fresh protected device status, interface flags and pre-documentation manifest: /opt/tu1nz_repos/network-hardening-private-2026-09-22/ipv4-only-preparation-20260926T081006Z/ (0700 directory, 0600 files). No raw preferences or identity inventory is committed. Prior isolated-test evidence and all earlier recovery copies are retained.
+
+Hardening starting HEAD c170899358453050a8597212649d68d546790358, clean. Remote control-main was observed at 656e85448c500e172cd7f2f3eaa9b54c8a8b0e33; this new documentation does not merge, rebase, switch or modify the canonical detached checkout. Upstream integration review is still required before a later activation. Only this diagnosis is committed on security/network-hardening-2026-09-22.
+
+No change to Tailnet, Hetzner, firewall, SSH, sudo, systemd, interfaces, Docker, MyChatBuddy or public listeners was made. Recovery console is retained.

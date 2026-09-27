@@ -1,0 +1,59 @@
+# Phase 4 preflight stopped — 2026-09-23
+
+No provider, Tailnet, SSH, local firewall, service or application change activated.
+The operator confirmed no direct public need for ports3000/8080/8090/9100.
+The intended provider reduction remains TCP80/443 plus necessary ICMP; UDP41641
+requires a separately evidenced need before addition. Existing rules remain
+TCP80-8080, TCP22, TCP443 and ICMP for both address families, no outbound rules.
+This is a proposed scope, not an activated or fully validated provider diff.
+
+## Blocking health finding
+At 2026-09-23T03:32Z the preflight found tu1nz-doc.service failed.
+Its last run failed at 2026-09-22T22:00:01Z with exit200/CHDIR.
+Loaded WorkingDirectory=/opt/tu1nz_repos/docs_repo; user/group chatops.
+Journal explicitly says changing to the requested directory failed:
+No such file or directory. Unit fragment /etc/systemd/system/tu1nz-doc.service,
+drop-in /etc/systemd/system/tu1nz-doc.service.d/override.conf.
+No directory creation, unit edit, reset-failed or restart was attempted.
+The expected repository location and the history of this missing directory
+must be investigated before any repair; do not create an empty substitute.
+The user's stop-on-failed-healthcheck gate blocks Phase4 activation.
+
+## Other read-only observations
+Prometheus node and cAdvisor targets are up with empty lastError; scrapes at
+03:32:43Z and03:32:42Z respectively. No monitoring correction was repeated.
+Tailscale is Running with empty Health; server remains ExitNodeOption=true.
+Both iPhone nodes remain offline/expired, so an actual iPhone/Exit-Node test
+is unavailable and Phase5 allow-all removal remains blocked independently.
+The independent Hetzner console remains open with an authenticated chatops
+prompt and the prior whoami/hostname confirmation visible. No credentials used.
+MyChatBuddy private-alpha systemd failure dates to2026-09-22T01:12:09Z.
+spicymila_bot remains the known unhealthy frozen container. Neither was touched.
+Encrypted backup was activating since03:31:14Z; no completion is asserted.
+The last tu1nz-health.service execution at03:31:39Z exited0.
+No public connection test, bot message, restart or provider-lease write occurred.
+No fresh privileged ruleset or end-to-end exit-node validation is claimed.
+
+## Git state and next gate
+Remote control-main and the clean detached canonical checkout have independently
+advanced to13fd066ace8a2592b27dc12500fdb3bd527cc7ce (PR178, R14 runtime probe).
+This task only fetched into the shared Git metadata; it did not change the
+canonical checkout or its HEAD. Eight upstream files differ, including new
+technical latency scripts and a service. They have not yet been integrated
+into the isolated hardening branch. A non-rewriting integration and dependency
+review remain required before later activation. No force push or merge to the
+integration branch was performed.
+
+## Fresh provider backup / rollback readiness
+Private capture: /opt/tu1nz_repos/network-hardening-private-2026-09-22/phase4-blocked-20260923T033337Z
+Directory0700, files0600, SHA256SUMS validated. hetzner-before.json is the complete
+current provider firewall export; rollback-rules.json contains its exact rule
+array and was compared offline to the export. Firewall10043301 is attached to
+server109772243. The CLI input/API validation and live restoration have not been
+exercised; do not claim a fully passed transaction preflight.
+No provider rollback is needed because nothing was activated. Before a future
+activation take another timestamped capture, validate the exact CLI payload,
+prepare automatic restoration with the independent console retained, document
+and push the exact diff, and pass all service/dependency gates.
+
+Only this diagnosis is committed. Private evidence stays outside Git.
