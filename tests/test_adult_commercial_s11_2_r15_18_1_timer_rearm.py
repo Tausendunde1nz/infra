@@ -95,21 +95,22 @@ class R15181TimerRearmTests(unittest.TestCase):
         self.assertIn('FREEZE_TAG = "s11-2-r15-18-1-timer-rearm-contract-freeze-r1"', freeze)
         self.assertIn('"phase_contract": "S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1"', freeze)
         self.assertIn('"r15_15_simulator": "EXPLICIT_SINGLE_FRESH_TIMER_ARM_V1"', freeze)
-        self.assertEqual(manifest["control_release"]["freeze_tag"], "s11-2-r15-18-1-timer-rearm-contract-freeze-r1")
+        self.assertEqual(
+            manifest["r15_18_2_activation_relative_timer_contract"]["previous_freeze_immutable"],
+            "s11-2-r15-18-1-timer-rearm-contract-freeze-r1",
+        )
         contract = manifest["r15_18_1_timer_rearm_contract"]
         self.assertEqual(contract["fresh_arm_attempts_per_deployment"], 1)
         self.assertTrue(DOC.is_file())
-        for key, path in {
-            "controller_sha256": CONTROLLER,
-            "freeze_helper_sha256": FREEZE,
-            "simulator_sha256": ROOT / "scripts/tu1nz_adult_public_s11_2_r15_18_1_timer_rearm_simulator.py",
-            "focused_suite_sha256": Path(__file__),
-            "ssot_sha256": DOC,
-            "controller_unit_sha256": ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.service",
-            "controller_timer_sha256": ROOT / "systemd/tu1nz-adult-public-s11-canary-controller.timer",
-        }.items():
+        expected_historical_bindings = {
+            "controller_sha256": "f77808c050b8626e68a18cf682d623cad365680f78bd26d00757c8eef8bbeb55",
+            "freeze_helper_sha256": "5138f09702dd331668118deb54ca349984dd5f4914771de954e4cab6e64d3fe4",
+            "simulator_sha256": "be419a154a2d77e31c86675b61801a6cb1cb4a7460643da4f7a6c392232be241",
+            "focused_suite_sha256": "4a3029b13d9b25786dde0dfa0f3ad8d2d3f96e9352f9ce9e0e9f7dcaebdec639",
+            "ssot_sha256": "588bcf07579989002af333abd17961cfa2197eb2991601c0a97a1c0bdd903296",
+            "controller_unit_sha256": "b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f",
+            "controller_timer_sha256": "cb21506ba674c33c7ec654010cb4d51ca91b84a8db0dff7256d92533fe971ebd",
+        }
+        for key, expected in expected_historical_bindings.items():
             with self.subTest(key=key):
-                self.assertEqual(
-                    contract["artifact_bindings"][key],
-                    hashlib.sha256(path.read_bytes()).hexdigest(),
-                )
+                self.assertEqual(contract["artifact_bindings"][key], expected)

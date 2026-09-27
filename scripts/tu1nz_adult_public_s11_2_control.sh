@@ -14,7 +14,7 @@ readonly SOURCE_CONTROL_COMMIT="7c634d3b82572e8459d51c69f04dce82c624d766"
 readonly SOURCE_CONTROL_TREE="1bfbd80d5478dd24f8f3e47d3654a8b7dea649e4"
 readonly TARGET_APPLICATION_COMMIT="db87896697d56b24f192fc1cd0324b6fe46d734b"
 readonly TARGET_APPLICATION_TREE="b915a04e19eef8a244c300b16577a44cea89e2ab"
-readonly FINAL_CONTROL_TAG="s11-2-r15-18-1-timer-rearm-contract-freeze-r1"
+readonly FINAL_CONTROL_TAG="s11-2-r15-18-2-activation-relative-timer-freeze-r1"
 readonly CONTROLLER_UNIT_SHA="b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f"
 readonly RETIRED_S8_HEALTH_TIMER_SHA="42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"
 readonly ACQUISITION_BASELINE="2026-09-18T00:41:06.710027Z"
@@ -176,7 +176,7 @@ require_local_freeze() {
     "supplementary_groups=chatops" \
     "canary_contract=FIRST_10_24H_EPOCH_BOUND" \
     "promotion_contract=FIVE_REAL_AND_TECHNICAL_SLO_GREEN" \
-    "phase_contract=S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1" \
+    "phase_contract=S11_2_R15_18_2_ACTIVATION_RELATIVE_TIMER_V1" \
     "health_contract=S10_1_HEALTH_CHILD_V1" \
     "application_health_schema=S8_HEALTH_V2" \
     "community_failure_envelope=COMMUNITY_FAILURE_V1" \
@@ -185,7 +185,7 @@ require_local_freeze() {
     "gate_diagnostic_contract=GATE_DIAGNOSTIC_V1" \
     "gate_error_allowlist=CANONICAL_EXACT_ONLY" \
     "controller_gate_reader=CONTROL_GATE_READER_V1" \
-    "r15_15_simulator=EXPLICIT_SINGLE_FRESH_TIMER_ARM_V1" \
+    "r15_15_simulator=ACTIVATION_RELATIVE_TIMER_AND_INITIAL_SCHEDULE_V1" \
     "technical_evidence_contract=PROFILE_SCOPED_READER_SERIALIZER_SNAPSHOT_V3" \
     "resume_contract=EXPLICIT_SEPARATELY_AUTHORIZED_NO_AUTO_RETRY" \
     "nounset_contract=SET_U_PRESERVED_NO_SAME_LOCAL_DEPENDENCIES" \
@@ -409,6 +409,14 @@ verify_controller_unit_contract() {
     || fail "S11_2_CONTROLLER_MANUAL_START_OPEN_RED"
   [ "$(sha256sum "$CONTROLLER_UNIT" | awk '{print $1}')" = "$CONTROLLER_UNIT_SHA" ] \
     || fail "S11_2_CONTROLLER_UNIT_HASH_RED"
+  [ "$(grep -Fxc 'OnActiveSec=3min' "$CONTROLLER_TIMER")" -eq 1 ] \
+    || fail "S11_2_CONTROLLER_TIMER_ACTIVATION_BASE_RED"
+  ! grep -q '^OnBootSec=' "$CONTROLLER_TIMER" \
+    || fail "S11_2_CONTROLLER_TIMER_BOOT_BASE_RED"
+  [ "$(grep -Fxc 'OnUnitActiveSec=5min' "$CONTROLLER_TIMER")" -eq 1 ] \
+    || fail "S11_2_CONTROLLER_TIMER_RECURRENCE_RED"
+  [ "$(grep -Fxc 'Persistent=true' "$CONTROLLER_TIMER")" -eq 1 ] \
+    || fail "S11_2_CONTROLLER_TIMER_PERSISTENT_DRIFT_RED"
 }
 
 run_controller_access_check() {
@@ -520,7 +528,8 @@ arm_controller_timer_for_handoff() {
   local pre_timer_enabled pre_timer_active pre_timer_substate
   local pre_next_realtime pre_next_monotonic arm_exit
   local post_timer_enabled post_timer_active post_timer_substate
-  local post_next_realtime post_next_monotonic
+  local post_next_realtime post_next_monotonic initial_schedule_green=false
+  local initial_schedule_attempt now_realtime now_monotonic
 
   verify_controller_unit_contract
   source_timer_sha="$(git_chatops "$CONTROL_ROOT" show \
@@ -558,11 +567,26 @@ arm_controller_timer_for_handoff() {
   arm_exit=0
   systemctl start "$timer" || arm_exit=$?
 
-  post_timer_enabled="$(systemctl is-enabled "$timer" 2>/dev/null || true)"
-  post_timer_active="$(systemctl show "$timer" -p ActiveState --value)"
-  post_timer_substate="$(systemctl show "$timer" -p SubState --value)"
-  post_next_realtime="$(systemctl show "$timer" -p NextElapseUSecRealtime --value)"
-  post_next_monotonic="$(systemctl show "$timer" -p NextElapseUSecMonotonic --value)"
+  for initial_schedule_attempt in 1 2 3 4 5; do
+    post_timer_enabled="$(systemctl is-enabled "$timer" 2>/dev/null || true)"
+    post_timer_active="$(systemctl show "$timer" -p ActiveState --value)"
+    post_timer_substate="$(systemctl show "$timer" -p SubState --value)"
+    post_next_realtime="$(systemctl show "$timer" -p NextElapseUSecRealtime --value)"
+    post_next_monotonic="$(systemctl show "$timer" -p NextElapseUSecMonotonic --value)"
+    now_realtime="$(date +%s%6N)"
+    now_monotonic="$(monotonic_now_usec)"
+    if [ "$arm_exit" -eq 0 ] \
+        && [ "$post_timer_enabled" = enabled ] \
+        && [ "$post_timer_active" = active ] \
+        && [ "$post_timer_substate" = waiting ] \
+        && timer_has_finite_future_values \
+          "$post_next_realtime" "$post_next_monotonic" \
+          "$now_realtime" "$now_monotonic"; then
+      initial_schedule_green=true
+      break
+    fi
+    [ "$initial_schedule_attempt" -eq 5 ] || sleep 1
+  done
 
   S11_TIMER_ARM_DESTINATION="$destination" \
   S11_TIMER_ARM_HANDOFF_REALTIME="$S11_HANDOFF_REALTIME" \
@@ -582,20 +606,27 @@ arm_controller_timer_for_handoff() {
   S11_TIMER_ARM_POST_SUBSTATE="$post_timer_substate" \
   S11_TIMER_ARM_POST_NEXT_REALTIME="$post_next_realtime" \
   S11_TIMER_ARM_POST_NEXT_MONOTONIC="$post_next_monotonic" \
+  S11_TIMER_ARM_INITIAL_SCHEDULE_GREEN="$initial_schedule_green" \
+  S11_TIMER_ARM_INITIAL_SCHEDULE_ATTEMPTS="$initial_schedule_attempt" \
     /usr/bin/python3 - <<'PY'
 import json
 import os
 from pathlib import Path
 
 exit_status = int(os.environ["S11_TIMER_ARM_EXIT"])
+initial_schedule_green = os.environ["S11_TIMER_ARM_INITIAL_SCHEDULE_GREEN"] == "true"
 payload = {
-    "ok": exit_status == 0,
+    "ok": exit_status == 0 and initial_schedule_green,
     "safe_code": (
-        "S11_2_CONTROLLER_TIMER_FRESH_ARM_GREEN"
-        if exit_status == 0
-        else "S11_2_CONTROLLER_TIMER_FRESH_ARM_RED"
+        "S11_2_CONTROLLER_TIMER_INITIAL_SCHEDULE_GREEN"
+        if exit_status == 0 and initial_schedule_green
+        else (
+            "S11_2_CONTROLLER_TIMER_FRESH_ARM_RED"
+            if exit_status != 0
+            else "S11_2_CONTROLLER_TIMER_INITIAL_SCHEDULE_RED"
+        )
     ),
-    "contract_version": "S11_2_R15_18_1_EXPLICIT_TIMER_REARM_V1",
+    "contract_version": "S11_2_R15_18_2_ACTIVATION_RELATIVE_TIMER_V1",
     "handoff_started_at": os.environ["S11_TIMER_ARM_HANDOFF_REALTIME"],
     "handoff_started_monotonic_usec": int(os.environ["S11_TIMER_ARM_HANDOFF_MONOTONIC"]),
     "pre_handoff_trigger": os.environ["S11_TIMER_ARM_PREVIOUS_TRIGGER"],
@@ -614,6 +645,8 @@ payload = {
     "fresh_arm_attempts": 1,
     "fresh_arm_command": "systemctl start tu1nz-adult-public-s11-canary-controller.timer",
     "fresh_arm_exit_status": exit_status,
+    "initial_schedule_green": initial_schedule_green,
+    "initial_schedule_read_attempts": int(os.environ["S11_TIMER_ARM_INITIAL_SCHEDULE_ATTEMPTS"]),
     "timer_post_arm": {
         "enabled_state": os.environ["S11_TIMER_ARM_POST_ENABLED"],
         "active_state": os.environ["S11_TIMER_ARM_POST_ACTIVE"],
@@ -629,7 +662,9 @@ Path(os.environ["S11_TIMER_ARM_DESTINATION"]).write_text(
 PY
   [ "$arm_exit" -eq 0 ] \
     || { fail "S11_2_CONTROLLER_TIMER_FRESH_ARM_RED"; return 2; }
-  printf '{"ok":true,"safe_code":"S11_2_CONTROLLER_TIMER_FRESH_ARM_GREEN"}\n'
+  [ "$initial_schedule_green" = true ] \
+    || { fail "S11_2_CONTROLLER_TIMER_INITIAL_SCHEDULE_RED"; return 2; }
+  printf '{"ok":true,"safe_code":"S11_2_CONTROLLER_TIMER_INITIAL_SCHEDULE_GREEN"}\n'
 }
 
 first_invocation_after_trigger() {

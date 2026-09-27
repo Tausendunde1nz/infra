@@ -209,7 +209,7 @@ rm -f "$state"
         self.assertIn('SubState --value)" = waiting', source)
         unit = TIMER.read_text(encoding="ascii")
         for directive in (
-            "OnBootSec=3min",
+            "OnActiveSec=3min",
             "OnUnitActiveSec=5min",
             "RandomizedDelaySec=30s",
             "AccuracySec=15s",
@@ -217,6 +217,7 @@ rm -f "$state"
         ):
             with self.subTest(directive=directive):
                 self.assertIn(directive, unit)
+        self.assertNotIn("OnBootSec=", unit)
 
     def test_standalone_verify_initializes_clean_environment(self):
         result = run_bash(
