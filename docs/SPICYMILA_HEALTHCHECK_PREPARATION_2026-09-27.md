@@ -1,4 +1,6 @@
-# spicymila_bot healthcheck: preparation only
+# spicymila_bot healthcheck: preparation history — activation rolled back
+
+Current status: the activation failed due to an out-of-Compose secondary network and was recovered to the original configuration. Further activation is blocked. See SPICYMILA_HEALTHCHECK_ACTIVATION_FAILED_2026-09-27.md; the preparation record below is retained as history.
 
 Base: control-main021ba76b007b39979b2e7be971a996574bf4f7ab after successful Hardening PR193. Separate branch fix/spicymila-healthcheck-2026-09-27. No live edit/recreate/restart was performed.
 
