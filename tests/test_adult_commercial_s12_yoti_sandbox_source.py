@@ -265,6 +265,37 @@ class CommercialS12YotiSandboxSourceControlTests(unittest.TestCase):
         self.assertEqual(report["safe_code"], "S12_FREEZE_PROVENANCE_RED")
         self.assertEqual(report["failure"], "S12_FREEZE_GIT_RED")
 
+    def test_annotated_tag_message_round_trip_has_no_formatter_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "config", "user.name", "S12 Test"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repository), "config", "user.email", "s12-test@invalid"],
+                check=True,
+            )
+            fixture_path = repository / "fixture"
+            fixture_path.write_text("fixture\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "fixture"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repository), "commit", "-qm", "fixture"],
+                check=True,
+            )
+            annotation = "S12 canonical title\n\nkey=value\n"
+            subprocess.run(
+                ["git", "-C", str(repository), "tag", "-a", "s12-round-trip", "-F", "-"],
+                input=annotation,
+                check=True,
+                text=True,
+            )
+            self.assertEqual(
+                freeze.tag_annotation(repository, "s12-round-trip"),
+                annotation,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

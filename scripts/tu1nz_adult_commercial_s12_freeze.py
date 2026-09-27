@@ -228,7 +228,11 @@ def verify_annotation(annotation: str, expected: Mapping[str, str]) -> dict[str,
 
 
 def tag_annotation(repo: Path, tag: str) -> str:
-    return str(_git(repo, "for-each-ref", "--format=%(contents)", f"refs/tags/{tag}"))
+    raw = bytes(_git(repo, "cat-file", "tag", f"refs/tags/{tag}", text=False))
+    _, separator, message = raw.partition(b"\n\n")
+    if not separator:
+        raise FreezeError("S12_FREEZE_TAG_OBJECT_RED")
+    return message.decode("utf-8")
 
 
 def verify_tag(
