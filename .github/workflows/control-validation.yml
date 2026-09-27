@@ -379,6 +379,8 @@ jobs:
           done
       - name: Verify Agentmode state provisioning v2 under inherited ACLs
         run: python3 -m unittest -v tests.test_agentmode_state_init_v2
+      - name: Validate spicymila network guard and read-only collector
+        run: python3 -m unittest -v tests.test_spicymila_network_guard tests.test_spicymila_dependency_readonly_v2
       - name: Compile and run M4.29.2 maintenance contract
         run: >-
           python3 -m py_compile
