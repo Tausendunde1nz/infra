@@ -1,0 +1,41 @@
+{
+  "activation_ready": false,
+  "active_root_call_proved": false,
+  "additional_reader_planned": false,
+  "classification": "ACTIVE_ROOT_CALLER_UNSAFE_OR_UNKNOWN",
+  "exact_caller_chains": [],
+  "inventory": {
+    "bytes": 4281807,
+    "fixed_candidates_checked": 3027,
+    "missing_live_candidates": 2,
+    "new_filesystem_scan": false
+  },
+  "migration_scope": {
+    "backup_notify": "QUARANTINE_EXACT_ROOT_OWNED_ENTRY",
+    "cadvisor": "PRESERVE_READ_ONLY_MONITORING_CONTRACT",
+    "docker": "REVOKE_CHATOPS_MEMBERSHIP_AND_INHERITED_CARRIERS_ONLY",
+    "jellyfin": "NO_UID_ONLY_REMEDIATION",
+    "mommyramona": "NO_UID_ONLY_REMEDIATION",
+    "mychatbuddy": "PRESERVE_INDEPENDENT_UID10001_CONTRACT",
+    "root_compose": "MASK_WITHOUT_EXECSTOP_PRESERVE_CREATED_CONTAINER",
+    "root_doc": "QUARANTINE_BUILD_AND_CHECK_TRIGGERS_AVOID_UNSAFE_RENDERER_AND_ALERT_SPAM",
+    "trendwatch": "QUARANTINE_UNSAFE_TRIGGERS_PRESERVE_ORIGINALS"
+  },
+  "protected_reader_iterations_complete": true,
+  "quarantine": {
+    "action": "QUARANTINE_EXACT_TARGET_AND_PROVEN_CALLERS",
+    "activation_ready": false,
+    "automatic_rollback": "KEEP_QUARANTINE",
+    "backup_original_bytes": true,
+    "functional_loss": "BACKUP_NOTIFICATION_FUNCTION_UNKNOWN",
+    "guard_exit": 78,
+    "manual_original_recovery_only": true,
+    "target": "/usr/local/bin/backup_notify.sh",
+    "verify_parent_identity_and_hash": true
+  },
+  "result_sha256": "db7805a3b35f0ee241df90ee976157b9613ebe27b7f954bc23017bbf23d204ee",
+  "schema": 8,
+  "source_commit": "8417c6050771c08b11d5b5451c3cba993bc09e0e",
+  "source_sha256": "878fdc573fe13393656b73d2d0d9f38e93477af3b8e3094f03ac375c0defa311",
+  "uncertain_entry_count": 2360
+}
