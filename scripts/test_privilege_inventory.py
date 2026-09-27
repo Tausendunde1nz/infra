@@ -53,6 +53,28 @@ class InventoryTests(unittest.TestCase):
             self.assertNotIn("SECRET_CANARY", str(info))
             self.assertEqual(info["acl"], ["user::rw-", "mask::r--"])
 
+    def test_acl_preserves_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as d:
+            with patch.object(m, "command", return_value=({"complete": True}, b"")) as run:
+                m.metadata(d)
+            self.assertEqual(run.call_args.args[0],
+                             ("/usr/bin/getfacl", "-n", "-c", "-P", "-p", "--", d))
+
+    def test_stderr_is_still_an_error(self):
+        class Fake:
+            pid = 987654321
+            returncode = 0
+            def wait(self, timeout=None):
+                return 0
+        def start(*args, **kwargs):
+            kwargs["stderr"].write(b"SECRET_CANARY")
+            return Fake()
+        with patch.object(m.subprocess, "Popen", side_effect=start), patch.object(m.os, "killpg"):
+            status, data = m.command(("/fixed/fake",))
+        self.assertFalse(status["complete"])
+        self.assertEqual(status["stderr_bytes"], 13)
+        self.assertNotIn("SECRET_CANARY", str(status))
+
     def test_program_failure_redacted(self):
         with patch.object(m.subprocess, "Popen", side_effect=PermissionError("SECRET_CANARY")):
             info = m.command(("/fixed/fake",))

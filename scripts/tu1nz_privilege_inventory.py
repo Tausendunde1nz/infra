@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"}
 ROOTS = ("/etc/sudoers.d", "/etc/polkit-1", "/usr/share/polkit-1/rules.d")
 TARGETS = ("/etc/sudoers", "/etc/group", "/etc/gshadow", "/etc/nsswitch.conf",
@@ -96,7 +96,7 @@ def metadata(path):
                         item["policy_lines"] = policy_lines(data)
                 else:
                     item["content_status"] = "OVER_LIMIT"
-        acl = command(("/usr/bin/getfacl", "-n", "-c", "-P", "--", path))
+        acl = command(("/usr/bin/getfacl", "-n", "-c", "-P", "-p", "--", path))
         if isinstance(acl, tuple):
             status, data = acl
             # Numeric ACL grammar only; no comments, filenames or arbitrary text.
@@ -143,6 +143,8 @@ def main():
         for root in ROOTS:
             paths.add(root)
             for directory, dirs, files in os.walk(root, followlinks=False):
+                paths.add(directory)
+                paths.update(os.path.join(directory, d) for d in dirs)
                 dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(directory, d))]
                 paths.update(os.path.join(directory, n) for n in files)
         for path in tuple(paths):
