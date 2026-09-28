@@ -1,0 +1,58 @@
+# Commercial S12.1 final-review diagnosis — runtime environment, bundle restore and nginx order
+
+Date: 2026-09-30
+
+## Finding
+
+Same-SHA review of Control `c69b2cdc91f1d4f572081a9e555863303b030862`
+identified three release-contract gaps before merge or server mutation:
+
+1. the credential-bearing unit still executed the canonical Application venv,
+   outside the root-private immutable release tree;
+2. backup bundles were verified but not imported during rollback, so a pruned
+   otherwise-unreachable detached HEAD could not be restored; and
+3. rollback reloaded restored nginx only after repository recovery, allowing a
+   Git-recovery failure to leave the temporary callback route loaded.
+
+No server deployment had begun. The exactly-once runtime attempt therefore
+remained unused.
+
+## Root cause
+
+The first immutable-stage correction protected Application and Control Git
+material but treated the interpreter environment as an unchanged host
+dependency. The rollback contract similarly proved bundle creation without
+making the bundle the authoritative object source, and grouped nginx reload
+with final service housekeeping rather than the first safety restoration.
+
+## Versioned correction
+
+- Materialize the complete canonical venv into the root-private stage,
+  dereference file symlinks, retain only internal relative directory symlinks,
+  reject escaping links/special files, compare source-before/source-after/staged
+  SHA-256, enforce the exact locked dependency
+  versions, remove all write bits and bind interpreter plus venv hashes in an
+  immutable environment record. systemd executes only the staged Python.
+- Create bundles from explicit `HEAD` plus all refs. Before restore checkout,
+  verify the recorded bundle digest, verify and unbundle it through the
+  quarantined Git directory, and prove commit/tree/tip object types.
+- Validate and reload restored nginx immediately after restoring its files and
+  before entering repository recovery. `daemon-reload` remains after the
+  repository barrier because it is unrelated to removing the public callback.
+
+## Regression proof
+
+The focused contract suite now covers an unrelated detached commit that is
+removed by reflog expiry and `git gc --prune=now`, then restored only from the
+verified bundle. It also builds and hardens a synthetic venv, proves canonical
+repository drift cannot affect the staged source/runtime, and rejects staged
+interpreter-byte drift. Rollback ordering asserts nginx test/reload precede the
+repository barrier and completion marker.
+
+## Rollback
+
+The existing exactly-once backup-first rollback remains authoritative. It
+stops the runtime, removes the root-private stage, restores the exact files,
+reloads the nginx baseline first, restores repositories from the verified
+bundles under atomic barriers, reloads systemd and writes the completion marker
+only after durable repository sync. Credentials are never copied or emitted.

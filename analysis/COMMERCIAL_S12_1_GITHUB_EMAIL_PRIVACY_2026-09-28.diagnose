@@ -1,0 +1,20 @@
+TU1NZ Commercial S12.1 GitHub push diagnosis
+Date: 2026-09-28
+
+Observed:
+
+The first Control branch push was rejected by GitHub with GH007 because the
+local commit used a protected private email address.
+
+Cause:
+
+The temporary clone inherited a local Git identity instead of the repository's
+established GitHub noreply identity.
+
+Correction:
+
+Amend only author/committer metadata to the existing repository identity:
+BaDa1001 <222679730+BaDa1001@users.noreply.github.com>.
+
+The tree/content remains unchanged except for this diagnosis. No remote branch
+was created by the rejected push and no server/runtime mutation occurred.

@@ -1,0 +1,13 @@
+# Commercial S12.1 CI source-freeze tag fetch diagnosis
+
+- Scope: GitHub Actions validation of the immutable S12.0 source-freeze provenance.
+- Observed failure: `test_old_source_freeze_remains_immutable` could not resolve
+  `refs/tags/s12-yoti-sandbox-source-freeze-r1` in CI.
+- Root cause: the default shallow `actions/checkout` invocation did not fetch the
+  existing annotated source-freeze tag. The local and remote tag itself remained
+  unchanged.
+- Impact: CI-only provenance lookup failure; no runtime, manifest, provider, or
+  boundary contract failed.
+- Correction: fetch complete history and tags explicitly in the pinned checkout
+  step (`fetch-depth: 0`, `fetch-tags: true`).
+- Rollback: revert the two checkout inputs. No server or runtime state is involved.

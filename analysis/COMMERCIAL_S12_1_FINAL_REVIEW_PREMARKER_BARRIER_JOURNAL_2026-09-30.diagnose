@@ -1,0 +1,32 @@
+# S12.1 final review: pre-marker barrier recovery journal
+
+Date: 2026-09-30
+Scope: Control PR #203, final same-SHA review P1
+
+## Finding
+
+Repository-root ownership and `.git` exchange could begin before the durable
+deployment-attempt marker. A host or controller crash in that interval could
+leave a root-only checkout or exchanged Git directory without a durable index
+that the recovery command knew how to consume.
+
+## Correction
+
+Before any parent/root chmod or `.git` exchange, the controller now writes a
+root-private durable journal containing only the exact repository parent,
+checkout and Git-directory ownership/modes. The shared parent is locked as
+part of the same recovery barrier, closing rename/replacement of the canonical
+roots and disposable fetch stage.
+
+If no deployment-attempt marker exists, `recover` performs barrier-only
+recovery, removes the fixed disposable stage and reports zero rollbacks. If the
+attempt marker exists, rollback validates or creates the same journal and
+removes it only after repository and parent metadata are durably restored. A
+deploy invocation that discovers an orphan journal recovers it and stops; it
+never continues into a second attempt.
+
+## Safety
+
+The journal contains no tokens, credential values, Telegram content, identity
+material or provider payload. This is a source-only correction; no server
+deployment is performed until CI and final same-SHA review are green.

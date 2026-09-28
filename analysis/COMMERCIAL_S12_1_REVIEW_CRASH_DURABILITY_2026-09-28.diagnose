@@ -1,0 +1,103 @@
+# S12.1 review: crash durability and result provenance
+
+## Error image
+
+The recovery guard previously treated any existing deployment result as a
+successful completion, even if that file belonged to the backed-up pre-state.
+Atomic writers fsynced file content but did not fsync the containing directory
+after rename, leaving the exactly-once marker name vulnerable to power loss.
+
+## Cause
+
+The result lacked an explicit binding to the current attempt start timestamp,
+and the recovery path checked only file existence. The atomic helpers stopped
+after `os.replace`, which does not by itself establish durable directory
+metadata. A subsequent review also established that the lock target lived in a
+checkout-replaceable inode, backup payload files had no explicit fsync, and a
+new state directory entry was not persisted in its parent.
+The following review then identified root-owned Git metadata risk, non-durable
+rollback unlink/symlink metadata, and a missing standalone simulator import
+path.
+The final P2 review found that pre-existing backup ancestors also require an
+ownership/write-permission contract so another account cannot rename a durable
+backup after the attempt marker.
+A later review identified crash-stale Git transaction locks and ref drift from
+release fetches as two remaining obstacles to exact rollback.
+The next P1 review demonstrated that explicit `--git-dir` or equivalent
+environment selectors must also participate in active-process detection.
+The final P1 review found that `/opt/tu1nz_repos` is intentionally owned and
+writable by `chatops`, so a backup below that tree can never satisfy the secure
+root-only ancestry contract.
+The subsequent P2 review found that two declared network gates were present in
+the manifest but not yet enforced by both freeze validation and simulation.
+The next P1 review confirmed that both shared `/var/log/tausendunde1nz` and
+`/var/lib/tausendunde1nz` ancestors are group-writable and also demonstrated
+that a crash-interrupted checkout can leave tracked and untracked worktree
+fragments after stale lock removal.
+The following review identified three remaining effective-contract gaps:
+pre-existing systemd drop-ins, pre-existing enablement links, and callback
+fields that were documented but not all freeze-validated.
+The next P2 review found a vacuous all-false hard-gate check and a mutable
+registered simulator scenario that could rewrite an under-threshold decision.
+The following P2 review found that the real-user Sandbox final-posture flag was
+not yet exact and that a mutable session result could impersonate authoritative
+provider state during replay.
+The next review demonstrated chained relative Git `-C` semantics and found that
+partial credential-object validation could allow unknown value-bearing fields.
+
+## Correction
+
+The success result now binds the exact current backup path and attempt start
+timestamp. Recovery blocks only on an exact valid binding; stale or malformed
+results fall through to the existing rollback-only path. Atomic JSON and file
+installation fsync both file content and the containing directory. Regression
+tests cover exact result binding, malformed/stale handling and both fsync
+classes. The transaction lock now uses the stable repository-parent directory
+outside both worktrees. Backup payload, backup-directory and backup-parent
+fsyncs complete before return, and every newly created private directory
+component is persisted in its parent before mutations begin.
+Every working-checkout Git process now runs as `chatops`; root streams bundle
+bytes through already-open backup descriptors. Rollback deletion and symlink
+operations fsync their parent directories, and the direct simulator CLI adds
+the frozen source root before importing the package simulator.
+Backup creation and recovery now validate every existing component through `/`
+as root-owned, non-symlink directories without group/world write bits.
+Recovery rejects active checkout Git processes, clears only strictly validated
+stale lockfiles, and fsyncs those deletions. Release fetches never write
+`FETCH_HEAD` or remote-tracking refs; the sole imported freeze-tag ref is
+recorded and restored exactly.
+Git activity detection now resolves cwd, CLI selectors and relevant `GIT_*`
+environment paths; unreadable active Git processes block recovery
+conservatively.
+Backup and state now share a dedicated private root below `/etc/tu1nz`, whose
+documented ancestry is root-owned and not group/world-writable. The strict
+ancestor validation remains unchanged.
+Freeze validation and the executable simulator now require `https_only=true`
+and `redirect_to_unknown_host_allowed=false`; focused negative mutations prove
+that neither insecure transport nor an unknown-host redirect can be frozen.
+Rollback uses forced detached/attached checkouts and removes only non-ignored
+untracked fragments after the pre-state proved clean, then revalidates the
+exact commit, tree, branch tips, managed refs and clean status.
+Preflight now rejects all applicable systemd drop-in files and every unexpected
+enablement state. The installed effective unit must have empty `DropInPaths`
+and be exactly static before start. Freeze validation and simulation bind the
+entire callback object, including method, loopback bind, 16 KiB body limit,
+public HTTPS URL and Sandbox signature contract.
+Runtime source validation and simulation now require the exact hard-gate key
+set as well as false values. Each session retains an independent immutable
+registered-scenario binding; mutation of the same registered object is rejected
+before trigger or authenticated result fetch and is exercised explicitly.
+The full final-posture object is now exact, including real-user Sandbox=false.
+Authoritative accepted results are held in a private registration map; a
+pre-seeded or later-mutated public session result is rejected and covered by a
+dedicated under-threshold-to-verified forgery journey.
+Git repository selectors now apply `-C` options in order and resolve subsequent
+relative paths from the prior effective selector. The entire credential object
+is exact in freeze, runtime-source and simulator validation, so unknown fields
+or altered references are rejected.
+
+## Rollback plan
+
+This is source-only before the immutable runtime freeze. Revert the amended
+Control commit if validation fails. No server state or credentials were
+changed while applying this correction.

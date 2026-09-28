@@ -1,0 +1,16 @@
+# Commercial S12.1 simulator and bundle review diagnosis
+
+- Scope: final Control review after lifecycle corrections.
+- Finding 1: `git bundle verify` inherited the caller's current directory.
+- Finding 2: several Control simulator journey values were declared as boolean
+  constants rather than produced by an executing deterministic model.
+- Correction 1: each bundle verification now runs with explicit `git -C` and
+  the corresponding safe repository root.
+- Correction 2: the Control simulator now executes authentication, unique
+  session creation, trigger-only callback, authenticated result retrieval,
+  identical/conflicting replay, denial, expiry, retry, Production crossover,
+  synthetic WMS path, safe-stop, and exactly-once rollback transitions.
+  Mutated callback, Production-network, and credential contracts are regression
+  tested fail-closed.
+- Runtime effect: none; this is source/test correction before freeze or deploy.
+- Rollback: restore the prior reviewed Control commit.

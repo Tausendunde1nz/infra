@@ -1,0 +1,16 @@
+# Commercial S12.1 server-context review diagnosis
+
+- Scope: final pre-freeze review against the documented canonical server state.
+- Findings: the freeze helper lacked repository-scoped `safe.directory`; backup
+  required an attached branch; and preflight did not reject the known
+  long-lived `tu1nz_sync_all.sh --loop` competing Control mutator.
+- Corrections:
+  - every freeze-helper Git command uses scoped `safe.directory`;
+  - backup records attached versus detached state and rollback restores and
+    verifies the exact commit/tree and attachment posture;
+  - read-only preflight stops before backup with
+    `WAITING_OPERATOR_CONFLICTING_CONTROL_SYNC` when the exact sync loop exists.
+- No global Git exception, process termination, gate bypass, runtime attempt,
+  provider expansion, or secret exposure is introduced.
+- Rollback: restore the prior reviewed Control commit; no server mutation has
+  occurred.

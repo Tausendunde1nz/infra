@@ -1,0 +1,11 @@
+# Commercial S12.1 absent-unit rollback diagnosis
+
+- Scope: pre-freeze review of rollback before first unit installation.
+- Finding: `systemctl show` with strict checking could abort rollback when the
+  S12.1 unit legitimately did not exist in the pre-state.
+- Correction: a structured state query recognizes only explicit systemd
+  `not-found`/“unit could not be found” as `inactive/dead`; any other query
+  failure remains fail-closed. Active units still require successful stop and
+  verified `inactive/dead` before restoration.
+- Regression proof: explicit missing-unit and unrelated-error paths are tested.
+- Runtime effect: none; the one permitted server attempt remains unused.

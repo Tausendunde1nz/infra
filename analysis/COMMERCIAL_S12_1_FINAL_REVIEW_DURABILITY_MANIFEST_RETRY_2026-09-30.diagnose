@@ -1,0 +1,39 @@
+# S12.1 final review: rollback durability, manifest duplicates and retry provenance
+
+## Scope
+
+Source-only correction before freeze and before the single server deployment.
+No server state, credential, service, timer, public endpoint or deployment
+attempt was touched.
+
+## Findings
+
+1. Repository restoration was verified while the atomic Git barrier was held,
+   but restored worktree and Git content was not explicitly flushed before the
+   durable rollback-complete marker.
+2. The freeze verifier rejected duplicate JSON keys, while the runtime source
+   validator and standalone simulator used ordinary `json.loads` semantics.
+3. The simulator expiry retry trusted the mutable public result field without
+   requiring the registered object, immutable scenario binding and previously
+   accepted authoritative result.
+
+## Correction
+
+- Flush each restored repository filesystem with Linux `syncfs` while the
+  root-owned recovery barrier is still installed. Any unavailable or failed
+  flush is `S12_1_RECOVERY_DURABILITY_RED`; the completion marker remains
+  impossible.
+- Parse the runtime manifest with a recursive duplicate-key rejecting hook,
+  then apply the existing complete exact contract comparison in runtime and
+  simulator paths.
+- Permit retry only for the exact registered `EXPIRED` session whose accepted
+  authoritative result is `AVS_EXPIRED` and whose public state still agrees.
+- Add regression coverage for both runtime parsers, fabricated/mutated retry,
+  Linux filesystem flush, and ordering of both flushes before barrier removal
+  and completion marker.
+
+## Rollback plan
+
+This is pre-freeze source work. Revert the amended Control commit if any focused
+test, full Linux CI run or same-SHA final review is not GREEN. Do not create the
+freeze tag and do not consume the one allowed server deployment attempt.

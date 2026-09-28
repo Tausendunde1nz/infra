@@ -1,0 +1,87 @@
+{
+  "application": {
+    "commit": "93555d8a141caf8ace33522f9340d30bfc47d2bb",
+    "tree": "1e8a644115127818f394b6f9d24f31826e04ecba"
+  },
+  "callback": {
+    "authority": "AUTHENTICATED_RESULT_FETCH_ONLY",
+    "bind": "127.0.0.1:18126",
+    "body_limit_bytes": 16384,
+    "method": "POST",
+    "path": "/avs/sandbox/callback",
+    "public_url": "https://wantmeseen.com/avs/sandbox/callback",
+    "signature": "YOTI_SANDBOX_RSA_PSS_SHA256",
+    "trigger_only": true
+  },
+  "contract_version": "tu1nz-s12-yoti-sandbox-runtime-v1",
+  "control": {
+    "commit_binding": "ANNOTATED_RUNTIME_FREEZE_TARGET",
+    "tree_binding": "ANNOTATED_RUNTIME_FREEZE_TARGET_TREE"
+  },
+  "credentials": {
+    "delivery": "SYSTEMD_LOAD_CREDENTIAL",
+    "private_key_reference": "/etc/tu1nz/adult-commercial-s5.yoti-private-key",
+    "sdk_id_reference": "/etc/tu1nz/adult-commercial-s5.yoti-sdk-id",
+    "values_committed": false
+  },
+  "decision": "SOURCE_GREEN_RUNTIME_DEPLOYMENT_REQUIRES_EXACT_FREEZE",
+  "environment": "SANDBOX",
+  "final_posture": {
+    "callback": "INACTIVE",
+    "runtime": "CONTROLLED_INACTIVE",
+    "yoti_sandbox_enabled_for_real_users": false
+  },
+  "hard_gates": {
+    "adult_media": false,
+    "adult_submission": false,
+    "community_adult_media": false,
+    "controlled_beta": false,
+    "external_publishing": false,
+    "payments": false,
+    "production": false,
+    "real_avs": false
+  },
+  "health": {
+    "credential_values_visible": false,
+    "privacy_safe": true,
+    "required_safe_code": "S12_RUNTIME_HEALTH_GREEN"
+  },
+  "network": {
+    "allowed_hosts": [
+      "age.yoti.com",
+      "auth.api.yoti.com"
+    ],
+    "https_only": true,
+    "production_endpoint_allowed": false,
+    "redirect_to_unknown_host_allowed": false
+  },
+  "provider": "YOTI",
+  "rollback": {
+    "contract": "EXACTLY_ONCE_BACKUP_FIRST_CONTROLLED_INACTIVE",
+    "credentials_preserved": true,
+    "second_deployment_allowed": false
+  },
+  "runtime_environment": {
+    "python_sha256": "1d3cf64f97cadc79fdc6fe2496a21b7b456cb94211978cfef5a65f616af74fd5",
+    "source": "REVIEWED_APPLICATION_VENV_SHA256",
+    "venv_sha256": "e7a8a8ffa3cba387541f4d0cc0ebea09bd2ade9901c7ab88aaf5e62b3d1df9fa"
+  },
+  "runtime_freeze": "s12-yoti-sandbox-runtime-freeze-r1",
+  "sandbox_policy": {
+    "allowed_methods": [
+      "AGE_ESTIMATION"
+    ],
+    "provider_result_authority": "AUTHENTICATED_RESULT_FETCH",
+    "real_identity_allowed": false,
+    "synthetic_subject_only": true,
+    "threshold": 18
+  },
+  "systemd": {
+    "credential_names": [
+      "s12-runtime-contract",
+      "yoti-private-key",
+      "yoti-sdk-id"
+    ],
+    "unit": "tu1nz-adult-commercial-s12-yoti-runtime.service"
+  }
+}
