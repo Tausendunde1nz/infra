@@ -1,0 +1,45 @@
+{
+  "version": 10,
+  "base_commit": "42a92dacc5495ef32e47a59ea738ecdc8b3374cd",
+  "branch": "security/codex-privileged-ops-2026-09-27",
+  "transaction_id": "forensic-v10-20260928-2d6c7fc1c28946afa6c8213d0c4727bb",
+  "files": {
+    "baseline_binding.json": "062f1bb2a3548fbdc7d3c88568dcc3d3920eb71360c8a96c4500e77e1feb99fb",
+    "collector_v10.py": "214aaa592b8d1d75f22a1a380e7186d699cc910386ef7bfed6b5a3cbb7d4a8ed",
+    "control_flow_evidence.json": "86ec6d5be4bf164b4dd96bf67f6b1be9bf7f609c0b3a9928b0442c9fa324a1fb",
+    "control_flow_v10.py": "e746b9068cafc066171ae10dc47e9fd082c74a5cf4d9632a046b0c6471422b8c",
+    "historical_bootstrap_fixture.json": "765b63f9467506ad1e4fc4bd84754c29b7c1e86e6f4d06a7cbcac6e652fba98b",
+    "launcher_v10.py": "4a18a334f3560dfb2a91eabc8babd2d74a8873f2e82233aede8342e088eebf85",
+    "previous_unit_semantics.json": "4042fe38c6236da7b295ca5cd42772dcc4c47064ad080d1c5c7adc387a5def1c",
+    "run_v10.command": "4eea65cf2ce9df9c3753c3e84c6b1dbe3228c482a3ca1e1da1fb5ad5f991e593",
+    "test_boundaries_v10.py": "bd1587287611069c9ba772edd4b0a19e148d7a2305adbef28cb0d204b48ed25b",
+    "test_control_flow_v10.py": "c98edcf0bb14380452b4a54fde05276311c77cb7523b76ef9916a5ea5f58657c",
+    "test_forensic_v10.py": "63c61edf63df9b7f5758ccbd24cb86e285f5dd7feeae08fe0412df5736ede9d0",
+    "test_launcher_v10.py": "e0653c35758b87a5e3736afd102b0f658343201fc539d982b320f18831754907"
+  },
+  "root_executed": false,
+  "live_activation": false,
+  "watchdog_created": false,
+  "historical_attempt": "INDETERMINATE",
+  "control_flow": "MUTATION_REACHABLE_BEFORE_REFUSAL",
+  "tests": {
+    "mac_python_3_9": 56,
+    "server_python_3_12": 56,
+    "v9": 130,
+    "previous_privilege_suites": 457
+  },
+  "preservation": {
+    "hardening": 42,
+    "tracked_pre_v9": 701,
+    "v9_sources": 30,
+    "private_v3_evidence": 1125
+  },
+  "detached_foreign_state": {
+    "head": "9b383960291da469671c3888cfa4fdcc3c33cf01",
+    "clean": true,
+    "modified_by_this_task": false,
+    "historical_head": "18080ac534eae99b2d35faeba77e739fc169d6c0",
+    "path_delta_sha256": "12f5bfaf66e37ee767754347f8c6d1d4b8079bf91cfbc640360cf86b90888000"
+  },
+  "prepared_utc": "2026-09-28T17:47:15.597461+00:00"
+}

@@ -1,0 +1,444 @@
+{
+  "bootstrap_calls": [
+    {
+      "call": "os.geteuid",
+      "line": 87
+    },
+    {
+      "call": "Refused",
+      "line": 87
+    },
+    {
+      "call": "os.umask",
+      "line": 88
+    },
+    {
+      "call": "os.chdir",
+      "line": 88
+    },
+    {
+      "call": "validate_payload",
+      "line": 89
+    },
+    {
+      "call": "any",
+      "line": 90
+    },
+    {
+      "call": "Refused",
+      "line": 90
+    },
+    {
+      "call": "p.exists",
+      "line": 90
+    },
+    {
+      "call": "p.is_symlink",
+      "line": 90
+    },
+    {
+      "call": "any",
+      "line": 92
+    },
+    {
+      "call": "Refused",
+      "line": 92
+    },
+    {
+      "call": "p.exists",
+      "line": 92
+    },
+    {
+      "call": "p.is_symlink",
+      "line": 92
+    },
+    {
+      "call": "checked(['/usr/bin/systemctl', 'list-units', '--all', '--plain', '--no-legend', '--no-pager']).decode",
+      "line": 94
+    },
+    {
+      "call": "checked",
+      "line": 94
+    },
+    {
+      "call": "line.split",
+      "line": 95
+    },
+    {
+      "call": "raw.splitlines",
+      "line": 95
+    },
+    {
+      "call": "line.split",
+      "line": 95
+    },
+    {
+      "call": "checked(['/usr/bin/systemctl', 'show', name, '-p', 'NeedDaemonReload', '--value']).strip",
+      "line": 97
+    },
+    {
+      "call": "checked",
+      "line": 97
+    },
+    {
+      "call": "Refused",
+      "line": 98
+    },
+    {
+      "call": "file_snapshot",
+      "line": 101
+    },
+    {
+      "call": "dict",
+      "line": 102
+    },
+    {
+      "call": "baseline.update",
+      "line": 102
+    },
+    {
+      "call": "baseline.update",
+      "line": 102
+    },
+    {
+      "call": "baseline.items",
+      "line": 104
+    },
+    {
+      "call": "file_snapshot",
+      "line": 105
+    },
+    {
+      "call": "rec.get",
+      "line": 106
+    },
+    {
+      "call": "Refused",
+      "line": 106
+    },
+    {
+      "call": "Refused",
+      "line": 108
+    },
+    {
+      "call": "helper_source",
+      "line": 109
+    },
+    {
+      "call": "compile_candidates",
+      "line": 110
+    },
+    {
+      "call": "broker.sudoers().encode",
+      "line": 110
+    },
+    {
+      "call": "broker.sudoers",
+      "line": 110
+    },
+    {
+      "call": "hashlib.sha256(v).hexdigest",
+      "line": 111
+    },
+    {
+      "call": "modules.items",
+      "line": 111
+    },
+    {
+      "call": "hashlib.sha256",
+      "line": 111
+    },
+    {
+      "call": "record",
+      "line": 112
+    },
+    {
+      "call": "broker.sudoers(temporary=False).encode",
+      "line": 112
+    },
+    {
+      "call": "broker.sudoers",
+      "line": 112
+    },
+    {
+      "call": "str",
+      "line": 115
+    },
+    {
+      "call": "str",
+      "line": 115
+    },
+    {
+      "call": "PACKAGE.parent.exists",
+      "line": 115
+    },
+    {
+      "call": "(UNITS / 'docker.socket.d').exists",
+      "line": 115
+    },
+    {
+      "call": "create_dir",
+      "line": 116
+    },
+    {
+      "call": "PACKAGE.parent.exists",
+      "line": 117
+    },
+    {
+      "call": "create_dir",
+      "line": 117
+    },
+    {
+      "call": "safe_chain",
+      "line": 118
+    },
+    {
+      "call": "create_dir",
+      "line": 119
+    },
+    {
+      "call": "private_json",
+      "line": 120
+    },
+    {
+      "call": "str",
+      "line": 120
+    },
+    {
+      "call": "str",
+      "line": 120
+    },
+    {
+      "call": "modules.items",
+      "line": 121
+    },
+    {
+      "call": "create_file",
+      "line": 121
+    },
+    {
+      "call": "create_file",
+      "line": 122
+    },
+    {
+      "call": "json.dumps(manifest, sort_keys=True).encode",
+      "line": 122
+    },
+    {
+      "call": "json.dumps",
+      "line": 122
+    },
+    {
+      "call": "create_file",
+      "line": 123
+    },
+    {
+      "call": "create_file",
+      "line": 124
+    },
+    {
+      "call": "broker.COMMANDS.values",
+      "line": 125
+    },
+    {
+      "call": "hashlib.sha256(modules['tu1nz_codex_broker_v9']).hexdigest",
+      "line": 126
+    },
+    {
+      "call": "hashlib.sha256",
+      "line": 126
+    },
+    {
+      "call": "broker.program_digest",
+      "line": 127
+    },
+    {
+      "call": "create_file",
+      "line": 128
+    },
+    {
+      "call": "json.dumps(broker_manifest, sort_keys=True).encode",
+      "line": 128
+    },
+    {
+      "call": "json.dumps",
+      "line": 128
+    },
+    {
+      "call": "watchdog_service",
+      "line": 129
+    },
+    {
+      "call": "watchdog_timer",
+      "line": 129
+    },
+    {
+      "call": "zip",
+      "line": 130
+    },
+    {
+      "call": "create_file",
+      "line": 130
+    },
+    {
+      "call": "text.encode",
+      "line": 130
+    },
+    {
+      "call": "create_file",
+      "line": 131
+    },
+    {
+      "call": "watchdog_service().encode",
+      "line": 131
+    },
+    {
+      "call": "watchdog_service",
+      "line": 131
+    },
+    {
+      "call": "drop.exists",
+      "line": 134
+    },
+    {
+      "call": "create_dir",
+      "line": 134
+    },
+    {
+      "call": "safe_chain",
+      "line": 135
+    },
+    {
+      "call": "checked",
+      "line": 136
+    },
+    {
+      "call": "Store",
+      "line": 137
+    },
+    {
+      "call": "Transaction",
+      "line": 139
+    },
+    {
+      "call": "tx.begin",
+      "line": 139
+    },
+    {
+      "call": "Host",
+      "line": 139
+    },
+    {
+      "call": "Path('/proc/sys/kernel/random/boot_id').read_text().strip",
+      "line": 139
+    },
+    {
+      "call": "Path('/proc/sys/kernel/random/boot_id').read_text",
+      "line": 139
+    },
+    {
+      "call": "Path",
+      "line": 139
+    },
+    {
+      "call": "store.close",
+      "line": 140
+    },
+    {
+      "call": "checked",
+      "line": 141
+    }
+  ],
+  "capsule_sha256": "865b33e81db52f497fe834293619ef933f1bfa38ab80b715e91b51c98c342690",
+  "classification": "MUTATION_REACHABLE_BEFORE_REFUSAL",
+  "explicit_host_mutations_after_fault_loop": [
+    {
+      "call": "create_dir",
+      "line": 116
+    },
+    {
+      "call": "create_dir",
+      "line": 117
+    },
+    {
+      "call": "create_dir",
+      "line": 119
+    },
+    {
+      "call": "private_json",
+      "line": 120
+    },
+    {
+      "call": "create_file",
+      "line": 121
+    },
+    {
+      "call": "create_file",
+      "line": 122
+    },
+    {
+      "call": "create_file",
+      "line": 123
+    },
+    {
+      "call": "create_file",
+      "line": 124
+    },
+    {
+      "call": "create_file",
+      "line": 128
+    },
+    {
+      "call": "create_file",
+      "line": 130
+    },
+    {
+      "call": "create_file",
+      "line": 131
+    },
+    {
+      "call": "create_dir",
+      "line": 134
+    },
+    {
+      "call": "Store",
+      "line": 137
+    },
+    {
+      "call": "Transaction",
+      "line": 139
+    }
+  ],
+  "fault_loop_line": 96,
+  "historical_python_binary_digest": "NOT_BOUND",
+  "implicit_import_cache_write_possible": true,
+  "live_corroboration_required": true,
+  "module_sha256": {
+    "audit_v9": "c7d13f161bf1be7c9b4dd99b44c82244147f87ed90ad73c5f78dcbd1b3713793",
+    "candidates_v9": "7e4f9ff5e5e1c5e447609a328d1a8f46d04cb1edc630dcbcf58d55b187d118c1",
+    "command_v9": "dcf595bcc2c773b963255d307768664a87c5eedc49f7b726081bab9e164e9619",
+    "contracts_v9": "0090b5fc3d8c301f9241226028b3a0e325726d81ec406aef0b8fb3d6e603f498",
+    "entry_v9": "e5781e6208ea452e05f556c908e000f48ad457d9af9e5d5c0243fefdb3e43d81",
+    "files_v9": "1771edef05f142cbe15b9218bc49610bdd320705899224c3a7093c253921f3c3",
+    "graph_v9": "c24b3028e86d634bee5c0b5a719f698f74df8a0b42c5090a39a2710452ca4419",
+    "host_v9": "90d0118c76537e8145e2e21868cf54fab9c6c84a40b916342ec15f122f776884",
+    "lifecycle_v9": "b5566241a3d14f0e90960bd4405f5186e64439d955bddd6381d223d1e87a2077",
+    "loader_v9": "8e2f6a18b0a14dfce262c0c9c634c96001cb91a882ea6e462312322cd0e43797",
+    "namespaces_v9": "d9d033320eaba1f6b34b57e0ee7d5bc8527d57583dbfd8f8670c0d39130017b3",
+    "policy_v9": "971b3b5501200bb62dae674f5362729945e95228c0f44c501fe62ffb0bd69338",
+    "prepare_v9": "3193ab7b63285eecf059b2f4f9574d3b6b8c23118e2122ab7b5cbc06c2f537a5",
+    "probes_v9": "73570d91bd71755330cbccb8b380b76daa57d0d8f5f4ae27f10a74109203fb65",
+    "public_v9": "dc6fd3dab9f93bf3ae850a7c28ca7708ec936c6eabc4b0aebfcf939bbdb96f97",
+    "runtime_v9": "d93c5bc3d041b203602d5caf10f69985653e42cac0df79ba24d4bff9f1141ba2",
+    "sudo_candidate_v9": "f3a7953f81747ab5ab27d940c55cca704cd06acacdc39f4dc0fe6b82ea790008",
+    "transaction_v9": "58ab3c5c7d4c934e99d6cf9bb72c909e68fd793eca38fe04678c19583c6d9b5b",
+    "tu1nz_codex_broker_v9": "b993ac472045e7e21d43d4c432caba354c7281c590e72af2f81206c39e458094",
+    "verification_v9": "61e95b76e7a9b6c921d767bb67597c6ee22be937c3f2f32a84f4ac88943aafa2"
+  },
+  "process_local_changes_before_fault": [
+    "os.umask",
+    "os.chdir"
+  ],
+  "refused_behavior": "checked raises Refused; loop has no handler; outer capsule emits class and exits70. Bootstrap cleanup finally is after Store creation and unreachable from this loop error.",
+  "scope": "Includes possible interpreter .pyc writes; does not assert an actual historical write."
+}

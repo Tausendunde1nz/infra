@@ -1,0 +1,25 @@
+{
+  "capsule_sha256": "865b33e81db52f497fe834293619ef933f1bfa38ab80b715e91b51c98c342690",
+  "file_hashes": {
+    "/etc/systemd/system/mychatbuddy-private-alpha.service": "53a2fad8675a6cfa79196d2fea64e56745403cdc4802ae93cb32682c13d71d26",
+    "/etc/systemd/system/trendwatch2-afternoon.service": "5f12ab31cf29e5fa6cd8be6b71feee4c00961de0efcc1da70ebb02218d528796",
+    "/etc/systemd/system/trendwatch2-afternoon.timer": "ac440d7e461dedaa5b18097071a6c591b1a71233768a0a18ee206e782a39b892",
+    "/etc/systemd/system/trendwatch2-evening.service": "c7aa32d4a8860581294b851b47f8c651223a7e03589879d13310b8209d6648ae",
+    "/etc/systemd/system/trendwatch2-evening.timer": "03108e3abf7388fe9fe971094222ef50cc4328cc2372a7206504a52937a1e1c9",
+    "/etc/systemd/system/trendwatch2-midday.service": "08cf1b77d0f1d2619f17f8568f011dd6a6884bf8d63ee94e47447ca8cb4d5b09",
+    "/etc/systemd/system/trendwatch2-midday.timer": "22d0e48498019b7243db808219c67232de4075597196bb0d5b41a15900143cfc",
+    "/etc/systemd/system/trendwatch2-morning.service": "c2eb07d31d4f11168c9c4a89faf150a329c72305c4e26fea3be9d078264ab191",
+    "/etc/systemd/system/trendwatch2-morning.timer": "41ae60f43eacba069adefce022aace65b9f671768930dccc357f06e69f83638c",
+    "/etc/systemd/system/tu1nz-adult-public-s8-telegram.service": "fcad30a40a51ac9d45472cbe3e5eb607ccf117f820fe7f9a5d581f455aa63665",
+    "/etc/systemd/system/tu1nz_agentmode.service": "cc0ebe655f5fc843e8d8ded5ba321214aed58a8b1062b198606d1667dff356e1",
+    "/usr/lib/systemd/system/docker.service": "a12d90fd03761bf79659a185c4a2c40e08934d7ada9e05130e64bd5eb4d634aa",
+    "/etc/cron.d/system_doc_build": "c7beada82a5a09b29e1db6d9a4c828b3c87c16fb4a405d41d34488898121515e",
+    "/etc/cron.d/system_doc_check": "aff2cc9afd2078142ca10ab2e1f3012c537f1b170be385b38c7006e396332789",
+    "/etc/systemd/system/tu1nz-bot.service": "fad12c044b08f691ad1fa6a0afb40c748bfba81b4fbb1ef6240d5a442a213c01",
+    "/usr/local/bin/backup_notify.sh": "878fdc573fe13393656b73d2d0d9f38e93477af3b8e3094f03ac375c0defa311",
+    "/usr/local/bin/trendwatch_post.sh": "467b326823d46de284bf037363c18d350b0c3a5446e759b96683184ea1922264",
+    "/etc/sudoers": "7b68bd1a3e600364a35ef71bbccfc671735ff840c14ed0a15fad5cebd4020b47",
+    "/etc/sudoers.d/99-dokuagent-pandoc": "485957ca0f803a4f02216ea12625aaa338513bc20195d739c76d9bd993bae97c",
+    "/etc/sudoers.d/chatops-nopass": "c153102adf2f49433b89db411e87107cc8f2bda2a2c26c2da75cfecaab91388e"
+  }
+}

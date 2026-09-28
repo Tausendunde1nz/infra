@@ -1,0 +1,375 @@
+{
+  "directives": [
+    {
+      "directive": "Description",
+      "section": "[Unit]",
+      "value_sha256": "cf73f2cf9f1c55dce6caeb1ad0540496955a5c6188d73b74a48d2b406b649681"
+    },
+    {
+      "directive": "Documentation",
+      "section": "[Unit]",
+      "value_sha256": "7363ccab12f564ac72acb5b0d9794fb15dd90829f781c0876691673223302902"
+    },
+    {
+      "directive": "After",
+      "section": "[Unit]",
+      "value_sha256": "2d9f791dcea219f5a6fd106b2ebdb164821a162f4509c872a8058c0dd924a51a"
+    },
+    {
+      "directive": "Wants",
+      "section": "[Unit]",
+      "value_sha256": "2d9f791dcea219f5a6fd106b2ebdb164821a162f4509c872a8058c0dd924a51a"
+    },
+    {
+      "directive": "Requires",
+      "section": "[Unit]",
+      "value_sha256": "3538035ad9649afabaad12e73dd0e6ce7558b0d9c98d8d1b48483254182a68f3"
+    },
+    {
+      "directive": "ConditionPathExists",
+      "section": "[Unit]",
+      "value_sha256": "82eae4a19d03a6b0d1ffc5fbc964587206563f46a2bb6ce0bcdcdcee4d451273"
+    },
+    {
+      "directive": "ConditionPathIsDirectory",
+      "section": "[Unit]",
+      "value_sha256": "2754210a33e9dc6e2eae62922dd84652e69888129ba3560382197b3ec9bf5cd1"
+    },
+    {
+      "directive": "ConditionPathIsDirectory",
+      "section": "[Unit]",
+      "value_sha256": "045a8a5d8843fbce090c32c641a21a35ae3c08995f0b6dfc69e29c4a0eb5d856"
+    },
+    {
+      "directive": "ConditionPathExists",
+      "section": "[Unit]",
+      "value_sha256": "71329c4cc6e32171553fa81d044eb31d1a3aac52ba9376c4a99f4505c494cf5b"
+    },
+    {
+      "directive": "Type",
+      "safe_value": "simple",
+      "section": "[Service]",
+      "value_sha256": "a7a39b72f29718e653e73503210fbb597057b7a1c77d1fe321a1afcff041d4e1"
+    },
+    {
+      "directive": "User",
+      "safe_value": "tu1nz-mychatbuddy",
+      "section": "[Service]",
+      "value_sha256": "b06958cd80ca2adc17fe1d417c2569c2b284be82385cc710871922106765b83b"
+    },
+    {
+      "directive": "Group",
+      "safe_value": "tu1nz-mychatbuddy",
+      "section": "[Service]",
+      "value_sha256": "b06958cd80ca2adc17fe1d417c2569c2b284be82385cc710871922106765b83b"
+    },
+    {
+      "directive": "SupplementaryGroups",
+      "safe_value": "docker",
+      "section": "[Service]",
+      "value_sha256": "d548c5b83fa61d8e3bd86ad42a7ffea9b7c86e3f9d8095c1577d3e1270bb9420"
+    },
+    {
+      "directive": "UMask",
+      "safe_value": "0077",
+      "section": "[Service]",
+      "value_sha256": "ddfcd6f752faf5e5ba65da9c6e1dbc5be379156eccc152a098ebe52f74d1fd52"
+    },
+    {
+      "directive": "EnvironmentFile",
+      "section": "[Service]",
+      "value_sha256": "82eae4a19d03a6b0d1ffc5fbc964587206563f46a2bb6ce0bcdcdcee4d451273"
+    },
+    {
+      "directive": "LoadCredential",
+      "section": "[Service]",
+      "value_sha256": "f1d4de88d64d7f6007d10def04a24cca76bd2d80a02e2eae78f42d3c64c6dc73"
+    },
+    {
+      "directive": "LoadCredential",
+      "section": "[Service]",
+      "value_sha256": "91d73a7541335b69a67fd521502ee4b53880bba02e1e49c24c77f71e470f1b98"
+    },
+    {
+      "directive": "LoadCredential",
+      "section": "[Service]",
+      "value_sha256": "1fb36e45fe037705358f228838fa20757d9eb3add11957e79f79ab6779ca1b4a"
+    },
+    {
+      "directive": "LoadCredential",
+      "section": "[Service]",
+      "value_sha256": "161418153f1ded988200ac54cf40171bbfb863c8da643691d95eced5e464794c"
+    },
+    {
+      "directive": "LoadCredential",
+      "section": "[Service]",
+      "value_sha256": "1ef5e37804dfd20b2df1920faac0fb1c4165d2ad226563cf44b2668b6d9b4408"
+    },
+    {
+      "directive": "RuntimeDirectory",
+      "section": "[Service]",
+      "value_sha256": "5cc2866ec6858df1941991ea1be1fb88753d90127e688a713b6ef9151e81196d"
+    },
+    {
+      "directive": "RuntimeDirectoryMode",
+      "safe_value": "0700",
+      "section": "[Service]",
+      "value_sha256": "3afc20e93f4a8c5281ad23fb3da6d548e6324de195e3de4d0865555f3e623762"
+    },
+    {
+      "directive": "RuntimeDirectoryPreserve",
+      "section": "[Service]",
+      "value_sha256": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59"
+    },
+    {
+      "directive": "StateDirectory",
+      "section": "[Service]",
+      "value_sha256": "c9334b5300bb49a91b75875d7c38058118ab253b5daba42c85deca8e7e3ff021"
+    },
+    {
+      "directive": "StateDirectoryMode",
+      "safe_value": "0700",
+      "section": "[Service]",
+      "value_sha256": "3afc20e93f4a8c5281ad23fb3da6d548e6324de195e3de4d0865555f3e623762"
+    },
+    {
+      "directive": "LogsDirectory",
+      "section": "[Service]",
+      "value_sha256": "c9334b5300bb49a91b75875d7c38058118ab253b5daba42c85deca8e7e3ff021"
+    },
+    {
+      "directive": "LogsDirectoryMode",
+      "safe_value": "0750",
+      "section": "[Service]",
+      "value_sha256": "a27c7465ecc37619aa2b46e1186c68e4c659dfc6406b6e72397e0844e4b32a91"
+    },
+    {
+      "argument_count": 8,
+      "directive": "ExecStartPre",
+      "executable": "+/usr/bin/install",
+      "section": "[Service]",
+      "value_sha256": "7c6592523abfd58487345cffb5f5bd1d0fc2eb376f8a0a5bf03a30b291f5dd14"
+    },
+    {
+      "argument_count": 8,
+      "directive": "ExecStartPre",
+      "executable": "+/usr/bin/install",
+      "section": "[Service]",
+      "value_sha256": "9d42ae2aac9f420b43777e124b266ca13b00151a400e4aa0ab34d48ddcdf851c"
+    },
+    {
+      "argument_count": 8,
+      "directive": "ExecStartPre",
+      "executable": "+/usr/bin/install",
+      "section": "[Service]",
+      "value_sha256": "f8e522c950b3618091bf6341176b2702730d00f3961eb1f8ec884cbc57199d05"
+    },
+    {
+      "argument_count": 8,
+      "directive": "ExecStartPre",
+      "executable": "+/usr/bin/install",
+      "section": "[Service]",
+      "value_sha256": "0685091806c7f0d045b9c91c035c0fed4b758245ab5a1208cc3ceb9fc24014d2"
+    },
+    {
+      "argument_count": 8,
+      "directive": "ExecStartPre",
+      "executable": "+/usr/bin/install",
+      "section": "[Service]",
+      "value_sha256": "d70087a4fce6aa6b3086d9b8b6ee665860d6b9f380e6a4ac74664c105618d8b5"
+    },
+    {
+      "argument_count": 8,
+      "directive": "ExecStartPre",
+      "executable": "+/usr/bin/install",
+      "section": "[Service]",
+      "value_sha256": "523d64e0fe4f9c17e4254f0990c7e1a5525eefa2d9055be106baffa91868d0eb"
+    },
+    {
+      "argument_count": 3,
+      "directive": "ExecStartPre",
+      "executable": "/usr/bin/docker",
+      "section": "[Service]",
+      "value_sha256": "cb3a71d929c22d263215265bbb91e83aba0c6a484429a7f01130c8d023851efb"
+    },
+    {
+      "argument_count": 113,
+      "directive": "ExecStart",
+      "executable": "/usr/bin/docker",
+      "section": "[Service]",
+      "value_sha256": "ca295b99c23167a47d04d5325ef01268eef40e4a4e2181e97059026afa944cfc"
+    },
+    {
+      "argument_count": 4,
+      "directive": "ExecStop",
+      "executable": "-/usr/bin/docker",
+      "section": "[Service]",
+      "value_sha256": "651d4dd6878e3d3ed19840fae636fb7ac77ed33f1f93c35c6409102d9caafa23"
+    },
+    {
+      "directive": "Restart",
+      "safe_value": "no",
+      "section": "[Service]",
+      "value_sha256": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59"
+    },
+    {
+      "directive": "SuccessExitStatus",
+      "safe_value": "143",
+      "section": "[Service]",
+      "value_sha256": "d6f0c71ef0c88e45e4b3a2118fcb83b0def392d759c901e9d755d0e879028727"
+    },
+    {
+      "directive": "TimeoutStartSec",
+      "safe_value": "120s",
+      "section": "[Service]",
+      "value_sha256": "a92bebd7bd67cb7c234b13dc5716d5b460d8de38432b91c6d34d9f9f7fa6f942"
+    },
+    {
+      "directive": "TimeoutStopSec",
+      "safe_value": "45s",
+      "section": "[Service]",
+      "value_sha256": "878d17c0f5523afbbc8e8e8aa97963ee984be04619c3322bbfcfe1cc736b5c84"
+    },
+    {
+      "directive": "KillMode",
+      "safe_value": "process",
+      "section": "[Service]",
+      "value_sha256": "19ed40bf62c399b8492efda5b9a9184b68cf4d9d4a165b38557b9d14201d0c03"
+    },
+    {
+      "directive": "NoNewPrivileges",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "PrivateTmp",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "PrivateDevices",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectSystem",
+      "safe_value": "strict",
+      "section": "[Service]",
+      "value_sha256": "3a3127f5ea0269b5c6cfe92e7eb12dccc190b1e1cedd7faeae3960079542c055"
+    },
+    {
+      "directive": "ProtectHome",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectKernelTunables",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectKernelModules",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectKernelLogs",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectControlGroups",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectClock",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectHostname",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "ProtectProc",
+      "safe_value": "invisible",
+      "section": "[Service]",
+      "value_sha256": "b75af7ef6c4de2b99053f7f6c005d549e95be118be0eb500f1cf86f36ec8f324"
+    },
+    {
+      "directive": "ProcSubset",
+      "safe_value": "pid",
+      "section": "[Service]",
+      "value_sha256": "ce71df4dc560de1e3e3d08a85db646710b493e3106c7af94ae10372d61f9eda8"
+    },
+    {
+      "directive": "RestrictSUIDSGID",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "LockPersonality",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "MemoryDenyWriteExecute",
+      "safe_value": "yes",
+      "section": "[Service]",
+      "value_sha256": "8a798890fe93817163b10b5f7bd2ca4d25d84c52739a645a889c173eee7d9d3d"
+    },
+    {
+      "directive": "CapabilityBoundingSet",
+      "safe_value": "",
+      "section": "[Service]",
+      "value_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "directive": "AmbientCapabilities",
+      "safe_value": "",
+      "section": "[Service]",
+      "value_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "directive": "RestrictAddressFamilies",
+      "safe_value": "AF_UNIX",
+      "section": "[Service]",
+      "value_sha256": "580e76b31a0e9f9c4aebd9062856dca9c3ee5b82fec68311636dd7b5e18e5b48"
+    },
+    {
+      "directive": "ReadOnlyPaths",
+      "section": "[Service]",
+      "value_sha256": "82eae4a19d03a6b0d1ffc5fbc964587206563f46a2bb6ce0bcdcdcee4d451273"
+    },
+    {
+      "directive": "ReadOnlyPaths",
+      "section": "[Service]",
+      "value_sha256": "f2431a35ccf29d227154f4a115c4c30691baf8164f58a5f974f2bab6c6076eb5"
+    },
+    {
+      "directive": "ReadWritePaths",
+      "section": "[Service]",
+      "value_sha256": "55b26733c08f4610e58e6d9a78b0b0a0c9d54bed2b122163636c143129b59cd0"
+    },
+    {
+      "directive": "WantedBy",
+      "section": "[Install]",
+      "value_sha256": "9de81a63547dec5f7f8a96c0be07089a53af46cb430596fd610ea8df3387dba3"
+    }
+  ],
+  "sha256": "53a2fad8675a6cfa79196d2fea64e56745403cdc4802ae93cb32682c13d71d26"
+}
