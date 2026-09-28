@@ -1,0 +1,44 @@
+# V9 Startversuch: INDETERMINATE — alter Befehl gesperrt
+
+Datum 2026-09-28. Bezug: Commit `643206e2533df7d9d0106c428ce4a48a566bf33f` auf `security/codex-privileged-ops-2026-09-27`.
+
+**Verbindlicher Status: `INDETERMINATE`. Keine neue Aktivierung vorbereiten oder ausführen. Der alte Befehl und die Kapsel `865b33e81db52f497fe834293619ef933f1bfa38ab80b715e91b51c98c342690` sind dauerhaft nicht wiederzuverwenden.** Diese additive Diagnose übersteuert die frühere Bereitschaftsaussage; historische Quellen, Launcher, Kapseln und Nachweise bleiben unverändert. Es wurde kein neuer Launcher erzeugt und kein alter ausgeführt.
+
+## Gesicherte Chronologie
+
+- 04:05:31 UTC / 06:05:31 Berlin: chatops-Staging angelegt. Verzeichnis0700, UID/GID1001, Inode274307; einzige Datei `capsule.py`,0600, Inode274311,228579Bytes. Inhalt entspricht dem freigegebenen Kapsel-SHA. Keine benannten/default ACLs; ausschließlich Eigentümerrechte.
+- Erst 15:15:18 UTC / 17:15:18 Berlin: sudo protokolliert den Root-Python-Befehl mit genau dieser Kapselreferenz, PID1448404. Erfolgreiche Root-Sitzung 15:15:18.857100 bis15:15:21.513139UTC. Ein Rootprozess wurde somit tatsächlich gestartet. Die Pause zwischen Staging und Authentifizierung beträgt über elf Stunden; die frühere feste Startzeit war zu diesem Zeitpunkt keine aktuelle Fensterprüfung mehr.
+- Aus dem bestehenden Terminal ausschließlich strukturierte, bereinigte Ergebnisse gelesen: `status=REFUSED`, `error_class=Refused`; der Client meldete `bootstrap failed; do not retry blindly`. Kein Rohterminaltext, Passwort oder sonstiges Geheimnis wurde gespeichert.
+- Root-Transaktions- und Paketverzeichnis, Brokerverzeichnis, Helper und Statusdatei sind aktuell nicht vorhanden. Worker/Watchdog-Service und Timer sind `not-found`/`inactive`. Keine aktuell erkennbaren Prozesse mit dieser Kapselreferenz. Dies beweist nicht rückwirkend, dass ein Verzeichnis niemals existierte.
+
+Die Kapsel ist hashgebunden. Die lokale Clientdatei stimmt mit ihrem dokumentierten SHA überein; die konkret damals ausgeführten lokalen Clientbytes wurden nicht unabhängig im Serverjournal attestiert. Als alte Identität diente der Kapselhash im Stagingnamen, keine zusätzliche eindeutige Transaktions-ID.
+
+## Reproduzierbarer Aufruffehler, begrenzte historische Aussage
+
+Der unveränderte Bootstrap iteriert über geladene Units und ruft `systemctl show <unit> -p NeedDaemonReload --value` auf. Für `-.mount` und `-.slice` fehlt der Argumenttrenner `--`. Lesende Reproduktion ohne sudo: Exit1, `invalid option -- '.'`. Dieser Aufruf wird vom vorhandenen `checked` als `Refused` abgewiesen. Die betreffende Schleife liegt vor der vorgesehenen Erzeugung des Root-Verzeichnisses.
+
+Das ist ein nachgewiesener Codefehler und ein zum beobachteten Resultat passender Abbruchweg. Es ist **kein protokollierter Nachweis der exakten historischen Exception-Stelle**: V9 speicherte vor Root-Verzeichniserstellung nur die Exception-Klasse. Die gegenwärtig erreichbaren Auditdateien beginnen erst um15:17:23.368UTC und decken den Rootstart um15:15:18 nicht ab. Andere frühe `Refused`-Abbruchpfade können anhand der vorhandenen Fehlermeldung nicht ausgeschlossen werden. Die frühere Offline-Freigabe deckte diesen Unitnamen-Fehler und die lange sudo-Wartezeit unzureichend ab.
+
+Es erfolgt deshalb weder eine unbewiesene Kennzeichnung `ABORTED_BEFORE_ROOT_START` noch eine Einstufung `NO_ROOT_TRANSACTION_STARTED`. Staging wird unverändert als Nachweis erhalten. Kein Löschen, Überschreiben oder Wiederverwenden.
+
+## Live-Vergleich und Zugriffslücken
+
+Bestätigt: Docker-Socket weiterhin Inode1268,root:docker/GID987,0660; chatops weiterhin Docker-Mitglied. Kein V9-Socket-Drop-in, keine V9-Helper, kein daemon.json. Vendor-Dockerdefinitionen, beide Root-Dokumentations-Crondateien, Root-Compose-Unit, Trendwatch-Skript und alle acht Trendwatch-Unit-/Timerdateien stimmen mit den bekannten Hashes überein. Die vier Trendwatch-Timer laufen weiter; keine Quarantäne aus diesem Untersuchungsauftrag.
+
+Agentmode und Telegram behalten ihre bestätigten PIDs und Zustände. Von zuvor15Containern fehlen derzeit nur MyChatBuddy; die übrigen14 stimmen hinsichtlich IDs, Images, Prozess-/Startdaten, Neustartzählern, Konfiguration, Netzwerken, Endpoints und kanonischen vollständigen Mountdatensätzen überein. cAdvisor und Node Exporter sind in Prometheus aktuell `up`. SSH-, Tailscale-, Docker- und Fail2ban-Dienste sind aktiv. Eine erfolgreiche Tailscale-IPv4-SSH-Verbindung auf2222 dient dieser Untersuchung. Die fehlende Anzeige eines Port22-Hostlisteners wird nicht als Ausfall des Tailscale-SSH-Proxys interpretiert. Es gab keine öffentlichen Porttests.
+
+**Eigenständige erhebliche Abweichung:** MyChatBuddy endete bereits am28.09. um01:12:34UTC, also vor dem Staging und lange vor dem Rootversuch, mit Exit75. MainPID0, Zustandfailed; der frühere Container fehlt. Die Unit war bei der ersten Abfrage noch hashgleich, wurde aber während der Untersuchung um15:24:51.773048UTC geändert: neuer SHA `e9f6b2e0fddb430673843b628cdde9e7d472979480e04a7753c365de8c45c976`, ohne V9-Helperreferenz. Diese Änderung wurde nicht von dieser Untersuchung vorgenommen. Keine Zuordnung zu einem Verursacher ohne weiteren Nachweis. Nicht überschreiben oder neu starten. Der zwischenzeitliche sudo-systemctl-Start im Journal betraf `tu1nz_encrypted_backup.service`, nicht MyChatBuddy.
+
+Trendwatch-Literalzustandspfade wurden nur als Metadaten/Hashes gelesen: `/opt/trendwatch`, `today_live_title.txt`, `today_title.txt`. Reguläre zeitgesteuerte Fortschreibung wird nicht mit Migrationsdrift gleichgesetzt. Dynamische und privilegierte Zustandsbereiche sind damit nicht vollständig inventarisiert.
+
+Nicht vollständig prüfbar ohne neue privilegierte Lesesicht: sudoers inklusive neuer möglicher Drop-ins, gshadow, Backup-Notify-Inhalt, aktive Kernel-Firewall/UFW-Regeln, effektive sshd-Konfiguration, geladener Fail2ban-Zustand sowie vollständige Root-FD-/Prozesssicht. `sudo -n /usr/sbin/visudo -c` verweigerte den Zugriff wegen erforderlicher Passworteingabe; keine Passwortabfrage erzwungen. Unprivilegierte nft-/Fail2ban-Abfragen verweigert; sshd-T ohne Ausgabe fehlgeschlagen. Lesbare Konfigurationshashes ersetzen keine wirksame Kernel-/Dienstprüfung. Kein unveränderter Gesamtzustand behauptet.
+
+## Sicherer Recoveryplan — keine automatische Umsetzung
+
+1. Alten Befehl dauerhaft gesperrt halten. Weder das chatops-Staging noch andere historische Dateien entfernen. Keine alten Rollbacks ausführen: Sie könnten fremde oder zeitlich spätere Änderungen überschreiben bzw. Rechte wieder öffnen.
+2. Laufende fremde Arbeit an MyChatBuddy koordinieren und deren Sollstand nachweisen. Exit75 und verschwundenen Container separat bewerten. Keine Anwendungskorrektur oder Neustart im Rahmen dieser Diagnose.
+3. Einen später ausdrücklich autorisierten, einzelnen lesenden Root-Schritt verwenden, um sudoers/visudo, Gruppen-/gshadow-Zustand, sämtliche V9-Zielpfade und verbleibende Root-Nachweise, aktive Firewall, SSH und Fail2ban vollständig abzugleichen. Keine neue Migration oder Watchdog starten. Vorhandene Audit-/Journalhistorie nur metadatenbasiert auswerten; fehlende Historie nicht erfinden.
+4. Erst nach belastbarer Klassifikation entscheiden. Bei nachgewiesenen Teiländerungen ausschließlich deren bekannten Nachbilder mit passenden Originalen und unter Erhalt fremder Änderungen behandeln. Bei verbleibender Ungewissheit bleibt die Aktivierung gesperrt.
+5. Nur bei anschließend eindeutigem `NO_ROOT_TRANSACTION_STARTED` darf ein neuer, separater Launcher entstehen: neue ID/Hashes, dynamische vollständige Fensterprüfung und Driftprüfung vor jeder Staging-Erzeugung, sichere Berücksichtigung einer verzögerten sudo-Eingabe, atomarer Root-Startmarker und vollständiges Zustandsjournal. Keine feste Uhrzeit aus dem alten Befehl übernehmen. Der `--`-Fehler muss mit Regressionstests beseitigt werden. Alle verlangten Abbruch-, Doppelstart-, Lock-/Watchdog- und Wiederaufnahmetests sowie die bisherigen Tests sind dann erneut Voraussetzung.
+
+In diesem Lauf wurden nur lesende Diagnoseabfragen ausgeführt und diese neuen Dokumentationsdateien hinzugefügt. Keine Live-Konfiguration, kein Prozess, Container, Timer, Netzwerk, bestehender Launcher oder historische Datei wurde verändert. Keine neue Aktivierungsvorbereitung, kein PR und keine Freigabeaufforderung, die Bereitschaft vortäuschen würde.

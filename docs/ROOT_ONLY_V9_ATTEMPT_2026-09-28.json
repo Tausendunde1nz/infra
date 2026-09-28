@@ -1,0 +1,97 @@
+{
+  "audit_history_gap": {
+    "covers_root_launch": false,
+    "earliest_available_audit_record_utc": "2026-09-28T15:17:23.368Z"
+  },
+  "base_commit": "643206e2533df7d9d0106c428ce4a48a566bf33f",
+  "capsule_sha256": "865b33e81db52f497fe834293619ef933f1bfa38ab80b715e91b51c98c342690",
+  "chatops_docker_membership": true,
+  "classification": "INDETERMINATE",
+  "containers": {
+    "baseline_count": 15,
+    "current_count": 14,
+    "missing": "mychatbuddy-private-alpha",
+    "other_14_comparable_records_unchanged": true
+  },
+  "live_changes_by_investigation": false,
+  "local_client_sha256": "68e3c68e2d34ceebfe204100c9bc17c78316745933596f8ade6acab67db9654d",
+  "monitoring": {
+    "cadvisor": "up",
+    "node-exporter": "up"
+  },
+  "mychatbuddy": {
+    "active_state": "failed",
+    "change_not_performed_by_this_investigation": true,
+    "exit_status": 75,
+    "exit_utc": "2026-09-28T01:12:34Z",
+    "pid": 0,
+    "unit_change_utc": "2026-09-28T15:24:51.773048Z",
+    "unit_sha_before": "53a2fad8675a6cfa79196d2fea64e56745403cdc4802ae93cb32682c13d71d26",
+    "unit_sha_observed_later": "e9f6b2e0fddb430673843b628cdde9e7d472979480e04a7753c365de8c45c976"
+  },
+  "new_activation_preparation_allowed": false,
+  "new_launcher_created": false,
+  "new_watchdog_started": false,
+  "old_command": "DO_NOT_REUSE",
+  "old_evidence_rewritten": false,
+  "related_current_processes_found": 0,
+  "reproduced_bug": {
+    "argv": [
+      "systemctl",
+      "show",
+      "-.mount",
+      "-p",
+      "NeedDaemonReload",
+      "--value"
+    ],
+    "historical_exact_exception_site_not_logged": true,
+    "rc": 1,
+    "reason": "missing option terminator; invalid option dot"
+  },
+  "root_directory_ever_existed": "NOT_PROVEN",
+  "root_transaction_directory_currently_absent": true,
+  "socket": {
+    "gid": 987,
+    "inode": 1268,
+    "mode": "0660",
+    "uid": 0
+  },
+  "source_code_changed": false,
+  "staging": {
+    "acl": "owner only; no named/default ACL observed",
+    "capsule_inode": 274311,
+    "capsule_mode": "0600",
+    "capsule_mtime_utc": "2026-09-28T04:05:31.351281Z",
+    "capsule_size": 228579,
+    "gid": 1001,
+    "inode": 274307,
+    "mode": "0700",
+    "mtime_utc": "2026-09-28T04:05:31.306279Z",
+    "path": "/home/chatops/.tu1nz-root-only-v9-865b33e81db52f497fe834293619ef933f1bfa38ab80b715e91b51c98c342690",
+    "preserved": true,
+    "uid": 1001
+  },
+  "sudo_evidence": {
+    "command_utc": "2026-09-28T15:15:18.855377Z",
+    "pid": 1448404,
+    "python_command_capsule_match": true,
+    "root_session_closed_utc": "2026-09-28T15:15:21.513139Z",
+    "root_session_open_utc": "2026-09-28T15:15:18.857100Z"
+  },
+  "terminal_result": {
+    "client_error": "bootstrap failed; do not retry blindly",
+    "error_class": "Refused",
+    "status": "REFUSED"
+  },
+  "unverified_privileged_checks": [
+    "sudoers contents and includes",
+    "visudo -c (sudo -n requires password)",
+    "gshadow",
+    "backup_notify content",
+    "active nftables/UFW rules",
+    "effective sshd configuration",
+    "loaded Fail2ban state",
+    "complete privileged FD/process visibility"
+  ],
+  "worker_watchdog_units": "not-found/inactive"
+}
