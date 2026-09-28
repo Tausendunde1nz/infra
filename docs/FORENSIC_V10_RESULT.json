@@ -1,0 +1,439 @@
+{
+  "schema": 1,
+  "classification": "UNRESOLVED",
+  "root_collection_status": "INCOMPLETE",
+  "transaction_id": "forensic-v10-20260928-2d6c7fc1c28946afa6c8213d0c4727bb",
+  "prepared_commit": "f3202c48596956d8d9e2259047ee96fc7e7d0002",
+  "manifest_sha256": "a175061911c73b127a63a175aaa6bc15d7450607ab1924f83a1e3641d83009aa",
+  "verified_result_files": 61,
+  "root_output": "/var/lib/forensic-v10-20260928-2d6c7fc1c28946afa6c8213d0c4727bb",
+  "finished_utc": "2026-09-28T18:13:40.063282+00:00",
+  "sections_complete": 59,
+  "sections_incomplete": [
+    "artifacts"
+  ],
+  "bounded_archives": [
+    "/var/lib/tu1nz-root-trust-v5",
+    "/var/lib/tu1nz-root-trust-v51"
+  ],
+  "archive_entry_limit": 2000,
+  "control_flow": "MUTATION_REACHABLE_BEFORE_REFUSAL",
+  "historical_python_digest_bound": false,
+  "audit_earliest_utc": "2026-09-28T15:17:23.368000+00:00",
+  "audit_covers_old_root_execution": false,
+  "bound_file_count": 20,
+  "bound_files_matching": 19,
+  "bound_files_changed": [
+    "/etc/systemd/system/mychatbuddy-private-alpha.service"
+  ],
+  "mychatbuddy_classification": "FOREIGN_CHANGE_SEMANTICS_KNOWN_ACTOR_UNKNOWN",
+  "mychatbuddy_properties": {
+    "ActiveState": "inactive",
+    "DropInPaths": "",
+    "ExecMainCode": "0",
+    "ExecMainExitTimestamp": "",
+    "ExecMainStartTimestamp": "",
+    "ExecMainStatus": "0",
+    "FragmentPath": "/etc/systemd/system/mychatbuddy-private-alpha.service",
+    "Group": "tu1nz-mychatbuddy",
+    "Id": "mychatbuddy-private-alpha.service",
+    "LoadState": "loaded",
+    "MainPID": "0",
+    "NRestarts": "0",
+    "NeedDaemonReload": "no",
+    "Result": "success",
+    "SourcePath": "",
+    "SubState": "dead",
+    "SupplementaryGroups": "docker",
+    "UnitFileState": "disabled",
+    "User": "tu1nz-mychatbuddy"
+  },
+  "mychatbuddy_semantic_diff": {
+    "actor": "UNATTRIBUTED",
+    "changes": [
+      {
+        "after": [
+          {
+            "directive": "RestartForceExitStatus",
+            "safe_value": "75",
+            "section": "[Service]",
+            "value_sha256": "f369cb89fc627e668987007d121ed1eacdc01db9e28f8bb26f358b7d8c4f08ac"
+          }
+        ],
+        "before": [],
+        "directive": "RestartForceExitStatus",
+        "metadata_only": false,
+        "section": "[Service]"
+      },
+      {
+        "after": [
+          {
+            "directive": "RestartSec",
+            "safe_value": "185s",
+            "section": "[Service]",
+            "value_sha256": "5a64b66e1af023de6b797c07cb407e7f48bf2bbf27d35ca982e3fc47968f8e6e"
+          }
+        ],
+        "before": [],
+        "directive": "RestartSec",
+        "metadata_only": false,
+        "section": "[Service]"
+      },
+      {
+        "after": [
+          {
+            "directive": "Documentation",
+            "section": "[Unit]",
+            "value_sha256": "e5bf2b05c024664bcaad70d4041cbf1e8c91f8e1f91363e883a011b6a5c1f8eb"
+          }
+        ],
+        "before": [
+          {
+            "directive": "Documentation",
+            "section": "[Unit]",
+            "value_sha256": "7363ccab12f564ac72acb5b0d9794fb15dd90829f781c0876691673223302902"
+          }
+        ],
+        "directive": "Documentation",
+        "metadata_only": true,
+        "section": "[Unit]"
+      },
+      {
+        "after": [
+          {
+            "directive": "StartLimitAction",
+            "safe_value": "none",
+            "section": "[Unit]",
+            "value_sha256": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe"
+          }
+        ],
+        "before": [],
+        "directive": "StartLimitAction",
+        "metadata_only": false,
+        "section": "[Unit]"
+      },
+      {
+        "after": [
+          {
+            "directive": "StartLimitBurst",
+            "safe_value": "3",
+            "section": "[Unit]",
+            "value_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+          }
+        ],
+        "before": [],
+        "directive": "StartLimitBurst",
+        "metadata_only": false,
+        "section": "[Unit]"
+      },
+      {
+        "after": [
+          {
+            "directive": "StartLimitIntervalSec",
+            "safe_value": "15min",
+            "section": "[Unit]",
+            "value_sha256": "d9c5c91ebf3d5bfc01c7118afdfffa755a1b2e693930b2131077f7fa5e7cd001"
+          }
+        ],
+        "before": [],
+        "directive": "StartLimitIntervalSec",
+        "metadata_only": false,
+        "section": "[Unit]"
+      }
+    ],
+    "classification": "FOREIGN_CHANGE_SEMANTICS_KNOWN_ACTOR_UNKNOWN",
+    "current_sha256": "e9f6b2e0fddb430673843b628cdde9e7d472979480e04a7753c365de8c45c976",
+    "no_actor_inference_from_timestamps": true,
+    "prior_sha256": "53a2fad8675a6cfa79196d2fea64e56745403cdc4802ae93cb32682c13d71d26"
+  },
+  "timeline": [
+    {
+      "utc": "2026-09-28T01:12:34.356467+00:00",
+      "labels": [
+        "FAILURE",
+        "EXIT_75"
+      ],
+      "mychatbuddy_reference": true,
+      "message_sha256": "ddebb4601b5299437fc9f4349c072f9cdaaa30a4ee5bca555980945ccec0a8d2"
+    },
+    {
+      "utc": "2026-09-28T01:12:34.357012+00:00",
+      "labels": [
+        "FAILURE"
+      ],
+      "mychatbuddy_reference": true,
+      "message_sha256": "95aa2b41c7f36ec2cdcd2aca4bfb057fe42380ef82503892bd24d5c4b3eb3799"
+    },
+    {
+      "utc": "2026-09-28T01:12:34.357823+00:00",
+      "labels": [],
+      "mychatbuddy_reference": true,
+      "message_sha256": "6416060207de531cc5fff490f0de2b35aa0bbadefdcfe1ec9d39023c0da6d555"
+    },
+    {
+      "utc": "2026-09-28T15:15:18.855377+00:00",
+      "labels": [
+        "OLD_CAPSULE",
+        "OLD_TRANSACTION"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "769cc6b66e0f1d6975cb8402d168cf82e6161838f2ef75fdb1a1fc87a452c679"
+    },
+    {
+      "utc": "2026-09-28T15:15:18.857100+00:00",
+      "labels": [
+        "ROOT_OPEN"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "a1c0183fce39c900c1bbfbcea0e0ee0dad7d5a442930275696d1c7cb75a9c4ce"
+    },
+    {
+      "utc": "2026-09-28T15:15:21.513139+00:00",
+      "labels": [
+        "ROOT_CLOSED"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "204d24b133adefa97abd4956e4356b8e349a04687aa51d876691784c751e5ef3"
+    },
+    {
+      "utc": "2026-09-28T15:24:52.067571+00:00",
+      "labels": [
+        "DAEMON_RELOAD"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "eb78612671537abc572c185dfa62c3a4998797e65c9daea78ae0eef8d1b199ac"
+    },
+    {
+      "utc": "2026-09-28T15:24:53.830759+00:00",
+      "labels": [
+        "DAEMON_RELOAD"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "d87475883f576b8818d302629e3d5cd9dfd9c3f2f7d95d680d064e1eaf4b8f2a"
+    },
+    {
+      "utc": "2026-09-28T15:46:57.441178+00:00",
+      "labels": [
+        "START"
+      ],
+      "mychatbuddy_reference": true,
+      "message_sha256": "852ab269f52fe38463d275672d57dad63f57d3f3e6ec2b9b745988549dfda649"
+    },
+    {
+      "utc": "2026-09-28T15:46:57.823195+00:00",
+      "labels": [
+        "START"
+      ],
+      "mychatbuddy_reference": true,
+      "message_sha256": "8b38039bb0ca4414e0a798ff608d62b769411713975d01b329eb43eeebb92e55"
+    },
+    {
+      "utc": "2026-09-28T15:46:57.913134+00:00",
+      "labels": [
+        "STOP"
+      ],
+      "mychatbuddy_reference": true,
+      "message_sha256": "bb9223fbf2d51bc2fc91e65599add28cbafa31684d0ba2e1e5bed8ecb003e55b"
+    },
+    {
+      "utc": "2026-09-28T15:46:58.536876+00:00",
+      "labels": [],
+      "mychatbuddy_reference": true,
+      "message_sha256": "b2cc29b10d54dee099c36a0599dc339df8f02a0755032ca3366b5345294a99e3"
+    },
+    {
+      "utc": "2026-09-28T15:46:58.537497+00:00",
+      "labels": [
+        "STOP"
+      ],
+      "mychatbuddy_reference": true,
+      "message_sha256": "4e0f73db01b77fbb1e7cae02ae86ab26977d7e1895b788e6f19241c450f36b77"
+    },
+    {
+      "utc": "2026-09-28T15:46:58.597064+00:00",
+      "labels": [
+        "DAEMON_RELOAD"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "a387766109f1e7cfa4d2503cf15c7329065ae2deda44eaa89cb4c7714d748c14"
+    },
+    {
+      "utc": "2026-09-28T15:47:00.407348+00:00",
+      "labels": [
+        "DAEMON_RELOAD"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "d9ab9a2df24f972fe2d689e5decdd57208a6742c020af26dac03f9d6cd53b4cc"
+    },
+    {
+      "utc": "2026-09-28T17:21:42.726269+00:00",
+      "labels": [
+        "DAEMON_RELOAD"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "697a3605266cecc9d928024686423e4705f32f8181b4d33c021eb97240897a78"
+    },
+    {
+      "utc": "2026-09-28T17:21:44.547517+00:00",
+      "labels": [
+        "DAEMON_RELOAD"
+      ],
+      "mychatbuddy_reference": false,
+      "message_sha256": "336e0fa9aca02fcbfe5910fa5dd3e2ed8eff39ccf66447691a972fe707906305"
+    }
+  ],
+  "container_comparisons": [
+    {
+      "name": "spicymila_bot",
+      "different_fields": [],
+      "health": "unhealthy"
+    },
+    {
+      "name": "n8n",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "trendwatch_bot",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "trendwatch-bot_legacy_1763406721",
+      "different_fields": [],
+      "health": "unhealthy"
+    },
+    {
+      "name": "tu1nz-bot-template",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "tu1nz_grafana",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "tu1nz_node_exporter",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "tu1nz_cadvisor",
+      "different_fields": [],
+      "health": "healthy"
+    },
+    {
+      "name": "tu1nz_prometheus",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "jellyfin",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "telegram_bot_mommyramona",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "api-mychatbuddy",
+      "different_fields": [],
+      "health": "healthy"
+    },
+    {
+      "name": "nginx-test-web-1",
+      "different_fields": [],
+      "health": "none"
+    },
+    {
+      "name": "practical_chandrasekhar",
+      "different_fields": [],
+      "health": "none"
+    }
+  ],
+  "container_missing_from_original_baseline": [
+    "mychatbuddy-private-alpha"
+  ],
+  "unit_comparisons": [
+    {
+      "unit": "mychatbuddy-private-alpha.service",
+      "different_fields": [
+        "MainPID",
+        "ActiveState",
+        "SubState"
+      ]
+    },
+    {
+      "unit": "tailscaled.service",
+      "different_fields": []
+    },
+    {
+      "unit": "ssh.service",
+      "different_fields": []
+    },
+    {
+      "unit": "tu1nz_agentmode.service",
+      "different_fields": []
+    },
+    {
+      "unit": "tu1nz-adult-public-s10-wms.service",
+      "different_fields": []
+    },
+    {
+      "unit": "tu1nz-adult-public-s8-telegram.service",
+      "different_fields": []
+    },
+    {
+      "unit": "fail2ban.service",
+      "different_fields": []
+    },
+    {
+      "unit": "tu1nz-adult-public-s8-landing.service",
+      "different_fields": []
+    },
+    {
+      "unit": "tu1nz-adult-public-s7.service",
+      "different_fields": []
+    },
+    {
+      "unit": "docker.service",
+      "different_fields": []
+    }
+  ],
+  "visudo_rc": 0,
+  "fail2ban_port": "2222",
+  "sshd": {
+    "allowusers": "chatops",
+    "authenticationmethods": "any",
+    "kbdinteractiveauthentication": "no",
+    "listenaddress": "0.0.0.0:2222",
+    "passwordauthentication": "no",
+    "permitrootlogin": "no",
+    "port": "2222",
+    "pubkeyauthentication": "yes",
+    "usepam": "yes"
+  },
+  "chatops_groups": [
+    1001,
+    4,
+    27,
+    100,
+    999,
+    987
+  ],
+  "docker_socket": {
+    "acl_xattrs": {},
+    "dev": 25,
+    "gid": 987,
+    "inode": 1268,
+    "mode": "0o660",
+    "path": "/run/docker.sock",
+    "uid": 0
+  },
+  "no_migration_prepared": true,
+  "no_additional_root_run": true,
+  "live_configuration_modified_by_this_task": false
+}
