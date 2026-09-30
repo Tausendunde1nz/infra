@@ -694,6 +694,37 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 child.terminate()
                 child.wait(timeout=10)
 
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_repository_handle_gate_detects_upgradeable_shared_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mapped = root / "tracked.bin"
+            mapped.write_bytes(b"0" * 4096)
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import mmap,sys,time;"
+                        "f=open(sys.argv[1],'r+b');"
+                        "m=mmap.mmap(f.fileno(),0,flags=mmap.MAP_SHARED,prot=mmap.PROT_READ);"
+                        "f.close();print('ready',flush=True);time.sleep(30)"
+                    ),
+                    str(mapped),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                self.assertGreater(
+                    runtime._active_recovery_git_handle_count((root,)), 0
+                )
+            finally:
+                child.terminate()
+                child.wait(timeout=10)
+
     def test_repository_barrier_journal_precedes_mutation_and_binds_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -896,6 +927,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn('not in {"not-found", "disabled", "static"}', source)
         self.assertIn('_runtime_unit_enablement_state() != "static"', source)
         self.assertIn('_systemctl_property(UNIT_NAME, "DropInPaths")', source)
+        self.assertGreaterEqual(
+            source.count('_systemctl_property(UNIT_NAME, "FragmentPath")'), 2
+        )
+        self.assertIn("S12_1_RUNTIME_UNIT_FRAGMENT_RED", source)
 
     def test_recovery_refuses_active_repository_git_process(self) -> None:
         with (

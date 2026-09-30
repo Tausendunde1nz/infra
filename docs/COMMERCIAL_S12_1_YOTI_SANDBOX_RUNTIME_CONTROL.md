@@ -174,8 +174,9 @@ successful result cannot satisfy acceptance.
 The preflight rejects every effective systemd drop-in and any enabled, linked,
 masked, aliased, indirect or otherwise unexpected unit-file state. After the
 reviewed main unit is installed and `daemon-reload` completes, its effective
-`DropInPaths` must remain empty and `is-enabled` must be exactly `static` before
-the sole start and again during final read-only verification.
+`DropInPaths` must remain empty, its effective `FragmentPath` must equal the
+reviewed file below `/etc/systemd/system`, and `is-enabled` must be exactly
+`static` before the sole start and again during final read-only verification.
 
 If the controller or host terminates after the durable attempt marker, the
 explicit `recover` operation loads the root-private restore index and performs
@@ -248,7 +249,8 @@ descriptor or writable memory mapping anywhere below either complete canonical
 worktree. The final post-exchange check covers both complete worktrees and both
 quarantined Git directories. A retained handle or mapping therefore stops the
 attempt before backup or canonical mutation instead of surviving a chmod
-barrier.
+barrier. Shared mappings are rejected even when currently read-only because an
+existing shared mapping can retain permission to become writable later.
 
 Release acquisition performs no server-side network Git operation. The exact
 reviewed Application `main`, Control `control-main` and annotated Runtime Freeze

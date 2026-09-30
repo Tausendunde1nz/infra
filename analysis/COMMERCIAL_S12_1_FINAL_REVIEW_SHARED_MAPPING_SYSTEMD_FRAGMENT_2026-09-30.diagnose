@@ -1,0 +1,18 @@
+# S12.1 final review: shared mappings and effective systemd fragment
+
+## Findings
+
+A process can retain a shared read-only mapping created from a read-write file
+descriptor and later upgrade it to writable after filesystem modes change. In
+addition, a higher-priority full systemd unit can shadow the reviewed file
+without appearing in `DropInPaths`.
+
+## Resolution
+
+The repository barrier now rejects every retained shared mapping below the
+protected trees, even when its current permissions omit `w`. Linux regression
+coverage creates such a mapping after closing the original descriptor.
+
+Preflight and the immediate pre-start gate now require the effective systemd
+`FragmentPath` to be the exact reviewed file in `/etc/systemd/system`, while
+continuing to require empty `DropInPaths` and static enablement.

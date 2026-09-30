@@ -788,8 +788,14 @@ def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str,
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
     if _runtime_unit_dropin_count() != 0:
         raise S12ControlError("S12_1_RUNTIME_UNIT_DROPIN_RED")
-    if _runtime_unit_enablement_state() not in {"not-found", "disabled", "static"}:
+    unit_enablement = _runtime_unit_enablement_state()
+    if unit_enablement not in {"not-found", "disabled", "static"}:
         raise S12ControlError("S12_1_RUNTIME_UNIT_ENABLEMENT_RED")
+    if unit_enablement == "static" and (
+        _systemctl_property(UNIT_NAME, "FragmentPath") != str(UNIT_PATH)
+        or _systemctl_property(UNIT_NAME, "DropInPaths")
+    ):
+        raise S12ControlError("S12_1_RUNTIME_UNIT_FRAGMENT_RED")
     release_paths_exist = any(
         path.exists() or path.is_symlink()
         for path in (RELEASE_ROOT, RELEASE_STAGING_ROOT)
@@ -1909,7 +1915,9 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
                 )
                 for line in maps.splitlines():
                     fields = line.split(maxsplit=5)
-                    if len(fields) != 6 or "w" not in fields[1]:
+                    if len(fields) != 6 or (
+                        "w" not in fields[1] and not fields[1].endswith("s")
+                    ):
                         continue
                     mapped_name = fields[5]
                     if mapped_name.endswith(" (deleted)"):
@@ -3403,6 +3411,8 @@ def _deploy_locked() -> dict[str, Any]:
             or _systemctl_property(UNIT_NAME, "DropInPaths")
         ):
             raise S12ControlError("S12_1_RUNTIME_UNIT_DROPIN_RED")
+        if _systemctl_property(UNIT_NAME, "FragmentPath") != str(UNIT_PATH):
+            raise S12ControlError("S12_1_RUNTIME_UNIT_FRAGMENT_RED")
         if _runtime_unit_enablement_state() != "static":
             raise S12ControlError("S12_1_RUNTIME_UNIT_ENABLEMENT_RED")
         _run(["nginx", "-t"])
