@@ -1,0 +1,14 @@
+# Commercial S12.1 r2 pre-sync nginx baseline diagnosis
+
+The complete read-only r2 server preflight reached nginx baseline validation
+after the timer clock-domain correction. The installed site matched the
+reviewed S10.1 final configuration SHA-256, but the preflight attempted to read
+that reviewed file from the canonical Control checkout before the controller's
+designed repository sync. The older detached checkout did not yet contain the
+file, so the preflight stopped with no deployment attempt and no server
+mutation.
+
+The r3 correction compares the installed nginx site to a reviewed constant
+instead of the unsynchronized checkout. Source validation proves the constant
+matches the reviewed baseline bytes, and freeze provenance independently binds
+the baseline artifact. The immutable r1 and r2 tags remain unchanged.
