@@ -1,0 +1,197 @@
+{
+  "apparmor": {
+    "mode": "enforce",
+    "name": "docker-default",
+    "raw_data_access": "EACCES",
+    "sha256": "df4af4ca290fd03237a7e50b674bf9b3c23fbbc1fd8e18702730778c92447d0a"
+  },
+  "config": {
+    "Cmd": [
+      "python",
+      "/app/main.py"
+    ],
+    "Entrypoint": null,
+    "Healthcheck": null,
+    "User": "",
+    "WorkingDir": "/app"
+  },
+  "container_id": "e2473c1d0a106b515eee5e63984260046beae22b16724af281368f32c7bd69c7",
+  "env_names": [
+    "BOT_TOKEN",
+    "SECRET",
+    "WEBHOOK_URL",
+    "PORT",
+    "PATH",
+    "LANG",
+    "GPG_KEY",
+    "PYTHON_VERSION",
+    "PYTHON_SHA256",
+    "PYTHONDONTWRITEBYTECODE",
+    "PYTHONUNBUFFERED"
+  ],
+  "env_origin": "Compose env_file .env plus image ENV; application optional loader /opt/system_status_bot/.env",
+  "gid_map": "0          0 4294967295",
+  "host": {
+    "CapAdd": null,
+    "CapDrop": null,
+    "DeviceRequests": null,
+    "Devices": null,
+    "IpcMode": "private",
+    "MaskedPaths": [
+      "/proc/asound",
+      "/proc/acpi",
+      "/proc/interrupts",
+      "/proc/kcore",
+      "/proc/keys",
+      "/proc/latency_stats",
+      "/proc/timer_list",
+      "/proc/timer_stats",
+      "/proc/sched_debug",
+      "/proc/scsi",
+      "/sys/firmware",
+      "/sys/devices/virtual/powercap"
+    ],
+    "NetworkMode": "telegram_chatbot_default",
+    "PidMode": "",
+    "Privileged": false,
+    "ReadonlyPaths": [
+      "/proc/bus",
+      "/proc/fs",
+      "/proc/irq",
+      "/proc/sys",
+      "/proc/sysrq-trigger"
+    ],
+    "ReadonlyRootfs": false,
+    "RestartPolicy": {
+      "MaximumRetryCount": 0,
+      "Name": "always"
+    },
+    "SecurityOpt": null,
+    "UTSMode": "",
+    "UsernsMode": ""
+  },
+  "host_caller_apparmor": "unconfined",
+  "host_mount": {
+    "filesystems": [
+      {
+        "fstype": "ext4",
+        "options": "rw,relatime",
+        "source": "/dev/sda1",
+        "target": "/"
+      }
+    ]
+  },
+  "image": "sha256:f0c7c619b45ffb475d79c2339fbef21ced03c6e83d919d321ef89b40cd4889db",
+  "inspect_sha256": "c5f205c15c715551a5f164b5daba7afa5d5d9c6c99a1404a050ead050b510f12",
+  "mounts": [
+    {
+      "Destination": "/app",
+      "Mode": "rw",
+      "Propagation": "rprivate",
+      "RW": true,
+      "Source": "/opt/telegram_chatbot",
+      "Type": "bind"
+    }
+  ],
+  "networks": {
+    "tausendunde1nz_net": {
+      "Aliases": [],
+      "DNSNames": [
+        "telegram_bot_mommyramona",
+        "e2473c1d0a10"
+      ],
+      "DriverOpts": {},
+      "EndpointID": "4a1208ed8e6e029cb454804e7d4e827e848b7b30656b7773ddfda539a23b2c0b",
+      "Gateway": "172.25.0.1",
+      "GlobalIPv6Address": "",
+      "GlobalIPv6PrefixLen": 0,
+      "GwPriority": 0,
+      "IPAMConfig": {},
+      "IPAddress": "172.25.0.2",
+      "IPPrefixLen": 16,
+      "IPv6Gateway": "",
+      "Links": null,
+      "MacAddress": "82:fb:9a:73:0e:36",
+      "NetworkID": "470c1e93874782eeea4d9060f0502efdc6911d7afd96171c147e13a7013cd646"
+    },
+    "telegram_chatbot_default": {
+      "Aliases": [
+        "telegram_bot_mommyramona",
+        "telegram_bot_mommyramona"
+      ],
+      "DNSNames": [
+        "telegram_bot_mommyramona",
+        "e2473c1d0a10"
+      ],
+      "DriverOpts": null,
+      "EndpointID": "179cdb9f58a77d0a3d678a927f2044f4f2b123e0065e2508b574f6161d80b352",
+      "Gateway": "172.20.0.1",
+      "GlobalIPv6Address": "",
+      "GlobalIPv6PrefixLen": 0,
+      "GwPriority": 0,
+      "IPAMConfig": null,
+      "IPAddress": "172.20.0.2",
+      "IPPrefixLen": 16,
+      "IPv6Gateway": "",
+      "Links": null,
+      "MacAddress": "b2:8d:93:fa:f8:7f",
+      "NetworkID": "19dfddd921309262441caf64ccfe959716beb6b953f384c5cf67c9120eebe7db"
+    }
+  },
+  "observed_utc": "2026-09-30T18:31:56.442878+00:00",
+  "paths": [
+    {
+      "gid": 1001,
+      "inode": 393380,
+      "mode": "0o755",
+      "mtime_ns": 1760301045501715651,
+      "path": "/opt/telegram_chatbot",
+      "type": 16384,
+      "uid": 1001
+    },
+    {
+      "gid": 1001,
+      "inode": 402805,
+      "mode": "0o664",
+      "mtime_ns": 1759992290935559734,
+      "path": "/opt/telegram_chatbot/main.py",
+      "sha256": "f7119919cd3bff8193b72782ec984633cd222abad87281df011455fb7313a8bd",
+      "type": 32768,
+      "uid": 1001
+    },
+    {
+      "gid": 0,
+      "inode": 404969,
+      "mode": "0o600",
+      "mtime_ns": 1759672495597424270,
+      "path": "/opt/telegram_chatbot/.env",
+      "type": 32768,
+      "uid": 0
+    },
+    {
+      "gid": 1001,
+      "inode": 405001,
+      "mode": "0o664",
+      "mtime_ns": 1759668249774985266,
+      "path": "/opt/telegram_chatbot/docker-compose.yml",
+      "sha256": "a6d915ab975934e9957fe62d8281b8d44c679dd015d9fd03475b89877a631a1c",
+      "type": 32768,
+      "uid": 1001
+    }
+  ],
+  "process_status": {
+    "CapBnd": "00000000a80425fb",
+    "CapEff": "00000000a80425fb",
+    "Gid": "0\t0\t0\t0",
+    "NoNewPrivs": "0",
+    "Seccomp": "2",
+    "Uid": "0\t0\t0\t0"
+  },
+  "state": {
+    "restart_count": 0,
+    "running": true,
+    "started_at": "2025-11-01T12:31:14.600380348Z"
+  },
+  "test_residue": [],
+  "uid_map": "0          0 4294967295"
+}
