@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "manifests/adult-publishing-commercial-s12-1-yoti-sandbox-runtime.json"
 UNIT = ROOT / "systemd/tu1nz-adult-commercial-s12-yoti-runtime.service"
 NGINX = ROOT / "nginx/current/wantmeseen.s12-1-acceptance.conf"
+BASE_NGINX = ROOT / "nginx/current/wantmeseen.s10-1-final.conf"
 DOC = ROOT / "docs/COMMERCIAL_S12_1_YOTI_SANDBOX_RUNTIME_CONTROL.md"
 
 
@@ -44,6 +45,20 @@ def freeze_fixture() -> dict[str, str]:
 
 
 class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
+    def test_pre_sync_nginx_baseline_is_reviewed_and_checkout_independent(self) -> None:
+        self.assertEqual(
+            hashlib.sha256(BASE_NGINX.read_bytes()).hexdigest(),
+            runtime.BASE_NGINX_SHA256,
+        )
+        source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
+            encoding="utf-8"
+        )
+        preflight = source[source.index("def read_only_preflight"):source.index(
+            "def validate_source_contract"
+        )]
+        self.assertIn("_sha256(NGINX_SITE) != BASE_NGINX_SHA256", preflight)
+        self.assertNotIn("SOURCE_BASE_NGINX", preflight)
+
     def test_s11_timer_accepts_finite_realtime_or_monotonic_elapse(self) -> None:
         for properties in (
             {

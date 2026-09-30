@@ -31,7 +31,7 @@ from typing import Any, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r2"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r3"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
@@ -48,6 +48,7 @@ RUNTIME_DEPENDENCY_VERSIONS = {
 }
 RUNTIME_PYTHON_SHA256 = "1d3cf64f97cadc79fdc6fe2496a21b7b456cb94211978cfef5a65f616af74fd5"
 RUNTIME_VENV_SHA256 = "e7a8a8ffa3cba387541f4d0cc0ebea09bd2ade9901c7ab88aaf5e62b3d1df9fa"
+BASE_NGINX_SHA256 = "cba472a56bb57d52721430a9b01eeb3f5bd3930a784b8e13e90c8a05ff4ab97c"
 HARD_GATE_KEYS = frozenset(
     {
         "adult_media", "adult_submission", "community_adult_media",
@@ -119,7 +120,7 @@ SOURCE_ROOT = (
 MANIFEST = SOURCE_ROOT / "manifests/adult-publishing-commercial-s12-1-yoti-sandbox-runtime.json"
 SOURCE_UNIT = SOURCE_ROOT / "systemd" / UNIT_NAME
 SOURCE_NGINX = SOURCE_ROOT / "nginx/current/wantmeseen.s12-1-acceptance.conf"
-BASE_NGINX = SOURCE_ROOT / "nginx/current/wantmeseen.s10-1-final.conf"
+SOURCE_BASE_NGINX = SOURCE_ROOT / "nginx/current/wantmeseen.s10-1-final.conf"
 RECOVERY_GIT_DIRECTORY = ".git.s12-1-recovery"
 ALLOWED_LOCAL_GIT_CONFIG = (
     re.compile(
@@ -896,7 +897,7 @@ def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str,
     if (
         not NGINX_SITE.is_file()
         or NGINX_SITE.is_symlink()
-        or _sha256(NGINX_SITE) != _sha256(BASE_NGINX)
+        or _sha256(NGINX_SITE) != BASE_NGINX_SHA256
     ):
         raise S12ControlError("S12_1_NGINX_BASELINE_RED")
     for url, expected in PUBLIC_URLS:
@@ -920,7 +921,13 @@ def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str,
 
 def validate_source_contract() -> dict[str, Any]:
     parse_manifest_contract(MANIFEST.read_text(encoding="utf-8"))
-    if SOURCE_UNIT.is_symlink() or SOURCE_NGINX.is_symlink():
+    if (
+        SOURCE_UNIT.is_symlink()
+        or SOURCE_NGINX.is_symlink()
+        or SOURCE_BASE_NGINX.is_symlink()
+        or not SOURCE_BASE_NGINX.is_file()
+        or _sha256(SOURCE_BASE_NGINX) != BASE_NGINX_SHA256
+    ):
         raise S12ControlError("S12_1_CONTROL_SOURCE_RED")
     return {"ok": True, "safe_code": "S12_1_CONTROL_SOURCE_GREEN"}
 

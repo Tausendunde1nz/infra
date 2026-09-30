@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r2` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r3` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -15,6 +15,14 @@ systemd correctly populated `NextElapseUSecMonotonic` rather than
 `NextElapseUSecRealtime`. No r1 deployment attempt or server mutation occurred.
 The r2 contract accepts a finite future elapse in either systemd clock domain,
 while still requiring the timer to be enabled, active and waiting.
+
+The immutable pre-deployment r2 freeze is also preserved. Its complete
+read-only preflight exposed that the canonical Control checkout intentionally
+predates the release sync and therefore cannot supply the reviewed nginx
+baseline file before backup. No r2 deployment attempt or server mutation
+occurred. The r3 controller instead compares the installed nginx site against a
+reviewed SHA-256 constant. That constant is source-validated and the baseline
+file is independently bound in the annotated freeze.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
