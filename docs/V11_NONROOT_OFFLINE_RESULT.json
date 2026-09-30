@@ -1,0 +1,184 @@
+{
+  "activation_ready": false,
+  "apparmor_collection_executed": false,
+  "apparmor_export_not_remediation_veto": true,
+  "base_commit": "d8c7ade4c954b837153c2a0fe59b7c930334c094",
+  "collector_source_sha256": "cc7c4a4b45002f2da5906f9aaa3652dae6624cf6df658d3e02f484e42f71f586",
+  "historical_attempt_hashes": {
+    "network-r2.stderr": "dbb465aecea320eee95f8e30604abda263660733c3edfc12f4f83aa3d8c823b4",
+    "network.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "network_recovery_test.first.py": "6239c87ba1d855b9483208d0853db865de6d54529f1f74dd4368157283c9895b",
+    "network_recovery_test.second.py": "1f1720c50ebffd27a73b13a6d7d0d06512a8822cccf44546d5bfcb201c2121dd",
+    "test_apparmor_readonly_v11.pre-macos-fix.py": "98490f9c5fada0720b70b6a5421ce08045dfcf4e3356964a1af9472429e8c8c2"
+  },
+  "historical_v9": "UNRESOLVED_FINAL_NOT_GATE",
+  "launcher_generated": false,
+  "network_experiment": {
+    "experiment": [
+      {
+        "case": "disconnect_reconnect_original_dynamic_endpoints",
+        "delta": {
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-a-shared": {
+            "MacAddress": {
+              "after": "e2:1b:ea:46:33:a2",
+              "before": "5e:ee:f0:90:00:69"
+            }
+          },
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-b-compose": {
+            "MacAddress": {
+              "after": "92:38:a0:04:cd:f5",
+              "before": "b2:d4:42:dd:b3:30"
+            }
+          }
+        },
+        "pass": false
+      },
+      {
+        "case": "recreate_all_endpoints_dynamic_ipam",
+        "delta": {
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-a-shared": {},
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-b-compose": {}
+        },
+        "pass": true
+      },
+      {
+        "case": "dynamic_ipam_with_competing_allocation",
+        "delta": {
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-a-shared": {
+            "IPAddress": {
+              "after": "172.22.0.3",
+              "before": "172.22.0.2"
+            }
+          },
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-b-compose": {
+            "IPAddress": {
+              "after": "172.27.0.3",
+              "before": "172.27.0.2"
+            }
+          }
+        },
+        "pass": false
+      },
+      {
+        "case": "static_ipam_pinning",
+        "delta": {
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-a-shared": {
+            "IPAMConfig": {
+              "after": {
+                "IPv4Address": "172.22.0.2"
+              },
+              "before": null
+            }
+          },
+          "tu1nz-v11-net-5450cc6ad6ca48e9ad8324ece43c268d-b-compose": {
+            "IPAMConfig": {
+              "after": {
+                "IPv4Address": "172.27.0.2"
+              },
+              "before": null
+            }
+          }
+        },
+        "pass": false
+      }
+    ],
+    "external_access": false,
+    "production_networks_used": false
+  },
+  "nonroot_compatibility": {
+    "cleanup": true,
+    "compose_changed_keys": [
+      "cap_drop",
+      "read_only",
+      "security_opt",
+      "user",
+      "volumes"
+    ],
+    "compose_sha256": "a6d915ab975934e9957fe62d8281b8d44c679dd015d9fd03475b89877a631a1c",
+    "networks_unchanged_in_render": true,
+    "ports_unchanged": true,
+    "production_unchanged": true,
+    "results": [
+      {
+        "cap_bnd": 0,
+        "cap_eff": 0,
+        "gid": 20001,
+        "health_samples": 3,
+        "needed_writable_paths": [],
+        "no_new_privs": 1,
+        "uid": 20001,
+        "write_denied": [
+          "/app/main.py",
+          "/app/.env",
+          "/app/new-file",
+          "/tmp/new-file",
+          "/etc/new-file"
+        ]
+      },
+      {
+        "cap_bnd": 0,
+        "cap_eff": 0,
+        "gid": 20001,
+        "health_samples": 3,
+        "needed_writable_paths": [],
+        "no_new_privs": 1,
+        "uid": 20001,
+        "write_denied": [
+          "/app/main.py",
+          "/app/.env",
+          "/app/new-file",
+          "/tmp/new-file",
+          "/etc/new-file"
+        ]
+      }
+    ],
+    "source_sha256": "f7119919cd3bff8193b72782ec984633cd222abad87281df011455fb7313a8bd"
+  },
+  "not_implemented": [
+    "complete V11 transaction and broker integration",
+    "production endpoint-preserving recreate and exact recovery",
+    "privilege revocation integration",
+    "activation launcher"
+  ],
+  "preserved": {
+    "bound_existing_files": 701,
+    "detached_head": "9b383960291da469671c3888cfa4fdcc3c33cf01",
+    "hardening_files": 42,
+    "historical_evidence_files": 1125,
+    "integration_1cf0d79": true,
+    "mychatbuddy_state": "inactive/dead PID0",
+    "production_mommy_id": "e2473c1d0a106b515eee5e63984260046beae22b16724af281368f32c7bd69c7",
+    "test_resource_residue": [],
+    "v9_sources": 30
+  },
+  "source_hashes": {
+    "apparmor_readonly_v11.py": "cc7c4a4b45002f2da5906f9aaa3652dae6624cf6df658d3e02f484e42f71f586",
+    "network_recovery_test.py": "eb6c40d7be117a5b097ebd1dc25e84f321b6aa4327a38b9dabcbd52a60ad5d31",
+    "readonly_compatibility.py": "0b7670cd89aaa48cde3171ae704484fc469d269a91092995faf5a1593f7b9b5b",
+    "test_apparmor_readonly_v11.py": "20c4174d215bc754b0ee1c519be948f0b60df562a4c82c5acdb67ce7e1268266"
+  },
+  "status": "EXACT_NETWORK_RECOVERY_NOT_PROVEN",
+  "sudo_executed": false,
+  "watchdog_started": false,
+  "workflow": {
+    "evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-complete-workflow-20260930T192857Z-8a6de7b3",
+    "repo": "/tmp/tu1nz-v11-complete-workflow-t0vnhun6/repo",
+    "results_sha256": "d7758f2d4992c17fc61184d6c37244c8eaf9cdc1bccfb60df303b8ad2342f5d6",
+    "skips": [
+      {
+        "elapsed_ns": 3181478944,
+        "name": "Validate Commercial S10.2D runtime diagnosis Control SSOT",
+        "rc": 0,
+        "sha256": "7a89d3e9e399f4fb7adf14700d7c3ca3bdd20bf1c89dbb285e63843728572c91",
+        "skipped_lines": [
+          "test_full_release_simulator_runs_all_eight_paths (tests.test_adult_commercial_s10_2d_r3_5_stabilization.CommercialS102DR35StabilizationTests.test_full_release_simulator_runs_all_eight_paths) ... skipped 'paired application source checkout is unavailable'",
+          "test_release_simulator_runs_real_health_gate_and_all_expected_paths (tests.test_adult_commercial_s10_2d_r4_1_health_gate.CommercialS102DR41HealthGateTests.test_release_simulator_runs_real_health_gate_and_all_expected_paths) ... skipped 'paired application source checkout is unavailable'",
+          "OK (skipped=2)"
+        ],
+        "step": 100
+      }
+    ],
+    "targeted_tests": 38,
+    "workflow_steps": 108
+  }
+}
