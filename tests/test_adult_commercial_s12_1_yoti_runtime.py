@@ -701,8 +701,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertNotIn("S12_1_CONTROLLER_FREEZE_RED", deploy)
         self.assertLess(
             deploy.index("_seal_release_fetch_stage(fetch_directories)"),
+            deploy.index("_validate_ignored_release_collisions("),
+        )
+        self.assertLess(
+            deploy.index("_validate_ignored_release_collisions("),
             deploy.index("backup, index = create_backup("),
         )
+        self.assertEqual(deploy.count("_validate_ignored_release_collisions("), 2)
         self.assertLess(
             deploy.index("_pinned_release_input_bundles()"),
             deploy.index("_serialized_repository_recovery("),
@@ -894,6 +899,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
     def test_backup_rejects_option_like_attached_branch_name(self) -> None:
         with (
+            mock.patch.object(runtime, "_validate_canonical_index"),
             mock.patch.object(
                 runtime, "_selected_identity", return_value=("a" * 40, "b" * 40)
             ),
@@ -916,6 +922,192 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "git_mode": "0755",
                 },
             )
+
+    def test_backup_rejects_noncanonical_index_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            (repository / "tracked.txt").write_text("baseline\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "baseline"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            metadata = {
+                "root_uid": os.getuid(),
+                "root_gid": os.getgid(),
+                "root_mode": "0755",
+                "git_uid": os.getuid(),
+                "git_gid": os.getgid(),
+                "git_mode": "0755",
+            }
+            for enable, disable in (
+                ("--assume-unchanged", "--no-assume-unchanged"),
+                ("--skip-worktree", "--no-skip-worktree"),
+            ):
+                with self.subTest(flag=enable):
+                    subprocess.run(
+                        ["git", "update-index", enable, "tracked.txt"],
+                        cwd=repository,
+                        check=True,
+                    )
+                    with self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_BACKUP_REPOSITORY_INDEX_RED",
+                    ):
+                        runtime._repository_backup_state(
+                            repository, "main", path_metadata=metadata
+                        )
+                    subprocess.run(
+                        ["git", "update-index", disable, "tracked.txt"],
+                        cwd=repository,
+                        check=True,
+                    )
+
+    def test_ignored_release_collision_is_rejected_without_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = root / "application"
+            control = root / "control"
+            for repository, branch in (
+                (application, "main"),
+                (control, "control-main"),
+            ):
+                subprocess.run(
+                    ["git", "init", "-b", branch, str(repository)],
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.name", "S12 Test"],
+                    cwd=repository,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.email", "s12@example.invalid"],
+                    cwd=repository,
+                    check=True,
+                )
+                (repository / ".gitignore").write_text(
+                    "runtime-only\n", encoding="ascii"
+                )
+                (repository / "tracked.txt").write_text(
+                    "baseline\n", encoding="ascii"
+                )
+                subprocess.run(["git", "add", "."], cwd=repository, check=True)
+                subprocess.run(
+                    ["git", "commit", "-m", "baseline"],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                )
+            ignored = application / "runtime-only"
+            ignored.write_bytes(b"preserve-this-local-state\n")
+            release = root / "release"
+            subprocess.run(
+                ["git", "clone", str(application), str(release)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=release,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=release,
+                check=True,
+            )
+            (release / "runtime-only").write_bytes(b"release-state\n")
+            subprocess.run(
+                ["git", "add", "-f", "runtime-only"],
+                cwd=release,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "track release path"],
+                cwd=release,
+                check=True,
+                capture_output=True,
+            )
+            application_fetch = root / "application.git"
+            control_fetch = root / "control.git"
+            for bare in (application_fetch, control_fetch):
+                subprocess.run(
+                    ["git", "init", "--bare", str(bare)],
+                    check=True,
+                    capture_output=True,
+                )
+            subprocess.run(
+                [
+                    "git", "--git-dir", str(application_fetch), "fetch",
+                    str(release), "HEAD:refs/s12/application-main",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                [
+                    "git", "--git-dir", str(control_fetch), "fetch",
+                    str(control), f"HEAD:refs/tags/{runtime.FREEZE_TAG}",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            original = ignored.read_bytes()
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_IGNORED_RELEASE_COLLISION_RED",
+                ),
+            ):
+                runtime._validate_ignored_release_collisions(
+                    {
+                        application: application / ".git",
+                        control: control / ".git",
+                    },
+                    {
+                        application: application_fetch,
+                        control: control_fetch,
+                    },
+                )
+            self.assertEqual(ignored.read_bytes(), original)
+            ignored.unlink()
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+            ):
+                runtime._validate_ignored_release_collisions(
+                    {
+                        application: application / ".git",
+                        control: control / ".git",
+                    },
+                    {
+                        application: application_fetch,
+                        control: control_fetch,
+                    },
+                )
 
     def test_release_state_detects_ref_and_reflog_only_writes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

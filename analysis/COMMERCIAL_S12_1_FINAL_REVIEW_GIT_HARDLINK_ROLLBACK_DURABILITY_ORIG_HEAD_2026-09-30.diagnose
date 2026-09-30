@@ -52,6 +52,14 @@ Deployment attempts consumed: 0
     rollback-complete marker was written. An ordinary repository writer could
     therefore alter the restored checkout in that finalization interval while
     the controller still emitted GREEN rollback evidence.
+15. A clean canonical checkout could contain an ignored local file at a path
+    newly tracked by the reviewed release. Git checkout permits replacement of
+    ignored files, while the repository backup intentionally contains only
+    versioned state, so rollback could not recover the displaced local bytes.
+16. A clean checkout could carry noncanonical Git index flags such as
+    `assume-unchanged` or `skip-worktree`. Checkout/merge and rollback rebuild
+    index entries and could silently lose those pre-attempt flags while the
+    commit, tree and porcelain status still appeared restored.
 
 ## Resolution
 
@@ -102,6 +110,16 @@ Deployment attempts consumed: 0
   rollback-complete marker before releasing writer exclusion. If barrier
   cleanup is interrupted after that marker, recovery removes only the
   lingering barrier and never replays repository restoration.
+- Enumerate ignored worktree paths and the exact release trees from the sealed
+  offline fetch stage using bounded NUL records. Before backup and again before
+  the attempt marker, reject every exact or ancestor/descendant collision with
+  `S12_1_IGNORED_RELEASE_COLLISION_RED`; no path or content enters output or
+  retained evidence.
+- Require the entire tracked index to have canonical `H` entries before backup
+  capture and during backup race validation. Any assume-unchanged,
+  skip-worktree, unresolved or otherwise noncanonical entry fails closed with
+  `S12_1_BACKUP_REPOSITORY_INDEX_RED`, so rollback never has an unrecorded
+  index flag to reproduce.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

@@ -504,6 +504,54 @@ def _selected_git(
     return completed.stdout.strip()
 
 
+def _bounded_nul_command_records(
+    arguments: Sequence[str], safe_code: str
+) -> tuple[bytes, ...]:
+    try:
+        completed = subprocess.run(
+            list(arguments),
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise S12ControlError(safe_code) from None
+    output = completed.stdout
+    if (
+        completed.returncode != 0
+        or completed.stderr.strip()
+        or len(output) > 32 * 1024 * 1024
+    ):
+        raise S12ControlError(safe_code)
+    if not output:
+        return ()
+    if not output.endswith(b"\0"):
+        raise S12ControlError(safe_code)
+    records = tuple(output[:-1].split(b"\0"))
+    if len(records) > 500_000 or any(not record for record in records):
+        raise S12ControlError(safe_code)
+    return records
+
+
+def _validate_canonical_index(
+    root: Path, git_directory: Path | None
+) -> None:
+    records = _bounded_nul_command_records(
+        _selected_git_arguments(root, git_directory, "ls-files", "-v", "-z", "--"),
+        "S12_1_BACKUP_REPOSITORY_INDEX_RED",
+    )
+    paths: set[bytes] = set()
+    for record in records:
+        if (
+            len(record) < 3
+            or record[:2] != b"H "
+            or record[2:] in paths
+        ):
+            raise S12ControlError("S12_1_BACKUP_REPOSITORY_INDEX_RED")
+        paths.add(record[2:])
+
+
 def _selected_identity(
     root: Path, git_directory: Path | None
 ) -> tuple[str, str]:
@@ -1159,6 +1207,7 @@ def _repository_backup_state(
     path_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     selected_path_metadata = path_metadata or _repository_path_metadata(root)
+    _validate_canonical_index(root, git_directory)
     commit, tree = _selected_identity(root, git_directory)
     branch = _selected_branch_or_none(root, git_directory)
     if branch is not None and branch.startswith("-"):
@@ -3590,6 +3639,87 @@ def _seal_release_fetch_stage(
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
 
 
+def _validated_git_paths(
+    records: tuple[bytes, ...], safe_code: str
+) -> set[bytes]:
+    paths: set[bytes] = set()
+    for record in records:
+        parts = record.split(b"/")
+        if (
+            record.startswith(b"/")
+            or any(part in {b"", b".", b".."} for part in parts)
+            or record in paths
+        ):
+            raise S12ControlError(safe_code)
+        paths.add(record)
+    return paths
+
+
+def _validate_ignored_release_collisions(
+    git_directories: dict[Path, Path],
+    fetch_directories: dict[Path, Path],
+) -> None:
+    if git_directories.keys() != {APPLICATION_ROOT, CONTROL_ROOT} or (
+        fetch_directories.keys() != {APPLICATION_ROOT, CONTROL_ROOT}
+    ):
+        raise S12ControlError("S12_1_IGNORED_RELEASE_COLLISION_RED")
+    targets = {
+        APPLICATION_ROOT: "refs/s12/application-main",
+        CONTROL_ROOT: f"refs/tags/{FREEZE_TAG}^{{commit}}",
+    }
+    for root in (APPLICATION_ROOT, CONTROL_ROOT):
+        ignored = _validated_git_paths(
+            _bounded_nul_command_records(
+                _selected_git_arguments(
+                    root,
+                    git_directories[root],
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "-z",
+                    "--",
+                    ".",
+                    f":(exclude){RECOVERY_GIT_DIRECTORY}",
+                ),
+                "S12_1_IGNORED_RELEASE_COLLISION_RED",
+            ),
+            "S12_1_IGNORED_RELEASE_COLLISION_RED",
+        )
+        target_paths = _validated_git_paths(
+            _bounded_nul_command_records(
+                [
+                    *_isolated_root_git_prefix(fetch_directories[root]),
+                    f"--git-dir={fetch_directories[root]}",
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    "-z",
+                    targets[root],
+                ],
+                "S12_1_IGNORED_RELEASE_COLLISION_RED",
+            ),
+            "S12_1_IGNORED_RELEASE_COLLISION_RED",
+        )
+        target_ancestors: set[bytes] = set()
+        for path in target_paths:
+            parts = path.split(b"/")
+            target_ancestors.update(
+                b"/".join(parts[:index]) for index in range(1, len(parts))
+            )
+        for path in ignored:
+            parts = path.split(b"/")
+            ignored_ancestors = {
+                b"/".join(parts[:index]) for index in range(1, len(parts))
+            }
+            if (
+                path in target_paths
+                or path in target_ancestors
+                or not target_paths.isdisjoint(ignored_ancestors)
+            ):
+                raise S12ControlError("S12_1_IGNORED_RELEASE_COLLISION_RED")
+
+
 def _sync_repositories(
     git_directories: dict[Path, Path],
     fetch_directories: dict[Path, Path],
@@ -3965,12 +4095,18 @@ def _deploy_locked() -> dict[str, Any]:
             ) as git_directories:
                 fetch_directories = _prepare_release_fetch_stage(pinned_bundles)
                 _seal_release_fetch_stage(fetch_directories)
+                _validate_ignored_release_collisions(
+                    git_directories, fetch_directories
+                )
                 backup, index = create_backup(
                     git_directories,
                     path_records,
                     parent_record,
                 )
                 _validate_backup_snapshot(backup, index, git_directories)
+                _validate_ignored_release_collisions(
+                    git_directories, fetch_directories
+                )
                 attempt_started_at = datetime.now(timezone.utc).isoformat().replace(
                     "+00:00", "Z"
                 )

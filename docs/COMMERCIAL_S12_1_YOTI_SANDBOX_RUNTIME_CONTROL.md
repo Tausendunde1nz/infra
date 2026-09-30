@@ -132,6 +132,17 @@ release and staging trees and fsyncs their parent before completion. A second
 rollback invocation or a second
 deployment marker is rejected.
 
+Before backup, the controller requires every tracked index entry in both
+canonical repositories to be a normal cached `H` entry. Assume-unchanged,
+skip-worktree, unresolved and other noncanonical index states are rejected;
+the same check is repeated by backup race validation. The sealed offline
+release trees are also compared against every ignored local worktree path
+using bounded NUL-delimited Git output. Any exact or ancestor/descendant
+collision is rejected before backup and checked again immediately before the
+durable attempt marker. File names and contents are never emitted or retained.
+Consequently checkout cannot overwrite unbacked ignored state, and rollback
+never needs to reconstruct unrecorded index flags.
+
 On the normal first-install posture, an explicitly reported `LoadState=not-found`
 or systemd “unit could not be found” result is normalized to `inactive/dead`;
 all other state-query errors remain fail-closed.
