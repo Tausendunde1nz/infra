@@ -171,11 +171,17 @@ After canonical synchronization, the controller durably records the exact
 clean Application and Control release states, complete ref namespaces and
 reflog-tree digests in the attempt marker. If any
 later acceptance step fails, rollback reacquires the repository barrier and
-compares both complete release states before changing runtime files or Git.
+compares both complete release states before changing non-public runtime files
+or Git. The backed-up nginx site and enablement state are restored, validated
+and reloaded before barrier acquisition, so repository contention cannot leave
+the temporary public callback route loaded.
 Any intervening completed commit, checkout or worktree change therefore stops
 with `S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED` instead of being overwritten.
 Option-like attached branch names are rejected before backup because they
 cannot be replayed safely through the bounded branch-restoration command.
+If synchronization or immutable-stage creation itself fails, repository
+rollback runs through the already-installed barriers before they are released;
+no writer gap exists even though no complete post-sync state was available.
 Each root-owned, single-link, digest-bound release input bundle is opened once
 with `O_NOFOLLOW`; inode identity, owner, mode, link count and SHA-256 are
 validated on that descriptor. Bundle verification, head inspection and import

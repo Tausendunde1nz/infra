@@ -3064,6 +3064,85 @@ def _restore_repository(
     )
 
 
+def _restore_public_nginx_backup(backup: Path, index: dict[str, Any]) -> None:
+    _restore_file(
+        index["files"]["nginx_site"], backup / "nginx-site.before", NGINX_SITE
+    )
+    _restore_file(
+        index["files"]["nginx_enabled"],
+        backup / "nginx-enabled.before",
+        NGINX_ENABLED,
+    )
+    _run(["nginx", "-t"])
+    _run(["systemctl", "reload", "nginx.service"])
+
+
+def _restore_non_repository_backup(backup: Path, index: dict[str, Any]) -> None:
+    _restore_file(index["files"]["unit"], backup / "unit.before", UNIT_PATH)
+    _restore_file(
+        index["files"]["runtime_contract"],
+        backup / "runtime-contract.before",
+        RUNTIME_CONTRACT,
+    )
+    _restore_file(
+        index["files"]["acceptance_evidence"],
+        backup / "acceptance.before",
+        STATE_ROOT / "acceptance.json",
+    )
+    _restore_file(
+        index["files"]["final_state_evidence"],
+        backup / "final-state.before",
+        STATE_ROOT / "final-state.json",
+    )
+    _restore_file(
+        index["files"]["deployment_result"],
+        backup / "deployment-result.before",
+        STATE_ROOT / "deployment-result.json",
+    )
+
+
+def _restore_repositories_under_barrier(
+    backup: Path,
+    index: dict[str, Any],
+    git_directories: dict[Path, Path],
+) -> None:
+    _remove_release_stages(index)
+    _remove_fetch_stage(index)
+    _restore_repository(
+        APPLICATION_ROOT,
+        index["application"],
+        backup / "application.bundle",
+        backup / "application.reflogs",
+        git_directories[APPLICATION_ROOT],
+    )
+    _restore_repository(
+        CONTROL_ROOT,
+        index["control"],
+        backup / "control.bundle",
+        backup / "control.reflogs",
+        git_directories[CONTROL_ROOT],
+    )
+    _sync_repository_filesystem(APPLICATION_ROOT)
+    _sync_repository_filesystem(CONTROL_ROOT)
+
+
+def _finalize_rollback(backup: Path) -> None:
+    marker = backup / "rollback-complete.json"
+    _sync_repository_filesystem(APPLICATION_ROOT)
+    _sync_repository_filesystem(CONTROL_ROOT)
+    _durable_unlink(BARRIER_MARKER)
+    _run(["systemctl", "daemon-reload"])
+    _atomic_json(
+        marker,
+        {
+            "ok": True,
+            "safe_code": "S12_1_ROLLBACK_GREEN",
+            "count": 1,
+            "credentials_preserved": True,
+        },
+    )
+
+
 def rollback_once(
     backup: Path,
     index: dict[str, Any],
@@ -3080,6 +3159,7 @@ def rollback_once(
         active_state, sub_state = _rollback_unit_state()
     if active_state != "inactive" or sub_state != "dead":
         raise S12ControlError("S12_1_ROLLBACK_STOP_RED")
+    _restore_public_nginx_backup(backup, index)
     path_records = {
         APPLICATION_ROOT: index["application"],
         CONTROL_ROOT: index["control"],
@@ -3097,68 +3177,9 @@ def rollback_once(
             _validate_release_repository_states(
                 expected_release_state, git_directories, path_records
             )
-        _remove_release_stages(index)
-        _restore_file(index["files"]["unit"], backup / "unit.before", UNIT_PATH)
-        _restore_file(
-            index["files"]["runtime_contract"],
-            backup / "runtime-contract.before",
-            RUNTIME_CONTRACT,
-        )
-        _restore_file(
-            index["files"]["nginx_site"], backup / "nginx-site.before", NGINX_SITE
-        )
-        _restore_file(
-            index["files"]["nginx_enabled"],
-            backup / "nginx-enabled.before",
-            NGINX_ENABLED,
-        )
-        _restore_file(
-            index["files"]["acceptance_evidence"],
-            backup / "acceptance.before",
-            STATE_ROOT / "acceptance.json",
-        )
-        _restore_file(
-            index["files"]["final_state_evidence"],
-            backup / "final-state.before",
-            STATE_ROOT / "final-state.json",
-        )
-        _restore_file(
-            index["files"]["deployment_result"],
-            backup / "deployment-result.before",
-            STATE_ROOT / "deployment-result.json",
-        )
-        _run(["nginx", "-t"])
-        _run(["systemctl", "reload", "nginx.service"])
-        _remove_fetch_stage(index)
-        _restore_repository(
-            APPLICATION_ROOT,
-            index["application"],
-            backup / "application.bundle",
-            backup / "application.reflogs",
-            git_directories[APPLICATION_ROOT],
-        )
-        _restore_repository(
-            CONTROL_ROOT,
-            index["control"],
-            backup / "control.bundle",
-            backup / "control.reflogs",
-            git_directories[CONTROL_ROOT],
-        )
-        _sync_repository_filesystem(APPLICATION_ROOT)
-        _sync_repository_filesystem(CONTROL_ROOT)
-    _sync_repository_filesystem(APPLICATION_ROOT)
-    _sync_repository_filesystem(CONTROL_ROOT)
-    _durable_unlink(BARRIER_MARKER)
-    _run(["systemctl", "daemon-reload"])
-    _atomic_json(
-        marker,
-        {
-            "ok": True,
-            "safe_code": "S12_1_ROLLBACK_GREEN",
-            "count": 1,
-            "credentials_preserved": True,
-        },
-    )
+        _restore_non_repository_backup(backup, index)
+        _restore_repositories_under_barrier(backup, index, git_directories)
+    _finalize_rollback(backup)
 
 
 def _bare_root_git(git_directory: Path, *arguments: str) -> str:
@@ -3803,6 +3824,7 @@ def _deploy_locked() -> dict[str, Any]:
     attempt_started_at = ""
     mutation_started = False
     release_repository_state: dict[str, Any] | None = None
+    repository_sync_failure: BaseException | None = None
     try:
         _write_barrier_journal(path_records, parent_record)
         with _pinned_release_input_bundles() as pinned_bundles:
@@ -3830,27 +3852,36 @@ def _deploy_locked() -> dict[str, Any]:
                     },
                 )
                 mutation_started = True
-                control_sha, control_tree = _sync_repositories(
-                    git_directories, fetch_directories
-                )
-                release_repository_state = _release_repository_states(
-                    git_directories, path_records
-                )
-                _atomic_json(
-                    ATTEMPT_MARKER,
-                    {
-                        "attempt": 1,
-                        "backup": str(backup),
-                        "started_at": attempt_started_at,
-                        "release_repository_state": release_repository_state,
-                    },
-                )
-                _create_immutable_release_stage(
-                    git_directories,
-                    control_sha,
-                    control_tree,
-                )
-                _remove_fetch_stage(index)
+                try:
+                    control_sha, control_tree = _sync_repositories(
+                        git_directories, fetch_directories
+                    )
+                    release_repository_state = _release_repository_states(
+                        git_directories, path_records
+                    )
+                    _atomic_json(
+                        ATTEMPT_MARKER,
+                        {
+                            "attempt": 1,
+                            "backup": str(backup),
+                            "started_at": attempt_started_at,
+                            "release_repository_state": release_repository_state,
+                        },
+                    )
+                    _create_immutable_release_stage(
+                        git_directories,
+                        control_sha,
+                        control_tree,
+                    )
+                    _remove_fetch_stage(index)
+                except BaseException as error:
+                    repository_sync_failure = error
+                    _restore_repositories_under_barrier(
+                        backup, index, git_directories
+                    )
+            if repository_sync_failure is not None:
+                _finalize_rollback(backup)
+                raise repository_sync_failure
         _sync_repository_filesystem(APPLICATION_ROOT)
         _sync_repository_filesystem(CONTROL_ROOT)
         _durable_unlink(BARRIER_MARKER)
@@ -3952,7 +3983,9 @@ def _deploy_locked() -> dict[str, Any]:
         _atomic_json(STATE_ROOT / "deployment-result.json", result)
         return result
     except BaseException:
-        if mutation_started and backup is not None and index is not None:
+        if repository_sync_failure is not None:
+            pass
+        elif mutation_started and backup is not None and index is not None:
             rollback_once(backup, index, release_repository_state)
         elif BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
             _recover_repository_barrier_only()

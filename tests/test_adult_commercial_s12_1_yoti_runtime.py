@@ -291,6 +291,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         backup = deploy.index("backup, index = create_backup(")
         attempt = deploy.index("ATTEMPT_MARKER,")
         sync = deploy.index("control_sha, control_tree = _sync_repositories(")
+        in_barrier_rollback = deploy.index(
+            "_restore_repositories_under_barrier(", sync
+        )
+        rollback_finalize = deploy.index("_finalize_rollback(backup)", sync)
         immutable = deploy.index("_create_immutable_release_stage(")
         journal_clear = deploy.index("_durable_unlink(BARRIER_MARKER)")
         self.assertLess(journal, barrier)
@@ -304,6 +308,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             sync,
             immutable,
         )
+        self.assertLess(sync, in_barrier_rollback)
+        self.assertLess(in_barrier_rollback, rollback_finalize)
         self.assertLess(immutable, journal_clear)
         self.assertLess(
             journal_clear,
@@ -1435,9 +1441,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertEqual(
             events,
             [
-                "barrier-enter",
                 "nginx-test",
                 "nginx-reload",
+                "barrier-enter",
                 "sync:application",
                 "sync:control",
                 "barrier-exit",
@@ -1470,6 +1476,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(runtime, "_recorded_parent_metadata"),
             mock.patch.object(runtime, "_ensure_barrier_journal"),
             mock.patch.object(
+                runtime, "_restore_public_nginx_backup"
+            ) as restore_nginx,
+            mock.patch.object(
                 runtime,
                 "_serialized_repository_recovery",
                 side_effect=recovery_barrier,
@@ -1494,6 +1503,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 {"application": {}, "control": {}},
             )
 
+        restore_nginx.assert_called_once_with(backup, index)
         remove_stages.assert_not_called()
 
     def test_immutable_release_stage_survives_canonical_repository_drift(self) -> None:
