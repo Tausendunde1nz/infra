@@ -1,0 +1,15 @@
+# Commercial S12.1 r1 timer clock-domain preflight diagnosis
+
+The fresh read-only server preflight found the S11 controller timer enabled,
+active and waiting with a finite next run, but systemd exposed that run through
+`NextElapseUSecMonotonic`. The r1 controller required only
+`NextElapseUSecRealtime`, which is empty for the reviewed activation-relative
+`OnActiveSec` / `OnUnitActiveSec` timer. The r1 deployment therefore remained
+unattempted and no runtime, repository, systemd, nginx or evidence mutation
+occurred.
+
+The minimal r2 correction accepts a finite next elapse in either systemd clock
+domain while retaining all enabled/active/waiting requirements. Empty, `n/a`,
+zero and infinite values remain fail-closed. Focused tests cover realtime,
+monotonic, absent and non-finite postures. The immutable r1 freeze is not moved
+or reused.

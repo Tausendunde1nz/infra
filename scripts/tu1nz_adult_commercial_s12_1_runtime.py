@@ -31,7 +31,7 @@ from typing import Any, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r1"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r2"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
@@ -785,6 +785,17 @@ def _runtime_unit_enablement_state() -> str:
     raise S12ControlError("S12_1_RUNTIME_UNIT_ENABLEMENT_RED")
 
 
+def _s11_timer_has_finite_next_elapse() -> bool:
+    """Accept the systemd clock domain actually used by the timer contract."""
+
+    unavailable = {"", "0", "0s", "0us", "infinity", "n/a"}
+    values = (
+        _systemctl_property(S11_TIMER, "NextElapseUSecRealtime"),
+        _systemctl_property(S11_TIMER, "NextElapseUSecMonotonic"),
+    )
+    return any(value.strip().lower() not in unavailable for value in values)
+
+
 def _runtime_unit_dropin_directories(
     roots: Sequence[Path] = SYSTEMD_UNIT_ROOTS,
 ) -> tuple[Path, ...]:
@@ -870,7 +881,7 @@ def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str,
     if (
         _systemctl_property(S11_TIMER, "ActiveState") != "active"
         or _systemctl_property(S11_TIMER, "SubState") != "waiting"
-        or _systemctl_property(S11_TIMER, "NextElapseUSecRealtime") in {"", "n/a"}
+        or not _s11_timer_has_finite_next_elapse()
     ):
         raise S12ControlError("S12_1_S11_TIMER_RED")
     if (

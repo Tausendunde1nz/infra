@@ -44,6 +44,42 @@ def freeze_fixture() -> dict[str, str]:
 
 
 class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
+    def test_s11_timer_accepts_finite_realtime_or_monotonic_elapse(self) -> None:
+        for properties in (
+            {
+                "NextElapseUSecRealtime": "Wed 2026-10-01 00:15:00 UTC",
+                "NextElapseUSecMonotonic": "n/a",
+            },
+            {
+                "NextElapseUSecRealtime": "",
+                "NextElapseUSecMonotonic": "10month 4w 1d 41min 1s",
+            },
+        ):
+            with self.subTest(properties=properties), mock.patch.object(
+                runtime,
+                "_systemctl_property",
+                side_effect=lambda _unit, name: properties[name],
+            ):
+                self.assertTrue(runtime._s11_timer_has_finite_next_elapse())
+
+    def test_s11_timer_rejects_absent_or_infinite_elapse(self) -> None:
+        for properties in (
+            {
+                "NextElapseUSecRealtime": "",
+                "NextElapseUSecMonotonic": "n/a",
+            },
+            {
+                "NextElapseUSecRealtime": "infinity",
+                "NextElapseUSecMonotonic": "0",
+            },
+        ):
+            with self.subTest(properties=properties), mock.patch.object(
+                runtime,
+                "_systemctl_property",
+                side_effect=lambda _unit, name: properties[name],
+            ):
+                self.assertFalse(runtime._s11_timer_has_finite_next_elapse())
+
     def test_manifest_is_exact_sandbox_only_runtime_contract(self) -> None:
         report = freeze.validate_manifest(MANIFEST)
         self.assertTrue(report["ok"], report)
