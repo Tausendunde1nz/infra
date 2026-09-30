@@ -1,0 +1,15 @@
+# S12.1 final review: nested Git metadata symlinks
+
+## Finding
+
+The root Git layout guard rejected a symlinked top-level object directory,
+`commondir` and object alternates, but did not reject a nested symlink such as
+`.git/refs/heads` or `.git/logs/refs/heads`. Root Git could consequently follow
+that link outside the quarantined Git directory.
+
+## Resolution
+
+Before any root Git operation, the complete Git metadata tree is now scanned
+with `lstat` semantics. Every entry must be a direct directory or regular file;
+all symlinks and special files are rejected. Regression coverage reproduces
+both nested reference and nested reflog symlinks.

@@ -1,0 +1,49 @@
+# S12.1 final review: backup-to-marker writer exclusion
+
+Date: 2026-09-30
+Scope: Control PR #203, final same-SHA review P1
+
+## Finding
+
+The prior controller validated a point-in-time backup before writing the
+durable deployment marker, but installed the root-owned Git recovery barriers
+only afterwards. A short ordinary `chatops` Git command could therefore begin
+after backup validation, complete before the later barrier, and be overwritten
+by the canonical release sync without being represented in the rollback
+backup.
+
+## Root cause
+
+Backup generation and canonical repository mutation used separate serialized
+regions. Process-count checks bounded both regions but could not provide a
+continuous exclusion guarantee across their gap.
+
+## Correction
+
+The controller now records only repository path metadata before entering the
+barrier. It then holds one uninterrupted root-owned writer exclusion region
+across:
+
+1. repository-state and bundle capture;
+2. post-capture backup validation;
+3. durable attempt-marker creation;
+4. exact canonical release sync; and
+5. immutable release-stage creation.
+
+Backup and sync Git commands explicitly use the quarantined Git directories.
+Dirty-state checks exclude only that fixed, prevalidated quarantine path;
+ordinary untracked paths remain blocking and are covered by a negative test.
+Freeze verification moves to the immutable staged release after the barrier is
+removed. If any pre-marker step fails, the barrier is restored without
+starting rollback because no canonical deployment mutation has begun.
+
+## Rollback and safety
+
+The exactly-once rollback remains armed only after the durable attempt marker.
+Restore exceptions now deliberately retain the physical barriers rather than
+exposing a partial restore. The restored phase records the complete repository
+states; finalization reacquires writer exclusion, validates those states and
+writes the completion marker before releasing the barriers. A crash after the
+marker can therefore clean only the lingering barrier without replaying Git.
+No provider credential, identity material or runtime server state is changed by
+this source correction.

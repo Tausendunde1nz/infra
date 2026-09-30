@@ -1,0 +1,16 @@
+# Commercial S12.1 atomic attempt and unknown-session diagnosis
+
+- Scope: pre-freeze review of concurrent controller entry and simulator
+  negative-session coverage.
+- Findings:
+  - two controllers could both pass the attempt-marker check while creating
+    separate backups;
+  - the deterministic Control simulator accepted a fabricated session object.
+- Corrections:
+  - `deploy` and rollback-only `recover` acquire a non-blocking exclusive flock
+    on the verified frozen controller inode before preflight/backup; no lock
+    file or pre-backup filesystem mutation is needed;
+  - callback trigger requires object identity in the registered session map and
+    the simulator executes an explicit unknown-session rejection journey.
+- Boundaries: no second runtime start, no provider expansion, no secret output,
+  and the sole server attempt remains unused.

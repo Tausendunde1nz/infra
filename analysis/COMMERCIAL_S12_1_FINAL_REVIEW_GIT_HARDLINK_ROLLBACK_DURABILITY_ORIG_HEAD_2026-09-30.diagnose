@@ -1,0 +1,156 @@
+# S12.1 final-review delta: Git hardlinks, rollback durability and ORIG_HEAD
+
+Date: 2026-09-30
+Scope: source-only correction before merge/freeze/deploy
+Deployment attempts consumed: 0
+
+## Findings
+
+1. The root Git metadata walk rejected symlinks and special files but did not
+   reject regular files with multiple hard links. A root Git write could
+   therefore mutate an external alias.
+2. Repository data was `syncfs`-flushed while the recovery barrier was active,
+   but ownership/mode restoration occurred while leaving the barrier. The
+   rollback-complete marker could therefore follow metadata changes that had
+   not received a final filesystem flush.
+3. Backup/rollback captured HEAD, release branches and the managed freeze tag,
+   but not the Git pseudo-ref `ORIG_HEAD`. A failed attempt could consequently
+   leave a rollback-side `ORIG_HEAD` mutation behind.
+4. The Git metadata hardlink gate did not cover regular files in the canonical
+   worktrees. An existing external hardlink could remain writable after the
+   repository parent and root permissions were locked.
+5. Release input bundle digests were checked by pathname and the same paths
+   were reopened for verification and import before the shared repository
+   parent was locked. A writable ancestor allowed rename/replacement between
+   those operations.
+6. Link-count validation alone could not detect a process that opened an
+   external hardlink and then deleted that alias. Its retained descriptor or
+   mapping still addressed the canonical inode while exposing no in-tree path.
+7. Ref and `ORIG_HEAD` restoration did not remove reflog entries appended by
+   release synchronization and recovery checkout. Expressions such as
+   `HEAD@{1}` could therefore retain failed-attempt history after GREEN
+   rollback.
+8. After the repository barrier was released, a completed `chatops` write
+   could occur before a later acceptance failure and then be overwritten by
+   rollback.
+9. A valid attached branch name beginning with `-` was ambiguous to the
+   bounded `git branch -f` restoration command.
+10. A partial synchronization failure occurred before the complete post-sync
+    drift record existed and released the active barriers before rollback.
+11. Moving the complete rollback body under newly acquired repository barriers
+    allowed barrier contention to delay restoration of the temporary public
+    nginx callback route.
+12. An interruption after repository restoration but before durable rollback
+    completion caused recovery to compare the already-restored state against
+    the earlier post-sync state and made the controller's own rollback
+    non-resumable.
+13. The restore phase journal remained durable after a restore error, but the
+    context manager still removed the physical Git barriers. Recovery then
+    correctly refused to resume `RESTORE_STARTED`, leaving no safe path to
+    complete the interrupted restore.
+14. A successful repository restore released its writer exclusion before the
+    rollback-complete marker was written. An ordinary repository writer could
+    therefore alter the restored checkout in that finalization interval while
+    the controller still emitted GREEN rollback evidence.
+15. A clean canonical checkout could contain an ignored local file at a path
+    newly tracked by the reviewed release. Git checkout permits replacement of
+    ignored files, while the repository backup intentionally contains only
+    versioned state, so rollback could not recover the displaced local bytes.
+16. A clean checkout could carry noncanonical Git index flags such as
+    `assume-unchanged` or `skip-worktree`. Checkout/merge and rollback rebuild
+    index entries and could silently lose those pre-attempt flags while the
+    commit, tree and porcelain status still appeared restored.
+17. Barrier teardown recursively assigned the recorded top-level owner to all
+    nested worktree entries. A root-owned ignored file below a chatops-owned
+    checkout could therefore become chatops-readable; redundant `chown` calls
+    could also discard ownership-sensitive inode metadata.
+18. After release synchronization, a path removed from the tracked tree could
+    become ignored. A later chatops writer could create local state at that
+    path; release-state validation ignored it and rollback checkout would
+    overwrite it with the backed-up tracked version.
+19. The new ownership precondition accepted only the original checkout-root
+    owner. Crash recovery could encounter a durably journaled intermediate
+    after root locking or after reversing a Git-directory exchange and reject
+    that controller-created state before the idempotent unwind could run.
+
+## Resolution
+
+- Require every regular entry in the complete quarantined Git metadata tree to
+  have link count one before any root Git operation.
+- Flush both canonical repository filesystems again after barrier removal and
+  ownership/mode restoration, before clearing the barrier journal or writing
+  rollback completion evidence.
+- Record `ORIG_HEAD`, include a present value in the authenticated bundle,
+  validate its object, and restore and verify either the exact value or exact
+  absence. The restore-index schema advances to V5 so an older record cannot
+  be interpreted as an intentional absent value.
+- After locking the shared repository parent and rejecting retained handles,
+  require link count one for every regular file throughout both worktrees
+  before locking their roots or running root Git.
+- Open both release input bundles once with `O_NOFOLLOW`, validate the opened
+  inode and digest, then copy only from those pinned descriptors into the
+  root-owned stage after repository-parent locking. Verify, inspect and import
+  only those protected, digest-checked copies.
+- Build device/inode identities for the complete protected trees and compare
+  every retained cwd/fd plus writable or shared `/proc/*/maps` entry against
+  them. Deleted external aliases therefore remain detectable.
+- Snapshot the complete `.git/logs` tree (including exact absence) inside the
+  durable root-private backup, bind its file bytes and modes to a SHA-256 tree
+  digest, and replace/verify the reflog tree after all rollback Git operations.
+  Advance the incompatible backup contract to schema V6.
+- Persist the exact clean post-sync repository states in the root-private
+  attempt marker. Rollback now reacquires the repository barrier and validates
+  those states before changing either runtime files or repositories; drift is
+  fail-closed and never overwritten.
+- Reject option-like attached branch names during backup and again during
+  restore validation.
+- Roll back partial synchronization and immutable-stage failures through the
+  already-held repository barriers, then finalize only after those barriers
+  are durably restored.
+- Restore, validate and reload the backed-up nginx state before attempting to
+  reacquire repository barriers on later failures.
+- Journal `RESTORE_STARTED` before the first sync/restore mutation and advance
+  to `REPOSITORIES_RESTORED` while barriers remain held. Recovery resumes a
+  started restore only with the physical barriers still installed, while a
+  restored phase performs cleanup/finalization without replaying Git changes.
+- Preserve the physical repository and parent barriers when any restore body
+  fails, including exceptions during resumed recovery. The exception remains
+  visible and a subsequent recovery can safely continue from the durable
+  `RESTORE_STARTED` phase.
+- Bind `REPOSITORIES_RESTORED` to the complete restored repository states.
+  Finalization reacquires the barriers, revalidates those states and writes the
+  rollback-complete marker before releasing writer exclusion. If barrier
+  cleanup is interrupted after that marker, recovery removes only the
+  lingering barrier and never replays repository restoration.
+- Enumerate ignored worktree paths and the exact release trees from the sealed
+  offline fetch stage using bounded NUL records. Before backup and again before
+  the attempt marker, reject every exact or ancestor/descendant collision with
+  `S12_1_IGNORED_RELEASE_COLLISION_RED`; no path or content enters output or
+  retained evidence.
+- Require the entire tracked index to have canonical `H` entries before backup
+  capture and during backup race validation. Any assume-unchanged,
+  skip-worktree, unresolved or otherwise noncanonical entry fails closed with
+  `S12_1_BACKUP_REPOSITORY_INDEX_RED`, so rollback never has an unrecorded
+  index flag to reproduce.
+- Before any parent or repository barrier mutation, and again after the parent
+  is locked, require every non-Git worktree entry to match the recorded root
+  owner/group and every Git entry to match the recorded Git owner/group.
+  Heterogeneous ownership is therefore rejected before deployment. Teardown
+  excludes `.git` from the worktree traversal and performs `chown` only when
+  an entry actually differs, preserving ownership-sensitive metadata on all
+  unchanged entries.
+- Store only domain-separated SHA-256 hashes of the exact pre-state tracked
+  paths and their ancestors in authenticated, root-private backup blobs. The
+  backup contract advances to V7. Under the rollback barrier and before any
+  stage removal or repository restore, hash every current ignored path and its
+  ancestors and reject any collision with
+  `S12_1_ROLLBACK_IGNORED_COLLISION_RED`. No repository path or content is
+  retained in this additional evidence.
+- Keep initial deployment strict, but let journal-backed rollback/recovery
+  accept only the finite original, owner-restricted and root-locked top-level
+  states produced by the barrier state machine. Nested entries remain limited
+  to the recorded owner or root-owned controller transition state. This makes
+  the journal resumable without admitting arbitrary ownership drift.
+
+The correction does not alter product boundaries, credential handling, the
+single-attempt contract or deployment scope.

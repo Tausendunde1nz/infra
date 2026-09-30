@@ -1,0 +1,23 @@
+# S12.1 final review: trusted controller and complete-worktree handles
+
+## Findings
+
+Executing the deployment controller directly from the shared `chatops`
+checkout could run changed module code as root before source checks. Separately,
+the repository barrier rejected Git processes and handles below quarantined Git
+directories, but did not reject a non-Git process retaining a writable file
+descriptor elsewhere in either worktree.
+
+## Resolution
+
+Deployment and recovery now require a temporary `root:root` mode `0500`,
+single-link controller at a fixed `/etc/tu1nz` path. Its SHA-256 is supplied by
+the reviewed Runtime Freeze launch procedure, verified before controller work,
+and matched again to the `control_runtime_sha256` binding in the remotely
+fetched annotated freeze before the deployment marker. Direct execution from
+the shared checkout fails closed.
+
+The existing `/proc` cwd/file-descriptor scanner now covers both entire
+canonical worktrees before parent locking, after parent locking, after root
+locking, and together with quarantined Git directories after atomic exchange.
+The parent/root barrier prevents new `chatops` opens after the clean scan.

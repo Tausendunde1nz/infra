@@ -1,0 +1,25 @@
+# S12.1 final review: authenticated fetch identity and writable mappings
+
+## Findings
+
+The remote fetches changed uid to `chatops` but still inherited that account's
+Git and SSH configuration, allowing URL rewrites or SSH aliases. The worktree
+barrier scanned cwd and file descriptors, but a process could close its file
+descriptor while retaining a writable memory mapping to the same inode.
+
+## Resolution
+
+Both Application and Control releases are now supplied as root-owned mode
+`0600`, out-of-band SHA-256-bound Git bundles over authenticated Tailscale SSH.
+The advertised Application `main`, Control `control-main` and annotated Runtime
+Freeze tag must be present before isolated local-only root import; the normal
+freeze verifier then proves every exact commit, tree and artifact binding.
+There is no server-side network Git operation, so no server `chatops` Git/SSH
+configuration, alias, proxy, credential or known-hosts file is consulted.
+The imported tag and its trusted-controller digest are sealed before backup;
+the intentionally older canonical Control checkout does not need the new tag
+before the deployment controller starts.
+
+The existing `/proc` process scan now reads writable mappings in addition to
+cwd and descriptor links. A Linux regression process closes its descriptor
+after creating a writable mmap and is still detected by the barrier.

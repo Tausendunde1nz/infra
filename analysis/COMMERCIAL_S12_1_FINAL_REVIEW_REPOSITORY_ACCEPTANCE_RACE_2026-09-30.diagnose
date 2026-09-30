@@ -1,0 +1,37 @@
+# S12.1 final review: repository writer versus acceptance race
+
+## Scope
+
+Source-only correction before freeze, merge and the sole server deployment.
+No server state, credential, service, timer, public endpoint or deployment
+attempt was touched.
+
+## Finding
+
+The controller rejected a conflicting sync process during preflight and
+verified canonical identities after synchronization, but the credential-bearing
+systemd acceptance still imported Application code from the shared canonical
+worktree. A new `chatops` Git/sync writer starting after the identity check
+could therefore replace source during the one permitted acceptance.
+
+## Correction
+
+- After canonical synchronization, install the existing atomic Git barriers
+  and clone both exact reviewed repositories into a fixed root-private staging
+  tree while writers remain excluded.
+- Verify Application commit/tree, Control commit/tree and the annotated freeze
+  target in the staged clones.
+- Atomically isolate the completed stage under its root-only parent, remove all
+  write bits and durably flush it before it becomes an execution source.
+- Bind systemd `WorkingDirectory`, `PYTHONPATH`, Application root and Control
+  root to that private tree. Keep only the pre-existing canonical virtualenv
+  interpreter path; imported TU1NZ source and every release identity check use
+  the immutable stage.
+- On rollback, remove both fixed private release paths before writing the
+  completion marker.
+
+## Rollback plan
+
+Revert the amended Control commit if focused tests, the complete Linux CI suite
+or the next exact-SHA review is not GREEN. Do not create the freeze tag, merge
+the PR or consume the single server deployment attempt.

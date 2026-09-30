@@ -1,0 +1,31 @@
+# S12.1 final review: configured fetch refmap mutation
+
+Date: 2026-09-30
+Scope: Control PR #203, final same-SHA review P2
+
+## Finding
+
+`git fetch --no-write-fetch-head --no-tags origin main` can still apply
+`remote.origin.fetch` and advance `refs/remotes/origin/main`. The same applies
+to `control-main`. Those tracking refs were intentionally outside the bounded
+backup contract, so a failed deployment could otherwise report rollback GREEN
+while leaving remote-tracking drift.
+
+## Root cause
+
+`--no-write-fetch-head` controls only `FETCH_HEAD`; `--no-tags` controls tag
+discovery. Neither clears the configured remote refmap.
+
+## Correction
+
+All three release fetches now pass an explicit empty `--refmap=`. The two
+branch requests remain source-only object transfers and therefore update no
+local reference. The freeze-tag request retains its exact explicit
+source-to-destination refspec; that one managed ref is already recorded and
+restored by the backup contract. A static contract test requires all three
+fetches to retain the empty refmap.
+
+## Safety
+
+This is a source-only correction. It does not touch the runtime server,
+provider credentials, real identities, production endpoints or any hard gate.

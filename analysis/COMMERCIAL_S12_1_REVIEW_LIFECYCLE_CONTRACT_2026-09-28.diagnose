@@ -1,0 +1,18 @@
+# Commercial S12.1 runtime lifecycle review diagnosis
+
+- Scope: final same-SHA review of the bounded S12.1 runtime controller.
+- Finding 1: controlled safe-stop was invoked by the controller after the
+  credential-bearing oneshot transaction had ended.
+- Finding 2: rollback discarded the result of `systemctl stop` and could write
+  a successful rollback marker without proving the unit inactive.
+- Correction 1: safe-stop is now `ExecStartPost` in the same systemd service
+  transaction; the controller validates its retained controlled-inactive
+  evidence before removing the runtime contract.
+- Correction 2: rollback stops every non-inactive unit, checks the command
+  result, and requires `ActiveState=inactive` plus `SubState=dead` before any
+  restoration or success marker.
+- Failure posture: either lifecycle proof failing aborts fail-closed. No second
+  deployment attempt, secret handling change, provider expansion, or server
+  mutation is introduced by this source correction.
+- Rollback: restore the prior reviewed Control commit; no runtime attempt has
+  yet occurred.

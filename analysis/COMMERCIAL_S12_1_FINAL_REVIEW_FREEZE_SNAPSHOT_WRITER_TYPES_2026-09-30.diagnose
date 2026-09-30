@@ -1,0 +1,57 @@
+# Commercial S12.1 final-review diagnosis — trusted environment, snapshot, writer exclusion and JSON types
+
+Date: 2026-09-30
+
+## Finding
+
+The final review of Control `4c87fdcfc0a1b6d629e7f03ccc72cf366ce86edd`
+identified four remaining pre-deployment gaps:
+
+1. the immutable staged venv self-hashed bytes copied from a chatops-writable
+   source but did not compare them with a reviewed freeze digest;
+2. sequential backup reads could form a mixed-generation repository snapshot;
+3. a new chatops Git process could explicitly select the fixed quarantined Git
+   path after the final process scan; and
+4. Python equality allowed integer/boolean and integer/float substitutions in
+   an otherwise exact JSON contract.
+
+No merge, release tag or server deployment had begun. The exactly-once runtime
+attempt remained unused.
+
+## Root cause
+
+The prior correction made the staged runtime immutable after copy but had not
+made the source bytes an input to the reviewed freeze. Backup consistency and
+repository recovery relied on repeated process snapshots without separately
+binding all pre-state fields or revoking the repository owner's directory
+authority. Finally, ordinary Python container equality was used as a schema
+comparison even though `bool` subclasses `int`.
+
+## Versioned correction
+
+- Bind the complete canonical venv and resolved interpreter SHA-256 values in
+  the manifest and annotated freeze inputs. Validate both before copying, after
+  copying and immediately before the only service start.
+- Record identity, tree, attached/detached state, release tip, managed refs and
+  repository path metadata; re-read the complete repository snapshot after
+  backup creation and immediately before the durable attempt marker. Active
+  Git or sync activity and any value mismatch are fail-closed.
+- While the atomic Git barrier is installed, lock each checkout root against
+  chatops traversal/write, make the quarantined Git directory root-only and run
+  only the bounded recovery Git commands as root. Restore the recorded
+  ownership/modes before reopening the checkout.
+- Compare every JSON node recursively with exact Python types before value
+  equality. Boolean/integer and integer/float substitutions are rejected.
+
+## Evidence boundary
+
+The environment digests were derived read-only from the canonical Application
+venv while Application remained at the reviewed commit/tree. No credential,
+identity, provider payload or real-user data was read or retained. The values
+are non-secret integrity bindings.
+
+## Rollback
+
+The existing exactly-once backup-first rollback remains authoritative. The
+server has not been mutated, so no rollback or second attempt is required at
+this stage.

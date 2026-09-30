@@ -1,0 +1,9 @@
+# Commercial S12.1 simulator session-identity diagnosis
+
+- Scope: executable Control simulator result-fetch invariant.
+- Finding: authenticated fetch checked a triggered reference but did not require
+  the same registered session object, allowing scenario substitution in the
+  model.
+- Correction: result fetch now requires identity membership in the registered
+  session map and executes a same-reference/different-object negative journey.
+- Runtime effect: none; this tightens source-only validation before freeze.

@@ -1,0 +1,32 @@
+# S12.1 final review: root Git execution contract
+
+Date: 2026-09-30
+Scope: Control PR #203, final same-SHA review P1
+
+## Finding
+
+The recovery barrier intentionally made the canonical Git directories
+root-only, but subsequent root Git commands could still consume repository
+local hooks/configuration or inherited system/global configuration. A
+repository-controlled filter, hook or helper could therefore execute with root
+authority.
+
+## Correction
+
+All root Git entrypoints now share one isolated command prefix: empty
+environment, disabled system/global configuration, prompts, credentials,
+hooks, fsmonitor, maintenance and network protocols, with only the local file
+protocol permitted. Before root Git is used, local config files must be regular
+single-link bounded files whose keys match the narrow repository metadata
+allowlist. Any non-sample hook is rejected. Immutable clone creation and its
+generated destination repository are covered by the same contract.
+
+Remote acquisition remains a `chatops` operation. Root consumes only the
+sealed, identity-verified local bare repositories after the shared repository
+parent has been locked against replacement.
+
+## Verification
+
+Tests assert the isolated root command shape and prove that a configured
+filter or executable hook is rejected. No credential value, provider session,
+identity data or public runtime state is accessed by this source correction.

@@ -1,0 +1,19 @@
+# Commercial S12.1 durable recovery and fresh-evidence diagnosis
+
+- Scope: final pre-freeze review of detached rollback, interrupted controller,
+  and pre-existing-unit acceptance.
+- Findings:
+  - detached rollback restored HEAD but not the independently advanced named
+    release branch;
+  - a SIGKILL/reboot after the attempt marker had no rollback-only entrypoint;
+  - `systemctl start` did not first prove the unit inactive or distinguish new
+    acceptance evidence from stale success files.
+- Corrections:
+  - backup records and rollback verifies exact `main`/`control-main` tips in
+    addition to HEAD posture;
+  - `recover` loads the root-private restore index and runs rollback only,
+    without a second acceptance start;
+  - preflight requires `inactive/dead`; prior evidence is backed up and removed;
+    newly created root-private evidence must be timestamped within this attempt.
+- Boundaries: no second deploy, no gate bypass, no secret output, no provider or
+  Production expansion, and no server attempt has yet occurred.

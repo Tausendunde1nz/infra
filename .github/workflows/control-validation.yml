@@ -14,6 +14,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: Compile Python verifier
         run: python3 -m py_compile scripts/tu1nz_adult_restore_verify.py tests/test_adult_restore_verify.py
       - name: Check shell wrapper
@@ -957,6 +960,39 @@ jobs:
           ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP|ENCRYPTED)? ?PRIVATE KEY-----' -- "${files[@]}"
           ! git grep -nEi '(^|[[:space:]])crontab([[:space:]]|$)' -- "${files[@]}"
           ! git grep -nE 'subprocess\.(run|Popen).*\b(systemctl|install|cp|mv|rm|chmod|chown)\b' -- "${files[@]}"
+      - name: Validate Commercial S12.1 bounded Yoti Sandbox runtime Control
+        run: >-
+          python3 -m json.tool
+          manifests/adult-publishing-commercial-s12-1-yoti-sandbox-runtime.json >/dev/null
+          && python3 -m py_compile
+          scripts/tu1nz_adult_commercial_s12_1_runtime.py
+          scripts/tu1nz_adult_commercial_s12_1_freeze.py
+          scripts/tu1nz_adult_commercial_s12_1_simulator.py
+          tests/test_adult_commercial_s12_1_yoti_runtime.py
+          && python3 -m unittest -v
+          tests.test_adult_commercial_s12_1_yoti_runtime
+          && python3 scripts/tu1nz_adult_commercial_s12_1_freeze.py
+          verify-manifest
+          --manifest manifests/adult-publishing-commercial-s12-1-yoti-sandbox-runtime.json
+          && python3 scripts/tu1nz_adult_commercial_s12_1_simulator.py
+      - name: Reject Commercial S12.1 secret leakage production crossover and cron
+        shell: bash
+        run: |
+          files=(
+            manifests/adult-publishing-commercial-s12-1-yoti-sandbox-runtime.json
+            docs/COMMERCIAL_S12_1_YOTI_SANDBOX_RUNTIME_CONTROL.md
+            scripts/tu1nz_adult_commercial_s12_1_runtime.py
+            scripts/tu1nz_adult_commercial_s12_1_freeze.py
+            scripts/tu1nz_adult_commercial_s12_1_simulator.py
+            systemd/tu1nz-adult-commercial-s12-yoti-runtime.service
+            nginx/current/wantmeseen.s12-1-acceptance.conf
+            tests/test_adult_commercial_s12_1_yoti_runtime.py
+          )
+          ! git grep -nE '[0-9]{7,16}:[A-Za-z0-9_-]{30,}' -- "${files[@]}"
+          ! git grep -nE -e '-----BEGIN (OPENSSH|RSA|EC|DSA|PGP|ENCRYPTED)? ?PRIVATE KEY-----' -- "${files[@]}"
+          ! git grep -nEi '(^|[[:space:]])crontab([[:space:]]|$)' -- "${files[@]}"
+          ! git grep -nE '(Environment=.*(TOKEN|SECRET|KEY|SDK_ID)=|--sdk-id|--private-key)' -- \
+            systemd/tu1nz-adult-commercial-s12-yoti-runtime.service
       - name: Run complete Linux-compatible Control test suite
         run: |
           python3 - <<'PY'

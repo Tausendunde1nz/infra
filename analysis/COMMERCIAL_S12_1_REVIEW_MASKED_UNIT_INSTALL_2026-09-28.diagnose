@@ -1,0 +1,11 @@
+# Commercial S12.1 masked-unit installation diagnosis
+
+- Scope: final pre-freeze review of server file installation.
+- Finding: direct `shutil.copyfile` to a masked unit path would follow the
+  `/dev/null` symlink and could alter its mode before rollback.
+- Correction: installation now copies into a same-directory temporary regular
+  file, applies owner/mode there, and atomically replaces the destination.
+- Regression proof: a mask-like destination symlink is replaced by reviewed
+  bytes while its target content and mode remain unchanged.
+- Runtime effect: none; no server attempt has occurred.
+- Rollback: restore the prior reviewed Control commit.

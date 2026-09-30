@@ -1,0 +1,34 @@
+# S12.1 review diagnosis: recovery serialization and exact manifest
+
+## Finding
+
+The pre-rollback Git process check was a point-in-time observation. A normal
+repository writer could begin after that check and before stale lock removal.
+The manifest verifier also validated selected fields rather than the complete
+`decision`, `health`, `systemd`, `rollback` and `sandbox_policy` objects.
+
+## Cause
+
+Recovery had detection but no repository-wide exclusion boundary. Manifest
+validation had accumulated independent field checks and therefore did not make
+unknown nested keys uniformly fail closed.
+
+## Versioned correction
+
+- Atomically exchange each canonical `.git` directory with a pre-created,
+  root-owned mode-`000` guard before stale lock removal, leaving no absent
+  `.git` interval. Recovery `git clean` explicitly excludes the fixed
+  quarantined metadata directory.
+- Repeat sync/Git-process checks after both guards exist and additionally reject
+  retained cwd/file-descriptor handles into the quarantined Git directories.
+- Perform rollback Git operations explicitly against the quarantined directory
+  as `chatops`, then atomically restore the original `.git` name.
+- Compare the complete runtime manifest and every nested object exactly in the
+  runtime validator, freeze verifier and executable simulator.
+
+## Rollback and safety
+
+The guard operation is same-filesystem and atomic. Cleanup restores every
+original Git directory even when recovery fails. An interrupted guard posture
+is recognized by the fixed quarantine name and resumed only by the canonical
+rollback path. No server mutation is performed by this source correction.

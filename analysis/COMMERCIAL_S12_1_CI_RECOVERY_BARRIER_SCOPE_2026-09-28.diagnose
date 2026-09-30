@@ -1,0 +1,22 @@
+# S12.1 CI diagnosis: recovery barrier path scope
+
+## Failure
+
+CI run `36486243677` failed only in the new recovery-barrier test. The
+unprivileged runner rejected a cross-directory exchange involving a mode-`000`
+guard.
+
+## Cause
+
+The first reviewed correction placed quarantined Git metadata in the repository
+parent to keep it away from `git clean`. That cross-directory placement was
+unnecessary and reduced portability of the atomic exchange primitive.
+
+## Versioned correction
+
+The guard and quarantined Git directory now exchange atomically in the same
+repository directory. Every recovery `git clean` carries an exact exclusion for
+the fixed quarantine name, and the focused test executes both the writer block
+and the clean-with-exclusion path.
+
+No server mutation or deployment attempt occurred.

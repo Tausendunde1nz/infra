@@ -1,0 +1,28 @@
+TU1NZ Commercial S12.1 local validation diagnosis
+Date: 2026-09-28
+
+Observed:
+
+1. Direct execution of the new source-only simulator initially failed because
+   Python placed the scripts directory, not the repository root, on sys.path.
+2. Full Control discovery on macOS loaded 857 tests but Linux-specific legacy
+   tests failed where setfacl, /proc and Linux openat directory semantics are
+   required.
+
+Cause:
+
+1. The simulator used a package import without first binding the repository
+   root for direct-script execution.
+2. The complete Control suite is Linux-targeted; the macOS host cannot provide
+   those kernel/filesystem tools. The failures did not involve new S12.1 code.
+
+Correction and verification:
+
+- The simulator now inserts its exact repository root before importing the
+  reviewed runtime module.
+- Direct simulator execution is GREEN.
+- Focused S12.1 Control tests are 12/12 GREEN.
+- JSON, compile, diff and changed-artifact secret checks are GREEN.
+- The complete Linux-compatible suite remains a mandatory CI gate before merge.
+
+No runtime or server mutation occurred.
