@@ -784,6 +784,43 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 child.terminate()
                 child.wait(timeout=10)
 
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_repository_handle_gate_detects_deleted_external_alias_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            repository.mkdir()
+            tracked = repository / "tracked.bin"
+            tracked.write_bytes(b"0" * 4096)
+            external = root / "external.bin"
+            os.link(tracked, external)
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import mmap,os,sys,time;"
+                        "f=open(sys.argv[1],'r+b');"
+                        "m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_WRITE);"
+                        "f.close();os.unlink(sys.argv[1]);"
+                        "print('ready',flush=True);time.sleep(30)"
+                    ),
+                    str(external),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                self.assertEqual(tracked.stat().st_nlink, 1)
+                self.assertGreater(
+                    runtime._active_recovery_git_handle_count((repository,)), 0
+                )
+            finally:
+                child.terminate()
+                child.wait(timeout=10)
+
     def test_repository_barrier_journal_precedes_mutation_and_binds_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

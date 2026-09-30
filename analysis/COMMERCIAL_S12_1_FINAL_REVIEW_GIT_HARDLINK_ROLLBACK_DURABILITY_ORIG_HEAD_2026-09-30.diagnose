@@ -23,6 +23,9 @@ Deployment attempts consumed: 0
    were reopened for verification and import before the shared repository
    parent was locked. A writable ancestor allowed rename/replacement between
    those operations.
+6. Link-count validation alone could not detect a process that opened an
+   external hardlink and then deleted that alias. Its retained descriptor or
+   mapping still addressed the canonical inode while exposing no in-tree path.
 
 ## Resolution
 
@@ -42,6 +45,9 @@ Deployment attempts consumed: 0
   inode and digest, then copy only from those pinned descriptors into the
   root-owned stage after repository-parent locking. Verify, inspect and import
   only those protected, digest-checked copies.
+- Build device/inode identities for the complete protected trees and compare
+  every retained cwd/fd plus writable or shared `/proc/*/maps` entry against
+  them. Deleted external aliases therefore remain detectable.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

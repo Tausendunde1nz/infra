@@ -1894,12 +1894,42 @@ def _clear_stale_git_locks(root: Path, git_dir: Path | None = None) -> None:
         _durable_unlink(candidate)
 
 
+def _protected_inode_identities(paths: Sequence[Path]) -> set[tuple[int, int]]:
+    identities: set[tuple[int, int]] = set()
+    try:
+        for root in paths:
+            root_metadata = root.lstat()
+            if root.is_symlink() or not stat.S_ISDIR(root_metadata.st_mode):
+                raise OSError
+            identities.add((root_metadata.st_dev, root_metadata.st_ino))
+            for current, directories, files in os.walk(root, followlinks=False):
+                for name in (*directories, *files):
+                    metadata = (Path(current) / name).lstat()
+                    if stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode):
+                        identities.add((metadata.st_dev, metadata.st_ino))
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_PROCESS_RED") from None
+    return identities
+
+
+def _mapped_inode_identity(device: str, inode: str) -> tuple[int, int] | None:
+    try:
+        major, separator, minor = device.partition(":")
+        numeric_inode = int(inode, 10)
+        if not separator or numeric_inode == 0:
+            return None
+        return os.makedev(int(major, 16), int(minor, 16)), numeric_inode
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
 def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
-    """Count processes retaining cwd/fds/writable maps below protected paths."""
+    """Count processes retaining protected inodes through cwd, fds or maps."""
 
     proc = Path("/proc")
     if not proc.is_dir():
         raise S12ControlError("S12_1_RECOVERY_GIT_PROCESS_RED")
+    protected_inodes = _protected_inode_identities(git_directories)
     count = 0
     for process in proc.iterdir():
         if not process.name.isdigit() or process.name == str(os.getpid()):
@@ -1910,12 +1940,21 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
             matched = False
             for link in links:
                 try:
+                    retained = link.stat()
                     target = link.resolve(strict=True)
                 except FileNotFoundError:
-                    continue
-                if any(
-                    target == git_directory or git_directory in target.parents
-                    for git_directory in git_directories
+                    try:
+                        retained = link.stat()
+                    except FileNotFoundError:
+                        continue
+                    target = None
+                if (
+                    (retained.st_dev, retained.st_ino) in protected_inodes
+                    or target is not None
+                    and any(
+                        target == git_directory or git_directory in target.parents
+                        for git_directory in git_directories
+                    )
                 ):
                     matched = True
                     break
@@ -1925,9 +1964,15 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
                 )
                 for line in maps.splitlines():
                     fields = line.split(maxsplit=5)
-                    if len(fields) != 6 or (
+                    if len(fields) < 5 or (
                         "w" not in fields[1] and not fields[1].endswith("s")
                     ):
+                        continue
+                    identity = _mapped_inode_identity(fields[3], fields[4])
+                    if identity in protected_inodes:
+                        matched = True
+                        break
+                    if len(fields) != 6:
                         continue
                     mapped_name = fields[5]
                     if mapped_name.endswith(" (deleted)"):

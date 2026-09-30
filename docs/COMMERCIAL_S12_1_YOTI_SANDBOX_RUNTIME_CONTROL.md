@@ -338,6 +338,9 @@ An interrupted barrier is recognized and safely resumed by `recover`.
 Process matching includes cwd, `-C`, `--git-dir`, `--work-tree` and the
 corresponding `GIT_*` environment selectors. An unreadable active Git process,
 a matching process, a retained handle or an unsafe lock fails recovery closed.
+Retained cwd/fd targets and writable or shared mappings are matched by device
+and inode against the complete protected trees, not merely by pathname. This
+also catches an external hardlink opened and then unlinked before the barrier.
 
 The runtime and standalone simulator parse the complete manifest with recursive
 duplicate-key rejection before exact structural comparison. A later JSON key
