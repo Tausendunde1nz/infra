@@ -44,6 +44,14 @@ Deployment attempts consumed: 0
     completion caused recovery to compare the already-restored state against
     the earlier post-sync state and made the controller's own rollback
     non-resumable.
+13. The restore phase journal remained durable after a restore error, but the
+    context manager still removed the physical Git barriers. Recovery then
+    correctly refused to resume `RESTORE_STARTED`, leaving no safe path to
+    complete the interrupted restore.
+14. A successful repository restore released its writer exclusion before the
+    rollback-complete marker was written. An ordinary repository writer could
+    therefore alter the restored checkout in that finalization interval while
+    the controller still emitted GREEN rollback evidence.
 
 ## Resolution
 
@@ -85,6 +93,15 @@ Deployment attempts consumed: 0
   to `REPOSITORIES_RESTORED` while barriers remain held. Recovery resumes a
   started restore only with the physical barriers still installed, while a
   restored phase performs cleanup/finalization without replaying Git changes.
+- Preserve the physical repository and parent barriers when any restore body
+  fails, including exceptions during resumed recovery. The exception remains
+  visible and a subsequent recovery can safely continue from the durable
+  `RESTORE_STARTED` phase.
+- Bind `REPOSITORIES_RESTORED` to the complete restored repository states.
+  Finalization reacquires the barriers, revalidates those states and writes the
+  rollback-complete marker before releasing writer exclusion. If barrier
+  cleanup is interrupted after that marker, recovery removes only the
+  lingering barrier and never replays repository restoration.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

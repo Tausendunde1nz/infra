@@ -295,7 +295,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         in_barrier_rollback = deploy.index(
             "_perform_restore_under_barrier(", sync
         )
-        rollback_finalize = deploy.index("_finalize_rollback(backup)", sync)
+        rollback_finalize = deploy.index("_finalize_rollback(backup, index)", sync)
         immutable = deploy.index("_create_immutable_release_stage(")
         journal_clear = deploy.index("_durable_unlink(BARRIER_MARKER)")
         self.assertLess(journal, barrier)
@@ -1348,6 +1348,59 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "",
             )
 
+    def test_recovery_barrier_is_preserved_when_restore_body_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repo"
+            subprocess.run(
+                ["git", "init", "-b", "control-main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            (repository / "tracked.txt").write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            records = {repository: runtime._repository_path_metadata(repository)}
+            checks = (
+                mock.patch.object(runtime, "_competing_control_sync_count", return_value=0),
+                mock.patch.object(runtime, "_active_repository_git_count", return_value=0),
+                mock.patch.object(runtime, "_active_recovery_git_handle_count", return_value=0),
+            )
+            with checks[0], checks[1], checks[2]:
+                with self.assertRaisesRegex(RuntimeError, "restore interrupted"):
+                    with runtime._serialized_repository_recovery(
+                        roots=(repository,),
+                        records=records,
+                        preserve_on_error=True,
+                    ):
+                        raise RuntimeError("restore interrupted")
+                self.assertTrue(runtime._is_recovery_guard(repository / ".git"))
+                self.assertTrue(
+                    runtime._is_recovery_git_directory(
+                        runtime._recovery_git_path(repository)
+                    )
+                )
+                with runtime._serialized_repository_recovery(
+                    roots=(repository,), records=records
+                ):
+                    pass
+            self.assertTrue((repository / ".git").is_dir())
+            self.assertFalse(runtime._recovery_git_path(repository).exists())
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "syncfs is Linux-specific")
     def test_repository_filesystem_sync_flushes_validated_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1386,6 +1439,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "final_state_evidence": {},
                 "deployment_result": {},
             },
+        }
+        restored_state = {"application": {}, "control": {}}
+        restored_progress = {
+            "schema": runtime.ROLLBACK_PROGRESS_SCHEMA,
+            "backup": str(backup),
+            "phase": runtime.ROLLBACK_PHASE_REPOSITORIES_RESTORED,
+            "repository_state": restored_state,
         }
 
         @contextmanager
@@ -1437,6 +1497,17 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 side_effect=recovery_barrier,
             ),
             mock.patch.object(runtime, "_restore_repository"),
+            mock.patch.object(
+                runtime, "_release_repository_states", return_value=restored_state
+            ),
+            mock.patch.object(
+                runtime,
+                "_load_rollback_progress",
+                side_effect=[None, restored_progress],
+            ),
+            mock.patch.object(
+                runtime, "_validate_release_repository_states"
+            ) as validate,
             mock.patch.object(runtime, "_sync_repository_filesystem", side_effect=sync),
             mock.patch.object(runtime, "_run", side_effect=run),
             mock.patch.object(runtime, "_atomic_json", side_effect=atomic_json),
@@ -1455,11 +1526,23 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "sync:control",
                 f"progress:{runtime.ROLLBACK_PHASE_REPOSITORIES_RESTORED}",
                 "barrier-exit",
+                "barrier-enter",
                 "sync:application",
                 "sync:control",
                 "daemon-reload",
                 "marker",
+                "barrier-exit",
+                "sync:application",
+                "sync:control",
             ],
+        )
+        validate.assert_called_once_with(
+            restored_state,
+            {
+                application: application / ".git.recovery",
+                control: control / ".git.recovery",
+            },
+            {application: {}, control: {}},
         )
 
     def test_rollback_rejects_post_release_drift_before_mutation(self) -> None:
@@ -1525,7 +1608,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime,
                 "_load_rollback_progress",
-                return_value=runtime.ROLLBACK_PHASE_REPOSITORIES_RESTORED,
+                return_value={
+                    "schema": runtime.ROLLBACK_PROGRESS_SCHEMA,
+                    "backup": str(backup),
+                    "phase": runtime.ROLLBACK_PHASE_REPOSITORIES_RESTORED,
+                    "repository_state": {"application": {}, "control": {}},
+                },
             ),
             mock.patch.object(runtime, "_recover_repository_barrier_only") as barrier,
             mock.patch.object(runtime, "_finalize_rollback") as finalize,
@@ -1540,7 +1628,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         barrier.assert_not_called()
         recovery.assert_not_called()
         restore.assert_not_called()
-        finalize.assert_called_once_with(backup)
+        finalize.assert_called_once_with(backup, index)
 
     def test_started_rollback_requires_still_installed_barriers(self) -> None:
         backup = Path("/private/backup")
@@ -1553,7 +1641,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime,
                 "_load_rollback_progress",
-                return_value=runtime.ROLLBACK_PHASE_STARTED,
+                return_value={
+                    "schema": runtime.ROLLBACK_PROGRESS_SCHEMA,
+                    "backup": str(backup),
+                    "phase": runtime.ROLLBACK_PHASE_STARTED,
+                },
             ),
             mock.patch.object(
                 runtime, "_repository_barriers_are_installed", return_value=False
@@ -1576,6 +1668,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             runtime.APPLICATION_ROOT: Path("/recovery/application"),
             runtime.CONTROL_ROOT: Path("/recovery/control"),
         }
+        progress = {
+            "schema": runtime.ROLLBACK_PROGRESS_SCHEMA,
+            "backup": str(backup),
+            "phase": runtime.ROLLBACK_PHASE_STARTED,
+        }
 
         @contextmanager
         def recovery_barrier(**_kwargs):
@@ -1589,7 +1686,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime,
                 "_load_rollback_progress",
-                return_value=runtime.ROLLBACK_PHASE_STARTED,
+                return_value=progress,
             ),
             mock.patch.object(
                 runtime, "_repository_barriers_are_installed", return_value=True
@@ -1619,9 +1716,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             backup,
             index,
             git_directories,
-            runtime.ROLLBACK_PHASE_STARTED,
+            progress,
+            {
+                runtime.APPLICATION_ROOT: {},
+                runtime.CONTROL_ROOT: {},
+            },
         )
-        finalize.assert_called_once_with(backup)
+        finalize.assert_called_once_with(backup, index)
 
     def test_immutable_release_stage_survives_canonical_repository_drift(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2020,6 +2121,70 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             rollback.assert_called_once_with(backup, {}, None)
             self.assertEqual(result["safe_code"], "S12_1_INTERRUPTED_DEPLOYMENT_RECOVERED")
             self.assertNotIn("deployment_count", result)
+
+    def test_completed_rollback_recovery_removes_lingering_barrier_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            backup = root / "backup"
+            state.mkdir(mode=0o700)
+            backup.mkdir(mode=0o700)
+            attempt_marker = state / "deployment-attempt.json"
+            barrier_marker = state / "repository-recovery.json"
+            attempt_marker.write_text("{}\n", encoding="ascii")
+            barrier_marker.write_text("{}\n", encoding="ascii")
+            (backup / "rollback-complete.json").write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "safe_code": "S12_1_ROLLBACK_GREEN",
+                        "count": 1,
+                        "credentials_preserved": True,
+                    }
+                )
+                + "\n",
+                encoding="ascii",
+            )
+            with (
+                mock.patch.object(runtime, "STATE_ROOT", state),
+                mock.patch.object(runtime, "ATTEMPT_MARKER", attempt_marker),
+                mock.patch.object(runtime, "BARRIER_MARKER", barrier_marker),
+                mock.patch.object(runtime.os, "geteuid", return_value=0),
+                mock.patch.object(
+                    runtime,
+                    "_load_recovery_backup",
+                    return_value=(
+                        backup,
+                        {},
+                        {
+                            "attempt": 1,
+                            "backup": str(backup),
+                            "started_at": "2026-09-28T12:00:00Z",
+                        },
+                    ),
+                ),
+                mock.patch.object(
+                    runtime, "_successful_result_matches_attempt", return_value=False
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_private_json",
+                    return_value={
+                        "ok": True,
+                        "safe_code": "S12_1_ROLLBACK_GREEN",
+                        "count": 1,
+                        "credentials_preserved": True,
+                    },
+                ),
+                mock.patch.object(
+                    runtime, "_recover_repository_barrier_only"
+                ) as recover_barrier,
+                mock.patch.object(runtime, "rollback_once") as rollback,
+            ):
+                result = runtime._recover_locked()
+            recover_barrier.assert_called_once_with()
+            rollback.assert_not_called()
+            self.assertEqual(result["safe_code"], "S12_1_RECOVERY_ALREADY_COMPLETE")
 
     def test_success_result_must_bind_current_attempt_and_backup(self) -> None:
         attempt = {

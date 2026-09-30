@@ -185,11 +185,17 @@ no writer gap exists even though no complete post-sync state was available.
 Before the first canonical sync mutation, and before any later rollback
 mutation, the controller durably records `RESTORE_STARTED` in the root-private
 backup. It advances that journal to `REPOSITORIES_RESTORED` while the barriers
-are still held. Recovery may replay restoration only from `RESTORE_STARTED`
-with the original barriers still physically installed; from
-`REPOSITORIES_RESTORED` it performs barrier cleanup and finalization only.
-Thus a crash or `daemon-reload` failure cannot turn the controller's own
-partial rollback into false external drift or cause a second destructive
+are still held and binds that phase to the complete restored repository
+states. A failed restore intentionally preserves the physical Git and parent
+barriers so recovery can resume `RESTORE_STARTED` without exposing partially
+restored repositories. From `REPOSITORIES_RESTORED`, recovery does not replay
+Git restoration: it removes any lingering old barrier, reacquires writer
+exclusion, revalidates the recorded restored states, and writes the
+rollback-complete marker while that exclusion is still held. If barrier
+cleanup is interrupted after the marker, recovery removes only the remaining
+barrier. Thus a crash, restore error, writer race or `daemon-reload` failure
+cannot turn the controller's own partial rollback into false external drift,
+emit a false GREEN over repository drift, or cause a second destructive
 restore over subsequent work.
 Each root-owned, single-link, digest-bound release input bundle is opened once
 with `O_NOFOLLOW`; inode identity, owner, mode, link count and SHA-256 are

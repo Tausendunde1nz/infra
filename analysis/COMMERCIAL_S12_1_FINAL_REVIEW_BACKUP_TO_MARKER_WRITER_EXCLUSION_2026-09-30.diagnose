@@ -39,7 +39,11 @@ starting rollback because no canonical deployment mutation has begun.
 
 ## Rollback and safety
 
-The existing exactly-once rollback remains armed only after the durable attempt
-marker. The barrier is restored on every context exit, including exceptions.
+The exactly-once rollback remains armed only after the durable attempt marker.
+Restore exceptions now deliberately retain the physical barriers rather than
+exposing a partial restore. The restored phase records the complete repository
+states; finalization reacquires writer exclusion, validates those states and
+writes the completion marker before releasing the barriers. A crash after the
+marker can therefore clean only the lingering barrier without replaying Git.
 No provider credential, identity material or runtime server state is changed by
 this source correction.
