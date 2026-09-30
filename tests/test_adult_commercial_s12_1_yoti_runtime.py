@@ -609,6 +609,20 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 runtime._validate_root_git_contract(repository)
 
+    def test_worktree_contract_rejects_hardlinked_regular_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repo"
+            repository.mkdir()
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            runtime._validate_repository_worktree_contract(repository)
+            os.link(tracked, root / "external-tracked.txt")
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_WORKTREE_LAYOUT_RED"
+            ):
+                runtime._validate_repository_worktree_contract(repository)
+
     def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

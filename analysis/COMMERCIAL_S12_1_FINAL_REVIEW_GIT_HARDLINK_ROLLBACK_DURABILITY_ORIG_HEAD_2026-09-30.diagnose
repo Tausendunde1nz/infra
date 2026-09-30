@@ -16,6 +16,9 @@ Deployment attempts consumed: 0
 3. Backup/rollback captured HEAD, release branches and the managed freeze tag,
    but not the Git pseudo-ref `ORIG_HEAD`. A failed attempt could consequently
    leave a rollback-side `ORIG_HEAD` mutation behind.
+4. The Git metadata hardlink gate did not cover regular files in the canonical
+   worktrees. An existing external hardlink could remain writable after the
+   repository parent and root permissions were locked.
 
 ## Resolution
 
@@ -28,6 +31,9 @@ Deployment attempts consumed: 0
   validate its object, and restore and verify either the exact value or exact
   absence. The restore-index schema advances to V5 so an older record cannot
   be interpreted as an intentional absent value.
+- After locking the shared repository parent and rejecting retained handles,
+  require link count one for every regular file throughout both worktrees
+  before locking their roots or running root Git.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

@@ -2393,6 +2393,26 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
+def _validate_repository_worktree_contract(root: Path) -> None:
+    """Reject regular worktree files that have aliases outside the barrier."""
+
+    try:
+        metadata = root.lstat()
+        if root.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+            raise OSError
+        for current, _, files in os.walk(root, followlinks=False):
+            for name in files:
+                candidate = Path(current) / name
+                candidate_metadata = candidate.lstat()
+                if (
+                    stat.S_ISREG(candidate_metadata.st_mode)
+                    and candidate_metadata.st_nlink != 1
+                ):
+                    raise OSError
+    except OSError:
+        raise S12ControlError("S12_1_WORKTREE_LAYOUT_RED") from None
+
+
 def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
     if os.geteuid() != 0:
         return
@@ -2559,6 +2579,8 @@ def _serialized_repository_recovery(
                 or _active_recovery_git_handle_count(selected_roots) != 0
             ):
                 raise S12ControlError("S12_1_REPOSITORY_PARENT_ACTIVE_RED")
+        for root in selected_roots:
+            _validate_repository_worktree_contract(root)
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
         if (

@@ -163,6 +163,10 @@ before the durable attempt marker. Any mixed-generation backup is rejected
 before deployment mutation. Dirty-state checks exclude only the controller's
 fixed, prevalidated quarantine-directory name while the barrier is active;
 every other tracked change or untracked path remains RED.
+After the shared repository parent is locked and retained handles are rejected,
+every regular file throughout both canonical worktrees must have link count
+one. An external hardlink alias therefore fails closed before either checkout
+is mutated or consumed by root.
 The root-private barrier journal exists before the first parent/root chmod or
 `.git` exchange. A crash before the durable deployment-attempt marker is
 therefore recovered as a barrier-only operation: exact ownership and modes are
