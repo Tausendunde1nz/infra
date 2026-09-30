@@ -531,6 +531,44 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 runtime._validate_root_git_contract(repository)
 
+    def test_root_git_contract_rejects_common_directory_and_object_alternates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repo.git"
+            subprocess.run(
+                ["git", "init", "--bare", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            common = root / "common.git"
+            subprocess.run(
+                ["git", "init", "--bare", str(common)],
+                check=True,
+                capture_output=True,
+            )
+            (repository / "commondir").write_text(
+                str(common) + "\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_ROOT_GIT_LAYOUT_RED"
+            ):
+                runtime._validate_root_git_contract(repository)
+            (repository / "commondir").unlink()
+            alternates = repository / "objects" / "info" / "alternates"
+            alternates.write_text(str(common / "objects") + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_ROOT_GIT_LAYOUT_RED"
+            ):
+                runtime._validate_root_git_contract(repository)
+            alternates.unlink()
+            (repository / "objects" / "info" / "http-alternates").write_text(
+                "https://example.invalid/objects\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_ROOT_GIT_LAYOUT_RED"
+            ):
+                runtime._validate_root_git_contract(repository)
+
     def test_repository_barrier_journal_precedes_mutation_and_binds_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,0 +1,21 @@
+# S12.1 final review: Git common-directory and alternates isolation
+
+## Finding
+
+The isolated root Git prefix disabled inherited, system and global
+configuration, and the direct Git-directory config and hooks were validated.
+Git can nevertheless redirect common configuration, refs and objects through
+`commondir`, or extend object lookup through `objects/info/alternates`. That
+layout indirection was outside the direct-config validation boundary.
+
+## Resolution
+
+Every root Git entrypoint already calls the shared repository contract
+validator. The validator now requires direct, non-symlink Git and object
+directories and rejects `commondir`, local object alternates, HTTP object
+alternates, and symlinked object metadata directories before root Git runs.
+The repository parent/root barrier continues to prevent the chatops owner from
+changing the validated layout between validation and consumption.
+
+Regression coverage constructs bare repositories with each forbidden layout
+surface and requires the fail-closed `S12_1_ROOT_GIT_LAYOUT_RED` result.

@@ -213,7 +213,11 @@ Every Git process that must run as root uses an empty environment, disables
 system/global config, prompts, credentials, hooks, fsmonitor and maintenance,
 rejects network protocols, and permits only the local file protocol. Before
 such use, repository-local config keys are allowlisted and executable hooks
-are rejected. Release fetches use
+are rejected. Root Git also requires a direct Git directory and direct object
+metadata directories: `commondir`, symlinked object metadata directories, and
+local or HTTP object alternates are rejected before Git runs. The active
+repository-parent/root barrier prevents the `chatops` owner from changing this
+validated layout before root consumes it. Release fetches use
 `--no-write-fetch-head --no-tags --refmap=` so configured
 remote fetch mappings cannot advance `origin/main`, `origin/control-main` or
 any other tracking ref. The branch fetches are source-only object transfers;

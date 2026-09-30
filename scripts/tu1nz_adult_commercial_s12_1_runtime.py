@@ -2017,6 +2017,31 @@ def _recovery_git_path(root: Path) -> Path:
 
 
 def _validate_root_git_contract(git_directory: Path) -> None:
+    try:
+        git_metadata = git_directory.lstat()
+        objects = git_directory / "objects"
+        objects_metadata = objects.lstat()
+        if (
+            git_directory.is_symlink()
+            or not stat.S_ISDIR(git_metadata.st_mode)
+            or objects.is_symlink()
+            or not stat.S_ISDIR(objects_metadata.st_mode)
+        ):
+            raise OSError
+        for directory in (objects / "info", objects / "pack"):
+            if directory.exists() or directory.is_symlink():
+                metadata = directory.lstat()
+                if directory.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                    raise OSError
+        for forbidden in (
+            git_directory / "commondir",
+            objects / "info" / "alternates",
+            objects / "info" / "http-alternates",
+        ):
+            if forbidden.exists() or forbidden.is_symlink():
+                raise OSError
+    except OSError:
+        raise S12ControlError("S12_1_ROOT_GIT_LAYOUT_RED") from None
     config_names: list[str] = []
     for name, required in (("config", True), ("config.worktree", False)):
         config = git_directory / name
