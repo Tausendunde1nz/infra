@@ -623,14 +623,87 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             root = Path(directory)
             repository = root / "repo"
             repository.mkdir()
+            (repository / ".git").mkdir()
             tracked = repository / "tracked.txt"
             tracked.write_text("reviewed\n", encoding="ascii")
-            runtime._validate_repository_worktree_contract(repository)
+            metadata = {
+                "root_uid": os.getuid(),
+                "root_gid": os.getgid(),
+                "root_mode": "0755",
+                "git_uid": os.getuid(),
+                "git_gid": os.getgid(),
+                "git_mode": "0755",
+            }
+            runtime._validate_repository_worktree_contract(repository, metadata)
             os.link(tracked, root / "external-tracked.txt")
             with self.assertRaisesRegex(
                 runtime.S12ControlError, "S12_1_WORKTREE_LAYOUT_RED"
             ):
-                runtime._validate_repository_worktree_contract(repository)
+                runtime._validate_repository_worktree_contract(repository, metadata)
+
+    def test_worktree_contract_rejects_heterogeneous_nested_ownership(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repo"
+            repository.mkdir()
+            (repository / ".git").mkdir()
+            protected = repository / "protected.bin"
+            protected.write_bytes(b"private-local-state\n")
+            metadata = {
+                "root_uid": os.getuid(),
+                "root_gid": os.getgid(),
+                "root_mode": "0755",
+                "git_uid": os.getuid(),
+                "git_gid": os.getgid(),
+                "git_mode": "0755",
+            }
+            real_scandir = os.scandir
+
+            @contextmanager
+            def fake_scandir(path):
+                if Path(path) != repository:
+                    with real_scandir(path) as entries:
+                        yield entries
+                    return
+                changed = SimpleNamespace(
+                    st_uid=os.getuid() + 1,
+                    st_gid=os.getgid(),
+                    st_mode=stat.S_IFREG | 0o600,
+                    st_nlink=1,
+                )
+                entry = SimpleNamespace(
+                    name=protected.name,
+                    path=str(protected),
+                    stat=lambda follow_symlinks=False: changed,
+                )
+                yield iter((entry,))
+
+            with (
+                mock.patch.object(runtime.os, "scandir", side_effect=fake_scandir),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_WORKTREE_LAYOUT_RED"
+                ),
+            ):
+                runtime._validate_repository_worktree_contract(
+                    repository, metadata
+                )
+
+    def test_chown_tree_does_not_touch_matching_or_excluded_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repo"
+            repository.mkdir()
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            git_directory = repository / ".git"
+            git_directory.mkdir()
+            (git_directory / "HEAD").write_text("ref: refs/heads/main\n", encoding="ascii")
+            with mock.patch.object(runtime.os, "chown") as chown:
+                runtime._chown_tree(
+                    repository,
+                    os.getuid(),
+                    os.getgid(),
+                    {".git"},
+                )
+            chown.assert_not_called()
 
     def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -676,6 +749,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertIn(
             "tuple(selected_roots) + tuple(barriers.values())", contract
+        )
+        self.assertGreaterEqual(
+            contract.count("_validate_repository_worktree_contract("), 2
+        )
+        self.assertLess(
+            contract.index("_validate_repository_worktree_contract("),
+            contract.index("_lock_repository_parent("),
         )
 
     def test_release_acquisition_uses_only_digest_bound_offline_bundles(self) -> None:

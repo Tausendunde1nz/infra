@@ -60,6 +60,10 @@ Deployment attempts consumed: 0
     `assume-unchanged` or `skip-worktree`. Checkout/merge and rollback rebuild
     index entries and could silently lose those pre-attempt flags while the
     commit, tree and porcelain status still appeared restored.
+17. Barrier teardown recursively assigned the recorded top-level owner to all
+    nested worktree entries. A root-owned ignored file below a chatops-owned
+    checkout could therefore become chatops-readable; redundant `chown` calls
+    could also discard ownership-sensitive inode metadata.
 
 ## Resolution
 
@@ -120,6 +124,13 @@ Deployment attempts consumed: 0
   skip-worktree, unresolved or otherwise noncanonical entry fails closed with
   `S12_1_BACKUP_REPOSITORY_INDEX_RED`, so rollback never has an unrecorded
   index flag to reproduce.
+- Before any parent or repository barrier mutation, and again after the parent
+  is locked, require every non-Git worktree entry to match the recorded root
+  owner/group and every Git entry to match the recorded Git owner/group.
+  Heterogeneous ownership is therefore rejected before deployment. Teardown
+  excludes `.git` from the worktree traversal and performs `chown` only when
+  an entry actually differs, preserving ownership-sensitive metadata on all
+  unchanged entries.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

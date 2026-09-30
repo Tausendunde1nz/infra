@@ -143,6 +143,15 @@ durable attempt marker. File names and contents are never emitted or retained.
 Consequently checkout cannot overwrite unbacked ignored state, and rollback
 never needs to reconstruct unrecorded index flags.
 
+The repository barrier additionally requires homogeneous owner/group metadata
+within each ownership domain: all non-Git worktree entries must match the
+recorded checkout root, and the complete Git tree must match the recorded Git
+root. This is checked before any barrier mutation and repeated after the shared
+repository parent is locked. Barrier teardown traverses the worktree and Git
+domains separately and invokes `chown` only for entries whose owner actually
+differs. An ignored root-protected file can therefore never be silently granted
+to `chatops`, while unchanged ownership-sensitive inode metadata is untouched.
+
 On the normal first-install posture, an explicitly reported `LoadState=not-found`
 or systemd “unit could not be found” result is normalized to `inactive/dead`;
 all other state-query errors remain fail-closed.

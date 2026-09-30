@@ -2716,22 +2716,59 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
-def _validate_repository_worktree_contract(root: Path) -> None:
-    """Reject regular worktree files that have aliases outside the barrier."""
+def _validate_repository_worktree_contract(
+    root: Path, record: dict[str, Any]
+) -> None:
+    """Reject worktree state that recursive post-barrier ownership cannot preserve."""
 
+    root_uid, root_gid, _ = _recorded_path_metadata(record, "root")
+    git_uid, git_gid, _ = _recorded_path_metadata(record, "git")
+
+    def validate_tree(
+        tree: Path, expected_uid: int, expected_gid: int, excluded_top: set[str]
+    ) -> None:
+        pending = [tree]
+        while pending:
+            directory = pending.pop()
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if directory == tree and entry.name in excluded_top:
+                        continue
+                    metadata = entry.stat(follow_symlinks=False)
+                    if (
+                        metadata.st_uid != expected_uid
+                        or metadata.st_gid != expected_gid
+                        or (
+                            stat.S_ISREG(metadata.st_mode)
+                            and metadata.st_nlink != 1
+                        )
+                    ):
+                        raise OSError
+                    if stat.S_ISDIR(metadata.st_mode):
+                        pending.append(Path(entry.path))
+
+    git_directory = root / ".git"
     try:
-        metadata = root.lstat()
-        if root.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        root_metadata = root.lstat()
+        git_metadata = git_directory.lstat()
+        if (
+            root.is_symlink()
+            or not stat.S_ISDIR(root_metadata.st_mode)
+            or root_metadata.st_uid != root_uid
+            or root_metadata.st_gid != root_gid
+            or git_directory.is_symlink()
+            or not stat.S_ISDIR(git_metadata.st_mode)
+            or git_metadata.st_uid != git_uid
+            or git_metadata.st_gid != git_gid
+        ):
             raise OSError
-        for current, _, files in os.walk(root, followlinks=False):
-            for name in files:
-                candidate = Path(current) / name
-                candidate_metadata = candidate.lstat()
-                if (
-                    stat.S_ISREG(candidate_metadata.st_mode)
-                    and candidate_metadata.st_nlink != 1
-                ):
-                    raise OSError
+        validate_tree(
+            root,
+            root_uid,
+            root_gid,
+            {".git", RECOVERY_GIT_DIRECTORY},
+        )
+        validate_tree(git_directory, git_uid, git_gid, set())
     except OSError:
         raise S12ControlError("S12_1_WORKTREE_LAYOUT_RED") from None
 
@@ -2781,11 +2818,34 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
 
 
-def _chown_tree(root: Path, uid: int, gid: int) -> None:
-    for current, directories, files in os.walk(root, topdown=False, followlinks=False):
-        for name in (*directories, *files):
-            os.chown(Path(current) / name, uid, gid, follow_symlinks=False)
-        os.chown(current, uid, gid)
+def _chown_tree(
+    root: Path, uid: int, gid: int, excluded_top: set[str] | None = None
+) -> None:
+    excluded = excluded_top or set()
+    for current, directories, files in os.walk(root, topdown=True, followlinks=False):
+        if Path(current) == root:
+            directories[:] = [name for name in directories if name not in excluded]
+            files = [name for name in files if name not in excluded]
+        for name in directories:
+            path = Path(current) / name
+            metadata = path.lstat()
+            if stat.S_ISLNK(metadata.st_mode) and (
+                metadata.st_uid,
+                metadata.st_gid,
+            ) != (uid, gid):
+                os.chown(path, uid, gid, follow_symlinks=False)
+        for name in files:
+            path = Path(current) / name
+            metadata = path.lstat()
+            if (metadata.st_uid, metadata.st_gid) != (uid, gid):
+                os.chown(path, uid, gid, follow_symlinks=False)
+        if Path(current) != root:
+            metadata = Path(current).lstat()
+            if (metadata.st_uid, metadata.st_gid) != (uid, gid):
+                os.chown(current, uid, gid)
+    metadata = root.lstat()
+    if (metadata.st_uid, metadata.st_gid) != (uid, gid):
+        os.chown(root, uid, gid)
 
 
 def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> None:
@@ -2795,7 +2855,12 @@ def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> Non
     git_uid, git_gid, git_mode = _recorded_path_metadata(record, "git")
     git_directory = root / ".git"
     try:
-        _chown_tree(root, root_uid, root_gid)
+        _chown_tree(
+            root,
+            root_uid,
+            root_gid,
+            {".git", RECOVERY_GIT_DIRECTORY},
+        )
         _chown_tree(git_directory, git_uid, git_gid)
         os.chmod(git_directory, git_mode)
         os.chown(git_directory, git_uid, git_gid)
@@ -2892,6 +2957,12 @@ def _serialized_repository_recovery(
     selected_records = records or {
         root: _repository_path_metadata(root) for root in selected_roots
     }
+    for root in selected_roots:
+        if not (
+            _is_recovery_guard(root / ".git")
+            and _is_recovery_git_directory(_recovery_git_path(root))
+        ):
+            _validate_repository_worktree_contract(root, selected_records[root])
     barriers: dict[Path, Path] = {}
     parent_locked = False
     completed = False
@@ -2905,7 +2976,13 @@ def _serialized_repository_recovery(
             ):
                 raise S12ControlError("S12_1_REPOSITORY_PARENT_ACTIVE_RED")
         for root in selected_roots:
-            _validate_repository_worktree_contract(root)
+            if not (
+                _is_recovery_guard(root / ".git")
+                and _is_recovery_git_directory(_recovery_git_path(root))
+            ):
+                _validate_repository_worktree_contract(
+                    root, selected_records[root]
+                )
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
         if (
