@@ -182,6 +182,15 @@ cannot be replayed safely through the bounded branch-restoration command.
 If synchronization or immutable-stage creation itself fails, repository
 rollback runs through the already-installed barriers before they are released;
 no writer gap exists even though no complete post-sync state was available.
+Before the first canonical sync mutation, and before any later rollback
+mutation, the controller durably records `RESTORE_STARTED` in the root-private
+backup. It advances that journal to `REPOSITORIES_RESTORED` while the barriers
+are still held. Recovery may replay restoration only from `RESTORE_STARTED`
+with the original barriers still physically installed; from
+`REPOSITORIES_RESTORED` it performs barrier cleanup and finalization only.
+Thus a crash or `daemon-reload` failure cannot turn the controller's own
+partial rollback into false external drift or cause a second destructive
+restore over subsequent work.
 Each root-owned, single-link, digest-bound release input bundle is opened once
 with `O_NOFOLLOW`; inode identity, owner, mode, link count and SHA-256 are
 validated on that descriptor. Bundle verification, head inspection and import

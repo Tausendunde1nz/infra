@@ -35,6 +35,9 @@ FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r1"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V6"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
+ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
+ROLLBACK_PHASE_STARTED = "RESTORE_STARTED"
+ROLLBACK_PHASE_REPOSITORIES_RESTORED = "REPOSITORIES_RESTORED"
 RUNTIME_DEPENDENCY_VERSIONS = {
     "cffi": "2.1.1",
     "cryptography": "50.0.1",
@@ -3126,6 +3129,67 @@ def _restore_repositories_under_barrier(
     _sync_repository_filesystem(CONTROL_ROOT)
 
 
+def _rollback_progress_path(backup: Path) -> Path:
+    return backup / "rollback-progress.json"
+
+
+def _load_rollback_progress(backup: Path) -> str | None:
+    path = _rollback_progress_path(backup)
+    if not path.exists() and not path.is_symlink():
+        return None
+    value = _private_json(path, "S12_1_ROLLBACK_PROGRESS_RED")
+    if (
+        set(value) != {"schema", "backup", "phase"}
+        or value.get("schema") != ROLLBACK_PROGRESS_SCHEMA
+        or value.get("backup") != str(backup)
+        or value.get("phase")
+        not in {ROLLBACK_PHASE_STARTED, ROLLBACK_PHASE_REPOSITORIES_RESTORED}
+    ):
+        raise S12ControlError("S12_1_ROLLBACK_PROGRESS_RED")
+    return value["phase"]
+
+
+def _write_rollback_progress(backup: Path, phase: str) -> None:
+    if phase not in {
+        ROLLBACK_PHASE_STARTED,
+        ROLLBACK_PHASE_REPOSITORIES_RESTORED,
+    }:
+        raise S12ControlError("S12_1_ROLLBACK_PROGRESS_RED")
+    _atomic_json(
+        _rollback_progress_path(backup),
+        {
+            "schema": ROLLBACK_PROGRESS_SCHEMA,
+            "backup": str(backup),
+            "phase": phase,
+        },
+    )
+
+
+def _repository_barriers_are_installed() -> bool:
+    return all(
+        _is_recovery_guard(root / ".git")
+        and _is_recovery_git_directory(_recovery_git_path(root))
+        for root in (APPLICATION_ROOT, CONTROL_ROOT)
+    )
+
+
+def _perform_restore_under_barrier(
+    backup: Path,
+    index: dict[str, Any],
+    git_directories: dict[Path, Path],
+    progress: str | None,
+) -> None:
+    if progress is None:
+        _write_rollback_progress(backup, ROLLBACK_PHASE_STARTED)
+    elif progress != ROLLBACK_PHASE_STARTED:
+        raise S12ControlError("S12_1_ROLLBACK_PROGRESS_RED")
+    _restore_non_repository_backup(backup, index)
+    _restore_repositories_under_barrier(backup, index, git_directories)
+    _write_rollback_progress(
+        backup, ROLLBACK_PHASE_REPOSITORIES_RESTORED
+    )
+
+
 def _finalize_rollback(backup: Path) -> None:
     marker = backup / "rollback-complete.json"
     _sync_repository_filesystem(APPLICATION_ROOT)
@@ -3160,6 +3224,14 @@ def rollback_once(
     if active_state != "inactive" or sub_state != "dead":
         raise S12ControlError("S12_1_ROLLBACK_STOP_RED")
     _restore_public_nginx_backup(backup, index)
+    progress = _load_rollback_progress(backup)
+    if progress == ROLLBACK_PHASE_REPOSITORIES_RESTORED:
+        if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
+            _recover_repository_barrier_only()
+        _finalize_rollback(backup)
+        return
+    if progress == ROLLBACK_PHASE_STARTED and not _repository_barriers_are_installed():
+        raise S12ControlError("S12_1_ROLLBACK_PROGRESS_RED")
     path_records = {
         APPLICATION_ROOT: index["application"],
         CONTROL_ROOT: index["control"],
@@ -3174,11 +3246,13 @@ def rollback_once(
         parent_record=parent_record,
     ) as git_directories:
         if expected_release_state is not None:
-            _validate_release_repository_states(
-                expected_release_state, git_directories, path_records
-            )
-        _restore_non_repository_backup(backup, index)
-        _restore_repositories_under_barrier(backup, index, git_directories)
+            if progress is None:
+                _validate_release_repository_states(
+                    expected_release_state, git_directories, path_records
+                )
+        _perform_restore_under_barrier(
+            backup, index, git_directories, progress
+        )
     _finalize_rollback(backup)
 
 
@@ -3851,6 +3925,7 @@ def _deploy_locked() -> dict[str, Any]:
                         "started_at": attempt_started_at,
                     },
                 )
+                _write_rollback_progress(backup, ROLLBACK_PHASE_STARTED)
                 mutation_started = True
                 try:
                     control_sha, control_tree = _sync_repositories(
@@ -3874,10 +3949,14 @@ def _deploy_locked() -> dict[str, Any]:
                         control_tree,
                     )
                     _remove_fetch_stage(index)
+                    _durable_unlink(_rollback_progress_path(backup))
                 except BaseException as error:
                     repository_sync_failure = error
-                    _restore_repositories_under_barrier(
-                        backup, index, git_directories
+                    _perform_restore_under_barrier(
+                        backup,
+                        index,
+                        git_directories,
+                        _load_rollback_progress(backup),
                     )
             if repository_sync_failure is not None:
                 _finalize_rollback(backup)

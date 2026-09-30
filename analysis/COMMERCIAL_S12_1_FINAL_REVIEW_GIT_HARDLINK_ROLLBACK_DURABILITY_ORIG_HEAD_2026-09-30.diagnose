@@ -40,6 +40,10 @@ Deployment attempts consumed: 0
 11. Moving the complete rollback body under newly acquired repository barriers
     allowed barrier contention to delay restoration of the temporary public
     nginx callback route.
+12. An interruption after repository restoration but before durable rollback
+    completion caused recovery to compare the already-restored state against
+    the earlier post-sync state and made the controller's own rollback
+    non-resumable.
 
 ## Resolution
 
@@ -77,6 +81,10 @@ Deployment attempts consumed: 0
   are durably restored.
 - Restore, validate and reload the backed-up nginx state before attempting to
   reacquire repository barriers on later failures.
+- Journal `RESTORE_STARTED` before the first sync/restore mutation and advance
+  to `REPOSITORIES_RESTORED` while barriers remain held. Recovery resumes a
+  started restore only with the physical barriers still installed, while a
+  restored phase performs cleanup/finalization without replaying Git changes.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.
