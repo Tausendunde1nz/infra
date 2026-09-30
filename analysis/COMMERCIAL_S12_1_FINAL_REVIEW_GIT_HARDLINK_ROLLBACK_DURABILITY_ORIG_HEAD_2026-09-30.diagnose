@@ -64,6 +64,10 @@ Deployment attempts consumed: 0
     nested worktree entries. A root-owned ignored file below a chatops-owned
     checkout could therefore become chatops-readable; redundant `chown` calls
     could also discard ownership-sensitive inode metadata.
+18. After release synchronization, a path removed from the tracked tree could
+    become ignored. A later chatops writer could create local state at that
+    path; release-state validation ignored it and rollback checkout would
+    overwrite it with the backed-up tracked version.
 
 ## Resolution
 
@@ -131,6 +135,13 @@ Deployment attempts consumed: 0
   excludes `.git` from the worktree traversal and performs `chown` only when
   an entry actually differs, preserving ownership-sensitive metadata on all
   unchanged entries.
+- Store only domain-separated SHA-256 hashes of the exact pre-state tracked
+  paths and their ancestors in authenticated, root-private backup blobs. The
+  backup contract advances to V7. Under the rollback barrier and before any
+  stage removal or repository restore, hash every current ignored path and its
+  ancestors and reject any collision with
+  `S12_1_ROLLBACK_IGNORED_COLLISION_RED`. No repository path or content is
+  retained in this additional evidence.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

@@ -1189,6 +1189,87 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     },
                 )
 
+    def test_rollback_rejects_new_ignored_backup_collision_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory)
+            application = backup / "application-worktree"
+            control = backup / "control-worktree"
+            application.mkdir()
+            control.mkdir()
+            blocked_path = b"previously-tracked/local-state"
+            application_payload = runtime._tracked_path_hash_payload(
+                {blocked_path, b"tracked.txt"}
+            )
+            control_payload = runtime._tracked_path_hash_payload({b"control.txt"})
+            self.assertNotIn(blocked_path, application_payload)
+            application_digest = runtime._write_private_backup_blob(
+                backup / "application.tracked-path-hashes", application_payload
+            )
+            control_digest = runtime._write_private_backup_blob(
+                backup / "control.tracked-path-hashes", control_payload
+            )
+            index = {
+                "application": {
+                    "tracked_path_hashes_sha256": application_digest,
+                },
+                "control": {
+                    "tracked_path_hashes_sha256": control_digest,
+                },
+            }
+
+            def ignored(root, git_directory, safe_code):
+                self.assertEqual(
+                    safe_code, "S12_1_ROLLBACK_IGNORED_COLLISION_RED"
+                )
+                return {blocked_path} if root == application else set()
+
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+                mock.patch.object(
+                    runtime, "_ignored_worktree_paths", side_effect=ignored
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_ROLLBACK_IGNORED_COLLISION_RED",
+                ),
+            ):
+                runtime._validate_ignored_backup_collisions(
+                    backup,
+                    index,
+                    {
+                        application: application / ".git",
+                        control: control / ".git",
+                    },
+                )
+
+            collision = runtime.S12ControlError(
+                "S12_1_ROLLBACK_IGNORED_COLLISION_RED"
+            )
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_validate_ignored_backup_collisions",
+                    side_effect=collision,
+                ),
+                mock.patch.object(runtime, "_remove_release_stages") as remove,
+                mock.patch.object(runtime, "_restore_repository") as restore,
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_ROLLBACK_IGNORED_COLLISION_RED",
+                ),
+            ):
+                runtime._restore_repositories_under_barrier(
+                    backup,
+                    index,
+                    {
+                        runtime.APPLICATION_ROOT: Path("/recovery/application"),
+                        runtime.CONTROL_ROOT: Path("/recovery/control"),
+                    },
+                )
+            remove.assert_not_called()
+            restore.assert_not_called()
+
     def test_release_state_detects_ref_and_reflog_only_writes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1760,6 +1841,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(runtime, "_restore_file"),
             mock.patch.object(runtime, "_remove_release_stages"),
             mock.patch.object(runtime, "_remove_fetch_stage"),
+            mock.patch.object(runtime, "_validate_ignored_backup_collisions"),
             mock.patch.object(runtime, "_recorded_parent_metadata"),
             mock.patch.object(runtime, "_ensure_barrier_journal"),
             mock.patch.object(runtime, "_durable_unlink"),

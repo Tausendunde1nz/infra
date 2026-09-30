@@ -33,8 +33,9 @@ APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r1"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
-BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V6"
+BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
+TRACKED_PATH_HASH_SCHEMA = b"TU1NZ_S12_1_TRACKED_PATH_HASHES_V1\0"
 ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
 ROLLBACK_PHASE_STARTED = "RESTORE_STARTED"
 ROLLBACK_PHASE_REPOSITORIES_RESTORED = "REPOSITORIES_RESTORED"
@@ -1346,6 +1347,7 @@ def _validate_backup_snapshot(
                 "bundle_sha256",
                 "reflogs_present",
                 "reflog_snapshot_sha256",
+                "tracked_path_hashes_sha256",
             }
         }
         if recorded_state != _repository_backup_state(
@@ -1361,6 +1363,21 @@ def _validate_backup_snapshot(
                 )
             },
         ):
+            raise S12ControlError("S12_1_BACKUP_REPOSITORY_RACE_RED")
+        tracked_path_payload = _read_private_backup_blob(
+            backup / f"{key}.tracked-path-hashes",
+            record.get("tracked_path_hashes_sha256"),
+            "S12_1_BACKUP_TRACKED_PATHS_RED",
+        )
+        current_tracked_path_payload = _tracked_path_hash_payload(
+            _tracked_tree_paths(
+                root,
+                (git_directories or {}).get(root, root / ".git"),
+                str(record.get("commit", "")),
+                "S12_1_BACKUP_TRACKED_PATHS_RED",
+            )
+        )
+        if tracked_path_payload != current_tracked_path_payload:
             raise S12ControlError("S12_1_BACKUP_REPOSITORY_RACE_RED")
         bundle = backup / f"{key}.bundle"
         expected_digest = record.get("bundle_sha256")
@@ -1477,6 +1494,30 @@ def create_backup(
         backup / "control.bundle",
         (git_directories or {}).get(CONTROL_ROOT),
     )
+    application_tracked_path_digest = _write_private_backup_blob(
+        backup / "application.tracked-path-hashes",
+        _tracked_path_hash_payload(
+            _tracked_tree_paths(
+                APPLICATION_ROOT,
+                (git_directories or {}).get(
+                    APPLICATION_ROOT, APPLICATION_ROOT / ".git"
+                ),
+                application_state["commit"],
+                "S12_1_BACKUP_TRACKED_PATHS_RED",
+            )
+        ),
+    )
+    control_tracked_path_digest = _write_private_backup_blob(
+        backup / "control.tracked-path-hashes",
+        _tracked_path_hash_payload(
+            _tracked_tree_paths(
+                CONTROL_ROOT,
+                (git_directories or {}).get(CONTROL_ROOT, CONTROL_ROOT / ".git"),
+                control_state["commit"],
+                "S12_1_BACKUP_TRACKED_PATHS_RED",
+            )
+        ),
+    )
     files = {
         "unit": _copy_if_present(UNIT_PATH, backup / "unit.before"),
         "runtime_contract": _copy_if_present(
@@ -1504,12 +1545,14 @@ def create_backup(
             "bundle_sha256": _sha256(backup / "application.bundle"),
             "reflogs_present": application_reflogs_present,
             "reflog_snapshot_sha256": application_reflog_digest,
+            "tracked_path_hashes_sha256": application_tracked_path_digest,
         },
         "control": {
             **control_state,
             "bundle_sha256": _sha256(backup / "control.bundle"),
             "reflogs_present": control_reflogs_present,
             "reflog_snapshot_sha256": control_reflog_digest,
+            "tracked_path_hashes_sha256": control_tracked_path_digest,
         },
         "credential_metadata": credential_metadata(),
         "credential_values_backed_up": False,
@@ -3236,11 +3279,52 @@ def _restore_non_repository_backup(backup: Path, index: dict[str, Any]) -> None:
     )
 
 
+def _validate_ignored_backup_collisions(
+    backup: Path,
+    index: dict[str, Any],
+    git_directories: dict[Path, Path],
+) -> None:
+    specifications = (
+        (APPLICATION_ROOT, "application"),
+        (CONTROL_ROOT, "control"),
+    )
+    for root, key in specifications:
+        record = index.get(key)
+        if not isinstance(record, dict) or root not in git_directories:
+            raise S12ControlError("S12_1_ROLLBACK_IGNORED_COLLISION_RED")
+        payload = _read_private_backup_blob(
+            backup / f"{key}.tracked-path-hashes",
+            record.get("tracked_path_hashes_sha256"),
+            "S12_1_ROLLBACK_IGNORED_COLLISION_RED",
+        )
+        exact, tracked_ancestors = _parse_tracked_path_hash_payload(
+            payload, "S12_1_ROLLBACK_IGNORED_COLLISION_RED"
+        )
+        ignored = _ignored_worktree_paths(
+            root,
+            git_directories[root],
+            "S12_1_ROLLBACK_IGNORED_COLLISION_RED",
+        )
+        for path in ignored:
+            if (
+                _path_digest(path) in exact
+                or _path_digest(path) in tracked_ancestors
+                or any(
+                    _path_digest(ancestor) in exact
+                    for ancestor in _path_ancestors(path)
+                )
+            ):
+                raise S12ControlError(
+                    "S12_1_ROLLBACK_IGNORED_COLLISION_RED"
+                )
+
+
 def _restore_repositories_under_barrier(
     backup: Path,
     index: dict[str, Any],
     git_directories: dict[Path, Path],
 ) -> None:
+    _validate_ignored_backup_collisions(backup, index, git_directories)
     _remove_release_stages(index)
     _remove_fetch_stage(index)
     _restore_repository(
@@ -3458,6 +3542,117 @@ def _sha256_descriptor(descriptor: int) -> str:
             return digest.hexdigest()
         digest.update(payload)
         offset += len(payload)
+
+
+def _write_private_backup_blob(path: Path, payload: bytes) -> str:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError
+            offset += written
+        os.fchmod(descriptor, 0o600)
+        os.fsync(descriptor)
+        digest = hashlib.sha256(payload).hexdigest()
+    except OSError:
+        raise S12ControlError("S12_1_BACKUP_TRACKED_PATHS_RED") from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    _fsync_directory(path.parent)
+    return digest
+
+
+def _read_private_backup_blob(
+    path: Path, expected_digest: object, safe_code: str
+) -> bytes:
+    if (
+        not isinstance(expected_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None
+    ):
+        raise S12ControlError(safe_code)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        opened = os.fstat(descriptor)
+        metadata = path.lstat()
+        expected_uid = 0 if os.geteuid() == 0 else os.geteuid()
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_uid != expected_uid
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or not 1 <= opened.st_size <= 32 * 1024 * 1024
+            or (opened.st_dev, opened.st_ino)
+            != (metadata.st_dev, metadata.st_ino)
+        ):
+            raise OSError
+        payload = bytearray()
+        while len(payload) < opened.st_size:
+            chunk = os.read(descriptor, min(1024 * 1024, opened.st_size - len(payload)))
+            if not chunk:
+                raise OSError
+            payload.extend(chunk)
+        result = bytes(payload)
+        if hashlib.sha256(result).hexdigest() != expected_digest:
+            raise OSError
+        return result
+    except OSError:
+        raise S12ControlError(safe_code) from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _path_digest(path: bytes) -> bytes:
+    return hashlib.sha256(b"TU1NZ_S12_1_PATH\0" + path).digest()
+
+
+def _path_ancestors(path: bytes) -> set[bytes]:
+    parts = path.split(b"/")
+    return {b"/".join(parts[:index]) for index in range(1, len(parts))}
+
+
+def _tracked_path_hash_payload(paths: set[bytes]) -> bytes:
+    exact = sorted({_path_digest(path) for path in paths})
+    ancestors = sorted(
+        {_path_digest(ancestor) for path in paths for ancestor in _path_ancestors(path)}
+    )
+    return (
+        TRACKED_PATH_HASH_SCHEMA
+        + b"".join(b"E" + digest for digest in exact)
+        + b"".join(b"A" + digest for digest in ancestors)
+    )
+
+
+def _parse_tracked_path_hash_payload(
+    payload: bytes, safe_code: str
+) -> tuple[set[bytes], set[bytes]]:
+    if not payload.startswith(TRACKED_PATH_HASH_SCHEMA):
+        raise S12ControlError(safe_code)
+    records = payload[len(TRACKED_PATH_HASH_SCHEMA):]
+    if len(records) % 33:
+        raise S12ControlError(safe_code)
+    exact: list[bytes] = []
+    ancestors: list[bytes] = []
+    active = exact
+    for offset in range(0, len(records), 33):
+        record = records[offset:offset + 33]
+        if record[:1] == b"A":
+            active = ancestors
+        elif record[:1] != b"E" or active is ancestors:
+            raise S12ControlError(safe_code)
+        active.append(record[1:])
+    if exact != sorted(set(exact)) or ancestors != sorted(set(ancestors)):
+        raise S12ControlError(safe_code)
+    return set(exact), set(ancestors)
 
 
 def _open_release_input_bundle(
@@ -3732,6 +3927,52 @@ def _validated_git_paths(
     return paths
 
 
+def _tracked_tree_paths(
+    root: Path,
+    git_directory: Path,
+    revision: str,
+    safe_code: str,
+) -> set[bytes]:
+    return _validated_git_paths(
+        _bounded_nul_command_records(
+            _selected_git_arguments(
+                root,
+                git_directory,
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "-z",
+                revision,
+            ),
+            safe_code,
+        ),
+        safe_code,
+    )
+
+
+def _ignored_worktree_paths(
+    root: Path, git_directory: Path, safe_code: str
+) -> set[bytes]:
+    return _validated_git_paths(
+        _bounded_nul_command_records(
+            _selected_git_arguments(
+                root,
+                git_directory,
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "-z",
+                "--",
+                ".",
+                f":(exclude){RECOVERY_GIT_DIRECTORY}",
+            ),
+            safe_code,
+        ),
+        safe_code,
+    )
+
+
 def _validate_ignored_release_collisions(
     git_directories: dict[Path, Path],
     fetch_directories: dict[Path, Path],
@@ -3745,22 +3986,9 @@ def _validate_ignored_release_collisions(
         CONTROL_ROOT: f"refs/tags/{FREEZE_TAG}^{{commit}}",
     }
     for root in (APPLICATION_ROOT, CONTROL_ROOT):
-        ignored = _validated_git_paths(
-            _bounded_nul_command_records(
-                _selected_git_arguments(
-                    root,
-                    git_directories[root],
-                    "ls-files",
-                    "--others",
-                    "--ignored",
-                    "--exclude-standard",
-                    "-z",
-                    "--",
-                    ".",
-                    f":(exclude){RECOVERY_GIT_DIRECTORY}",
-                ),
-                "S12_1_IGNORED_RELEASE_COLLISION_RED",
-            ),
+        ignored = _ignored_worktree_paths(
+            root,
+            git_directories[root],
             "S12_1_IGNORED_RELEASE_COLLISION_RED",
         )
         target_paths = _validated_git_paths(
@@ -3780,15 +4008,9 @@ def _validate_ignored_release_collisions(
         )
         target_ancestors: set[bytes] = set()
         for path in target_paths:
-            parts = path.split(b"/")
-            target_ancestors.update(
-                b"/".join(parts[:index]) for index in range(1, len(parts))
-            )
+            target_ancestors.update(_path_ancestors(path))
         for path in ignored:
-            parts = path.split(b"/")
-            ignored_ancestors = {
-                b"/".join(parts[:index]) for index in range(1, len(parts))
-            }
+            ignored_ancestors = _path_ancestors(path)
             if (
                 path in target_paths
                 or path in target_ancestors

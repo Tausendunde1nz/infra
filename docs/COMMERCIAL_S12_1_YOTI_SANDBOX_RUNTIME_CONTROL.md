@@ -121,7 +121,8 @@ the deliberately shared-writable canonical repository, runtime and log
 ancestries. The backup contains Git bundles, exact pre-state commits/trees,
 the exact attached-branch or detached-HEAD posture, the exact prior
 `ORIG_HEAD` value or its absence, a byte- and mode-bound snapshot of the
-complete reflog tree or its absence, the prior
+complete reflog tree or its absence, domain-separated SHA-256 hashes of the
+tracked paths and their ancestors, the prior
 unit/runtime-config/nginx bytes and modes, credential metadata only,
 SHA-256 values and a restore index.  Rollback requires a successful systemd
 stop and verifies `inactive/dead` before it restores the pre-state files and
@@ -151,6 +152,14 @@ repository parent is locked. Barrier teardown traverses the worktree and Git
 domains separately and invokes `chown` only for entries whose owner actually
 differs. An ignored root-protected file can therefore never be silently granted
 to `chatops`, while unchanged ownership-sensitive inode metadata is untouched.
+
+Before rollback changes either repository, the controller compares every
+current ignored path and its ancestors with the authenticated hashed path sets
+from the pre-state backup. Any exact or ancestor/descendant collision fails
+closed while both repository barriers remain installed. The hash-only V7
+backup extension neither retains nor emits repository path names or local
+content, and a later ignored writer can never be silently overwritten by the
+forced restore checkout.
 
 On the normal first-install posture, an explicitly reported `LoadState=not-found`
 or systemd “unit could not be found” result is normalized to `inactive/dead`;
