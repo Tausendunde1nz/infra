@@ -100,7 +100,15 @@ SYSTEMD_UNIT_ROOTS = (
     Path("/usr/lib/systemd/system"),
     Path("/lib/systemd/system"),
 )
-SOURCE_ROOT = Path(__file__).resolve().parents[1]
+TRUSTED_CONTROLLER_PATH = Path(
+    "/etc/tu1nz/.tu1nz-adult-commercial-s12-1-runtime.py"
+)
+TRUSTED_CONTROLLER_DIGEST_ENV = "TU1NZ_S12_1_TRUSTED_CONTROLLER_SHA256"
+SOURCE_ROOT = (
+    CONTROL_ROOT
+    if Path(__file__).absolute() == TRUSTED_CONTROLLER_PATH
+    else Path(__file__).resolve().parents[1]
+)
 MANIFEST = SOURCE_ROOT / "manifests/adult-publishing-commercial-s12-1-yoti-sandbox-runtime.json"
 SOURCE_UNIT = SOURCE_ROOT / "systemd" / UNIT_NAME
 SOURCE_NGINX = SOURCE_ROOT / "nginx/current/wantmeseen.s12-1-acceptance.conf"
@@ -591,6 +599,33 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(65536), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _trusted_controller_digest() -> str:
+    expected = os.environ.get(TRUSTED_CONTROLLER_DIGEST_ENV, "")
+    controller = Path(__file__).absolute()
+    try:
+        metadata = controller.lstat()
+        parent_metadata = controller.parent.lstat()
+        if (
+            controller != TRUSTED_CONTROLLER_PATH
+            or controller.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_gid != os.getegid()
+            or stat.S_IMODE(metadata.st_mode) != 0o500
+            or metadata.st_nlink != 1
+            or controller.parent.is_symlink()
+            or not stat.S_ISDIR(parent_metadata.st_mode)
+            or parent_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(parent_metadata.st_mode) & 0o022
+            or re.fullmatch(r"[0-9a-f]{64}", expected) is None
+            or _sha256(controller) != expected
+        ):
+            raise OSError
+    except OSError:
+        raise S12ControlError("S12_1_TRUSTED_CONTROLLER_RED") from None
+    return expected
 
 
 def _atomic_json(path: Path, payload: dict[str, Any], mode: int = 0o600) -> None:
@@ -2451,6 +2486,7 @@ def _serialized_repository_recovery(
     if (
         _competing_control_sync_count() != 0
         or _active_repository_git_count(selected_roots) != 0
+        or _active_recovery_git_handle_count(selected_roots) != 0
     ):
         raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
     selected_records = records or {
@@ -2462,11 +2498,17 @@ def _serialized_repository_recovery(
         if parent_record is not None:
             _lock_repository_parent(parent_record)
             parent_locked = True
-            if _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0:
+            if (
+                _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0
+                or _active_recovery_git_handle_count(selected_roots) != 0
+            ):
                 raise S12ControlError("S12_1_REPOSITORY_PARENT_ACTIVE_RED")
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
-        if _active_repository_git_count(selected_roots) != 0:
+        if (
+            _active_repository_git_count(selected_roots) != 0
+            or _active_recovery_git_handle_count(selected_roots) != 0
+        ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         for root in selected_roots:
             barriers[root] = _install_repository_recovery_barrier(
@@ -2475,7 +2517,10 @@ def _serialized_repository_recovery(
         if (
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
-            or _active_recovery_git_handle_count(tuple(barriers.values())) != 0
+            or _active_recovery_git_handle_count(
+                tuple(selected_roots) + tuple(barriers.values())
+            )
+            != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         for git_directory in barriers.values():
@@ -2834,6 +2879,12 @@ def _seal_release_fetch_stage(
     tag_target = _bare_root_git(
         control_fetch, "rev-parse", f"refs/tags/{FREEZE_TAG}^{{commit}}"
     )
+    tag_object = _bare_root_git(
+        control_fetch, "cat-file", "tag", f"refs/tags/{FREEZE_TAG}"
+    )
+    runtime_digest_bindings = re.findall(
+        r"^control_runtime_sha256=([0-9a-f]{64})$", tag_object, re.MULTILINE
+    )
     if (
         (application_commit, application_tree)
         != (APPLICATION_COMMIT, APPLICATION_TREE)
@@ -2842,6 +2893,7 @@ def _seal_release_fetch_stage(
         )
         != "tag"
         or control_commit != tag_target
+        or runtime_digest_bindings != [_trusted_controller_digest()]
     ):
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
 
@@ -3357,6 +3409,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     try:
+        if arguments.operation in {"deploy", "recover"}:
+            if os.geteuid() != 0:
+                raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
+            _trusted_controller_digest()
         if arguments.operation == "verify-source":
             result = validate_source_contract()
         elif arguments.operation == "simulate":

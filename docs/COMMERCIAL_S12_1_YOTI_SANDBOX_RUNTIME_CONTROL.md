@@ -226,6 +226,24 @@ prior presence/target is stored in the restore index and restored or removed
 during rollback, so no remote-tracking or tag ref drift can survive a failed
 deployment.
 
+Deployment and recovery never execute the controller from the shared
+`chatops` checkout. After the single `sudo -v`, trusted system tools copy the
+reviewed controller to
+`/etc/tu1nz/.tu1nz-adult-commercial-s12-1-runtime.py` as `root:root` mode
+`0500`, verify it against the `control_runtime_sha256` value from the immutable
+Runtime Freeze, and launch it with an empty environment plus that digest. The
+controller rejects any other path, owner, group, mode, link count or digest;
+the remotely fetched annotated freeze must repeat the same digest before the
+single deployment marker can be written. The temporary trusted copy is removed
+after success or failure.
+
+Before the repository parent or roots are locked, and again after each lock
+stage, `/proc` is checked for every other process retaining a cwd or file
+descriptor anywhere below either complete canonical worktree. The final
+post-exchange check covers both complete worktrees and both quarantined Git
+directories. A retained descriptor therefore stops the attempt before backup
+or canonical mutation instead of surviving a chmod barrier.
+
 Reviewed unit and nginx artifacts are written to a same-directory temporary
 regular file and atomically replace the destination. A pre-existing mask or
 other destination symlink is backed up but never followed, so its target

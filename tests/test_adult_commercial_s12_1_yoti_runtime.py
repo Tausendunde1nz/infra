@@ -569,6 +569,52 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 runtime._validate_root_git_contract(repository)
 
+    def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = root / "controller.py"
+            controller.write_text("trusted-controller\n", encoding="ascii")
+            controller.chmod(0o500)
+            digest = hashlib.sha256(controller.read_bytes()).hexdigest()
+            with (
+                mock.patch.object(runtime, "__file__", str(controller)),
+                mock.patch.object(runtime, "TRUSTED_CONTROLLER_PATH", controller),
+                mock.patch.dict(
+                    runtime.os.environ,
+                    {runtime.TRUSTED_CONTROLLER_DIGEST_ENV: digest},
+                    clear=False,
+                ),
+            ):
+                self.assertEqual(runtime._trusted_controller_digest(), digest)
+                controller.chmod(0o700)
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TRUSTED_CONTROLLER_RED"
+                ):
+                    runtime._trusted_controller_digest()
+
+        source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('arguments.operation in {"deploy", "recover"}', source)
+        self.assertIn(
+            "runtime_digest_bindings != [_trusted_controller_digest()]", source
+        )
+
+    def test_repository_barrier_checks_handles_across_complete_worktrees(self) -> None:
+        source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
+            encoding="utf-8"
+        )
+        barrier = source.index("def _serialized_repository_recovery(")
+        end = source.index("def _seed_repository_from_bundle(", barrier)
+        contract = source[barrier:end]
+        self.assertGreaterEqual(
+            contract.count("_active_recovery_git_handle_count(selected_roots)"),
+            3,
+        )
+        self.assertIn(
+            "tuple(selected_roots) + tuple(barriers.values())", contract
+        )
+
     def test_repository_barrier_journal_precedes_mutation_and_binds_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
