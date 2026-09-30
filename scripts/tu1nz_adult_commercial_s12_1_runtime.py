@@ -33,7 +33,7 @@ APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r1"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
-BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V5"
+BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V6"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 RUNTIME_DEPENDENCY_VERSIONS = {
     "cffi": "2.1.1",
@@ -880,27 +880,138 @@ def _copy_if_present(path: Path, destination: Path) -> dict[str, Any]:
 
 
 def _durably_complete_backup(backup: Path) -> None:
-    for path in backup.iterdir():
-        descriptor: int | None = None
-        try:
-            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-            metadata = os.fstat(descriptor)
-            path_metadata = path.lstat()
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or (metadata.st_dev, metadata.st_ino)
-                != (path_metadata.st_dev, path_metadata.st_ino)
-            ):
-                raise OSError
-            os.fchmod(descriptor, 0o600)
-            os.fsync(descriptor)
-        except OSError:
-            raise S12ControlError("S12_1_BACKUP_DURABILITY_RED") from None
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
-    _fsync_directory(backup)
+    for current, directories, files in os.walk(backup, topdown=False, followlinks=False):
+        directory = Path(current)
+        for name in files:
+            path = directory / name
+            descriptor: int | None = None
+            try:
+                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                metadata = os.fstat(descriptor)
+                path_metadata = path.lstat()
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1
+                    or (metadata.st_dev, metadata.st_ino)
+                    != (path_metadata.st_dev, path_metadata.st_ino)
+                ):
+                    raise OSError
+                if directory == backup:
+                    os.fchmod(descriptor, 0o600)
+                os.fsync(descriptor)
+            except OSError:
+                raise S12ControlError("S12_1_BACKUP_DURABILITY_RED") from None
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
+        for name in directories:
+            path = directory / name
+            try:
+                metadata = path.lstat()
+                if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                    raise OSError
+            except OSError:
+                raise S12ControlError("S12_1_BACKUP_DURABILITY_RED") from None
+        _fsync_directory(directory)
     _fsync_directory(backup.parent)
+
+
+def _reflog_tree_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    if not path.exists() and not path.is_symlink():
+        digest.update(b"ABSENT\0")
+        return digest.hexdigest()
+    try:
+        root_metadata = path.lstat()
+        if path.is_symlink() or not stat.S_ISDIR(root_metadata.st_mode):
+            raise OSError
+        digest.update(
+            f"D\0.\0{stat.S_IMODE(root_metadata.st_mode):04o}\0".encode("ascii")
+        )
+        for current, directories, files in os.walk(path, followlinks=False):
+            directories.sort()
+            files.sort()
+            directory = Path(current)
+            for name in directories:
+                candidate = directory / name
+                metadata = candidate.lstat()
+                if candidate.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                    raise OSError
+                relative = candidate.relative_to(path).as_posix()
+                digest.update(
+                    f"D\0{relative}\0{stat.S_IMODE(metadata.st_mode):04o}\0".encode(
+                        "ascii"
+                    )
+                )
+            for name in files:
+                candidate = directory / name
+                metadata = candidate.lstat()
+                if (
+                    candidate.is_symlink()
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1
+                ):
+                    raise OSError
+                relative = candidate.relative_to(path).as_posix()
+                digest.update(
+                    (
+                        f"F\0{relative}\0{stat.S_IMODE(metadata.st_mode):04o}\0"
+                        f"{metadata.st_size}\0{_sha256(candidate)}\0"
+                    ).encode("ascii")
+                )
+    except OSError:
+        raise S12ControlError("S12_1_BACKUP_REFLOG_RED") from None
+    return digest.hexdigest()
+
+
+def _copy_reflog_snapshot(git_directory: Path, destination: Path) -> tuple[bool, str]:
+    source = git_directory / "logs"
+    source_digest = _reflog_tree_digest(source)
+    present = source.exists() or source.is_symlink()
+    if not present:
+        return False, source_digest
+    try:
+        shutil.copytree(source, destination, symlinks=True, copy_function=shutil.copy2)
+    except OSError:
+        raise S12ControlError("S12_1_BACKUP_REFLOG_RED") from None
+    if _reflog_tree_digest(destination) != source_digest:
+        raise S12ControlError("S12_1_BACKUP_REFLOG_RED")
+    return True, source_digest
+
+
+def _restore_reflog_snapshot(
+    git_directory: Path, source: Path, record: dict[str, Any]
+) -> None:
+    present = record.get("reflogs_present")
+    expected_digest = record.get("reflog_snapshot_sha256")
+    if (
+        not isinstance(present, bool)
+        or not isinstance(expected_digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None
+        or _reflog_tree_digest(source) != expected_digest
+        or (source.exists() or source.is_symlink()) is not present
+    ):
+        raise S12ControlError("S12_1_BACKUP_REFLOG_RED")
+    destination = git_directory / "logs"
+    try:
+        if destination.exists() or destination.is_symlink():
+            metadata = destination.lstat()
+            if destination.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                raise OSError
+            shutil.rmtree(destination)
+            _fsync_directory(git_directory)
+        if present:
+            shutil.copytree(
+                source,
+                destination,
+                symlinks=True,
+                copy_function=shutil.copy2,
+            )
+            _fsync_directory(git_directory)
+    except OSError:
+        raise S12ControlError("S12_1_BACKUP_REFLOG_RED") from None
+    if _reflog_tree_digest(destination) != expected_digest:
+        raise S12ControlError("S12_1_BACKUP_REFLOG_RED")
 
 
 def _create_git_bundle(
@@ -1094,7 +1205,14 @@ def _validate_backup_snapshot(
         if not isinstance(record, dict):
             raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
         recorded_state = {
-            name: value for name, value in record.items() if name != "bundle_sha256"
+            name: value
+            for name, value in record.items()
+            if name
+            not in {
+                "bundle_sha256",
+                "reflogs_present",
+                "reflog_snapshot_sha256",
+            }
         }
         if recorded_state != _repository_backup_state(
             root,
@@ -1147,6 +1265,20 @@ def _validate_backup_snapshot(
                 expected_heads[reference] = target
         if any(heads.get(reference) != target for reference, target in expected_heads.items()):
             raise S12ControlError("S12_1_BACKUP_REPOSITORY_RACE_RED")
+        reflog_source = (git_directories or {}).get(root, root / ".git") / "logs"
+        reflog_snapshot = backup / f"{key}.reflogs"
+        reflogs_present = record.get("reflogs_present")
+        reflog_digest = record.get("reflog_snapshot_sha256")
+        if (
+            not isinstance(reflogs_present, bool)
+            or not isinstance(reflog_digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", reflog_digest) is None
+            or (reflog_snapshot.exists() or reflog_snapshot.is_symlink())
+            is not reflogs_present
+            or _reflog_tree_digest(reflog_snapshot) != reflog_digest
+            or _reflog_tree_digest(reflog_source) != reflog_digest
+        ):
+            raise S12ControlError("S12_1_BACKUP_REPOSITORY_RACE_RED")
     if (
         _competing_control_sync_count() != 0
         or _active_repository_git_count(roots) != 0
@@ -1182,6 +1314,14 @@ def create_backup(
         (f"refs/tags/{FREEZE_TAG}",),
         git_directory=(git_directories or {}).get(CONTROL_ROOT),
         path_metadata=(path_records or {}).get(CONTROL_ROOT),
+    )
+    application_reflogs_present, application_reflog_digest = _copy_reflog_snapshot(
+        (git_directories or {}).get(APPLICATION_ROOT, APPLICATION_ROOT / ".git"),
+        backup / "application.reflogs",
+    )
+    control_reflogs_present, control_reflog_digest = _copy_reflog_snapshot(
+        (git_directories or {}).get(CONTROL_ROOT, CONTROL_ROOT / ".git"),
+        backup / "control.reflogs",
     )
     _create_git_bundle(
         APPLICATION_ROOT,
@@ -1228,10 +1368,14 @@ def create_backup(
         "application": {
             **application_state,
             "bundle_sha256": _sha256(backup / "application.bundle"),
+            "reflogs_present": application_reflogs_present,
+            "reflog_snapshot_sha256": application_reflog_digest,
         },
         "control": {
             **control_state,
             "bundle_sha256": _sha256(backup / "control.bundle"),
+            "reflogs_present": control_reflogs_present,
+            "reflog_snapshot_sha256": control_reflog_digest,
         },
         "credential_metadata": credential_metadata(),
         "credential_values_backed_up": False,
@@ -2752,6 +2896,7 @@ def _restore_repository(
     root: Path,
     record: dict[str, Any],
     bundle: Path,
+    reflog_snapshot: Path,
     git_directory: Path | None = None,
 ) -> None:
     git_arguments = (
@@ -2826,6 +2971,9 @@ def _restore_repository(
     restored_orig_head = completed.stdout.strip() if completed.returncode == 0 else None
     if completed.returncode not in {0, 128} or restored_orig_head != orig_head:
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
+    _restore_reflog_snapshot(
+        git_directory or root / ".git", reflog_snapshot, record
+    )
 
 
 def rollback_once(backup: Path, index: dict[str, Any]) -> None:
@@ -2888,12 +3036,14 @@ def rollback_once(backup: Path, index: dict[str, Any]) -> None:
             APPLICATION_ROOT,
             index["application"],
             backup / "application.bundle",
+            backup / "application.reflogs",
             git_directories[APPLICATION_ROOT],
         )
         _restore_repository(
             CONTROL_ROOT,
             index["control"],
             backup / "control.bundle",
+            backup / "control.reflogs",
             git_directories[CONTROL_ROOT],
         )
         _sync_repository_filesystem(APPLICATION_ROOT)

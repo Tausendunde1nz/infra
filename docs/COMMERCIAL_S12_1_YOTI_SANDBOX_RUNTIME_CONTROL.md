@@ -120,7 +120,8 @@ root-owned and has no group/world write permission. Both are therefore outside
 the deliberately shared-writable canonical repository, runtime and log
 ancestries. The backup contains Git bundles, exact pre-state commits/trees,
 the exact attached-branch or detached-HEAD posture, the exact prior
-`ORIG_HEAD` value or its absence, the prior
+`ORIG_HEAD` value or its absence, a byte- and mode-bound snapshot of the
+complete reflog tree or its absence, the prior
 unit/runtime-config/nginx bytes and modes, credential metadata only,
 SHA-256 values and a restore index.  Rollback requires a successful systemd
 stop and verifies `inactive/dead` before it restores the pre-state files and
@@ -146,7 +147,10 @@ state was an otherwise unreachable detached HEAD and later Git maintenance has
 pruned its canonical object. Both named tips are restored and verified, so a
 detached pre-state cannot conceal a release-branch mutation. `ORIG_HEAD` is
 likewise restored and verified, including deletion when it was absent before
-the attempt.
+the attempt. Rollback removes all reflogs created by release checkout/merge or
+recovery itself and restores and verifies the complete pre-attempt reflog-tree
+digest, so `HEAD@{n}` and branch-reflog history also return to their prior
+state.
 The controller captures repository-parent, repository-root and `.git`
 ownership/modes, durably journals those exact recovery values, then removes
 `chatops` access from the shared repository parent and atomically installs the

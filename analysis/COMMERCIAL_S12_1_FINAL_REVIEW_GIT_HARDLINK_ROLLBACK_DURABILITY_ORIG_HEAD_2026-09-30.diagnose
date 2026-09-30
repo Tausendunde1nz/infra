@@ -26,6 +26,10 @@ Deployment attempts consumed: 0
 6. Link-count validation alone could not detect a process that opened an
    external hardlink and then deleted that alias. Its retained descriptor or
    mapping still addressed the canonical inode while exposing no in-tree path.
+7. Ref and `ORIG_HEAD` restoration did not remove reflog entries appended by
+   release synchronization and recovery checkout. Expressions such as
+   `HEAD@{1}` could therefore retain failed-attempt history after GREEN
+   rollback.
 
 ## Resolution
 
@@ -48,6 +52,10 @@ Deployment attempts consumed: 0
 - Build device/inode identities for the complete protected trees and compare
   every retained cwd/fd plus writable or shared `/proc/*/maps` entry against
   them. Deleted external aliases therefore remain detectable.
+- Snapshot the complete `.git/logs` tree (including exact absence) inside the
+  durable root-private backup, bind its file bytes and modes to a SHA-256 tree
+  digest, and replace/verify the reflog tree after all rollback Git operations.
+  Advance the incompatible backup contract to schema V6.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

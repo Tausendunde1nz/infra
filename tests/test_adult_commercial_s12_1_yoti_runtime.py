@@ -936,6 +936,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                            check=True)
             subprocess.run(["git", "update-ref", "ORIG_HEAD", commit], cwd=repository,
                            check=True)
+            reflog_snapshot = fixture / "control.reflogs"
+            reflogs_present, reflog_digest = runtime._copy_reflog_snapshot(
+                repository / ".git", reflog_snapshot
+            )
             runtime._create_git_bundle(repository, bundle)
             runtime._verify_git_bundle(repository, bundle)
             self.assertEqual(
@@ -971,9 +975,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "release_branch_tip": later,
                     "orig_head": commit,
                     "bundle_sha256": runtime._sha256(bundle),
+                    "reflogs_present": reflogs_present,
+                    "reflog_snapshot_sha256": reflog_digest,
                     "managed_refs": {freeze_ref: later},
                 },
                 bundle,
+                reflog_snapshot,
             )
             self.assertIsNone(runtime._branch_or_none(repository))
             self.assertEqual(runtime._identity(repository), (commit, tree))
@@ -984,6 +991,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             )
             self.assertEqual(runtime._ref_or_none(repository, freeze_ref), later)
             self.assertEqual(runtime._ref_or_none(repository, "ORIG_HEAD"), commit)
+            self.assertEqual(
+                runtime._reflog_tree_digest(repository / ".git/logs"),
+                reflog_digest,
+            )
 
     def test_repository_restore_removes_previously_absent_orig_head(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1004,6 +1015,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                            check=True, capture_output=True)
             commit, tree = runtime._identity(repository)
             self.assertIsNone(runtime._ref_or_none(repository, "ORIG_HEAD"))
+            reflog_snapshot = Path(directory) / "application.reflogs"
+            reflogs_present, reflog_digest = runtime._copy_reflog_snapshot(
+                repository / ".git", reflog_snapshot
+            )
             runtime._create_git_bundle(repository, bundle)
             self.assertNotIn("ORIG_HEAD", runtime._git_bundle_heads(repository, bundle))
             subprocess.run(["git", "update-ref", "ORIG_HEAD", commit], cwd=repository,
@@ -1019,11 +1034,44 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "release_branch_tip": commit,
                     "orig_head": None,
                     "bundle_sha256": runtime._sha256(bundle),
+                    "reflogs_present": reflogs_present,
+                    "reflog_snapshot_sha256": reflog_digest,
                     "managed_refs": {},
                 },
                 bundle,
+                reflog_snapshot,
             )
             self.assertIsNone(runtime._ref_or_none(repository, "ORIG_HEAD"))
+            self.assertEqual(
+                runtime._reflog_tree_digest(repository / ".git/logs"),
+                reflog_digest,
+            )
+
+    def test_reflog_restore_preserves_exact_absence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            git_directory = root / ".git"
+            git_directory.mkdir()
+            snapshot = root / "absent.reflogs"
+            absent_digest = runtime._reflog_tree_digest(snapshot)
+            logs = git_directory / "logs"
+            (logs / "refs" / "heads").mkdir(parents=True)
+            (logs / "HEAD").write_text("appended\n", encoding="ascii")
+            (logs / "refs" / "heads" / "main").write_text(
+                "appended\n", encoding="ascii"
+            )
+
+            runtime._restore_reflog_snapshot(
+                git_directory,
+                snapshot,
+                {
+                    "reflogs_present": False,
+                    "reflog_snapshot_sha256": absent_digest,
+                },
+            )
+
+            self.assertFalse(logs.exists())
+            self.assertEqual(runtime._reflog_tree_digest(logs), absent_digest)
 
     def test_recovery_clears_only_validated_stale_git_locks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1835,18 +1883,25 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             backup.mkdir(mode=0o700)
             (backup / "application.bundle").write_text("app\n", encoding="ascii")
             (backup / "restore-index.json").write_text("{}\n", encoding="ascii")
+            reflogs = backup / "application.reflogs" / "refs" / "heads"
+            reflogs.mkdir(parents=True)
+            reflog = reflogs / "main"
+            reflog.write_text("history\n", encoding="ascii")
+            reflog.chmod(0o640)
             with mock.patch.object(
                 runtime.os, "fsync", side_effect=tracking_fsync
             ):
                 runtime._durably_complete_backup(backup)
             self.assertIn(False, kinds)
-            self.assertGreaterEqual(kinds.count(True), 2)
+            self.assertGreaterEqual(kinds.count(True), 5)
             self.assertTrue(
                 all(
                     stat.S_IMODE(path.stat().st_mode) == 0o600
                     for path in backup.iterdir()
+                    if path.is_file()
                 )
             )
+            self.assertEqual(stat.S_IMODE(reflog.stat().st_mode), 0o640)
 
     def test_existing_backup_chain_rejects_writable_or_wrong_owner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
