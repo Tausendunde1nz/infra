@@ -1,0 +1,33 @@
+# S12.1 final-review delta: Git hardlinks, rollback durability and ORIG_HEAD
+
+Date: 2026-09-30
+Scope: source-only correction before merge/freeze/deploy
+Deployment attempts consumed: 0
+
+## Findings
+
+1. The root Git metadata walk rejected symlinks and special files but did not
+   reject regular files with multiple hard links. A root Git write could
+   therefore mutate an external alias.
+2. Repository data was `syncfs`-flushed while the recovery barrier was active,
+   but ownership/mode restoration occurred while leaving the barrier. The
+   rollback-complete marker could therefore follow metadata changes that had
+   not received a final filesystem flush.
+3. Backup/rollback captured HEAD, release branches and the managed freeze tag,
+   but not the Git pseudo-ref `ORIG_HEAD`. A failed attempt could consequently
+   leave a rollback-side `ORIG_HEAD` mutation behind.
+
+## Resolution
+
+- Require every regular entry in the complete quarantined Git metadata tree to
+  have link count one before any root Git operation.
+- Flush both canonical repository filesystems again after barrier removal and
+  ownership/mode restoration, before clearing the barrier journal or writing
+  rollback completion evidence.
+- Record `ORIG_HEAD`, include a present value in the authenticated bundle,
+  validate its object, and restore and verify either the exact value or exact
+  absence. The restore-index schema advances to V5 so an older record cannot
+  be interpreted as an intentional absent value.
+
+The correction does not alter product boundaries, credential handling, the
+single-attempt contract or deployment scope.

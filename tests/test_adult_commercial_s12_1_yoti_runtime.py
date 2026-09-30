@@ -472,7 +472,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertEqual(source.count("_verify_git_bundle("), 6)
         self.assertIn('"bundle", "verify", "/dev/stdin"', source)
         self.assertIn('"bundle", "list-heads", "/dev/stdin"', source)
-        self.assertIn('"bundle", "create", "-", "HEAD", "--all"', source)
+        self.assertIn('revisions = ["HEAD", "--all"]', source)
+        self.assertIn('revisions.append("ORIG_HEAD")', source)
+        self.assertIn('"bundle", "create", "-", *revisions', source)
         self.assertIn('git_arguments("bundle", operation, "/dev/stdin")', source)
         self.assertIn("_git_arguments(root", source)
 
@@ -591,6 +593,21 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                         runtime.S12ControlError, "S12_1_ROOT_GIT_LAYOUT_RED"
                     ):
                         runtime._validate_root_git_contract(repository)
+
+    def test_root_git_contract_rejects_hardlinked_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repo.git"
+            subprocess.run(
+                ["git", "init", "--bare", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            os.link(repository / "HEAD", root / "external-head")
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_ROOT_GIT_LAYOUT_RED"
+            ):
+                runtime._validate_root_git_contract(repository)
 
     def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -838,8 +855,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             freeze_ref = f"refs/tags/{runtime.FREEZE_TAG}"
             subprocess.run(["git", "update-ref", freeze_ref, later], cwd=repository,
                            check=True)
+            subprocess.run(["git", "update-ref", "ORIG_HEAD", commit], cwd=repository,
+                           check=True)
             runtime._create_git_bundle(repository, bundle)
             runtime._verify_git_bundle(repository, bundle)
+            self.assertEqual(
+                runtime._git_bundle_heads(repository, bundle)["ORIG_HEAD"], commit
+            )
             subprocess.run(["git", "checkout", "--force", "control-main"], cwd=repository,
                            check=True, capture_output=True)
             subprocess.run(["git", "reflog", "expire", "--expire=now", "--all"],
@@ -856,6 +878,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             tracked.write_text("interrupted\n", encoding="ascii")
             partial = repository / "partial-checkout.txt"
             partial.write_text("partial\n", encoding="ascii")
+            subprocess.run(["git", "update-ref", "ORIG_HEAD", later], cwd=repository,
+                           check=True)
             self.assertEqual(runtime._branch_or_none(repository), "control-main")
             runtime._restore_repository(
                 repository,
@@ -866,6 +890,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "tree": tree,
                     "release_branch": "control-main",
                     "release_branch_tip": later,
+                    "orig_head": commit,
                     "bundle_sha256": runtime._sha256(bundle),
                     "managed_refs": {freeze_ref: later},
                 },
@@ -879,6 +904,47 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._git(repository, "rev-parse", "refs/heads/control-main"), later
             )
             self.assertEqual(runtime._ref_or_none(repository, freeze_ref), later)
+            self.assertEqual(runtime._ref_or_none(repository, "ORIG_HEAD"), commit)
+
+    def test_repository_restore_removes_previously_absent_orig_head(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repo"
+            bundle = Path(directory) / "application.bundle"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(["git", "config", "user.name", "S12 Test"],
+                           cwd=repository, check=True)
+            subprocess.run(["git", "config", "user.email", "s12@example.invalid"],
+                           cwd=repository, check=True)
+            (repository / "tracked.txt").write_text("one\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(["git", "commit", "-m", "one"], cwd=repository,
+                           check=True, capture_output=True)
+            commit, tree = runtime._identity(repository)
+            self.assertIsNone(runtime._ref_or_none(repository, "ORIG_HEAD"))
+            runtime._create_git_bundle(repository, bundle)
+            self.assertNotIn("ORIG_HEAD", runtime._git_bundle_heads(repository, bundle))
+            subprocess.run(["git", "update-ref", "ORIG_HEAD", commit], cwd=repository,
+                           check=True)
+            runtime._restore_repository(
+                repository,
+                {
+                    "branch": "main",
+                    "detached": False,
+                    "commit": commit,
+                    "tree": tree,
+                    "release_branch": "main",
+                    "release_branch_tip": commit,
+                    "orig_head": None,
+                    "bundle_sha256": runtime._sha256(bundle),
+                    "managed_refs": {},
+                },
+                bundle,
+            )
+            self.assertIsNone(runtime._ref_or_none(repository, "ORIG_HEAD"))
 
     def test_recovery_clears_only_validated_stale_git_locks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1137,6 +1203,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "sync:application",
                 "sync:control",
                 "barrier-exit",
+                "sync:application",
+                "sync:control",
                 "daemon-reload",
                 "marker",
             ],

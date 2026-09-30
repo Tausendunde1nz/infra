@@ -119,7 +119,8 @@ The root-private backup and state live below
 root-owned and has no group/world write permission. Both are therefore outside
 the deliberately shared-writable canonical repository, runtime and log
 ancestries. The backup contains Git bundles, exact pre-state commits/trees,
-the exact attached-branch or detached-HEAD posture, the prior
+the exact attached-branch or detached-HEAD posture, the exact prior
+`ORIG_HEAD` value or its absence, the prior
 unit/runtime-config/nginx bytes and modes, credential metadata only,
 SHA-256 values and a restore index.  Rollback requires a successful systemd
 stop and verifies `inactive/dead` before it restores the pre-state files and
@@ -134,15 +135,18 @@ On the normal first-install posture, an explicitly reported `LoadState=not-found
 or systemd “unit could not be found” result is normalized to `inactive/dead`;
 all other state-query errors remain fail-closed.
 
-The backup also records the named `main`/`control-main` tips independently of
-the attached or detached HEAD posture. Each Git bundle explicitly includes
-`HEAD` in addition to all refs. During rollback the controller verifies the
+The backup also records the named `main`/`control-main` tips and `ORIG_HEAD`
+independently of the attached or detached HEAD posture. Each Git bundle
+explicitly includes `HEAD`, all refs and a present `ORIG_HEAD`. During rollback
+the controller verifies the
 recorded bundle SHA-256, verifies and imports the bundle into the quarantined
 Git directory, and proves the recorded commit/tree and release-branch objects
 exist before checkout. Rollback therefore remains exact even when the original
 state was an otherwise unreachable detached HEAD and later Git maintenance has
 pruned its canonical object. Both named tips are restored and verified, so a
-detached pre-state cannot conceal a release-branch mutation.
+detached pre-state cannot conceal a release-branch mutation. `ORIG_HEAD` is
+likewise restored and verified, including deletion when it was absent before
+the attempt.
 The controller captures repository-parent, repository-root and `.git`
 ownership/modes, durably journals those exact recovery values, then removes
 `chatops` access from the shared repository parent and atomically installs the
@@ -311,11 +315,15 @@ remove validated, single-link, bounded lock files; every unlink is parent-fsynce
 The quarantined Git root is root-owned mode `0700`; recovery Git therefore runs
 only as root while the checkout root remains locked. Every
 recovery `git clean` has an exact exclusion for that fixed metadata directory.
+The complete quarantined Git metadata tree must contain only real directories
+and single-link regular files; symlinks, special files and hard-linked metadata
+are rejected before any root Git operation.
 Before either guard is removed, Linux `syncfs` durably flushes the filesystem
 containing each restored worktree and its quarantined Git metadata. The guard
 is then removed, the original Git directory atomically restored, and recorded
-repository ownership/modes restored while `chatops` is still excluded before the
-durable rollback-complete marker is allowed.
+repository ownership/modes restored while `chatops` is still excluded. A second
+`syncfs` pass after that metadata restoration durably flushes both canonical
+repositories before the durable rollback-complete marker is allowed.
 An interrupted barrier is recognized and safely resumed by `recover`.
 Process matching includes cwd, `-C`, `--git-dir`, `--work-tree` and the
 corresponding `GIT_*` environment selectors. An unreadable active Git process,

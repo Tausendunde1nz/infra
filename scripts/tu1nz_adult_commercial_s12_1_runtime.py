@@ -33,7 +33,7 @@ APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r1"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
-BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V4"
+BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V5"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 RUNTIME_DEPENDENCY_VERSIONS = {
     "cffi": "2.1.1",
@@ -906,6 +906,9 @@ def _durably_complete_backup(backup: Path) -> None:
 def _create_git_bundle(
     root: Path, destination: Path, git_directory: Path | None = None
 ) -> None:
+    revisions = ["HEAD", "--all"]
+    if _selected_ref_or_none(root, git_directory, "ORIG_HEAD") is not None:
+        revisions.append("ORIG_HEAD")
     descriptor: int | None = None
     try:
         descriptor = os.open(
@@ -917,7 +920,7 @@ def _create_git_bundle(
             descriptor = None
             completed = subprocess.run(
                 _selected_git_arguments(
-                    root, git_directory, "bundle", "create", "-", "HEAD", "--all"
+                    root, git_directory, "bundle", "create", "-", *revisions
                 ),
                 check=False,
                 stdout=output,
@@ -1057,6 +1060,7 @@ def _repository_backup_state(
         ),
         "commit": commit,
         "tree": tree,
+        "orig_head": _selected_ref_or_none(root, git_directory, "ORIG_HEAD"),
         "managed_refs": {
             reference: _selected_ref_or_none(root, git_directory, reference)
             for reference in sorted(managed_refs)
@@ -1126,6 +1130,12 @@ def _validate_backup_snapshot(
         branch = record.get("branch")
         if branch is not None:
             expected_heads[f"refs/heads/{branch}"] = record.get("commit")
+        orig_head = record.get("orig_head")
+        if orig_head is None:
+            if "ORIG_HEAD" in heads:
+                raise S12ControlError("S12_1_BACKUP_REPOSITORY_RACE_RED")
+        else:
+            expected_heads["ORIG_HEAD"] = orig_head
         managed = record.get("managed_refs")
         if not isinstance(managed, dict):
             raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
@@ -2104,7 +2114,10 @@ def _validate_root_git_contract(git_directory: Path) -> None:
                         raise OSError
                     if stat.S_ISDIR(metadata.st_mode):
                         pending.append(Path(entry.path))
-                    elif not stat.S_ISREG(metadata.st_mode):
+                    elif (
+                        not stat.S_ISREG(metadata.st_mode)
+                        or metadata.st_nlink != 1
+                    ):
                         raise OSError
         for directory in (objects / "info", objects / "pack"):
             if directory.exists() or directory.is_symlink():
@@ -2655,6 +2668,17 @@ def _seed_repository_from_bundle(
             != 0
         ):
             raise S12ControlError("S12_1_BACKUP_BUNDLE_RED")
+    orig_head = record.get("orig_head")
+    if orig_head is not None and (
+        not isinstance(orig_head, str)
+        or re.fullmatch(r"[0-9a-f]{40}", orig_head) is None
+        or _run(
+            git_arguments("cat-file", "-e", f"{orig_head}^{{commit}}"),
+            check=False,
+        ).returncode
+        != 0
+    ):
+        raise S12ControlError("S12_1_BACKUP_BUNDLE_RED")
 
 
 def _restore_repository(
@@ -2708,6 +2732,16 @@ def _restore_repository(
             _run(git_arguments("update-ref", "-d", reference))
         else:
             _run(git_arguments("update-ref", reference, target))
+    orig_head = record.get("orig_head")
+    if orig_head is not None and (
+        not isinstance(orig_head, str)
+        or re.fullmatch(r"[0-9a-f]{40}", orig_head) is None
+    ):
+        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
+    if orig_head is None:
+        _run(git_arguments("update-ref", "-d", "ORIG_HEAD"), check=False)
+    else:
+        _run(git_arguments("update-ref", "ORIG_HEAD", orig_head))
     status = git("status", "--porcelain")
     identity = (git("rev-parse", "HEAD"), git("rev-parse", "HEAD^{tree}"))
     if status or identity != (commit, record["tree"]):
@@ -2719,6 +2753,12 @@ def _restore_repository(
         restored = completed.stdout.strip() if completed.returncode == 0 else None
         if completed.returncode not in {0, 128} or restored != target:
             raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
+    completed = _run(
+        git_arguments("rev-parse", "--verify", "ORIG_HEAD"), check=False
+    )
+    restored_orig_head = completed.stdout.strip() if completed.returncode == 0 else None
+    if completed.returncode not in {0, 128} or restored_orig_head != orig_head:
+        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
 
 
 def rollback_once(backup: Path, index: dict[str, Any]) -> None:
@@ -2791,6 +2831,8 @@ def rollback_once(backup: Path, index: dict[str, Any]) -> None:
         )
         _sync_repository_filesystem(APPLICATION_ROOT)
         _sync_repository_filesystem(CONTROL_ROOT)
+    _sync_repository_filesystem(APPLICATION_ROOT)
+    _sync_repository_filesystem(CONTROL_ROOT)
     _durable_unlink(BARRIER_MARKER)
     _run(["systemctl", "daemon-reload"])
     _atomic_json(
@@ -3269,6 +3311,8 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
         _remove_fetch_stage(
             {"fetch_stage": {"path": str(FETCH_ROOT), "present": False}}
         )
+    _sync_repository_filesystem(APPLICATION_ROOT)
+    _sync_repository_filesystem(CONTROL_ROOT)
     _durable_unlink(BARRIER_MARKER)
     return {
         "ok": True,
@@ -3378,6 +3422,8 @@ def _deploy_locked() -> dict[str, Any]:
                 control_tree,
             )
             _remove_fetch_stage(index)
+        _sync_repository_filesystem(APPLICATION_ROOT)
+        _sync_repository_filesystem(CONTROL_ROOT)
         _durable_unlink(BARRIER_MARKER)
         _verify_release_freeze()
         _atomic_json(RUNTIME_CONTRACT, runtime_contract(control_sha, control_tree))
