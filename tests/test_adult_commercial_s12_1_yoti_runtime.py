@@ -469,7 +469,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertEqual(source.count("_verify_git_bundle("), 4)
+        self.assertEqual(source.count("_verify_git_bundle("), 6)
         self.assertIn('"bundle", "verify", "/dev/stdin"', source)
         self.assertIn('"bundle", "list-heads", "/dev/stdin"', source)
         self.assertIn('"bundle", "create", "-", "HEAD", "--all"', source)
@@ -614,6 +614,62 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn(
             "tuple(selected_roots) + tuple(barriers.values())", contract
         )
+
+    def test_release_acquisition_uses_only_digest_bound_offline_bundles(self) -> None:
+        source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("REMOTE_URL", source)
+        self.assertNotIn("git@github", source)
+        self.assertNotIn("_isolated_chatops_git_prefix", source)
+        self.assertIn("_release_input_bundle_digest(", source)
+        self.assertIn("APPLICATION_BUNDLE_DIGEST_ENV", source)
+        self.assertIn("CONTROL_BUNDLE_DIGEST_ENV", source)
+        self.assertIn("APPLICATION_INPUT_BUNDLE", source)
+        self.assertIn("CONTROL_INPUT_BUNDLE", source)
+        self.assertIn('"refs/s12/application-main"', source)
+        self.assertIn('"refs/s12/control-main"', source)
+
+        deploy_start = source.index("def _deploy_locked()")
+        deploy_end = source.index("def deploy()", deploy_start)
+        deploy = source[deploy_start:deploy_end]
+        self.assertNotIn("validate_source_contract()", deploy)
+        self.assertNotIn("S12_1_CONTROLLER_FREEZE_RED", deploy)
+        self.assertLess(
+            deploy.index("_seal_release_fetch_stage(fetch_directories)"),
+            deploy.index("backup, index = create_backup("),
+        )
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_repository_handle_gate_detects_closed_fd_writable_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mapped = root / "tracked.bin"
+            mapped.write_bytes(b"0" * 4096)
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import mmap,sys,time;"
+                        "f=open(sys.argv[1],'r+b');"
+                        "m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_WRITE);"
+                        "f.close();print('ready',flush=True);time.sleep(30)"
+                    ),
+                    str(mapped),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                self.assertGreater(
+                    runtime._active_recovery_git_handle_count((root,)), 0
+                )
+            finally:
+                child.terminate()
+                child.wait(timeout=10)
 
     def test_repository_barrier_journal_precedes_mutation_and_binds_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

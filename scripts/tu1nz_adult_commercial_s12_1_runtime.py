@@ -66,8 +66,11 @@ RELEASE_ENVIRONMENT = RELEASE_ROOT / "runtime-environment.json"
 ATTEMPT_MARKER = STATE_ROOT / "deployment-attempted.json"
 BARRIER_MARKER = STATE_ROOT / "repository-barrier.json"
 FETCH_ROOT = DEPLOYMENT_LOCK_ROOT / ".s12-1-fetch"
-APPLICATION_REMOTE_URL = "git@github.com:Tausendunde1nz/adult-publishing-core.git"
-CONTROL_REMOTE_URL = "git@github.com-infra:Tausendunde1nz/infra.git"
+RELEASE_INPUT_ROOT = Path("/opt/tu1nz_repos/backups/s12-1-input")
+APPLICATION_INPUT_BUNDLE = RELEASE_INPUT_ROOT / "application.bundle"
+CONTROL_INPUT_BUNDLE = RELEASE_INPUT_ROOT / "control.bundle"
+APPLICATION_BUNDLE_DIGEST_ENV = "TU1NZ_S12_1_APPLICATION_BUNDLE_SHA256"
+CONTROL_BUNDLE_DIGEST_ENV = "TU1NZ_S12_1_CONTROL_BUNDLE_SHA256"
 RUNTIME_CONTRACT = Path("/etc/tu1nz/adult-commercial-s12-1-yoti-runtime.json")
 SDK_ID = Path("/etc/tu1nz/adult-commercial-s5.yoti-sdk-id")
 PRIVATE_KEY = Path("/etc/tu1nz/adult-commercial-s5.yoti-private-key")
@@ -1876,7 +1879,7 @@ def _clear_stale_git_locks(root: Path, git_dir: Path | None = None) -> None:
 
 
 def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
-    """Count processes retaining cwd/fds below a quarantined Git directory."""
+    """Count processes retaining cwd/fds/writable maps below protected paths."""
 
     proc = Path("/proc")
     if not proc.is_dir():
@@ -1900,6 +1903,26 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
                 ):
                     matched = True
                     break
+            if not matched:
+                maps = (process / "maps").read_text(
+                    encoding="utf-8", errors="surrogateescape"
+                )
+                for line in maps.splitlines():
+                    fields = line.split(maxsplit=5)
+                    if len(fields) != 6 or "w" not in fields[1]:
+                        continue
+                    mapped_name = fields[5]
+                    if mapped_name.endswith(" (deleted)"):
+                        mapped_name = mapped_name[:-10]
+                    if not mapped_name.startswith("/"):
+                        continue
+                    target = Path(os.path.realpath(mapped_name))
+                    if any(
+                        target == git_directory or git_directory in target.parents
+                        for git_directory in git_directories
+                    ):
+                        matched = True
+                        break
             if matched:
                 count += 1
         except FileNotFoundError:
@@ -2774,67 +2797,123 @@ def _bare_root_git(git_directory: Path, *arguments: str) -> str:
     return completed.stdout.strip()
 
 
+def _release_input_bundle_digest(
+    bundle: Path, digest_environment: str, safe_code: str
+) -> str:
+    expected = os.environ.get(digest_environment, "")
+    try:
+        parent = bundle.parent.lstat()
+        metadata = bundle.lstat()
+        if (
+            bundle.parent != RELEASE_INPUT_ROOT
+            or bundle.parent.is_symlink()
+            or not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != 0
+            or parent.st_gid != 0
+            or stat.S_IMODE(parent.st_mode) & 0o022
+            or bundle.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_gid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != 1
+            or re.fullmatch(r"[0-9a-f]{64}", expected) is None
+            or _sha256(bundle) != expected
+        ):
+            raise OSError
+    except OSError:
+        raise S12ControlError(safe_code) from None
+    return expected
+
+
 def _prepare_release_fetch_stage() -> dict[Path, Path]:
     if FETCH_ROOT.exists() or FETCH_ROOT.is_symlink():
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
     try:
-        account = pwd.getpwnam(CHATOPS_USER)
         FETCH_ROOT.mkdir(mode=0o700)
-        os.chown(FETCH_ROOT, account.pw_uid, account.pw_gid)
+        os.chown(FETCH_ROOT, 0, 0)
         os.chmod(FETCH_ROOT, 0o700)
         _fsync_directory(FETCH_ROOT.parent)
-    except (KeyError, OSError):
+    except OSError:
         raise S12ControlError("S12_1_FETCH_STAGE_RED") from None
     application_fetch = FETCH_ROOT / "application.git"
     control_fetch = FETCH_ROOT / "control.git"
     for git_directory in (application_fetch, control_fetch):
         _run(
-            _as_chatops(
-                [
-                    "/usr/bin/git",
-                    "-c",
-                    "core.hooksPath=/dev/null",
-                    "init",
-                    "--bare",
-                    str(git_directory),
-                ]
-            )
+            [
+                *_isolated_root_git_prefix(FETCH_ROOT),
+                "init",
+                "--bare",
+                str(git_directory),
+            ]
         )
-    _run(
-        _as_chatops(
+        _validate_root_git_contract(git_directory)
+    _release_input_bundle_digest(
+        APPLICATION_INPUT_BUNDLE,
+        APPLICATION_BUNDLE_DIGEST_ENV,
+        "S12_1_APPLICATION_INPUT_BUNDLE_RED",
+    )
+    _release_input_bundle_digest(
+        CONTROL_INPUT_BUNDLE,
+        CONTROL_BUNDLE_DIGEST_ENV,
+        "S12_1_CONTROL_INPUT_BUNDLE_RED",
+    )
+    _verify_git_bundle(APPLICATION_ROOT, APPLICATION_INPUT_BUNDLE, application_fetch)
+    _verify_git_bundle(CONTROL_ROOT, CONTROL_INPUT_BUNDLE, control_fetch)
+    application_heads = _git_bundle_heads(
+        APPLICATION_ROOT, APPLICATION_INPUT_BUNDLE, application_fetch
+    )
+    control_heads = _git_bundle_heads(
+        CONTROL_ROOT, CONTROL_INPUT_BUNDLE, control_fetch
+    )
+    if application_heads.get("refs/heads/main") != APPLICATION_COMMIT:
+        raise S12ControlError("S12_1_APPLICATION_INPUT_BUNDLE_RED")
+    if (
+        re.fullmatch(
+            r"[0-9a-f]{40}",
+            control_heads.get("refs/heads/control-main", ""),
+        )
+        is None
+        or re.fullmatch(
+            r"[0-9a-f]{40}",
+            control_heads.get(f"refs/tags/{FREEZE_TAG}", ""),
+        )
+        is None
+    ):
+        raise S12ControlError("S12_1_CONTROL_INPUT_BUNDLE_RED")
+    for git_directory, bundle, source, destination in (
+        (
+            application_fetch,
+            APPLICATION_INPUT_BUNDLE,
+            "refs/heads/main",
+            "refs/s12/application-main",
+        ),
+        (
+            control_fetch,
+            CONTROL_INPUT_BUNDLE,
+            "refs/heads/control-main",
+            "refs/s12/control-main",
+        ),
+        (
+            control_fetch,
+            CONTROL_INPUT_BUNDLE,
+            f"refs/tags/{FREEZE_TAG}",
+            f"refs/tags/{FREEZE_TAG}",
+        ),
+    ):
+        _run(
             [
-                "/usr/bin/git",
-                "-c",
-                "core.hooksPath=/dev/null",
-                f"--git-dir={application_fetch}",
+                *_isolated_root_git_prefix(git_directory),
+                f"--git-dir={git_directory}",
                 "fetch",
                 "--no-write-fetch-head",
                 "--no-tags",
                 "--refmap=",
-                APPLICATION_REMOTE_URL,
-                "refs/heads/main:refs/s12/application-main",
-            ]
-        ),
-        timeout=300,
-    )
-    _run(
-        _as_chatops(
-            [
-                "/usr/bin/git",
-                "-c",
-                "core.hooksPath=/dev/null",
-                f"--git-dir={control_fetch}",
-                "fetch",
-                "--no-write-fetch-head",
-                "--no-tags",
-                "--refmap=",
-                CONTROL_REMOTE_URL,
-                "refs/heads/control-main:refs/s12/control-main",
-                f"refs/tags/{FREEZE_TAG}:refs/tags/{FREEZE_TAG}",
-            ]
-        ),
-        timeout=300,
-    )
+                str(bundle),
+                f"{source}:{destination}",
+            ],
+            timeout=300,
+        )
     return {
         APPLICATION_ROOT: application_fetch,
         CONTROL_ROOT: control_fetch,
@@ -2852,18 +2931,17 @@ def _seal_release_fetch_stage(
     application_fetch = fetch_directories[APPLICATION_ROOT]
     control_fetch = fetch_directories[CONTROL_ROOT]
     try:
-        account = pwd.getpwnam(CHATOPS_USER)
         metadata = FETCH_ROOT.lstat()
         if (
             FETCH_ROOT.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != account.pw_uid
-            or metadata.st_gid != account.pw_gid
+            or metadata.st_uid != 0
+            or metadata.st_gid != 0
             or stat.S_IMODE(metadata.st_mode) != 0o700
             or _active_recovery_git_handle_count((FETCH_ROOT,)) != 0
         ):
             raise OSError
-    except (KeyError, OSError):
+    except OSError:
         raise S12ControlError("S12_1_FETCH_STAGE_RED") from None
     for git_directory in (application_fetch, control_fetch):
         _validate_root_git_contract(git_directory)
@@ -3227,11 +3305,6 @@ def _deploy_locked() -> dict[str, Any]:
     ):
         _recover_repository_barrier_only()
         raise S12ControlError("S12_1_ORPHAN_BARRIER_RECOVERED")
-    validate_source_contract()
-    if _git(SOURCE_ROOT, "rev-parse", "HEAD") != _git(
-        SOURCE_ROOT, "rev-parse", f"{FREEZE_TAG}^{{commit}}"
-    ):
-        raise S12ControlError("S12_1_CONTROLLER_FREEZE_RED")
     read_only_preflight()
     initial_active, initial_sub = _rollback_unit_state()
     if initial_active != "inactive" or initial_sub != "dead":

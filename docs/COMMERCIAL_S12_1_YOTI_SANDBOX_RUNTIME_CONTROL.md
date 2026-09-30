@@ -198,12 +198,13 @@ Before the backup barrier, the read-only preflight rejects any active long-lived
 `/usr/local/bin/tu1nz_sync_all.sh --loop` process with
 `WAITING_OPERATOR_CONFLICTING_CONTROL_SYNC`. It neither stops nor bypasses that
 external mutator. Normal Git calls before the barrier are dropped to the
-`chatops` account and use repository-scoped `safe.directory` values. Remote
-objects are acquired by `chatops` into one fixed disposable bare stage before
-the canonical barrier is entered; no canonical ref or worktree is changed by
-this acquisition. The shared repository parent is then root-owned mode `0500`,
-retained parent/staging directory handles are rejected, and the staged
-commit/tree/annotated-tag
+`chatops` account and use repository-scoped `safe.directory` values. Release
+objects arrive only through two externally authenticated, digest-bound Git
+bundles and are imported by isolated root Git into one fixed root-owned
+disposable bare stage before the canonical barrier is entered; no canonical
+ref or worktree is changed by this acquisition. The shared repository parent
+is then root-owned mode `0500`, retained parent/staging directory handles are
+rejected, and the staged commit/tree/annotated-tag
 identity is validated. Once the barrier is active, backup identity, bundle
 verification, local-only release sync and immutable cloning use the
 quarantined Git directories while bundle bytes are streamed through root-opened
@@ -217,10 +218,10 @@ are rejected. Root Git also requires a direct Git directory and direct object
 metadata directories: `commondir`, symlinked object metadata directories, and
 local or HTTP object alternates are rejected before Git runs. The active
 repository-parent/root barrier prevents the `chatops` owner from changing this
-validated layout before root consumes it. Release fetches use
+validated layout before root consumes it. Local bundle imports use
 `--no-write-fetch-head --no-tags --refmap=` so configured
-remote fetch mappings cannot advance `origin/main`, `origin/control-main` or
-any other tracking ref. The branch fetches are source-only object transfers;
+ref mappings cannot advance `origin/main`, `origin/control-main` or
+any other tracking ref. The branch imports are source-only object transfers;
 only the exact immutable freeze-tag ref has an explicit local destination. Its
 prior presence/target is stored in the restore index and restored or removed
 during rollback, so no remote-tracking or tag ref drift can survive a failed
@@ -231,18 +232,34 @@ Deployment and recovery never execute the controller from the shared
 reviewed controller to
 `/etc/tu1nz/.tu1nz-adult-commercial-s12-1-runtime.py` as `root:root` mode
 `0500`, verify it against the `control_runtime_sha256` value from the immutable
-Runtime Freeze, and launch it with an empty environment plus that digest. The
+Runtime Freeze, and launch it with an empty environment plus that digest and
+the SHA-256 values of both root-owned input bundles. The
 controller rejects any other path, owner, group, mode, link count or digest;
-the remotely fetched annotated freeze must repeat the same digest before the
+the bundle-imported annotated freeze must repeat the same digest before the
 single deployment marker can be written. The temporary trusted copy is removed
 after success or failure.
 
 Before the repository parent or roots are locked, and again after each lock
 stage, `/proc` is checked for every other process retaining a cwd or file
-descriptor anywhere below either complete canonical worktree. The final
-post-exchange check covers both complete worktrees and both quarantined Git
-directories. A retained descriptor therefore stops the attempt before backup
-or canonical mutation instead of surviving a chmod barrier.
+descriptor or writable memory mapping anywhere below either complete canonical
+worktree. The final post-exchange check covers both complete worktrees and both
+quarantined Git directories. A retained handle or mapping therefore stops the
+attempt before backup or canonical mutation instead of surviving a chmod
+barrier.
+
+Release acquisition performs no server-side network Git operation. The exact
+reviewed Application `main`, Control `control-main` and annotated Runtime Freeze
+tag are carried in dedicated Git bundles from the authenticated review host
+over Tailscale SSH. The operator wrapper installs both bundles below the fixed
+input directory as `root:root` mode `0600` and binds each to an out-of-band
+SHA-256. The controller verifies complete bundle graphs and exact advertised
+refs, the annotated tag target and the trusted-controller digest before backup
+or canonical repository mutation. The previous canonical Control checkout is
+therefore not required to contain the new tag. The later freeze verifier still
+proves every commit, tree and artifact binding. The wrapper removes both inputs
+after success or failure. Server `chatops` Git/SSH configuration, aliases,
+proxies, credentials and host files are never consulted during release
+acquisition.
 
 Reviewed unit and nginx artifacts are written to a same-directory temporary
 regular file and atomically replace the destination. A pre-existing mask or
