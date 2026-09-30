@@ -273,7 +273,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("backup, index = create_backup(", source)
         self.assertIn("ATTEMPT_MARKER.exists()", source)
         self.assertIn("S12_1_SECOND_DEPLOYMENT_FORBIDDEN_RED", source)
-        self.assertIn("rollback_once(backup, index)", source)
+        self.assertIn("rollback_once(backup, index,", source)
         self.assertIn("S12_1_ROLLBACK_DUPLICATE_RED", source)
         self.assertIn("S12_1_ROLLBACK_STOP_RED", source)
         self.assertIn("_rollback_unit_state()", source)
@@ -883,6 +883,117 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         ):
             runtime._validate_backup_snapshot(Path("/backup"), index)
 
+    def test_backup_rejects_option_like_attached_branch_name(self) -> None:
+        with (
+            mock.patch.object(
+                runtime, "_selected_identity", return_value=("a" * 40, "b" * 40)
+            ),
+            mock.patch.object(
+                runtime, "_selected_branch_or_none", return_value="--detach"
+            ),
+            self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_BACKUP_REPOSITORY_BRANCH_RED"
+            ),
+        ):
+            runtime._repository_backup_state(
+                Path("/repository"),
+                "main",
+                path_metadata={
+                    "root_uid": 501,
+                    "root_gid": 20,
+                    "root_mode": "0755",
+                    "git_uid": 501,
+                    "git_gid": 20,
+                    "git_mode": "0755",
+                },
+            )
+
+    def test_release_state_detects_ref_and_reflog_only_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = root / "application"
+            control = root / "control"
+            for repository, branch in (
+                (application, "main"),
+                (control, "control-main"),
+            ):
+                subprocess.run(
+                    ["git", "init", "-b", branch, str(repository)],
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.name", "S12 Test"],
+                    cwd=repository,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.email", "s12@example.invalid"],
+                    cwd=repository,
+                    check=True,
+                )
+                (repository / "tracked.txt").write_text("one\n", encoding="ascii")
+                subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+                subprocess.run(
+                    ["git", "commit", "-m", "one"],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                )
+            git_directories = {
+                application: application / ".git",
+                control: control / ".git",
+            }
+            path_records = {
+                application: runtime._repository_path_metadata(application),
+                control: runtime._repository_path_metadata(control),
+            }
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+            ):
+                expected = runtime._release_repository_states(
+                    git_directories, path_records
+                )
+                subprocess.run(
+                    ["git", "branch", "external"], cwd=application, check=True
+                )
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED",
+                ):
+                    runtime._validate_release_repository_states(
+                        expected, git_directories, path_records
+                    )
+                subprocess.run(
+                    ["git", "branch", "-D", "external"],
+                    cwd=application,
+                    check=True,
+                    capture_output=True,
+                )
+                expected = runtime._release_repository_states(
+                    git_directories, path_records
+                )
+                subprocess.run(
+                    ["git", "checkout", "--detach"],
+                    cwd=application,
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "checkout", "main"],
+                    cwd=application,
+                    check=True,
+                    capture_output=True,
+                )
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED",
+                ):
+                    runtime._validate_release_repository_states(
+                        expected, git_directories, path_records
+                    )
+
     def test_bundle_stream_is_created_and_verified_without_backup_access(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             bundle = Path(directory) / "control.bundle"
@@ -1324,9 +1435,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertEqual(
             events,
             [
+                "barrier-enter",
                 "nginx-test",
                 "nginx-reload",
-                "barrier-enter",
                 "sync:application",
                 "sync:control",
                 "barrier-exit",
@@ -1336,6 +1447,54 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "marker",
             ],
         )
+
+    def test_rollback_rejects_post_release_drift_before_mutation(self) -> None:
+        backup = Path("/backup")
+        index = {
+            "application": {},
+            "control": {},
+            "repository_parent": {},
+        }
+
+        @contextmanager
+        def recovery_barrier(**_kwargs):
+            yield {
+                runtime.APPLICATION_ROOT: Path("/recovery/application"),
+                runtime.CONTROL_ROOT: Path("/recovery/control"),
+            }
+
+        with (
+            mock.patch.object(
+                runtime, "_rollback_unit_state", return_value=("inactive", "dead")
+            ),
+            mock.patch.object(runtime, "_recorded_parent_metadata"),
+            mock.patch.object(runtime, "_ensure_barrier_journal"),
+            mock.patch.object(
+                runtime,
+                "_serialized_repository_recovery",
+                side_effect=recovery_barrier,
+            ),
+            mock.patch.object(
+                runtime,
+                "_validate_release_repository_states",
+                side_effect=runtime.S12ControlError(
+                    "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED"
+                ),
+            ),
+            mock.patch.object(runtime, "_remove_release_stages") as remove_stages,
+            mock.patch.object(Path, "exists", return_value=False),
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED",
+            ),
+        ):
+            runtime.rollback_once(
+                backup,
+                index,
+                {"application": {}, "control": {}},
+            )
+
+        remove_stages.assert_not_called()
 
     def test_immutable_release_stage_survives_canonical_repository_drift(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1731,7 +1890,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(runtime, "rollback_once") as rollback,
             ):
                 result = runtime._recover_locked()
-            rollback.assert_called_once_with(backup, {})
+            rollback.assert_called_once_with(backup, {}, None)
             self.assertEqual(result["safe_code"], "S12_1_INTERRUPTED_DEPLOYMENT_RECOVERED")
             self.assertNotIn("deployment_count", result)
 

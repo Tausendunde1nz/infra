@@ -1158,6 +1158,8 @@ def _repository_backup_state(
     selected_path_metadata = path_metadata or _repository_path_metadata(root)
     commit, tree = _selected_identity(root, git_directory)
     branch = _selected_branch_or_none(root, git_directory)
+    if branch is not None and branch.startswith("-"):
+        raise S12ControlError("S12_1_BACKUP_REPOSITORY_BRANCH_RED")
     return {
         "branch": branch,
         "detached": branch is None,
@@ -1178,6 +1180,86 @@ def _repository_backup_state(
         },
         **selected_path_metadata,
     }
+
+
+def _release_repository_states(
+    git_directories: dict[Path, Path],
+    path_records: dict[Path, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    def state(
+        root: Path,
+        release_branch: str,
+        managed_refs: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        git_directory = git_directories[root]
+        references_output = _selected_git(
+            root,
+            git_directory,
+            "for-each-ref",
+            "--format=%(refname)%00%(objectname)",
+        )
+        if len(references_output.encode("utf-8")) > 65536:
+            raise S12ControlError("S12_1_RELEASE_REPOSITORY_STATE_RED")
+        references: dict[str, str] = {}
+        for line in references_output.splitlines():
+            reference, separator, target = line.partition("\0")
+            if (
+                not separator
+                or not reference.startswith("refs/")
+                or re.fullmatch(r"[0-9a-f]{40}", target) is None
+                or reference in references
+            ):
+                raise S12ControlError("S12_1_RELEASE_REPOSITORY_STATE_RED")
+            references[reference] = target
+        if len(references) > 1024:
+            raise S12ControlError("S12_1_RELEASE_REPOSITORY_STATE_RED")
+        return {
+            **_repository_backup_state(
+                root,
+                release_branch,
+                managed_refs,
+                git_directory=git_directory,
+                path_metadata=path_records[root],
+            ),
+            "all_refs": dict(sorted(references.items())),
+            "reflog_tree_sha256": _reflog_tree_digest(git_directory / "logs"),
+        }
+
+    states = {
+        "application": state(
+            APPLICATION_ROOT,
+            "main",
+        ),
+        "control": state(
+            CONTROL_ROOT,
+            "control-main",
+            (f"refs/tags/{FREEZE_TAG}",),
+        ),
+    }
+    if len(
+        json.dumps(states, sort_keys=True, separators=(",", ":")).encode("ascii")
+    ) > 98304:
+        raise S12ControlError("S12_1_RELEASE_REPOSITORY_STATE_RED")
+    return states
+
+
+def _validate_release_repository_states(
+    expected: dict[str, Any],
+    git_directories: dict[Path, Path],
+    path_records: dict[Path, dict[str, Any]],
+) -> None:
+    if set(expected) != {"application", "control"} or not all(
+        isinstance(expected.get(key), dict) for key in expected
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED")
+    try:
+        current = _release_repository_states(git_directories, path_records)
+    except S12ControlError:
+        raise S12ControlError(
+            "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED"
+        ) from None
+    if current != expected:
+        raise S12ControlError("S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED")
 
 
 def _validate_backup_snapshot(
@@ -2917,7 +2999,13 @@ def _restore_repository(
     detached = record["detached"]
     release_branch = record["release_branch"]
     release_branch_tip = record["release_branch_tip"]
-    if detached is not (branch is None):
+    if (
+        detached is not (branch is None)
+        or (
+            branch is not None
+            and (not isinstance(branch, str) or branch.startswith("-"))
+        )
+    ):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     _seed_repository_from_bundle(root, git_arguments, bundle, record)
     _run(git_arguments("checkout", "--force", "--detach", commit))
@@ -2976,7 +3064,11 @@ def _restore_repository(
     )
 
 
-def rollback_once(backup: Path, index: dict[str, Any]) -> None:
+def rollback_once(
+    backup: Path,
+    index: dict[str, Any],
+    expected_release_state: dict[str, Any] | None = None,
+) -> None:
     marker = backup / "rollback-complete.json"
     if marker.exists():
         raise S12ControlError("S12_1_ROLLBACK_DUPLICATE_RED")
@@ -2988,36 +3080,6 @@ def rollback_once(backup: Path, index: dict[str, Any]) -> None:
         active_state, sub_state = _rollback_unit_state()
     if active_state != "inactive" or sub_state != "dead":
         raise S12ControlError("S12_1_ROLLBACK_STOP_RED")
-    _remove_release_stages(index)
-    _restore_file(index["files"]["unit"], backup / "unit.before", UNIT_PATH)
-    _restore_file(
-        index["files"]["runtime_contract"],
-        backup / "runtime-contract.before",
-        RUNTIME_CONTRACT,
-    )
-    _restore_file(index["files"]["nginx_site"], backup / "nginx-site.before", NGINX_SITE)
-    _restore_file(
-        index["files"]["nginx_enabled"],
-        backup / "nginx-enabled.before",
-        NGINX_ENABLED,
-    )
-    _restore_file(
-        index["files"]["acceptance_evidence"],
-        backup / "acceptance.before",
-        STATE_ROOT / "acceptance.json",
-    )
-    _restore_file(
-        index["files"]["final_state_evidence"],
-        backup / "final-state.before",
-        STATE_ROOT / "final-state.json",
-    )
-    _restore_file(
-        index["files"]["deployment_result"],
-        backup / "deployment-result.before",
-        STATE_ROOT / "deployment-result.json",
-    )
-    _run(["nginx", "-t"])
-    _run(["systemctl", "reload", "nginx.service"])
     path_records = {
         APPLICATION_ROOT: index["application"],
         CONTROL_ROOT: index["control"],
@@ -3031,6 +3093,42 @@ def rollback_once(backup: Path, index: dict[str, Any]) -> None:
         records=path_records,
         parent_record=parent_record,
     ) as git_directories:
+        if expected_release_state is not None:
+            _validate_release_repository_states(
+                expected_release_state, git_directories, path_records
+            )
+        _remove_release_stages(index)
+        _restore_file(index["files"]["unit"], backup / "unit.before", UNIT_PATH)
+        _restore_file(
+            index["files"]["runtime_contract"],
+            backup / "runtime-contract.before",
+            RUNTIME_CONTRACT,
+        )
+        _restore_file(
+            index["files"]["nginx_site"], backup / "nginx-site.before", NGINX_SITE
+        )
+        _restore_file(
+            index["files"]["nginx_enabled"],
+            backup / "nginx-enabled.before",
+            NGINX_ENABLED,
+        )
+        _restore_file(
+            index["files"]["acceptance_evidence"],
+            backup / "acceptance.before",
+            STATE_ROOT / "acceptance.json",
+        )
+        _restore_file(
+            index["files"]["final_state_evidence"],
+            backup / "final-state.before",
+            STATE_ROOT / "final-state.json",
+        )
+        _restore_file(
+            index["files"]["deployment_result"],
+            backup / "deployment-result.before",
+            STATE_ROOT / "deployment-result.json",
+        )
+        _run(["nginx", "-t"])
+        _run(["systemctl", "reload", "nginx.service"])
         _remove_fetch_stage(index)
         _restore_repository(
             APPLICATION_ROOT,
@@ -3562,11 +3660,23 @@ def _private_json(path: Path, safe_code: str) -> dict[str, Any]:
 def _load_recovery_backup() -> tuple[Path, dict[str, Any], dict[str, Any]]:
     _validate_secure_directory_chain(BACKUP_ROOT, Path("/"))
     attempt = _private_json(ATTEMPT_MARKER, "S12_1_RECOVERY_MARKER_RED")
+    release_repository_state = attempt.get("release_repository_state")
     if (
         attempt.get("attempt") != 1
         or not isinstance(attempt.get("backup"), str)
         or not isinstance(attempt.get("started_at"), str)
         or not attempt["started_at"]
+        or (
+            release_repository_state is not None
+            and (
+                not isinstance(release_repository_state, dict)
+                or set(release_repository_state) != {"application", "control"}
+                or not all(
+                    isinstance(release_repository_state.get(key), dict)
+                    for key in ("application", "control")
+                )
+            )
+        )
     ):
         raise S12ControlError("S12_1_RECOVERY_MARKER_RED")
     backup = Path(attempt["backup"])
@@ -3645,7 +3755,7 @@ def _recover_locked() -> dict[str, Any]:
             raise S12ControlError("S12_1_RECOVERY_RESULT_RED")
         safe_code = "S12_1_RECOVERY_ALREADY_COMPLETE"
     else:
-        rollback_once(backup, index)
+        rollback_once(backup, index, attempt.get("release_repository_state"))
         safe_code = "S12_1_INTERRUPTED_DEPLOYMENT_RECOVERED"
     result = {"ok": True, "safe_code": safe_code, "rollback_count": 1}
     _atomic_json(STATE_ROOT / "recovery-result.json", result)
@@ -3692,6 +3802,7 @@ def _deploy_locked() -> dict[str, Any]:
     index: dict[str, Any] | None = None
     attempt_started_at = ""
     mutation_started = False
+    release_repository_state: dict[str, Any] | None = None
     try:
         _write_barrier_journal(path_records, parent_record)
         with _pinned_release_input_bundles() as pinned_bundles:
@@ -3721,6 +3832,18 @@ def _deploy_locked() -> dict[str, Any]:
                 mutation_started = True
                 control_sha, control_tree = _sync_repositories(
                     git_directories, fetch_directories
+                )
+                release_repository_state = _release_repository_states(
+                    git_directories, path_records
+                )
+                _atomic_json(
+                    ATTEMPT_MARKER,
+                    {
+                        "attempt": 1,
+                        "backup": str(backup),
+                        "started_at": attempt_started_at,
+                        "release_repository_state": release_repository_state,
+                    },
                 )
                 _create_immutable_release_stage(
                     git_directories,
@@ -3830,7 +3953,7 @@ def _deploy_locked() -> dict[str, Any]:
         return result
     except BaseException:
         if mutation_started and backup is not None and index is not None:
-            rollback_once(backup, index)
+            rollback_once(backup, index, release_repository_state)
         elif BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
             _recover_repository_barrier_only()
         raise

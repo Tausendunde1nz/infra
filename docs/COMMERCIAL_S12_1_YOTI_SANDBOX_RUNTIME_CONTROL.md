@@ -167,6 +167,15 @@ before the durable attempt marker. Any mixed-generation backup is rejected
 before deployment mutation. Dirty-state checks exclude only the controller's
 fixed, prevalidated quarantine-directory name while the barrier is active;
 every other tracked change or untracked path remains RED.
+After canonical synchronization, the controller durably records the exact
+clean Application and Control release states, complete ref namespaces and
+reflog-tree digests in the attempt marker. If any
+later acceptance step fails, rollback reacquires the repository barrier and
+compares both complete release states before changing runtime files or Git.
+Any intervening completed commit, checkout or worktree change therefore stops
+with `S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED` instead of being overwritten.
+Option-like attached branch names are rejected before backup because they
+cannot be replayed safely through the bounded branch-restoration command.
 Each root-owned, single-link, digest-bound release input bundle is opened once
 with `O_NOFOLLOW`; inode identity, owner, mode, link count and SHA-256 are
 validated on that descriptor. Bundle verification, head inspection and import

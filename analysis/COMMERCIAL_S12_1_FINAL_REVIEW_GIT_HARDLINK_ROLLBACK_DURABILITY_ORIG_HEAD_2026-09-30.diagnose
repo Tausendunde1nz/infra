@@ -30,6 +30,11 @@ Deployment attempts consumed: 0
    release synchronization and recovery checkout. Expressions such as
    `HEAD@{1}` could therefore retain failed-attempt history after GREEN
    rollback.
+8. After the repository barrier was released, a completed `chatops` write
+   could occur before a later acceptance failure and then be overwritten by
+   rollback.
+9. A valid attached branch name beginning with `-` was ambiguous to the
+   bounded `git branch -f` restoration command.
 
 ## Resolution
 
@@ -56,6 +61,12 @@ Deployment attempts consumed: 0
   durable root-private backup, bind its file bytes and modes to a SHA-256 tree
   digest, and replace/verify the reflog tree after all rollback Git operations.
   Advance the incompatible backup contract to schema V6.
+- Persist the exact clean post-sync repository states in the root-private
+  attempt marker. Rollback now reacquires the repository barrier and validates
+  those states before changing either runtime files or repositories; drift is
+  fail-closed and never overwritten.
+- Reject option-like attached branch names during backup and again during
+  restore validation.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.
