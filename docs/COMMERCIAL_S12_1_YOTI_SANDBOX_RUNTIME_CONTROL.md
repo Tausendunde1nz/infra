@@ -161,6 +161,15 @@ backup extension neither retains nor emits repository path names or local
 content, and a later ignored writer can never be silently overwritten by the
 forced restore checkout.
 
+Initial deployment still accepts only the recorded ownership posture.
+Journal-backed rollback and crash recovery additionally recognize the finite
+intermediate postures created by the controller itself: recorded ownership
+with restricted mode, root-owned locked checkout roots, and root-owned or
+recorded-owner Git roots at the recovery mode. Nested entries may be either
+the recorded owner or root-owned controller output only. Arbitrary ownership
+or mode drift remains RED, while a stop between root locking, Git exchange and
+metadata restoration remains idempotently recoverable.
+
 On the normal first-install posture, an explicitly reported `LoadState=not-found`
 or systemd “unit could not be found” result is normalized to `inactive/dead`;
 all other state-query errors remain fail-closed.

@@ -2760,7 +2760,10 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
 
 
 def _validate_repository_worktree_contract(
-    root: Path, record: dict[str, Any]
+    root: Path,
+    record: dict[str, Any],
+    *,
+    allow_journaled_transition: bool = False,
 ) -> None:
     """Reject worktree state that recursive post-barrier ownership cannot preserve."""
 
@@ -2778,9 +2781,11 @@ def _validate_repository_worktree_contract(
                     if directory == tree and entry.name in excluded_top:
                         continue
                     metadata = entry.stat(follow_symlinks=False)
+                    allowed_owners = {(expected_uid, expected_gid)}
+                    if allow_journaled_transition:
+                        allowed_owners.add((0, 0))
                     if (
-                        metadata.st_uid != expected_uid
-                        or metadata.st_gid != expected_gid
+                        (metadata.st_uid, metadata.st_gid) not in allowed_owners
                         or (
                             stat.S_ISREG(metadata.st_mode)
                             and metadata.st_nlink != 1
@@ -2794,15 +2799,40 @@ def _validate_repository_worktree_contract(
     try:
         root_metadata = root.lstat()
         git_metadata = git_directory.lstat()
+        _, _, root_mode = _recorded_path_metadata(record, "root")
+        _, _, git_mode = _recorded_path_metadata(record, "git")
+        root_states = {(root_uid, root_gid, root_mode)}
+        git_states = {(git_uid, git_gid, git_mode)}
+        if allow_journaled_transition:
+            root_states.update(
+                {
+                    (root_uid, root_gid, 0o500),
+                    (0, 0, 0o500),
+                }
+            )
+            git_states.update(
+                {
+                    (git_uid, git_gid, 0o700),
+                    (0, 0, 0o700),
+                }
+            )
         if (
             root.is_symlink()
             or not stat.S_ISDIR(root_metadata.st_mode)
-            or root_metadata.st_uid != root_uid
-            or root_metadata.st_gid != root_gid
+            or (
+                root_metadata.st_uid,
+                root_metadata.st_gid,
+                stat.S_IMODE(root_metadata.st_mode),
+            )
+            not in root_states
             or git_directory.is_symlink()
             or not stat.S_ISDIR(git_metadata.st_mode)
-            or git_metadata.st_uid != git_uid
-            or git_metadata.st_gid != git_gid
+            or (
+                git_metadata.st_uid,
+                git_metadata.st_gid,
+                stat.S_IMODE(git_metadata.st_mode),
+            )
+            not in git_states
         ):
             raise OSError
         validate_tree(
@@ -2989,6 +3019,7 @@ def _serialized_repository_recovery(
     records: dict[Path, dict[str, Any]] | None = None,
     parent_record: dict[str, Any] | None = None,
     preserve_on_error: bool = False,
+    allow_journaled_transition: bool = False,
 ):
     selected_roots = tuple(roots or (APPLICATION_ROOT, CONTROL_ROOT))
     if (
@@ -3005,7 +3036,11 @@ def _serialized_repository_recovery(
             _is_recovery_guard(root / ".git")
             and _is_recovery_git_directory(_recovery_git_path(root))
         ):
-            _validate_repository_worktree_contract(root, selected_records[root])
+            _validate_repository_worktree_contract(
+                root,
+                selected_records[root],
+                allow_journaled_transition=allow_journaled_transition,
+            )
     barriers: dict[Path, Path] = {}
     parent_locked = False
     completed = False
@@ -3024,7 +3059,9 @@ def _serialized_repository_recovery(
                 and _is_recovery_git_directory(_recovery_git_path(root))
             ):
                 _validate_repository_worktree_contract(
-                    root, selected_records[root]
+                    root,
+                    selected_records[root],
+                    allow_journaled_transition=allow_journaled_transition,
                 )
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
@@ -3448,6 +3485,7 @@ def _finalize_rollback(backup: Path, index: dict[str, Any]) -> None:
         records=path_records,
         parent_record=parent_record,
         preserve_on_error=True,
+        allow_journaled_transition=True,
     ) as git_directories:
         _validate_release_repository_states(
             progress["repository_state"], git_directories, path_records
@@ -3508,6 +3546,7 @@ def rollback_once(
         records=path_records,
         parent_record=parent_record,
         preserve_on_error=True,
+        allow_journaled_transition=True,
     ) as git_directories:
         if expected_release_state is not None:
             if progress is None:
@@ -4300,6 +4339,7 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
     with _serialized_repository_recovery(
         records=records,
         parent_record=parent_record,
+        allow_journaled_transition=True,
     ):
         _remove_fetch_stage(
             {"fetch_stage": {"path": str(FETCH_ROOT), "present": False}}

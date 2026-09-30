@@ -705,6 +705,54 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 )
             chown.assert_not_called()
 
+    def test_journaled_recovery_accepts_locked_root_transition_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repo"
+            repository.mkdir()
+            git_directory = repository / ".git"
+            git_directory.mkdir()
+            (repository / "tracked.txt").write_text("reviewed\n", encoding="ascii")
+            metadata = {
+                "root_uid": os.getuid(),
+                "root_gid": os.getgid(),
+                "root_mode": "0755",
+                "git_uid": os.getuid(),
+                "git_gid": os.getgid(),
+                "git_mode": "0755",
+            }
+            real_lstat = Path.lstat
+
+            def transition_lstat(path):
+                actual = real_lstat(path)
+                if path == repository:
+                    return SimpleNamespace(
+                        st_uid=0,
+                        st_gid=0,
+                        st_mode=stat.S_IFDIR | 0o500,
+                        st_nlink=actual.st_nlink,
+                    )
+                if path == git_directory:
+                    return SimpleNamespace(
+                        st_uid=0,
+                        st_gid=0,
+                        st_mode=stat.S_IFDIR | 0o700,
+                        st_nlink=actual.st_nlink,
+                    )
+                return actual
+
+            with mock.patch.object(Path, "lstat", new=transition_lstat):
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_WORKTREE_LAYOUT_RED"
+                ):
+                    runtime._validate_repository_worktree_contract(
+                        repository, metadata
+                    )
+                runtime._validate_repository_worktree_contract(
+                    repository,
+                    metadata,
+                    allow_journaled_transition=True,
+                )
+
     def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -779,6 +827,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         deploy = source[deploy_start:deploy_end]
         self.assertNotIn("validate_source_contract()", deploy)
         self.assertNotIn("S12_1_CONTROLLER_FREEZE_RED", deploy)
+        self.assertNotIn("allow_journaled_transition=True", deploy)
         self.assertLess(
             deploy.index("_seal_release_fetch_stage(fetch_directories)"),
             deploy.index("_validate_ignored_release_collisions("),
@@ -796,6 +845,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             deploy.index("_serialized_repository_recovery("),
             deploy.index("_prepare_release_fetch_stage(pinned_bundles)"),
         )
+        rollback = source[
+            source.index("def rollback_once("):source.index("def _bare_root_git(")
+        ]
+        self.assertIn("allow_journaled_transition=True", rollback)
 
     def test_descriptor_pinned_bundle_copy_ignores_path_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

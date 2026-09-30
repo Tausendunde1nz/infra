@@ -68,6 +68,10 @@ Deployment attempts consumed: 0
     become ignored. A later chatops writer could create local state at that
     path; release-state validation ignored it and rollback checkout would
     overwrite it with the backed-up tracked version.
+19. The new ownership precondition accepted only the original checkout-root
+    owner. Crash recovery could encounter a durably journaled intermediate
+    after root locking or after reversing a Git-directory exchange and reject
+    that controller-created state before the idempotent unwind could run.
 
 ## Resolution
 
@@ -142,6 +146,11 @@ Deployment attempts consumed: 0
   ancestors and reject any collision with
   `S12_1_ROLLBACK_IGNORED_COLLISION_RED`. No repository path or content is
   retained in this additional evidence.
+- Keep initial deployment strict, but let journal-backed rollback/recovery
+  accept only the finite original, owner-restricted and root-locked top-level
+  states produced by the barrier state machine. Nested entries remain limited
+  to the recorded owner or root-owned controller transition state. This makes
+  the journal resumable without admitting arbitrary ownership drift.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.
