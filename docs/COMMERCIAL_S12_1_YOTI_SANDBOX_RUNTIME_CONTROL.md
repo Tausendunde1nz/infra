@@ -216,7 +216,10 @@ rejects network protocols, and permits only the local file protocol. Before
 such use, repository-local config keys are allowlisted and executable hooks
 are rejected. Root Git also requires a direct Git directory and direct object
 metadata directories: `commondir`, symlinked object metadata directories, and
-local or HTTP object alternates are rejected before Git runs. The active
+local or HTTP object alternates are rejected before Git runs. The complete Git
+metadata tree is walked without following links; any symlink or special file,
+including nested reference or reflog directories, is rejected before root Git
+can read or update it. The active
 repository-parent/root barrier prevents the `chatops` owner from changing this
 validated layout before root consumes it. Local bundle imports use
 `--no-write-fetch-head --no-tags --refmap=` so configured

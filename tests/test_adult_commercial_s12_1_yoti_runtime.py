@@ -569,6 +569,29 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 runtime._validate_root_git_contract(repository)
 
+    def test_root_git_contract_rejects_nested_metadata_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index, relative in enumerate(("refs/heads", "logs/refs/heads")):
+                with self.subTest(relative=relative):
+                    repository = root / f"repo-{index}.git"
+                    subprocess.run(
+                        ["git", "init", "--bare", str(repository)],
+                        check=True,
+                        capture_output=True,
+                    )
+                    external = root / f"external-{index}"
+                    external.mkdir()
+                    candidate = repository / relative
+                    candidate.parent.mkdir(parents=True, exist_ok=True)
+                    if candidate.exists():
+                        shutil.rmtree(candidate)
+                    candidate.symlink_to(external, target_is_directory=True)
+                    with self.assertRaisesRegex(
+                        runtime.S12ControlError, "S12_1_ROOT_GIT_LAYOUT_RED"
+                    ):
+                        runtime._validate_root_git_contract(repository)
+
     def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

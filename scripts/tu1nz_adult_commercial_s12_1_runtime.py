@@ -2086,6 +2086,18 @@ def _validate_root_git_contract(git_directory: Path) -> None:
             or not stat.S_ISDIR(objects_metadata.st_mode)
         ):
             raise OSError
+        pending = [git_directory]
+        while pending:
+            directory = pending.pop()
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    metadata = entry.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(metadata.st_mode):
+                        raise OSError
+                    if stat.S_ISDIR(metadata.st_mode):
+                        pending.append(Path(entry.path))
+                    elif not stat.S_ISREG(metadata.st_mode):
+                        raise OSError
         for directory in (objects / "info", objects / "pack"):
             if directory.exists() or directory.is_symlink():
                 metadata = directory.lstat()
