@@ -163,6 +163,12 @@ before the durable attempt marker. Any mixed-generation backup is rejected
 before deployment mutation. Dirty-state checks exclude only the controller's
 fixed, prevalidated quarantine-directory name while the barrier is active;
 every other tracked change or untracked path remains RED.
+Each root-owned, single-link, digest-bound release input bundle is opened once
+with `O_NOFOLLOW`; inode identity, owner, mode, link count and SHA-256 are
+validated on that descriptor. Bundle verification, head inspection and import
+consume its digest-checked copy created from that descriptor only after the
+repository parent is locked, so renaming or replacing the input's
+`chatops`-managed ancestor cannot substitute release bytes.
 After the shared repository parent is locked and retained handles are rejected,
 every regular file throughout both canonical worktrees must have link count
 one. An external hardlink alias therefore fails closed before either checkout

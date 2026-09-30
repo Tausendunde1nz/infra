@@ -19,6 +19,10 @@ Deployment attempts consumed: 0
 4. The Git metadata hardlink gate did not cover regular files in the canonical
    worktrees. An existing external hardlink could remain writable after the
    repository parent and root permissions were locked.
+5. Release input bundle digests were checked by pathname and the same paths
+   were reopened for verification and import before the shared repository
+   parent was locked. A writable ancestor allowed rename/replacement between
+   those operations.
 
 ## Resolution
 
@@ -34,6 +38,10 @@ Deployment attempts consumed: 0
 - After locking the shared repository parent and rejecting retained handles,
   require link count one for every regular file throughout both worktrees
   before locking their roots or running root Git.
+- Open both release input bundles once with `O_NOFOLLOW`, validate the opened
+  inode and digest, then copy only from those pinned descriptors into the
+  root-owned stage after repository-parent locking. Verify, inspect and import
+  only those protected, digest-checked copies.
 
 The correction does not alter product boundaries, credential handling, the
 single-attempt contract or deployment scope.

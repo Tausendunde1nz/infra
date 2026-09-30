@@ -2881,11 +2881,25 @@ def _bare_root_git(git_directory: Path, *arguments: str) -> str:
     return completed.stdout.strip()
 
 
-def _release_input_bundle_digest(
+def _sha256_descriptor(descriptor: int) -> str:
+    digest = hashlib.sha256()
+    offset = 0
+    while True:
+        payload = os.pread(descriptor, 1024 * 1024, offset)
+        if not payload:
+            return digest.hexdigest()
+        digest.update(payload)
+        offset += len(payload)
+
+
+def _open_release_input_bundle(
     bundle: Path, digest_environment: str, safe_code: str
-) -> str:
+) -> tuple[int, str]:
     expected = os.environ.get(digest_environment, "")
+    descriptor: int | None = None
     try:
+        descriptor = os.open(bundle, os.O_RDONLY | os.O_NOFOLLOW)
+        opened = os.fstat(descriptor)
         parent = bundle.parent.lstat()
         metadata = bundle.lstat()
         if (
@@ -2897,20 +2911,96 @@ def _release_input_bundle_digest(
             or stat.S_IMODE(parent.st_mode) & 0o022
             or bundle.is_symlink()
             or not stat.S_ISREG(metadata.st_mode)
+            or (opened.st_dev, opened.st_ino) != (metadata.st_dev, metadata.st_ino)
+            or not stat.S_ISREG(opened.st_mode)
             or metadata.st_uid != 0
             or metadata.st_gid != 0
             or stat.S_IMODE(metadata.st_mode) != 0o600
             or metadata.st_nlink != 1
+            or opened.st_uid != 0
+            or opened.st_gid != 0
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or opened.st_nlink != 1
             or re.fullmatch(r"[0-9a-f]{64}", expected) is None
-            or _sha256(bundle) != expected
+            or _sha256_descriptor(descriptor) != expected
         ):
             raise OSError
     except OSError:
+        if descriptor is not None:
+            os.close(descriptor)
         raise S12ControlError(safe_code) from None
-    return expected
+    return descriptor, expected
 
 
-def _prepare_release_fetch_stage() -> dict[Path, Path]:
+@contextmanager
+def _pinned_release_input_bundles():
+    application: tuple[int, str] | None = None
+    control: tuple[int, str] | None = None
+    try:
+        application = _open_release_input_bundle(
+            APPLICATION_INPUT_BUNDLE,
+            APPLICATION_BUNDLE_DIGEST_ENV,
+            "S12_1_APPLICATION_INPUT_BUNDLE_RED",
+        )
+        control = _open_release_input_bundle(
+            CONTROL_INPUT_BUNDLE,
+            CONTROL_BUNDLE_DIGEST_ENV,
+            "S12_1_CONTROL_INPUT_BUNDLE_RED",
+        )
+        yield {APPLICATION_ROOT: application, CONTROL_ROOT: control}
+    finally:
+        if application is not None:
+            os.close(application[0])
+        if control is not None:
+            os.close(control[0])
+
+
+def _copy_pinned_bundle(
+    descriptor: int, destination: Path, expected_digest: str
+) -> None:
+    output_descriptor: int | None = None
+    try:
+        output_descriptor = os.open(
+            destination,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+        source_descriptor = os.dup(descriptor)
+        os.lseek(source_descriptor, 0, os.SEEK_SET)
+        with (
+            os.fdopen(source_descriptor, "rb") as source,
+            os.fdopen(output_descriptor, "wb") as output,
+        ):
+            output_descriptor = None
+            shutil.copyfileobj(source, output, length=1024 * 1024)
+            output.flush()
+            os.fchmod(output.fileno(), 0o600)
+            os.fsync(output.fileno())
+        metadata = destination.lstat()
+        expected_uid = 0 if os.geteuid() == 0 else os.geteuid()
+        if (
+            destination.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != expected_uid
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != 1
+            or _sha256(destination) != expected_digest
+        ):
+            raise OSError
+        _fsync_directory(destination.parent)
+    except OSError:
+        destination.unlink(missing_ok=True)
+        raise S12ControlError("S12_1_FETCH_STAGE_RED") from None
+    finally:
+        if output_descriptor is not None:
+            os.close(output_descriptor)
+
+
+def _prepare_release_fetch_stage(
+    pinned_bundles: dict[Path, tuple[int, str]],
+) -> dict[Path, Path]:
+    if pinned_bundles.keys() != {APPLICATION_ROOT, CONTROL_ROOT}:
+        raise S12ControlError("S12_1_FETCH_STAGE_RED")
     if FETCH_ROOT.exists() or FETCH_ROOT.is_symlink():
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
     try:
@@ -2922,6 +3012,14 @@ def _prepare_release_fetch_stage() -> dict[Path, Path]:
         raise S12ControlError("S12_1_FETCH_STAGE_RED") from None
     application_fetch = FETCH_ROOT / "application.git"
     control_fetch = FETCH_ROOT / "control.git"
+    application_bundle = FETCH_ROOT / "application.bundle"
+    control_bundle = FETCH_ROOT / "control.bundle"
+    application_descriptor, application_digest = pinned_bundles[APPLICATION_ROOT]
+    control_descriptor, control_digest = pinned_bundles[CONTROL_ROOT]
+    _copy_pinned_bundle(
+        application_descriptor, application_bundle, application_digest
+    )
+    _copy_pinned_bundle(control_descriptor, control_bundle, control_digest)
     for git_directory in (application_fetch, control_fetch):
         _run(
             [
@@ -2932,23 +3030,13 @@ def _prepare_release_fetch_stage() -> dict[Path, Path]:
             ]
         )
         _validate_root_git_contract(git_directory)
-    _release_input_bundle_digest(
-        APPLICATION_INPUT_BUNDLE,
-        APPLICATION_BUNDLE_DIGEST_ENV,
-        "S12_1_APPLICATION_INPUT_BUNDLE_RED",
-    )
-    _release_input_bundle_digest(
-        CONTROL_INPUT_BUNDLE,
-        CONTROL_BUNDLE_DIGEST_ENV,
-        "S12_1_CONTROL_INPUT_BUNDLE_RED",
-    )
-    _verify_git_bundle(APPLICATION_ROOT, APPLICATION_INPUT_BUNDLE, application_fetch)
-    _verify_git_bundle(CONTROL_ROOT, CONTROL_INPUT_BUNDLE, control_fetch)
+    _verify_git_bundle(APPLICATION_ROOT, application_bundle, application_fetch)
+    _verify_git_bundle(CONTROL_ROOT, control_bundle, control_fetch)
     application_heads = _git_bundle_heads(
-        APPLICATION_ROOT, APPLICATION_INPUT_BUNDLE, application_fetch
+        APPLICATION_ROOT, application_bundle, application_fetch
     )
     control_heads = _git_bundle_heads(
-        CONTROL_ROOT, CONTROL_INPUT_BUNDLE, control_fetch
+        CONTROL_ROOT, control_bundle, control_fetch
     )
     if application_heads.get("refs/heads/main") != APPLICATION_COMMIT:
         raise S12ControlError("S12_1_APPLICATION_INPUT_BUNDLE_RED")
@@ -2968,19 +3056,19 @@ def _prepare_release_fetch_stage() -> dict[Path, Path]:
     for git_directory, bundle, source, destination in (
         (
             application_fetch,
-            APPLICATION_INPUT_BUNDLE,
+            application_bundle,
             "refs/heads/main",
             "refs/s12/application-main",
         ),
         (
             control_fetch,
-            CONTROL_INPUT_BUNDLE,
+            control_bundle,
             "refs/heads/control-main",
             "refs/s12/control-main",
         ),
         (
             control_fetch,
-            CONTROL_INPUT_BUNDLE,
+            control_bundle,
             f"refs/tags/{FREEZE_TAG}",
             f"refs/tags/{FREEZE_TAG}",
         ),
@@ -3411,39 +3499,40 @@ def _deploy_locked() -> dict[str, Any]:
     mutation_started = False
     try:
         _write_barrier_journal(path_records, parent_record)
-        fetch_directories = _prepare_release_fetch_stage()
-        with _serialized_repository_recovery(
-            records=path_records,
-            parent_record=parent_record,
-        ) as git_directories:
-            _seal_release_fetch_stage(fetch_directories)
-            backup, index = create_backup(
-                git_directories,
-                path_records,
-                parent_record,
-            )
-            _validate_backup_snapshot(backup, index, git_directories)
-            attempt_started_at = datetime.now(timezone.utc).isoformat().replace(
-                "+00:00", "Z"
-            )
-            _atomic_json(
-                ATTEMPT_MARKER,
-                {
-                    "attempt": 1,
-                    "backup": str(backup),
-                    "started_at": attempt_started_at,
-                },
-            )
-            mutation_started = True
-            control_sha, control_tree = _sync_repositories(
-                git_directories, fetch_directories
-            )
-            _create_immutable_release_stage(
-                git_directories,
-                control_sha,
-                control_tree,
-            )
-            _remove_fetch_stage(index)
+        with _pinned_release_input_bundles() as pinned_bundles:
+            with _serialized_repository_recovery(
+                records=path_records,
+                parent_record=parent_record,
+            ) as git_directories:
+                fetch_directories = _prepare_release_fetch_stage(pinned_bundles)
+                _seal_release_fetch_stage(fetch_directories)
+                backup, index = create_backup(
+                    git_directories,
+                    path_records,
+                    parent_record,
+                )
+                _validate_backup_snapshot(backup, index, git_directories)
+                attempt_started_at = datetime.now(timezone.utc).isoformat().replace(
+                    "+00:00", "Z"
+                )
+                _atomic_json(
+                    ATTEMPT_MARKER,
+                    {
+                        "attempt": 1,
+                        "backup": str(backup),
+                        "started_at": attempt_started_at,
+                    },
+                )
+                mutation_started = True
+                control_sha, control_tree = _sync_repositories(
+                    git_directories, fetch_directories
+                )
+                _create_immutable_release_stage(
+                    git_directories,
+                    control_sha,
+                    control_tree,
+                )
+                _remove_fetch_stage(index)
         _sync_repository_filesystem(APPLICATION_ROOT)
         _sync_repository_filesystem(CONTROL_ROOT)
         _durable_unlink(BARRIER_MARKER)

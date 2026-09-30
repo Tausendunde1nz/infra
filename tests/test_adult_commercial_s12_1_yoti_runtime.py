@@ -676,7 +676,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertNotIn("REMOTE_URL", source)
         self.assertNotIn("git@github", source)
         self.assertNotIn("_isolated_chatops_git_prefix", source)
-        self.assertIn("_release_input_bundle_digest(", source)
+        self.assertIn("_open_release_input_bundle(", source)
+        self.assertIn("_copy_pinned_bundle(", source)
         self.assertIn("APPLICATION_BUNDLE_DIGEST_ENV", source)
         self.assertIn("CONTROL_BUNDLE_DIGEST_ENV", source)
         self.assertIn("APPLICATION_INPUT_BUNDLE", source)
@@ -693,6 +694,33 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             deploy.index("_seal_release_fetch_stage(fetch_directories)"),
             deploy.index("backup, index = create_backup("),
         )
+        self.assertLess(
+            deploy.index("_pinned_release_input_bundles()"),
+            deploy.index("_serialized_repository_recovery("),
+        )
+        self.assertLess(
+            deploy.index("_serialized_repository_recovery("),
+            deploy.index("_prepare_release_fetch_stage(pinned_bundles)"),
+        )
+
+    def test_descriptor_pinned_bundle_copy_ignores_path_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = root / "release.bundle"
+            original = b"pinned-reviewed-bundle\n"
+            bundle.write_bytes(original)
+            expected_digest = hashlib.sha256(original).hexdigest()
+            descriptor = os.open(bundle, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                bundle.rename(root / "release.original")
+                bundle.write_bytes(b"replacement\n")
+                destination = root / "pinned-copy.bundle"
+                runtime._copy_pinned_bundle(
+                    descriptor, destination, expected_digest
+                )
+            finally:
+                os.close(descriptor)
+            self.assertEqual(destination.read_bytes(), original)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_repository_handle_gate_detects_closed_fd_writable_mapping(self) -> None:
