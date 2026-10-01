@@ -1,0 +1,105 @@
+{
+  "activation_authorized": false,
+  "baseline": {
+    "config_sha256": "7eb4c8092808314c411409214c14e7df3628f4080bc7b58d1304a9fec9dbc808",
+    "default_network": "tausendunde1nz_net",
+    "hostconfig_sha256": "69c5dd2f0a128b3e765e24c3fbbc810d6ca531bb9ec9510e088b378af6f0c8f3",
+    "image": "sha256:f0c7c619b45ffb475d79c2339fbef21ced03c6e83d919d321ef89b40cd4889db",
+    "mounts": [
+      {
+        "Destination": "/app",
+        "Mode": "rw",
+        "Propagation": "rprivate",
+        "RW": true,
+        "Source": "/opt/telegram_chatbot",
+        "Type": "bind"
+      }
+    ],
+    "name": "/telegram_bot_mommyramona",
+    "networks": {
+      "tausendunde1nz_net": {
+        "aliases": [],
+        "driver_opts": {},
+        "gateway_priority": 0,
+        "ipam": {},
+        "network_id": "470c1e93874782eeea4d9060f0502efdc6911d7afd96171c147e13a7013cd646",
+        "static_ip": null,
+        "static_mac": null
+      },
+      "telegram_chatbot_default": {
+        "aliases": [
+          "telegram_bot_mommyramona"
+        ],
+        "driver_opts": {},
+        "gateway_priority": 0,
+        "ipam": {},
+        "network_id": "19dfddd921309262441caf64ccfe959716beb6b953f384c5cf67c9120eebe7db",
+        "static_ip": null,
+        "static_mac": null
+      }
+    }
+  },
+  "candidate": {
+    "config_sha256": "ce951df25fe1427fb5badf933184a95b48d27f268cd44279518803982b27f464",
+    "default_network": "tausendunde1nz_net",
+    "hostconfig_sha256": "d0cc4e32fa4c390646182173b12aefae2310b058ef6e85728cb9abedeb08efc9",
+    "image": "sha256:f0c7c619b45ffb475d79c2339fbef21ced03c6e83d919d321ef89b40cd4889db",
+    "mounts": [
+      {
+        "Destination": "/app",
+        "Mode": "ro",
+        "Propagation": "rprivate",
+        "RW": false,
+        "Source": "/opt/telegram_chatbot",
+        "Type": "bind"
+      }
+    ],
+    "name": "/telegram_bot_mommyramona",
+    "networks": {
+      "tausendunde1nz_net": {
+        "aliases": [],
+        "driver_opts": {},
+        "gateway_priority": 0,
+        "ipam": {},
+        "network_id": "470c1e93874782eeea4d9060f0502efdc6911d7afd96171c147e13a7013cd646",
+        "static_ip": null,
+        "static_mac": null
+      },
+      "telegram_chatbot_default": {
+        "aliases": [
+          "telegram_bot_mommyramona"
+        ],
+        "driver_opts": {},
+        "gateway_priority": 0,
+        "ipam": {},
+        "network_id": "19dfddd921309262441caf64ccfe959716beb6b953f384c5cf67c9120eebe7db",
+        "static_ip": null,
+        "static_mac": null
+      }
+    }
+  },
+  "case": "A",
+  "consumer_review": "N8N_MARKER_SEMANTICS.json",
+  "consumer_review_sha256": "613894727670cc8a6eeb23b14c63a6789e185bc8d77110ebb64f39bc75ce670d",
+  "pins": {
+    "static_ips": [],
+    "static_macs": []
+  },
+  "rollback": "RESTORE_BASELINE_FUNCTIONAL_CONTRACT_BEFORE_AUTHORITY_SEAL; KEEP_NONROOT_AFTER_SEAL",
+  "runtime_checks": [
+    "uid_gid",
+    "capabilities",
+    "nnp",
+    "rootfs",
+    "code_readonly",
+    "dns",
+    "hostport",
+    "internal_port",
+    "proxy",
+    "monitoring",
+    "listeners",
+    "mychatbuddy",
+    "running"
+  ],
+  "schema": 1
+}

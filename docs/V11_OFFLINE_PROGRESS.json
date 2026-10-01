@@ -1,0 +1,61 @@
+{
+  "activation_ready": false,
+  "current_baseline_blocker": {
+    "baseline_state": "active/running",
+    "current_state": "inactive/dead",
+    "exec_main_code": 2,
+    "exec_main_exit_utc": "2026-09-30T22:19:16Z",
+    "exec_main_status": 15,
+    "initiator": "NOT_PROVEN",
+    "result": "success",
+    "unit": "tu1nz_agentmode.service",
+    "unit_content_unchanged": true,
+    "unit_sha256": "cc0ebe655f5fc843e8d8ded5ba321214aed58a8b1062b198606d1667dff356e1"
+  },
+  "historical_launchers": "NOT_REUSABLE",
+  "launcher_generated": false,
+  "marker_review_sha256": "613894727670cc8a6eeb23b14c63a6789e185bc8d77110ebb64f39bc75ce670d",
+  "n8n_identity_blocker_closed": true,
+  "network_case": "A",
+  "network_contract_sha256": "33538e7dd28d7055246fb8f270e3075f3e6115810d4427ce73a04b7f16309890",
+  "not_completed": [
+    "production host adapter for all phases",
+    "new root-owned bootstrap and verified bundle installer",
+    "independent watchdog integration and end-to-end crash recovery",
+    "fresh SSH client proof integration",
+    "complete migration/rollback end-to-end proof"
+  ],
+  "offline_components": {
+    "broker_v11.py": "c51ec71b10ce8fd3c65b53b8aa4085b2b1dbb4ee70be6d9a1ec3e0eb823843bc",
+    "doc_publish.py": "64e18361516872c639df7148ae195c13fcadf17e04a7baf173c49e9a99220970",
+    "doc_worker.py": "2e1197ae0fc5ce307e97c14f7e103751328bd9a95d9c0e0054f0e3b4c97ca3cc",
+    "replacements_v11.py": "f796ee0fa6bb558de642bd698458a716eba708bc003a3b3fca89d01cf983b5be",
+    "test_broker_v11.py": "b402eaf012f64d7d65bec4f1d52612a2578c2afca6c5423936167e2bc429ad61",
+    "test_documents_v11.py": "c94add285ffb07fd4a4eeb4908db3c32cd5258e017996d871342b0c06e6a436d",
+    "test_replacements_v11.py": "4735d2c2e6f5b56ce3ffffec0baa7e9d979f691309eb96e21f423f83e8cc4c0a",
+    "test_transaction_v11.py": "7a570d85e49c28a193785dafcf35ee34196b74a1cfc18a38fb978fcb7fbc847c",
+    "transaction_v11.py": "6de78b957fc8f42cc3da1de34290eb835c5e50f97546062594ca2efa4326e15b"
+  },
+  "preservation": {
+    "counts": [
+      701,
+      42,
+      1125,
+      30
+    ],
+    "evidence_path": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-offline-closeout-20261001T173041Z-b0e3c429/preservation-and-drift.json",
+    "evidence_sha256": "b73e80788938a9c7471e9ebf0a776511513cd312a23af0c4308bf67604830b38"
+  },
+  "root_transaction_started": false,
+  "schema": 1,
+  "watchdog_started": false,
+  "workflow": {
+    "all_steps_rc_zero": true,
+    "exporter_javascript_cases": 11,
+    "optional_application_cases_skipped": 2,
+    "results_path": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-offline-closeout-20261001T173041Z-b0e3c429/final-tests/results.json",
+    "results_sha256": "71202d622277c90bfdb8916383d47a60f633d80572444da7194e41445ff2abb6",
+    "steps": 108,
+    "targeted_python_tests": 376
+  }
+}

@@ -1,0 +1,177 @@
+{
+  "activation_authorized": false,
+  "active": true,
+  "connections_sha256": "8be3e5b785d4b5270d3484ccde12fc54056b0a115ae634af0dbd264b97e63fae",
+  "http_endpoint": {
+    "classification": "EXTERNAL_ENDPOINT",
+    "dynamic_host": false,
+    "host": "api.telegram.org",
+    "node_id": "HTTP_TelegramNotify",
+    "path": "/bot<redacted>/sendMessage",
+    "port": 443,
+    "scheme": "https",
+    "url_sha256": "d9e0414b381e9be9affb5ddc07b606d30856b919125034f28cea193c0ed78889"
+  },
+  "markers": [
+    {
+      "classification": "NON_NETWORK_EXPRESSION",
+      "expression_sha256": "995fe7ac5b2e6f4cb6f93f328286aa1bfa0befcb12bc1c2faca3935e36d59f73",
+      "field": "parameters.command",
+      "host": null,
+      "index": 1,
+      "network_endpoint_affected": false,
+      "node_id": "Exec_BuildProduct",
+      "node_index": 2,
+      "node_type": "n8n-nodes-base.executeCommand",
+      "normalized_structure": "shell fixed /home/node/tu1nz_make_product.sh ARG(productSlug) ARG(promptText); local echo",
+      "path": null,
+      "port": null,
+      "scheme": null,
+      "source": "previous_node_static_workflow_values",
+      "source_fields": [
+        "productSlug",
+        "promptText"
+      ]
+    },
+    {
+      "classification": "NON_NETWORK_EXPRESSION",
+      "expression_sha256": "8b29de42aa39e8ace6fc6dd0901c9c731599afd9a03d3f3e6f7c16c4fdeaf9d2",
+      "field": "parameters.functionCode",
+      "host": null,
+      "index": 2,
+      "network_endpoint_affected": false,
+      "node_id": "Function_PrepareTelegram",
+      "node_index": 3,
+      "node_type": "n8n-nodes-base.function",
+      "normalized_structure": "build Telegram text from slug,dir,timestamp,status,summary; fixed destination identifier withheld",
+      "path": null,
+      "port": null,
+      "scheme": null,
+      "source": "previous_node_output",
+      "source_fields": [
+        "slug",
+        "dir",
+        "timestamp",
+        "status",
+        "summary"
+      ]
+    },
+    {
+      "classification": "NON_NETWORK_EXPRESSION",
+      "expression_sha256": "ab8a7e6a08c85af3fecc659998d3d3c3d217383865a42825cae23667617fbb03",
+      "field": "parameters.bodyParameters.parameters[1].value",
+      "host": null,
+      "index": 3,
+      "network_endpoint_affected": false,
+      "node_id": "HTTP_TelegramNotify",
+      "node_index": 4,
+      "node_type": "n8n-nodes-base.httpRequest",
+      "normalized_structure": "$json.text -> HTTP request body only",
+      "path": null,
+      "port": null,
+      "scheme": null,
+      "source": "previous_node_output",
+      "source_fields": [
+        "text"
+      ]
+    },
+    {
+      "classification": "NON_NETWORK_EXPRESSION",
+      "expression_sha256": "ab1156de48942c1a3a8179ae3e8e2226f5c6026190b014b9cb13f6c4c1a707aa",
+      "field": "parameters.bodyParameters.parameters[2].value",
+      "host": null,
+      "index": 4,
+      "network_endpoint_affected": false,
+      "node_id": "HTTP_TelegramNotify",
+      "node_index": 4,
+      "node_type": "n8n-nodes-base.httpRequest",
+      "normalized_structure": "$json.parse_mode -> HTTP request body only",
+      "path": null,
+      "port": null,
+      "scheme": null,
+      "source": "previous_node_static_workflow_values",
+      "source_fields": [
+        "parse_mode"
+      ]
+    },
+    {
+      "classification": "NON_NETWORK_EXPRESSION",
+      "expression_sha256": "a5bf59b29eea0d48c0ca8e04c89c8b1a670c52252e6e6d61f3fd6659ffe22d61",
+      "field": "parameters.functionCode",
+      "host": null,
+      "index": 5,
+      "network_endpoint_affected": false,
+      "node_id": "Function_LogFragment",
+      "node_index": 5,
+      "node_type": "n8n-nodes-base.function",
+      "normalized_structure": "build logText from productSlug,productDir and fixed log formatting",
+      "path": null,
+      "port": null,
+      "scheme": null,
+      "source": "previous_node_output",
+      "source_fields": [
+        "productSlug",
+        "productDir"
+      ]
+    },
+    {
+      "classification": "NON_NETWORK_EXPRESSION",
+      "expression_sha256": "32ac1a378d6de858874085cffbf9949a944a56ff47965b669aac55923367006c",
+      "field": "parameters.command",
+      "host": null,
+      "index": 6,
+      "network_endpoint_affected": false,
+      "node_id": "Exec_WriteLog",
+      "node_index": 6,
+      "node_type": "n8n-nodes-base.executeCommand",
+      "normalized_structure": "shell echo ARG(logText) >> fixed /home/node/.n8n/product_factory.log",
+      "path": null,
+      "port": null,
+      "scheme": null,
+      "source": "previous_node_output",
+      "source_fields": [
+        "logText"
+      ]
+    },
+    {
+      "classification": "NON_NETWORK_EXPRESSION",
+      "expression_sha256": "b35c167491bfacfb2a94a5ec844ee820fe6e753cadee41aa1f664a1d3c031ae2",
+      "field": "parameters.command",
+      "host": null,
+      "index": 7,
+      "network_endpoint_affected": false,
+      "node_id": "ca0de873-8e62-4ffc-94d5-3043d9c828b6",
+      "node_index": 7,
+      "node_type": "n8n-nodes-base.executeCommand",
+      "normalized_structure": "shell cd ARG(PRODUCT_DIR); ls count; du size; echo status",
+      "path": null,
+      "port": null,
+      "scheme": null,
+      "source": "previous_node_output",
+      "source_fields": [
+        "PRODUCT_DIR"
+      ]
+    }
+  ],
+  "network_decision": {
+    "case": "A",
+    "container_port": 8080,
+    "direct_ip_dependency": false,
+    "direct_mac_dependency": false,
+    "dnat_owner": "Docker",
+    "hostport": 8081,
+    "ip_and_mac_ephemeral": true,
+    "n8n_common_network": false,
+    "n8n_patch_required": false
+  },
+  "raw_export_sha256": "1a1300de0403cbf1c05a3dd2025dfa60217c32357d8b222c57b382c44c45405d",
+  "schema": 1,
+  "separate_findings": [
+    "SHELL_INTERPOLATION_REQUIRES_SEPARATE_REVIEW_NOT_NETWORK_IDENTITY_DEPENDENCY",
+    "PRODUCT_SCRIPT_ABSENT_NO_EXECUTION_ATTEMPTED"
+  ],
+  "updated_at": "2025-10-24 19:38:35",
+  "version_id": "78a3f06a-99e6-45b9-afb7-33045a858ff0",
+  "workflow_id": "ptNQ8rpGMyk1zGx3",
+  "workflow_nodes_sha256": "caf6e124437689779d4dd4137edebc1ab1a91345498127b61d10a58a814c2fcc"
+}
