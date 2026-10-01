@@ -42,11 +42,16 @@ The r4 contract:
    `.git.s12-1-recovery` inode trees;
 3. removes namespace write permission from the shared parent and repository
    roots while retaining the recorded group's read/traverse classes;
-4. locks real `.git` metadata to `root:root` mode `0700`;
-5. repeats writer and metadata-handle checks before atomic exchange;
-6. atomically exchanges `.git` with a root-owned mode-`000` guard;
-7. checks both guards and quarantined metadata before root-only Git use;
-8. durably restores metadata and exact recorded ownership/modes.
+4. installs a kernel mutation watch and binds the complete Git-metadata tree
+   to a stable cryptographic transition fingerprint;
+5. locks real `.git` metadata to `root:root` mode `0700`, then rejects any
+   fingerprint drift or queued mutation event from even an already-exited
+   writer before exchange;
+6. repeats writer and metadata-handle checks before atomic exchange;
+7. atomically exchanges `.git` with a root-owned mode-`000` guard while the
+   mutation watch remains active;
+8. checks both guards and quarantined metadata before root-only Git use;
+9. durably restores metadata and exact recorded ownership/modes.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.

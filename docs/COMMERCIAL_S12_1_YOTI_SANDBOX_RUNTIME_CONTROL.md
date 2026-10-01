@@ -219,9 +219,17 @@ The controller captures repository-parent, repository-root and `.git`
 ownership/modes, durably journals those exact recovery values, then removes
 namespace write permission while retaining the recorded group's read/traverse
 permission; a baseline lacking group read/traverse is RED. It separately
-changes real Git metadata to `root:root` mode `0700`
-and atomically installs the repository barriers before
-it captures repository identity, attached/detached posture, release-branch
+installs a kernel mutation watch over every Git-metadata directory, binds the
+complete metadata tree to a stable cryptographic transition fingerprint, and
+changes real Git metadata to `root:root` mode `0700`. Any writer event or
+fingerprint drift is rejected before the protected body, including a short
+writer that exits before the later process scan. The watch remains active
+through the atomic exchange; failure or event-queue overflow is fail-closed.
+The controller then atomically installs the repository barriers. After the
+exchange, it rejects retained handles and re-fingerprints the quarantined inode
+tree; this also closes the short-lived writable-mapping case that Linux
+mutation notification does not promise to report. Only then does it capture
+repository identity, attached/detached posture, release-branch
 tip, managed refs, bundles or pre-state files. The same barriers remain held
 without a gap through backup validation, the durable attempt marker, canonical
 sync and immutable release-stage creation. All backup Git reads and the exact
@@ -414,7 +422,8 @@ Before repository rollback, the controller confirms that neither the Control
 sync loop nor any Git process rooted in either canonical checkout is active.
 It records the repository-root and Git-directory ownership/modes, removes
 namespace write authority while retaining `chatops` traversal, locks `.git`
-itself to `root:root` mode `0700`, and creates a fixed
+itself to `root:root` mode `0700`, requires the kernel mutation watch and
+cryptographic transition fingerprint to remain clean, and creates a fixed
 root-owned mode-`000` guard and atomically exchanges that
 directory with each real `.git` directory (`RENAME_EXCHANGE`/`RENAME_SWAP`).
 There is no absent-`.git` interval. Normal Git writers therefore cannot enter,

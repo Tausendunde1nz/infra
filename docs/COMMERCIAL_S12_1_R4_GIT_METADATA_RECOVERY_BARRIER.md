@@ -13,20 +13,31 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 2. Reject the competing Control sync loop, actual Git processes and retained
    Git-metadata handles.
 3. Journal the exact repository and shared-parent metadata durably.
-4. Remove write bits from the shared parent and repository roots, change only
+4. Install a kernel mutation watch on every protected Git-metadata directory
+   and bind the complete tree to a stable cryptographic transition fingerprint.
+5. Remove write bits from the shared parent and repository roots, change only
    their owner to root, and retain their recorded groups and traversal classes.
    A baseline without recorded-group read/traverse permission is rejected.
-5. Change canonical `.git` to `root:root` mode `0700`.
-6. Repeat actual-Git and metadata-handle checks.
-7. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.
-8. Reject handles into either guard or quarantined metadata, then run isolated
+6. Change canonical `.git` to `root:root` mode `0700`, then require both the
+   transition fingerprint and the kernel event queue to remain unchanged.
+7. Repeat actual-Git and metadata-handle checks.
+8. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.
+   Keep the mutation watch through the exchange and reject any writer event,
+   including one from a process that already exited before the process scan.
+9. Reject handles into either guard or quarantined metadata and re-fingerprint
+   the quarantined inode tree. This also catches a closed writable mapping,
+   which Linux mutation notification alone does not promise to report.
+10. Run isolated
    root Git exclusively against the quarantined directory.
-9. Flush repository filesystems, exchange metadata back, restore exact
+11. Flush repository filesystems, exchange metadata back, restore exact
    ownership/modes and flush again.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
-the scan/exchange race. The group traversal contract keeps S7, S8 Landing, S8
-Telegram and S10 WMS able to use their existing Worktree and `.venv` paths.
+the scan/exchange race. The fingerprint plus the kernel mutation watch closes
+the short-lived-writer gap: a metadata change is rejected before the protected
+body even when no process or descriptor remains at the later scan. The group
+traversal contract keeps S7, S8 Landing, S8 Telegram and S10 WMS able to use
+their existing Worktree and `.venv` paths.
 
 ## Classification matrix
 

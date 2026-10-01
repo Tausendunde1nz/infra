@@ -19,6 +19,7 @@ import pwd
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -2355,6 +2356,231 @@ def _repository_git_metadata_paths(roots: Sequence[Path]) -> tuple[Path, ...]:
     return tuple(protected)
 
 
+def _git_metadata_transition_fingerprint(paths: Sequence[Path]) -> str:
+    """Bind the complete protected tree while normalizing its top lock attrs."""
+
+    digest = hashlib.sha256()
+    for index, root in enumerate(paths):
+        try:
+            root_metadata = root.lstat()
+            if root.is_symlink() or not stat.S_ISDIR(root_metadata.st_mode):
+                raise OSError
+            digest.update(
+                b"root\0"
+                + str(index).encode("ascii")
+                + b"\0"
+                + str(root_metadata.st_dev).encode("ascii")
+                + b":"
+                + str(root_metadata.st_ino).encode("ascii")
+                + b"\0"
+            )
+            pending = [root]
+            while pending:
+                directory = pending.pop()
+                entries = sorted(
+                    os.scandir(directory), key=lambda entry: os.fsencode(entry.name)
+                )
+                child_directories: list[Path] = []
+                for entry in entries:
+                    path = Path(entry.path)
+                    metadata = entry.stat(follow_symlinks=False)
+                    relative = os.fsencode(path.relative_to(root))
+                    if stat.S_ISDIR(metadata.st_mode):
+                        kind = b"directory"
+                        child_directories.append(path)
+                        payload = b""
+                    elif stat.S_ISREG(metadata.st_mode):
+                        kind = b"regular"
+                        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                        try:
+                            before = os.fstat(descriptor)
+                            content = hashlib.sha256()
+                            while True:
+                                block = os.read(descriptor, 1024 * 1024)
+                                if not block:
+                                    break
+                                content.update(block)
+                            after = os.fstat(descriptor)
+                        finally:
+                            os.close(descriptor)
+                        stable_fields = (
+                            "st_dev", "st_ino", "st_mode", "st_uid", "st_gid",
+                            "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns",
+                        )
+                        if any(
+                            getattr(before, field) != getattr(after, field)
+                            or getattr(before, field) != getattr(metadata, field)
+                            for field in stable_fields
+                        ):
+                            raise OSError
+                        payload = content.digest()
+                    elif stat.S_ISLNK(metadata.st_mode):
+                        kind = b"symlink"
+                        payload = os.fsencode(os.readlink(path))
+                    else:
+                        raise OSError
+                    digest.update(
+                        relative
+                        + b"\0"
+                        + kind
+                        + b"\0"
+                        + b":".join(
+                            str(value).encode("ascii")
+                            for value in (
+                                metadata.st_dev,
+                                metadata.st_ino,
+                                metadata.st_mode,
+                                metadata.st_uid,
+                                metadata.st_gid,
+                                metadata.st_nlink,
+                                metadata.st_size,
+                                metadata.st_mtime_ns,
+                                metadata.st_ctime_ns,
+                            )
+                        )
+                        + b"\0"
+                        + payload
+                        + b"\0"
+                    )
+                pending.extend(reversed(child_directories))
+        except (OSError, ValueError):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+    return digest.hexdigest()
+
+
+class _GitMetadataTransitionGuard:
+    """Detect even short-lived metadata writers across the lock transition."""
+
+    _EVENT = struct.Struct("iIII")
+    _MUTATION_MASK = (
+        0x00000002  # IN_MODIFY
+        | 0x00000004  # IN_ATTRIB
+        | 0x00000008  # IN_CLOSE_WRITE
+        | 0x00000040  # IN_MOVED_FROM
+        | 0x00000080  # IN_MOVED_TO
+        | 0x00000100  # IN_CREATE
+        | 0x00000200  # IN_DELETE
+        | 0x00000400  # IN_DELETE_SELF
+        | 0x00000800  # IN_MOVE_SELF
+    )
+    _IN_Q_OVERFLOW = 0x00004000
+    _IN_ISDIR = 0x40000000
+    _ROOT_LOCK_EVENTS = 0x00000004 | 0x00000800  # ATTRIB | MOVE_SELF
+
+    def __init__(self, paths: Sequence[Path]):
+        self.paths = tuple(paths)
+        self.descriptor: int | None = None
+        self.root_watches: set[int] = set()
+        self.baseline = ""
+        try:
+            if sys.platform == "linux":
+                library = ctypes.CDLL(None, use_errno=True)
+                init = library.inotify_init1
+                init.argtypes = [ctypes.c_int]
+                init.restype = ctypes.c_int
+                descriptor = init(os.O_NONBLOCK | os.O_CLOEXEC)
+                if descriptor < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_init1")
+                self.descriptor = descriptor
+                add = library.inotify_add_watch
+                add.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+                add.restype = ctypes.c_int
+                for root in self.paths:
+                    pending = [root]
+                    first = True
+                    while pending:
+                        directory = pending.pop()
+                        watch = add(
+                            descriptor,
+                            os.fsencode(directory),
+                            self._MUTATION_MASK,
+                        )
+                        if watch < 0:
+                            raise OSError(ctypes.get_errno(), "inotify_add_watch")
+                        if first:
+                            self.root_watches.add(watch)
+                            first = False
+                        entries = sorted(
+                            os.scandir(directory),
+                            key=lambda entry: os.fsencode(entry.name),
+                        )
+                        children = [
+                            Path(entry.path)
+                            for entry in entries
+                            if entry.is_dir(follow_symlinks=False)
+                        ]
+                        pending.extend(reversed(children))
+            self.baseline = _git_metadata_transition_fingerprint(self.paths)
+            self._assert_event_queue_quiet()
+        except S12ControlError:
+            self.close()
+            raise
+        except (OSError, ValueError, AttributeError):
+            self.close()
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+
+    def _assert_event_queue_quiet(self) -> None:
+        if self.descriptor is None:
+            return
+        while True:
+            try:
+                payload = os.read(self.descriptor, 1024 * 1024)
+            except BlockingIOError:
+                return
+            except OSError:
+                raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+            if not payload:
+                return
+            offset = 0
+            while offset < len(payload):
+                if len(payload) - offset < self._EVENT.size:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                    payload, offset
+                )
+                offset += self._EVENT.size
+                if name_length > len(payload) - offset:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                name = payload[offset : offset + name_length].rstrip(b"\0")
+                offset += name_length
+                normalized = mask & ~self._IN_ISDIR
+                if normalized & self._IN_Q_OVERFLOW:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                if (
+                    watch in self.root_watches
+                    and not name
+                    and normalized
+                    and normalized & ~self._ROOT_LOCK_EVENTS == 0
+                ):
+                    continue
+                if normalized:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+
+    def assert_unchanged(self) -> None:
+        self._assert_event_queue_quiet()
+        if _git_metadata_transition_fingerprint(self.paths) != self.baseline:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        self._assert_event_queue_quiet()
+
+    def assert_no_writer_events(self) -> None:
+        self._assert_event_queue_quiet()
+
+    def assert_quarantined_unchanged(self, paths: Sequence[Path]) -> None:
+        """Seal mmap and already-open-fd races after metadata is unreachable."""
+
+        self._assert_event_queue_quiet()
+        if _git_metadata_transition_fingerprint(paths) != self.baseline:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        self._assert_event_queue_quiet()
+
+    def close(self) -> None:
+        if self.descriptor is not None:
+            try:
+                os.close(self.descriptor)
+            finally:
+                self.descriptor = None
+
+
 def _current_process_ancestry() -> set[str]:
     ancestry = {str(os.getpid())}
     current = os.getpid()
@@ -3171,10 +3397,19 @@ def _serialized_repository_recovery(
                 selected_records[root],
                 allow_journaled_transition=allow_journaled_transition,
             )
+    transition_guard = _GitMetadataTransitionGuard(
+        tuple(path for path in metadata_paths if not _is_recovery_guard(path))
+    )
     barriers: dict[Path, Path] = {}
     parent_locked = False
     completed = False
     try:
+        if (
+            _competing_control_sync_count() != 0
+            or _active_repository_git_count(selected_roots) != 0
+            or _active_recovery_git_handle_count(metadata_paths) != 0
+        ):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         if parent_record is not None:
             _lock_repository_parent(parent_record)
             parent_locked = True
@@ -3196,6 +3431,7 @@ def _serialized_repository_recovery(
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
             _lock_repository_git_metadata(root, selected_records[root])
+        transition_guard.assert_unchanged()
         metadata_paths = _repository_git_metadata_paths(selected_roots)
         if (
             _active_repository_git_count(selected_roots) != 0
@@ -3206,6 +3442,7 @@ def _serialized_repository_recovery(
             barriers[root] = _install_repository_recovery_barrier(
                 root, selected_records[root]
             )
+        transition_guard.assert_no_writer_events()
         if (
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
@@ -3216,6 +3453,9 @@ def _serialized_repository_recovery(
             != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        transition_guard.assert_no_writer_events()
+        transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
+        transition_guard.close()
         for git_directory in barriers.values():
             _validate_root_git_contract(git_directory)
         for root, git_dir in barriers.items():
@@ -3223,6 +3463,7 @@ def _serialized_repository_recovery(
         yield barriers
         completed = True
     finally:
+        transition_guard.close()
         cleanup_failed = False
         if not (preserve_on_error and not completed):
             for root, git_dir in reversed(tuple(barriers.items())):

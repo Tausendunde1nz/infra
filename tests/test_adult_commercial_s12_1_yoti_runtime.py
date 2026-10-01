@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import mmap
 import os
 import pwd
 import shutil
@@ -854,6 +855,20 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             "_active_recovery_git_handle_count(selected_roots)", contract
         )
         self.assertIn("_lock_repository_git_metadata(", contract)
+        self.assertIn("_GitMetadataTransitionGuard(", contract)
+        self.assertLess(
+            contract.index("_GitMetadataTransitionGuard("),
+            contract.index("_lock_repository_root("),
+        )
+        self.assertLess(
+            contract.index("transition_guard.assert_unchanged()"),
+            contract.index("_install_repository_recovery_barrier("),
+        )
+        self.assertLess(
+            contract.index("_install_repository_recovery_barrier("),
+            contract.index("transition_guard.assert_no_writer_events()"),
+        )
+        self.assertIn("transition_guard.assert_quarantined_unchanged(", contract)
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -1930,6 +1945,106 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             finally:
                 if writer is not None:
                     writer.communicate(timeout=10)
+
+    def test_short_lived_metadata_writer_is_detected_before_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            original_lock = runtime._lock_repository_root
+            exchange_reached = False
+
+            def mutate_then_exit(root: Path, record: dict[str, object]) -> None:
+                original_lock(root, record)
+                subprocess.run(
+                    [
+                        "git", "-C", str(repository), "config", "--local",
+                        "s12.racing-writer", "completed",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+
+            def reject_exchange(_first: Path, _second: Path) -> None:
+                nonlocal exchange_reached
+                exchange_reached = True
+                raise AssertionError("metadata exchange must remain unreachable")
+
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_lock_repository_root", side_effect=mutate_then_exit
+                ),
+                mock.patch.object(runtime, "_atomic_exchange", side_effect=reject_exchange),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    self.fail("short-lived metadata writer reached protected body")
+            self.assertFalse(exchange_reached)
+            self.assertFalse(runtime._recovery_git_path(repository).exists())
+            self.assertTrue((repository / ".git").is_dir())
+
+    def test_closed_mmap_writer_is_detected_after_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            config = repository / ".git/config"
+            original_install = runtime._install_repository_recovery_barrier
+
+            def mutate_quarantined_metadata(
+                root: Path, record: dict[str, object]
+            ) -> Path:
+                recovery = original_install(root, record)
+                quarantined_config = recovery / "config"
+                with quarantined_config.open("r+b") as handle:
+                    mapping = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_WRITE)
+                    try:
+                        mapping[0:1] = b"#"
+                        mapping.flush()
+                    finally:
+                        mapping.close()
+                return recovery
+
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_install_repository_recovery_barrier",
+                    side_effect=mutate_quarantined_metadata,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    self.fail("closed mmap writer reached protected body")
+            self.assertTrue(config.is_file())
+            self.assertFalse(runtime._recovery_git_path(repository).exists())
 
     def test_metadata_barrier_modes_preserve_existing_traversal_classes(self) -> None:
         self.assertEqual(runtime._metadata_barrier_mode(0o2770), 0o2550)
