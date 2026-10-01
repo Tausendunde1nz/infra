@@ -68,7 +68,9 @@ The r4 contract:
     and rejects any waiting-writer event before closing the watch at the
     explicit writer-release point;
 14. resumes cleanly from a crash after either chmod or chown and normalizes an
-    R3 `root:root 0500` parent/root lock to the recorded-group R4 contract.
+    R3 `root:root 0500` parent/root lock to the recorded-group R4 contract;
+15. restores every new or replaced current tracked inode from root ownership
+    to the recorded canonical repository owner/group before release validation.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.

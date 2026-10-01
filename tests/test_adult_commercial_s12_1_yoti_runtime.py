@@ -2307,6 +2307,19 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             replacement.write_text("reviewed\n", encoding="ascii")
             os.chmod(replacement, 0o644)
             os.replace(replacement, tracked)
+            added = nested / "added.txt"
+            added.write_text("added\n", encoding="ascii")
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    f"safe.directory={repository}",
+                    "add",
+                    "nested/added.txt",
+                ],
+                cwd=repository,
+                check=True,
+            )
 
             runtime._lock_worktree_write_barrier(barrier)
             runtime._assert_worktree_write_barrier((repository,), barrier)
@@ -2314,7 +2327,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(replacement_metadata.st_uid, 0)
             self.assertEqual(stat.S_IMODE(replacement_metadata.st_mode), 0o644)
 
-            runtime._restore_worktree_write_barrier(barrier)
+            runtime._restore_worktree_write_barrier(
+                barrier, {repository: repository_record}
+            )
+            for current in (tracked, added):
+                current_metadata = current.lstat()
+                self.assertEqual(current_metadata.st_uid, chatops.pw_uid)
+                self.assertEqual(current_metadata.st_gid, chatops.pw_gid)
             runtime._restore_repository_path_metadata(
                 repository, repository_record
             )
@@ -2322,7 +2341,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(restored.st_uid, chatops.pw_uid)
             self.assertEqual(restored.st_gid, chatops.pw_gid)
             self.assertEqual(stat.S_IMODE(restored.st_mode), 0o644)
-            self.assertFalse(
+            self.assertEqual(
                 subprocess.run(
                     [
                         "git",
@@ -2335,7 +2354,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                     text=True,
-                ).stdout
+                ).stdout,
+                "A  nested/added.txt\n",
             )
 
     @unittest.skipUnless(

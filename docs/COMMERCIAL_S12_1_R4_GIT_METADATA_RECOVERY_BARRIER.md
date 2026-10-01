@@ -46,10 +46,12 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    and only then start a kernel mutation watch covering every tracked path and
    repository root before restoring the exact journaled ownership/modes.
 13. After the staggered permission restore, accept only the controller's own
-   attribute events, validate every surviving recorded inode against its exact
-   original metadata and every new target inode against the canonical owner
-   contract, then repeat identity/handle/identity checks. Any waiting writer or
-   replacement event fails closed before the watcher is released. Flush
+   attribute events, restore surviving recorded inodes exactly, and explicitly
+   normalize every new or replaced current tracked inode to the canonical
+   repository owner/group while preserving its reviewed Git mode. Validate
+   that released state, then repeat identity/handle/identity checks. Any
+   waiting writer or replacement event fails closed before the watcher is
+   released. Flush
    repository filesystems throughout; closing this checked watch is the
    transaction's explicit writer-release point.
 

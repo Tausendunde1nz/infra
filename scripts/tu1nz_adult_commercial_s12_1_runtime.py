@@ -2802,6 +2802,7 @@ def _assert_worktree_write_barrier(
 
 def _restore_worktree_write_barrier(
     records: dict[Path, dict[Path, dict[str, Any]]],
+    repository_records: dict[Path, dict[str, Any]] | None = None,
 ) -> None:
     if os.geteuid() != 0:
         return
@@ -2837,6 +2838,43 @@ def _restore_worktree_write_barrier(
                     follow_symlinks=False,
                 )
                 os.chmod(path, int(record["mode"], 8), follow_symlinks=False)
+        if repository_records is not None:
+            if set(repository_records) != set(records):
+                raise OSError
+            for root, root_entries in records.items():
+                expected_uid, expected_gid, _ = _recorded_path_metadata(
+                    repository_records[root], "root"
+                )
+                for path in sorted(
+                    _tracked_worktree_barrier_paths(root),
+                    key=lambda item: (-len(item.parts), os.fsencode(item)),
+                ):
+                    metadata = path.lstat()
+                    record = root_entries.get(path)
+                    if record is not None and (
+                        metadata.st_dev,
+                        metadata.st_ino,
+                    ) == (record["device"], record["inode"]):
+                        continue
+                    if (
+                        metadata.st_uid != 0
+                        or stat.S_IMODE(metadata.st_mode) & 0o022
+                        or (
+                            stat.S_ISREG(metadata.st_mode)
+                            and metadata.st_nlink != 1
+                        )
+                        or not (
+                            stat.S_ISREG(metadata.st_mode)
+                            or stat.S_ISDIR(metadata.st_mode)
+                        )
+                    ):
+                        raise OSError
+                    os.chown(
+                        path,
+                        expected_uid,
+                        expected_gid,
+                        follow_symlinks=False,
+                    )
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
 
@@ -4340,7 +4378,8 @@ def _serialized_repository_recovery(
                         ),
                     )
                     _restore_worktree_write_barrier(
-                        selected_worktree_barrier
+                        selected_worktree_barrier,
+                        selected_records if completed else None,
                     )
                     for root in reversed(selected_roots):
                         _restore_repository_path_metadata(
