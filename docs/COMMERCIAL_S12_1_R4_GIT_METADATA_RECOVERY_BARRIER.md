@@ -10,8 +10,10 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 ## Exclusion sequence
 
 1. Validate repository identity, layout and recorded ownership/modes.
-2. Reject the competing Control sync loop, actual Git processes and retained
-   Git-metadata handles.
+2. Resolve the regular files currently tracked by each canonical index. Reject
+   the competing Control sync loop, actual Git processes, retained Git-metadata
+   handles, writable tracked-file descriptors, writable shared mappings and
+   read-only shared mappings whose `VmFlags` still permit a write upgrade.
 3. Journal the exact repository and shared-parent metadata durably.
 4. Fingerprint the complete protected Git-metadata tree, install a kernel
    mutation watch on every metadata directory, then require a second full-tree
@@ -21,17 +23,22 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    A baseline without recorded-group read/traverse permission is rejected.
 6. Change canonical `.git` to `root:root` mode `0700`, then require both the
    transition fingerprint and the kernel event queue to remain unchanged.
-7. Repeat actual-Git and metadata-handle checks.
+7. Repeat actual-Git, metadata-handle and writable tracked-worktree-handle
+   checks.
 8. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.
    Keep the mutation watch through the exchange and reject any writer event,
    including one from a process that already exited before the process scan.
-9. Reject handles into either guard or quarantined metadata and re-fingerprint
-   the quarantined inode tree. This also catches a closed writable mapping,
-   which Linux mutation notification alone does not promise to report.
+9. Reject handles into either guard or quarantined metadata, re-fingerprint the
+   quarantined inode tree and re-check writable tracked-worktree handles. This
+   catches both a closed writable Git-metadata mapping and a retained writer to
+   a tracked Worktree inode.
 10. Run isolated
    root Git exclusively against the quarantined directory.
-11. Flush repository filesystems, exchange metadata back, restore exact
-   ownership/modes and flush again.
+11. Re-resolve the post-operation tracked set, reject any remaining
+   write-capable handle, require a fresh clean Worktree identity, then repeat
+   the write-handle scan before metadata restoration. Flush repository
+   filesystems, exchange metadata back, restore exact ownership/modes and flush
+   again.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
 the scan/exchange race. The fingerprint plus the kernel mutation watch closes
@@ -45,7 +52,11 @@ their existing Worktree and `.venv` paths.
 | Retained resource | Decision |
 |---|---|
 | Worktree root cwd | allowed |
-| ordinary tracked-file fd | allowed |
+| ordinary tracked-file fd opened read-only | allowed |
+| ordinary tracked-file fd opened write-capable | RED |
+| read-only shared mapping without write capability | allowed |
+| writable or write-upgradeable shared mapping | RED |
+| private copy-on-write mapping without writable fd | allowed |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |
@@ -53,7 +64,8 @@ their existing Worktree and `.venv` paths.
 | unrelated external process | ignored |
 
 No service or executable name is trusted. Classification is based only on the
-protected resource and canonical Git-process selectors.
+protected resource, descriptor flags, mapping permissions/`VmFlags` and
+canonical Git-process selectors.
 
 ## Worktree mutation proof
 

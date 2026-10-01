@@ -2333,6 +2333,177 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
     return count
 
 
+def _repository_recovery_git_directory(root: Path) -> Path:
+    """Select the real Git directory before or during a recovery exchange."""
+
+    git_directory = root / ".git"
+    recovery_directory = _recovery_git_path(root)
+    if _is_canonical_git_directory(git_directory):
+        return git_directory
+    if _is_recovery_guard(git_directory) and _is_recovery_git_directory(
+        recovery_directory
+    ):
+        return recovery_directory
+    raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+
+
+def _tracked_worktree_regular_paths(
+    roots: Sequence[Path],
+) -> tuple[Path, ...]:
+    """Resolve regular index entries without treating runtime-only files as protected."""
+
+    tracked: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        git_directory = _repository_recovery_git_directory(root)
+        records = _bounded_nul_command_records(
+            _selected_git_arguments(
+                root, git_directory, "ls-files", "-z", "--"
+            ),
+            "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
+        )
+        for record in records:
+            parts = record.split(b"/")
+            if (
+                record.startswith(b"/")
+                or any(part in {b"", b".", b".."} for part in parts)
+            ):
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+            path = root / os.fsdecode(record)
+            if path in seen:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+            seen.add(path)
+            try:
+                metadata = path.lstat()
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ) from None
+            if stat.S_ISREG(metadata.st_mode):
+                if metadata.st_nlink != 1:
+                    raise S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                    )
+                tracked.append(path)
+            elif not (
+                stat.S_ISLNK(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)
+            ):
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+    return tuple(tracked)
+
+
+def _fdinfo_is_write_capable(path: Path) -> bool:
+    try:
+        payload = path.read_text(encoding="ascii")
+    except FileNotFoundError:
+        return False
+    except (OSError, UnicodeError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED") from None
+    for line in payload.splitlines():
+        label, separator, value = line.partition(":")
+        if label != "flags" or not separator:
+            continue
+        try:
+            flags = int(value.strip(), 8)
+        except ValueError:
+            break
+        return flags & os.O_ACCMODE in {os.O_WRONLY, os.O_RDWR}
+    raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+
+_SMAPS_HEADER = re.compile(
+    r"^[0-9a-f]+-[0-9a-f]+\s+(?P<permissions>[-rwxps]{4})\s+"
+    r"[0-9a-f]+\s+(?P<device>[0-9a-f]+:[0-9a-f]+)\s+"
+    r"(?P<inode>[0-9]+)(?:\s+.*)?$"
+)
+
+
+def _smaps_has_write_capable_shared_mapping(
+    path: Path, protected_inodes: set[tuple[int, int]]
+) -> bool:
+    try:
+        lines = path.read_text(
+            encoding="utf-8", errors="surrogateescape"
+        ).splitlines()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED") from None
+    tracked_shared = False
+    for line in lines:
+        header = _SMAPS_HEADER.fullmatch(line)
+        if header is not None:
+            identity = _mapped_inode_identity(
+                header.group("device"), header.group("inode")
+            )
+            permissions = header.group("permissions")
+            tracked_shared = (
+                identity in protected_inodes and permissions[3] == "s"
+            )
+            if tracked_shared and "w" in permissions[:3]:
+                return True
+            continue
+        if tracked_shared and line.startswith("VmFlags:"):
+            if "mw" in line.split()[1:]:
+                return True
+            tracked_shared = False
+    return False
+
+
+def _active_tracked_worktree_write_handle_count(
+    tracked_paths: Sequence[Path],
+) -> int:
+    """Count processes that can mutate a currently tracked regular inode."""
+
+    proc = Path("/proc")
+    if not proc.is_dir():
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+    protected_inodes: set[tuple[int, int]] = set()
+    try:
+        for path in tracked_paths:
+            metadata = path.lstat()
+            if (
+                path.is_symlink()
+                or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+            ):
+                raise OSError
+            protected_inodes.add((metadata.st_dev, metadata.st_ino))
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED") from None
+    if not protected_inodes:
+        return 0
+    count = 0
+    for process in proc.iterdir():
+        if not process.name.isdigit() or process.name == str(os.getpid()):
+            continue
+        try:
+            matched = False
+            for descriptor in (process / "fd").iterdir():
+                try:
+                    metadata = descriptor.stat()
+                except FileNotFoundError:
+                    continue
+                if (metadata.st_dev, metadata.st_ino) not in protected_inodes:
+                    continue
+                if _fdinfo_is_write_capable(process / "fdinfo" / descriptor.name):
+                    matched = True
+                    break
+            if not matched:
+                matched = _smaps_has_write_capable_shared_mapping(
+                    process / "smaps", protected_inodes
+                )
+            if matched:
+                count += 1
+        except FileNotFoundError:
+            continue
+        except S12ControlError:
+            count += 1
+        except OSError:
+            count += 1
+    return count
+
+
 def _repository_git_metadata_paths(roots: Sequence[Path]) -> tuple[Path, ...]:
     """Return only Git metadata paths participating in recovery exclusion."""
 
@@ -3383,6 +3554,7 @@ def _serialized_repository_recovery(
     transition_guard = _GitMetadataTransitionGuard(
         tuple(path for path in metadata_paths if not _is_recovery_guard(path))
     )
+    tracked_paths = _tracked_worktree_regular_paths(selected_roots)
     selected_records: dict[Path, dict[str, Any]] = records or {}
     barriers: dict[Path, Path] = {}
     parent_locked = False
@@ -3393,6 +3565,7 @@ def _serialized_repository_recovery(
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
             or _active_recovery_git_handle_count(metadata_paths) != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         if records is None:
@@ -3417,6 +3590,7 @@ def _serialized_repository_recovery(
             if (
                 _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0
                 or _active_recovery_git_handle_count(metadata_paths) != 0
+                or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
             ):
                 raise S12ControlError("S12_1_REPOSITORY_PARENT_ACTIVE_RED")
         for root in selected_roots:
@@ -3438,6 +3612,7 @@ def _serialized_repository_recovery(
         if (
             _active_repository_git_count(selected_roots) != 0
             or _active_recovery_git_handle_count(metadata_paths) != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         for root in selected_roots:
@@ -3453,6 +3628,7 @@ def _serialized_repository_recovery(
                 + tuple(barriers.values())
             )
             != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         transition_guard.assert_no_writer_events()
@@ -3463,6 +3639,13 @@ def _serialized_repository_recovery(
         for root, git_dir in barriers.items():
             _clear_stale_git_locks(root, git_dir)
         yield barriers
+        tracked_paths = _tracked_worktree_regular_paths(selected_roots)
+        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        for root, git_directory in barriers.items():
+            _selected_identity(root, git_directory)
+        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         completed = True
     finally:
         transition_guard.close()

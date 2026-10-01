@@ -874,6 +874,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertIn("transition_guard.assert_quarantined_unchanged(", contract)
         self.assertGreaterEqual(
+            contract.count("_active_tracked_worktree_write_handle_count("),
+            6,
+        )
+        self.assertIn("_tracked_worktree_regular_paths(selected_roots)", contract)
+        self.assertIn("_selected_identity(root, git_directory)", contract)
+        self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
         self.assertLess(
@@ -945,7 +951,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), original)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
-    def test_repository_handle_gate_detects_closed_fd_writable_mapping(self) -> None:
+    def test_tracked_worktree_gate_detects_closed_fd_writable_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mapped = root / "tracked.bin"
@@ -969,14 +975,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             try:
                 self.assertEqual(child.stdout.readline().strip(), "ready")
                 self.assertGreater(
-                    runtime._active_recovery_git_handle_count((root,)), 0
+                    runtime._active_tracked_worktree_write_handle_count((mapped,)),
+                    0,
                 )
             finally:
                 child.terminate()
-                child.wait(timeout=10)
+                child.communicate(timeout=10)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
-    def test_repository_handle_gate_detects_upgradeable_shared_mapping(self) -> None:
+    def test_tracked_worktree_gate_detects_upgradeable_shared_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mapped = root / "tracked.bin"
@@ -1000,14 +1007,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             try:
                 self.assertEqual(child.stdout.readline().strip(), "ready")
                 self.assertGreater(
-                    runtime._active_recovery_git_handle_count((root,)), 0
+                    runtime._active_tracked_worktree_write_handle_count((mapped,)),
+                    0,
                 )
             finally:
                 child.terminate()
-                child.wait(timeout=10)
+                child.communicate(timeout=10)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
-    def test_repository_handle_gate_detects_deleted_external_alias_mapping(self) -> None:
+    def test_tracked_worktree_gate_detects_deleted_external_alias_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = root / "repository"
@@ -1037,11 +1045,88 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 self.assertEqual(child.stdout.readline().strip(), "ready")
                 self.assertEqual(tracked.stat().st_nlink, 1)
                 self.assertGreater(
-                    runtime._active_recovery_git_handle_count((repository,)), 0
+                    runtime._active_tracked_worktree_write_handle_count((tracked,)),
+                    0,
                 )
             finally:
                 child.terminate()
-                child.wait(timeout=10)
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_tracked_worktree_gate_detects_writable_fd(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tracked = Path(directory) / "tracked.bin"
+            tracked.write_bytes(b"tracked\n")
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import sys,time;"
+                        "f=open(sys.argv[1],'r+b');"
+                        "print('ready',flush=True);time.sleep(30)"
+                    ),
+                    str(tracked),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                self.assertGreater(
+                    runtime._active_tracked_worktree_write_handle_count((tracked,)),
+                    0,
+                )
+            finally:
+                child.terminate()
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_tracked_worktree_gate_allows_read_only_and_private_handles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tracked = Path(directory) / "tracked.bin"
+            tracked.write_bytes(b"0" * 4096)
+            cases = (
+                "f=open(sys.argv[1],'rb')",
+                (
+                    "import mmap;f=open(sys.argv[1],'rb');"
+                    "m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ);f.close()"
+                ),
+                (
+                    "import mmap;f=open(sys.argv[1],'rb');"
+                    "m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_COPY);f.close()"
+                ),
+            )
+            for setup in cases:
+                with self.subTest(setup=setup):
+                    child = subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-c",
+                            (
+                                "import os,sys,time;os.chdir(sys.argv[2]);"
+                                + setup
+                                + ";print('ready',flush=True);time.sleep(30)"
+                            ),
+                            str(tracked),
+                            directory,
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    try:
+                        self.assertEqual(child.stdout.readline().strip(), "ready")
+                        self.assertEqual(
+                            runtime._active_tracked_worktree_write_handle_count(
+                                (tracked,)
+                            ),
+                            0,
+                        )
+                    finally:
+                        child.terminate()
+                        child.communicate(timeout=10)
 
     def test_repository_barrier_journal_precedes_mutation_and_binds_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1733,6 +1818,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime, "_repository_git_metadata_paths", return_value=()
             ),
+            mock.patch.object(
+                runtime, "_tracked_worktree_regular_paths", return_value=()
+            ),
         ):
             with self.assertRaisesRegex(
                 runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
@@ -1751,10 +1839,32 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             )
             tracked = repository / "tracked.txt"
             tracked.write_text("runtime-readable\n", encoding="ascii")
+            (repository / ".gitignore").write_text(".venv/\n", encoding="ascii")
             venv = repository / ".venv"
             venv.mkdir()
             mapped = venv / "runtime.bin"
             mapped.write_bytes(b"0" * 4096)
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "add", "tracked.txt", ".gitignore"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
             child_identity = None
             if os.geteuid() == 0:
                 chatops = pwd.getpwnam(runtime.CHATOPS_USER)
@@ -1778,6 +1888,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
                     child_identity = become_chatops
             metadata = runtime._repository_git_metadata_paths((repository,))
+            tracked_paths = runtime._tracked_worktree_regular_paths((repository,))
             unrelated_baseline = runtime._active_recovery_git_handle_count(metadata)
             child_code = (
                 "import mmap,os,sys;"
@@ -1809,6 +1920,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                         runtime._active_recovery_git_handle_count(metadata),
                         unrelated_baseline,
                     )
+                self.assertEqual(
+                    runtime._active_tracked_worktree_write_handle_count(
+                        tracked_paths
+                    ),
+                    0,
+                )
                 with (
                     mock.patch.object(
                         runtime, "_competing_control_sync_count", return_value=0
@@ -1831,6 +1948,121 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     child.terminate()
                 for child in children:
                     child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_recovery_rejects_writable_tracked_worktree_handle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("runtime-readable\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import sys,time;f=open(sys.argv[1],'r+b');"
+                        "print('ready',flush=True);time.sleep(30)"
+                    ),
+                    str(tracked),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_repository_git_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_recovery_git_handle_count", return_value=0
+                    ),
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_ACTIVE_RED",
+                    ),
+                ):
+                    with runtime._serialized_repository_recovery((repository,)):
+                        self.fail("writable tracked handle reached protected body")
+                self.assertFalse(runtime._recovery_git_path(repository).exists())
+                self.assertTrue((repository / ".git").is_dir())
+            finally:
+                child.terminate()
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_recovery_rejects_closed_writer_dirtying_tracked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RELEASE_DIRTY_RED",
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    tracked.write_text("unexpected writer\n", encoding="ascii")
+            self.assertFalse(runtime._recovery_git_path(repository).exists())
+            self.assertTrue((repository / ".git").is_dir())
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_metadata_handle_scope_rejects_git_and_recovery_metadata(self) -> None:
@@ -1988,6 +2220,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime, "_active_recovery_git_handle_count", return_value=0
                 ),
                 mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
+                mock.patch.object(
                     runtime, "_lock_repository_root", side_effect=mutate_then_exit
                 ),
                 mock.patch.object(runtime, "_atomic_exchange", side_effect=reject_exchange),
@@ -2050,6 +2287,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ),
                 mock.patch.object(
                     runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
                 ),
                 mock.patch.object(
                     runtime,
@@ -2170,6 +2412,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(runtime, "_competing_control_sync_count", return_value=0),
                 mock.patch.object(runtime, "_active_repository_git_count", return_value=0),
                 mock.patch.object(runtime, "_active_recovery_git_handle_count", return_value=0),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
             ):
                 with runtime._serialized_repository_recovery((repository,)) as barriers:
                     recovery_git = barriers[repository]
@@ -2258,8 +2505,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(runtime, "_competing_control_sync_count", return_value=0),
                 mock.patch.object(runtime, "_active_repository_git_count", return_value=0),
                 mock.patch.object(runtime, "_active_recovery_git_handle_count", return_value=0),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
             )
-            with checks[0], checks[1], checks[2]:
+            with checks[0], checks[1], checks[2], checks[3]:
                 with self.assertRaisesRegex(RuntimeError, "restore interrupted"):
                     with runtime._serialized_repository_recovery(
                         roots=(repository,),
