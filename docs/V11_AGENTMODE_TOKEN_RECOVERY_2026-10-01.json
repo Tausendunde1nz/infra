@@ -1,0 +1,44 @@
+{
+  "agentmode_started": false,
+  "base_commit": "0b7e9c10a674f28de3d0b62a9377f1b1e0d9d7d3",
+  "blockers": [
+    "protected_consumer_inventory_incomplete",
+    "provider_handoff_and_forward_recovery_not_proven",
+    "common_production_adapter_and_independent_watchdog_integration_incomplete"
+  ],
+  "classification": "UNATTRIBUTED_SIGTERM",
+  "files": {
+    "agentmode_adapter.py": "9646d6739c717a4045c9b161ea9cd0347ef4616394fffc35849e042f47a33fd9",
+    "agentmode_observer_v11.sh": "17969c9bccd8d23e01dc5b9e0826af7a4b56a0de9e51495063fee4c1d8c10574",
+    "bootstrap_v11.py": "e9836bf2d81ed0ce0e6a2aa76c04f42815ad6669d736033408e1145b20f7e402",
+    "rotation_contract.py": "424f3fb934d31d7df387fd8f5324c73c304d1cc609a0502ee9b3f938ca73e3e5",
+    "test_agentmode_adapter.py": "395672654b9b40eacafef871054b6df075a0786da42e911868cbe554599dadc3",
+    "test_bootstrap_v11.py": "435da1713545176a70bc3c5b3314b6d06dbc52277c17c28524ce0ec59d4f11e1",
+    "test_observer.py": "f62db6e3972c5f069ff493c0ac3194148f7920b1420cb423a37876e7fa4d7252",
+    "test_rotation_contract.py": "6f7eb0e8f207b38467bd02bc2a31eb7eaef144af40f9476e6dd992f4d0117b1a",
+    "test_secret_candidate.py": "ee3e70f82e6c89255f14d2bad8262795a32f02562e5c792b9f61172a8e1e38dc",
+    "trendwatch_secret_candidate.py": "dbe36a5678da4bbad20db23154db35441d21cfd6ed756e19780b74df725767b1"
+  },
+  "known_optional_skips": 2,
+  "live_activation": false,
+  "post_test_cleanup": "Two trailing blank lines removed; Python ASTs identical.",
+  "pr_created": false,
+  "private_evidence": {
+    "agentmode-diagnosis.json": "ad25e72a81cad8deedfbaafe8307950675259b56aca3c6493456b6edd6c06521",
+    "discovered-consumer-path-scan.json": "53d60cc3126e7044d099a4cd7ba95b11191de0e9c297c41936d1a5c238bd3234",
+    "final-tests-v2/results.json": "0c4e41bbddabdadb8501b681323c493a6a360096c29bd6887f3b5e7a3ce92caf",
+    "final-tests-v3/results.json": "4bcc254b8c11caa60dd114e7cb23bb7e087b17b02d668846ac440ae30e867f9e",
+    "final-tests/results.json": "95acd2baafdfcfe24783a31d15ed0ce493e04d9bcc5ab2ecd636085fe42bb0d7",
+    "git-and-large-log-scan.json": "bcb0af8c836d195cedd9e2369c04ae8d227d960f54ff63ec0ff52ca94afefc64",
+    "preservation-final.json": "04d1821cfdbf4700ffc9b8328af5c3127ed5da1daf9fd683ecdd57a8c49895e3",
+    "provider-metadata.json": "9c94d30db8a8e4dfd0536f48c23703b2067226f82dd657bfc10ceca50d4b7538",
+    "provider-permissions.json": "f0805dc7e23ebb68b969e50da6f3cbffca4b16b147e4c1585624c0b25c2adf73",
+    "secret-candidate-validation.json": "9e58debea7253950f80819af1f6ab587994c09750760e2848407c11d46b200a8",
+    "secret-location-scan.json": "19b6b9606e1937930ea2da056fe4aeeccc668a84878a0d5580b82d35ba283769"
+  },
+  "status": "OFFLINE_PROGRESS_LIVE_NO_GO",
+  "targeted_tests": 429,
+  "token_rotated": false,
+  "watchdog_activated": false,
+  "workflow_steps": 108
+}
