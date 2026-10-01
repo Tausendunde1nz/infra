@@ -24,6 +24,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -2937,7 +2938,86 @@ def _validate_released_worktree_contract(
                 )
                 if not valid_metadata or actual_kind != expected_kind:
                     raise OSError
-            _validate_repository_worktree_contract(root, repository_records[root])
+            _validate_repository_worktree_contract(
+                root,
+                repository_records[root],
+                allow_journaled_transition=True,
+            )
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _reseal_released_worktree_contract(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+    barrier_records: dict[Path, dict[Path, dict[str, Any]]],
+    *,
+    include_current: bool,
+) -> None:
+    """Restore the durable root-owned write barrier before releasing leases."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            root_records = barrier_records[root]
+            protected = set(root_records)
+            if include_current:
+                protected.update(_tracked_worktree_barrier_paths(root))
+            for path in sorted(
+                protected,
+                key=lambda item: (len(item.parts), os.fsencode(item)),
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    continue
+                record = root_records.get(path)
+                same_recorded_inode = record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"])
+                if same_recorded_inode:
+                    released = (
+                        metadata.st_uid == record["uid"]
+                        and metadata.st_gid == record["gid"]
+                        and stat.S_IMODE(metadata.st_mode)
+                        == int(record["mode"], 8)
+                    )
+                    expected_kind = record["kind"]
+                    source_mode = int(record["mode"], 8)
+                    target_gid = record["gid"]
+                else:
+                    released = (
+                        include_current
+                        and metadata.st_uid == expected_uid
+                        and metadata.st_gid == expected_gid
+                        and not (stat.S_IMODE(metadata.st_mode) & 0o022)
+                    )
+                    expected_kind = (
+                        "directory"
+                        if stat.S_ISDIR(metadata.st_mode)
+                        else "regular"
+                    )
+                    source_mode = stat.S_IMODE(metadata.st_mode)
+                    target_gid = expected_gid
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                if not released or actual_kind != expected_kind:
+                    raise OSError
+                restricted_mode = source_mode & ~0o222
+                os.chmod(path, restricted_mode, follow_symlinks=False)
+                os.chown(path, 0, target_gid, follow_symlinks=False)
+                os.chmod(path, restricted_mode, follow_symlinks=False)
+            _sync_repository_filesystem(root)
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
 
@@ -3193,7 +3273,7 @@ class _GitMetadataTransitionGuard:
 
 
 class _WorktreeReleaseGuard:
-    """Observe tracked-path mutations from before permission release to validation."""
+    """Observe mutations and block external opens through Worktree release."""
 
     _EVENT = struct.Struct("iIII")
     _ATTRIB = 0x00000004
@@ -3210,6 +3290,18 @@ class _WorktreeReleaseGuard:
     )
     _IN_Q_OVERFLOW = 0x00004000
     _IN_ISDIR = 0x40000000
+    _FAN_EVENT = struct.Struct("=IBBHQii")
+    _FAN_RESPONSE = struct.Struct("=iI")
+    _FANOTIFY_METADATA_VERSION = 3
+    _FAN_CLOEXEC = 0x00000001
+    _FAN_NONBLOCK = 0x00000002
+    _FAN_CLASS_CONTENT = 0x00000004
+    _FAN_MARK_ADD = 0x00000001
+    _FAN_MARK_ONLYDIR = 0x00000008
+    _FAN_OPEN_PERM = 0x00010000
+    _FAN_EVENT_ON_CHILD = 0x08000000
+    _FAN_ALLOW = 0x01
+    _FAN_DENY = 0x02
 
     def __init__(
         self,
@@ -3219,6 +3311,14 @@ class _WorktreeReleaseGuard:
         self.descriptor: int | None = None
         self.sentinel_path: Path | None = None
         self.sentinel_watch: int | None = None
+        self.fanotify_descriptor: int | None = None
+        self.fanotify_stop = threading.Event()
+        self.fanotify_thread: threading.Thread | None = None
+        self.fanotify_lock = threading.Lock()
+        self.fanotify_external_open = False
+        self.fanotify_error = False
+        self.fanotify_pending: list[int] = []
+        self.controller_pid = os.getpid()
         if sys.platform != "linux":
             return
         try:
@@ -3241,6 +3341,10 @@ class _WorktreeReleaseGuard:
                 paths.update(tracked_paths)
             self.sentinel_path = roots[0]
             for path in sorted(paths, key=os.fsencode):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    continue
                 watch = add(descriptor, os.fsencode(path), self._WATCH_MASK)
                 if watch < 0:
                     raise OSError(ctypes.get_errno(), "inotify_add_watch")
@@ -3248,6 +3352,55 @@ class _WorktreeReleaseGuard:
                     self.sentinel_watch = watch
             if self.sentinel_watch is None:
                 raise OSError("release sentinel watch missing")
+            if os.geteuid() == 0:
+                fanotify_init = library.fanotify_init
+                fanotify_init.argtypes = [ctypes.c_uint, ctypes.c_uint]
+                fanotify_init.restype = ctypes.c_int
+                fanotify_descriptor = fanotify_init(
+                    self._FAN_CLOEXEC
+                    | self._FAN_NONBLOCK
+                    | self._FAN_CLASS_CONTENT,
+                    os.O_RDONLY | os.O_CLOEXEC,
+                )
+                if fanotify_descriptor < 0:
+                    raise OSError(ctypes.get_errno(), "fanotify_init")
+                self.fanotify_descriptor = fanotify_descriptor
+                fanotify_mark = library.fanotify_mark
+                fanotify_mark.argtypes = [
+                    ctypes.c_int,
+                    ctypes.c_uint,
+                    ctypes.c_uint64,
+                    ctypes.c_int,
+                    ctypes.c_char_p,
+                ]
+                fanotify_mark.restype = ctypes.c_int
+                for path in sorted(paths, key=os.fsencode):
+                    try:
+                        metadata = path.lstat()
+                    except FileNotFoundError:
+                        continue
+                    mark_flags = self._FAN_MARK_ADD
+                    mask = self._FAN_OPEN_PERM
+                    if stat.S_ISDIR(metadata.st_mode):
+                        mark_flags |= self._FAN_MARK_ONLYDIR
+                        mask |= self._FAN_EVENT_ON_CHILD
+                    if (
+                        fanotify_mark(
+                            fanotify_descriptor,
+                            mark_flags,
+                            mask,
+                            -100,
+                            os.fsencode(path),
+                        )
+                        < 0
+                    ):
+                        raise OSError(ctypes.get_errno(), "fanotify_mark")
+                self.fanotify_thread = threading.Thread(
+                    target=self._fanotify_loop,
+                    name="s12-worktree-release-guard",
+                    daemon=True,
+                )
+                self.fanotify_thread.start()
             self.assert_no_events()
         except S12ControlError:
             self.close()
@@ -3258,6 +3411,108 @@ class _WorktreeReleaseGuard:
                 "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
             ) from None
 
+    def _trusted_fanotify_pid(self, pid: int) -> bool:
+        current = pid
+        for _ in range(128):
+            if current == self.controller_pid:
+                return True
+            if current <= 1:
+                return False
+            try:
+                payload = Path(f"/proc/{current}/stat").read_text(
+                    encoding="ascii"
+                )
+                _, separator, remainder = payload.rpartition(")")
+                fields = remainder.strip().split()
+                if not separator or len(fields) < 2:
+                    return False
+                current = int(fields[1])
+            except (OSError, UnicodeError, ValueError):
+                return False
+        return False
+
+    def _fanotify_respond(self, event_descriptor: int, decision: int) -> None:
+        if self.fanotify_descriptor is None:
+            raise OSError("fanotify descriptor closed")
+        os.write(
+            self.fanotify_descriptor,
+            self._FAN_RESPONSE.pack(event_descriptor, decision),
+        )
+        os.close(event_descriptor)
+
+    def _fanotify_loop(self) -> None:
+        descriptor = self.fanotify_descriptor
+        if descriptor is None:
+            return
+        try:
+            while not self.fanotify_stop.is_set():
+                readable, _, _ = select.select((descriptor,), (), (), 0.05)
+                if not readable:
+                    continue
+                try:
+                    payload = os.read(descriptor, 1024 * 1024)
+                except BlockingIOError:
+                    continue
+                offset = 0
+                while offset < len(payload):
+                    if len(payload) - offset < self._FAN_EVENT.size:
+                        raise OSError("short fanotify event")
+                    (
+                        event_length,
+                        version,
+                        _reserved,
+                        metadata_length,
+                        mask,
+                        event_descriptor,
+                        pid,
+                    ) = self._FAN_EVENT.unpack_from(payload, offset)
+                    if (
+                        version != self._FANOTIFY_METADATA_VERSION
+                        or event_length < metadata_length
+                        or metadata_length < self._FAN_EVENT.size
+                        or event_length > len(payload) - offset
+                    ):
+                        raise OSError("invalid fanotify event")
+                    offset += event_length
+                    if (
+                        event_descriptor < 0
+                        or mask & self._IN_Q_OVERFLOW
+                        or not (mask & self._FAN_OPEN_PERM)
+                    ):
+                        if event_descriptor >= 0:
+                            self._fanotify_respond(
+                                event_descriptor, self._FAN_DENY
+                            )
+                        raise OSError("unexpected fanotify event")
+                    if self._trusted_fanotify_pid(pid):
+                        self._fanotify_respond(event_descriptor, self._FAN_ALLOW)
+                    else:
+                        with self.fanotify_lock:
+                            self.fanotify_external_open = True
+                            self.fanotify_pending.append(event_descriptor)
+        except OSError:
+            with self.fanotify_lock:
+                self.fanotify_error = True
+
+    def _assert_fanotify_quiet(self) -> None:
+        if self.fanotify_descriptor is None:
+            return
+        if self.sentinel_path is None or self.fanotify_thread is None:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        try:
+            sentinel = os.open(
+                self.sentinel_path,
+                os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            os.close(sentinel)
+        except OSError:
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        with self.fanotify_lock:
+            if self.fanotify_external_open or self.fanotify_error:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+
     def _assert_events(
         self,
         *,
@@ -3266,11 +3521,13 @@ class _WorktreeReleaseGuard:
     ) -> bool:
         if self.descriptor is None:
             return True
+        self._assert_fanotify_quiet()
         sentinel_seen = False
         while True:
             try:
                 payload = os.read(self.descriptor, 1024 * 1024)
             except BlockingIOError:
+                self._assert_fanotify_quiet()
                 return sentinel_seen
             except OSError:
                 raise S12ControlError(
@@ -3311,6 +3568,7 @@ class _WorktreeReleaseGuard:
                     raise S12ControlError(
                         "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
                     )
+            self._assert_fanotify_quiet()
 
     def accept_release_attributes(self) -> None:
         if self.descriptor is None:
@@ -3354,6 +3612,26 @@ class _WorktreeReleaseGuard:
         self._assert_events(allow_attributes=False)
 
     def close(self) -> None:
+        self.fanotify_stop.set()
+        if self.fanotify_thread is not None:
+            self.fanotify_thread.join(timeout=1.0)
+            self.fanotify_thread = None
+        with self.fanotify_lock:
+            pending = tuple(self.fanotify_pending)
+            self.fanotify_pending.clear()
+        for event_descriptor in pending:
+            try:
+                self._fanotify_respond(event_descriptor, self._FAN_DENY)
+            except OSError:
+                try:
+                    os.close(event_descriptor)
+                except OSError:
+                    pass
+        if self.fanotify_descriptor is not None:
+            try:
+                os.close(self.fanotify_descriptor)
+            finally:
+                self.fanotify_descriptor = None
         if self.descriptor is not None:
             try:
                 os.close(self.descriptor)
@@ -4110,12 +4388,12 @@ def _chown_tree(
         os.chown(root, uid, gid)
 
 
-def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> None:
+def _restore_repository_worktree_metadata(
+    root: Path, record: dict[str, Any]
+) -> None:
     if os.geteuid() != 0:
         return
     root_uid, root_gid, root_mode = _recorded_path_metadata(record, "root")
-    git_uid, git_gid, git_mode = _recorded_path_metadata(record, "git")
-    git_directory = root / ".git"
     try:
         _chown_tree(
             root,
@@ -4123,14 +4401,30 @@ def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> Non
             root_gid,
             {".git", RECOVERY_GIT_DIRECTORY},
         )
-        _chown_tree(git_directory, git_uid, git_gid)
-        os.chmod(git_directory, git_mode)
-        os.chown(git_directory, git_uid, git_gid)
         os.chown(root, root_uid, root_gid)
         os.chmod(root, root_mode)
         _fsync_directory(root.parent)
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _restore_repository_git_metadata(root: Path, record: dict[str, Any]) -> None:
+    if os.geteuid() != 0:
+        return
+    git_uid, git_gid, git_mode = _recorded_path_metadata(record, "git")
+    git_directory = root / ".git"
+    try:
+        _chown_tree(git_directory, git_uid, git_gid)
+        os.chown(git_directory, git_uid, git_gid)
+        os.chmod(git_directory, git_mode)
+        _fsync_directory(root)
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> None:
+    _restore_repository_worktree_metadata(root, record)
+    _restore_repository_git_metadata(root, record)
 
 
 def _fsync_recovery_exchange_parents(root: Path, recovery_dir: Path) -> None:
@@ -4367,22 +4661,26 @@ def _serialized_repository_recovery(
                             raise S12ControlError(
                                 "S12_1_RECOVERY_GIT_ACTIVE_RED"
                             )
+                    release_paths = {
+                        path
+                        for root_entries in selected_worktree_barrier.values()
+                        for path in root_entries
+                    }
+                    if completed:
+                        for root in selected_roots:
+                            release_paths.update(
+                                _tracked_worktree_barrier_paths(root)
+                            )
                     release_guard = _WorktreeReleaseGuard(
                         selected_roots,
-                        None
-                        if completed
-                        else tuple(
-                            path
-                            for root_entries in selected_worktree_barrier.values()
-                            for path in root_entries
-                        ),
+                        tuple(release_paths),
                     )
                     _restore_worktree_write_barrier(
                         selected_worktree_barrier,
                         selected_records if completed else None,
                     )
                     for root in reversed(selected_roots):
-                        _restore_repository_path_metadata(
+                        _restore_repository_worktree_metadata(
                             root, selected_records[root]
                         )
                     if parent_locked:
@@ -4411,10 +4709,32 @@ def _serialized_repository_recovery(
                         for root in selected_roots:
                             _selected_identity(root, root / ".git")
                     release_guard.assert_no_events()
+                    for root in reversed(selected_roots):
+                        _restore_repository_git_metadata(
+                            root, selected_records[root]
+                        )
+                    release_guard.accept_release_attributes()
                     release_guard.close()
                     release_guard = None
                 except S12ControlError:
                     cleanup_failed = True
+                    try:
+                        if parent_locked:
+                            _lock_repository_parent(parent_record)
+                        for root in selected_roots:
+                            _lock_repository_root(root, selected_records[root])
+                        _reseal_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                            include_current=completed,
+                        )
+                        for root in selected_roots:
+                            _lock_repository_git_metadata(
+                                root, selected_records[root]
+                            )
+                    except S12ControlError:
+                        pass
                 finally:
                     if release_guard is not None:
                         release_guard.close()

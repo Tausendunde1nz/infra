@@ -43,15 +43,18 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    identity, then repeat the write-handle scan.
 12. Exchange Git metadata back while the tracked-path write barrier remains in
    force, repeat the barrier/identity/handle checks against canonical `.git`,
-   and only then start a kernel mutation watch covering every tracked path and
-   repository root before restoring the exact journaled ownership/modes.
+   and only then start both a kernel mutation watch and a fanotify
+   open-permission barrier covering every tracked path, ancestor and repository
+   root before restoring the exact journaled ownership/modes.
 13. After the staggered permission restore, accept only the controller's own
    attribute events, restore surviving recorded inodes exactly, and explicitly
    normalize every new or replaced current tracked inode to the canonical
    repository owner/group while preserving its reviewed Git mode. Validate
    that released state, then repeat identity/handle/identity checks. Any
-   waiting writer or replacement event fails closed before the watcher is
-   released. Flush
+   waiting writer, newly opened writable mapping or replacement event fails
+   closed before the guards are released. Git metadata stays root-only until
+   all Worktree validation is complete and is released by changing the `.git`
+   root mode last. Flush
    repository filesystems throughout; closing this checked watch is the
    transaction's explicit writer-release point.
 
@@ -81,6 +84,7 @@ subsequent validation or Git transition.
 | private copy-on-write mapping without writable fd | allowed |
 | new path-based tracked-file writer after lock | blocked by permissions |
 | writer waiting for restored owner permission | detected by release watch; RED |
+| new writable mmap opened during release | blocked/denied by fanotify; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |

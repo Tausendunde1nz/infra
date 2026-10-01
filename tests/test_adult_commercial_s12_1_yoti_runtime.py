@@ -887,6 +887,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("_restore_worktree_write_barrier(", contract)
         self.assertIn("_WorktreeReleaseGuard(", contract)
         self.assertIn("_validate_released_worktree_contract(", contract)
+        self.assertIn("_restore_repository_worktree_metadata(", contract)
+        self.assertIn("_restore_repository_git_metadata(", contract)
         self.assertLess(
             contract.index("_WorktreeReleaseGuard("),
             contract.index("_restore_worktree_write_barrier("),
@@ -899,6 +901,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             contract.index("_validate_released_worktree_contract("),
             contract.index("release_guard.assert_no_events()"),
         )
+        self.assertLess(
+            contract.index("release_guard.assert_no_events()"),
+            contract.index("_restore_repository_git_metadata("),
+        )
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -906,6 +912,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             contract.index("_validate_repository_worktree_contract("),
             contract.index("_lock_repository_parent("),
         )
+        self.assertIn("fanotify_init", source)
+        self.assertIn("_FAN_OPEN_PERM", source)
+        self.assertIn("_FAN_DENY", source)
 
     def test_release_acquisition_uses_only_digest_bound_offline_bundles(self) -> None:
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
@@ -2195,6 +2204,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(
                     runtime, "_active_recovery_git_handle_count", return_value=0
                 ),
+                mock.patch.object(
+                    runtime,
+                    "_WorktreeReleaseGuard",
+                    return_value=SimpleNamespace(
+                        accept_release_attributes=lambda: None,
+                        assert_no_events=lambda: None,
+                        close=lambda: None,
+                    ),
+                ),
             ):
                 with runtime._serialized_repository_recovery((repository,)):
                     locked = tracked.lstat()
@@ -2401,7 +2419,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (repository,), {repository: repository_record}
             )
             runtime._lock_worktree_write_barrier(barrier)
-            guard = runtime._WorktreeReleaseGuard((repository,))
+            try:
+                guard = runtime._WorktreeReleaseGuard((repository,))
+            except runtime.S12ControlError as error:
+                if str(error) == "S12_1_RECOVERY_WORKTREE_BARRIER_RED":
+                    self.skipTest("fanotify permission events unavailable")
+                raise
 
             def become_chatops() -> None:
                 os.setgroups([])
@@ -2413,12 +2436,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     sys.executable,
                     "-c",
                     (
-                        "import pathlib,sys,time;"
+                        "import mmap,pathlib,sys,time;"
                         "p=pathlib.Path(sys.argv[1]);"
                         "print('ready',flush=True);"
                         "\nwhile True:\n"
-                        " try:\n  p.write_text('race\\n');break\n"
+                        " try:\n  f=p.open('r+b');break\n"
                         " except PermissionError:\n  time.sleep(0.01)\n"
+                        "\nwith f:\n"
+                        " m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_WRITE)\n"
+                        " m[0:1]=b'R';m.flush();m.close()\n"
                     ),
                     str(tracked),
                 ],
@@ -2433,13 +2459,25 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._restore_repository_path_metadata(
                     repository, repository_record
                 )
-                child.communicate(timeout=5)
+                deadline = time.monotonic() + 5
+                while (
+                    not guard.fanotify_external_open
+                    and time.monotonic() < deadline
+                ):
+                    time.sleep(0.01)
+                self.assertTrue(guard.fanotify_external_open)
                 with self.assertRaisesRegex(
                     runtime.S12ControlError,
                     "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
                 ):
                     guard.accept_release_attributes()
             finally:
+                runtime._reseal_released_worktree_contract(
+                    (repository,),
+                    {repository: repository_record},
+                    barrier,
+                    include_current=True,
+                )
                 guard.close()
                 if child.poll() is None:
                     child.terminate()

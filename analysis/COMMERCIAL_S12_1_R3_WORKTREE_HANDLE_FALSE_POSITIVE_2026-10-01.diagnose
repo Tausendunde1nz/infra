@@ -70,7 +70,10 @@ The r4 contract:
 14. resumes cleanly from a crash after either chmod or chown and normalizes an
     R3 `root:root 0500` parent/root lock to the recorded-group R4 contract;
 15. restores every new or replaced current tracked inode from root ownership
-    to the recorded canonical repository owner/group before release validation.
+    to the recorded canonical repository owner/group before release validation;
+16. blocks every external open with a fanotify permission barrier during the
+    release window, so a new shared writable mapping cannot evade inotify, and
+    keeps `.git` root-only until the Worktree validation is complete.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.
