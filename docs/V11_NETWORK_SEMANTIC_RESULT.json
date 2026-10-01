@@ -1,0 +1,90 @@
+{
+  "activation_ready": false,
+  "artifacts": {
+    "experiment-1.stderr": "0b6578769f129e748bd6288ea36c2b0f17d102f5da495d856fdf111f8f6b1b4d",
+    "experiment-1.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "experiment-2.stderr": "36f1099c6ba510e4dd6fcc0070cc81b3520a2116135259fb103e32b6289ea89a",
+    "experiment-2.stdout": "d0380899d882a6a07e0af488b15c22bfc53ce32e3f04ea53101c513552ee9b95",
+    "experiment-3.stderr": "b788f269acf2e547f8749ecd7b8f315930b0aa3563482b894fb33ed9828092aa",
+    "experiment-3.stdout": "6ccf721704a1babc2bae1c93b8801520d079e7975b88f71a70cfe7c0fc2fcc9e",
+    "experiment-4.stderr": "d4b1a434fc93229406161585640c03c35085b0e093252793e11bc04698ba7d01",
+    "experiment-4.stdout": "890d439b3fef94cf9c3c53f73d228a27cb42efbac006eb57ac03c8d19f2ac4ab",
+    "experiment-5.stderr": "f0252c0231c2485f7474165b4aa8e7c1ac20480b33cf8279a7aee27ae121f83d",
+    "experiment-5.stdout": "af8b4f98de6f0d602f4d3c24bd5d4cf6800787d2dbe565ce8e18c04a55616453",
+    "experiment-6.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "experiment-6.stdout": "9bf2c50c82299e40205ac3cad17b51db39786aa9cc27cbc15ef67b318da2e5c5"
+  },
+  "base_commit": "32adfe8677c2eeecd8c2a5c62d5fed2350194a9d",
+  "experiment": {
+    "cleanup": true,
+    "production_containers_unchanged": true,
+    "test_prefix": "tu1nz-v11-semantic-cf4ecc19c77a4f1b99af40b9a70fe8b6",
+    "tests": [
+      {
+        "case": "baseline_dns_hostport_default_route",
+        "pass": true
+      },
+      {
+        "case": "hardcoded_ip_consumer_detected",
+        "connection_failed": true,
+        "pass": true
+      },
+      {
+        "case": "dynamic_recreate_with_competitor",
+        "different_ip": true,
+        "different_mac": true,
+        "dynamic_ipam": true,
+        "hostport_forwarding_updated": true,
+        "pass": true
+      },
+      {
+        "case": "static_ip_collision_rejected",
+        "http_status": 403,
+        "pass": true
+      },
+      {
+        "case": "rollback_missing_secondary_endpoint",
+        "functional_contract_restored": true,
+        "pass": true
+      },
+      {
+        "case": "rollback_failed_health",
+        "functional_contract_restored": true,
+        "pass": true
+      }
+    ]
+  },
+  "full_v11_transaction_implemented": false,
+  "historical_network_id_gate_superseded": true,
+  "live_changes": false,
+  "new_unit_tests": 32,
+  "private_path": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-semantic-20261001",
+  "root_admission": "NETWORK_CONSUMERS_AND_NAT_CHAIN_PENDING",
+  "source_hashes": {
+    "network_contract_v11.py": "03d507988ace15a76ad4954d598e6f34e5ae5e578b2f2f46b218a8cea9d8826d",
+    "network_evidence_v11.py": "a22ffb53a7b916de005fdd675d2042857afcab507377eda0faeef485674d54ce",
+    "network_semantic_experiment_v11.py": "2f673a50e1ae074e8ac79aa85644121781c17d2d6219f51f911d18bb7bcaa327",
+    "test_experiment_fixture_v11.py": "336202d4a494a0a8f13485cb2841b6fcadd65954e0a4b6cfb2e2f2eefec497a6",
+    "test_network_contract_v11.py": "afd39b9b226f857a35bb58f200f31ca7b5b0d9379784eea446cb60a2b1c4e87e",
+    "test_network_evidence_v11.py": "fa7c8c397b6e2bfff72ddef0c3d17649a92ceabb1209fb3c6459fcc91b156548"
+  },
+  "source_sha256": "2f673a50e1ae074e8ac79aa85644121781c17d2d6219f51f911d18bb7bcaa327",
+  "sudo_run": false,
+  "validation": {
+    "additional_tests": 452,
+    "new_tests": 32,
+    "optional_workflow_skips": 2,
+    "preserved": {
+      "detached_head": "9b383960291da469671c3888cfa4fdcc3c33cf01",
+      "hardening": 42,
+      "historical_evidence": 1125,
+      "integration_ancestor": "1cf0d79",
+      "tracked": 701,
+      "v9_sources": 30
+    },
+    "results_sha256": "aa64a65667e7f95b24e1259f556075dd7236df63a084386eaabb6cce859b6e78",
+    "v11_tests": 70,
+    "workflow_results": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-semantic-workflow-20261001T040404Z-5133af8c/results.json",
+    "workflow_steps": 108
+  }
+}
