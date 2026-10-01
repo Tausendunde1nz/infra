@@ -2602,6 +2602,68 @@ def _worktree_barrier_payload(
     return payload
 
 
+def _refresh_worktree_barrier_for_release(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> None:
+    """Journal canonical metadata for tracked inodes created by root Git."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            root_records = records[root]
+            for path in _tracked_worktree_barrier_paths(root):
+                metadata = path.lstat()
+                if stat.S_ISDIR(metadata.st_mode):
+                    kind = "directory"
+                elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
+                    kind = "regular"
+                else:
+                    raise OSError
+                mode = stat.S_IMODE(metadata.st_mode)
+                if metadata.st_uid != 0 or mode & 0o022:
+                    raise OSError
+                existing = root_records.get(path)
+                if existing is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                    mode,
+                ) == (
+                    existing["device"],
+                    existing["inode"],
+                    int(existing["mode"], 8) & ~0o222,
+                ):
+                    continue
+                root_records[path] = {
+                    "kind": kind,
+                    "device": metadata.st_dev,
+                    "inode": metadata.st_ino,
+                    "uid": expected_uid,
+                    "gid": expected_gid,
+                    "mode": f"{mode:04o}",
+                }
+        if (
+            tuple(roots) == (APPLICATION_ROOT, CONTROL_ROOT)
+            and (BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink())
+        ):
+            journal = _private_json(
+                BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+            )
+            journal["worktree_write_barrier"] = _worktree_barrier_payload(
+                roots, records
+            )
+            _atomic_json(BARRIER_MARKER, journal)
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError(
+            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+        ) from None
+
+
 def _parse_worktree_barrier_payload(
     payload: Any,
     roots: Sequence[Path],
@@ -2698,6 +2760,14 @@ def _lock_worktree_write_barrier(
                     and metadata.st_gid == record["gid"]
                     and stat.S_IMODE(metadata.st_mode) == restricted_mode
                 )
+                target_locked = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == 0
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == mode
+                    and not (mode & 0o022)
+                )
                 restricted = (
                     metadata.st_dev == record["device"]
                     and metadata.st_ino == record["inode"]
@@ -2718,13 +2788,19 @@ def _lock_worktree_write_barrier(
                     and not stat.S_IMODE(metadata.st_mode) & 0o022
                 )
                 if actual_kind != expected_kind or not (
-                    original or locked or restricted or resumed
+                    original
+                    or locked
+                    or target_locked
+                    or restricted
+                    or resumed
                 ):
                     raise OSError
                 if original:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
                 if original or restricted:
                     os.chown(path, 0, record["gid"], follow_symlinks=False)
+                    os.chmod(path, restricted_mode, follow_symlinks=False)
+                if target_locked:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
             # New target paths created by a previously interrupted root Git
             # checkout are absent from the durable pre-mutation record. They
@@ -4647,6 +4723,11 @@ def _serialized_repository_recovery(
                 release_guard: _WorktreeReleaseGuard | None = None
                 try:
                     if completed:
+                        _refresh_worktree_barrier_for_release(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
                         _assert_worktree_write_barrier(
                             selected_roots, selected_worktree_barrier
                         )

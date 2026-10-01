@@ -2345,6 +2345,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(replacement_metadata.st_uid, 0)
             self.assertEqual(stat.S_IMODE(replacement_metadata.st_mode), 0o644)
 
+            runtime._refresh_worktree_barrier_for_release(
+                (repository,), {repository: repository_record}, barrier
+            )
             runtime._restore_worktree_write_barrier(
                 barrier, {repository: repository_record}
             )
@@ -2352,6 +2355,18 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 current_metadata = current.lstat()
                 self.assertEqual(current_metadata.st_uid, chatops.pw_uid)
                 self.assertEqual(current_metadata.st_gid, chatops.pw_gid)
+            runtime._lock_worktree_write_barrier(barrier)
+            runtime._assert_worktree_write_barrier((repository,), barrier)
+            for current in (tracked, added):
+                current_metadata = current.lstat()
+                self.assertEqual(current_metadata.st_uid, 0)
+                self.assertEqual(current_metadata.st_gid, chatops.pw_gid)
+                self.assertEqual(
+                    stat.S_IMODE(current_metadata.st_mode) & 0o222, 0
+                )
+            runtime._restore_worktree_write_barrier(
+                barrier, {repository: repository_record}
+            )
             runtime._restore_repository_path_metadata(
                 repository, repository_record
             )
@@ -2375,6 +2390,17 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ).stdout,
                 "A  nested/added.txt\n",
             )
+
+            unjournaled = nested / ".tracked.unjournaled"
+            unjournaled.write_text("untrusted\n", encoding="ascii")
+            os.chown(unjournaled, chatops.pw_uid, chatops.pw_gid)
+            os.chmod(unjournaled, 0o644)
+            os.replace(unjournaled, tracked)
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ):
+                runtime._lock_worktree_write_barrier(barrier)
 
     @unittest.skipUnless(
         Path("/proc").is_dir() and os.geteuid() == 0,

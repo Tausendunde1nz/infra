@@ -68,6 +68,10 @@ their existing Worktree and `.venv` paths.
 Every permission mutation is resumable at its syscall boundary. Recovery
 accepts the journaled owner with write bits already removed and
 `root:<recorded-group>` with the restricted mode, then completes the lock.
+Before permission release, the barrier journal is refreshed with the exact
+current inode and canonical target metadata for every path created or replaced
+by root Git. A release interrupted after ownership restoration can therefore
+reseal only the journal-bound inode; a later replacement still fails closed.
 An R3 orphaned parent or repository root at `root:root 0500` is normalized to
 the R4 traversal-preserving `root:<recorded-group>` restricted mode before any
 subsequent validation or Git transition.

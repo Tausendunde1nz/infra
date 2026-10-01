@@ -73,7 +73,10 @@ The r4 contract:
     to the recorded canonical repository owner/group before release validation;
 16. blocks every external open with a fanotify permission barrier during the
     release window, so a new shared writable mapping cannot evade inotify, and
-    keeps `.git` root-only until the Worktree validation is complete.
+    keeps `.git` root-only until the Worktree validation is complete;
+17. refreshes the durable barrier with each exact current inode before release,
+    so a crash after ownership restoration can reseal that bound inode while a
+    subsequent unjournaled replacement still fails closed.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.
