@@ -81,6 +81,16 @@ The r4 contract:
     thread is provably blocked in a native open syscall whose requested flags
     are read-only and non-mutating; unknown syscalls and writable opens remain
     held fail-closed.
+19. watches every directory below canonical `.git` during ownership release
+    and binds the complete nested metadata namespace, inode identity, mode,
+    size, mtime and regular-file bytes to the pre-release state, so a Git
+    command cannot create a lock/ref or mutate configuration after the top
+    metadata directory becomes accessible;
+20. follows the controller-owned attribute-event drain with exact Worktree,
+    repository and Git-metadata fingerprint validation, fresh Git/handle and
+    identity checks, and a final event drain; an external chmod/fchmod that
+    overlaps the controller's own chown window therefore cannot be accepted as
+    harmless.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.

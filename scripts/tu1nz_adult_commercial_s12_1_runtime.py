@@ -3121,6 +3121,130 @@ def _repository_git_metadata_paths(roots: Sequence[Path]) -> tuple[Path, ...]:
     return tuple(protected)
 
 
+def _repository_git_metadata_directories(
+    roots: Sequence[Path],
+) -> tuple[Path, ...]:
+    """Return every Git metadata directory requiring a recursive release mark."""
+
+    directories: list[Path] = []
+    try:
+        for root in roots:
+            git_directory = root / ".git"
+            for current, children, _files in os.walk(
+                git_directory, topdown=True, followlinks=False
+            ):
+                directory = Path(current)
+                metadata = directory.lstat()
+                if directory.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                    raise OSError
+                directories.append(directory)
+                for name in children:
+                    child = directory / name
+                    child_metadata = child.lstat()
+                    if child.is_symlink() or not stat.S_ISDIR(
+                        child_metadata.st_mode
+                    ):
+                        raise OSError
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return tuple(directories)
+
+
+def _git_metadata_release_fingerprint(roots: Sequence[Path]) -> str:
+    """Bind Git namespace, bytes and modes while ignoring intentional chown."""
+
+    digest = hashlib.sha256()
+    try:
+        for root_index, root in enumerate(roots):
+            git_directory = root / ".git"
+            git_metadata = git_directory.lstat()
+            if git_directory.is_symlink() or not stat.S_ISDIR(
+                git_metadata.st_mode
+            ):
+                raise OSError
+            digest.update(
+                b"root\0"
+                + str(root_index).encode("ascii")
+                + b"\0"
+                + str(git_metadata.st_dev).encode("ascii")
+                + b":"
+                + str(git_metadata.st_ino).encode("ascii")
+                + b"\0"
+            )
+            pending = [git_directory]
+            while pending:
+                directory = pending.pop()
+                entries = sorted(
+                    os.scandir(directory), key=lambda entry: os.fsencode(entry.name)
+                )
+                child_directories: list[Path] = []
+                for entry in entries:
+                    path = Path(entry.path)
+                    metadata = entry.stat(follow_symlinks=False)
+                    relative = os.fsencode(path.relative_to(git_directory))
+                    if stat.S_ISDIR(metadata.st_mode):
+                        kind = b"directory"
+                        child_directories.append(path)
+                        payload = b""
+                    elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
+                        kind = b"regular"
+                        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                        try:
+                            before = os.fstat(descriptor)
+                            content = hashlib.sha256()
+                            while True:
+                                block = os.read(descriptor, 1024 * 1024)
+                                if not block:
+                                    break
+                                content.update(block)
+                            after = os.fstat(descriptor)
+                        finally:
+                            os.close(descriptor)
+                        stable_fields = (
+                            "st_dev",
+                            "st_ino",
+                            "st_mode",
+                            "st_nlink",
+                            "st_size",
+                            "st_mtime_ns",
+                        )
+                        if any(
+                            getattr(before, field) != getattr(after, field)
+                            or getattr(before, field) != getattr(metadata, field)
+                            for field in stable_fields
+                        ):
+                            raise OSError
+                        payload = content.digest()
+                    else:
+                        raise OSError
+                    digest.update(
+                        str(root_index).encode("ascii")
+                        + b"\0"
+                        + relative
+                        + b"\0"
+                        + kind
+                        + b"\0"
+                        + b":".join(
+                            str(value).encode("ascii")
+                            for value in (
+                                metadata.st_dev,
+                                metadata.st_ino,
+                                metadata.st_mode,
+                                metadata.st_nlink,
+                                metadata.st_size,
+                                metadata.st_mtime_ns,
+                            )
+                        )
+                        + b"\0"
+                        + payload
+                        + b"\0"
+                    )
+                pending.extend(reversed(child_directories))
+    except (OSError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return digest.hexdigest()
+
+
 def _git_metadata_transition_fingerprint(paths: Sequence[Path]) -> str:
     """Bind the complete protected tree while normalizing its top lock attrs."""
 
@@ -4841,11 +4965,18 @@ def _serialized_repository_recovery(
                         for root_entries in selected_worktree_barrier.values()
                         for path in root_entries
                     }
+                    release_paths.update(
+                        _repository_git_metadata_directories(selected_roots)
+                    )
+                    git_release_fingerprint = ""
                     if completed:
                         for root in selected_roots:
                             release_paths.update(
                                 _tracked_worktree_barrier_paths(root)
                             )
+                        git_release_fingerprint = (
+                            _git_metadata_release_fingerprint(selected_roots)
+                        )
                     release_guard = _WorktreeReleaseGuard(
                         selected_roots,
                         tuple(release_paths),
@@ -4889,6 +5020,41 @@ def _serialized_repository_recovery(
                             root, selected_records[root]
                         )
                     release_guard.accept_release_attributes()
+                    if completed:
+                        _validate_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
+                        for root in selected_roots:
+                            _validate_repository_worktree_contract(
+                                root, selected_records[root]
+                            )
+                        if (
+                            _git_metadata_release_fingerprint(selected_roots)
+                            != git_release_fingerprint
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_BARRIER_RED"
+                            )
+                        metadata_paths = tuple(
+                            root / ".git" for root in selected_roots
+                        )
+                        if (
+                            _active_repository_git_count(selected_roots) != 0
+                            or _active_recovery_git_handle_count(metadata_paths)
+                            != 0
+                            or _active_tracked_worktree_write_handle_count(
+                                _tracked_worktree_regular_paths(selected_roots)
+                            )
+                            != 0
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                            )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                        release_guard.assert_no_events()
                     release_guard.close()
                     release_guard = None
                 except S12ControlError:

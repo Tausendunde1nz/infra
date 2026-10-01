@@ -44,8 +44,9 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 12. Exchange Git metadata back while the tracked-path write barrier remains in
    force, repeat the barrier/identity/handle checks against canonical `.git`,
    and only then start both a kernel mutation watch and a fanotify
-   open-permission barrier covering every tracked path, ancestor and repository
-   root before restoring the exact journaled ownership/modes.
+   open-permission barrier covering every tracked path, ancestor, repository
+   root and every directory in each canonical `.git` tree before restoring the
+   exact journaled ownership/modes.
 13. After the staggered permission restore, accept only the controller's own
    attribute events, restore surviving recorded inodes exactly, and explicitly
    normalize every new or replaced current tracked inode to the canonical
@@ -54,8 +55,13 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    waiting writer, newly opened writable mapping or replacement event fails
    closed before the guards are released. Git metadata stays root-only until
    all Worktree validation is complete and is released by changing the `.git`
-   root mode last. Flush
-   repository filesystems throughout; closing this checked watch is the
+   root mode last. The controller then revalidates the complete Worktree and
+   repository contracts, matches an exact Git-metadata namespace/content/mode
+   fingerprint captured before release, repeats Git/handle/identity checks and
+   drains the event queue once more. The fingerprint intentionally ignores
+   only ownership/ctime and the top `.git` mode changed by the controller; it
+   binds nested modes, names, inode identities, sizes, mtimes and file bytes.
+   Flush repository filesystems throughout; closing this checked watch is the
    transaction's explicit writer-release point.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
@@ -90,6 +96,8 @@ subsequent validation or Git transition.
 | external read-only open during release | allowed after blocked-syscall flag proof |
 | writer waiting for restored owner permission | detected by release watch; RED |
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
+| nested `.git` create/write during release | recursively watched and fingerprinted; RED |
+| external chmod/fchmod during release | final contract/fingerprint mismatch or event; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |
