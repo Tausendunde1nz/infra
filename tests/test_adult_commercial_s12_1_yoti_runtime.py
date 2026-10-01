@@ -885,6 +885,20 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             3,
         )
         self.assertIn("_restore_worktree_write_barrier(", contract)
+        self.assertIn("_WorktreeReleaseGuard(", contract)
+        self.assertIn("_validate_released_worktree_contract(", contract)
+        self.assertLess(
+            contract.index("_WorktreeReleaseGuard("),
+            contract.index("_restore_worktree_write_barrier("),
+        )
+        self.assertLess(
+            contract.index("_restore_worktree_write_barrier("),
+            contract.index("_validate_released_worktree_contract("),
+        )
+        self.assertLess(
+            contract.index("_validate_released_worktree_contract("),
+            contract.index("release_guard.assert_no_events()"),
+        )
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -2261,6 +2275,33 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (repository,), {repository: repository_record}
             )
 
+            tracked_record = barrier[repository][tracked]
+            restricted_mode = int(tracked_record["mode"], 8) & ~0o222
+            os.chmod(tracked, restricted_mode)
+            runtime._lock_worktree_write_barrier(barrier)
+            partial_chmod = tracked.lstat()
+            self.assertEqual(partial_chmod.st_uid, 0)
+            self.assertEqual(
+                stat.S_IMODE(partial_chmod.st_mode), restricted_mode
+            )
+            runtime._restore_worktree_write_barrier(barrier)
+            runtime._restore_repository_path_metadata(
+                repository, repository_record
+            )
+
+            os.chmod(tracked, restricted_mode)
+            os.chown(tracked, 0, chatops.pw_gid)
+            runtime._lock_worktree_write_barrier(barrier)
+            partial_chown = tracked.lstat()
+            self.assertEqual(partial_chown.st_uid, 0)
+            self.assertEqual(
+                stat.S_IMODE(partial_chown.st_mode), restricted_mode
+            )
+            runtime._restore_worktree_write_barrier(barrier)
+            runtime._restore_repository_path_metadata(
+                repository, repository_record
+            )
+
             runtime._lock_worktree_write_barrier(barrier)
             replacement = nested / ".tracked.replacement"
             replacement.write_text("reviewed\n", encoding="ascii")
@@ -2296,6 +2337,142 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     text=True,
                 ).stdout
             )
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_worktree_release_guard_detects_waiting_owner_writer(self) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            os.chmod(root, 0o755)
+            repository = root / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=S12 Test",
+                    "-c",
+                    "user.email=s12@example.invalid",
+                    "commit",
+                    "-m",
+                    "reviewed",
+                ],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            barrier = runtime._capture_worktree_write_barrier(
+                (repository,), {repository: repository_record}
+            )
+            runtime._lock_worktree_write_barrier(barrier)
+            guard = runtime._WorktreeReleaseGuard((repository,))
+
+            def become_chatops() -> None:
+                os.setgroups([])
+                os.setgid(chatops.pw_gid)
+                os.setuid(chatops.pw_uid)
+
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import pathlib,sys,time;"
+                        "p=pathlib.Path(sys.argv[1]);"
+                        "print('ready',flush=True);"
+                        "\nwhile True:\n"
+                        " try:\n  p.write_text('race\\n');break\n"
+                        " except PermissionError:\n  time.sleep(0.01)\n"
+                    ),
+                    str(tracked),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                preexec_fn=become_chatops,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                runtime._restore_worktree_write_barrier(barrier)
+                runtime._restore_repository_path_metadata(
+                    repository, repository_record
+                )
+                child.communicate(timeout=5)
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ):
+                    guard.accept_release_attributes()
+            finally:
+                guard.close()
+                if child.poll() is None:
+                    child.terminate()
+                    child.communicate(timeout=5)
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_legacy_r3_namespace_locks_normalize_to_recorded_group(self) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            deployment_root = Path(directory) / "repositories"
+            deployment_root.mkdir(mode=0o755)
+            repository = deployment_root / "application"
+            repository.mkdir(mode=0o755)
+            git_directory = repository / ".git"
+            git_directory.mkdir(mode=0o755)
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(deployment_root, chatops.pw_uid, chatops.pw_gid)
+
+            with mock.patch.object(
+                runtime, "DEPLOYMENT_LOCK_ROOT", deployment_root
+            ):
+                parent_record = runtime._repository_parent_metadata()
+                repository_record = runtime._repository_path_metadata(repository)
+                os.chown(deployment_root, 0, 0)
+                os.chmod(deployment_root, 0o500)
+                os.chown(repository, 0, 0)
+                os.chmod(repository, 0o500)
+
+                runtime._lock_repository_parent(parent_record)
+                runtime._lock_repository_root(repository, repository_record)
+
+                for path in (deployment_root, repository):
+                    metadata = path.lstat()
+                    self.assertEqual(metadata.st_uid, 0)
+                    self.assertEqual(metadata.st_gid, chatops.pw_gid)
+                    self.assertEqual(stat.S_IMODE(metadata.st_mode), 0o555)
+
+                runtime._restore_repository_path_metadata(
+                    repository, repository_record
+                )
+                runtime._restore_repository_parent(parent_record)
+                for path in (deployment_root, repository):
+                    metadata = path.lstat()
+                    self.assertEqual(metadata.st_uid, chatops.pw_uid)
+                    self.assertEqual(metadata.st_gid, chatops.pw_gid)
+                    self.assertEqual(stat.S_IMODE(metadata.st_mode), 0o755)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_metadata_handle_scope_rejects_git_and_recovery_metadata(self) -> None:

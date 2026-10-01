@@ -17,6 +17,7 @@ import json
 import os
 import pwd
 import re
+import select
 import shutil
 import stat
 import struct
@@ -2696,6 +2697,13 @@ def _lock_worktree_write_barrier(
                     and metadata.st_gid == record["gid"]
                     and stat.S_IMODE(metadata.st_mode) == restricted_mode
                 )
+                restricted = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == record["uid"]
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == restricted_mode
+                )
                 actual_kind = (
                     "directory"
                     if stat.S_ISDIR(metadata.st_mode)
@@ -2709,11 +2717,12 @@ def _lock_worktree_write_barrier(
                     and not stat.S_IMODE(metadata.st_mode) & 0o022
                 )
                 if actual_kind != expected_kind or not (
-                    original or locked or resumed
+                    original or locked or restricted or resumed
                 ):
                     raise OSError
                 if original:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
+                if original or restricted:
                     os.chown(path, 0, record["gid"], follow_symlinks=False)
                     os.chmod(path, restricted_mode, follow_symlinks=False)
             # New target paths created by a previously interrupted root Git
@@ -2828,6 +2837,69 @@ def _restore_worktree_write_barrier(
                     follow_symlinks=False,
                 )
                 os.chmod(path, int(record["mode"], 8), follow_symlinks=False)
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _validate_released_worktree_contract(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+    barrier_records: dict[Path, dict[Path, dict[str, Any]]],
+) -> None:
+    """Validate exact old entries and safe canonical metadata for new entries."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            root_records = barrier_records[root]
+            current_paths = set(_tracked_worktree_barrier_paths(root))
+            for path in sorted(
+                current_paths | set(root_records), key=os.fsencode
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    if path in current_paths:
+                        raise
+                    continue
+                record = root_records.get(path)
+                same_recorded_inode = record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"])
+                if same_recorded_inode:
+                    valid_metadata = (
+                        metadata.st_uid == record["uid"]
+                        and metadata.st_gid == record["gid"]
+                        and stat.S_IMODE(metadata.st_mode)
+                        == int(record["mode"], 8)
+                    )
+                    expected_kind = record["kind"]
+                else:
+                    valid_metadata = (
+                        metadata.st_uid == expected_uid
+                        and metadata.st_gid == expected_gid
+                        and not (stat.S_IMODE(metadata.st_mode) & 0o022)
+                    )
+                    expected_kind = (
+                        "directory"
+                        if stat.S_ISDIR(metadata.st_mode)
+                        else "regular"
+                    )
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                if not valid_metadata or actual_kind != expected_kind:
+                    raise OSError
+            _validate_repository_worktree_contract(root, repository_records[root])
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
 
@@ -3031,7 +3103,7 @@ class _GitMetadataTransitionGuard:
             except OSError:
                 raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
             if not payload:
-                return
+                return sentinel_seen
             offset = 0
             while offset < len(payload):
                 if len(payload) - offset < self._EVENT.size:
@@ -3073,6 +3145,175 @@ class _GitMetadataTransitionGuard:
         if _git_metadata_transition_fingerprint(paths) != self.baseline:
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         self._assert_event_queue_quiet()
+
+    def close(self) -> None:
+        if self.descriptor is not None:
+            try:
+                os.close(self.descriptor)
+            finally:
+                self.descriptor = None
+
+
+class _WorktreeReleaseGuard:
+    """Observe tracked-path mutations from before permission release to validation."""
+
+    _EVENT = struct.Struct("iIII")
+    _ATTRIB = 0x00000004
+    _WATCH_MASK = (
+        0x00000002  # IN_MODIFY
+        | _ATTRIB
+        | 0x00000008  # IN_CLOSE_WRITE
+        | 0x00000040  # IN_MOVED_FROM
+        | 0x00000080  # IN_MOVED_TO
+        | 0x00000100  # IN_CREATE
+        | 0x00000200  # IN_DELETE
+        | 0x00000400  # IN_DELETE_SELF
+        | 0x00000800  # IN_MOVE_SELF
+    )
+    _IN_Q_OVERFLOW = 0x00004000
+    _IN_ISDIR = 0x40000000
+
+    def __init__(
+        self,
+        roots: Sequence[Path],
+        tracked_paths: Sequence[Path] | None = None,
+    ):
+        self.descriptor: int | None = None
+        self.sentinel_path: Path | None = None
+        self.sentinel_watch: int | None = None
+        if sys.platform != "linux":
+            return
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            init = library.inotify_init1
+            init.argtypes = [ctypes.c_int]
+            init.restype = ctypes.c_int
+            descriptor = init(os.O_NONBLOCK | os.O_CLOEXEC)
+            if descriptor < 0:
+                raise OSError(ctypes.get_errno(), "inotify_init1")
+            self.descriptor = descriptor
+            add = library.inotify_add_watch
+            add.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+            add.restype = ctypes.c_int
+            paths = set(roots)
+            if tracked_paths is None:
+                for root in roots:
+                    paths.update(_tracked_worktree_barrier_paths(root))
+            else:
+                paths.update(tracked_paths)
+            self.sentinel_path = roots[0]
+            for path in sorted(paths, key=os.fsencode):
+                watch = add(descriptor, os.fsencode(path), self._WATCH_MASK)
+                if watch < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_add_watch")
+                if path == self.sentinel_path:
+                    self.sentinel_watch = watch
+            if self.sentinel_watch is None:
+                raise OSError("release sentinel watch missing")
+            self.assert_no_events()
+        except S12ControlError:
+            self.close()
+            raise
+        except (OSError, ValueError, AttributeError):
+            self.close()
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+
+    def _assert_events(
+        self,
+        *,
+        allow_attributes: bool,
+        sentinel_watch: int | None = None,
+    ) -> bool:
+        if self.descriptor is None:
+            return True
+        sentinel_seen = False
+        while True:
+            try:
+                payload = os.read(self.descriptor, 1024 * 1024)
+            except BlockingIOError:
+                return sentinel_seen
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                ) from None
+            if not payload:
+                return
+            offset = 0
+            while offset < len(payload):
+                if len(payload) - offset < self._EVENT.size:
+                    raise S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+                watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                    payload, offset
+                )
+                offset += self._EVENT.size
+                if name_length > len(payload) - offset:
+                    raise S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+                offset += name_length
+                normalized = mask & ~self._IN_ISDIR
+                if (
+                    sentinel_watch is not None
+                    and watch == sentinel_watch
+                    and name_length == 0
+                    and normalized == self._ATTRIB
+                ):
+                    sentinel_seen = True
+                if normalized & self._IN_Q_OVERFLOW or (
+                    normalized
+                    and not (
+                        allow_attributes
+                        and (normalized & ~self._ATTRIB) == 0
+                    )
+                ):
+                    raise S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+
+    def accept_release_attributes(self) -> None:
+        if self.descriptor is None:
+            return
+        self._assert_events(allow_attributes=True)
+        if self.sentinel_path is None or self.sentinel_watch is None:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        try:
+            mode = stat.S_IMODE(self.sentinel_path.lstat().st_mode)
+            os.chmod(self.sentinel_path, mode)
+        except OSError:
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        deadline = time.monotonic() + 1.0
+        while True:
+            if self._assert_events(
+                allow_attributes=True,
+                sentinel_watch=self.sentinel_watch,
+            ):
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+            try:
+                readable, _, _ = select.select(
+                    (self.descriptor,), (), (), remaining
+                )
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                ) from None
+            if not readable:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+
+    def assert_no_events(self) -> None:
+        self._assert_events(allow_attributes=False)
 
     def close(self) -> None:
         if self.descriptor is not None:
@@ -3540,15 +3781,20 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             and metadata.st_gid == expected_gid
             and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
+        legacy_locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (original or locked or restricted)
+            or not (original or locked or restricted or legacy_locked)
         ):
             raise OSError
         if original:
             os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
-        if original or restricted:
+        if original or restricted or legacy_locked:
             os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
             os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
@@ -3625,7 +3871,7 @@ def _validate_repository_worktree_contract(
                     metadata = entry.stat(follow_symlinks=False)
                     allowed_owners = {(expected_uid, expected_gid)}
                     if allow_journaled_transition:
-                        allowed_owners.add((0, 0))
+                        allowed_owners.update({(0, 0), (0, expected_gid)})
                     if (
                         (metadata.st_uid, metadata.st_gid) not in allowed_owners
                         or (
@@ -3714,15 +3960,20 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
             and metadata.st_gid == expected_gid
             and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
+        legacy_locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
         if (
             root.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (original or locked or restricted)
+            or not (original or locked or restricted or legacy_locked)
         ):
             raise OSError
         if original:
             os.chmod(root, restricted_mode)
-        if original or restricted:
+        if original or restricted or legacy_locked:
             os.chown(root, 0, expected_gid)
             os.chmod(root, restricted_mode)
         metadata = root.lstat()
@@ -4061,6 +4312,7 @@ def _serialized_repository_recovery(
                 except S12ControlError:
                     cleanup_failed = True
             if not cleanup_failed:
+                release_guard: _WorktreeReleaseGuard | None = None
                 try:
                     if completed:
                         _assert_worktree_write_barrier(
@@ -4077,6 +4329,16 @@ def _serialized_repository_recovery(
                             raise S12ControlError(
                                 "S12_1_RECOVERY_GIT_ACTIVE_RED"
                             )
+                    release_guard = _WorktreeReleaseGuard(
+                        selected_roots,
+                        None
+                        if completed
+                        else tuple(
+                            path
+                            for root_entries in selected_worktree_barrier.values()
+                            for path in root_entries
+                        ),
+                    )
                     _restore_worktree_write_barrier(
                         selected_worktree_barrier
                     )
@@ -4084,13 +4346,39 @@ def _serialized_repository_recovery(
                         _restore_repository_path_metadata(
                             root, selected_records[root]
                         )
+                    if parent_locked:
+                        _restore_repository_parent(parent_record)
+                    release_guard.accept_release_attributes()
+                    if completed:
+                        _validate_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                        released_paths = _tracked_worktree_regular_paths(
+                            selected_roots
+                        )
+                        if (
+                            _active_tracked_worktree_write_handle_count(
+                                released_paths
+                            )
+                            != 0
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                            )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                    release_guard.assert_no_events()
+                    release_guard.close()
+                    release_guard = None
                 except S12ControlError:
                     cleanup_failed = True
-            if parent_locked:
-                try:
-                    _restore_repository_parent(parent_record)
-                except S12ControlError:
-                    cleanup_failed = True
+                finally:
+                    if release_guard is not None:
+                        release_guard.close()
         if cleanup_failed:
             raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
 

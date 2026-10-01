@@ -43,9 +43,15 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    identity, then repeat the write-handle scan.
 12. Exchange Git metadata back while the tracked-path write barrier remains in
    force, repeat the barrier/identity/handle checks against canonical `.git`,
-   and only then restore the exact journaled ownership/modes. Flush repository
-   filesystems throughout. Restoring those permissions is the transaction's
-   explicit writer-release point.
+   and only then start a kernel mutation watch covering every tracked path and
+   repository root before restoring the exact journaled ownership/modes.
+13. After the staggered permission restore, accept only the controller's own
+   attribute events, validate every surviving recorded inode against its exact
+   original metadata and every new target inode against the canonical owner
+   contract, then repeat identity/handle/identity checks. Any waiting writer or
+   replacement event fails closed before the watcher is released. Flush
+   repository filesystems throughout; closing this checked watch is the
+   transaction's explicit writer-release point.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
 the scan/exchange race. The fingerprint plus the kernel mutation watch closes
@@ -53,6 +59,13 @@ the short-lived-writer gap: a metadata change is rejected before the protected
 body even when no process or descriptor remains at the later scan. The group
 traversal contract keeps S7, S8 Landing, S8 Telegram and S10 WMS able to use
 their existing Worktree and `.venv` paths.
+
+Every permission mutation is resumable at its syscall boundary. Recovery
+accepts the journaled owner with write bits already removed and
+`root:<recorded-group>` with the restricted mode, then completes the lock.
+An R3 orphaned parent or repository root at `root:root 0500` is normalized to
+the R4 traversal-preserving `root:<recorded-group>` restricted mode before any
+subsequent validation or Git transition.
 
 ## Classification matrix
 
@@ -65,6 +78,7 @@ their existing Worktree and `.venv` paths.
 | writable or write-upgradeable shared mapping | RED |
 | private copy-on-write mapping without writable fd | allowed |
 | new path-based tracked-file writer after lock | blocked by permissions |
+| writer waiting for restored owner permission | detected by release watch; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |

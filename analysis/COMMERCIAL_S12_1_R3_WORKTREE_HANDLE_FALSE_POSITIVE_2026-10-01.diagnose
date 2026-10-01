@@ -62,8 +62,13 @@ The r4 contract:
     read/traversal access but prevents new owner writes through Git-metadata
     teardown;
 12. revalidates the clean identity under that barrier after canonical `.git`
-    returns, then restores exact recorded ownership/modes as the explicit
-    writer-release point.
+    returns, starts a tracked-path mutation watch, then restores exact recorded
+    ownership/modes;
+13. validates all released metadata, repeats identity/handle/identity checks
+    and rejects any waiting-writer event before closing the watch at the
+    explicit writer-release point;
+14. resumes cleanly from a crash after either chmod or chown and normalizes an
+    R3 `root:root 0500` parent/root lock to the recorded-group R4 contract.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.
