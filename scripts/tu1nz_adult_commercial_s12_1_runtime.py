@@ -2992,14 +2992,20 @@ def _lock_repository_git_metadata(root: Path, record: dict[str, Any]) -> None:
             and metadata.st_gid == 0
             and stat.S_IMODE(metadata.st_mode) == 0o700
         )
+        restricted = (
+            metadata.st_uid == expected_uid
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == 0o700
+        )
         if (
             git_directory.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (original or locked)
+            or not (original or locked or restricted)
         ):
             raise OSError
         if original:
             os.chmod(git_directory, 0o700)
+        if original or restricted:
             os.chown(git_directory, 0, 0)
             os.chmod(git_directory, 0o700)
         metadata = git_directory.lstat()

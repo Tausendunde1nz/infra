@@ -1959,6 +1959,48 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (git_directory,),
             )
 
+    def test_git_metadata_lock_resumes_recorded_owner_0700_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            git_directory = repository / ".git"
+            git_directory.mkdir(parents=True)
+            record = {
+                "git_uid": 501,
+                "git_gid": 20,
+                "git_mode": "2770",
+            }
+            transition = SimpleNamespace(
+                st_uid=501,
+                st_gid=20,
+                st_mode=stat.S_IFDIR | 0o700,
+            )
+            locked = SimpleNamespace(
+                st_uid=0,
+                st_gid=0,
+                st_mode=stat.S_IFDIR | 0o700,
+            )
+            state = {"locked": False}
+            real_lstat = Path.lstat
+
+            def recovery_lstat(path: Path):
+                if path == git_directory:
+                    return locked if state["locked"] else transition
+                return real_lstat(path)
+
+            def finish_chown(*_args, **_kwargs) -> None:
+                state["locked"] = True
+
+            with (
+                mock.patch.object(runtime.os, "geteuid", return_value=0),
+                mock.patch.object(Path, "lstat", new=recovery_lstat),
+                mock.patch.object(runtime.os, "chmod") as chmod,
+                mock.patch.object(runtime.os, "chown", side_effect=finish_chown) as chown,
+                mock.patch.object(runtime, "_fsync_directory"),
+            ):
+                runtime._lock_repository_git_metadata(repository, record)
+            chown.assert_called_once_with(git_directory, 0, 0)
+            chmod.assert_called_once_with(git_directory, 0o700)
+
     def test_recovery_barrier_blocks_new_git_and_restores_repository(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory) / "repo"
