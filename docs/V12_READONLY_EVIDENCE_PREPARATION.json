@@ -1,0 +1,38 @@
+{
+  "activation_included": false,
+  "apparmor_embedded_sha256": "cc7c4a4b45002f2da5906f9aaa3652dae6624cf6df658d3e02f484e42f71f586",
+  "base_commit": "63a17cfd6c74ade3bb1ed36419c77158915db976",
+  "expected_linux_tests": 53,
+  "production_mutations": false,
+  "root_execution_performed": false,
+  "scope": [
+    "n8n_network_references",
+    "nat_dnat_8081",
+    "bound_readonly_apparmor"
+  ],
+  "sources": {
+    "bootstrap_v12.py": "725b2f7a07463838bad63ca946b362caa13e7a4ab072d23a461d270c0aa3e28f",
+    "collector_v12.py": "f673864719eea005e7a45396263e4aa80f5bf431ddf975476482c46bb136b9da",
+    "command_v12.py": "88f718e0c87a7174eb8828765568f83cfea81d186f785ee79ffa6e676d5d1504",
+    "test_evidence_v12.py": "ee804ead8b62d9f60e13d1b2e9cc4d2d959eedbf72cc8ba517348c3390762978"
+  },
+  "validation": {
+    "detached_clean": true,
+    "detached_head": "9b383960291da469671c3888cfa4fdcc3c33cf01",
+    "evidence_path": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v12-evidence-workflow-20261001T160705Z-9cc73629",
+    "integration_1cf0d79_ancestor": true,
+    "linux_v12_tests_passed": 53,
+    "preservation_counts": [
+      701,
+      42,
+      1125,
+      30
+    ],
+    "preservation_mismatches": 0,
+    "results_sha256": "f781e274c300bf9c22be0c49bae2cd1600b907dbb1d8ed729091698b393196c6",
+    "v11_tests_passed": 70,
+    "workflow_100_optional_skips": 2,
+    "workflow_steps_rc0": 108
+  },
+  "version": 12
+}
