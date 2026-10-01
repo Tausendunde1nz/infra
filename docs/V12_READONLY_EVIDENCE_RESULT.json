@@ -1,0 +1,49 @@
+{
+  "activation_ready": false,
+  "apparmor": "docker-default (enforce)",
+  "collection_status": "COMPLETE",
+  "collector_commit": "b717dc478edb26477cb8acfc39633ad8d6ada8e6",
+  "continuity_unchanged": true,
+  "evidence_root": "/var/lib/tu1nz-evidence-v12-djrz_uun",
+  "manifest_sha256": "afbb25bdfb94756745af62fad283faa5fbd9eaaa71132d37391b2d3d611e657a",
+  "n8n": {
+    "active_dynamic_markers": 7,
+    "active_dynamic_workflows": 1,
+    "consumption_proven": false,
+    "direct_matches": 2,
+    "direct_matches_active": 0,
+    "inactive_dynamic_markers": 10,
+    "workflows_scanned": 7
+  },
+  "nat": {
+    "backend": "Docker iptables via nf_tables",
+    "chain": "DOCKER",
+    "historical_actor_proven": false,
+    "hostport": 8081,
+    "ipv6_matching_dnat": false,
+    "listener": "0.0.0.0:8081 docker-proxy",
+    "manual_matching_dnat_observed": false,
+    "matching_dnat_rules": 1,
+    "nft_handle": 69,
+    "ordinal_zero_based": 13,
+    "table": "nat",
+    "target": "172.25.0.2:8080"
+  },
+  "network_gate": "CONSUMER_REVIEW_INCOMPLETE",
+  "production_mutations": false,
+  "root_runs": 1,
+  "section_sha256": {
+    "apparmor.json": "2992ed7a26461329ad7385120848843c9430445d310d8648f873237417f8d3e1",
+    "continuity.json": "840b5ec40fdead53f940ffd7544a1f49b0b055c9c9833187e3bab52c4ccc7d66",
+    "identity.json": "bbfe71dd96b02584936579cb6cce94cf80ff2f7cc95bbaf53dd1df63801cde38",
+    "n8n.json": "3a2682ad1e205013479c30cf9e9f1d84b2b21a87a6b5e8af2c9a4bfbf43a1874",
+    "nat.json": "01384283ac1fb15beb79290db62da3ce1aa35f4b03c999ee8366ecd24e7c6ba5",
+    "run.json": "9e875890736d560014555d522fd24497e44ac6acfa99ec02ebc14f12d0968475"
+  },
+  "tests": {
+    "prior_optional_skips": 2,
+    "prior_unchanged_sources_workflow_steps_rc0": 108,
+    "real_evidence_gate_rejected_as_expected": true,
+    "v11_after_collection": 70
+  }
+}
