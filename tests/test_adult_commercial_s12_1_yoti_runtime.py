@@ -1939,6 +1939,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             runtime.S12ControlError, "S12_1_RECOVERY_GIT_BARRIER_RED"
         ):
             runtime._metadata_barrier_mode(0o600)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError, "S12_1_RECOVERY_GIT_BARRIER_RED"
+        ):
+            runtime._metadata_barrier_mode(0o700)
 
     def test_group_writable_canonical_git_metadata_is_scannable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

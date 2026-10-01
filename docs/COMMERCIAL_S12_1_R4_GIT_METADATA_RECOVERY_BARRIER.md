@@ -15,6 +15,7 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 3. Journal the exact repository and shared-parent metadata durably.
 4. Remove write bits from the shared parent and repository roots, change only
    their owner to root, and retain their recorded groups and traversal classes.
+   A baseline without recorded-group read/traverse permission is rejected.
 5. Change canonical `.git` to `root:root` mode `0700`.
 6. Repeat actual-Git and metadata-handle checks.
 7. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.

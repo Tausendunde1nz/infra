@@ -218,7 +218,8 @@ state.
 The controller captures repository-parent, repository-root and `.git`
 ownership/modes, durably journals those exact recovery values, then removes
 namespace write permission while retaining the recorded group's read/traverse
-permission. It separately changes real Git metadata to `root:root` mode `0700`
+permission; a baseline lacking group read/traverse is RED. It separately
+changes real Git metadata to `root:root` mode `0700`
 and atomically installs the repository barriers before
 it captures repository identity, attached/detached posture, release-branch
 tip, managed refs, bundles or pre-state files. The same barriers remain held

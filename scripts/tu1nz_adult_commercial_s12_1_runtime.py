@@ -2665,7 +2665,7 @@ def _metadata_barrier_mode(mode: int) -> int:
     """Remove namespace mutation while retaining every prior traversal class."""
 
     restricted = mode & ~0o222
-    if restricted & 0o111 == 0:
+    if restricted & 0o050 != 0o050:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
     return restricted
 
