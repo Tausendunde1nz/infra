@@ -31,7 +31,7 @@ async function exportOne(fs,crypto,sqlite,uid) {
  } finally {if(db)await new Promise((resolve,reject)=>db.close(e=>e?reject(e):resolve()));}
 }
 module.exports={exportOne};
-if(require.main===module){
+if(require.main===module || (typeof process!=='undefined' && process.argv[1]==='-')){
  const fs=require('fs'),crypto=require('crypto');
  const sqlite=require('/usr/local/lib/node_modules/n8n/node_modules/.pnpm/sqlite3@5.1.7/node_modules/sqlite3/lib/sqlite3.js');
  exportOne(fs,crypto,sqlite,process.getuid()).then(x=>process.stdout.write(JSON.stringify(x)+'\n')).catch(()=>{process.stderr.write('EXPORT_REFUSED\n');process.exitCode=2;});

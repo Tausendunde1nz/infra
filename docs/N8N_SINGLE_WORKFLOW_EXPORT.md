@@ -32,3 +32,5 @@ Open-Fehler, View, fehlender Workflow, inaktiv und falsche UID.
 n8n ist allein in n8n_n8n_default (172.26.0.2), Mommyramona in anderen Netzen;
 ein gemeinsamer Service-DNS-Pfad ist derzeit nicht belegt. Keine Verbindung
 wird hinzugefügt. V11-Live-Aktivierung bleibt getrennt.
+
+Der erste stdin-Aufruf endete ohne Export: Node setzt require.main bei node - nicht auf module. Keine Datenbankabfrage wurde gestartet. Expliziter stdin-Einstieg ergänzt; Regressionstest hinzugefügt, 11 Tests bestanden. Keine Live-Einstellung verändert.

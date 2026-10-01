@@ -14,6 +14,7 @@ async function test(source){
  }
  await one(c=>{},false);
  for(const k of ['wal','symlink','owner','drift','open','view','missing','inactive','uid'])await one(c=>c[k]=true,true);
+ const sandbox={module:{exports:{}},process:{argv:['node','-']},require:()=>{throw Error('STDIN_ENTRY_REACHED')}};sandbox.require.main={};assert.throws(()=>vm.runInNewContext(source,sandbox),/STDIN_ENTRY_REACHED/);count++;
  console.log('PASS',count,'offline export cases; no production DB used');
 }
 module.exports={test};
