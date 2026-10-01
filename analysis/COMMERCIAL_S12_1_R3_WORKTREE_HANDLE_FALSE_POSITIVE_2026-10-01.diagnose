@@ -1,0 +1,67 @@
+# S12.1 r3 Worktree-handle false positive — 2026-10-01
+
+## Observed failure
+
+The sole r3 controller invocation returned
+`S12_1_RECOVERY_GIT_ACTIVE_RED` before backup, deployment-attempt marker,
+repository synchronization, runtime installation or provider acceptance.
+Application and Control remained clean on their pre-deployment commits.
+
+## Reproduction from canonical r3 source
+
+`_serialized_repository_recovery()` passed `APPLICATION_ROOT` and
+`CONTROL_ROOT` directly to `_active_recovery_git_handle_count()`. That helper
+recursively materialized every inode below each supplied path. The four healthy
+S7/S8/S10 units use the Application Worktree as `WorkingDirectory`; their cwd,
+ordinary file and `.venv` handles were therefore counted as Git-recovery
+handles even though neither `.git` tree was retained.
+
+## Secondary permission finding
+
+The r3 parent/root locks changed the shared repository parent and checkout
+roots to `root:root` mode `0500`. That prevented new namespace writers but also
+removed traversal from the `chatops` service identity. Narrowing only the
+handle scanner would therefore have left an avoidable live-service risk.
+
+## Decision
+
+`RECOVERY_FIX_METADATA_SCOPING_SUFFICIENT`.
+
+The pinned Application delta changes only S12/Yoti modules, tests,
+documentation and packaging metadata; the active S7/S8/S10 entrypoints do not
+import those modules. The existing `.venv` is an ignored preserved path and is
+not replaced by canonical Git synchronization. For this exact frozen release,
+healthy services may remain running while Git metadata is isolated and the
+reviewed tracked delta is applied.
+
+The r4 contract:
+
+1. detects actual Git processes using cwd, chained `-C`, explicit Git paths and
+   Git environment selectors;
+2. scans cwd, fds and mappings only against `.git` and
+   `.git.s12-1-recovery` inode trees;
+3. removes namespace write permission from the shared parent and repository
+   roots while retaining the recorded group's read/traverse classes;
+4. locks real `.git` metadata to `root:root` mode `0700`;
+5. repeats writer and metadata-handle checks before atomic exchange;
+6. atomically exchanges `.git` with a root-owned mode-`000` guard;
+7. checks both guards and quarantined metadata before root-only Git use;
+8. durably restores metadata and exact recorded ownership/modes.
+
+There is no process-name allowlist. A Git process under a product-service
+identity remains RED.
+
+## Server observation
+
+Both canonical `.git` directories were normal and both recovery directories
+were absent after the r3 failure. The private journal could not be
+distinguished as absent versus root-private from the unprivileged read-only
+inspection. It must be classified at the single authenticated server
+checkpoint and, if present, recovered only through the reviewed controller.
+
+## Required acceptance
+
+Linux regression must retain four live-shaped Worktree users while the barrier
+is installed, reject actual Git writers and Git/recovery metadata handles,
+exercise the new-writer race, recover the orphan journal canonically, preserve
+durability, and keep S11/Public WMS unchanged.

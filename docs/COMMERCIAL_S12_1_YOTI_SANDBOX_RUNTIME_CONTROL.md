@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r3` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r4` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -23,6 +23,16 @@ baseline file before backup. No r2 deployment attempt or server mutation
 occurred. The r3 controller instead compares the installed nginx site against a
 reviewed SHA-256 constant. That constant is source-validated and the baseline
 file is independently bound in the annotated freeze.
+
+The immutable r3 freeze is preserved as the first controller that reached the
+live mutation boundary. Its sole invocation stopped before backup and before
+the durable deployment-attempt marker with `S12_1_RECOVERY_GIT_ACTIVE_RED`.
+The cause was a recovery scanner that received whole Worktree roots although
+the exclusion resource was Git metadata. Healthy S7/S8/S10 processes retaining
+their canonical WorkingDirectory were consequently misclassified. The r4
+controller protects `.git` and `.git.s12-1-recovery` handles, while namespace
+locks preserve every previously available read/traverse class and remove only
+write authority. No service-name allowlist exists.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
@@ -179,8 +189,9 @@ forced restore checkout.
 Initial deployment still accepts only the recorded ownership posture.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
-with restricted mode, root-owned locked checkout roots, and root-owned or
-recorded-owner Git roots at the recovery mode. Nested entries may be either
+with traversal-preserving restricted mode, root-owned checkout roots retaining
+the recorded group, and root-owned or recorded-owner Git roots at the recovery
+mode. Nested entries may be either
 the recorded owner or root-owned controller output only. Arbitrary ownership
 or mode drift remains RED, while a stop between root locking, Git exchange and
 metadata restoration remains idempotently recoverable.
@@ -206,8 +217,9 @@ digest, so `HEAD@{n}` and branch-reflog history also return to their prior
 state.
 The controller captures repository-parent, repository-root and `.git`
 ownership/modes, durably journals those exact recovery values, then removes
-`chatops` access from the shared repository parent and atomically installs the
-repository barriers before
+namespace write permission while retaining the recorded group's read/traverse
+permission. It separately changes real Git metadata to `root:root` mode `0700`
+and atomically installs the repository barriers before
 it captures repository identity, attached/detached posture, release-branch
 tip, managed refs, bundles or pre-state files. The same barriers remain held
 without a gap through backup validation, the durable attempt marker, canonical
@@ -305,7 +317,8 @@ objects arrive only through two externally authenticated, digest-bound Git
 bundles and are imported by isolated root Git into one fixed root-owned
 disposable bare stage before the canonical barrier is entered; no canonical
 ref or worktree is changed by this acquisition. The shared repository parent
-is then root-owned mode `0500`, retained parent/staging directory handles are
+is then root-owned with its original group and write bits removed; retained
+parent/staging directory handles are
 rejected, and the staged commit/tree/annotated-tag
 identity is validated. Once the barrier is active, backup identity, bundle
 verification, local-only release sync and immutable cloning use the
@@ -345,13 +358,13 @@ single deployment marker can be written. The temporary trusted copy is removed
 after success or failure.
 
 Before the repository parent or roots are locked, and again after each lock
-stage, `/proc` is checked for every other process retaining a cwd or file
-descriptor or writable memory mapping anywhere below either complete canonical
-worktree. The final post-exchange check covers both complete worktrees and both
-quarantined Git directories. A retained handle or mapping therefore stops the
-attempt before backup or canonical mutation instead of surviving a chmod
-barrier. Shared mappings are rejected even when currently read-only because an
-existing shared mapping can retain permission to become writable later.
+stage, `/proc` is checked for every other process retaining a cwd, file
+descriptor or mapping in the actual `.git` or `.git.s12-1-recovery` trees. The
+final post-exchange check covers the inaccessible guards and both quarantined
+Git directories. Worktree cwd, ordinary-file fd and `.venv` mappings remain
+allowed because they are not Git metadata. Any metadata mapping is rejected,
+including read-only mappings, so an inode retained across the exchange cannot
+silently preserve stale metadata.
 
 Release acquisition performs no server-side network Git operation. The exact
 reviewed Application `main`, Control `control-main` and annotated Runtime Freeze
@@ -399,18 +412,20 @@ module path and emits bounded JSON rather than an import traceback.
 Before repository rollback, the controller confirms that neither the Control
 sync loop nor any Git process rooted in either canonical checkout is active.
 It records the repository-root and Git-directory ownership/modes, removes
-`chatops` write/traverse authority from the checkout root, creates a fixed
+namespace write authority while retaining `chatops` traversal, locks `.git`
+itself to `root:root` mode `0700`, and creates a fixed
 root-owned mode-`000` guard and atomically exchanges that
 directory with each real `.git` directory (`RENAME_EXCHANGE`/`RENAME_SWAP`).
-There is no absent-`.git` interval. Normal Git writers therefore cannot enter
-or recreate either repository, nor explicitly select the quarantined Git path,
-while recovery
+There is no absent-`.git` interval. Normal Git writers therefore cannot enter,
+replace or recreate either repository's metadata, nor explicitly select the
+quarantined Git path, while recovery
 is clearing locks or restoring refs and worktrees. After that barrier exists,
 the controller repeats the process/sync checks and rejects any process retaining
 a cwd or open file descriptor below the moved Git directories. Only then may it
 remove validated, single-link, bounded lock files; every unlink is parent-fsynced.
 The quarantined Git root is root-owned mode `0700`; recovery Git therefore runs
-only as root while the checkout root remains locked. Every
+only as root while the checkout remains readable/traversable to its recorded
+group but namespace-immutable. Every
 recovery `git clean` has an exact exclusion for that fixed metadata directory.
 The complete quarantined Git metadata tree must contain only real directories
 and single-link regular files; symlinks, special files and hard-linked metadata
@@ -425,8 +440,8 @@ An interrupted barrier is recognized and safely resumed by `recover`.
 Process matching includes cwd, `-C`, `--git-dir`, `--work-tree` and the
 corresponding `GIT_*` environment selectors. An unreadable active Git process,
 a matching process, a retained handle or an unsafe lock fails recovery closed.
-Retained cwd/fd targets and writable or shared mappings are matched by device
-and inode against the complete protected trees, not merely by pathname. This
+Retained cwd/fd targets and mappings are matched by device and inode against
+the complete protected Git-metadata trees, not merely by pathname. This
 also catches an external hardlink opened and then unlinked before the barrier.
 
 The runtime and standalone simulator parse the complete manifest with recursive

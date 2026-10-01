@@ -31,7 +31,7 @@ from typing import Any, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r3"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r4"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
@@ -2303,9 +2303,7 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
                 )
                 for line in maps.splitlines():
                     fields = line.split(maxsplit=5)
-                    if len(fields) < 5 or (
-                        "w" not in fields[1] and not fields[1].endswith("s")
-                    ):
+                    if len(fields) < 5:
                         continue
                     identity = _mapped_inode_identity(fields[3], fields[4])
                     if identity in protected_inodes:
@@ -2332,6 +2330,29 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
         except OSError:
             count += 1
     return count
+
+
+def _repository_git_metadata_paths(roots: Sequence[Path]) -> tuple[Path, ...]:
+    """Return only Git metadata paths participating in recovery exclusion."""
+
+    protected: list[Path] = []
+    for root in roots:
+        git_directory = root / ".git"
+        recovery_directory = _recovery_git_path(root)
+        if _is_recovery_guard(git_directory) and _is_recovery_git_directory(
+            recovery_directory
+        ):
+            protected.extend((git_directory, recovery_directory))
+        elif _is_canonical_git_directory(git_directory):
+            if _is_recovery_guard(recovery_directory):
+                protected.extend((git_directory, recovery_directory))
+            elif recovery_directory.exists() or recovery_directory.is_symlink():
+                raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+            else:
+                protected.append(git_directory)
+        else:
+            raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+    return tuple(protected)
 
 
 def _current_process_ancestry() -> set[str]:
@@ -2430,6 +2451,26 @@ def _is_recovery_git_directory(path: Path) -> bool:
     except S12ControlError:
         return False
     return True
+
+
+def _is_canonical_git_directory(path: Path) -> bool:
+    """Recognize pre-lock Git metadata; exact baseline validation follows."""
+
+    try:
+        metadata = path.lstat()
+        return (
+            not path.is_symlink()
+            and stat.S_ISDIR(metadata.st_mode)
+            and metadata.st_uid in _git_owner_uids()
+            and (path / "HEAD").is_file()
+            and not (path / "HEAD").is_symlink()
+            and (path / "objects").is_dir()
+            and not (path / "objects").is_symlink()
+            and (path / "refs").is_dir()
+            and not (path / "refs").is_symlink()
+        )
+    except (OSError, S12ControlError):
+        return False
 
 
 def _atomic_exchange(first: Path, second: Path) -> None:
@@ -2620,6 +2661,15 @@ def _recorded_parent_metadata(record: dict[str, Any]) -> tuple[int, int, int]:
     return uid, gid, int(mode, 8)
 
 
+def _metadata_barrier_mode(mode: int) -> int:
+    """Remove namespace mutation while retaining every prior traversal class."""
+
+    restricted = mode & ~0o222
+    if restricted & 0o111 == 0:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+    return restricted
+
+
 def _write_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
 ) -> None:
@@ -2701,6 +2751,7 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
     if os.geteuid() != 0:
         return
     expected_uid, expected_gid, expected_mode = _recorded_parent_metadata(record)
+    restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         original = (
@@ -2710,13 +2761,13 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
         )
         locked = (
             metadata.st_uid == 0
-            and metadata.st_gid == 0
-            and stat.S_IMODE(metadata.st_mode) == 0o500
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
         restricted = (
             metadata.st_uid == expected_uid
             and metadata.st_gid == expected_gid
-            and stat.S_IMODE(metadata.st_mode) == 0o500
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
@@ -2725,14 +2776,15 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
         ):
             raise OSError
         if original:
-            os.chmod(DEPLOYMENT_LOCK_ROOT, 0o500)
+            os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
         if original or restricted:
-            os.chown(DEPLOYMENT_LOCK_ROOT, 0, 0)
+            os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
+            os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         if (
             metadata.st_uid != 0
-            or metadata.st_gid != 0
-            or stat.S_IMODE(metadata.st_mode) != 0o500
+            or metadata.st_gid != expected_gid
+            or stat.S_IMODE(metadata.st_mode) != restricted_mode
         ):
             raise OSError
         _fsync_directory(DEPLOYMENT_LOCK_ROOT.parent)
@@ -2744,17 +2796,18 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
     if os.geteuid() != 0:
         return
     uid, gid, mode = _recorded_parent_metadata(record)
+    restricted_mode = _metadata_barrier_mode(mode)
     try:
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         locked = (
             metadata.st_uid == 0
-            and metadata.st_gid == 0
-            and stat.S_IMODE(metadata.st_mode) == 0o500
+            and metadata.st_gid == gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
         restricted = (
             metadata.st_uid == uid
             and metadata.st_gid == gid
-            and stat.S_IMODE(metadata.st_mode) == 0o500
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
@@ -2826,6 +2879,8 @@ def _validate_repository_worktree_contract(
                 {
                     (root_uid, root_gid, 0o500),
                     (0, 0, 0o500),
+                    (root_uid, root_gid, _metadata_barrier_mode(root_mode)),
+                    (0, root_gid, _metadata_barrier_mode(root_mode)),
                 }
             )
             git_states.update(
@@ -2870,6 +2925,7 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
     expected_uid, expected_gid, expected_mode = _recorded_path_metadata(
         record, "root"
     )
+    restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
         metadata = root.lstat()
         original = (
@@ -2879,13 +2935,13 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
         )
         locked = (
             metadata.st_uid == 0
-            and metadata.st_gid == 0
-            and stat.S_IMODE(metadata.st_mode) == 0o500
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
         restricted = (
             metadata.st_uid == expected_uid
             and metadata.st_gid == expected_gid
-            and stat.S_IMODE(metadata.st_mode) == 0o500
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
         if (
             root.is_symlink()
@@ -2894,17 +2950,66 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
         ):
             raise OSError
         if original:
-            os.chmod(root, 0o500)
+            os.chmod(root, restricted_mode)
         if original or restricted:
-            os.chown(root, 0, 0)
+            os.chown(root, 0, expected_gid)
+            os.chmod(root, restricted_mode)
         metadata = root.lstat()
         if (
             metadata.st_uid != 0
-            or metadata.st_gid != 0
-            or stat.S_IMODE(metadata.st_mode) != 0o500
+            or metadata.st_gid != expected_gid
+            or stat.S_IMODE(metadata.st_mode) != restricted_mode
         ):
             raise OSError
         _fsync_directory(root.parent)
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _lock_repository_git_metadata(root: Path, record: dict[str, Any]) -> None:
+    """Block new unprivileged Git access without hiding the Worktree."""
+
+    if os.geteuid() != 0:
+        return
+    git_directory = root / ".git"
+    recovery_directory = _recovery_git_path(root)
+    if _is_recovery_guard(git_directory) and _is_recovery_git_directory(
+        recovery_directory
+    ):
+        return
+    expected_uid, expected_gid, expected_mode = _recorded_path_metadata(
+        record, "git"
+    )
+    try:
+        metadata = git_directory.lstat()
+        original = (
+            metadata.st_uid == expected_uid
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == expected_mode
+        )
+        locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o700
+        )
+        if (
+            git_directory.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or not (original or locked)
+        ):
+            raise OSError
+        if original:
+            os.chmod(git_directory, 0o700)
+            os.chown(git_directory, 0, 0)
+            os.chmod(git_directory, 0o700)
+        metadata = git_directory.lstat()
+        if (
+            metadata.st_uid != 0
+            or metadata.st_gid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o700
+        ):
+            raise OSError
+        _fsync_directory(root)
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
 
@@ -3040,10 +3145,11 @@ def _serialized_repository_recovery(
     allow_journaled_transition: bool = False,
 ):
     selected_roots = tuple(roots or (APPLICATION_ROOT, CONTROL_ROOT))
+    metadata_paths = _repository_git_metadata_paths(selected_roots)
     if (
         _competing_control_sync_count() != 0
         or _active_repository_git_count(selected_roots) != 0
-        or _active_recovery_git_handle_count(selected_roots) != 0
+        or _active_recovery_git_handle_count(metadata_paths) != 0
     ):
         raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
     selected_records = records or {
@@ -3068,7 +3174,7 @@ def _serialized_repository_recovery(
             parent_locked = True
             if (
                 _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0
-                or _active_recovery_git_handle_count(selected_roots) != 0
+                or _active_recovery_git_handle_count(metadata_paths) != 0
             ):
                 raise S12ControlError("S12_1_REPOSITORY_PARENT_ACTIVE_RED")
         for root in selected_roots:
@@ -3083,9 +3189,11 @@ def _serialized_repository_recovery(
                 )
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
+            _lock_repository_git_metadata(root, selected_records[root])
+        metadata_paths = _repository_git_metadata_paths(selected_roots)
         if (
             _active_repository_git_count(selected_roots) != 0
-            or _active_recovery_git_handle_count(selected_roots) != 0
+            or _active_recovery_git_handle_count(metadata_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         for root in selected_roots:
@@ -3096,7 +3204,8 @@ def _serialized_repository_recovery(
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
             or _active_recovery_git_handle_count(
-                tuple(selected_roots) + tuple(barriers.values())
+                tuple(root / ".git" for root in selected_roots)
+                + tuple(barriers.values())
             )
             != 0
         ):

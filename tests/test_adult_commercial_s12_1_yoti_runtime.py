@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 import os
+import pwd
 import shutil
 import stat
 import subprocess
@@ -835,7 +836,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             "runtime_digest_bindings != [_trusted_controller_digest()]", source
         )
 
-    def test_repository_barrier_checks_handles_across_complete_worktrees(self) -> None:
+    def test_repository_barrier_checks_only_git_metadata_handles(self) -> None:
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
             encoding="utf-8"
         )
@@ -843,12 +844,16 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         end = source.index("def _seed_repository_from_bundle(", barrier)
         contract = source[barrier:end]
         self.assertGreaterEqual(
-            contract.count("_active_recovery_git_handle_count(selected_roots)"),
+            contract.count("_active_recovery_git_handle_count(metadata_paths)"),
             3,
         )
         self.assertIn(
-            "tuple(selected_roots) + tuple(barriers.values())", contract
+            'tuple(root / ".git" for root in selected_roots)', contract
         )
+        self.assertNotIn(
+            "_active_recovery_git_handle_count(selected_roots)", contract
+        )
+        self.assertIn("_lock_repository_git_metadata(", contract)
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -1706,12 +1711,249 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         with (
             mock.patch.object(runtime, "_competing_control_sync_count", return_value=0),
             mock.patch.object(runtime, "_active_repository_git_count", return_value=1),
+            mock.patch.object(
+                runtime, "_repository_git_metadata_paths", return_value=()
+            ),
         ):
             with self.assertRaisesRegex(
                 runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
             ):
                 with runtime._serialized_repository_recovery((Path("/unused"),)):
                     self.fail("active Git process unexpectedly passed recovery gate")
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_metadata_handle_scope_allows_live_shaped_worktree_users(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("runtime-readable\n", encoding="ascii")
+            venv = repository / ".venv"
+            venv.mkdir()
+            mapped = venv / "runtime.bin"
+            mapped.write_bytes(b"0" * 4096)
+            child_identity = None
+            if os.geteuid() == 0:
+                chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+                if chatops.pw_uid != 0:
+                    Path(directory).chmod(0o755)
+                    for current, directories, files in os.walk(repository):
+                        os.chown(current, chatops.pw_uid, chatops.pw_gid)
+                        for name in (*directories, *files):
+                            os.chown(
+                                Path(current) / name,
+                                chatops.pw_uid,
+                                chatops.pw_gid,
+                            )
+                    repository.chmod(0o2770)
+                    (repository / ".git").chmod(0o2770)
+
+                    def become_chatops() -> None:
+                        os.setgroups([chatops.pw_gid])
+                        os.setgid(chatops.pw_gid)
+                        os.setuid(chatops.pw_uid)
+
+                    child_identity = become_chatops
+            metadata = runtime._repository_git_metadata_paths((repository,))
+            unrelated_baseline = runtime._active_recovery_git_handle_count(metadata)
+            child_code = (
+                "import mmap,os,sys;"
+                "os.chdir(sys.argv[1]);"
+                "f=open(sys.argv[2],'rb');"
+                "mfile=open(sys.argv[3],'rb');"
+                "m=mmap.mmap(mfile.fileno(),0,access=mmap.ACCESS_READ);"
+                "mfile.close();print('ready',flush=True);"
+                "\nfor line in sys.stdin:\n"
+                " open(sys.argv[2],'rb').read();os.stat(sys.argv[3]);"
+                " print('ok',flush=True) if line.strip()=='probe' else None\n"
+            )
+            children = [
+                subprocess.Popen(
+                    [sys.executable, "-c", child_code, str(repository), str(tracked), str(mapped)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    preexec_fn=child_identity,
+                )
+                for _ in range(4)
+            ]
+            try:
+                for child in children:
+                    self.assertEqual(child.stdout.readline().strip(), "ready")
+                if child_identity is None:
+                    self.assertEqual(
+                        runtime._active_recovery_git_handle_count(metadata),
+                        unrelated_baseline,
+                    )
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_repository_git_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_recovery_git_handle_count", return_value=0
+                    ),
+                ):
+                    with runtime._serialized_repository_recovery((repository,)):
+                        for child in children:
+                            child.stdin.write("probe\n")
+                            child.stdin.flush()
+                            self.assertEqual(child.stdout.readline().strip(), "ok")
+                            self.assertIsNone(child.poll())
+            finally:
+                for child in children:
+                    child.terminate()
+                for child in children:
+                    child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_metadata_handle_scope_rejects_git_and_recovery_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            recovery = repository / runtime.RECOVERY_GIT_DIRECTORY
+            recovery.mkdir()
+            (recovery / "held").write_text("metadata\n", encoding="ascii")
+            cases = (
+                ("cwd", repository / ".git"),
+                ("fd", repository / ".git/HEAD"),
+                ("fd", recovery / "held"),
+            )
+            for kind, target in cases:
+                with self.subTest(kind=kind, target=target.name):
+                    baseline = runtime._active_recovery_git_handle_count(
+                        (repository / ".git", recovery)
+                    )
+                    code = (
+                        "import os,sys,time;"
+                        + (
+                            "os.chdir(sys.argv[1]);"
+                            if kind == "cwd"
+                            else "f=open(sys.argv[1],'rb');"
+                        )
+                        + "print('ready',flush=True);time.sleep(30)"
+                    )
+                    child = subprocess.Popen(
+                        [sys.executable, "-c", code, str(target)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    try:
+                        self.assertEqual(child.stdout.readline().strip(), "ready")
+                        self.assertGreater(
+                            runtime._active_recovery_git_handle_count(
+                                (repository / ".git", recovery)
+                            ),
+                            baseline,
+                        )
+                    finally:
+                        child.terminate()
+                        child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_actual_git_writer_targeting_repository_remains_red(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            child = subprocess.Popen(
+                ["git", "-C", str(repository), "hash-object", "--stdin"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                self.assertGreater(runtime._active_repository_git_count((repository,)), 0)
+            finally:
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_new_git_writer_race_is_detected_before_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            writer: subprocess.Popen[bytes] | None = None
+            original_lock = runtime._lock_repository_root
+
+            def launch_writer(root: Path, record: dict[str, object]) -> None:
+                nonlocal writer
+                original_lock(root, record)
+                writer = subprocess.Popen(
+                    ["git", "-C", str(repository), "hash-object", "--stdin"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+
+            try:
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_recovery_git_handle_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_lock_repository_root",
+                        side_effect=launch_writer,
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_ACTIVE_RED",
+                    ):
+                        with runtime._serialized_repository_recovery((repository,)):
+                            self.fail("racing Git writer reached protected body")
+                self.assertIsNotNone(writer)
+                self.assertFalse(runtime._recovery_git_path(repository).exists())
+                self.assertTrue((repository / ".git").is_dir())
+            finally:
+                if writer is not None:
+                    writer.communicate(timeout=10)
+
+    def test_metadata_barrier_modes_preserve_existing_traversal_classes(self) -> None:
+        self.assertEqual(runtime._metadata_barrier_mode(0o2770), 0o2550)
+        self.assertEqual(runtime._metadata_barrier_mode(0o2775), 0o2555)
+        self.assertEqual(runtime._metadata_barrier_mode(0o755), 0o555)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError, "S12_1_RECOVERY_GIT_BARRIER_RED"
+        ):
+            runtime._metadata_barrier_mode(0o600)
+
+    def test_group_writable_canonical_git_metadata_is_scannable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            git_directory = repository / ".git"
+            git_directory.chmod(0o2770)
+            self.assertEqual(
+                runtime._repository_git_metadata_paths((repository,)),
+                (git_directory,),
+            )
 
     def test_recovery_barrier_blocks_new_git_and_restores_repository(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r3"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r4"
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
@@ -40,6 +40,8 @@ CONTROL_ARTIFACTS = {
     "control_base_nginx_sha256": "nginx/current/wantmeseen.s10-1-final.conf",
     "control_tests_sha256": "tests/test_adult_commercial_s12_1_yoti_runtime.py",
     "control_doc_sha256": "docs/COMMERCIAL_S12_1_YOTI_SANDBOX_RUNTIME_CONTROL.md",
+    "control_recovery_doc_sha256": "docs/COMMERCIAL_S12_1_R4_GIT_METADATA_RECOVERY_BARRIER.md",
+    "control_recovery_diagnosis_sha256": "analysis/COMMERCIAL_S12_1_R3_WORKTREE_HANDLE_FALSE_POSITIVE_2026-10-01.diagnose",
 }
 
 STATIC_BINDINGS = {
@@ -54,6 +56,8 @@ STATIC_BINDINGS = {
     "credential_contract": "SYSTEMD_LOAD_CREDENTIAL_FIXED_REFERENCES",
     "rollback_contract": "EXACTLY_ONCE_BACKUP_FIRST_CONTROLLED_INACTIVE",
     "deployment_contract": "EXACTLY_ONE_NO_HOTFIX_NO_RETRY",
+    "recovery_barrier_contract": "GIT_METADATA_SCOPED_TRAVERSAL_PRESERVING",
+    "recovery_fix_classification": "RECOVERY_FIX_METADATA_SCOPING_SUFFICIENT",
     "runtime_python_sha256": RUNTIME_PYTHON_SHA256,
     "runtime_venv_sha256": RUNTIME_VENV_SHA256,
     "real_avs_enabled": "false",
