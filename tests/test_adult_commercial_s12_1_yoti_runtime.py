@@ -894,6 +894,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertGreaterEqual(
             contract.count("_git_metadata_release_fingerprint("), 2
         )
+        self.assertGreaterEqual(
+            contract.count("_release_xattr_fingerprint("), 2
+        )
         self.assertIn("_restore_repository_worktree_metadata(", contract)
         self.assertIn("_restore_repository_git_metadata(", contract)
         self.assertLess(
@@ -925,6 +928,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertLess(
             final_release.index("_git_metadata_release_fingerprint("),
+            final_release.index("_release_xattr_fingerprint("),
+        )
+        self.assertLess(
+            final_release.index("_release_xattr_fingerprint("),
             final_release.index("release_guard.assert_no_events()"),
         )
         self.assertGreaterEqual(
@@ -2501,6 +2508,28 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 baseline,
             )
 
+    def test_release_xattr_fingerprint_binds_guarded_paths(self) -> None:
+        if not hasattr(os, "setxattr"):
+            self.skipTest("extended attributes unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tracked = root / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            try:
+                baseline = runtime._release_xattr_fingerprint((root, tracked))
+                os.setxattr(
+                    tracked,
+                    "user.tu1nz_s12_release",
+                    b"external",
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                self.skipTest(f"extended attributes unavailable: {error.errno}")
+            self.assertNotEqual(
+                runtime._release_xattr_fingerprint((root, tracked)),
+                baseline,
+            )
+
     @unittest.skipUnless(
         Path("/proc").is_dir() and os.geteuid() == 0,
         "Linux root required",
@@ -2635,75 +2664,93 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             chatops = pwd.getpwnam(runtime.CHATOPS_USER)
         except KeyError:
             self.skipTest("chatops account required")
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            os.chmod(root, 0o755)
-            repository = root / "application"
-            subprocess.run(
-                ["git", "init", "-b", "main", str(repository)],
-                check=True,
-                capture_output=True,
-            )
-            tracked = repository / "tracked.txt"
-            tracked.write_text("reviewed\n", encoding="ascii")
-            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
-            subprocess.run(
-                [
-                    "git",
-                    "-c",
-                    "user.name=S12 Test",
-                    "-c",
-                    "user.email=s12@example.invalid",
-                    "commit",
-                    "-m",
-                    "reviewed",
-                ],
-                cwd=repository,
-                check=True,
-                capture_output=True,
-            )
-            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
-            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+        def exercise(mutation) -> None:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                os.chmod(root, 0o755)
+                repository = root / "application"
+                subprocess.run(
+                    ["git", "init", "-b", "main", str(repository)],
+                    check=True,
+                    capture_output=True,
+                )
+                tracked = repository / "tracked.txt"
+                tracked.write_text("reviewed\n", encoding="ascii")
+                subprocess.run(
+                    ["git", "add", "tracked.txt"], cwd=repository, check=True
+                )
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.name=S12 Test",
+                        "-c",
+                        "user.email=s12@example.invalid",
+                        "commit",
+                        "-m",
+                        "reviewed",
+                    ],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                )
+                runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+                os.chown(repository, chatops.pw_uid, chatops.pw_gid)
 
-            class AttributeDriftGuard:
-                def __init__(self) -> None:
-                    self.accepted = 0
+                class AttributeDriftGuard:
+                    def __init__(self) -> None:
+                        self.accepted = 0
 
-                def accept_release_attributes(self) -> None:
-                    self.accepted += 1
-                    if self.accepted == 2:
-                        os.chmod(tracked, 0o600)
+                    def accept_release_attributes(self) -> None:
+                        self.accepted += 1
+                        if self.accepted == 2:
+                            mutation(tracked)
 
-                @staticmethod
-                def assert_no_events() -> None:
-                    return None
+                    @staticmethod
+                    def assert_no_events() -> None:
+                        return None
 
-                @staticmethod
-                def close() -> None:
-                    return None
+                    @staticmethod
+                    def close() -> None:
+                        return None
 
-            guard = AttributeDriftGuard()
-            with (
-                mock.patch.object(
-                    runtime, "_competing_control_sync_count", return_value=0
-                ),
-                mock.patch.object(
-                    runtime, "_active_repository_git_count", return_value=0
-                ),
-                mock.patch.object(
-                    runtime, "_active_recovery_git_handle_count", return_value=0
-                ),
-                mock.patch.object(
-                    runtime, "_WorktreeReleaseGuard", return_value=guard
-                ),
-                self.assertRaisesRegex(
-                    runtime.S12ControlError,
-                    "S12_1_RECOVERY_GIT_BARRIER_RED",
-                ),
-            ):
-                with runtime._serialized_repository_recovery((repository,)):
-                    pass
-            self.assertEqual(guard.accepted, 2)
+                guard = AttributeDriftGuard()
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_repository_git_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_active_recovery_git_handle_count",
+                        return_value=0,
+                    ),
+                    mock.patch.object(
+                        runtime, "_WorktreeReleaseGuard", return_value=guard
+                    ),
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_BARRIER_RED",
+                    ),
+                ):
+                    with runtime._serialized_repository_recovery((repository,)):
+                        pass
+                self.assertEqual(guard.accepted, 2)
+
+        cases = {
+            "mode": lambda path: os.chmod(path, 0o600),
+            "xattr": lambda path: os.setxattr(
+                path,
+                "user.tu1nz_s12_release",
+                b"external",
+                follow_symlinks=False,
+            ),
+        }
+        for label, mutation in cases.items():
+            with self.subTest(attribute=label):
+                exercise(mutation)
 
     @unittest.skipUnless(
         Path("/proc").is_dir() and os.geteuid() == 0,

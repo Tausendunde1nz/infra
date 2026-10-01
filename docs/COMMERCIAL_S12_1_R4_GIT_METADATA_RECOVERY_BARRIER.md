@@ -57,8 +57,9 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    all Worktree validation is complete and is released by changing the `.git`
    root mode last. The controller then revalidates the complete Worktree and
    repository contracts, matches an exact Git-metadata namespace/content/mode
-   fingerprint captured before release, repeats Git/handle/identity checks and
-   drains the event queue once more. The fingerprint intentionally ignores
+   fingerprint captured before release, matches a separate extended-attribute
+   fingerprint across every guarded path, repeats Git/handle/identity checks
+   and drains the event queue once more. The Git fingerprint intentionally ignores
    only ownership/ctime and the top `.git` mode changed by the controller; it
    binds nested modes, names, inode identities, sizes, mtimes and file bytes.
    Flush repository filesystems throughout; closing this checked watch is the
@@ -98,6 +99,7 @@ subsequent validation or Git transition.
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |
 | external chmod/fchmod during release | final contract/fingerprint mismatch or event; RED |
+| external setxattr/fsetxattr during release | guarded-path xattr fingerprint mismatch or event; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |

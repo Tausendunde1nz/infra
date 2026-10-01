@@ -3150,6 +3150,84 @@ def _repository_git_metadata_directories(
     return tuple(directories)
 
 
+def _stable_xattr_payload(path: Path, metadata: os.stat_result) -> bytes:
+    """Read one inode's extended attributes without accepting concurrent drift."""
+
+    if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
+        if sys.platform == "linux":
+            raise OSError
+        return b""
+    before = path.lstat()
+    names = sorted(
+        os.listxattr(path, follow_symlinks=False), key=os.fsencode
+    )
+    payload = bytearray()
+    for name in names:
+        encoded = os.fsencode(name)
+        value = os.getxattr(path, name, follow_symlinks=False)
+        payload.extend(len(encoded).to_bytes(8, "big"))
+        payload.extend(encoded)
+        payload.extend(len(value).to_bytes(8, "big"))
+        payload.extend(value)
+    if names != sorted(
+        os.listxattr(path, follow_symlinks=False), key=os.fsencode
+    ):
+        raise OSError
+    after = path.lstat()
+    stable_fields = (
+        "st_dev",
+        "st_ino",
+        "st_mode",
+        "st_nlink",
+        "st_size",
+        "st_mtime_ns",
+        "st_ctime_ns",
+    )
+    if any(
+        getattr(before, field) != getattr(after, field)
+        or getattr(before, field) != getattr(metadata, field)
+        for field in stable_fields
+    ):
+        raise OSError
+    return bytes(payload)
+
+
+def _release_xattr_fingerprint(paths: Sequence[Path]) -> str:
+    """Bind extended attributes for every existing release-guard path."""
+
+    digest = hashlib.sha256()
+    try:
+        for path in sorted(set(paths), key=os.fsencode):
+            encoded_path = os.fsencode(path)
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                digest.update(b"missing\0" + encoded_path + b"\0")
+                continue
+            if path.is_symlink() or not (
+                stat.S_ISDIR(metadata.st_mode)
+                or (
+                    stat.S_ISREG(metadata.st_mode)
+                    and metadata.st_nlink == 1
+                )
+            ):
+                raise OSError
+            digest.update(
+                b"present\0"
+                + encoded_path
+                + b"\0"
+                + str(metadata.st_dev).encode("ascii")
+                + b":"
+                + str(metadata.st_ino).encode("ascii")
+                + b"\0"
+                + _stable_xattr_payload(path, metadata)
+                + b"\0"
+            )
+    except (OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return digest.hexdigest()
+
+
 def _git_metadata_release_fingerprint(roots: Sequence[Path]) -> str:
     """Bind Git namespace, bytes and modes while ignoring intentional chown."""
 
@@ -3169,6 +3247,8 @@ def _git_metadata_release_fingerprint(roots: Sequence[Path]) -> str:
                 + str(git_metadata.st_dev).encode("ascii")
                 + b":"
                 + str(git_metadata.st_ino).encode("ascii")
+                + b"\0"
+                + _stable_xattr_payload(git_directory, git_metadata)
                 + b"\0"
             )
             pending = [git_directory]
@@ -3237,6 +3317,8 @@ def _git_metadata_release_fingerprint(roots: Sequence[Path]) -> str:
                         )
                         + b"\0"
                         + payload
+                        + b"\0"
+                        + _stable_xattr_payload(path, metadata)
                         + b"\0"
                     )
                 pending.extend(reversed(child_directories))
@@ -4981,6 +5063,9 @@ def _serialized_repository_recovery(
                         selected_roots,
                         tuple(release_paths),
                     )
+                    release_xattr_fingerprint = _release_xattr_fingerprint(
+                        tuple(release_paths)
+                    )
                     _restore_worktree_write_barrier(
                         selected_worktree_barrier,
                         selected_records if completed else None,
@@ -5033,6 +5118,10 @@ def _serialized_repository_recovery(
                         if (
                             _git_metadata_release_fingerprint(selected_roots)
                             != git_release_fingerprint
+                            or _release_xattr_fingerprint(
+                                tuple(release_paths)
+                            )
+                            != release_xattr_fingerprint
                         ):
                             raise S12ControlError(
                                 "S12_1_RECOVERY_GIT_BARRIER_RED"

@@ -91,6 +91,11 @@ The r4 contract:
     identity checks, and a final event drain; an external chmod/fchmod that
     overlaps the controller's own chown window therefore cannot be accepted as
     harmless.
+21. binds extended-attribute names and values for every guarded Worktree and
+    Git-metadata path before release, checks stable inode metadata while reading
+    them, and requires the exact xattr fingerprint after the final attribute
+    drain; external setxattr/fsetxattr can no longer hide among controller chown
+    events.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.
