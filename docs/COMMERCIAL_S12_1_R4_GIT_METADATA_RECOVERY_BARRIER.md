@@ -13,8 +13,9 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 2. Reject the competing Control sync loop, actual Git processes and retained
    Git-metadata handles.
 3. Journal the exact repository and shared-parent metadata durably.
-4. Install a kernel mutation watch on every protected Git-metadata directory
-   and bind the complete tree to a stable cryptographic transition fingerprint.
+4. Fingerprint the complete protected Git-metadata tree, install a kernel
+   mutation watch on every metadata directory, then require a second full-tree
+   fingerprint to match before the first process scan begins.
 5. Remove write bits from the shared parent and repository roots, change only
    their owner to root, and retain their recorded groups and traversal classes.
    A baseline without recorded-group read/traverse permission is rejected.

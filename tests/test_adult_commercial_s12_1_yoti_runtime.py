@@ -858,6 +858,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("_GitMetadataTransitionGuard(", contract)
         self.assertLess(
             contract.index("_GitMetadataTransitionGuard("),
+            contract.index("_active_repository_git_count("),
+        )
+        self.assertLess(
+            contract.index("_GitMetadataTransitionGuard("),
             contract.index("_lock_repository_root("),
         )
         self.assertLess(
@@ -1996,6 +2000,21 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertFalse(exchange_reached)
             self.assertFalse(runtime._recovery_git_path(repository).exists())
             self.assertTrue((repository / ".git").is_dir())
+
+    def test_transition_guard_rejects_drift_during_watch_installation(self) -> None:
+        with (
+            mock.patch.object(runtime.sys, "platform", "darwin"),
+            mock.patch.object(
+                runtime,
+                "_git_metadata_transition_fingerprint",
+                side_effect=("before-watch", "after-watch"),
+            ) as fingerprint,
+            self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
+            ),
+        ):
+            runtime._GitMetadataTransitionGuard((Path("/metadata"),))
+        self.assertEqual(fingerprint.call_count, 2)
 
     def test_closed_mmap_writer_is_detected_after_exchange(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

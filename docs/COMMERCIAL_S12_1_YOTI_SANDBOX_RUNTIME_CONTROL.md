@@ -219,11 +219,12 @@ The controller captures repository-parent, repository-root and `.git`
 ownership/modes, durably journals those exact recovery values, then removes
 namespace write permission while retaining the recorded group's read/traverse
 permission; a baseline lacking group read/traverse is RED. It separately
-installs a kernel mutation watch over every Git-metadata directory, binds the
-complete metadata tree to a stable cryptographic transition fingerprint, and
-changes real Git metadata to `root:root` mode `0700`. Any writer event or
-fingerprint drift is rejected before the protected body, including a short
-writer that exits before the later process scan. The watch remains active
+fingerprints the complete Git-metadata tree, installs a kernel mutation watch
+over every metadata directory, and requires a matching full-tree fingerprint
+before the first process scan. It then changes real Git metadata to
+`root:root` mode `0700`. Any writer event or fingerprint drift is rejected
+before the protected body, including a short writer that exits before the
+later process scan. The watch remains active
 through the atomic exchange; failure or event-queue overflow is fail-closed.
 The controller then atomically installs the repository barriers. After the
 exchange, it rejects retained handles and re-fingerprints the quarantined inode

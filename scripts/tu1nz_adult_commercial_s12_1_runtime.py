@@ -2473,6 +2473,7 @@ class _GitMetadataTransitionGuard:
         self.root_watches: set[int] = set()
         self.baseline = ""
         try:
+            self.baseline = _git_metadata_transition_fingerprint(self.paths)
             if sys.platform == "linux":
                 library = ctypes.CDLL(None, use_errno=True)
                 init = library.inotify_init1
@@ -2510,7 +2511,8 @@ class _GitMetadataTransitionGuard:
                             if entry.is_dir(follow_symlinks=False)
                         ]
                         pending.extend(reversed(children))
-            self.baseline = _git_metadata_transition_fingerprint(self.paths)
+            if _git_metadata_transition_fingerprint(self.paths) != self.baseline:
+                raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
             self._assert_event_queue_quiet()
         except S12ControlError:
             self.close()
@@ -3378,30 +3380,13 @@ def _serialized_repository_recovery(
 ):
     selected_roots = tuple(roots or (APPLICATION_ROOT, CONTROL_ROOT))
     metadata_paths = _repository_git_metadata_paths(selected_roots)
-    if (
-        _competing_control_sync_count() != 0
-        or _active_repository_git_count(selected_roots) != 0
-        or _active_recovery_git_handle_count(metadata_paths) != 0
-    ):
-        raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
-    selected_records = records or {
-        root: _repository_path_metadata(root) for root in selected_roots
-    }
-    for root in selected_roots:
-        if not (
-            _is_recovery_guard(root / ".git")
-            and _is_recovery_git_directory(_recovery_git_path(root))
-        ):
-            _validate_repository_worktree_contract(
-                root,
-                selected_records[root],
-                allow_journaled_transition=allow_journaled_transition,
-            )
     transition_guard = _GitMetadataTransitionGuard(
         tuple(path for path in metadata_paths if not _is_recovery_guard(path))
     )
+    selected_records: dict[Path, dict[str, Any]] = records or {}
     barriers: dict[Path, Path] = {}
     parent_locked = False
+    transition_started = False
     completed = False
     try:
         if (
@@ -3410,9 +3395,25 @@ def _serialized_repository_recovery(
             or _active_recovery_git_handle_count(metadata_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        if records is None:
+            selected_records = {
+                root: _repository_path_metadata(root) for root in selected_roots
+            }
+        for root in selected_roots:
+            if not (
+                _is_recovery_guard(root / ".git")
+                and _is_recovery_git_directory(_recovery_git_path(root))
+            ):
+                _validate_repository_worktree_contract(
+                    root,
+                    selected_records[root],
+                    allow_journaled_transition=allow_journaled_transition,
+                )
+        transition_guard.assert_unchanged()
         if parent_record is not None:
-            _lock_repository_parent(parent_record)
+            transition_started = True
             parent_locked = True
+            _lock_repository_parent(parent_record)
             if (
                 _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0
                 or _active_recovery_git_handle_count(metadata_paths) != 0
@@ -3428,6 +3429,7 @@ def _serialized_repository_recovery(
                     selected_records[root],
                     allow_journaled_transition=allow_journaled_transition,
                 )
+        transition_started = True
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
             _lock_repository_git_metadata(root, selected_records[root])
@@ -3465,7 +3467,7 @@ def _serialized_repository_recovery(
     finally:
         transition_guard.close()
         cleanup_failed = False
-        if not (preserve_on_error and not completed):
+        if transition_started and not (preserve_on_error and not completed):
             for root, git_dir in reversed(tuple(barriers.items())):
                 try:
                     _remove_repository_recovery_barrier(

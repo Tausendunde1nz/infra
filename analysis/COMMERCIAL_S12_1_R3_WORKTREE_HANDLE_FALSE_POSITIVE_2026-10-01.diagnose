@@ -42,8 +42,9 @@ The r4 contract:
    `.git.s12-1-recovery` inode trees;
 3. removes namespace write permission from the shared parent and repository
    roots while retaining the recorded group's read/traverse classes;
-4. installs a kernel mutation watch and binds the complete Git-metadata tree
-   to a stable cryptographic transition fingerprint;
+4. fingerprints the complete Git-metadata tree, installs a kernel mutation
+   watch, requires a matching post-install fingerprint and only then performs
+   the first process scan;
 5. locks real `.git` metadata to `root:root` mode `0700`, then rejects any
    fingerprint drift or queued mutation event from even an already-exited
    writer before exchange;
