@@ -76,7 +76,11 @@ The r4 contract:
     keeps `.git` root-only until the Worktree validation is complete;
 17. refreshes the durable barrier with each exact current inode before release,
     so a crash after ownership restoration can reseal that bound inode while a
-    subsequent unjournaled replacement still fails closed.
+    subsequent unjournaled replacement still fails closed;
+18. allows an external release-window open only when the fanotify-reported
+    thread is provably blocked in a native open syscall whose requested flags
+    are read-only and non-mutating; unknown syscalls and writable opens remain
+    held fail-closed.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.

@@ -87,6 +87,7 @@ subsequent validation or Git transition.
 | writable or write-upgradeable shared mapping | RED |
 | private copy-on-write mapping without writable fd | allowed |
 | new path-based tracked-file writer after lock | blocked by permissions |
+| external read-only open during release | allowed after blocked-syscall flag proof |
 | writer waiting for restored owner permission | detected by release watch; RED |
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
 | `.venv` executable/map | allowed |

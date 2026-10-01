@@ -2402,6 +2402,29 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 runtime._lock_worktree_write_barrier(barrier)
 
+    def test_release_guard_allows_only_proven_read_only_open_syscalls(self) -> None:
+        cases = (
+            ("257 0 0 0x80000 0 0 0 0 0", True),
+            ("257 0 0 0x80001 0 0 0 0 0", False),
+            (f"257 0 0 {os.O_TRUNC:#x} 0 0 0 0 0", False),
+            ("85 0 0 0 0 0 0 0 0", False),
+            ("999 0 0 0 0 0 0 0 0", False),
+        )
+        for payload, expected in cases:
+            with self.subTest(payload=payload), mock.patch.object(
+                runtime.Path, "read_text", return_value=payload
+            ), mock.patch.object(
+                runtime.os,
+                "uname",
+                return_value=SimpleNamespace(machine="x86_64"),
+            ):
+                self.assertEqual(
+                    runtime._WorktreeReleaseGuard._fanotify_request_is_read_only(
+                        123
+                    ),
+                    expected,
+                )
+
     @unittest.skipUnless(
         Path("/proc").is_dir() and os.geteuid() == 0,
         "Linux root required",
@@ -2456,6 +2479,22 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 os.setgroups([])
                 os.setgid(chatops.pw_gid)
                 os.setuid(chatops.pw_uid)
+
+            reader = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import pathlib,sys;pathlib.Path(sys.argv[1]).read_bytes()",
+                    str(tracked),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                preexec_fn=become_chatops,
+                timeout=5,
+            )
+            self.assertEqual(reader.returncode, 0, reader.stderr)
+            self.assertFalse(guard.fanotify_external_open)
 
             child = subprocess.Popen(
                 [

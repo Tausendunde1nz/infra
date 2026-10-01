@@ -3372,6 +3372,7 @@ class _WorktreeReleaseGuard:
     _FAN_CLOEXEC = 0x00000001
     _FAN_NONBLOCK = 0x00000002
     _FAN_CLASS_CONTENT = 0x00000004
+    _FAN_REPORT_TID = 0x00000100
     _FAN_MARK_ADD = 0x00000001
     _FAN_MARK_ONLYDIR = 0x00000008
     _FAN_OPEN_PERM = 0x00010000
@@ -3435,7 +3436,8 @@ class _WorktreeReleaseGuard:
                 fanotify_descriptor = fanotify_init(
                     self._FAN_CLOEXEC
                     | self._FAN_NONBLOCK
-                    | self._FAN_CLASS_CONTENT,
+                    | self._FAN_CLASS_CONTENT
+                    | self._FAN_REPORT_TID,
                     os.O_RDONLY | os.O_CLOEXEC,
                 )
                 if fanotify_descriptor < 0:
@@ -3516,6 +3518,96 @@ class _WorktreeReleaseGuard:
         )
         os.close(event_descriptor)
 
+    @staticmethod
+    def _open_how_flags(pid: int, address: int) -> int:
+        class IOVec(ctypes.Structure):
+            _fields_ = [
+                ("base", ctypes.c_void_p),
+                ("length", ctypes.c_size_t),
+            ]
+
+        library = ctypes.CDLL(None, use_errno=True)
+        process_vm_readv = library.process_vm_readv
+        process_vm_readv.argtypes = [
+            ctypes.c_int,
+            ctypes.POINTER(IOVec),
+            ctypes.c_ulong,
+            ctypes.POINTER(IOVec),
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+        ]
+        process_vm_readv.restype = ctypes.c_ssize_t
+        flags = ctypes.c_uint64()
+        local = IOVec(ctypes.addressof(flags), ctypes.sizeof(flags))
+        remote = IOVec(address, ctypes.sizeof(flags))
+        transferred = process_vm_readv(
+            pid,
+            ctypes.byref(local),
+            1,
+            ctypes.byref(remote),
+            1,
+            0,
+        )
+        if transferred != ctypes.sizeof(flags):
+            raise OSError(ctypes.get_errno(), "process_vm_readv")
+        return flags.value
+
+    @classmethod
+    def _fanotify_request_is_read_only(cls, pid: int) -> bool:
+        """Classify the blocked opener; unknown requests remain fail-closed."""
+
+        try:
+            fields = Path(f"/proc/{pid}/syscall").read_text(
+                encoding="ascii"
+            ).split()
+            if len(fields) < 5:
+                return False
+            syscall = int(fields[0], 0)
+            machine = os.uname().machine.lower()
+            open_flags_index: dict[int, int]
+            creators: set[int]
+            open_by_handle: set[int]
+            if machine in {"x86_64", "amd64"}:
+                open_flags_index = {2: 2, 257: 3}
+                creators = {85}
+                open_by_handle = {304}
+            elif machine in {"aarch64", "arm64", "riscv64"}:
+                open_flags_index = {56: 3}
+                creators = set()
+                open_by_handle = {265}
+            elif machine in {"i386", "i486", "i586", "i686"}:
+                open_flags_index = {5: 2, 295: 3}
+                creators = {8}
+                open_by_handle = {342}
+            elif machine.startswith("arm"):
+                open_flags_index = {5: 2, 322: 3}
+                creators = {8}
+                open_by_handle = {371}
+            elif machine in {"ppc64", "ppc64le"}:
+                open_flags_index = {5: 2, 286: 3}
+                creators = {8}
+                open_by_handle = {346}
+            else:
+                return False
+            if syscall in creators:
+                return False
+            if syscall == 437:  # openat2(dfd, path, struct open_how *, size)
+                flags = cls._open_how_flags(pid, int(fields[3], 0))
+            elif syscall in open_by_handle:
+                flags = int(fields[3], 0)
+            else:
+                index = open_flags_index.get(syscall)
+                if index is None or index >= len(fields):
+                    return False
+                flags = int(fields[index], 0)
+            mutation_flags = os.O_CREAT | os.O_TRUNC | os.O_APPEND
+            return (
+                flags & os.O_ACCMODE == os.O_RDONLY
+                and not flags & mutation_flags
+            )
+        except (OSError, UnicodeError, ValueError, AttributeError):
+            return False
+
     def _fanotify_loop(self) -> None:
         descriptor = self.fanotify_descriptor
         if descriptor is None:
@@ -3561,6 +3653,8 @@ class _WorktreeReleaseGuard:
                             )
                         raise OSError("unexpected fanotify event")
                     if self._trusted_fanotify_pid(pid):
+                        self._fanotify_respond(event_descriptor, self._FAN_ALLOW)
+                    elif self._fanotify_request_is_read_only(pid):
                         self._fanotify_respond(event_descriptor, self._FAN_ALLOW)
                     else:
                         with self.fanotify_lock:
