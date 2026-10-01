@@ -23,8 +23,11 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    A baseline without recorded-group read/traverse permission is rejected.
 6. Change canonical `.git` to `root:root` mode `0700`, then require both the
    transition fingerprint and the kernel event queue to remain unchanged.
-7. Repeat actual-Git, metadata-handle and writable tracked-worktree-handle
-   checks.
+7. From the durably journaled tracked-path set, remove every write bit and move
+   tracked regular inodes plus their ancestor directories under root ownership.
+   Read and execute/traversal bits are preserved. Repeat actual-Git,
+   metadata-handle and writable tracked-worktree-handle checks, then require a
+   fresh clean identity before the protected body.
 8. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.
    Keep the mutation watch through the exchange and reject any writer event,
    including one from a process that already exited before the process scan.
@@ -34,11 +37,15 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    a tracked Worktree inode.
 10. Run isolated
    root Git exclusively against the quarantined directory.
-11. Re-resolve the post-operation tracked set, reject any remaining
-   write-capable handle, require a fresh clean Worktree identity, then repeat
-   the write-handle scan before metadata restoration. Flush repository
-   filesystems, exchange metadata back, restore exact ownership/modes and flush
-   again.
+11. Re-resolve the post-operation tracked set and require every current tracked
+   inode and ancestor to be root-owned without group/other write permission.
+   Reject any remaining write-capable handle, require a fresh clean Worktree
+   identity, then repeat the write-handle scan.
+12. Exchange Git metadata back while the tracked-path write barrier remains in
+   force, repeat the barrier/identity/handle checks against canonical `.git`,
+   and only then restore the exact journaled ownership/modes. Flush repository
+   filesystems throughout. Restoring those permissions is the transaction's
+   explicit writer-release point.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
 the scan/exchange race. The fingerprint plus the kernel mutation watch closes
@@ -57,6 +64,7 @@ their existing Worktree and `.venv` paths.
 | read-only shared mapping without write capability | allowed |
 | writable or write-upgradeable shared mapping | RED |
 | private copy-on-write mapping without writable fd | allowed |
+| new path-based tracked-file writer after lock | blocked by permissions |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |

@@ -58,7 +58,12 @@ The r4 contract:
 10. repeats that resource-based writer check through the transition and against
     the final tracked set, then requires a fresh clean identity and a second
     final handle scan before barrier removal;
-11. durably restores metadata and exact recorded ownership/modes.
+11. durably journals and installs a tracked-path write barrier that preserves
+    read/traversal access but prevents new owner writes through Git-metadata
+    teardown;
+12. revalidates the clean identity under that barrier after canonical `.git`
+    returns, then restores exact recorded ownership/modes as the explicit
+    writer-release point.
 
 There is no process-name allowlist. A Git process under a product-service
 identity remains RED.

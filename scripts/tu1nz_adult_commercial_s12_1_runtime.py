@@ -2353,43 +2353,51 @@ def _tracked_worktree_regular_paths(
     """Resolve regular index entries without treating runtime-only files as protected."""
 
     tracked: list[Path] = []
-    seen: set[Path] = set()
     for root in roots:
-        git_directory = _repository_recovery_git_directory(root)
-        records = _bounded_nul_command_records(
-            _selected_git_arguments(
-                root, git_directory, "ls-files", "-z", "--"
-            ),
-            "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
-        )
-        for record in records:
-            parts = record.split(b"/")
-            if (
-                record.startswith(b"/")
-                or any(part in {b"", b".", b".."} for part in parts)
-            ):
-                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
-            path = root / os.fsdecode(record)
-            if path in seen:
-                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
-            seen.add(path)
-            try:
-                metadata = path.lstat()
-            except OSError:
-                raise S12ControlError(
-                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
-                ) from None
+        for path, metadata in _tracked_worktree_index_entries(root):
             if stat.S_ISREG(metadata.st_mode):
-                if metadata.st_nlink != 1:
-                    raise S12ControlError(
-                        "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
-                    )
                 tracked.append(path)
-            elif not (
-                stat.S_ISLNK(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)
-            ):
-                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
     return tuple(tracked)
+
+
+def _tracked_worktree_index_entries(
+    root: Path,
+) -> tuple[tuple[Path, os.stat_result], ...]:
+    """Resolve and validate every current index path exactly once."""
+
+    git_directory = _repository_recovery_git_directory(root)
+    records = _bounded_nul_command_records(
+        _selected_git_arguments(root, git_directory, "ls-files", "-z", "--"),
+        "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
+    )
+    selected: list[tuple[Path, os.stat_result]] = []
+    seen: set[Path] = set()
+    for record in records:
+        parts = record.split(b"/")
+        if (
+            record.startswith(b"/")
+            or any(part in {b"", b".", b".."} for part in parts)
+        ):
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        path = root / os.fsdecode(record)
+        if path in seen:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        seen.add(path)
+        try:
+            metadata = path.lstat()
+        except OSError:
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+            ) from None
+        if stat.S_ISREG(metadata.st_mode):
+            if metadata.st_nlink != 1:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        elif not (
+            stat.S_ISLNK(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)
+        ):
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        selected.append((path, metadata))
+    return tuple(selected)
 
 
 def _fdinfo_is_write_capable(path: Path) -> bool:
@@ -2504,6 +2512,324 @@ def _active_tracked_worktree_write_handle_count(
             if os.geteuid() == 0:
                 count += 1
     return count
+
+
+def _tracked_worktree_barrier_paths(root: Path) -> tuple[Path, ...]:
+    """Return tracked regular entries and every directory needed to reach them."""
+
+    protected: set[Path] = set()
+    for path, metadata in _tracked_worktree_index_entries(root):
+        if stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode):
+            protected.add(path)
+        parent = path.parent
+        while parent != root:
+            if root not in parent.parents:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+            protected.add(parent)
+            parent = parent.parent
+    return tuple(
+        sorted(
+            protected,
+            key=lambda path: (
+                len(path.relative_to(root).parts),
+                os.fsencode(path.relative_to(root)),
+            ),
+        )
+    )
+
+
+def _capture_worktree_write_barrier(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+) -> dict[Path, dict[Path, dict[str, Any]]]:
+    """Capture the exact metadata needed to recover a tracked-path write barrier."""
+
+    captured: dict[Path, dict[Path, dict[str, Any]]] = {}
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            entries: dict[Path, dict[str, Any]] = {}
+            for path in _tracked_worktree_barrier_paths(root):
+                metadata = path.lstat()
+                if stat.S_ISDIR(metadata.st_mode):
+                    kind = "directory"
+                elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
+                    kind = "regular"
+                else:
+                    raise OSError
+                if (metadata.st_uid, metadata.st_gid) != (
+                    expected_uid,
+                    expected_gid,
+                ):
+                    raise OSError
+                entries[path] = {
+                    "kind": kind,
+                    "device": metadata.st_dev,
+                    "inode": metadata.st_ino,
+                    "uid": metadata.st_uid,
+                    "gid": metadata.st_gid,
+                    "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                }
+            captured[root] = entries
+    except (KeyError, OSError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+    return captured
+
+
+def _worktree_barrier_payload(
+    roots: Sequence[Path],
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    payload: dict[str, list[dict[str, Any]]] = {}
+    for key, root in (("application", roots[0]), ("control", roots[1])):
+        entries = records.get(root)
+        if not isinstance(entries, dict):
+            raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+        payload[key] = [
+            {
+                "path_hex": os.fsencode(path.relative_to(root)).hex(),
+                **entry,
+            }
+            for path, entry in sorted(
+                entries.items(),
+                key=lambda item: os.fsencode(item[0].relative_to(root)),
+            )
+        ]
+    return payload
+
+
+def _parse_worktree_barrier_payload(
+    payload: Any,
+    roots: Sequence[Path],
+) -> dict[Path, dict[Path, dict[str, Any]]]:
+    if not isinstance(payload, dict) or set(payload) != {"application", "control"}:
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    parsed: dict[Path, dict[Path, dict[str, Any]]] = {}
+    for key, root in (("application", roots[0]), ("control", roots[1])):
+        raw_entries = payload.get(key)
+        if not isinstance(raw_entries, list):
+            raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+        entries: dict[Path, dict[str, Any]] = {}
+        for raw in raw_entries:
+            if not isinstance(raw, dict) or set(raw) != {
+                "path_hex",
+                "kind",
+                "device",
+                "inode",
+                "uid",
+                "gid",
+                "mode",
+            }:
+                raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+            try:
+                relative_bytes = bytes.fromhex(raw["path_hex"])
+                relative = Path(os.fsdecode(relative_bytes))
+            except (TypeError, ValueError):
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                ) from None
+            if (
+                not relative_bytes
+                or b"\0" in relative_bytes
+                or relative.is_absolute()
+                or any(part in {"", ".", ".."} for part in relative.parts)
+                or raw["kind"] not in {"regular", "directory"}
+                or any(
+                    type(raw[name]) is not int
+                    for name in ("device", "inode", "uid", "gid")
+                )
+                or raw["device"] < 0
+                or raw["inode"] <= 0
+                or raw["uid"] < 0
+                or raw["gid"] < 0
+                or not isinstance(raw["mode"], str)
+                or re.fullmatch(r"[0-7]{4}", raw["mode"]) is None
+            ):
+                raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+            path = root / relative
+            if path in entries:
+                raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+            entries[path] = {
+                name: raw[name]
+                for name in ("kind", "device", "inode", "uid", "gid", "mode")
+            }
+        parsed[root] = entries
+    return parsed
+
+
+def _lock_worktree_write_barrier(
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> None:
+    """Prevent new non-root tracked-file writes while preserving read traversal."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root, root_entries in records.items():
+            for path, record in sorted(
+                root_entries.items(),
+                key=lambda item: (len(item[0].parts), os.fsencode(item[0])),
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    # A prior interrupted Git checkout may legitimately have
+                    # removed an old index path. Current paths are sealed in
+                    # the second pass below.
+                    continue
+                mode = int(record["mode"], 8)
+                restricted_mode = mode & ~0o222
+                expected_kind = record["kind"]
+                original = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == record["uid"]
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == mode
+                )
+                locked = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == 0
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == restricted_mode
+                )
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                resumed = (
+                    actual_kind in {"directory", "regular"}
+                    and metadata.st_uid == 0
+                    and not stat.S_IMODE(metadata.st_mode) & 0o022
+                )
+                if actual_kind != expected_kind or not (
+                    original or locked or resumed
+                ):
+                    raise OSError
+                if original:
+                    os.chmod(path, restricted_mode, follow_symlinks=False)
+                    os.chown(path, 0, record["gid"], follow_symlinks=False)
+                    os.chmod(path, restricted_mode, follow_symlinks=False)
+            # New target paths created by a previously interrupted root Git
+            # checkout are absent from the durable pre-mutation record. They
+            # are safe to resume only when root-owned and already closed to
+            # group/other writers. Their root-only write bit remains intact so
+            # the final ownership restore releases their canonical Git mode.
+            for path in _tracked_worktree_barrier_paths(root):
+                metadata = path.lstat()
+                record = root_entries.get(path)
+                if record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"]):
+                    continue
+                if (
+                    metadata.st_uid != 0
+                    or stat.S_IMODE(metadata.st_mode) & 0o022
+                    or (
+                        stat.S_ISREG(metadata.st_mode)
+                        and metadata.st_nlink != 1
+                    )
+                    or not (
+                        stat.S_ISREG(metadata.st_mode)
+                        or stat.S_ISDIR(metadata.st_mode)
+                    )
+                ):
+                    raise OSError
+        for root in records:
+            _sync_repository_filesystem(root)
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _assert_worktree_write_barrier(
+    roots: Sequence[Path],
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> None:
+    """Require every current tracked inode and ancestor to reject non-root writes."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        recorded_paths = {
+            path: record
+            for entries in records.values()
+            for path, record in entries.items()
+        }
+        for root in roots:
+            for path in _tracked_worktree_barrier_paths(root):
+                metadata = path.lstat()
+                record = recorded_paths.get(path)
+                if record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"]):
+                    expected_gid = record["gid"]
+                else:
+                    expected_gid = metadata.st_gid
+                if (
+                    metadata.st_uid != 0
+                    or metadata.st_gid != expected_gid
+                    or stat.S_IMODE(metadata.st_mode) & 0o022
+                    or (
+                        stat.S_ISREG(metadata.st_mode)
+                        and metadata.st_nlink != 1
+                    )
+                    or not (
+                        stat.S_ISREG(metadata.st_mode)
+                        or stat.S_ISDIR(metadata.st_mode)
+                    )
+                ):
+                    raise OSError
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _restore_worktree_write_barrier(
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> None:
+    if os.geteuid() != 0:
+        return
+    try:
+        for root_entries in records.values():
+            for path, record in sorted(
+                root_entries.items(),
+                key=lambda item: (-len(item[0].parts), os.fsencode(item[0])),
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    continue
+                if (metadata.st_dev, metadata.st_ino) != (
+                    record["device"],
+                    record["inode"],
+                ):
+                    continue
+                expected_kind = record["kind"]
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                if actual_kind != expected_kind:
+                    raise OSError
+                os.chown(
+                    path,
+                    record["uid"],
+                    record["gid"],
+                    follow_symlinks=False,
+                )
+                os.chmod(path, int(record["mode"], 8), follow_symlinks=False)
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
 
 
 def _repository_git_metadata_paths(roots: Sequence[Path]) -> tuple[Path, ...]:
@@ -3073,12 +3399,14 @@ def _metadata_barrier_mode(mode: int) -> int:
 
 def _write_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
-) -> None:
+) -> dict[Path, dict[Path, dict[str, Any]]]:
     if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     if set(records) != {APPLICATION_ROOT, CONTROL_ROOT}:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     _recorded_parent_metadata(parent_record)
+    roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    worktree_barrier = _capture_worktree_write_barrier(roots, records)
     _atomic_json(
         BARRIER_MARKER,
         {
@@ -3095,12 +3423,18 @@ def _write_barrier_journal(
                 ),
             },
             "repository_parent": parent_record,
+            "worktree_write_barrier": _worktree_barrier_payload(
+                roots, worktree_barrier
+            ),
         },
     )
+    return worktree_barrier
 
 
 def _load_barrier_journal() -> tuple[
-    dict[Path, dict[str, Any]], dict[str, Any]
+    dict[Path, dict[str, Any]],
+    dict[str, Any],
+    dict[Path, dict[Path, dict[str, Any]]] | None,
 ]:
     journal = _private_json(
         BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
@@ -3134,18 +3468,54 @@ def _load_barrier_journal() -> tuple[
         _recorded_path_metadata(record, "root")
         _recorded_path_metadata(record, "git")
         records[root] = record
-    return records, parent_record
+    raw_worktree_barrier = journal.get("worktree_write_barrier")
+    worktree_barrier = (
+        None
+        if raw_worktree_barrier is None
+        else _parse_worktree_barrier_payload(
+            raw_worktree_barrier,
+            (APPLICATION_ROOT, CONTROL_ROOT),
+        )
+    )
+    if set(journal) not in (
+        {"schema", "created_at", "repositories", "repository_parent"},
+        {
+            "schema",
+            "created_at",
+            "repositories",
+            "repository_parent",
+            "worktree_write_barrier",
+        },
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    return records, parent_record, worktree_barrier
 
 
 def _ensure_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
-) -> None:
+) -> dict[Path, dict[Path, dict[str, Any]]]:
     if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
-        recorded_repositories, recorded_parent = _load_barrier_journal()
+        recorded_repositories, recorded_parent, worktree_barrier = (
+            _load_barrier_journal()
+        )
         if recorded_repositories != records or recorded_parent != parent_record:
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
-        return
-    _write_barrier_journal(records, parent_record)
+        if worktree_barrier is not None:
+            return worktree_barrier
+        # A legacy R3 orphan never mutated Worktree children. Upgrade its
+        # private journal durably before installing the new write barrier.
+        worktree_barrier = _capture_worktree_write_barrier(
+            (APPLICATION_ROOT, CONTROL_ROOT), records
+        )
+        journal = _private_json(
+            BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+        )
+        journal["worktree_write_barrier"] = _worktree_barrier_payload(
+            (APPLICATION_ROOT, CONTROL_ROOT), worktree_barrier
+        )
+        _atomic_json(BARRIER_MARKER, journal)
+        return worktree_barrier
+    return _write_barrier_journal(records, parent_record)
 
 
 def _lock_repository_parent(record: dict[str, Any]) -> None:
@@ -3539,7 +3909,6 @@ def _remove_repository_recovery_barrier(
         recovery_dir.rmdir()
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
-    _restore_repository_path_metadata(root, record)
     _fsync_directory(recovery_dir.parent)
 
 
@@ -3548,6 +3917,7 @@ def _serialized_repository_recovery(
     roots: Sequence[Path] | None = None,
     records: dict[Path, dict[str, Any]] | None = None,
     parent_record: dict[str, Any] | None = None,
+    worktree_barrier: dict[Path, dict[Path, dict[str, Any]]] | None = None,
     preserve_on_error: bool = False,
     allow_journaled_transition: bool = False,
 ):
@@ -3558,6 +3928,7 @@ def _serialized_repository_recovery(
     )
     tracked_paths = _tracked_worktree_regular_paths(selected_roots)
     selected_records: dict[Path, dict[str, Any]] = records or {}
+    selected_worktree_barrier = worktree_barrier
     barriers: dict[Path, Path] = {}
     parent_locked = False
     transition_started = False
@@ -3574,6 +3945,10 @@ def _serialized_repository_recovery(
             selected_records = {
                 root: _repository_path_metadata(root) for root in selected_roots
             }
+        if selected_worktree_barrier is None:
+            selected_worktree_barrier = _capture_worktree_write_barrier(
+                selected_roots, selected_records
+            )
         for root in selected_roots:
             if not (
                 _is_recovery_guard(root / ".git")
@@ -3608,6 +3983,8 @@ def _serialized_repository_recovery(
         transition_started = True
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
+        _lock_worktree_write_barrier(selected_worktree_barrier)
+        for root in selected_roots:
             _lock_repository_git_metadata(root, selected_records[root])
         transition_guard.assert_unchanged()
         metadata_paths = _repository_git_metadata_paths(selected_roots)
@@ -3617,6 +3994,13 @@ def _serialized_repository_recovery(
             or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        _assert_worktree_write_barrier(
+            selected_roots, selected_worktree_barrier
+        )
+        for root in selected_roots:
+            _selected_identity(
+                root, _repository_recovery_git_directory(root)
+            )
         for root in selected_roots:
             barriers[root] = _install_repository_recovery_barrier(
                 root, selected_records[root]
@@ -3642,6 +4026,9 @@ def _serialized_repository_recovery(
             _clear_stale_git_locks(root, git_dir)
         yield barriers
         tracked_paths = _tracked_worktree_regular_paths(selected_roots)
+        _assert_worktree_write_barrier(
+            selected_roots, selected_worktree_barrier
+        )
         if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         for root, git_directory in barriers.items():
@@ -3671,7 +4058,29 @@ def _serialized_repository_recovery(
                         _remove_repository_recovery_barrier(
                             root, recovery_dir, selected_records[root]
                         )
-                    else:
+                except S12ControlError:
+                    cleanup_failed = True
+            if not cleanup_failed:
+                try:
+                    if completed:
+                        _assert_worktree_write_barrier(
+                            selected_roots, selected_worktree_barrier
+                        )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                        if (
+                            _active_tracked_worktree_write_handle_count(
+                                _tracked_worktree_regular_paths(selected_roots)
+                            )
+                            != 0
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                            )
+                    _restore_worktree_write_barrier(
+                        selected_worktree_barrier
+                    )
+                    for root in reversed(selected_roots):
                         _restore_repository_path_metadata(
                             root, selected_records[root]
                         )
@@ -4041,10 +4450,11 @@ def _finalize_rollback(backup: Path, index: dict[str, Any]) -> None:
     if not isinstance(parent_record, dict):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     _recorded_parent_metadata(parent_record)
-    _ensure_barrier_journal(path_records, parent_record)
+    worktree_barrier = _ensure_barrier_journal(path_records, parent_record)
     with _serialized_repository_recovery(
         records=path_records,
         parent_record=parent_record,
+        worktree_barrier=worktree_barrier,
         preserve_on_error=True,
         allow_journaled_transition=True,
     ) as git_directories:
@@ -4102,10 +4512,11 @@ def rollback_once(
     if not isinstance(parent_record, dict):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     _recorded_parent_metadata(parent_record)
-    _ensure_barrier_journal(path_records, parent_record)
+    worktree_barrier = _ensure_barrier_journal(path_records, parent_record)
     with _serialized_repository_recovery(
         records=path_records,
         parent_record=parent_record,
+        worktree_barrier=worktree_barrier,
         preserve_on_error=True,
         allow_journaled_transition=True,
     ) as git_directories:
@@ -4896,10 +5307,12 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
 
 
 def _recover_repository_barrier_only() -> dict[str, Any]:
-    records, parent_record = _load_barrier_journal()
+    records, parent_record, _ = _load_barrier_journal()
+    worktree_barrier = _ensure_barrier_journal(records, parent_record)
     with _serialized_repository_recovery(
         records=records,
         parent_record=parent_record,
+        worktree_barrier=worktree_barrier,
         allow_journaled_transition=True,
     ):
         _remove_fetch_stage(
@@ -4986,11 +5399,14 @@ def _deploy_locked() -> dict[str, Any]:
     release_repository_state: dict[str, Any] | None = None
     repository_sync_failure: BaseException | None = None
     try:
-        _write_barrier_journal(path_records, parent_record)
+        worktree_barrier = _write_barrier_journal(
+            path_records, parent_record
+        )
         with _pinned_release_input_bundles() as pinned_bundles:
             with _serialized_repository_recovery(
                 records=path_records,
                 parent_record=parent_record,
+                worktree_barrier=worktree_barrier,
                 preserve_on_error=True,
             ) as git_directories:
                 fetch_directories = _prepare_release_fetch_stage(pinned_bundles)

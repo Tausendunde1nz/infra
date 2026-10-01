@@ -339,7 +339,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("with _exclusive_deployment_lock()", source)
         self.assertEqual(source.count('_run(["systemctl", "start", UNIT_NAME]'), 1)
         deploy = source.split("def _deploy_locked()", 1)[1].split("def deploy()", 1)[0]
-        journal = deploy.index("_write_barrier_journal(path_records, parent_record)")
+        journal = deploy.index("_write_barrier_journal(")
         barrier = deploy.index("with _serialized_repository_recovery(")
         backup = deploy.index("backup, index = create_backup(")
         attempt = deploy.index("ATTEMPT_MARKER,")
@@ -879,6 +879,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertIn("_tracked_worktree_regular_paths(selected_roots)", contract)
         self.assertIn("_selected_identity(root, git_directory)", contract)
+        self.assertIn("_lock_worktree_write_barrier(", contract)
+        self.assertGreaterEqual(
+            contract.count("_assert_worktree_write_barrier("),
+            3,
+        )
+        self.assertIn("_restore_worktree_write_barrier(", contract)
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -1160,6 +1166,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(runtime, "CONTROL_ROOT", control),
                 mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
                 mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(
+                    runtime,
+                    "_capture_worktree_write_barrier",
+                    return_value={application: {}, control: {}},
+                ),
                 mock.patch.object(runtime, "_atomic_json", side_effect=capture),
             ):
                 runtime._write_barrier_journal(
@@ -1170,6 +1181,53 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(
                 set(captured["repositories"]), {"application", "control"}
             )
+            self.assertEqual(
+                set(captured["worktree_write_barrier"]),
+                {"application", "control"},
+            )
+
+    def test_worktree_barrier_journal_roundtrip_rejects_parent_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = root / "application"
+            control = root / "control"
+            application.mkdir()
+            control.mkdir()
+            tracked = application / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            metadata = tracked.lstat()
+            records = {
+                application: {
+                    tracked: {
+                        "kind": "regular",
+                        "device": metadata.st_dev,
+                        "inode": metadata.st_ino,
+                        "uid": metadata.st_uid,
+                        "gid": metadata.st_gid,
+                        "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                    }
+                },
+                control: {},
+            }
+            payload = runtime._worktree_barrier_payload(
+                (application, control), records
+            )
+            self.assertEqual(
+                runtime._parse_worktree_barrier_payload(
+                    payload, (application, control)
+                ),
+                records,
+            )
+
+            escaped = copy.deepcopy(payload)
+            escaped["application"][0]["path_hex"] = b"..".hex()
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            ):
+                runtime._parse_worktree_barrier_payload(
+                    escaped, (application, control)
+                )
 
     def test_backup_snapshot_rejects_post_capture_repository_race(self) -> None:
         expected = {
@@ -2064,6 +2122,181 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertFalse(runtime._recovery_git_path(repository).exists())
             self.assertTrue((repository / ".git").is_dir())
 
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_worktree_write_barrier_blocks_new_owner_write_until_teardown(
+        self,
+    ) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            os.chmod(root, 0o755)
+            repository = root / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            nested = repository / "nested"
+            nested.mkdir()
+            tracked = nested / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "nested/tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+
+            def become_chatops() -> None:
+                os.setgroups([])
+                os.setgid(chatops.pw_gid)
+                os.setuid(chatops.pw_uid)
+
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    locked = tracked.lstat()
+                    self.assertEqual(locked.st_uid, 0)
+                    self.assertEqual(stat.S_IMODE(locked.st_mode) & 0o222, 0)
+                    child = subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            (
+                                "import pathlib,sys;"
+                                "p=pathlib.Path(sys.argv[1]);"
+                                "\ntry:\n p.write_text('race\\n')\n"
+                                "except PermissionError:\n print('blocked')\n"
+                                "else:\n print('writable')"
+                            ),
+                            str(tracked),
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        preexec_fn=become_chatops,
+                    )
+                    self.assertEqual(child.stdout.strip(), "blocked")
+                    self.assertEqual(tracked.read_text(encoding="ascii"), "reviewed\n")
+            restored = tracked.lstat()
+            self.assertEqual(restored.st_uid, chatops.pw_uid)
+            self.assertEqual(restored.st_gid, chatops.pw_gid)
+            self.assertEqual(stat.S_IMODE(restored.st_mode), 0o644)
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_worktree_write_barrier_resumes_root_owned_replacement(self) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            os.chmod(root, 0o755)
+            repository = root / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            nested = repository / "nested"
+            nested.mkdir()
+            tracked = nested / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "nested/tracked.txt"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            barrier = runtime._capture_worktree_write_barrier(
+                (repository,), {repository: repository_record}
+            )
+
+            runtime._lock_worktree_write_barrier(barrier)
+            replacement = nested / ".tracked.replacement"
+            replacement.write_text("reviewed\n", encoding="ascii")
+            os.chmod(replacement, 0o644)
+            os.replace(replacement, tracked)
+
+            runtime._lock_worktree_write_barrier(barrier)
+            runtime._assert_worktree_write_barrier((repository,), barrier)
+            replacement_metadata = tracked.lstat()
+            self.assertEqual(replacement_metadata.st_uid, 0)
+            self.assertEqual(stat.S_IMODE(replacement_metadata.st_mode), 0o644)
+
+            runtime._restore_worktree_write_barrier(barrier)
+            runtime._restore_repository_path_metadata(
+                repository, repository_record
+            )
+            restored = tracked.lstat()
+            self.assertEqual(restored.st_uid, chatops.pw_uid)
+            self.assertEqual(restored.st_gid, chatops.pw_gid)
+            self.assertEqual(stat.S_IMODE(restored.st_mode), 0o644)
+            self.assertFalse(
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        f"safe.directory={repository}",
+                        "status",
+                        "--porcelain",
+                    ],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+            )
+
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_metadata_handle_scope_rejects_git_and_recovery_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2258,6 +2491,25 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             repository = Path(directory) / "repository"
             subprocess.run(
                 ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
                 check=True,
                 capture_output=True,
             )
