@@ -2498,9 +2498,11 @@ def _active_tracked_worktree_write_handle_count(
         except FileNotFoundError:
             continue
         except S12ControlError:
-            count += 1
+            if os.geteuid() == 0:
+                count += 1
         except OSError:
-            count += 1
+            if os.geteuid() == 0:
+                count += 1
     return count
 
 
