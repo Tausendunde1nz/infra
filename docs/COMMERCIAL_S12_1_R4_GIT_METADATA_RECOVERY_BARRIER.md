@@ -58,20 +58,24 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    root and every directory in each canonical `.git` tree. Before the guard is
    drained, harden the shared parent to `root:root 0500`. Both syscall-boundary
    states of that hardening transition are journal-recognized and resumable.
-13. Validate the complete repository while every guarded Worktree and Git
-   inode is still root-owned and non-writable. Match the exact Git namespace,
-   content and mode fingerprint plus the independent extended-attribute
-   fingerprint, repeat Git-process, metadata-handle, writable-handle and
-   identity checks, and drain the event queue. Then remove every inotify watch
-   and require the ordered `IN_IGNORED` barrier for every watch without any
-   intervening mutation. Fanotify remains active until that barrier completes
-   and is closed before the explicit release callback starts. Only after every
-   watch is gone does the callback restore exact journaled ownership/modes,
-   validate the released contracts and fingerprints, and restore the shared
-   parent last. Existing read-only service cwd/fd/maps are therefore allowed;
-   they never become a reason to reject a healthy runtime, and their inodes do
-   not regain owner mutation authority until the guarded transaction has
-   crossed its complete release barrier. The Git fingerprint
+13. Discover every non-controller process that retains an exact guarded inode
+   or a directory handle/cwd inside either Worktree. Keep healthy read-only
+   handles valid, but briefly quiesce their owning processes with kernel
+   `SIGSTOP` through identity-pinned `pidfd`s for the final ownership handoff;
+   validate PID start times and the stopped state, and iterate the scan until
+   no inheriting child remains. This changes no unit state and causes no
+   restart. With both inotify and fanotify
+   still active, restore exact journaled ownership/modes, accept only the
+   controller's attribute events, validate the released contracts and both
+   fingerprints, and re-check repository identity and writer exclusion. Then
+   remove every inotify watch and require the ordered `IN_IGNORED` barrier for
+   every watch without any intervening mutation. Revalidate that every retained
+   handle owner is still the same stopped process before closing fanotify.
+   Finally resume only those exact PID/start-time identities and restore the
+   shared parent last. A failure first reseals the repository and only then
+   resumes those processes. Existing read-only service cwd/fd/maps are thus
+   allowed without reopening an unobserved `fchmod`/relative-path race. The Git
+   fingerprint
    intentionally ignores only ownership/ctime and the top `.git` mode changed
    by the controller. Both release fingerprints normalize the same POSIX ACL
    base permission fields deterministically rewritten by the intentional mode
@@ -123,9 +127,10 @@ subsequent validation or Git transition.
 | writer waiting for restored owner permission | detected by release watch; RED |
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |
-| external chmod/fchmod before release barrier completion | sealed owner/mode or event check fails; RED |
+| external chmod/fchmod during final ownership restore | retained handle owner is quiesced or watched event fails; RED |
 | external setxattr/fsetxattr during lock or release | root transition or guarded-path xattr fingerprint mismatch/event; RED |
-| healthy owner-held read-only Worktree cwd/fd/map | allowed; ownership stays sealed until all watches are gone |
+| healthy retained read-only Worktree cwd/fd | allowed; briefly quiesced only for final ownership handoff |
+| read-only mapping without retained fd/cwd | allowed; no metadata capability to quiesce |
 | tracked file with `security.capability` | rejected before ownership transition; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |

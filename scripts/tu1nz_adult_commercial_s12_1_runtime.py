@@ -18,6 +18,7 @@ import os
 import pwd
 import re
 import select
+import signal
 import shutil
 import stat
 import struct
@@ -4115,16 +4116,16 @@ class _WorktreeReleaseGuard:
     def finalize_release(
         self,
         validator: Callable[[], None],
-        release: Callable[[], None],
+        shutdown_validator: Callable[[], None],
     ) -> None:
-        """Validate sealed state, cross every watch barrier, then release."""
+        """Validate released state and cross the ordered watch barrier."""
 
         self.assert_no_events()
         validator()
         self._synchronized_inotify_shutdown()
+        shutdown_validator()
         self._assert_fanotify_quiet()
         self.close()
-        release()
 
     def close(self) -> None:
         self.fanotify_stop.set()
@@ -4173,6 +4174,206 @@ def _current_process_ancestry() -> set[str]:
             break
         ancestry.add(str(current))
     return ancestry
+
+
+def _process_state_and_start_time(process: Path) -> tuple[str, int]:
+    payload = (process / "stat").read_text(encoding="ascii")
+    _, separator, remainder = payload.rpartition(")")
+    fields = remainder.strip().split()
+    if not separator or len(fields) < 20:
+        raise OSError("invalid process stat")
+    return fields[0], int(fields[19])
+
+
+def _guarded_handle_processes(
+    paths: Sequence[Path], roots: Sequence[Path]
+) -> dict[int, tuple[str, int]]:
+    """Return non-controller processes able to reach guarded inodes."""
+
+    proc = Path("/proc")
+    if not proc.is_dir():
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+    try:
+        protected = {
+            (metadata.st_dev, metadata.st_ino)
+            for path in set(paths)
+            for metadata in (path.lstat(),)
+            if not path.is_symlink()
+            and (
+                stat.S_ISDIR(metadata.st_mode)
+                or (stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1)
+            )
+        }
+        if len(protected) != len(set(paths)):
+            raise OSError
+        canonical_roots = tuple(root.resolve(strict=True) for root in roots)
+    except OSError:
+        raise S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+        ) from None
+    excluded = _current_process_ancestry()
+    holders: dict[int, tuple[str, int]] = {}
+    for process in proc.iterdir():
+        if not process.name.isdigit() or process.name in excluded:
+            continue
+        try:
+            links: list[Path] = [process / "cwd"]
+            links.extend((process / "fd").iterdir())
+            matched = False
+            for link in links:
+                try:
+                    metadata = link.stat()
+                except FileNotFoundError:
+                    continue
+                if (metadata.st_dev, metadata.st_ino) in protected:
+                    matched = True
+                    break
+                if stat.S_ISDIR(metadata.st_mode):
+                    target = link.resolve(strict=True)
+                    if any(
+                        target == root or root in target.parents
+                        for root in canonical_roots
+                    ):
+                        matched = True
+                        break
+            if matched:
+                holders[int(process.name)] = _process_state_and_start_time(
+                    process
+                )
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeError, ValueError):
+            if os.geteuid() == 0:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ) from None
+    return holders
+
+
+class _GuardedHandleQuiescence:
+    """Briefly stop retained Worktree-handle owners during final release."""
+
+    def __init__(self, paths: Sequence[Path], roots: Sequence[Path]):
+        self.paths = tuple(paths)
+        self.roots = tuple(roots)
+        self.stopped: dict[int, tuple[int, int]] = {}
+
+    @staticmethod
+    def _wait_stopped(pid: int, start_time: int) -> bool:
+        deadline = time.monotonic() + 1.0
+        process = Path("/proc") / str(pid)
+        while time.monotonic() < deadline:
+            try:
+                state, current_start = _process_state_and_start_time(process)
+            except FileNotFoundError:
+                return False
+            except (OSError, UnicodeError, ValueError):
+                break
+            if current_start != start_time:
+                break
+            if state in {"T", "t"}:
+                return True
+            time.sleep(0.01)
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+    def acquire(self) -> None:
+        if os.geteuid() != 0:
+            return
+        try:
+            for _round in range(8):
+                holders = _guarded_handle_processes(self.paths, self.roots)
+                newcomers = sorted(set(holders) - set(self.stopped))
+                if not newcomers:
+                    self.assert_quiesced()
+                    return
+                for pid in newcomers:
+                    state, start_time = holders[pid]
+                    if state in {"T", "t"}:
+                        raise OSError
+                    try:
+                        descriptor = os.pidfd_open(pid, 0)
+                    except ProcessLookupError:
+                        continue
+                    try:
+                        current_state, current_start = (
+                            _process_state_and_start_time(
+                                Path("/proc") / str(pid)
+                            )
+                        )
+                        if (
+                            current_start != start_time
+                            or current_state in {"T", "t"}
+                        ):
+                            raise OSError
+                        signal.pidfd_send_signal(
+                            descriptor, signal.SIGSTOP, None, 0
+                        )
+                        self.stopped[pid] = (start_time, descriptor)
+                        descriptor = -1
+                        if not self._wait_stopped(pid, start_time):
+                            _start, stopped_descriptor = self.stopped.pop(pid)
+                            os.close(stopped_descriptor)
+                    except ProcessLookupError:
+                        pass
+                    finally:
+                        if descriptor >= 0:
+                            os.close(descriptor)
+        except (OSError, AttributeError):
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+            ) from None
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+    def assert_quiesced(self) -> None:
+        if os.geteuid() != 0:
+            return
+        for pid, (start_time, descriptor) in tuple(self.stopped.items()):
+            try:
+                state, current_start = _process_state_and_start_time(
+                    Path("/proc") / str(pid)
+                )
+            except FileNotFoundError:
+                os.close(descriptor)
+                del self.stopped[pid]
+                continue
+            except (OSError, UnicodeError, ValueError):
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ) from None
+            if current_start != start_time or state not in {"T", "t"}:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        holders = _guarded_handle_processes(self.paths, self.roots)
+        if set(holders) - set(self.stopped):
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+    def close(self) -> None:
+        failed = False
+        for pid, (start_time, descriptor) in reversed(
+            tuple(self.stopped.items())
+        ):
+            try:
+                _state, current_start = _process_state_and_start_time(
+                    Path("/proc") / str(pid)
+                )
+                if current_start != start_time:
+                    continue
+                signal.pidfd_send_signal(
+                    descriptor, signal.SIGCONT, None, 0
+                )
+            except FileNotFoundError:
+                continue
+            except ProcessLookupError:
+                continue
+            except (OSError, UnicodeError, ValueError, AttributeError):
+                failed = True
+            finally:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    failed = True
+        self.stopped.clear()
+        if failed:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
 
 
 def _active_exact_directory_handle_count(directory: Path) -> int:
@@ -5267,6 +5468,8 @@ def _serialized_repository_recovery(
                     cleanup_failed = True
             if not cleanup_failed:
                 release_guard: _WorktreeReleaseGuard | None = None
+                release_quiescence: _GuardedHandleQuiescence | None = None
+                release_succeeded = False
                 try:
                     if completed:
                         _refresh_worktree_barrier_for_release(
@@ -5315,17 +5518,60 @@ def _serialized_repository_recovery(
                     release_xattr_fingerprint = _release_xattr_fingerprint(
                         tuple(release_paths)
                     )
-                    def validate_sealed_release() -> None:
-                        _assert_worktree_write_barrier(
-                            selected_roots, selected_worktree_barrier
+                    release_quiescence = _GuardedHandleQuiescence(
+                        tuple(release_paths), selected_roots
+                    )
+                    release_quiescence.acquire()
+                    _restore_worktree_write_barrier(
+                        selected_worktree_barrier,
+                        selected_records if completed else None,
+                    )
+                    for root in reversed(selected_roots):
+                        _restore_repository_worktree_metadata(
+                            root, selected_records[root]
                         )
+                    release_guard.accept_release_attributes()
+                    if completed:
+                        _validate_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                        released_paths = _tracked_worktree_regular_paths(
+                            selected_roots
+                        )
+                        if (
+                            _active_tracked_worktree_write_handle_count(
+                                released_paths
+                            )
+                            != 0
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                            )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                    release_guard.assert_no_events()
+                    for root in reversed(selected_roots):
+                        _restore_repository_git_metadata(
+                            root, selected_records[root]
+                        )
+                    release_guard.accept_release_attributes()
+
+                    def validate_final_release() -> None:
+                        release_quiescence.assert_quiesced()
                         if not completed:
                             return
+                        _validate_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
                         for root in selected_roots:
                             _validate_repository_worktree_contract(
-                                root,
-                                selected_records[root],
-                                allow_journaled_transition=True,
+                                root, selected_records[root]
                             )
                         if (
                             _git_metadata_release_fingerprint(selected_roots)
@@ -5356,54 +5602,12 @@ def _serialized_repository_recovery(
                         for root in selected_roots:
                             _selected_identity(root, root / ".git")
 
-                    def release_after_watch_barrier() -> None:
-                        nonlocal parent_locked
-                        _restore_worktree_write_barrier(
-                            selected_worktree_barrier,
-                            selected_records if completed else None,
-                        )
-                        for root in reversed(selected_roots):
-                            _restore_repository_worktree_metadata(
-                                root, selected_records[root]
-                            )
-                        for root in reversed(selected_roots):
-                            _restore_repository_git_metadata(
-                                root, selected_records[root]
-                            )
-                        if completed:
-                            _validate_released_worktree_contract(
-                                selected_roots,
-                                selected_records,
-                                selected_worktree_barrier,
-                            )
-                            for root in selected_roots:
-                                _validate_repository_worktree_contract(
-                                    root, selected_records[root]
-                                )
-                            if (
-                                _git_metadata_release_fingerprint(
-                                    selected_roots
-                                )
-                                != git_release_fingerprint
-                                or _release_xattr_fingerprint(
-                                    tuple(release_paths)
-                                )
-                                != release_xattr_fingerprint
-                            ):
-                                raise S12ControlError(
-                                    "S12_1_RECOVERY_GIT_BARRIER_RED"
-                                )
-                            for root in selected_roots:
-                                _selected_identity(root, root / ".git")
-                        if parent_locked:
-                            _restore_repository_parent(parent_record)
-                            parent_locked = False
-
                     release_guard.finalize_release(
-                        validate_sealed_release,
-                        release_after_watch_barrier,
+                        validate_final_release,
+                        release_quiescence.assert_quiesced,
                     )
                     release_guard = None
+                    release_succeeded = True
                 except S12ControlError:
                     cleanup_failed = True
                     try:
@@ -5426,6 +5630,21 @@ def _serialized_repository_recovery(
                 finally:
                     if release_guard is not None:
                         release_guard.close()
+                    if release_quiescence is not None:
+                        try:
+                            release_quiescence.close()
+                        except S12ControlError:
+                            cleanup_failed = True
+                    if (
+                        release_succeeded
+                        and not cleanup_failed
+                        and parent_locked
+                    ):
+                        try:
+                            _restore_repository_parent(parent_record)
+                            parent_locked = False
+                        except S12ControlError:
+                            cleanup_failed = True
         if cleanup_failed:
             raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
 

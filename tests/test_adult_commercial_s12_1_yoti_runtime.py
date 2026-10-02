@@ -901,41 +901,30 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertNotIn("_active_guarded_owner_handle_count(", contract)
         self.assertIn("_restore_repository_worktree_metadata(", contract)
         self.assertIn("_restore_repository_git_metadata(", contract)
-        self.assertIn("def validate_sealed_release()", contract)
-        self.assertIn("def release_after_watch_barrier()", contract)
+        self.assertIn("_GuardedHandleQuiescence(", contract)
+        self.assertIn("release_quiescence.acquire()", contract)
+        self.assertIn("def validate_final_release()", contract)
         self.assertLess(
             contract.index("_WorktreeReleaseGuard("),
-            contract.index("def validate_sealed_release()"),
+            contract.index("_GuardedHandleQuiescence("),
         )
         self.assertLess(
-            contract.index("def validate_sealed_release()"),
-            contract.index("def release_after_watch_barrier()"),
+            contract.index("release_quiescence.acquire()"),
+            contract.index("_restore_worktree_write_barrier("),
         )
         self.assertLess(
-            contract.index("def release_after_watch_barrier()"),
+            contract.index("_restore_repository_git_metadata("),
             contract.index("release_guard.finalize_release("),
         )
-        release_callback = contract[
-            contract.index("def release_after_watch_barrier()") :
-            contract.index("release_guard.finalize_release(")
-        ]
         self.assertLess(
-            release_callback.index("_restore_worktree_write_barrier("),
-            release_callback.index("_restore_repository_worktree_metadata("),
+            contract.index("release_guard.finalize_release("),
+            contract.index("release_quiescence.close()"),
         )
         self.assertLess(
-            release_callback.index("_restore_repository_worktree_metadata("),
-            release_callback.index("_restore_repository_git_metadata("),
+            contract.index("release_quiescence.close()"),
+            contract.index("_restore_repository_parent(parent_record)"),
         )
-        self.assertLess(
-            release_callback.index("_restore_repository_git_metadata("),
-            release_callback.index("_validate_released_worktree_contract("),
-        )
-        self.assertLess(
-            release_callback.index("_validate_released_worktree_contract("),
-            release_callback.index("_restore_repository_parent("),
-        )
-        self.assertNotIn("accept_release_attributes", contract)
+        self.assertGreaterEqual(contract.count("accept_release_attributes"), 2)
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -2241,7 +2230,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     return_value=SimpleNamespace(
                         accept_release_attributes=lambda: None,
                         assert_no_events=lambda: None,
-                        finalize_release=lambda validator: validator(),
+                        finalize_release=lambda validator, shutdown_validator: (
+                            validator(),
+                            shutdown_validator(),
+                        ),
                         close=lambda: None,
                     ),
                 ),
@@ -2741,9 +2733,17 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
                 class ReleaseDriftGuard:
                     @staticmethod
-                    def finalize_release(validator, release) -> None:
+                    def accept_release_attributes() -> None:
+                        return None
+
+                    @staticmethod
+                    def assert_no_events() -> None:
+                        return None
+
+                    @staticmethod
+                    def finalize_release(validator, shutdown_validator) -> None:
                         validator()
-                        release()
+                        shutdown_validator()
 
                     @staticmethod
                     def close() -> None:
@@ -3177,7 +3177,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             baseline,
         )
 
-    def test_release_finalizer_releases_after_synchronized_shutdown(self) -> None:
+    def test_release_finalizer_rechecks_quiescence_after_watch_shutdown(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
         guard.descriptor = 123
         guard.fanotify_descriptor = None
@@ -3206,7 +3206,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         ):
             guard.finalize_release(
                 lambda: observed.append(f"validate:{guard.descriptor}"),
-                lambda: observed.append(f"release:{guard.descriptor}"),
+                lambda: observed.append(f"quiesced:{guard.descriptor}"),
             )
 
         self.assertEqual(
@@ -3215,8 +3215,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "drain",
                 "validate:123",
                 "shutdown-watches",
+                "quiesced:None",
                 "shutdown",
-                "release:None",
             ],
         )
 
@@ -3266,6 +3266,100 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
         shutdown.assert_not_called()
         self.assertEqual(guard.descriptor, 123)
+
+    def test_guarded_handle_quiescence_uses_identity_pinned_pidfd(self) -> None:
+        quiescence = runtime._GuardedHandleQuiescence(
+            (Path("/guarded/file"),), (Path("/guarded"),)
+        )
+        running = {123: ("S", 456)}
+        stopped = {123: ("T", 456)}
+        pidfd_signal = mock.MagicMock()
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_guarded_handle_processes",
+                side_effect=(running, stopped, stopped),
+            ),
+            mock.patch.object(
+                runtime,
+                "_process_state_and_start_time",
+                side_effect=(("S", 456), ("T", 456), ("T", 456)),
+            ),
+            mock.patch.object(
+                runtime.os, "pidfd_open", return_value=77, create=True
+            ),
+            mock.patch.object(
+                runtime.signal,
+                "pidfd_send_signal",
+                pidfd_signal,
+                create=True,
+            ),
+            mock.patch.object(
+                runtime._GuardedHandleQuiescence,
+                "_wait_stopped",
+                return_value=True,
+            ),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            quiescence.acquire()
+            quiescence.close()
+
+        self.assertEqual(
+            [call.args[1] for call in pidfd_signal.call_args_list],
+            [runtime.signal.SIGSTOP, runtime.signal.SIGCONT],
+        )
+        close.assert_called_once_with(77)
+
+    def test_guarded_handle_quiescence_resumes_after_stop_wait_failure(self) -> None:
+        quiescence = runtime._GuardedHandleQuiescence(
+            (Path("/guarded/file"),), (Path("/guarded"),)
+        )
+        pidfd_signal = mock.MagicMock()
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_guarded_handle_processes",
+                return_value={123: ("S", 456)},
+            ),
+            mock.patch.object(
+                runtime,
+                "_process_state_and_start_time",
+                side_effect=(("S", 456), ("T", 456)),
+            ),
+            mock.patch.object(
+                runtime.os, "pidfd_open", return_value=77, create=True
+            ),
+            mock.patch.object(
+                runtime.signal,
+                "pidfd_send_signal",
+                pidfd_signal,
+                create=True,
+            ),
+            mock.patch.object(
+                runtime._GuardedHandleQuiescence,
+                "_wait_stopped",
+                side_effect=runtime.S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ),
+            ),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
+            ):
+                quiescence.acquire()
+            quiescence.close()
+
+        self.assertEqual(
+            [call.args[1] for call in pidfd_signal.call_args_list],
+            [runtime.signal.SIGSTOP, runtime.signal.SIGCONT],
+        )
+        close.assert_called_once_with(77)
 
     def test_release_fingerprints_normalize_only_acl_mode_fields(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
