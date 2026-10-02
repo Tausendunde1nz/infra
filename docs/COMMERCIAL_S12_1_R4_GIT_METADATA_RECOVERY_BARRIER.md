@@ -135,9 +135,13 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    already-consumed `open_how` userspace structure can change while the caller
    is blocked. Worker health is checked before every sentinel open, and a
    worker error closes the permission group to wake blocked syscalls before the
-   controller reports RED. Guard teardown denies both user-space-held and
-   kernel-queued permission events through the still-open cached fanotify group
-   after the worker stops and before clearing or closing its descriptor.
+   controller reports RED. With the shared parent still hard-locked and every
+   retained handle owner still quiesced, guard teardown atomically flushes the
+   fanotify marks, then denies both user-space-held and kernel-queued permission
+   events through the still-open cached group before closing its descriptor.
+   No new event can enter the group after the flush, and namespace/handle
+   exclusion remains in force until the parent is restored as the release
+   point.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
 the scan/exchange race. The fingerprint plus the kernel mutation watch closes

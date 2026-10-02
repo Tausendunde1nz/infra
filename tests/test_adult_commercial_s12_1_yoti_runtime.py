@@ -3057,6 +3057,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
         with (
             mock.patch.object(
+                guard,
+                "_flush_fanotify_marks",
+                return_value=True,
+            ),
+            mock.patch.object(
                 runtime.os,
                 "read",
                 side_effect=BlockingIOError,
@@ -3096,6 +3101,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
         with (
             mock.patch.object(
+                guard,
+                "_flush_fanotify_marks",
+                return_value=True,
+            ) as flush,
+            mock.patch.object(
                 runtime.os,
                 "read",
                 side_effect=(payload, BlockingIOError()),
@@ -3105,6 +3115,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         ):
             guard.close()
 
+        flush.assert_called_once_with(123)
         self.assertEqual(read.call_args_list, [mock.call(123, 1024 * 1024)] * 2)
         write.assert_called_once_with(
             123,
@@ -3114,6 +3125,22 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             [call.args for call in close.call_args_list], [(789,), (123,)]
         )
         self.assertIsNone(guard.fanotify_descriptor)
+
+    def test_fanotify_mark_flush_closes_the_queue_entry_window(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        fanotify_mark = mock.MagicMock(return_value=0)
+        library = SimpleNamespace(fanotify_mark=fanotify_mark)
+
+        with mock.patch.object(runtime.ctypes, "CDLL", return_value=library):
+            self.assertTrue(guard._flush_fanotify_marks(123))
+
+        fanotify_mark.assert_called_once_with(
+            123,
+            guard._FAN_MARK_FLUSH,
+            0,
+            -100,
+            None,
+        )
 
     def test_repository_root_lock_resumes_legacy_chown_boundary(self) -> None:
         state = {"uid": 0, "gid": 1002, "mode": 0o500}

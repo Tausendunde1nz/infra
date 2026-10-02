@@ -3965,6 +3965,7 @@ class _WorktreeReleaseGuard:
     _FAN_REPORT_TID = 0x00000100
     _FAN_MARK_ADD = 0x00000001
     _FAN_MARK_ONLYDIR = 0x00000008
+    _FAN_MARK_FLUSH = 0x00000080
     _FAN_OPEN_PERM = 0x00010000
     _FAN_EVENT_ON_CHILD = 0x08000000
     _FAN_ALLOW = 0x01
@@ -4515,6 +4516,33 @@ class _WorktreeReleaseGuard:
                     except OSError:
                         pass
 
+    def _flush_fanotify_marks(self, group_descriptor: int) -> bool:
+        """Atomically prevent new events before draining the permission group."""
+
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            fanotify_mark = library.fanotify_mark
+            fanotify_mark.argtypes = [
+                ctypes.c_int,
+                ctypes.c_uint,
+                ctypes.c_uint64,
+                ctypes.c_int,
+                ctypes.c_char_p,
+            ]
+            fanotify_mark.restype = ctypes.c_int
+            return (
+                fanotify_mark(
+                    group_descriptor,
+                    self._FAN_MARK_FLUSH,
+                    0,
+                    -100,
+                    None,
+                )
+                == 0
+            )
+        except (OSError, ValueError, AttributeError):
+            return False
+
     def close(self) -> None:
         self.fanotify_stop.set()
         worker_stopped = True
@@ -4528,6 +4556,11 @@ class _WorktreeReleaseGuard:
             fanotify_descriptor = self.fanotify_descriptor
             self.fanotify_descriptor = None
         shutdown_clean = worker_stopped
+        if fanotify_descriptor is not None:
+            shutdown_clean = (
+                self._flush_fanotify_marks(fanotify_descriptor)
+                and shutdown_clean
+            )
         for event_descriptor in pending:
             try:
                 self._fanotify_respond(
@@ -5686,6 +5719,27 @@ def _hard_lock_repository_parent(record: dict[str, Any]) -> None:
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
+def _assert_hard_locked_repository_parent(record: dict[str, Any]) -> None:
+    """Prove namespace exclusion before fanotify marks are flushed."""
+
+    if os.geteuid() != 0:
+        return
+    _recorded_parent_metadata(record)
+    try:
+        _assert_repository_parent_xattrs(record)
+        metadata = DEPLOYMENT_LOCK_ROOT.lstat()
+        if (
+            DEPLOYMENT_LOCK_ROOT.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_gid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o500
+        ):
+            raise OSError
+    except (OSError, S12ControlError):
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
+
+
 def _restore_repository_parent(record: dict[str, Any]) -> None:
     if os.geteuid() != 0:
         return
@@ -6399,9 +6453,18 @@ def _serialized_repository_recovery(
                         for root in selected_roots:
                             _selected_identity(root, root / ".git")
 
+                    def validate_release_shutdown() -> None:
+                        release_quiescence.assert_quiesced()
+                        if release_guard.fanotify_descriptor is not None:
+                            if not parent_locked or parent_record is None:
+                                raise S12ControlError(
+                                    "S12_1_REPOSITORY_PARENT_RED"
+                                )
+                            _assert_hard_locked_repository_parent(parent_record)
+
                     release_guard.finalize_release(
                         validate_final_release,
-                        release_quiescence.assert_quiesced,
+                        validate_release_shutdown,
                     )
                     release_guard = None
                     if parent_locked:
