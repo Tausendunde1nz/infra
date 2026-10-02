@@ -899,6 +899,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertGreaterEqual(
             contract.count("_release_xattr_fingerprint("), 2
         )
+        self.assertIn("release_paths.update(selected_roots)", contract)
+        self.assertIn("_hard_lock_repository_parent(parent_record)", contract)
+        self.assertIn("_active_guarded_owner_handle_count(", contract)
         self.assertIn("_restore_repository_worktree_metadata(", contract)
         self.assertIn("_restore_repository_git_metadata(", contract)
         self.assertLess(

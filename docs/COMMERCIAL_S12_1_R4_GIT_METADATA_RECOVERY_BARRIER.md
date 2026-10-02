@@ -72,7 +72,12 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    and drains the event queue once more. Shutdown repeats that validation while
    all inotify watches remain active, removes every watch, and requires the
    ordered `IN_IGNORED` event for every watch without any intervening mutation.
-   The final released-state validation therefore runs entirely under active
+   Before any ownership release, the shared repository parent is hardened to
+   `root:root 0500`, so a new owner process cannot reach a guarded path. The
+   final validation also rejects every exact guarded cwd/fd/map retained by
+   that inode's restored owner. Repository roots themselves are part of the
+   extended-attribute fingerprint. The final released-state validation
+   therefore runs entirely under active
    attribute watches, and a retained read descriptor's `fchmod`/`fsetxattr` in
    the former drain-to-close gap is rejected while the ordered watch-removal
    barrier is consumed. Fanotify remains active until that barrier completes.
@@ -84,7 +89,8 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    xattrs; the Git fingerprint otherwise
    binds nested modes, names, inode identities, sizes, mtimes and file bytes.
    Flush repository filesystems throughout; the synchronized watch-removal
-   barrier is the transaction's explicit writer-release point.
+   barrier completes while paths remain unreachable to their owners; restoring
+   the single shared parent is the transaction's explicit writer-release point.
    Fanotify classifies only native open forms whose access flags are present in
    immutable syscall arguments; `openat2` remains fail-closed because its
    already-consumed `open_how` userspace structure can change while the caller
@@ -129,6 +135,7 @@ subsequent validation or Git transition.
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |
 | external chmod/fchmod during release or guard shutdown | final post-inotify contract/fingerprint mismatch or event; RED |
 | external setxattr/fsetxattr during lock or release | root transition or guarded-path xattr fingerprint mismatch/event; RED |
+| owner-held guarded cwd/fd/map at final release | RED before watch shutdown |
 | tracked file with `security.capability` | rejected before ownership transition; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
