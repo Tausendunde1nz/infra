@@ -1,0 +1,68 @@
+# S12.1-R4 pristine orphan recovery diagnosis — 2026-10-02
+
+## Observed state
+
+- The canonical r4 `recover` operation stopped before a deployment attempt,
+  backup or repository synchronization began.
+- The private barrier journal is schema V1 and contains no tracked-worktree
+  barrier payload.
+- Both canonical `.git` directories are intact; neither
+  `.git.s12-1-recovery` exists.
+- Repository and parent owner/group/mode fields still match the V1 journal.
+- Application and Control are clean. No competing Control sync, Git process,
+  Git-metadata handle, tracked-file writer or exact parent-directory handle was
+  present.
+- Public WMS and the S11-independent health posture remained GREEN.
+
+## Deterministic failure
+
+The first real upgrade check rejects the repository parent with
+`S12_1_REPOSITORY_PARENT_RED`: the parent and Application root carry both
+`system.posix_acl_access` and `system.posix_acl_default`, while the legacy V1
+upgrade intentionally permits only a safely structured access ACL. If that
+condition were bypassed, a new worktree-barrier capture would independently
+reject 30 clean Control paths whose recorded mode is owner-only, beginning
+with `.gitignore`, as `S12_1_RECOVERY_WORKTREE_BARRIER_RED`.
+
+The privacy-safe diagnostic evidence is bound by SHA-256:
+
+- legacy gate reconstruction: `05345cf7534f7ed80669a6d0972063b497940a7290f7576b1208ae1815e1d845`
+- path-class decomposition: `05c45932660de53108415480f8be352ffc3df5fbe3f61596fcffe2b64866cec2`
+
+## Classification and correction
+
+Classification: `C — R4 source/orchestration defect`.
+
+The defect is not that the legacy ACL or owner-only modes should be weakened.
+It is that recovery tries to create and install a new full barrier before it
+can release a proven pre-mutation V1 journal. The correction adds a narrow
+read-only recognition path for that exact pristine state. It validates journal
+shape, current metadata, canonical Git layout, indexes, clean identities and
+all relevant writer/handle exclusions around filesystem synchronization. All
+classifier Git reads use the isolated recovery Git environment with optional
+locking, hooks, fsmonitor, maintenance, credentials and network protocols
+disabled. Before the final validation, the controller installs continuous Git
+metadata and repository-parent/tracked-worktree mutation guards; the latter
+also denies external write opens. Both guards remain live through the durable
+journal unlink while a root-private hard-link backup retains the exact journal.
+The backup is removed only after both ordered inotify shutdown barriers finish;
+an interruption or finalization failure is normalized back to the canonical
+journal path on the next canonical recovery.
+A root-private completion tombstone binding the retained journal digest is
+written durably before the final backup unlink and remains as evidence. A final
+unlink/fsync failure is therefore distinguishable and safely retryable even
+when the backup directory entry itself has already disappeared.
+Before either guard baseline is accepted, every unbound V1 xattr surface is
+validated: parent, repository roots and tracked barrier paths permit only base
+POSIX access/default ACL entries without named principals; every other xattr
+fails closed.
+The initial V1 shape check is filesystem-only. Repository-local Git contracts,
+canonical indexes and identity/status commands are evaluated only after both
+continuous guards are installed, so clean/smudge filters, executable hooks and
+other local execution surfaces cannot participate in an unguarded classifier.
+The controller releases only the journal. No repository xattr, ACL, mode,
+ownership, Git metadata or tracked content is changed.
+
+All non-pristine and post-mutation states retain the existing full barrier
+recovery unchanged. Yoti remains Sandbox-only and all production/adult/payment
+gates remain closed.

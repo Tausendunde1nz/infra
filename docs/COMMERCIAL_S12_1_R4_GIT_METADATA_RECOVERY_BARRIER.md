@@ -226,6 +226,45 @@ ownership/modes; verifies repositories; fsyncs the relevant filesystems; and
 only then durably removes the journal. Barrier-only recovery does not consume
 the fresh runtime deployment attempt.
 
+### Pristine V1 orphan release
+
+The r5 continuation handles the narrower state in which a V1 journal was
+durably written but the repository transition never began. The direct release
+is allowed only when there is no deployment-attempt marker, no fetch stage, no
+worktree-barrier payload, both canonical `.git` directories are installed,
+neither recovery directory is present, and the repository-parent and both
+repository roots still match the six recorded owner/group/mode fields. Both
+indexes and clean identities are validated through the isolated recovery Git
+environment with optional locking, hooks, fsmonitor, maintenance, credentials
+and network protocols disabled. Control sync, Git processes, Git-metadata
+handles, tracked-file writers and exact parent-directory handles must be absent.
+Before the final validation, continuous Git-metadata and
+repository-parent/tracked-worktree mutation guards are installed; the latter
+also denies external write opens. Both remain live through the durable journal
+unlink while a root-private hard-link backup retains the exact journal. The
+backup is durably removed only after both ordered inotify shutdown barriers
+finish; an interrupted or failed finalization is normalized back to the
+canonical journal path by the next canonical recovery.
+A root-private completion tombstone binds the retained journal digest before
+the final backup unlink and remains as evidence. This keeps a failed final
+unlink/fsync distinguishable and safely retryable even if that directory entry
+has already disappeared.
+Before a V1 state can enter that guarded interval, the parent, repository roots
+and every tracked barrier path are checked for unbound xattrs. Only base POSIX
+access/default ACL entries without named principals are accepted; every other
+xattr fails closed.
+The initial V1 shape check is filesystem-only. Repository-local Git contracts,
+canonical indexes and identity/status commands run only after both continuous
+guards are installed; clean/smudge filters, executable hooks and other local
+execution surfaces therefore cannot participate in an unguarded classifier.
+
+This path performs no repository permission or ownership transition. It
+therefore neither upgrades unbound legacy ACL/xattr state nor constructs a new
+tracked-path barrier merely to release a pre-mutation journal. Every V2/V3
+journal, any installed/partial recovery exchange, any fetch stage, any attempt
+marker and every metadata mismatch continues through the existing full
+fail-closed barrier recovery.
+
 ## Product boundary
 
 R4 changes repository recovery only. Yoti remains Sandbox-only; no real

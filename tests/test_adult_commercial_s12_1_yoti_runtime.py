@@ -590,6 +590,24 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ],
                 check=True,
             )
+            subprocess.run(
+                [
+                    "git", "--git-dir", str(repository), "config",
+                    "filter.evil.clean", "/bin/false",
+                ],
+                check=True,
+            )
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_ROOT_GIT_CONFIG_RED"
+            ):
+                runtime._validate_root_git_contract(repository)
+            subprocess.run(
+                [
+                    "git", "--git-dir", str(repository), "config",
+                    "--unset-all", "filter.evil.clean",
+                ],
+                check=True,
+            )
             hook = repository / "hooks" / "pre-commit"
             hook.write_text("#!/bin/sh\nexit 1\n", encoding="ascii")
             with self.assertRaisesRegex(
@@ -3828,6 +3846,55 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             runtime._GitMetadataTransitionGuard((Path("/metadata"),))
         self.assertEqual(fingerprint.call_count, 2)
 
+    def test_transition_guard_finalizer_uses_ordered_watch_shutdown(self) -> None:
+        guard = object.__new__(runtime._GitMetadataTransitionGuard)
+        guard.descriptor = 123
+        observed: list[str] = []
+
+        with (
+            mock.patch.object(
+                guard,
+                "assert_unchanged",
+                side_effect=lambda: observed.append("validate"),
+            ),
+            mock.patch.object(
+                guard,
+                "_synchronized_inotify_shutdown",
+                side_effect=lambda: observed.append("shutdown-watches"),
+            ),
+        ):
+            guard.finalize_release()
+
+        self.assertEqual(observed, ["validate", "shutdown-watches"])
+
+    def test_transition_guard_shutdown_requires_every_ignored_barrier(self) -> None:
+        guard = object.__new__(runtime._GitMetadataTransitionGuard)
+        guard.descriptor = 123
+        guard.watches = {7, 9}
+        guard.root_watches = {7}
+        remove = mock.MagicMock(return_value=0)
+        library = SimpleNamespace(inotify_rm_watch=remove)
+        payload = b"".join(
+            guard._EVENT.pack(watch, guard._IN_IGNORED, 0, 0)
+            for watch in (7, 9)
+        )
+
+        with (
+            mock.patch.object(runtime.ctypes, "CDLL", return_value=library),
+            mock.patch.object(runtime.os, "read", return_value=payload),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard._synchronized_inotify_shutdown()
+
+        self.assertEqual(
+            [call.args for call in remove.call_args_list],
+            [(123, 7), (123, 9)],
+        )
+        close.assert_called_once_with(123)
+        self.assertIsNone(guard.descriptor)
+        self.assertEqual(guard.watches, set())
+        self.assertEqual(guard.root_watches, set())
+
     def test_transition_fingerprint_binds_root_xattrs_not_lock_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / ".git"
@@ -3972,6 +4039,116 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ),
             ):
                 runtime._assert_legacy_repository_parent_xattrs_safe()
+
+    def test_legacy_directory_xattrs_allow_only_base_access_and_default_acl(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=[
+                        "system.posix_acl_access",
+                        "system.posix_acl_default",
+                    ],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
+
+            named_acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o7, 1000),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=named_acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TEST_RED"
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
+
+            regular = path / "tracked.txt"
+            regular.write_text("tracked", encoding="utf-8")
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_default"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TEST_RED"
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    regular, "S12_1_TEST_RED"
+                )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["user.unbound"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=b"",
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TEST_RED"
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
 
     def test_release_finalizer_rechecks_quiescence_after_watch_shutdown(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
@@ -5407,6 +5584,613 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             rollback.assert_called_once_with(backup, {}, None)
             self.assertEqual(result["safe_code"], "S12_1_INTERRUPTED_DEPLOYMENT_RECOVERED")
             self.assertNotIn("deployment_count", result)
+
+    def test_pristine_legacy_orphan_recovery_skips_new_barrier_transition(
+        self,
+    ) -> None:
+        records = {
+            runtime.APPLICATION_ROOT: {},
+            runtime.CONTROL_ROOT: {},
+        }
+        parent_record: dict[str, object] = {}
+        metadata_guard = mock.Mock(unsafe=True)
+        worktree_guard = mock.Mock(unsafe=True)
+        with (
+            mock.patch.object(
+                runtime,
+                "_load_barrier_journal",
+                return_value=(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ),
+            mock.patch.object(
+                runtime,
+                "_pristine_legacy_orphan_is_releasable",
+                side_effect=(True, True, True),
+            ) as releasable,
+            mock.patch.object(
+                runtime,
+                "_repository_git_metadata_paths",
+                return_value=(Path("/application/.git"), Path("/control/.git")),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(),
+            ),
+            mock.patch.object(
+                runtime,
+                "_GitMetadataTransitionGuard",
+                return_value=metadata_guard,
+            ) as metadata_guard_type,
+            mock.patch.object(
+                runtime,
+                "_WorktreeReleaseGuard",
+                return_value=worktree_guard,
+            ) as worktree_guard_type,
+            mock.patch.object(
+                runtime, "_sync_repository_filesystem"
+            ) as sync,
+            mock.patch.object(
+                runtime, "_prepare_barrier_release_backup"
+            ) as prepare_release_backup,
+            mock.patch.object(
+                runtime, "_write_barrier_release_completion"
+            ) as write_release_completion,
+            mock.patch.object(runtime, "_durable_unlink") as unlink,
+            mock.patch.object(runtime, "_ensure_barrier_journal") as ensure,
+            mock.patch.object(
+                runtime, "_serialized_repository_recovery"
+            ) as barrier,
+        ):
+            result = runtime._recover_repository_barrier_only()
+
+        self.assertEqual(
+            releasable.call_args_list,
+            [
+                mock.call(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                    guarded_git_checks=False,
+                ),
+                mock.call(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+                mock.call(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ],
+        )
+        metadata_guard_type.assert_called_once_with(
+            (Path("/application/.git"), Path("/control/.git")),
+            allow_root_lock_events=False,
+        )
+        worktree_guard_type.assert_called_once_with(
+            (
+                runtime.DEPLOYMENT_LOCK_ROOT,
+                runtime.APPLICATION_ROOT,
+                runtime.CONTROL_ROOT,
+            ),
+            tracked_paths=(),
+        )
+        self.assertEqual(
+            sync.call_args_list,
+            [
+                mock.call(runtime.APPLICATION_ROOT),
+                mock.call(runtime.CONTROL_ROOT),
+            ],
+        )
+        prepare_release_backup.assert_called_once_with()
+        write_release_completion.assert_called_once_with()
+        self.assertEqual(
+            unlink.call_args_list,
+            [
+                mock.call(runtime.BARRIER_MARKER),
+                mock.call(runtime.BARRIER_RELEASE_BACKUP),
+            ],
+        )
+        worktree_guard.finalize_release.assert_called_once_with(
+            metadata_guard.assert_unchanged,
+            metadata_guard.assert_unchanged,
+        )
+        metadata_guard.finalize_release.assert_called_once_with()
+        ensure.assert_not_called()
+        barrier.assert_not_called()
+        self.assertEqual(result["safe_code"], "S12_1_ORPHAN_BARRIER_RECOVERED")
+        self.assertEqual(result["rollback_count"], 0)
+
+    def test_pristine_legacy_orphan_retains_backup_when_guard_finalization_fails(
+        self,
+    ) -> None:
+        metadata_guard = mock.Mock(unsafe=True)
+        worktree_guard = mock.Mock(unsafe=True)
+        worktree_guard.finalize_release.side_effect = runtime.S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+        )
+        with (
+            mock.patch.object(
+                runtime,
+                "_load_barrier_journal",
+                return_value=(
+                    {
+                        runtime.APPLICATION_ROOT: {},
+                        runtime.CONTROL_ROOT: {},
+                    },
+                    {},
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ),
+            mock.patch.object(
+                runtime,
+                "_pristine_legacy_orphan_is_releasable",
+                side_effect=(True, True, True),
+            ),
+            mock.patch.object(
+                runtime,
+                "_repository_git_metadata_paths",
+                return_value=(Path("/application/.git"), Path("/control/.git")),
+            ),
+            mock.patch.object(
+                runtime, "_tracked_worktree_barrier_paths", return_value=()
+            ),
+            mock.patch.object(
+                runtime,
+                "_GitMetadataTransitionGuard",
+                return_value=metadata_guard,
+            ),
+            mock.patch.object(
+                runtime,
+                "_WorktreeReleaseGuard",
+                return_value=worktree_guard,
+            ),
+            mock.patch.object(runtime, "_sync_repository_filesystem"),
+            mock.patch.object(runtime, "_prepare_barrier_release_backup") as prepare,
+            mock.patch.object(runtime, "_durable_unlink") as unlink,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            runtime._recover_repository_barrier_only()
+
+        prepare.assert_called_once_with()
+        unlink.assert_called_once_with(runtime.BARRIER_MARKER)
+        metadata_guard.finalize_release.assert_not_called()
+
+    def test_barrier_release_backup_restores_interrupted_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            marker = state / "repository-barrier.json"
+            backup = state / "repository-barrier.release-backup.json"
+            marker.write_text("{}\n", encoding="ascii")
+            marker.chmod(0o600)
+            with (
+                mock.patch.object(runtime, "STATE_ROOT", state),
+                mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(runtime, "BARRIER_RELEASE_BACKUP", backup),
+            ):
+                runtime._prepare_barrier_release_backup()
+                self.assertEqual(marker.stat().st_ino, backup.stat().st_ino)
+                self.assertEqual(marker.stat().st_nlink, 2)
+                runtime._durable_unlink(marker)
+                runtime._normalize_barrier_release_backup()
+
+            self.assertTrue(marker.is_file())
+            self.assertFalse(backup.exists())
+            self.assertEqual(marker.stat().st_nlink, 1)
+
+    def test_completed_barrier_release_is_retryable_without_journal_link(
+        self,
+    ) -> None:
+        completion = {
+            "schema": runtime.BARRIER_RELEASE_COMPLETION_SCHEMA,
+            "completed_at": "2026-10-02T00:00:00Z",
+            "journal_sha256": "a" * 64,
+        }
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(runtime, "_normalize_barrier_release_backup"),
+            mock.patch.object(runtime, "_barrier_journal_present", return_value=False),
+            mock.patch.object(runtime, "_barrier_release_completion", return_value=completion),
+            mock.patch.object(runtime, "ATTEMPT_MARKER", Path("/missing-attempt")),
+            mock.patch.object(runtime, "_atomic_json") as atomic_json,
+        ):
+            result = runtime._recover_locked()
+
+        self.assertEqual(result["safe_code"], "S12_1_ORPHAN_BARRIER_RECOVERED")
+        self.assertEqual(result["rollback_count"], 0)
+        atomic_json.assert_called_once_with(
+            runtime.STATE_ROOT / "recovery-result.json", result
+        )
+
+    def test_completed_barrier_release_keeps_backup_until_completion_fsync(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            marker = state / "repository-barrier.json"
+            backup = state / "repository-barrier.release-backup.json"
+            completion_path = state / "repository-barrier.release-complete.json"
+            backup.write_text("{}\n", encoding="ascii")
+            backup.chmod(0o600)
+            completion = {
+                "schema": runtime.BARRIER_RELEASE_COMPLETION_SCHEMA,
+                "completed_at": "2026-10-02T00:00:00Z",
+                "journal_sha256": runtime._sha256(backup),
+            }
+            with (
+                mock.patch.object(runtime, "STATE_ROOT", state),
+                mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(runtime, "BARRIER_RELEASE_BACKUP", backup),
+                mock.patch.object(
+                    runtime, "BARRIER_RELEASE_COMPLETION", completion_path
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_barrier_release_completion",
+                    return_value=completion,
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_fsync_directory",
+                    side_effect=runtime.S12ControlError("S12_1_DURABILITY_RED"),
+                ),
+                mock.patch.object(runtime, "_durable_unlink") as unlink,
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_DURABILITY_RED"
+                ),
+            ):
+                runtime._normalize_barrier_release_backup()
+
+            unlink.assert_not_called()
+            self.assertTrue(backup.is_file())
+
+    def test_pristine_legacy_orphan_rechecks_before_journal_release(self) -> None:
+        metadata_guard = mock.Mock(unsafe=True)
+        worktree_guard = mock.Mock(unsafe=True)
+        with (
+            mock.patch.object(
+                runtime,
+                "_load_barrier_journal",
+                return_value=(
+                    {
+                        runtime.APPLICATION_ROOT: {},
+                        runtime.CONTROL_ROOT: {},
+                    },
+                    {},
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ),
+            mock.patch.object(
+                runtime,
+                "_pristine_legacy_orphan_is_releasable",
+                side_effect=(True, True, False),
+            ),
+            mock.patch.object(
+                runtime,
+                "_repository_git_metadata_paths",
+                return_value=(Path("/application/.git"), Path("/control/.git")),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(),
+            ),
+            mock.patch.object(
+                runtime,
+                "_GitMetadataTransitionGuard",
+                return_value=metadata_guard,
+            ),
+            mock.patch.object(
+                runtime,
+                "_WorktreeReleaseGuard",
+                return_value=worktree_guard,
+            ),
+            mock.patch.object(runtime, "_sync_repository_filesystem"),
+            mock.patch.object(runtime, "_durable_unlink") as unlink,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_GIT_BARRIER_RED",
+            ),
+        ):
+            runtime._recover_repository_barrier_only()
+
+        unlink.assert_not_called()
+
+    def test_pristine_legacy_orphan_rejects_nonpristine_marker_shapes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            absent_attempt = root / "attempt.json"
+            absent_fetch = root / "fetch"
+            with (
+                mock.patch.object(runtime, "ATTEMPT_MARKER", absent_attempt),
+                mock.patch.object(runtime, "FETCH_ROOT", absent_fetch),
+            ):
+                self.assertFalse(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        {}, {}, {}, runtime.LEGACY_BARRIER_SCHEMA
+                    )
+                )
+                self.assertFalse(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        {}, {}, None, runtime.BARRIER_SCHEMA
+                    )
+                )
+                absent_attempt.write_text("{}\n", encoding="ascii")
+                self.assertFalse(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        {}, {}, None, runtime.LEGACY_BARRIER_SCHEMA
+                    )
+                )
+
+    def test_pristine_legacy_orphan_accepts_clean_owner_only_worktrees(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            application = parent / "application"
+            control = parent / "control"
+            for repository in (application, control):
+                subprocess.run(
+                    ["git", "init", "-b", "main", str(repository)],
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.name", "S12 Test"],
+                    cwd=repository,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.email", "s12@example.invalid"],
+                    cwd=repository,
+                    check=True,
+                )
+                tracked = repository / "tracked.txt"
+                tracked.write_text("reviewed\n", encoding="ascii")
+                subprocess.run(
+                    ["git", "add", "tracked.txt"],
+                    cwd=repository,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", "reviewed"],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                )
+                tracked.chmod(0o600)
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime, "ATTEMPT_MARKER", parent / "attempt.json"
+                ),
+                mock.patch.object(runtime, "FETCH_ROOT", parent / "fetch"),
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_active_recovery_git_handle_count",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    runtime, "_active_exact_directory_handle_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_assert_legacy_repository_parent_xattrs_safe"
+                ) as parent_xattrs,
+                mock.patch.object(
+                    runtime, "_assert_legacy_path_xattrs_safe"
+                ) as path_xattrs,
+                mock.patch.object(
+                    runtime, "_validate_root_git_contract"
+                ) as root_git_contract,
+            ):
+                records = {
+                    application: runtime._repository_path_metadata(application),
+                    control: runtime._repository_path_metadata(control),
+                }
+                parent_record = runtime._repository_parent_metadata()
+                self.assertTrue(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        records,
+                        parent_record,
+                        None,
+                        runtime.LEGACY_BARRIER_SCHEMA,
+                    )
+                )
+                parent_xattrs.assert_called_once_with()
+                self.assertEqual(
+                    path_xattrs.call_args_list,
+                    [
+                        mock.call(
+                            application,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
+                        mock.call(
+                            application / "tracked.txt",
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        ),
+                        mock.call(
+                            control,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
+                        mock.call(
+                            control / "tracked.txt",
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        ),
+                    ],
+                )
+                self.assertEqual(
+                    root_git_contract.call_args_list,
+                    [
+                        mock.call(application / ".git"),
+                        mock.call(control / ".git"),
+                    ],
+                )
+                parent_xattrs.reset_mock()
+                path_xattrs.reset_mock()
+                root_git_contract.reset_mock()
+                with (
+                    mock.patch.object(
+                        runtime,
+                        "_tracked_worktree_barrier_paths",
+                        side_effect=AssertionError("unguarded Git path lookup"),
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_validate_canonical_index",
+                        side_effect=AssertionError("unguarded index check"),
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_selected_identity",
+                        side_effect=AssertionError("unguarded identity check"),
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_tracked_worktree_regular_paths",
+                        side_effect=AssertionError("unguarded tracked scan"),
+                    ),
+                ):
+                    self.assertTrue(
+                        runtime._pristine_legacy_orphan_is_releasable(
+                            records,
+                            parent_record,
+                            None,
+                            runtime.LEGACY_BARRIER_SCHEMA,
+                            guarded_git_checks=False,
+                        )
+                    )
+                root_git_contract.assert_not_called()
+                self.assertEqual(
+                    path_xattrs.call_args_list,
+                    [
+                        mock.call(
+                            application,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
+                        mock.call(
+                            control,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
+                    ],
+                )
+
+    def test_pristine_legacy_checks_use_isolated_git_configuration(self) -> None:
+        repository = Path("/repository")
+        git_directory = repository / ".git"
+        completed = (
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "a" * 40 + "\n", ""),
+            subprocess.CompletedProcess([], 0, "b" * 40 + "\n", ""),
+        )
+        with mock.patch.object(
+            runtime, "_run", side_effect=completed
+        ) as run:
+            identity = runtime._selected_identity(repository, git_directory)
+        self.assertEqual(identity, ("a" * 40, "b" * 40))
+        self.assertEqual(run.call_count, 3)
+        for call in run.call_args_list:
+            arguments = call.args[0]
+            self.assertEqual(arguments[:3], ["/usr/bin/env", "-i", "HOME=/"])
+            self.assertIn("GIT_CONFIG_NOSYSTEM=1", arguments)
+            self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", arguments)
+            self.assertIn("GIT_OPTIONAL_LOCKS=0", arguments)
+            self.assertIn("core.hooksPath=/dev/null", arguments)
+            self.assertIn("core.fsmonitor=false", arguments)
+            self.assertIn(f"--git-dir={git_directory}", arguments)
+
+        with mock.patch.object(
+            runtime,
+            "_bounded_nul_command_records",
+            return_value=(b"H tracked.txt",),
+        ) as bounded:
+            runtime._validate_canonical_index(repository, git_directory)
+        arguments = bounded.call_args.args[0]
+        self.assertEqual(arguments[:3], ["/usr/bin/env", "-i", "HOME=/"])
+        self.assertIn("GIT_CONFIG_NOSYSTEM=1", arguments)
+        self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", arguments)
+        self.assertIn("GIT_OPTIONAL_LOCKS=0", arguments)
+        self.assertIn("core.hooksPath=/dev/null", arguments)
+        self.assertIn("core.fsmonitor=false", arguments)
+        self.assertIn(f"--git-dir={git_directory}", arguments)
+
+    def test_isolated_pristine_identity_never_executes_local_fsmonitor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=S12 Test",
+                    "-c",
+                    "user.email=s12@example.invalid",
+                    "commit",
+                    "-m",
+                    "reviewed",
+                ],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            marker = Path(directory) / "fsmonitor-executed"
+            hook = Path(directory) / "fsmonitor-hook"
+            hook.write_text(
+                f"#!/bin/sh\n/usr/bin/touch {marker}\nexit 97\n",
+                encoding="ascii",
+            )
+            hook.chmod(0o700)
+            subprocess.run(
+                ["git", "config", "core.fsmonitor", str(hook)],
+                cwd=repository,
+                check=True,
+            )
+
+            runtime._validate_canonical_index(repository, repository / ".git")
+            commit, tree = runtime._selected_identity(
+                repository, repository / ".git"
+            )
+
+            self.assertRegex(commit, r"^[0-9a-f]{40}$")
+            self.assertRegex(tree, r"^[0-9a-f]{40}$")
+            self.assertFalse(marker.exists())
 
     def test_completed_rollback_recovery_removes_lingering_barrier_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

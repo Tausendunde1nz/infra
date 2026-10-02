@@ -35,12 +35,13 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r4"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r5"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
 XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
+BARRIER_RELEASE_COMPLETION_SCHEMA = "TU1NZ_S12_1_BARRIER_RELEASE_COMPLETE_V1"
 TRACKED_PATH_HASH_SCHEMA = b"TU1NZ_S12_1_TRACKED_PATH_HASHES_V1\0"
 ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
 ROLLBACK_PHASE_STARTED = "RESTORE_STARTED"
@@ -76,6 +77,8 @@ RELEASE_VENV_ROOT = RELEASE_ROOT / "venv"
 RELEASE_ENVIRONMENT = RELEASE_ROOT / "runtime-environment.json"
 ATTEMPT_MARKER = STATE_ROOT / "deployment-attempted.json"
 BARRIER_MARKER = STATE_ROOT / "repository-barrier.json"
+BARRIER_RELEASE_BACKUP = STATE_ROOT / "repository-barrier.release-backup.json"
+BARRIER_RELEASE_COMPLETION = STATE_ROOT / "repository-barrier.release-complete.json"
 FETCH_ROOT = DEPLOYMENT_LOCK_ROOT / ".s12-1-fetch"
 RELEASE_INPUT_ROOT = Path("/opt/tu1nz_repos/backups/s12-1-input")
 APPLICATION_INPUT_BUNDLE = RELEASE_INPUT_ROOT / "application.bundle"
@@ -366,6 +369,147 @@ def _durable_unlink(path: Path) -> None:
     except OSError:
         raise S12ControlError("S12_1_DURABILITY_RED") from None
     _fsync_directory(path.parent)
+
+
+def _barrier_path_present(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _barrier_journal_present() -> bool:
+    return _barrier_path_present(BARRIER_MARKER) or _barrier_path_present(
+        BARRIER_RELEASE_BACKUP
+    )
+
+
+def _assert_barrier_release_file(path: Path, *, links: int) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+        expected_uid = 0 if os.geteuid() == 0 else os.geteuid()
+        expected_gid = 0 if os.geteuid() == 0 else os.getegid()
+        if (
+            path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != expected_uid
+            or metadata.st_gid != expected_gid
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != links
+            or not 1 <= metadata.st_size <= 131072
+        ):
+            raise OSError
+        return metadata
+    except OSError:
+        raise S12ControlError(
+            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+        ) from None
+
+
+def _barrier_release_completion() -> dict[str, Any] | None:
+    if not _barrier_path_present(BARRIER_RELEASE_COMPLETION):
+        return None
+    value = _private_json(
+        BARRIER_RELEASE_COMPLETION,
+        "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+    )
+    if (
+        set(value) != {"schema", "completed_at", "journal_sha256"}
+        or value.get("schema") != BARRIER_RELEASE_COMPLETION_SCHEMA
+        or not isinstance(value.get("completed_at"), str)
+        or not value["completed_at"]
+        or not isinstance(value.get("journal_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", value["journal_sha256"]) is None
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    return value
+
+
+def _write_barrier_release_completion() -> None:
+    _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=1)
+    _atomic_json(
+        BARRIER_RELEASE_COMPLETION,
+        {
+            "schema": BARRIER_RELEASE_COMPLETION_SCHEMA,
+            "completed_at": datetime.now(timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "journal_sha256": _sha256(BARRIER_RELEASE_BACKUP),
+        },
+    )
+    completion = _barrier_release_completion()
+    if (
+        completion is None
+        or completion["journal_sha256"] != _sha256(BARRIER_RELEASE_BACKUP)
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+
+
+def _normalize_barrier_release_backup() -> None:
+    """Restore the canonical journal after an interrupted guarded release."""
+
+    marker_present = _barrier_path_present(BARRIER_MARKER)
+    backup_present = _barrier_path_present(BARRIER_RELEASE_BACKUP)
+    if not backup_present:
+        return
+    if marker_present:
+        marker = _assert_barrier_release_file(BARRIER_MARKER, links=2)
+        backup = _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=2)
+        if (marker.st_dev, marker.st_ino) != (backup.st_dev, backup.st_ino):
+            raise S12ControlError(
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+            )
+        _durable_unlink(BARRIER_RELEASE_BACKUP)
+        _assert_barrier_release_file(BARRIER_MARKER, links=1)
+        return
+    completion = _barrier_release_completion()
+    if completion is not None:
+        _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=1)
+        if _sha256(BARRIER_RELEASE_BACKUP) != completion["journal_sha256"]:
+            raise S12ControlError(
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+            )
+        _fsync_directory(STATE_ROOT)
+        _durable_unlink(BARRIER_RELEASE_BACKUP)
+        return
+    _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=1)
+    try:
+        os.replace(BARRIER_RELEASE_BACKUP, BARRIER_MARKER)
+    except OSError:
+        raise S12ControlError("S12_1_DURABILITY_RED") from None
+    _fsync_directory(STATE_ROOT)
+    _assert_barrier_release_file(BARRIER_MARKER, links=1)
+
+
+def _prepare_barrier_release_backup() -> None:
+    """Retain one durable journal link until every guard has finalized."""
+
+    if _barrier_path_present(BARRIER_RELEASE_BACKUP):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    marker = _assert_barrier_release_file(BARRIER_MARKER, links=1)
+    try:
+        os.link(
+            BARRIER_MARKER,
+            BARRIER_RELEASE_BACKUP,
+            follow_symlinks=False,
+        )
+    except OSError:
+        raise S12ControlError("S12_1_DURABILITY_RED") from None
+    _fsync_directory(STATE_ROOT)
+    linked_marker = _assert_barrier_release_file(BARRIER_MARKER, links=2)
+    linked_backup = _assert_barrier_release_file(
+        BARRIER_RELEASE_BACKUP, links=2
+    )
+    if (
+        marker.st_dev,
+        marker.st_ino,
+        marker.st_size,
+    ) != (
+        linked_marker.st_dev,
+        linked_marker.st_ino,
+        linked_marker.st_size,
+    ) or (linked_marker.st_dev, linked_marker.st_ino) != (
+        linked_backup.st_dev,
+        linked_backup.st_ino,
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
 
 
 def _durable_symlink(target: str, path: Path) -> None:
@@ -3818,13 +3962,21 @@ class _GitMetadataTransitionGuard:
         | 0x00000800  # IN_MOVE_SELF
     )
     _IN_Q_OVERFLOW = 0x00004000
+    _IN_IGNORED = 0x00008000
     _IN_ISDIR = 0x40000000
     _ROOT_LOCK_EVENTS = 0x00000004 | 0x00000800  # ATTRIB | MOVE_SELF
 
-    def __init__(self, paths: Sequence[Path]):
+    def __init__(
+        self,
+        paths: Sequence[Path],
+        *,
+        allow_root_lock_events: bool = True,
+    ):
         self.paths = tuple(paths)
         self.descriptor: int | None = None
+        self.watches: set[int] = set()
         self.root_watches: set[int] = set()
+        self.allow_root_lock_events = allow_root_lock_events
         self.baseline = ""
         try:
             self.baseline = _git_metadata_transition_fingerprint(self.paths)
@@ -3852,6 +4004,7 @@ class _GitMetadataTransitionGuard:
                         )
                         if watch < 0:
                             raise OSError(ctypes.get_errno(), "inotify_add_watch")
+                        self.watches.add(watch)
                         if first:
                             self.root_watches.add(watch)
                             first = False
@@ -3886,7 +4039,7 @@ class _GitMetadataTransitionGuard:
             except OSError:
                 raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
             if not payload:
-                return sentinel_seen
+                return
             offset = 0
             while offset < len(payload):
                 if len(payload) - offset < self._EVENT.size:
@@ -3903,7 +4056,8 @@ class _GitMetadataTransitionGuard:
                 if normalized & self._IN_Q_OVERFLOW:
                     raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
                 if (
-                    watch in self.root_watches
+                    self.allow_root_lock_events
+                    and watch in self.root_watches
                     and not name
                     and normalized
                     and normalized & ~self._ROOT_LOCK_EVENTS == 0
@@ -3929,12 +4083,79 @@ class _GitMetadataTransitionGuard:
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         self._assert_event_queue_quiet()
 
+    def _synchronized_inotify_shutdown(self) -> None:
+        """Remove every metadata watch behind an IN_IGNORED queue barrier."""
+
+        if self.descriptor is None:
+            return
+        descriptor = self.descriptor
+        pending = set(self.watches)
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            remove = library.inotify_rm_watch
+            remove.argtypes = [ctypes.c_int, ctypes.c_int]
+            remove.restype = ctypes.c_int
+            for watch in sorted(pending):
+                if remove(descriptor, watch) < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_rm_watch")
+            deadline = time.monotonic() + 1.0
+            while pending:
+                try:
+                    payload = os.read(descriptor, 1024 * 1024)
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OSError("inotify shutdown timeout")
+                    readable, _, _ = select.select(
+                        (descriptor,), (), (), remaining
+                    )
+                    if not readable:
+                        raise OSError("inotify shutdown timeout")
+                    continue
+                if not payload:
+                    raise OSError("inotify shutdown EOF")
+                offset = 0
+                while offset < len(payload):
+                    if len(payload) - offset < self._EVENT.size:
+                        raise OSError("short inotify shutdown event")
+                    watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                        payload, offset
+                    )
+                    offset += self._EVENT.size
+                    if name_length > len(payload) - offset:
+                        raise OSError("invalid inotify shutdown event")
+                    name = payload[offset : offset + name_length].rstrip(b"\0")
+                    offset += name_length
+                    normalized = mask & ~self._IN_ISDIR
+                    if (
+                        watch in pending
+                        and not name
+                        and normalized == self._IN_IGNORED
+                    ):
+                        pending.remove(watch)
+                    elif normalized:
+                        raise OSError("mutation during inotify shutdown")
+            os.close(descriptor)
+        except (OSError, ValueError, AttributeError):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+        self.descriptor = None
+        self.watches.clear()
+        self.root_watches.clear()
+
+    def finalize_release(self) -> None:
+        """Cross an ordered watch barrier while a journal backup remains."""
+
+        self.assert_unchanged()
+        self._synchronized_inotify_shutdown()
+
     def close(self) -> None:
         if self.descriptor is not None:
             try:
                 os.close(self.descriptor)
             finally:
                 self.descriptor = None
+                self.watches.clear()
+                self.root_watches.clear()
 
 
 class _WorktreeReleaseGuard:
@@ -5280,12 +5501,15 @@ def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
             os.listxattr(path, follow_symlinks=False),
             key=os.fsencode,
         )
-        if any(name != "system.posix_acl_access" for name in names):
+        allowed_names = {"system.posix_acl_access"}
+        if stat.S_ISDIR(metadata.st_mode):
+            allowed_names.add("system.posix_acl_default")
+        if any(name not in allowed_names for name in names):
             raise OSError
-        if names:
+        for name in names:
             value = os.getxattr(
                 path,
-                "system.posix_acl_access",
+                name,
                 follow_symlinks=False,
             )
             acl_header = struct.Struct("<I")
@@ -5296,18 +5520,23 @@ def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
                 or (len(value) - acl_header.size) % acl_entry.size
             ):
                 raise OSError
-            tags = [
-                acl_entry.unpack_from(value, offset)[0]
+            entries = [
+                acl_entry.unpack_from(value, offset)
                 for offset in range(
                     acl_header.size, len(value), acl_entry.size
                 )
             ]
             if (
-                set(tags) - {0x01, 0x04, 0x10, 0x20}
-                or tags.count(0x01) != 1
-                or tags.count(0x04) != 1
-                or tags.count(0x20) != 1
-                or tags.count(0x10) > 1
+                any(
+                    tag not in {0x01, 0x04, 0x10, 0x20}
+                    or permissions & ~0o7
+                    or identifier != 0xFFFFFFFF
+                    for tag, permissions, identifier in entries
+                )
+                or sum(tag == 0x01 for tag, *_rest in entries) != 1
+                or sum(tag == 0x04 for tag, *_rest in entries) != 1
+                or sum(tag == 0x20 for tag, *_rest in entries) != 1
+                or sum(tag == 0x10 for tag, *_rest in entries) > 1
             ):
                 raise OSError
         _stable_xattr_payload(
@@ -5337,7 +5566,7 @@ def _metadata_barrier_mode(mode: int) -> int:
 def _write_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
 ) -> dict[Path, dict[Path, dict[str, Any]]]:
-    if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
+    if _barrier_journal_present():
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     if set(records) != {APPLICATION_ROOT, CONTROL_ROOT}:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
@@ -7695,6 +7924,85 @@ def _load_recovery_backup() -> tuple[Path, dict[str, Any], dict[str, Any]]:
     return backup, index, attempt
 
 
+def _pristine_legacy_orphan_is_releasable(
+    records: dict[Path, dict[str, Any]],
+    parent_record: dict[str, Any],
+    worktree_barrier: dict[Path, dict[Path, dict[str, Any]]] | None,
+    schema: str,
+    *,
+    guarded_git_checks: bool = True,
+) -> bool:
+    """Recognize a V1 journal left before any repository mutation began."""
+
+    roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    if (
+        schema != LEGACY_BARRIER_SCHEMA
+        or worktree_barrier is not None
+        or ATTEMPT_MARKER.exists()
+        or ATTEMPT_MARKER.is_symlink()
+        or FETCH_ROOT.exists()
+        or FETCH_ROOT.is_symlink()
+        or set(records) != set(roots)
+    ):
+        return False
+    metadata_paths = _repository_git_metadata_paths(roots)
+    if set(metadata_paths) != {root / ".git" for root in roots}:
+        return False
+    expected_parent = _recorded_parent_metadata(
+        parent_record, require_xattr=False
+    )
+    current_parent = _repository_parent_metadata()
+    if expected_parent != (
+        current_parent["uid"],
+        current_parent["gid"],
+        int(current_parent["mode"], 8),
+    ):
+        return False
+    _assert_legacy_repository_parent_xattrs_safe()
+    repository_fields = (
+        "root_uid", "root_gid", "root_mode",
+        "git_uid", "git_gid", "git_mode",
+    )
+    for root in roots:
+        current = _repository_path_metadata(root)
+        if any(
+            current[field] != records[root].get(field)
+            for field in repository_fields
+        ):
+            return False
+        _validate_repository_worktree_contract(root, records[root])
+        _assert_legacy_path_xattrs_safe(
+            root, "S12_1_RECOVERY_GIT_BARRIER_RED"
+        )
+        if guarded_git_checks:
+            for path in _tracked_worktree_barrier_paths(root):
+                _assert_legacy_path_xattrs_safe(
+                    path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+            _validate_root_git_contract(root / ".git")
+            _validate_canonical_index(root, root / ".git")
+    tracked_paths = (
+        _tracked_worktree_regular_paths(roots) if guarded_git_checks else ()
+    )
+
+    def assert_no_writer() -> None:
+        if (
+            _competing_control_sync_count() != 0
+            or _active_repository_git_count(roots) != 0
+            or _active_recovery_git_handle_count(metadata_paths) != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
+            or _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0
+        ):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+
+    assert_no_writer()
+    if guarded_git_checks:
+        for root in roots:
+            _selected_identity(root, root / ".git")
+    assert_no_writer()
+    return True
+
+
 def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
     result_path = STATE_ROOT / "deployment-result.json"
     if not result_path.exists():
@@ -7713,7 +8021,70 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
 
 
 def _recover_repository_barrier_only() -> dict[str, Any]:
-    records, parent_record, _, _schema = _load_barrier_journal()
+    _normalize_barrier_release_backup()
+    records, parent_record, existing_worktree_barrier, schema = (
+        _load_barrier_journal()
+    )
+    if _pristine_legacy_orphan_is_releasable(
+        records,
+        parent_record,
+        existing_worktree_barrier,
+        schema,
+        guarded_git_checks=False,
+    ):
+        roots = (APPLICATION_ROOT, CONTROL_ROOT)
+        metadata_guard: _GitMetadataTransitionGuard | None = None
+        worktree_guard: _WorktreeReleaseGuard | None = None
+        try:
+            metadata_guard = _GitMetadataTransitionGuard(
+                _repository_git_metadata_paths(roots),
+                allow_root_lock_events=False,
+            )
+            tracked_paths = tuple(
+                path
+                for root in roots
+                for path in _tracked_worktree_barrier_paths(root)
+            )
+            worktree_guard = _WorktreeReleaseGuard(
+                (DEPLOYMENT_LOCK_ROOT, *roots),
+                tracked_paths=tracked_paths,
+            )
+            if not _pristine_legacy_orphan_is_releasable(
+                records, parent_record, existing_worktree_barrier, schema
+            ):
+                raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+            metadata_guard.assert_unchanged()
+            worktree_guard.assert_no_events()
+            _sync_repository_filesystem(APPLICATION_ROOT)
+            _sync_repository_filesystem(CONTROL_ROOT)
+            if not _pristine_legacy_orphan_is_releasable(
+                records, parent_record, existing_worktree_barrier, schema
+            ):
+                raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+            metadata_guard.assert_unchanged()
+            worktree_guard.assert_no_events()
+            _prepare_barrier_release_backup()
+            _durable_unlink(BARRIER_MARKER)
+            metadata_guard.assert_unchanged()
+            worktree_guard.finalize_release(
+                metadata_guard.assert_unchanged,
+                metadata_guard.assert_unchanged,
+            )
+            worktree_guard = None
+            metadata_guard.finalize_release()
+            metadata_guard = None
+            _write_barrier_release_completion()
+            _durable_unlink(BARRIER_RELEASE_BACKUP)
+        finally:
+            if worktree_guard is not None:
+                worktree_guard.close()
+            if metadata_guard is not None:
+                metadata_guard.close()
+        return {
+            "ok": True,
+            "safe_code": "S12_1_ORPHAN_BARRIER_RECOVERED",
+            "rollback_count": 0,
+        }
     worktree_barrier = _ensure_barrier_journal(records, parent_record)
     with _serialized_repository_recovery(
         records=records,
@@ -7737,8 +8108,21 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
 def _recover_locked() -> dict[str, Any]:
     if os.geteuid() != 0:
         raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
-    barrier_present = BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink()
+    _normalize_barrier_release_backup()
+    barrier_present = _barrier_journal_present()
     attempt_present = ATTEMPT_MARKER.exists() or ATTEMPT_MARKER.is_symlink()
+    if (
+        not barrier_present
+        and not attempt_present
+        and _barrier_release_completion() is not None
+    ):
+        result = {
+            "ok": True,
+            "safe_code": "S12_1_ORPHAN_BARRIER_RECOVERED",
+            "rollback_count": 0,
+        }
+        _atomic_json(STATE_ROOT / "recovery-result.json", result)
+        return result
     if barrier_present and not attempt_present:
         result = _recover_repository_barrier_only()
         _atomic_json(STATE_ROOT / "recovery-result.json", result)
@@ -7751,7 +8135,7 @@ def _recover_locked() -> dict[str, Any]:
         marker = _private_json(completed, "S12_1_RECOVERY_RESULT_RED")
         if marker.get("safe_code") != "S12_1_ROLLBACK_GREEN" or marker.get("count") != 1:
             raise S12ControlError("S12_1_RECOVERY_RESULT_RED")
-        if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
+        if _barrier_journal_present():
             _recover_repository_barrier_only()
         safe_code = "S12_1_RECOVERY_ALREADY_COMPLETE"
     else:
@@ -7778,9 +8162,9 @@ def _deploy_locked() -> dict[str, Any]:
         or stat.S_IMODE(STATE_ROOT.stat().st_mode) != 0o700
     ):
         raise S12ControlError("S12_1_RUNTIME_STATE_RED")
-    if (
-        (BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink())
-        and not (ATTEMPT_MARKER.exists() or ATTEMPT_MARKER.is_symlink())
+    _normalize_barrier_release_backup()
+    if _barrier_journal_present() and not (
+        ATTEMPT_MARKER.exists() or ATTEMPT_MARKER.is_symlink()
     ):
         _recover_repository_barrier_only()
         raise S12ControlError("S12_1_ORPHAN_BARRIER_RECOVERED")
@@ -7982,7 +8366,7 @@ def _deploy_locked() -> dict[str, Any]:
             pass
         elif mutation_started and backup is not None and index is not None:
             rollback_once(backup, index, release_repository_state)
-        elif BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
+        elif _barrier_journal_present():
             _recover_repository_barrier_only()
         raise
 
