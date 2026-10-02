@@ -904,6 +904,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("_GuardedHandleQuiescence(", contract)
         self.assertIn("release_quiescence.acquire()", contract)
         self.assertIn("def validate_final_release()", contract)
+        self.assertIn("_PTRACE_SEIZE", source)
+        self.assertIn("_PTRACE_INTERRUPT", source)
+        self.assertIn("_PTRACE_DETACH", source)
+        self.assertNotIn("PTRACE_O_EXITKILL", source)
+        self.assertNotIn("pidfd_send_signal", source)
+        self.assertNotIn("SIGSTOP", source)
         self.assertLess(
             contract.index("_WorktreeReleaseGuard("),
             contract.index("_GuardedHandleQuiescence("),
@@ -3267,13 +3273,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         shutdown.assert_not_called()
         self.assertEqual(guard.descriptor, 123)
 
-    def test_guarded_handle_quiescence_uses_identity_pinned_pidfd(self) -> None:
+    def test_guarded_handle_quiescence_uses_crash_safe_ptrace_lifecycle(self) -> None:
         quiescence = runtime._GuardedHandleQuiescence(
             (Path("/guarded/file"),), (Path("/guarded"),)
         )
         running = {123: ("S", 456)}
-        stopped = {123: ("T", 456)}
-        pidfd_signal = mock.MagicMock()
+        stopped = {123: ("t", 456)}
+        ptrace = mock.MagicMock()
 
         with (
             mock.patch.object(runtime.os, "geteuid", return_value=0),
@@ -3285,38 +3291,38 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime,
                 "_process_state_and_start_time",
-                side_effect=(("S", 456), ("T", 456), ("T", 456)),
+                side_effect=(("S", 456), ("t", 456), ("t", 789)),
             ),
             mock.patch.object(
                 runtime.os, "pidfd_open", return_value=77, create=True
             ),
             mock.patch.object(
-                runtime.signal,
-                "pidfd_send_signal",
-                pidfd_signal,
-                create=True,
+                runtime,
+                "_process_threads",
+                return_value={123: 789},
             ),
-            mock.patch.object(
-                runtime._GuardedHandleQuiescence,
-                "_wait_stopped",
-                return_value=True,
-            ),
+            mock.patch.object(runtime, "_ptrace", ptrace),
+            mock.patch.object(runtime, "_wait_ptrace_stop", return_value=0),
             mock.patch.object(runtime.os, "close") as close,
         ):
             quiescence.acquire()
             quiescence.close()
 
         self.assertEqual(
-            [call.args[1] for call in pidfd_signal.call_args_list],
-            [runtime.signal.SIGSTOP, runtime.signal.SIGCONT],
+            [call.args for call in ptrace.call_args_list],
+            [
+                (runtime._PTRACE_SEIZE, 123),
+                (runtime._PTRACE_INTERRUPT, 123),
+                (runtime._PTRACE_DETACH, 123, 0),
+            ],
         )
         close.assert_called_once_with(77)
 
-    def test_guarded_handle_quiescence_resumes_after_stop_wait_failure(self) -> None:
+    def test_guarded_handle_quiescence_detaches_after_stop_wait_failure(self) -> None:
         quiescence = runtime._GuardedHandleQuiescence(
             (Path("/guarded/file"),), (Path("/guarded"),)
         )
-        pidfd_signal = mock.MagicMock()
+        ptrace = mock.MagicMock()
 
         with (
             mock.patch.object(runtime.os, "geteuid", return_value=0),
@@ -3328,22 +3334,25 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime,
                 "_process_state_and_start_time",
-                side_effect=(("S", 456), ("T", 456)),
+                return_value=("S", 456),
             ),
             mock.patch.object(
                 runtime.os, "pidfd_open", return_value=77, create=True
             ),
             mock.patch.object(
-                runtime.signal,
-                "pidfd_send_signal",
-                pidfd_signal,
-                create=True,
+                runtime,
+                "_process_threads",
+                return_value={123: 789},
             ),
+            mock.patch.object(runtime, "_ptrace", ptrace),
             mock.patch.object(
-                runtime._GuardedHandleQuiescence,
-                "_wait_stopped",
-                side_effect=runtime.S12ControlError(
-                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                runtime,
+                "_wait_ptrace_stop",
+                side_effect=(
+                    runtime.S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                    ),
+                    0,
                 ),
             ),
             mock.patch.object(runtime.os, "close") as close,
@@ -3356,8 +3365,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             quiescence.close()
 
         self.assertEqual(
-            [call.args[1] for call in pidfd_signal.call_args_list],
-            [runtime.signal.SIGSTOP, runtime.signal.SIGCONT],
+            [call.args for call in ptrace.call_args_list],
+            [
+                (runtime._PTRACE_SEIZE, 123),
+                (runtime._PTRACE_INTERRUPT, 123),
+                (runtime._PTRACE_INTERRUPT, 123),
+                (runtime._PTRACE_DETACH, 123, 0),
+            ],
         )
         close.assert_called_once_with(77)
 

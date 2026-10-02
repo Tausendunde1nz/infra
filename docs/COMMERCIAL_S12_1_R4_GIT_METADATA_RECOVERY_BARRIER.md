@@ -60,20 +60,23 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    states of that hardening transition are journal-recognized and resumable.
 13. Discover every non-controller process that retains an exact guarded inode
    or a directory handle/cwd inside either Worktree. Keep healthy read-only
-   handles valid, but briefly quiesce their owning processes with kernel
-   `SIGSTOP` through identity-pinned `pidfd`s for the final ownership handoff;
-   validate PID start times and the stopped state, and iterate the scan until
-   no inheriting child remains. This changes no unit state and causes no
-   restart. With both inotify and fanotify
+   handles valid, but briefly quiesce every thread of their owning processes
+   with `PTRACE_SEIZE` plus `PTRACE_INTERRUPT` for the final ownership
+   handoff. Linux automatically detaches and restarts ptrace-stopped tracees
+   if the controller dies, so no persistent service stop can be orphaned.
+   Validate process/thread start times and the ptrace-stop state, and iterate
+   the scan until no inheriting child or new thread remains. This changes no
+   unit state and causes no restart. With both inotify and fanotify
    still active, restore exact journaled ownership/modes, accept only the
    controller's attribute events, validate the released contracts and both
    fingerprints, and re-check repository identity and writer exclusion. Then
    remove every inotify watch and require the ordered `IN_IGNORED` barrier for
    every watch without any intervening mutation. Revalidate that every retained
-   handle owner is still the same stopped process before closing fanotify.
-   Finally resume only those exact PID/start-time identities and restore the
-   shared parent last. A failure first reseals the repository and only then
-   resumes those processes. Existing read-only service cwd/fd/maps are thus
+   handle owner is still the same ptrace-stopped process before closing
+   fanotify. Finally detach the exact seized threads and restore the shared
+   parent last. A handled failure first reseals the repository and only then
+   detaches those processes; controller death is kernel-cleaned. Existing
+   read-only service cwd/fd/maps are thus
    allowed without reopening an unobserved `fchmod`/relative-path race. The Git
    fingerprint
    intentionally ignores only ownership/ctime and the top `.git` mode changed

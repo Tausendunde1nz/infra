@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import fcntl
 import hashlib
 import json
@@ -18,7 +19,6 @@ import os
 import pwd
 import re
 import select
-import signal
 import shutil
 import stat
 import struct
@@ -4185,6 +4185,72 @@ def _process_state_and_start_time(process: Path) -> tuple[str, int]:
     return fields[0], int(fields[19])
 
 
+_PTRACE_DETACH = 17
+_PTRACE_SEIZE = 0x4206
+_PTRACE_INTERRUPT = 0x4207
+_PTRACE_EVENT_STOP = 128
+_WAIT_WALL = 0x40000000
+
+
+def _ptrace(request: int, thread_id: int, signal_number: int = 0) -> None:
+    library = ctypes.CDLL(None, use_errno=True)
+    operation = library.ptrace
+    operation.argtypes = (
+        ctypes.c_ulong,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    )
+    operation.restype = ctypes.c_long
+    ctypes.set_errno(0)
+    if (
+        operation(
+            request,
+            thread_id,
+            None,
+            ctypes.c_void_p(signal_number),
+        )
+        == -1
+    ):
+        error = ctypes.get_errno()
+        if error == errno.ESRCH:
+            raise ProcessLookupError(error, os.strerror(error))
+        raise OSError(error, os.strerror(error))
+
+
+def _wait_ptrace_stop(thread_id: int) -> int:
+    try:
+        waited, status = os.waitpid(thread_id, _WAIT_WALL)
+    except ChildProcessError:
+        raise ProcessLookupError(errno.ESRCH, os.strerror(errno.ESRCH)) from None
+    if waited != thread_id or not os.WIFSTOPPED(status):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+    event = status >> 16
+    if event == _PTRACE_EVENT_STOP:
+        return 0
+    if event == 0:
+        return os.WSTOPSIG(status)
+    raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+
+def _process_threads(pid: int) -> dict[int, int]:
+    task_root = Path("/proc") / str(pid) / "task"
+    try:
+        tasks = tuple(task_root.iterdir())
+    except FileNotFoundError:
+        return {}
+    threads: dict[int, int] = {}
+    for task in tasks:
+        if not task.name.isdigit():
+            continue
+        try:
+            _state, start_time = _process_state_and_start_time(task)
+        except FileNotFoundError:
+            continue
+        threads[int(task.name)] = start_time
+    return threads
+
+
 def _guarded_handle_processes(
     paths: Sequence[Path], roots: Sequence[Path]
 ) -> dict[int, tuple[str, int]]:
@@ -4251,30 +4317,13 @@ def _guarded_handle_processes(
 
 
 class _GuardedHandleQuiescence:
-    """Briefly stop retained Worktree-handle owners during final release."""
+    """Ptrace-stop retained handle owners with crash-safe kernel cleanup."""
 
     def __init__(self, paths: Sequence[Path], roots: Sequence[Path]):
         self.paths = tuple(paths)
         self.roots = tuple(roots)
-        self.stopped: dict[int, tuple[int, int]] = {}
-
-    @staticmethod
-    def _wait_stopped(pid: int, start_time: int) -> bool:
-        deadline = time.monotonic() + 1.0
-        process = Path("/proc") / str(pid)
-        while time.monotonic() < deadline:
-            try:
-                state, current_start = _process_state_and_start_time(process)
-            except FileNotFoundError:
-                return False
-            except (OSError, UnicodeError, ValueError):
-                break
-            if current_start != start_time:
-                break
-            if state in {"T", "t"}:
-                return True
-            time.sleep(0.01)
-        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        self.processes: dict[int, tuple[int, int]] = {}
+        self.threads: dict[int, tuple[int, int, int | None]] = {}
 
     def acquire(self) -> None:
         if os.geteuid() != 0:
@@ -4282,43 +4331,70 @@ class _GuardedHandleQuiescence:
         try:
             for _round in range(8):
                 holders = _guarded_handle_processes(self.paths, self.roots)
-                newcomers = sorted(set(holders) - set(self.stopped))
-                if not newcomers:
-                    self.assert_quiesced()
-                    return
-                for pid in newcomers:
+                added = False
+                for pid in sorted(holders):
                     state, start_time = holders[pid]
-                    if state in {"T", "t"}:
-                        raise OSError
-                    try:
-                        descriptor = os.pidfd_open(pid, 0)
-                    except ProcessLookupError:
-                        continue
-                    try:
-                        current_state, current_start = (
-                            _process_state_and_start_time(
-                                Path("/proc") / str(pid)
+                    process_record = self.processes.get(pid)
+                    if process_record is None:
+                        if state in {"T", "t"}:
+                            raise OSError
+                        try:
+                            descriptor = os.pidfd_open(pid, 0)
+                        except ProcessLookupError:
+                            continue
+                        try:
+                            current_state, current_start = (
+                                _process_state_and_start_time(
+                                    Path("/proc") / str(pid)
+                                )
                             )
-                        )
+                        except (OSError, UnicodeError, ValueError):
+                            os.close(descriptor)
+                            raise
                         if (
                             current_start != start_time
                             or current_state in {"T", "t"}
                         ):
-                            raise OSError
-                        signal.pidfd_send_signal(
-                            descriptor, signal.SIGSTOP, None, 0
-                        )
-                        self.stopped[pid] = (start_time, descriptor)
-                        descriptor = -1
-                        if not self._wait_stopped(pid, start_time):
-                            _start, stopped_descriptor = self.stopped.pop(pid)
-                            os.close(stopped_descriptor)
-                    except ProcessLookupError:
-                        pass
-                    finally:
-                        if descriptor >= 0:
                             os.close(descriptor)
-        except (OSError, AttributeError):
+                            raise OSError
+                        self.processes[pid] = (start_time, descriptor)
+                    elif process_record[0] != start_time:
+                        raise OSError
+                    for thread_id, thread_start in sorted(
+                        _process_threads(pid).items()
+                    ):
+                        existing = self.threads.get(thread_id)
+                        if existing is not None:
+                            if existing[:2] != (pid, thread_start):
+                                raise OSError
+                            continue
+                        try:
+                            # Zero options deliberately exclude EXITKILL:
+                            # tracer death auto-detaches and restarts tracees.
+                            _ptrace(_PTRACE_SEIZE, thread_id)
+                        except ProcessLookupError:
+                            continue
+                        self.threads[thread_id] = (
+                            pid,
+                            thread_start,
+                            None,
+                        )
+                        try:
+                            _ptrace(_PTRACE_INTERRUPT, thread_id)
+                            detach_signal = _wait_ptrace_stop(thread_id)
+                        except ProcessLookupError:
+                            del self.threads[thread_id]
+                            continue
+                        self.threads[thread_id] = (
+                            pid,
+                            thread_start,
+                            detach_signal,
+                        )
+                        added = True
+                if not added:
+                    self.assert_quiesced()
+                    return
+        except (OSError, AttributeError, UnicodeError, ValueError):
             raise S12ControlError(
                 "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
             ) from None
@@ -4327,51 +4403,79 @@ class _GuardedHandleQuiescence:
     def assert_quiesced(self) -> None:
         if os.geteuid() != 0:
             return
-        for pid, (start_time, descriptor) in tuple(self.stopped.items()):
+        for pid, (start_time, _descriptor) in tuple(self.processes.items()):
             try:
-                state, current_start = _process_state_and_start_time(
+                _state, current_start = _process_state_and_start_time(
                     Path("/proc") / str(pid)
                 )
             except FileNotFoundError:
-                os.close(descriptor)
-                del self.stopped[pid]
                 continue
             except (OSError, UnicodeError, ValueError):
                 raise S12ControlError(
                     "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
                 ) from None
-            if current_start != start_time or state not in {"T", "t"}:
+            if current_start != start_time:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        for thread_id, (
+            pid,
+            start_time,
+            detach_signal,
+        ) in tuple(self.threads.items()):
+            try:
+                state, current_start = _process_state_and_start_time(
+                    Path("/proc")
+                    / str(pid)
+                    / "task"
+                    / str(thread_id)
+                )
+            except FileNotFoundError:
+                del self.threads[thread_id]
+                continue
+            except (OSError, UnicodeError, ValueError):
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ) from None
+            if (
+                current_start != start_time
+                or detach_signal is None
+                or state not in {"T", "t"}
+            ):
                 raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
         holders = _guarded_handle_processes(self.paths, self.roots)
-        if set(holders) - set(self.stopped):
-            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        for pid, (_state, start_time) in holders.items():
+            process_record = self.processes.get(pid)
+            if process_record is None or process_record[0] != start_time:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                )
+            if set(_process_threads(pid)) - set(self.threads):
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                )
 
     def close(self) -> None:
         failed = False
-        for pid, (start_time, descriptor) in reversed(
-            tuple(self.stopped.items())
-        ):
+        for thread_id, (
+            _pid,
+            _start_time,
+            detach_signal,
+        ) in reversed(tuple(self.threads.items())):
             try:
-                _state, current_start = _process_state_and_start_time(
-                    Path("/proc") / str(pid)
-                )
-                if current_start != start_time:
-                    continue
-                signal.pidfd_send_signal(
-                    descriptor, signal.SIGCONT, None, 0
-                )
-            except FileNotFoundError:
-                continue
+                if detach_signal is None:
+                    _ptrace(_PTRACE_INTERRUPT, thread_id)
+                    detach_signal = _wait_ptrace_stop(thread_id)
+                _ptrace(_PTRACE_DETACH, thread_id, detach_signal)
             except ProcessLookupError:
                 continue
-            except (OSError, UnicodeError, ValueError, AttributeError):
+            except (OSError, AttributeError, S12ControlError):
                 failed = True
-            finally:
-                try:
-                    os.close(descriptor)
-                except OSError:
-                    failed = True
-        self.stopped.clear()
+        self.threads.clear()
+        for _pid, (_start_time, descriptor) in self.processes.items():
+            try:
+                os.close(descriptor)
+            except OSError:
+                failed = True
+        self.processes.clear()
         if failed:
             raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
 
