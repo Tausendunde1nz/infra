@@ -7874,7 +7874,8 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
                 for path in _tracked_worktree_barrier_paths(root)
             )
             worktree_guard = _WorktreeReleaseGuard(
-                roots, tracked_paths=tracked_paths
+                (DEPLOYMENT_LOCK_ROOT, *roots),
+                tracked_paths=tracked_paths,
             )
             if not _pristine_legacy_orphan_is_releasable(
                 records, parent_record, existing_worktree_barrier, schema

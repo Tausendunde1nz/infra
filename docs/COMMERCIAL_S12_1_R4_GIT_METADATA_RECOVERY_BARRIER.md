@@ -238,10 +238,10 @@ indexes and clean identities are validated through the isolated recovery Git
 environment with optional locking, hooks, fsmonitor, maintenance, credentials
 and network protocols disabled. Control sync, Git processes, Git-metadata
 handles, tracked-file writers and exact parent-directory handles must be absent.
-Before the final validation, continuous Git-metadata and tracked-worktree
-mutation guards are installed; the worktree guard also denies external write
-opens. Both remain live through the durable journal unlink and use ordered
-inotify shutdown barriers before recovery returns.
+Before the final validation, continuous Git-metadata and
+repository-parent/tracked-worktree mutation guards are installed; the latter
+also denies external write opens. Both remain live through the durable journal
+unlink and use ordered inotify shutdown barriers before recovery returns.
 
 This path performs no repository permission or ownership transition. It
 therefore neither upgrades unbound legacy ACL/xattr state nor constructs a new

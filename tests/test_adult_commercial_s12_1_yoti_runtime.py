@@ -5520,7 +5520,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             allow_root_lock_events=False,
         )
         worktree_guard_type.assert_called_once_with(
-            (runtime.APPLICATION_ROOT, runtime.CONTROL_ROOT),
+            (
+                runtime.DEPLOYMENT_LOCK_ROOT,
+                runtime.APPLICATION_ROOT,
+                runtime.CONTROL_ROOT,
+            ),
             tracked_paths=(),
         )
         self.assertEqual(

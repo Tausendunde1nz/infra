@@ -42,9 +42,9 @@ all relevant writer/handle exclusions around filesystem synchronization. All
 classifier Git reads use the isolated recovery Git environment with optional
 locking, hooks, fsmonitor, maintenance, credentials and network protocols
 disabled. Before the final validation, the controller installs continuous Git
-metadata and tracked-worktree mutation guards; the worktree guard also denies
-external write opens. Both guards remain live through the durable journal
-unlink and cross ordered inotify shutdown barriers before recovery returns.
+metadata and repository-parent/tracked-worktree mutation guards; the latter
+also denies external write opens. Both guards remain live through the durable
+journal unlink and cross ordered inotify shutdown barriers before recovery returns.
 The controller releases only the journal. No repository xattr, ACL, mode,
 ownership, Git metadata or tracked content is changed.
 
