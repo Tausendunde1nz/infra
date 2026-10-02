@@ -4317,7 +4317,7 @@ def _process_threads(pid: int) -> dict[int, int]:
 def _guarded_handle_processes(
     paths: Sequence[Path], roots: Sequence[Path]
 ) -> dict[int, tuple[str, int]]:
-    """Return non-controller processes able to reach guarded inodes."""
+    """Return every other process able to reach guarded inodes."""
 
     proc = Path("/proc")
     if not proc.is_dir():
@@ -4340,10 +4340,10 @@ def _guarded_handle_processes(
         raise S12ControlError(
             "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
         ) from None
-    excluded = _current_process_ancestry()
+    controller_pid = str(os.getpid())
     holders: dict[int, tuple[str, int]] = {}
     for process in proc.iterdir():
-        if not process.name.isdigit() or process.name in excluded:
+        if not process.name.isdigit() or process.name == controller_pid:
             continue
         try:
             links: list[Path] = [process / "cwd"]

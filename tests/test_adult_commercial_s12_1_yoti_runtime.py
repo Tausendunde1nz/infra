@@ -944,6 +944,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("fanotify_init", source)
         self.assertIn("_FAN_OPEN_PERM", source)
         self.assertIn("_FAN_DENY", source)
+        holders_start = source.index("def _guarded_handle_processes(")
+        holders_end = source.index(
+            "class _GuardedHandleQuiescence:", holders_start
+        )
+        holders_contract = source[holders_start:holders_end]
+        self.assertNotIn("_current_process_ancestry()", holders_contract)
+        self.assertIn("process.name == controller_pid", holders_contract)
 
     def test_release_acquisition_uses_only_digest_bound_offline_bundles(self) -> None:
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
@@ -3427,6 +3434,29 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ],
         )
         close.assert_called_once_with(77)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_guarded_handle_scan_includes_controller_parent_holder(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            guarded = root / "guarded.txt"
+            guarded.write_text("read-only holder\n", encoding="ascii")
+            child_code = (
+                "import os,sys;from pathlib import Path;"
+                "from scripts import tu1nz_adult_commercial_s12_1_runtime as r;"
+                "holders=r._guarded_handle_processes((Path(sys.argv[1]),),"
+                "(Path(sys.argv[2]),));"
+                "print('included' if os.getppid() in holders else 'excluded')"
+            )
+            with guarded.open("rb"):
+                child = subprocess.run(
+                    [sys.executable, "-c", child_code, str(guarded), str(root)],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            self.assertEqual(child.stdout.strip(), "included")
 
     def test_guarded_handle_quiescence_detaches_after_stop_wait_failure(self) -> None:
         quiescence = runtime._GuardedHandleQuiescence(

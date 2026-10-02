@@ -71,10 +71,12 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    drained, harden the shared parent to `root:root 0500`. Both syscall-boundary
    states of that hardening transition are journal-recognized and resumable.
 13. Discover every non-controller process that retains an exact guarded inode
-   or a directory handle/cwd inside either Worktree. Keep healthy read-only
-   handles valid, but briefly quiesce every thread of their owning processes
-   with `PTRACE_SEIZE` plus `PTRACE_INTERRUPT` for the final ownership
-   handoff. Linux automatically detaches and restarts ptrace-stopped tracees
+   or a directory handle/cwd inside either Worktree, including the controller's
+   launcher, shell and supervisor ancestry; only the controller PID itself is
+   exempt. Keep healthy read-only handles valid, but briefly quiesce every
+   thread of their owning processes with `PTRACE_SEIZE` plus
+   `PTRACE_INTERRUPT` for the final ownership handoff. Linux automatically
+   detaches and restarts ptrace-stopped tracees
    if the controller dies, so no persistent service stop can be orphaned.
    Validate process/thread start times and the ptrace-stop state, and iterate
    the scan until no inheriting child or new thread remains. This changes no
