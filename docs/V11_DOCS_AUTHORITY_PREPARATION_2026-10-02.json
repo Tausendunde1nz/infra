@@ -1,0 +1,138 @@
+{
+  "checkout_contract": "EXPECTED_CHATOPS_CONTROLLED",
+  "comparison_counts": {
+    "legacy_unexplained_not_authority": 1057,
+    "tracked_in_legacy_checksum": 7,
+    "tracked_in_legacy_guard": 880
+  },
+  "complete_v11_host_adapter_proven": false,
+  "control_basis": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+  "docs_source": {
+    "associated_prs": [],
+    "categories": {
+      "EXCLUDED_FROM_AUTHORITY": 2,
+      "TRACKED_SOURCE": 883,
+      "UNEXPLAINED": 1057
+    },
+    "checksum_blob_agreement": 5,
+    "checksum_blob_disagreement": 2,
+    "commit": "537aa8fd69d755c641246cc1b507c69b3e1cd5f5",
+    "excluded_tree_symlinks": 2,
+    "github_current_main_verified": true,
+    "github_signature_verified": false,
+    "legacy_checksum_entries": 797,
+    "legacy_guard_entries": 1150,
+    "repository": "Tausendunde1nz/docs",
+    "source_entries": 883,
+    "tree": "910f981134ad82a171cc0d727604315d50bba4fa"
+  },
+  "final_control_drift": {
+    "actor": "UNATTRIBUTED",
+    "expected_head": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+    "github_commit_verified": true,
+    "observed_head": "e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+    "observed_index_sha256": "623fd407ab393599423b2aee4a3a603466198cc8767deef3abe87fbb8749e863",
+    "observed_tree": "4640102c40af0111be62b845842f0d7b99ca69f2",
+    "parent_is_expected_basis": true,
+    "response": "NO_ACTIVATION_OR_AUTOMATIC_REPIN"
+  },
+  "live_activation_ready": false,
+  "live_changes": false,
+  "manifests": {
+    "APPROVED_AUTHORITY.json": "5576dbbd0c3fd15048dad66ddd93651bf493b23e7f4c9841d23afe56f3054c55",
+    "GENERATED_MANIFEST.json": "55f5cea1018001be30c6e18cc6f436154459c07eb31609acf19fbdcdf1ee1914",
+    "RUNTIME_OBSERVATION.json": "74889ed1313dde852bcb22a400bf06faec489501a1fd3fdf70512e51a87da457",
+    "SOURCE_MANIFEST.json": "7b7293e15910b2ddfd2d4c8a0886a2cbace311c509a19ea431b47b4a69f7bddd"
+  },
+  "old_docs_lists_promoted_to_authority": false,
+  "payloads": [
+    {
+      "gid": 0,
+      "installed": false,
+      "mode": "0o600",
+      "private_payload": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/docs-authority-20261002/payloads/00.bin",
+      "sha256": "10ecb24d0bb80d1374b4d8e6e5bb6ee262d2ba90ac0c2dd8ec9cc0cc34dfe7e2",
+      "target": "/usr/local/libexec/tu1nz-docs-authority-v11/guard.py",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "installed": false,
+      "mode": "0o644",
+      "private_payload": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/docs-authority-20261002/payloads/01.bin",
+      "sha256": "15bebe17e0c813f0c898793584e967e2830992a15b5c1867b5db247df20c6c82",
+      "target": "/etc/systemd/system/tu1nz_delete_guard.service.d/90-v11-authority.conf",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "installed": false,
+      "mode": "0o755",
+      "private_payload": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/docs-authority-20261002/payloads/02.bin",
+      "sha256": "c8763186e9c24ffd75fc8e90eb71ce35a9fe426e8cc875381a626f0c1dbcf54f",
+      "target": "/usr/local/bin/checksum_verify",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "installed": false,
+      "mode": "0o600",
+      "private_payload": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/docs-authority-20261002/v2/APPROVED_AUTHORITY.json",
+      "sha256": "5576dbbd0c3fd15048dad66ddd93651bf493b23e7f4c9841d23afe56f3054c55",
+      "target": "/etc/tu1nz/docs-authority-v11/authority.json",
+      "uid": 0
+    }
+  ],
+  "preservation": {
+    "all_byte_identical": true,
+    "control_unchanged_claim": false,
+    "docs_index_unchanged": true,
+    "hardening_files": 42,
+    "historical_tracked_files": 701,
+    "private_evidence_files": 1125,
+    "v9_sources": 30
+  },
+  "private_evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/docs-authority-20261002",
+  "protected_read": {
+    "executed": false,
+    "paths": [
+      "/etc/sudoers",
+      "/etc/sudoers.d/99-dokuagent-pandoc",
+      "/etc/sudoers.d/chatops-nopass",
+      "/etc/gshadow"
+    ],
+    "reason": "protected original bytes are required to bind exact sudo/group candidate hashes, not available to chatops; root-only originals/candidates remain private",
+    "scope": "FOUR_FIXED_FILES_ONLY_NO_COMMANDS_OR_LIVE_INSTALL"
+  },
+  "root_run": false,
+  "runtime": {
+    "additional_files": 270,
+    "additional_scan": "COMPLETE",
+    "counts": {
+      "MATCH": 883
+    },
+    "passed": true
+  },
+  "schema": 1,
+  "source_base": "3be8beb3b1ef14d73728db256f358963f72015c7",
+  "sources": {
+    "adapter.py": "9c685bce2f9b41d853079833655c27b222ab00b28b85b56feda84de9038c576d",
+    "deployment.py": "31fc3d7edf2530ffb41fc8bc1cb0126ebd411c81d6faf7ba8fe1d0dd924f1fda",
+    "files.py": "367ee25b97e626af64e0cf6a00facbae233edf808eb00c9aee5fe66043c125df",
+    "guard.py": "678695ecf3d01a8a55e01ffd88148c8f01c0b62b251ae36ca095c69c54bcb9e2",
+    "input_bootstrap.py": "0084bf4d6625df5b5e9423a65a852db8803e079cbeb942503437975fee5a8f92",
+    "manifest.py": "6bdc652ac597464d1f35552a0efb5d9072e040424b09dd9c4db73b4af7870496",
+    "production.py": "e6f01e93437926d230acdfacacdcfc6cc79a6e458128bbf2d2adb4ec6b281ca4",
+    "protected_inputs.py": "ad5a22e16f305a38183378bf5ea45c809d0bd1c3ca5c3f31423deb379dbb9017",
+    "test_docs.py": "013a26fa1a255362f89cca93053b77c8c7d667d5156f2459be61ebf97c06d068",
+    "test_files.py": "134c22467b31d29369853c479b7270e972ee2c3f215dafdfd6c42e3e2affd7ae",
+    "test_inputs.py": "ac5b0c86e990f42d146f2e54b0938eb59990088f3f1f7789e3985350bc47b555"
+  },
+  "tests": {
+    "manifest_sha256": "2abc4f9fff042cb0cd4508e68cadb0f659ef40fbc0e357bba152ca368ea14ca0",
+    "new": 63,
+    "skips": 2,
+    "targeted": 704,
+    "workflow_steps": 108
+  }
+}
