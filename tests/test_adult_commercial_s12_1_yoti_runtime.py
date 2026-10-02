@@ -889,9 +889,6 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("_restore_worktree_write_barrier(", contract)
         self.assertIn("_WorktreeReleaseGuard(", contract)
         self.assertIn("_validate_released_worktree_contract(", contract)
-        self.assertGreaterEqual(
-            contract.count("_validate_released_worktree_contract("), 2
-        )
         self.assertIn("_repository_git_metadata_directories(", contract)
         self.assertGreaterEqual(
             contract.count("_git_metadata_release_fingerprint("), 2
@@ -901,44 +898,44 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertIn("release_paths.update(selected_roots)", contract)
         self.assertIn("_hard_lock_repository_parent(parent_record)", contract)
-        self.assertIn("_active_guarded_owner_handle_count(", contract)
+        self.assertNotIn("_active_guarded_owner_handle_count(", contract)
         self.assertIn("_restore_repository_worktree_metadata(", contract)
         self.assertIn("_restore_repository_git_metadata(", contract)
+        self.assertIn("def validate_sealed_release()", contract)
+        self.assertIn("def release_after_watch_barrier()", contract)
         self.assertLess(
             contract.index("_WorktreeReleaseGuard("),
-            contract.index("_restore_worktree_write_barrier("),
+            contract.index("def validate_sealed_release()"),
         )
         self.assertLess(
-            contract.index("_restore_worktree_write_barrier("),
-            contract.index("_validate_released_worktree_contract("),
+            contract.index("def validate_sealed_release()"),
+            contract.index("def release_after_watch_barrier()"),
         )
         self.assertLess(
-            contract.index("_validate_released_worktree_contract("),
-            contract.index("release_guard.assert_no_events()"),
+            contract.index("def release_after_watch_barrier()"),
+            contract.index("release_guard.finalize_release("),
         )
-        self.assertLess(
-            contract.index("release_guard.assert_no_events()"),
-            contract.index("_restore_repository_git_metadata("),
-        )
-        final_release = contract[
-            contract.index("_restore_repository_git_metadata(") :
+        release_callback = contract[
+            contract.index("def release_after_watch_barrier()") :
+            contract.index("release_guard.finalize_release(")
         ]
         self.assertLess(
-            final_release.index("release_guard.accept_release_attributes()"),
-            final_release.index("_validate_released_worktree_contract("),
+            release_callback.index("_restore_worktree_write_barrier("),
+            release_callback.index("_restore_repository_worktree_metadata("),
         )
         self.assertLess(
-            final_release.index("_validate_released_worktree_contract("),
-            final_release.index("_git_metadata_release_fingerprint("),
+            release_callback.index("_restore_repository_worktree_metadata("),
+            release_callback.index("_restore_repository_git_metadata("),
         )
         self.assertLess(
-            final_release.index("_git_metadata_release_fingerprint("),
-            final_release.index("_release_xattr_fingerprint("),
+            release_callback.index("_restore_repository_git_metadata("),
+            release_callback.index("_validate_released_worktree_contract("),
         )
         self.assertLess(
-            final_release.index("_release_xattr_fingerprint("),
-            final_release.index("release_guard.finalize_release("),
+            release_callback.index("_validate_released_worktree_contract("),
+            release_callback.index("_restore_repository_parent("),
         )
+        self.assertNotIn("accept_release_attributes", contract)
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -2702,7 +2699,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         Path("/proc").is_dir() and os.geteuid() == 0,
         "Linux root required",
     )
-    def test_release_rejects_attribute_drift_after_git_metadata_restore(
+    def test_release_rejects_attribute_drift_during_post_barrier_restore(
         self,
     ) -> None:
         try:
@@ -2742,28 +2739,23 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
                 os.chown(repository, chatops.pw_uid, chatops.pw_gid)
 
-                class AttributeDriftGuard:
-                    def __init__(self) -> None:
-                        self.accepted = 0
-
-                    def accept_release_attributes(self) -> None:
-                        self.accepted += 1
-                        if self.accepted == 2:
-                            mutation(tracked)
-
+                class ReleaseDriftGuard:
                     @staticmethod
-                    def assert_no_events() -> None:
-                        return None
-
-                    @staticmethod
-                    def finalize_release(validator) -> None:
+                    def finalize_release(validator, release) -> None:
                         validator()
+                        release()
 
                     @staticmethod
                     def close() -> None:
                         return None
 
-                guard = AttributeDriftGuard()
+                guard = ReleaseDriftGuard()
+                restore_git_metadata = runtime._restore_repository_git_metadata
+
+                def restore_then_mutate(root_path, record) -> None:
+                    restore_git_metadata(root_path, record)
+                    mutation(tracked)
+
                 with (
                     mock.patch.object(
                         runtime, "_competing_control_sync_count", return_value=0
@@ -2779,6 +2771,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     mock.patch.object(
                         runtime, "_WorktreeReleaseGuard", return_value=guard
                     ),
+                    mock.patch.object(
+                        runtime,
+                        "_restore_repository_git_metadata",
+                        side_effect=restore_then_mutate,
+                    ),
                     self.assertRaisesRegex(
                         runtime.S12ControlError,
                         "S12_1_RECOVERY_GIT_BARRIER_RED",
@@ -2786,7 +2783,6 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ):
                     with runtime._serialized_repository_recovery((repository,)):
                         pass
-                self.assertEqual(guard.accepted, 2)
 
         cases = {
             "mode": lambda path: os.chmod(path, 0o600),
@@ -2834,6 +2830,26 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._lock_repository_parent(parent_record)
                 runtime._lock_repository_root(repository, repository_record)
 
+                # Both syscall-boundary states of the hard parent lock must
+                # be resumable by the hardener and by ordinary recovery.
+                os.chown(deployment_root, 0, 0)
+                runtime._hard_lock_repository_parent(parent_record)
+                parent_metadata = deployment_root.lstat()
+                self.assertEqual(
+                    (
+                        parent_metadata.st_uid,
+                        parent_metadata.st_gid,
+                        stat.S_IMODE(parent_metadata.st_mode),
+                    ),
+                    (0, 0, 0o500),
+                )
+                os.chown(deployment_root, 0, chatops.pw_gid)
+                runtime._hard_lock_repository_parent(parent_record)
+                os.chown(
+                    deployment_root, chatops.pw_uid, chatops.pw_gid
+                )
+                runtime._lock_repository_parent(parent_record)
+
                 for path in (deployment_root, repository):
                     metadata = path.lstat()
                     self.assertEqual(metadata.st_uid, 0)
@@ -2848,7 +2864,73 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     metadata = path.lstat()
                     self.assertEqual(metadata.st_uid, chatops.pw_uid)
                     self.assertEqual(metadata.st_gid, chatops.pw_gid)
-                    self.assertEqual(stat.S_IMODE(metadata.st_mode), 0o755)
+                self.assertEqual(stat.S_IMODE(metadata.st_mode), 0o755)
+
+    def test_hard_parent_lock_resumes_every_syscall_boundary(self) -> None:
+        state = {"uid": 1001, "gid": 1002, "mode": 0o755}
+
+        class ParentPath:
+            parent = Path("/")
+
+            @staticmethod
+            def is_symlink() -> bool:
+                return False
+
+            @staticmethod
+            def lstat():
+                return SimpleNamespace(
+                    st_uid=state["uid"],
+                    st_gid=state["gid"],
+                    st_mode=stat.S_IFDIR | state["mode"],
+                )
+
+            def __str__(self) -> str:
+                return "/srv/repositories"
+
+        parent = ParentPath()
+        record = {
+            "path": str(parent),
+            "uid": 1001,
+            "gid": 1002,
+            "mode": "0755",
+        }
+
+        def chown(_path, uid: int, gid: int) -> None:
+            state.update(uid=uid, gid=gid)
+
+        def chmod(_path, mode: int) -> None:
+            state["mode"] = mode
+
+        with (
+            mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(runtime.os, "chown", side_effect=chown),
+            mock.patch.object(runtime.os, "chmod", side_effect=chmod),
+            mock.patch.object(runtime, "_fsync_directory"),
+        ):
+            runtime._lock_repository_parent(record)
+            self.assertEqual(state, {"uid": 0, "gid": 1002, "mode": 0o555})
+
+            for interrupted in (
+                {"uid": 0, "gid": 0, "mode": 0o555},
+                {"uid": 0, "gid": 1002, "mode": 0o500},
+                {"uid": 0, "gid": 0, "mode": 0o500},
+            ):
+                state.update(interrupted)
+                runtime._hard_lock_repository_parent(record)
+                self.assertEqual(
+                    state, {"uid": 0, "gid": 0, "mode": 0o500}
+                )
+
+            state.update(uid=1001, gid=1002, mode=0o500)
+            runtime._lock_repository_parent(record)
+            self.assertEqual(state, {"uid": 0, "gid": 1002, "mode": 0o555})
+
+            runtime._hard_lock_repository_parent(record)
+            runtime._restore_repository_parent(record)
+            self.assertEqual(
+                state, {"uid": 1001, "gid": 1002, "mode": 0o755}
+            )
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_metadata_handle_scope_rejects_git_and_recovery_metadata(self) -> None:
@@ -3095,7 +3177,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             baseline,
         )
 
-    def test_release_finalizer_validates_before_synchronized_shutdown(self) -> None:
+    def test_release_finalizer_releases_after_synchronized_shutdown(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
         guard.descriptor = 123
         guard.fanotify_descriptor = None
@@ -3123,7 +3205,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ),
         ):
             guard.finalize_release(
-                lambda: observed.append(f"validate:{guard.descriptor}")
+                lambda: observed.append(f"validate:{guard.descriptor}"),
+                lambda: observed.append(f"release:{guard.descriptor}"),
             )
 
         self.assertEqual(
@@ -3133,6 +3216,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "validate:123",
                 "shutdown-watches",
                 "shutdown",
+                "release:None",
             ],
         )
 
@@ -3176,7 +3260,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             guard.finalize_release(
                 lambda: (_ for _ in ()).throw(
                     RuntimeError("final validation failed")
-                )
+                ),
+                lambda: None,
             )
 
         shutdown.assert_not_called()

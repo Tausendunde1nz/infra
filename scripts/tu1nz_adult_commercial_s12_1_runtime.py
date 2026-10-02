@@ -4112,14 +4112,19 @@ class _WorktreeReleaseGuard:
         self.descriptor = None
         self.inotify_watches.clear()
 
-    def finalize_release(self, validator: Callable[[], None]) -> None:
-        """Validate under active watches, then cross their ordered barrier."""
+    def finalize_release(
+        self,
+        validator: Callable[[], None],
+        release: Callable[[], None],
+    ) -> None:
+        """Validate sealed state, cross every watch barrier, then release."""
 
         self.assert_no_events()
         validator()
         self._synchronized_inotify_shutdown()
         self._assert_fanotify_quiet()
         self.close()
+        release()
 
     def close(self) -> None:
         self.fanotify_stop.set()
@@ -4194,98 +4199,6 @@ def _active_exact_directory_handle_count(directory: Path) -> int:
             continue
         except OSError:
             count += 1
-    return count
-
-
-def _active_guarded_owner_handle_count(
-    paths: Sequence[Path], roots: Sequence[Path]
-) -> int:
-    """Count owner-held cwd/fd/map references to exact guarded inodes."""
-
-    proc = Path("/proc")
-    if not proc.is_dir():
-        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
-    protected: dict[tuple[int, int], int] = {}
-    try:
-        for path in set(paths):
-            metadata = path.lstat()
-            if path.is_symlink() or not (
-                stat.S_ISDIR(metadata.st_mode)
-                or (stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1)
-            ):
-                raise OSError
-            protected[(metadata.st_dev, metadata.st_ino)] = metadata.st_uid
-    except OSError:
-        raise S12ControlError(
-            "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
-        ) from None
-    excluded = _current_process_ancestry()
-    root_owners = {
-        root.resolve(strict=True): root.lstat().st_uid for root in roots
-    }
-    count = 0
-    for process in proc.iterdir():
-        if not process.name.isdigit() or process.name in excluded:
-            continue
-        try:
-            process_uids: set[int] = set()
-            for line in (process / "status").read_text(
-                encoding="ascii"
-            ).splitlines():
-                if line.startswith("Uid:"):
-                    process_uids = {
-                        int(value) for value in line.split()[1:5]
-                    }
-                    break
-            if not process_uids:
-                raise OSError
-            matched = False
-            links: list[Path] = [process / "cwd"]
-            links.extend((process / "fd").iterdir())
-            for link in links:
-                try:
-                    metadata = link.stat()
-                except FileNotFoundError:
-                    continue
-                owner = protected.get((metadata.st_dev, metadata.st_ino))
-                if owner is not None and owner in process_uids:
-                    matched = True
-                    break
-                if stat.S_ISDIR(metadata.st_mode):
-                    try:
-                        target = link.resolve(strict=True)
-                    except FileNotFoundError:
-                        if any(uid in process_uids for uid in root_owners.values()):
-                            matched = True
-                            break
-                        continue
-                    if any(
-                        uid in process_uids
-                        and (target == root or root in target.parents)
-                        for root, uid in root_owners.items()
-                    ):
-                        matched = True
-                        break
-            if not matched:
-                maps = (process / "maps").read_text(
-                    encoding="utf-8", errors="surrogateescape"
-                )
-                for line in maps.splitlines():
-                    fields = line.split(maxsplit=5)
-                    if len(fields) < 5:
-                        continue
-                    identity = _mapped_inode_identity(fields[3], fields[4])
-                    owner = protected.get(identity) if identity else None
-                    if owner is not None and owner in process_uids:
-                        matched = True
-                        break
-            if matched:
-                count += 1
-        except FileNotFoundError:
-            continue
-        except (OSError, UnicodeError, ValueError):
-            if os.geteuid() == 0:
-                count += 1
     return count
 
 
@@ -4702,22 +4615,44 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             and metadata.st_gid == expected_gid
             and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
-        legacy_locked = (
+        hard_locked = (
             metadata.st_uid == 0
             and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        hard_chowned = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_restricted = (
+            metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        owner_hard_restricted = (
+            metadata.st_uid == expected_uid
+            and metadata.st_gid == expected_gid
             and stat.S_IMODE(metadata.st_mode) == 0o500
         )
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (original or locked or restricted or legacy_locked)
+            or not (
+                original
+                or locked
+                or restricted
+                or hard_locked
+                or hard_chowned
+                or hard_restricted
+                or owner_hard_restricted
+            )
         ):
             raise OSError
         if original:
             os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
-        if original or restricted or legacy_locked:
-            os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
-            os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
+        os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
+        os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         if (
             metadata.st_uid != 0
@@ -4735,17 +4670,43 @@ def _hard_lock_repository_parent(record: dict[str, Any]) -> None:
 
     if os.geteuid() != 0:
         return
-    _recorded_parent_metadata(record)
+    _expected_uid, expected_gid, expected_mode = _recorded_parent_metadata(
+        record
+    )
+    restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
+        soft_locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_chowned = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_restricted = (
+            metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        hard_locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or metadata.st_uid != 0
-            or stat.S_IMODE(metadata.st_mode) & 0o222
+            or not (
+                soft_locked
+                or hard_chowned
+                or hard_restricted
+                or hard_locked
+            )
         ):
             raise OSError
-        os.chmod(DEPLOYMENT_LOCK_ROOT, 0o500)
         os.chown(DEPLOYMENT_LOCK_ROOT, 0, 0)
         os.chmod(DEPLOYMENT_LOCK_ROOT, 0o500)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
@@ -4782,14 +4743,35 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
             and metadata.st_gid == 0
             and stat.S_IMODE(metadata.st_mode) == 0o500
         )
+        hard_chowned = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_restricted = (
+            metadata.st_uid == 0
+            and metadata.st_gid == gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        owner_hard_restricted = (
+            metadata.st_uid == uid
+            and metadata.st_gid == gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (locked or restricted or hard_locked)
+            or not (
+                locked
+                or restricted
+                or hard_locked
+                or hard_chowned
+                or hard_restricted
+                or owner_hard_restricted
+            )
         ):
             raise OSError
-        if locked or hard_locked:
-            os.chown(DEPLOYMENT_LOCK_ROOT, uid, gid)
+        os.chown(DEPLOYMENT_LOCK_ROOT, uid, gid)
         os.chmod(DEPLOYMENT_LOCK_ROOT, mode)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         if (
@@ -5333,54 +5315,17 @@ def _serialized_repository_recovery(
                     release_xattr_fingerprint = _release_xattr_fingerprint(
                         tuple(release_paths)
                     )
-                    _restore_worktree_write_barrier(
-                        selected_worktree_barrier,
-                        selected_records if completed else None,
-                    )
-                    for root in reversed(selected_roots):
-                        _restore_repository_worktree_metadata(
-                            root, selected_records[root]
+                    def validate_sealed_release() -> None:
+                        _assert_worktree_write_barrier(
+                            selected_roots, selected_worktree_barrier
                         )
-                    release_guard.accept_release_attributes()
-                    if completed:
-                        _validate_released_worktree_contract(
-                            selected_roots,
-                            selected_records,
-                            selected_worktree_barrier,
-                        )
-                        for root in selected_roots:
-                            _selected_identity(root, root / ".git")
-                        released_paths = _tracked_worktree_regular_paths(
-                            selected_roots
-                        )
-                        if (
-                            _active_tracked_worktree_write_handle_count(
-                                released_paths
-                            )
-                            != 0
-                        ):
-                            raise S12ControlError(
-                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
-                            )
-                        for root in selected_roots:
-                            _selected_identity(root, root / ".git")
-                    release_guard.assert_no_events()
-                    for root in reversed(selected_roots):
-                        _restore_repository_git_metadata(
-                            root, selected_records[root]
-                        )
-                    release_guard.accept_release_attributes()
-                    def validate_final_release() -> None:
                         if not completed:
                             return
-                        _validate_released_worktree_contract(
-                            selected_roots,
-                            selected_records,
-                            selected_worktree_barrier,
-                        )
                         for root in selected_roots:
                             _validate_repository_worktree_contract(
-                                root, selected_records[root]
+                                root,
+                                selected_records[root],
+                                allow_journaled_transition=True,
                             )
                         if (
                             _git_metadata_release_fingerprint(selected_roots)
@@ -5404,11 +5349,6 @@ def _serialized_repository_recovery(
                                 _tracked_worktree_regular_paths(selected_roots)
                             )
                             != 0
-                            or parent_locked
-                            and _active_guarded_owner_handle_count(
-                                tuple(release_paths), selected_roots
-                            )
-                            != 0
                         ):
                             raise S12ControlError(
                                 "S12_1_RECOVERY_GIT_ACTIVE_RED"
@@ -5416,10 +5356,53 @@ def _serialized_repository_recovery(
                         for root in selected_roots:
                             _selected_identity(root, root / ".git")
 
-                    release_guard.finalize_release(validate_final_release)
-                    if parent_locked:
-                        _restore_repository_parent(parent_record)
-                        parent_locked = False
+                    def release_after_watch_barrier() -> None:
+                        nonlocal parent_locked
+                        _restore_worktree_write_barrier(
+                            selected_worktree_barrier,
+                            selected_records if completed else None,
+                        )
+                        for root in reversed(selected_roots):
+                            _restore_repository_worktree_metadata(
+                                root, selected_records[root]
+                            )
+                        for root in reversed(selected_roots):
+                            _restore_repository_git_metadata(
+                                root, selected_records[root]
+                            )
+                        if completed:
+                            _validate_released_worktree_contract(
+                                selected_roots,
+                                selected_records,
+                                selected_worktree_barrier,
+                            )
+                            for root in selected_roots:
+                                _validate_repository_worktree_contract(
+                                    root, selected_records[root]
+                                )
+                            if (
+                                _git_metadata_release_fingerprint(
+                                    selected_roots
+                                )
+                                != git_release_fingerprint
+                                or _release_xattr_fingerprint(
+                                    tuple(release_paths)
+                                )
+                                != release_xattr_fingerprint
+                            ):
+                                raise S12ControlError(
+                                    "S12_1_RECOVERY_GIT_BARRIER_RED"
+                                )
+                            for root in selected_roots:
+                                _selected_identity(root, root / ".git")
+                        if parent_locked:
+                            _restore_repository_parent(parent_record)
+                            parent_locked = False
+
+                    release_guard.finalize_release(
+                        validate_sealed_release,
+                        release_after_watch_barrier,
+                    )
                     release_guard = None
                 except S12ControlError:
                     cleanup_failed = True

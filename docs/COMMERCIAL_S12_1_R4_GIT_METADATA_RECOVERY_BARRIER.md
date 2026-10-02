@@ -55,33 +55,23 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    force, repeat the barrier/identity/handle checks against canonical `.git`,
    and only then start both a kernel mutation watch and a fanotify
    open-permission barrier covering every tracked path, ancestor, repository
-   root and every directory in each canonical `.git` tree before restoring the
-   exact journaled ownership/modes.
-13. After the staggered permission restore, accept only the controller's own
-   attribute events, restore surviving recorded inodes exactly, and explicitly
-   normalize every new or replaced current tracked inode to the canonical
-   repository owner/group while preserving its reviewed Git mode. Validate
-   that released state, then repeat identity/handle/identity checks. Any
-   waiting writer, newly opened writable mapping or replacement event fails
-   closed before the guards are released. Git metadata stays root-only until
-   all Worktree validation is complete and is released by changing the `.git`
-   root mode last. The controller then revalidates the complete Worktree and
-   repository contracts, matches an exact Git-metadata namespace/content/mode
-   fingerprint captured before release, matches a separate extended-attribute
-   fingerprint across every guarded path, repeats Git/handle/identity checks
-   and drains the event queue once more. Shutdown repeats that validation while
-   all inotify watches remain active, removes every watch, and requires the
-   ordered `IN_IGNORED` event for every watch without any intervening mutation.
-   Before any ownership release, the shared repository parent is hardened to
-   `root:root 0500`, so a new owner process cannot reach a guarded path. The
-   final validation also rejects every exact guarded cwd/fd/map retained by
-   that inode's restored owner. Repository roots themselves are part of the
-   extended-attribute fingerprint. The final released-state validation
-   therefore runs entirely under active
-   attribute watches, and a retained read descriptor's `fchmod`/`fsetxattr` in
-   the former drain-to-close gap is rejected while the ordered watch-removal
-   barrier is consumed. Fanotify remains active until that barrier completes.
-   The Git fingerprint
+   root and every directory in each canonical `.git` tree. Before the guard is
+   drained, harden the shared parent to `root:root 0500`. Both syscall-boundary
+   states of that hardening transition are journal-recognized and resumable.
+13. Validate the complete repository while every guarded Worktree and Git
+   inode is still root-owned and non-writable. Match the exact Git namespace,
+   content and mode fingerprint plus the independent extended-attribute
+   fingerprint, repeat Git-process, metadata-handle, writable-handle and
+   identity checks, and drain the event queue. Then remove every inotify watch
+   and require the ordered `IN_IGNORED` barrier for every watch without any
+   intervening mutation. Fanotify remains active until that barrier completes
+   and is closed before the explicit release callback starts. Only after every
+   watch is gone does the callback restore exact journaled ownership/modes,
+   validate the released contracts and fingerprints, and restore the shared
+   parent last. Existing read-only service cwd/fd/maps are therefore allowed;
+   they never become a reason to reject a healthy runtime, and their inodes do
+   not regain owner mutation authority until the guarded transaction has
+   crossed its complete release barrier. The Git fingerprint
    intentionally ignores only ownership/ctime and the top `.git` mode changed
    by the controller. Both release fingerprints normalize the same POSIX ACL
    base permission fields deterministically rewritten by the intentional mode
@@ -133,9 +123,9 @@ subsequent validation or Git transition.
 | writer waiting for restored owner permission | detected by release watch; RED |
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |
-| external chmod/fchmod during release or guard shutdown | final post-inotify contract/fingerprint mismatch or event; RED |
+| external chmod/fchmod before release barrier completion | sealed owner/mode or event check fails; RED |
 | external setxattr/fsetxattr during lock or release | root transition or guarded-path xattr fingerprint mismatch/event; RED |
-| owner-held guarded cwd/fd/map at final release | RED before watch shutdown |
+| healthy owner-held read-only Worktree cwd/fd/map | allowed; ownership stays sealed until all watches are gone |
 | tracked file with `security.capability` | rejected before ownership transition; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
