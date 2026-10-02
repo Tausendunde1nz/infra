@@ -14,7 +14,10 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    the competing Control sync loop, actual Git processes, retained Git-metadata
    handles, writable tracked-file descriptors, writable shared mappings and
    read-only shared mappings whose `VmFlags` still permit a write upgrade.
-3. Journal the exact repository and shared-parent metadata durably.
+3. Journal the exact repository and shared-parent metadata durably. Reject a
+   tracked regular file carrying `security.capability` before any ownership
+   transition, because Linux `chown(2)` would otherwise clear that xattr and
+   make exact recovery impossible.
 4. Fingerprint the complete protected Git-metadata tree, install a kernel
    mutation watch on every metadata directory, then require a second full-tree
    fingerprint to match before the first process scan begins.
@@ -66,17 +69,19 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    repository contracts, matches an exact Git-metadata namespace/content/mode
    fingerprint captured before release, matches a separate extended-attribute
    fingerprint across every guarded path, repeats Git/handle/identity checks
-   and drains the event queue once more. Shutdown then closes the inotify
-   descriptor first and repeats the entire final released-state validation
-   while fanotify still blocks new writable opens. A retained read descriptor's
-   `fchmod`/`fsetxattr` in the former drain-to-close gap therefore cannot be
-   discarded with an unread event; persistent drift is caught by the post-close
-   contract/xattr fingerprint before fanotify is released. The Git fingerprint
+   and drains the event queue once more. Shutdown repeats that validation while
+   all inotify watches remain active, removes every watch, and requires the
+   ordered `IN_IGNORED` event for every watch without any intervening mutation.
+   It then repeats the entire released-state validation while fanotify still
+   blocks new writable opens. A retained read descriptor's `fchmod`/`fsetxattr`
+   in the former drain-to-close gap is therefore either rejected before the
+   watch-removal barrier or caught by the post-barrier contract/xattr
+   fingerprint. The Git fingerprint
    intentionally ignores only ownership/ctime and the top `.git` mode changed
    by the controller; it
    binds nested modes, names, inode identities, sizes, mtimes and file bytes.
-   Flush repository filesystems throughout; the post-inotify validation is the
-   transaction's explicit writer-release point.
+   Flush repository filesystems throughout; the synchronized watch-removal
+   barrier is the transaction's explicit writer-release point.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
 the scan/exchange race. The fingerprint plus the kernel mutation watch closes
@@ -113,6 +118,7 @@ subsequent validation or Git transition.
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |
 | external chmod/fchmod during release or guard shutdown | final post-inotify contract/fingerprint mismatch or event; RED |
 | external setxattr/fsetxattr during lock or release | root transition or guarded-path xattr fingerprint mismatch/event; RED |
+| tracked file with `security.capability` | rejected before ownership transition; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |

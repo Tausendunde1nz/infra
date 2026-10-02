@@ -2240,6 +2240,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     return_value=SimpleNamespace(
                         accept_release_attributes=lambda: None,
                         assert_no_events=lambda: None,
+                        finalize_release=lambda validator: validator(),
                         close=lambda: None,
                     ),
                 ),
@@ -2712,6 +2713,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                         return None
 
                     @staticmethod
+                    def finalize_release(validator) -> None:
+                        validator()
+
+                    @staticmethod
                     def close() -> None:
                         return None
 
@@ -3047,7 +3052,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             baseline,
         )
 
-    def test_release_finalizer_closes_inotify_before_validation(self) -> None:
+    def test_release_finalizer_synchronizes_shutdown_between_validations(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
         guard.descriptor = 123
         guard.fanotify_descriptor = None
@@ -3060,10 +3065,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 side_effect=lambda: observed.append("drain"),
             ),
             mock.patch.object(
-                runtime.os,
-                "close",
-                side_effect=lambda descriptor: observed.append(
-                    f"close:{descriptor}"
+                guard,
+                "_synchronized_inotify_shutdown",
+                side_effect=lambda: (
+                    setattr(guard, "descriptor", None),
+                    observed.append("shutdown-watches"),
                 ),
             ),
             mock.patch.object(
@@ -3078,8 +3084,40 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
         self.assertEqual(
             observed,
-            ["drain", "close:123", "validate:None", "shutdown"],
+            [
+                "drain",
+                "validate:123",
+                "shutdown-watches",
+                "validate:None",
+                "shutdown",
+            ],
         )
+
+    def test_inotify_shutdown_requires_every_ignored_barrier(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.descriptor = 123
+        guard.inotify_watches = {7, 9}
+        remove = mock.MagicMock(return_value=0)
+        library = SimpleNamespace(inotify_rm_watch=remove)
+        payload = b"".join(
+            guard._EVENT.pack(watch, guard._IN_IGNORED, 0, 0)
+            for watch in (7, 9)
+        )
+
+        with (
+            mock.patch.object(runtime.ctypes, "CDLL", return_value=library),
+            mock.patch.object(runtime.os, "read", return_value=payload),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard._synchronized_inotify_shutdown()
+
+        self.assertEqual(
+            [call.args for call in remove.call_args_list],
+            [(123, 7), (123, 9)],
+        )
+        close.assert_called_once_with(123)
+        self.assertIsNone(guard.descriptor)
+        self.assertEqual(guard.inotify_watches, set())
 
     def test_release_finalizer_keeps_fanotify_on_validation_failure(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
@@ -3088,7 +3126,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
         with (
             mock.patch.object(guard, "assert_no_events"),
-            mock.patch.object(runtime.os, "close"),
+            mock.patch.object(guard, "_synchronized_inotify_shutdown"),
             mock.patch.object(guard, "close") as shutdown,
             self.assertRaisesRegex(RuntimeError, "final validation failed"),
         ):
@@ -3099,7 +3137,43 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             )
 
         shutdown.assert_not_called()
-        self.assertIsNone(guard.descriptor)
+        self.assertEqual(guard.descriptor, 123)
+
+    def test_worktree_barrier_rejects_file_capability_before_chown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            metadata = tracked.lstat()
+            records = {
+                root: {
+                    tracked: {
+                        "kind": "regular",
+                        "device": metadata.st_dev,
+                        "inode": metadata.st_ino,
+                        "uid": metadata.st_uid,
+                        "gid": metadata.st_gid,
+                        "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                    }
+                }
+            }
+            with (
+                mock.patch.object(runtime.os, "geteuid", return_value=0),
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["security.capability"],
+                    create=True,
+                ),
+                mock.patch.object(runtime.os, "chown") as chown,
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+
+            chown.assert_not_called()
 
     def test_closed_mmap_writer_is_detected_after_exchange(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

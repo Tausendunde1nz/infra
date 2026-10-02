@@ -2559,6 +2559,7 @@ def _capture_worktree_write_barrier(
                     kind = "directory"
                 elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
                     kind = "regular"
+                    _assert_no_security_capability(path)
                 else:
                     raise OSError
                 if (metadata.st_uid, metadata.st_gid) != (
@@ -2795,6 +2796,8 @@ def _lock_worktree_write_barrier(
                     or resumed
                 ):
                     raise OSError
+                if actual_kind == "regular":
+                    _assert_no_security_capability(path)
                 if original:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
                 if original or restricted:
@@ -3148,6 +3151,33 @@ def _repository_git_metadata_directories(
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
     return tuple(directories)
+
+
+def _assert_no_security_capability(path: Path) -> None:
+    """Reject file capabilities that chown(2) would silently discard."""
+
+    if not hasattr(os, "listxattr"):
+        if sys.platform == "linux":
+            raise OSError
+        return
+    before = path.lstat()
+    names = sorted(
+        os.listxattr(path, follow_symlinks=False), key=os.fsencode
+    )
+    after = path.lstat()
+    stable_fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_ctime_ns")
+    if (
+        "security.capability" in names
+        or names
+        != sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        )
+        or any(
+            getattr(before, field) != getattr(after, field)
+            for field in stable_fields
+        )
+    ):
+        raise OSError
 
 
 def _normalize_posix_acl_mode_entries(value: bytes) -> bytes:
@@ -3608,6 +3638,7 @@ class _WorktreeReleaseGuard:
         | 0x00000800  # IN_MOVE_SELF
     )
     _IN_Q_OVERFLOW = 0x00004000
+    _IN_IGNORED = 0x00008000
     _IN_ISDIR = 0x40000000
     _FAN_EVENT = struct.Struct("=IBBHQii")
     _FAN_RESPONSE = struct.Struct("=iI")
@@ -3631,6 +3662,7 @@ class _WorktreeReleaseGuard:
         self.descriptor: int | None = None
         self.sentinel_path: Path | None = None
         self.sentinel_watch: int | None = None
+        self.inotify_watches: set[int] = set()
         self.fanotify_descriptor: int | None = None
         self.fanotify_stop = threading.Event()
         self.fanotify_thread: threading.Thread | None = None
@@ -3668,6 +3700,7 @@ class _WorktreeReleaseGuard:
                 watch = add(descriptor, os.fsencode(path), self._WATCH_MASK)
                 if watch < 0:
                     raise OSError(ctypes.get_errno(), "inotify_add_watch")
+                self.inotify_watches.add(watch)
                 if path == self.sentinel_path:
                     self.sentinel_watch = watch
             if self.sentinel_watch is None:
@@ -4024,19 +4057,72 @@ class _WorktreeReleaseGuard:
     def assert_no_events(self) -> None:
         self._assert_events(allow_attributes=False)
 
+    def _synchronized_inotify_shutdown(self) -> None:
+        """Remove every watch behind an IN_IGNORED queue barrier."""
+
+        if self.descriptor is None:
+            return
+        descriptor = self.descriptor
+        pending = set(self.inotify_watches)
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            remove = library.inotify_rm_watch
+            remove.argtypes = [ctypes.c_int, ctypes.c_int]
+            remove.restype = ctypes.c_int
+            for watch in sorted(pending):
+                if remove(descriptor, watch) < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_rm_watch")
+            deadline = time.monotonic() + 1.0
+            while pending:
+                try:
+                    payload = os.read(descriptor, 1024 * 1024)
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OSError("inotify shutdown timeout")
+                    readable, _, _ = select.select(
+                        (descriptor,), (), (), remaining
+                    )
+                    if not readable:
+                        raise OSError("inotify shutdown timeout")
+                    continue
+                if not payload:
+                    raise OSError("inotify shutdown EOF")
+                offset = 0
+                while offset < len(payload):
+                    if len(payload) - offset < self._EVENT.size:
+                        raise OSError("short inotify shutdown event")
+                    watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                        payload, offset
+                    )
+                    offset += self._EVENT.size
+                    if name_length > len(payload) - offset:
+                        raise OSError("invalid inotify shutdown event")
+                    name = payload[offset : offset + name_length].rstrip(b"\0")
+                    offset += name_length
+                    normalized = mask & ~self._IN_ISDIR
+                    if (
+                        watch in pending
+                        and not name
+                        and normalized == self._IN_IGNORED
+                    ):
+                        pending.remove(watch)
+                    elif normalized:
+                        raise OSError("mutation during inotify shutdown")
+            os.close(descriptor)
+        except (OSError, ValueError, AttributeError):
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        self.descriptor = None
+        self.inotify_watches.clear()
+
     def finalize_release(self, validator: Callable[[], None]) -> None:
-        """End inotify first, then validate the exact final released state."""
+        """Validate, cross the watch-removal barrier, then validate again."""
 
         self.assert_no_events()
-        if self.descriptor is not None:
-            descriptor = self.descriptor
-            self.descriptor = None
-            try:
-                os.close(descriptor)
-            except OSError:
-                raise S12ControlError(
-                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
-                ) from None
+        validator()
+        self._synchronized_inotify_shutdown()
         validator()
         self._assert_fanotify_quiet()
         self.close()
@@ -4067,6 +4153,7 @@ class _WorktreeReleaseGuard:
                 os.close(self.descriptor)
             finally:
                 self.descriptor = None
+                self.inotify_watches.clear()
 
 
 def _current_process_ancestry() -> set[str]:
