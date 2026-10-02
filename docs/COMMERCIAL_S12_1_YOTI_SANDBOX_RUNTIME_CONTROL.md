@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r4` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r5` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an

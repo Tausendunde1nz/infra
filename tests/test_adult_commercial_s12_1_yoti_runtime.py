@@ -5408,6 +5408,193 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(result["safe_code"], "S12_1_INTERRUPTED_DEPLOYMENT_RECOVERED")
             self.assertNotIn("deployment_count", result)
 
+    def test_pristine_legacy_orphan_recovery_skips_new_barrier_transition(
+        self,
+    ) -> None:
+        records = {
+            runtime.APPLICATION_ROOT: {},
+            runtime.CONTROL_ROOT: {},
+        }
+        parent_record: dict[str, object] = {}
+        with (
+            mock.patch.object(
+                runtime,
+                "_load_barrier_journal",
+                return_value=(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ),
+            mock.patch.object(
+                runtime,
+                "_pristine_legacy_orphan_is_releasable",
+                side_effect=(True, True),
+            ) as releasable,
+            mock.patch.object(
+                runtime, "_sync_repository_filesystem"
+            ) as sync,
+            mock.patch.object(runtime, "_durable_unlink") as unlink,
+            mock.patch.object(runtime, "_ensure_barrier_journal") as ensure,
+            mock.patch.object(
+                runtime, "_serialized_repository_recovery"
+            ) as barrier,
+        ):
+            result = runtime._recover_repository_barrier_only()
+
+        self.assertEqual(releasable.call_count, 2)
+        self.assertEqual(
+            sync.call_args_list,
+            [
+                mock.call(runtime.APPLICATION_ROOT),
+                mock.call(runtime.CONTROL_ROOT),
+            ],
+        )
+        unlink.assert_called_once_with(runtime.BARRIER_MARKER)
+        ensure.assert_not_called()
+        barrier.assert_not_called()
+        self.assertEqual(result["safe_code"], "S12_1_ORPHAN_BARRIER_RECOVERED")
+        self.assertEqual(result["rollback_count"], 0)
+
+    def test_pristine_legacy_orphan_rechecks_before_journal_release(self) -> None:
+        with (
+            mock.patch.object(
+                runtime,
+                "_load_barrier_journal",
+                return_value=(
+                    {
+                        runtime.APPLICATION_ROOT: {},
+                        runtime.CONTROL_ROOT: {},
+                    },
+                    {},
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ),
+            mock.patch.object(
+                runtime,
+                "_pristine_legacy_orphan_is_releasable",
+                side_effect=(True, False),
+            ),
+            mock.patch.object(runtime, "_sync_repository_filesystem"),
+            mock.patch.object(runtime, "_durable_unlink") as unlink,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_GIT_BARRIER_RED",
+            ),
+        ):
+            runtime._recover_repository_barrier_only()
+
+        unlink.assert_not_called()
+
+    def test_pristine_legacy_orphan_rejects_nonpristine_marker_shapes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            absent_attempt = root / "attempt.json"
+            absent_fetch = root / "fetch"
+            with (
+                mock.patch.object(runtime, "ATTEMPT_MARKER", absent_attempt),
+                mock.patch.object(runtime, "FETCH_ROOT", absent_fetch),
+            ):
+                self.assertFalse(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        {}, {}, {}, runtime.LEGACY_BARRIER_SCHEMA
+                    )
+                )
+                self.assertFalse(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        {}, {}, None, runtime.BARRIER_SCHEMA
+                    )
+                )
+                absent_attempt.write_text("{}\n", encoding="ascii")
+                self.assertFalse(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        {}, {}, None, runtime.LEGACY_BARRIER_SCHEMA
+                    )
+                )
+
+    def test_pristine_legacy_orphan_accepts_clean_owner_only_worktrees(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            application = parent / "application"
+            control = parent / "control"
+            for repository in (application, control):
+                subprocess.run(
+                    ["git", "init", "-b", "main", str(repository)],
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.name", "S12 Test"],
+                    cwd=repository,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.email", "s12@example.invalid"],
+                    cwd=repository,
+                    check=True,
+                )
+                tracked = repository / "tracked.txt"
+                tracked.write_text("reviewed\n", encoding="ascii")
+                subprocess.run(
+                    ["git", "add", "tracked.txt"],
+                    cwd=repository,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", "reviewed"],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                )
+                tracked.chmod(0o600)
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime, "ATTEMPT_MARKER", parent / "attempt.json"
+                ),
+                mock.patch.object(runtime, "FETCH_ROOT", parent / "fetch"),
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_active_recovery_git_handle_count",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    runtime, "_active_exact_directory_handle_count", return_value=0
+                ),
+            ):
+                records = {
+                    application: runtime._repository_path_metadata(application),
+                    control: runtime._repository_path_metadata(control),
+                }
+                parent_record = runtime._repository_parent_metadata()
+                self.assertTrue(
+                    runtime._pristine_legacy_orphan_is_releasable(
+                        records,
+                        parent_record,
+                        None,
+                        runtime.LEGACY_BARRIER_SCHEMA,
+                    )
+                )
+
     def test_completed_rollback_recovery_removes_lingering_barrier_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

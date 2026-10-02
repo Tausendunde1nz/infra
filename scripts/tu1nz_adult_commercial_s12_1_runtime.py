@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r4"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r5"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -7695,6 +7695,70 @@ def _load_recovery_backup() -> tuple[Path, dict[str, Any], dict[str, Any]]:
     return backup, index, attempt
 
 
+def _pristine_legacy_orphan_is_releasable(
+    records: dict[Path, dict[str, Any]],
+    parent_record: dict[str, Any],
+    worktree_barrier: dict[Path, dict[Path, dict[str, Any]]] | None,
+    schema: str,
+) -> bool:
+    """Recognize a V1 journal left before any repository mutation began."""
+
+    roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    if (
+        schema != LEGACY_BARRIER_SCHEMA
+        or worktree_barrier is not None
+        or ATTEMPT_MARKER.exists()
+        or ATTEMPT_MARKER.is_symlink()
+        or FETCH_ROOT.exists()
+        or FETCH_ROOT.is_symlink()
+        or set(records) != set(roots)
+    ):
+        return False
+    metadata_paths = _repository_git_metadata_paths(roots)
+    if set(metadata_paths) != {root / ".git" for root in roots}:
+        return False
+    expected_parent = _recorded_parent_metadata(
+        parent_record, require_xattr=False
+    )
+    current_parent = _repository_parent_metadata()
+    if expected_parent != (
+        current_parent["uid"],
+        current_parent["gid"],
+        int(current_parent["mode"], 8),
+    ):
+        return False
+    repository_fields = (
+        "root_uid", "root_gid", "root_mode",
+        "git_uid", "git_gid", "git_mode",
+    )
+    for root in roots:
+        current = _repository_path_metadata(root)
+        if any(
+            current[field] != records[root].get(field)
+            for field in repository_fields
+        ):
+            return False
+        _validate_repository_worktree_contract(root, records[root])
+        _validate_canonical_index(root, None)
+    tracked_paths = _tracked_worktree_regular_paths(roots)
+
+    def assert_no_writer() -> None:
+        if (
+            _competing_control_sync_count() != 0
+            or _active_repository_git_count(roots) != 0
+            or _active_recovery_git_handle_count(metadata_paths) != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
+            or _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0
+        ):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+
+    assert_no_writer()
+    for root in roots:
+        _selected_identity(root, None)
+    assert_no_writer()
+    return True
+
+
 def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
     result_path = STATE_ROOT / "deployment-result.json"
     if not result_path.exists():
@@ -7713,7 +7777,24 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
 
 
 def _recover_repository_barrier_only() -> dict[str, Any]:
-    records, parent_record, _, _schema = _load_barrier_journal()
+    records, parent_record, existing_worktree_barrier, schema = (
+        _load_barrier_journal()
+    )
+    if _pristine_legacy_orphan_is_releasable(
+        records, parent_record, existing_worktree_barrier, schema
+    ):
+        _sync_repository_filesystem(APPLICATION_ROOT)
+        _sync_repository_filesystem(CONTROL_ROOT)
+        if not _pristine_legacy_orphan_is_releasable(
+            records, parent_record, existing_worktree_barrier, schema
+        ):
+            raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+        _durable_unlink(BARRIER_MARKER)
+        return {
+            "ok": True,
+            "safe_code": "S12_1_ORPHAN_BARRIER_RECOVERED",
+            "rollback_count": 0,
+        }
     worktree_barrier = _ensure_barrier_journal(records, parent_record)
     with _serialized_repository_recovery(
         records=records,

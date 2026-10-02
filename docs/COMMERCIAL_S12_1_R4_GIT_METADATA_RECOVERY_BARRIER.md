@@ -226,6 +226,26 @@ ownership/modes; verifies repositories; fsyncs the relevant filesystems; and
 only then durably removes the journal. Barrier-only recovery does not consume
 the fresh runtime deployment attempt.
 
+### Pristine V1 orphan release
+
+The r5 continuation handles the narrower state in which a V1 journal was
+durably written but the repository transition never began. The direct release
+is allowed only when there is no deployment-attempt marker, no fetch stage, no
+worktree-barrier payload, both canonical `.git` directories are installed,
+neither recovery directory is present, and the repository-parent and both
+repository roots still match the six recorded owner/group/mode fields. Both
+indexes and clean identities are validated, and Control sync, Git processes,
+Git-metadata handles, tracked-file writers and exact parent-directory handles
+must be absent before and after repository filesystem synchronization. Only
+then may the reviewed recovery operation durably remove the V1 journal.
+
+This path performs no repository permission or ownership transition. It
+therefore neither upgrades unbound legacy ACL/xattr state nor constructs a new
+tracked-path barrier merely to release a pre-mutation journal. Every V2/V3
+journal, any installed/partial recovery exchange, any fetch stage, any attempt
+marker and every metadata mismatch continues through the existing full
+fail-closed barrier recovery.
+
 ## Product boundary
 
 R4 changes repository recovery only. Yoti remains Sandbox-only; no real
