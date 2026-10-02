@@ -188,9 +188,12 @@ forced restore checkout.
 
 Initial deployment still accepts only the recorded ownership posture.
 Before journaling or changing tracked Worktree ownership, the controller also
-rejects any entry whose owner read or execute/traversal access would disappear
-after the root ownership handoff (including owner-only `0600` files and `0700`
-directories). No service access can therefore be removed by the barrier.
+resolves the exact Unix permission class the recorded owner will receive after
+the root ownership handoff (group for a member of the retained group,
+otherwise other) and rejects any entry whose owner read or execute/traversal
+access would disappear. This includes owner-only `0600`/`0700` and `0604`
+when the recorded owner belongs to the retained group. No service access can
+therefore be removed by the barrier.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining

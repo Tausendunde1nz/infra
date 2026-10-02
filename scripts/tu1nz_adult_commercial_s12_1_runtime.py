@@ -2559,13 +2559,26 @@ def _tracked_worktree_barrier_paths(
     )
 
 
-def _worktree_barrier_mode(mode: int) -> int:
-    """Reject owner-only access, then remove every write bit."""
+def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
+    """Preserve the former owner's effective access class after chown."""
 
     restricted = mode & ~0o222
+    if uid == 0:
+        return restricted
+    try:
+        account = pwd.getpwuid(uid)
+        group_member = gid in os.getgrouplist(account.pw_name, account.pw_gid)
+    except (KeyError, OSError):
+        raise S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+        ) from None
     owner_access = (restricted & 0o500) >> 6
-    surviving_access = ((restricted & 0o050) >> 3) | (restricted & 0o005)
-    if owner_access & ~surviving_access:
+    effective_access = (
+        (restricted & 0o050) >> 3
+        if group_member
+        else restricted & 0o005
+    )
+    if owner_access & ~effective_access:
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
     return restricted
 
@@ -2598,7 +2611,7 @@ def _capture_worktree_write_barrier(
                 ):
                     raise OSError
                 mode = stat.S_IMODE(metadata.st_mode)
-                _worktree_barrier_mode(mode)
+                _worktree_barrier_mode(mode, metadata.st_uid, metadata.st_gid)
                 entries[path] = {
                     "kind": kind,
                     "device": metadata.st_dev,
@@ -2768,7 +2781,9 @@ def _lock_worktree_write_barrier(
     try:
         for root_entries in records.values():
             for record in root_entries.values():
-                _worktree_barrier_mode(int(record["mode"], 8))
+                _worktree_barrier_mode(
+                    int(record["mode"], 8), record["uid"], record["gid"]
+                )
         for root, root_entries in records.items():
             for path, record in sorted(
                 root_entries.items(),
@@ -2782,7 +2797,9 @@ def _lock_worktree_write_barrier(
                     # the second pass below.
                     continue
                 mode = int(record["mode"], 8)
-                restricted_mode = _worktree_barrier_mode(mode)
+                restricted_mode = _worktree_barrier_mode(
+                    mode, record["uid"], record["gid"]
+                )
                 expected_kind = record["kind"]
                 original = (
                     metadata.st_dev == record["device"]
@@ -3111,6 +3128,7 @@ def _reseal_released_worktree_contract(
                     )
                     expected_kind = record["kind"]
                     source_mode = int(record["mode"], 8)
+                    target_uid = record["uid"]
                     target_gid = record["gid"]
                 else:
                     released = (
@@ -3125,6 +3143,7 @@ def _reseal_released_worktree_contract(
                         else "regular"
                     )
                     source_mode = stat.S_IMODE(metadata.st_mode)
+                    target_uid = expected_uid
                     target_gid = expected_gid
                 actual_kind = (
                     "directory"
@@ -3135,7 +3154,9 @@ def _reseal_released_worktree_contract(
                 )
                 if not released or actual_kind != expected_kind:
                     raise OSError
-                restricted_mode = _worktree_barrier_mode(source_mode)
+                restricted_mode = _worktree_barrier_mode(
+                    source_mode, target_uid, target_gid
+                )
                 os.chmod(path, restricted_mode, follow_symlinks=False)
                 os.chown(path, 0, target_gid, follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)

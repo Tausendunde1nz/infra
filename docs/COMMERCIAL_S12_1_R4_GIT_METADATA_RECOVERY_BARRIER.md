@@ -40,11 +40,14 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    in the accepted `IN_ATTRIB` transition events.
 7. From the durably journaled tracked-path set, remove every write bit and move
    tracked regular inodes plus their ancestor directories under root ownership.
-   Before the journal or any transition, reject a path whose owner read or
-   execute/traversal right is not also present in a non-owner permission class;
-   an owner-only `0600` file or `0700` directory therefore cannot become
-   unreadable or untraversable merely because ownership moves to root. Read and
-   execute/traversal bits are otherwise preserved. Repeat actual-Git,
+   Before the journal or any transition, resolve the permission class that the
+   recorded owner will actually receive after the handoff: the group class
+   when that account belongs to the retained group, otherwise the other class.
+   Reject the path unless that exact class retains every prior owner read and
+   execute/traversal right. Owner-only `0600`/`0700` and the group-member case
+   `0604` therefore cannot become unreadable or untraversable merely because
+   ownership moves to root. Read and execute/traversal bits are otherwise
+   preserved. Repeat actual-Git,
    metadata-handle and writable tracked-worktree-handle checks, then require a
    fresh clean identity before the protected body.
 8. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.

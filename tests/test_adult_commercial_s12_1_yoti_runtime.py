@@ -2012,18 +2012,38 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
     def test_worktree_barrier_mode_preserves_nonowner_read_and_traversal(
         self,
     ) -> None:
-        self.assertEqual(runtime._worktree_barrier_mode(0o664), 0o444)
-        self.assertEqual(runtime._worktree_barrier_mode(0o775), 0o555)
+        uid = os.getuid()
+        gid = os.getgid()
+        self.assertEqual(runtime._worktree_barrier_mode(0o664, uid, gid), 0o444)
+        self.assertEqual(runtime._worktree_barrier_mode(0o775, uid, gid), 0o555)
         with self.assertRaisesRegex(
             runtime.S12ControlError,
             "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
         ):
-            runtime._worktree_barrier_mode(0o600)
+            runtime._worktree_barrier_mode(0o604, uid, gid)
         with self.assertRaisesRegex(
             runtime.S12ControlError,
             "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
         ):
-            runtime._worktree_barrier_mode(0o700)
+            runtime._worktree_barrier_mode(0o700, uid, gid)
+
+        account = SimpleNamespace(pw_name="service", pw_gid=2001)
+        with (
+            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
+            mock.patch.object(runtime.os, "getgrouplist", return_value=[2001]),
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            runtime._worktree_barrier_mode(0o604, 2000, 2001)
+        with (
+            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
+            mock.patch.object(runtime.os, "getgrouplist", return_value=[2002]),
+        ):
+            self.assertEqual(
+                runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
+            )
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_metadata_handle_scope_allows_live_shaped_worktree_users(self) -> None:
