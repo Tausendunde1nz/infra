@@ -5644,7 +5644,6 @@ def _serialized_repository_recovery(
             if not cleanup_failed:
                 release_guard: _WorktreeReleaseGuard | None = None
                 release_quiescence: _GuardedHandleQuiescence | None = None
-                release_succeeded = False
                 try:
                     if completed:
                         _refresh_worktree_barrier_for_release(
@@ -5782,7 +5781,9 @@ def _serialized_repository_recovery(
                         release_quiescence.assert_quiesced,
                     )
                     release_guard = None
-                    release_succeeded = True
+                    if parent_locked:
+                        _restore_repository_parent(parent_record)
+                        parent_locked = False
                 except S12ControlError:
                     cleanup_failed = True
                     try:
@@ -5808,16 +5809,6 @@ def _serialized_repository_recovery(
                     if release_quiescence is not None:
                         try:
                             release_quiescence.close()
-                        except S12ControlError:
-                            cleanup_failed = True
-                    if (
-                        release_succeeded
-                        and not cleanup_failed
-                        and parent_locked
-                    ):
-                        try:
-                            _restore_repository_parent(parent_record)
-                            parent_locked = False
                         except S12ControlError:
                             cleanup_failed = True
         if cleanup_failed:

@@ -85,9 +85,10 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    remove every inotify watch and require the ordered `IN_IGNORED` barrier for
    every watch without any intervening mutation. Revalidate that every retained
    handle owner is still the same ptrace-stopped process before closing
-   fanotify. Finally detach the exact seized threads and restore the shared
-   parent last. A handled failure first reseals the repository and only then
-   detaches those processes; controller death is kernel-cleaned. Existing
+   fanotify. Restore the shared parent as the explicit release point while the
+   exact seized threads remain ptrace-stopped, then detach them. A handled
+   parent-release failure first reseals the repository and only then detaches
+   those processes; controller death is kernel-cleaned. Existing
    read-only service cwd/fd/maps are thus
    allowed without reopening an unobserved `fchmod`/relative-path race. The Git
    fingerprint

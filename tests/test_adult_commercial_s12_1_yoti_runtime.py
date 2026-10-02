@@ -927,11 +927,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertLess(
             contract.index("release_guard.finalize_release("),
-            contract.index("release_quiescence.close()"),
+            contract.index("_restore_repository_parent(parent_record)"),
         )
         self.assertLess(
-            contract.index("release_quiescence.close()"),
             contract.index("_restore_repository_parent(parent_record)"),
+            contract.index("release_quiescence.close()"),
         )
         self.assertGreaterEqual(contract.count("accept_release_attributes"), 2)
         self.assertGreaterEqual(
