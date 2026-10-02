@@ -1,0 +1,240 @@
+{
+  "base_commit": "9c8c9cbb93e5c273085c891ee229b6b4cd58e7b4",
+  "baseline_drift": {
+    "accepted_as_baseline": false,
+    "actual_head": "05b127033d734aa4abce10b2e5b7d513b99ed5d2",
+    "actual_tree": "5459b09c4f986ac947dff1466b490a61238cb676",
+    "attribution": "UNATTRIBUTED_CHECKOUT_UPDATE",
+    "branch": "",
+    "changed_paths": [
+      "M\tgovernance/SUPERSEDED.md",
+      "M\tgovernance/chatgpt-project-instructions-v1.1.txt",
+      "M\tgovernance/efficiency-standard-v1.1.md",
+      "M\tgovernance/operative-policy-v1.1.md",
+      "A\tmanaged/bin/tu1nz-mychatbuddy-state-metadata-repair",
+      "A\tmanaged/tests/test_mychatbuddy_state_metadata_repair.py",
+      "A\tplans/business/MYCHATBUDDY_RC5_STATE_METADATA_REPAIR_V1.md"
+    ],
+    "commit_parents": [
+      "05b127033d734aa4abce10b2e5b7d513b99ed5d2 95ba8d29f7dee3d78801a1b096d2ecb4bd2e942a ec71042a542193ee66237d02dc3443bf1128487b",
+      "ec71042a542193ee66237d02dc3443bf1128487b 77046dc327d6e81fb95836de6c0da2e3af421033",
+      "95ba8d29f7dee3d78801a1b096d2ecb4bd2e942a 414ce1bba87f71016d3c72618d07784c6524b97f 954765aad818aa61ab97933960d67bcccda34700",
+      "954765aad818aa61ab97933960d67bcccda34700 c2a39c495a9009c186b6ff3ea7c87e0029de62d4",
+      "c2a39c495a9009c186b6ff3ea7c87e0029de62d4 414ce1bba87f71016d3c72618d07784c6524b97f",
+      "414ce1bba87f71016d3c72618d07784c6524b97f e60aa2f515c89f94bce1dbd6496d358cdfb85300 eac712596395816d0e3469ad7c0aa96c3fc7a2de",
+      "eac712596395816d0e3469ad7c0aa96c3fc7a2de 329c7f96d5dc4aef930489668391a3cd544dc2e1",
+      "329c7f96d5dc4aef930489668391a3cd544dc2e1 629956491a823cfaa0d73158fd4e3835a0257318",
+      "629956491a823cfaa0d73158fd4e3835a0257318 00b1792ae3e75c750ce1c54b148fe33a429d846e",
+      "00b1792ae3e75c750ce1c54b148fe33a429d846e e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+      "77046dc327d6e81fb95836de6c0da2e3af421033 e60aa2f515c89f94bce1dbd6496d358cdfb85300"
+    ],
+    "expected_head": "e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+    "index_ctime_utc": "2026-10-02T17:30:52.050750+00:00",
+    "index_mtime_utc": "2026-10-02T17:25:33.535896+00:00",
+    "index_sha256": "7c5fd653decbfa3a3c89ad00662245ea0147c51e93c7b1a20cb825d6c86cced3",
+    "index_unchanged_during_check": true,
+    "merge_base": "e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+    "observed_utc": "2026-10-02T18:18:00.650828+00:00",
+    "revision_counts": "0\t11",
+    "tracked_diff": ""
+  },
+  "evidence_sha256": {
+    "control-drift.json": "c4533259c98ada0f68a3b6feb359d9da2f83352e1d10cf66e9d9987c957a441b",
+    "full-tests/results.json": "ad08ecd6b9af6067f08260fed519dcfb3ad4a0ef157b14901d2a8696839e9687",
+    "guard-bundle.json": "41d3a1d5c9ac88f16f99c874a1cf2d7c31d737d2d833ad6043cba2930fd55791",
+    "pr68-tests.json": "e36aa6c41076604f366ec8f9c848152ef7e248b90e6c1bdc367cee6ae2bf4ba4",
+    "preservation.json": "35a889206b2bd4eeb5bf3a0c1d6a0a01f25518b899a98c458db4c8fabfda0955"
+  },
+  "existing_targeted_tests": 726,
+  "guard_contract_sha256": "d521ad12558a7ec5bf6eea773bc229aad2c2877212889b47ec4a54f9971cd369",
+  "live_activation": false,
+  "matrix": {
+    "cases": 1160,
+    "edges": [
+      "before",
+      "after"
+    ],
+    "events": [
+      "preflight",
+      "backup",
+      "install_fence_recovery",
+      "reload_fence",
+      "verify_fence_loaded",
+      "enable_recovery",
+      "start_recovery",
+      "enable_watchdog",
+      "start_watchdog",
+      "verify_watchdog",
+      "unarmed",
+      "quiesce_prearm",
+      "arm",
+      "blocked_start",
+      "seal",
+      "stop_timer",
+      "install_guard",
+      "install_authority",
+      "install_consumer",
+      "install_checksum",
+      "stage",
+      "reload_consumer",
+      "verify_new_loaded",
+      "probe_new",
+      "verify_result",
+      "verify_state",
+      "start_timer",
+      "final_verify",
+      "complete"
+    ],
+    "faults": [
+      "coordinator_crash",
+      "watchdog_crash",
+      "both_crash",
+      "signal",
+      "timeout",
+      "reboot",
+      "corrupt",
+      "missing",
+      "foreign_writer",
+      "unit_swap",
+      "hash",
+      "owner",
+      "mode",
+      "symlink",
+      "hardlink",
+      "incomplete_reload",
+      "timer",
+      "manual",
+      "repeat",
+      "expired"
+    ],
+    "scope": "model injection against actual coordinator/state/condition/recovery; not 1160 kernel boots or service executions"
+  },
+  "new_agentmode_tests": 18,
+  "new_guard_tests": 1201,
+  "optional_application_skips": 2,
+  "payloads": {
+    "/etc/systemd/system/tu1nz-v11-guard-recovery.service": {
+      "gid": 0,
+      "mode": 420,
+      "sha256": "4f4dc479e4fe12ed8048a2e19eb45608dc68ee088c2f13af0db15f53debb9c2e",
+      "uid": 0
+    },
+    "/etc/systemd/system/tu1nz-v11-guard-watchdog.service": {
+      "gid": 0,
+      "mode": 420,
+      "sha256": "de9e7dd5c0af1a234c341b596898f577cc9fe3c5b91ef5b3d9858efe2f67e560",
+      "uid": 0
+    },
+    "/etc/systemd/system/tu1nz_delete_guard.service.d/80-v11-start-fence.conf": {
+      "gid": 0,
+      "mode": 420,
+      "sha256": "1546cff67f0818c0b7ebd3b84e7b4e9969c876d8b309836ab875650bafd7e86a",
+      "uid": 0
+    },
+    "/etc/systemd/system/tu1nz_delete_guard.service.d/90-v11-authority.conf": {
+      "gid": 0,
+      "mode": 420,
+      "sha256": "ee80ba0d621bba017022974f9b606d0aa56a96161321e312ae5269cc23583196",
+      "uid": 0
+    },
+    "/etc/systemd/system/tu1nz_delete_guard.timer.d/80-v11-recovery.conf": {
+      "gid": 0,
+      "mode": 420,
+      "sha256": "7c340a1555e6b73023e7ba2438e6ab69dc6fbc9ea2b6027118197c05d6f61afa",
+      "uid": 0
+    },
+    "/etc/tu1nz/docs-authority-v11/authority.json": {
+      "gid": 0,
+      "mode": 384,
+      "sha256": "5576dbbd0c3fd15048dad66ddd93651bf493b23e7f4c9841d23afe56f3054c55",
+      "uid": 0
+    },
+    "/usr/local/bin/checksum_verify": {
+      "gid": 0,
+      "mode": 493,
+      "sha256": "c8763186e9c24ffd75fc8e90eb71ce35a9fe426e8cc875381a626f0c1dbcf54f",
+      "uid": 0
+    },
+    "/usr/local/libexec/tu1nz-docs-authority-v11/guard.py": {
+      "gid": 0,
+      "mode": 384,
+      "sha256": "10ecb24d0bb80d1374b4d8e6e5bb6ee262d2ba90ac0c2dd8ec9cc0cc34dfe7e2",
+      "uid": 0
+    },
+    "/usr/local/libexec/tu1nz-v11-guard-recovery/runtime.py": {
+      "gid": 0,
+      "mode": 384,
+      "sha256": "d2b0d2ce2a2c6d333c62df9a386def9260dc15b55d80cab4c1833a5e938cc960",
+      "uid": 0
+    },
+    "/var/lib/tu1nz-v11-guard-recovery/contract.json": {
+      "gid": 0,
+      "mode": 256,
+      "sha256": "d521ad12558a7ec5bf6eea773bc229aad2c2877212889b47ec4a54f9971cd369",
+      "uid": 0
+    }
+  },
+  "pr68_tests": 35,
+  "pr_created": false,
+  "preservation": {
+    "ancestor_1cf0d79": true,
+    "control": {
+      "head": "05b127033d734aa4abce10b2e5b7d513b99ed5d2",
+      "index_gid": 1001,
+      "index_inode": 1460594,
+      "index_mode": "0o600",
+      "index_nlink": 1,
+      "index_sha256": "7c5fd653decbfa3a3c89ad00662245ea0147c51e93c7b1a20cb825d6c86cced3",
+      "index_uid": 1001,
+      "tracked_diff": "",
+      "tree": "5459b09c4f986ac947dff1466b490a61238cb676"
+    },
+    "docs_index_sha256": "aa225794c849075a46bd84bad037fa02d7165547ca69bfcc4aa2137b8cec84ce",
+    "hardening42": {
+      "count": 42,
+      "mismatch_paths": [],
+      "passed": true
+    },
+    "historical701": {
+      "count": 701,
+      "mismatch_paths": [],
+      "passed": true
+    },
+    "private1125": {
+      "count": 1125,
+      "mismatch_paths": [],
+      "passed": true
+    },
+    "v9sources30": {
+      "count": 30,
+      "mismatch_paths": [],
+      "passed": true
+    }
+  },
+  "remaining": [
+    "Unattended exact preseal rollback from immutable receipts is not connected to the independent dispatcher; it currently chooses SECURED_STOP.",
+    "Complete cross-phase host execution, shared irreversible barriers and recovery composition remain unbound.",
+    "Agentmode root claim exists as a tested standalone candidate; unit/transaction handoff and 660-second production observation remain unbound.",
+    "Four protected inputs remain unread and are not the only missing inputs.",
+    "Current Control HEAD differs from the expressly authorized production baseline; pins remain unchanged."
+  ],
+  "root_read_run": false,
+  "source_sha256": {
+    "scripts/v11_docs_authority/production.py": "27fe38a4ba88e2f6ef0f5fef5420e5e075dab6f816fa48621b6585fa1a223ae7",
+    "scripts/v11_guard_recovery/coordinator.py": "32c34ca32b38298cf2da44e3705ec1cdab86ddb4f02b027ff270a8ba2e63f7ba",
+    "scripts/v11_guard_recovery/files.py": "750e691442b37d98fad869e4fbd459b7f9eb5ee864ee88e9e7c92dfb57cc326c",
+    "scripts/v11_guard_recovery/host.py": "4611f6aaa6e293b219f2b4d21b1e9cb27c120c2ad2ed0bc0685e3e1442a91d54",
+    "scripts/v11_guard_recovery/runtime.py": "4cd4cb740aee63aa967f867d6773ee6072c5155b510fc67827c60970b73a5df4",
+    "scripts/v11_guard_recovery/state.py": "04111006242b26f047aea373650393a18110252e445ea28a54885cd9e319b941",
+    "scripts/v11_guard_recovery/test_fence.py": "4707ea44c44fc5ce177babd7bddc387526dcf3fde5f7f890f4e68b906cc78682",
+    "scripts/v11_guard_recovery/test_files_units.py": "65ff60de580b6097d892075b60de85312f9f0a3337d4f79ebf352ab945481274",
+    "scripts/v11_guard_recovery/units.py": "c553fcd08dd08a86b188bb30087756dc980752a832cb043baea3aeb003f3f664",
+    "scripts/v11_host/agentmode_claim.py": "cf680560c5ba6b8d47f01ca67eed82f2274f5ca985b4addb1bf13172a2634fa3",
+    "scripts/v11_host/test_agentmode_claim.py": "deb9daa995b562d502a8c5a9aa8bde189ccafe5b4f08fcf44584e36d27213216"
+  },
+  "status": "OFFLINE_COMPONENTS_TESTED_LIVE_NO_GO",
+  "targeted_tests": 1945,
+  "unit_graph": "systemd-analyze --root=<isolated fixture> --man=no verify; actual distro targets; positive and cycle/missing-executable negative cases passed",
+  "watchdog_started": false,
+  "workflow_steps": 108
+}
