@@ -3213,6 +3213,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(runtime.os, "chown", side_effect=chown),
             mock.patch.object(runtime.os, "chmod", side_effect=chmod),
             mock.patch.object(runtime, "_assert_repository_parent_xattrs"),
+            mock.patch.object(
+                runtime, "_assert_named_owner_acl_preserves_access"
+            ),
             mock.patch.object(runtime, "_fsync_directory"),
         ):
             runtime._lock_repository_parent(record)
