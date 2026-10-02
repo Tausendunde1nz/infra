@@ -445,6 +445,19 @@ def _git_arguments(root: Path, *arguments: str) -> list[str]:
     )
 
 
+def _without_optional_git_locks(arguments: Sequence[str]) -> list[str]:
+    command = list(arguments)
+    positions = [
+        index
+        for index, argument in enumerate(command)
+        if argument in {"git", "/usr/bin/git"}
+    ]
+    if len(positions) != 1:
+        raise S12ControlError("S12_1_CONTROL_COMMAND_RED")
+    command.insert(positions[0] + 1, "--no-optional-locks")
+    return command
+
+
 def _isolated_root_git_prefix(root: Path) -> list[str]:
     return [
         "/usr/bin/env",
@@ -543,10 +556,18 @@ def _bounded_nul_command_records(
 
 
 def _validate_canonical_index(
-    root: Path, git_directory: Path | None
+    root: Path,
+    git_directory: Path | None,
+    *,
+    no_optional_locks: bool = False,
 ) -> None:
+    arguments = _selected_git_arguments(
+        root, git_directory, "ls-files", "-v", "-z", "--"
+    )
+    if no_optional_locks:
+        arguments = _without_optional_git_locks(arguments)
     records = _bounded_nul_command_records(
-        _selected_git_arguments(root, git_directory, "ls-files", "-v", "-z", "--"),
+        arguments,
         "S12_1_BACKUP_REPOSITORY_INDEX_RED",
     )
     paths: set[bytes] = set()
@@ -561,19 +582,40 @@ def _validate_canonical_index(
 
 
 def _selected_identity(
-    root: Path, git_directory: Path | None
+    root: Path,
+    git_directory: Path | None,
+    *,
+    no_optional_locks: bool = False,
 ) -> tuple[str, str]:
     status_arguments = ["status", "--porcelain"]
     if git_directory is not None:
         status_arguments.extend(
             ["--", ".", f":(exclude){RECOVERY_GIT_DIRECTORY}"]
         )
-    if _selected_git(root, git_directory, *status_arguments):
-        raise S12ControlError("S12_1_RELEASE_DIRTY_RED")
-    return (
-        _selected_git(root, git_directory, "rev-parse", "HEAD"),
-        _selected_git(root, git_directory, "rev-parse", "HEAD^{tree}"),
+    if not no_optional_locks:
+        if _selected_git(root, git_directory, *status_arguments):
+            raise S12ControlError("S12_1_RELEASE_DIRTY_RED")
+        return (
+            _selected_git(root, git_directory, "rev-parse", "HEAD"),
+            _selected_git(root, git_directory, "rev-parse", "HEAD^{tree}"),
+        )
+    commands = (
+        status_arguments,
+        ["rev-parse", "HEAD"],
+        ["rev-parse", "HEAD^{tree}"],
     )
+    completed = []
+    for command in commands:
+        arguments = _without_optional_git_locks(
+            _selected_git_arguments(root, git_directory, *command)
+        )
+        result = _run(arguments)
+        if result.stderr.strip():
+            raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
+        completed.append(result.stdout.strip())
+    if completed[0]:
+        raise S12ControlError("S12_1_RELEASE_DIRTY_RED")
+    return completed[1], completed[2]
 
 
 def _selected_branch_or_none(root: Path, git_directory: Path | None) -> str | None:
@@ -7739,7 +7781,7 @@ def _pristine_legacy_orphan_is_releasable(
         ):
             return False
         _validate_repository_worktree_contract(root, records[root])
-        _validate_canonical_index(root, None)
+        _validate_canonical_index(root, None, no_optional_locks=True)
     tracked_paths = _tracked_worktree_regular_paths(roots)
 
     def assert_no_writer() -> None:
@@ -7754,7 +7796,7 @@ def _pristine_legacy_orphan_is_releasable(
 
     assert_no_writer()
     for root in roots:
-        _selected_identity(root, None)
+        _selected_identity(root, None, no_optional_locks=True)
     assert_no_writer()
     return True
 

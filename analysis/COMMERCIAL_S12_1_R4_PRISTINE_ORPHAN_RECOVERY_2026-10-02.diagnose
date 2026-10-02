@@ -38,8 +38,10 @@ It is that recovery tries to create and install a new full barrier before it
 can release a proven pre-mutation V1 journal. The correction adds a narrow
 read-only recognition path for that exact pristine state. It validates journal
 shape, current metadata, canonical Git layout, indexes, clean identities and
-all relevant writer/handle exclusions twice around filesystem synchronization,
-then durably releases only the journal. No repository xattr, ACL, mode,
+all relevant writer/handle exclusions twice around filesystem synchronization.
+All classifier Git reads use `--no-optional-locks`, preventing an index refresh
+from mutating Git metadata. The controller then durably releases only the
+journal. No repository xattr, ACL, mode,
 ownership, Git metadata or tracked content is changed.
 
 All non-pristine and post-mutation states retain the existing full barrier

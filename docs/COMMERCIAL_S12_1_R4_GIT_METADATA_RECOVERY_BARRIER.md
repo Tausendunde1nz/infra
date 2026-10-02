@@ -234,7 +234,8 @@ is allowed only when there is no deployment-attempt marker, no fetch stage, no
 worktree-barrier payload, both canonical `.git` directories are installed,
 neither recovery directory is present, and the repository-parent and both
 repository roots still match the six recorded owner/group/mode fields. Both
-indexes and clean identities are validated, and Control sync, Git processes,
+indexes and clean identities are validated with Git optional locking disabled,
+so the classifier cannot refresh or replace an index. Control sync, Git processes,
 Git-metadata handles, tracked-file writers and exact parent-directory handles
 must be absent before and after repository filesystem synchronization. Only
 then may the reviewed recovery operation durably remove the V1 journal.

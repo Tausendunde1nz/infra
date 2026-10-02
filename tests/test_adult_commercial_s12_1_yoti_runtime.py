@@ -5595,6 +5595,44 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     )
                 )
 
+    def test_pristine_legacy_checks_disable_optional_git_locks(self) -> None:
+        repository = Path("/repository")
+        completed = (
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "a" * 40 + "\n", ""),
+            subprocess.CompletedProcess([], 0, "b" * 40 + "\n", ""),
+        )
+        with mock.patch.object(
+            runtime, "_run", side_effect=completed
+        ) as run:
+            identity = runtime._selected_identity(
+                repository, None, no_optional_locks=True
+            )
+        self.assertEqual(identity, ("a" * 40, "b" * 40))
+        self.assertEqual(run.call_count, 3)
+        for call in run.call_args_list:
+            arguments = call.args[0]
+            git_position = arguments.index("git")
+            self.assertEqual(
+                arguments[git_position : git_position + 2],
+                ["git", "--no-optional-locks"],
+            )
+
+        with mock.patch.object(
+            runtime,
+            "_bounded_nul_command_records",
+            return_value=(b"H tracked.txt",),
+        ) as bounded:
+            runtime._validate_canonical_index(
+                repository, None, no_optional_locks=True
+            )
+        arguments = bounded.call_args.args[0]
+        git_position = arguments.index("git")
+        self.assertEqual(
+            arguments[git_position : git_position + 2],
+            ["git", "--no-optional-locks"],
+        )
+
     def test_completed_rollback_recovery_removes_lingering_barrier_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
