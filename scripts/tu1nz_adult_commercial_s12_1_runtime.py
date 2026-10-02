@@ -1232,7 +1232,17 @@ def _repository_backup_state(
     git_directory: Path | None = None,
     path_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    selected_path_metadata = path_metadata or _repository_path_metadata(root)
+    captured_path_metadata = path_metadata or _repository_path_metadata(root)
+    try:
+        selected_path_metadata = {
+            name: captured_path_metadata[name]
+            for name in (
+                "root_uid", "root_gid", "root_mode",
+                "git_uid", "git_gid", "git_mode",
+            )
+        }
+    except (KeyError, TypeError):
+        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED") from None
     _validate_canonical_index(root, git_directory)
     commit, tree = _selected_identity(root, git_directory)
     branch = _selected_branch_or_none(root, git_directory)
@@ -2633,6 +2643,13 @@ def _assert_post_chown_acl_preserves_access(
         ):
             raise OSError
         if value is None:
+            account = pwd.getpwuid(uid)
+            groups = set(os.getgrouplist(account.pw_name, account.pw_gid))
+            effective_access = (
+                target_mask if before.st_gid in groups else target_other
+            )
+            if required_access & ~effective_access:
+                raise OSError
             return
 
         acl_header = struct.Struct("<I")
@@ -2673,7 +2690,7 @@ def _assert_post_chown_acl_preserves_access(
                 if tag in {0x01, 0x04, 0x10, 0x20}
             )
             or sum(tag == 0x10 for tag, *_rest in entries)
-            != (1 if named_entries else 0)
+            not in ({1} if named_entries else {0, 1})
         ):
             raise OSError
         named_users = [

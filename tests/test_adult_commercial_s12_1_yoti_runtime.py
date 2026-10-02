@@ -1442,6 +1442,48 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 },
             )
 
+    def test_backup_state_excludes_barrier_only_root_fingerprint(self) -> None:
+        metadata = {
+            "root_uid": 501,
+            "root_gid": 20,
+            "root_mode": "0755",
+            "git_uid": 501,
+            "git_gid": 20,
+            "git_mode": "0755",
+            "root_xattr_fingerprint": "a" * 64,
+        }
+        with (
+            mock.patch.object(runtime, "_validate_canonical_index"),
+            mock.patch.object(
+                runtime,
+                "_selected_identity",
+                return_value=("b" * 40, "c" * 40),
+            ),
+            mock.patch.object(
+                runtime, "_selected_branch_or_none", return_value="main"
+            ),
+            mock.patch.object(
+                runtime, "_selected_git", return_value="d" * 40
+            ),
+            mock.patch.object(
+                runtime, "_selected_ref_or_none", return_value=None
+            ),
+        ):
+            state = runtime._repository_backup_state(
+                Path("/repository"), "main", path_metadata=metadata
+            )
+
+        expected_metadata = {
+            name: value
+            for name, value in metadata.items()
+            if name != "root_xattr_fingerprint"
+        }
+        self.assertNotIn("root_xattr_fingerprint", state)
+        self.assertEqual(
+            {name: state[name] for name in expected_metadata},
+            expected_metadata,
+        )
+
     def test_backup_rejects_noncanonical_index_flags(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory) / "repository"
@@ -2289,6 +2331,84 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 runtime._capture_worktree_write_barrier(
                     (repository,), {repository: repository_record}
+                )
+
+    def test_transition_accepts_valid_mask_only_access_acl(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            gid = path.lstat().st_gid
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os, "getxattr", return_value=acl, create=True
+                ),
+                mock.patch.object(
+                    runtime.pwd,
+                    "getpwuid",
+                    return_value=SimpleNamespace(
+                        pw_name="service", pw_gid=gid
+                    ),
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid]
+                ),
+            ):
+                runtime._assert_post_chown_acl_preserves_access(
+                    path,
+                    1001,
+                    0o5,
+                    0o5,
+                    0o0,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
+                )
+
+    def test_transition_rejects_mode_only_owner_outside_retained_group(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            gid = path.lstat().st_gid
+            with (
+                mock.patch.object(
+                    runtime.os, "listxattr", return_value=[], create=True
+                ),
+                mock.patch.object(runtime.os, "getxattr", create=True),
+                mock.patch.object(
+                    runtime.pwd,
+                    "getpwuid",
+                    return_value=SimpleNamespace(
+                        pw_name="service", pw_gid=gid + 1
+                    ),
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid + 1]
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
+                ),
+            ):
+                runtime._assert_post_chown_acl_preserves_access(
+                    path,
+                    1001,
+                    0o5,
+                    0o5,
+                    0o0,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
                 )
 
     def test_worktree_barrier_rejects_xattr_drift_before_chown(self) -> None:

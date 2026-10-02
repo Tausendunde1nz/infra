@@ -47,8 +47,11 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    Before the journal or any transition, resolve the permission class that the
    recorded owner will actually receive after the handoff: a matching named
    user entry takes precedence; otherwise the union of the owning-group and
-   matching named-group ACL entries is filtered through the ACL mask; only an
-   account matching no group entry receives the other class.
+   matching named-group ACL entries is filtered through the ACL mask (including
+   a valid base ACL carrying an optional mask without named entries); only an
+   account matching no group entry receives the other class. Without an access
+   ACL, the same retained-group-membership decision is applied directly to the
+   ordinary group/other mode classes before ownership changes.
    Reject the path unless that exact class retains every prior owner read and
    execute/traversal right. Owner-only `0600`/`0700` and the group-member case
    `0604` therefore cannot become unreadable or untraversable merely because
@@ -199,6 +202,10 @@ its own safety proof or immutable-runtime migration and cannot inherit this
 release-specific conclusion.
 
 ## Orphan recovery
+
+The repository-root xattr fingerprint remains barrier-journal state and is not
+copied into the six-field repository metadata in a runtime backup index; backup
+capture and reconstruction therefore compare the same canonical schema.
 
 An orphan journal is never manually removed. The reviewed `recover` operation
 validates its schema, paths and metadata; proves no Git writer or metadata
