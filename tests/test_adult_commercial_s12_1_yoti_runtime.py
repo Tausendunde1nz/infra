@@ -777,12 +777,14 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             }
             real_lstat = Path.lstat
 
+            root_transition_gid = {"value": 0}
+
             def transition_lstat(path):
                 actual = real_lstat(path)
                 if path == repository:
                     return SimpleNamespace(
                         st_uid=0,
-                        st_gid=0,
+                        st_gid=root_transition_gid["value"],
                         st_mode=stat.S_IFDIR | 0o500,
                         st_nlink=actual.st_nlink,
                     )
@@ -802,11 +804,14 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime._validate_repository_worktree_contract(
                         repository, metadata
                     )
-                runtime._validate_repository_worktree_contract(
-                    repository,
-                    metadata,
-                    allow_journaled_transition=True,
-                )
+                for transition_gid in (0, os.getgid()):
+                    with self.subTest(root_transition_gid=transition_gid):
+                        root_transition_gid["value"] = transition_gid
+                        runtime._validate_repository_worktree_contract(
+                            repository,
+                            metadata,
+                            allow_journaled_transition=True,
+                        )
 
     def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -3039,6 +3044,76 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertTrue(guard.fanotify_error)
         self.assertIsNone(guard.fanotify_descriptor)
         close.assert_called_once_with(123)
+
+    def test_fanotify_close_denies_pending_open_with_cached_group(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_thread = None
+        guard.fanotify_pending = [456]
+        guard.fanotify_lock = threading.Lock()
+        guard.fanotify_stop = threading.Event()
+        guard.descriptor = None
+        guard.inotify_watches = set()
+
+        with (
+            mock.patch.object(runtime.os, "write") as write,
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard.close()
+
+        write.assert_called_once_with(
+            123,
+            guard._FAN_RESPONSE.pack(456, guard._FAN_DENY),
+        )
+        self.assertEqual(
+            [call.args for call in close.call_args_list], [(456,), (123,)]
+        )
+        self.assertIsNone(guard.fanotify_descriptor)
+
+    def test_repository_root_lock_resumes_legacy_chown_boundary(self) -> None:
+        state = {"uid": 0, "gid": 1002, "mode": 0o500}
+
+        class RootPath:
+            parent = Path("/")
+
+            @staticmethod
+            def is_symlink() -> bool:
+                return False
+
+            @staticmethod
+            def lstat():
+                return SimpleNamespace(
+                    st_uid=state["uid"],
+                    st_gid=state["gid"],
+                    st_mode=stat.S_IFDIR | state["mode"],
+                )
+
+        root = RootPath()
+        record = {
+            "root_uid": 1001,
+            "root_gid": 1002,
+            "root_mode": "0755",
+        }
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime.os,
+                "chmod",
+                side_effect=lambda _path, mode: state.update(mode=mode),
+            ) as chmod,
+            mock.patch.object(runtime.os, "chown") as chown,
+            mock.patch.object(runtime, "_assert_repository_root_xattrs"),
+            mock.patch.object(
+                runtime, "_assert_post_chown_acl_preserves_access"
+            ),
+            mock.patch.object(runtime, "_fsync_directory"),
+        ):
+            runtime._lock_repository_root(root, record)
+
+        self.assertEqual(state, {"uid": 0, "gid": 1002, "mode": 0o555})
+        chown.assert_not_called()
+        chmod.assert_called_once_with(root, 0o555)
 
     def test_git_release_fingerprint_binds_nested_metadata_and_modes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

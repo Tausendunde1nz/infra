@@ -4101,11 +4101,22 @@ class _WorktreeReleaseGuard:
                 return False
         return False
 
-    def _fanotify_respond(self, event_descriptor: int, decision: int) -> None:
-        if self.fanotify_descriptor is None:
+    def _fanotify_respond(
+        self,
+        event_descriptor: int,
+        decision: int,
+        *,
+        group_descriptor: int | None = None,
+    ) -> None:
+        descriptor = (
+            self.fanotify_descriptor
+            if group_descriptor is None
+            else group_descriptor
+        )
+        if descriptor is None:
             raise OSError("fanotify descriptor closed")
         os.write(
-            self.fanotify_descriptor,
+            descriptor,
             self._FAN_RESPONSE.pack(event_descriptor, decision),
         )
         os.close(event_descriptor)
@@ -4446,7 +4457,11 @@ class _WorktreeReleaseGuard:
             self.fanotify_descriptor = None
         for event_descriptor in pending:
             try:
-                self._fanotify_respond(event_descriptor, self._FAN_DENY)
+                self._fanotify_respond(
+                    event_descriptor,
+                    self._FAN_DENY,
+                    group_descriptor=fanotify_descriptor,
+                )
             except OSError:
                 try:
                     os.close(event_descriptor)
@@ -5705,6 +5720,7 @@ def _validate_repository_worktree_contract(
                 {
                     (root_uid, root_gid, 0o500),
                     (0, 0, 0o500),
+                    (0, root_gid, 0o500),
                     (root_uid, root_gid, _metadata_barrier_mode(root_mode)),
                     (0, root_gid, _metadata_barrier_mode(root_mode)),
                 }
@@ -5775,10 +5791,21 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
             and metadata.st_gid == 0
             and stat.S_IMODE(metadata.st_mode) == 0o500
         )
+        legacy_chowned = (
+            metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
         if (
             root.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (original or locked or restricted or legacy_locked)
+            or not (
+                original
+                or locked
+                or restricted
+                or legacy_locked
+                or legacy_chowned
+            )
         ):
             raise OSError
         if original:
@@ -5794,6 +5821,7 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
         )
         if original or restricted or legacy_locked:
             os.chown(root, 0, expected_gid)
+        if original or restricted or legacy_locked or legacy_chowned:
             os.chmod(root, restricted_mode)
         metadata = root.lstat()
         if (

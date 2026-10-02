@@ -135,7 +135,9 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    already-consumed `open_how` userspace structure can change while the caller
    is blocked. Worker health is checked before every sentinel open, and a
    worker error closes the permission group to wake blocked syscalls before the
-   controller reports RED.
+   controller reports RED. Guard teardown denies every queued permission event
+   through the still-open cached fanotify group before clearing or closing its
+   descriptor.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
 the scan/exchange race. The fingerprint plus the kernel mutation watch closes
@@ -156,7 +158,10 @@ by root Git. A release interrupted after ownership restoration can therefore
 reseal only the journal-bound inode; a later replacement still fails closed.
 An R3 orphaned parent or repository root at `root:root 0500` is normalized to
 the R4 traversal-preserving `root:<recorded-group>` restricted mode before any
-subsequent validation or Git transition.
+subsequent validation or Git transition. Recovery also accepts the exact
+interrupted root transition `root:<recorded-group> 0500` and completes its
+pending chmod, so a crash between those two syscalls cannot strand the
+checkout.
 
 ## Classification matrix
 
