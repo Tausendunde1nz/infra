@@ -1,12 +1,16 @@
 import copy
 import hashlib
 import json
+import mmap
 import os
+import pwd
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager
 from datetime import datetime
@@ -337,7 +341,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("with _exclusive_deployment_lock()", source)
         self.assertEqual(source.count('_run(["systemctl", "start", UNIT_NAME]'), 1)
         deploy = source.split("def _deploy_locked()", 1)[1].split("def deploy()", 1)[0]
-        journal = deploy.index("_write_barrier_journal(path_records, parent_record)")
+        journal = deploy.index("_write_barrier_journal(")
         barrier = deploy.index("with _serialized_repository_recovery(")
         backup = deploy.index("backup, index = create_backup(")
         attempt = deploy.index("ATTEMPT_MARKER,")
@@ -773,12 +777,14 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             }
             real_lstat = Path.lstat
 
+            root_transition_gid = {"value": 0}
+
             def transition_lstat(path):
                 actual = real_lstat(path)
                 if path == repository:
                     return SimpleNamespace(
                         st_uid=0,
-                        st_gid=0,
+                        st_gid=root_transition_gid["value"],
                         st_mode=stat.S_IFDIR | 0o500,
                         st_nlink=actual.st_nlink,
                     )
@@ -798,11 +804,14 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime._validate_repository_worktree_contract(
                         repository, metadata
                     )
-                runtime._validate_repository_worktree_contract(
-                    repository,
-                    metadata,
-                    allow_journaled_transition=True,
-                )
+                for transition_gid in (0, os.getgid()):
+                    with self.subTest(root_transition_gid=transition_gid):
+                        root_transition_gid["value"] = transition_gid
+                        runtime._validate_repository_worktree_contract(
+                            repository,
+                            metadata,
+                            allow_journaled_transition=True,
+                        )
 
     def test_deploy_and_recovery_require_digest_bound_root_controller(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -835,7 +844,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             "runtime_digest_bindings != [_trusted_controller_digest()]", source
         )
 
-    def test_repository_barrier_checks_handles_across_complete_worktrees(self) -> None:
+    def test_repository_barrier_checks_only_git_metadata_handles(self) -> None:
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
             encoding="utf-8"
         )
@@ -843,12 +852,93 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         end = source.index("def _seed_repository_from_bundle(", barrier)
         contract = source[barrier:end]
         self.assertGreaterEqual(
-            contract.count("_active_recovery_git_handle_count(selected_roots)"),
+            contract.count("_active_recovery_git_handle_count(metadata_paths)"),
             3,
         )
         self.assertIn(
-            "tuple(selected_roots) + tuple(barriers.values())", contract
+            'tuple(root / ".git" for root in selected_roots)', contract
         )
+        self.assertNotIn(
+            "_active_recovery_git_handle_count(selected_roots)", contract
+        )
+        self.assertIn("_lock_repository_git_metadata(", contract)
+        self.assertIn("_GitMetadataTransitionGuard(", contract)
+        self.assertLess(
+            contract.index("_GitMetadataTransitionGuard("),
+            contract.index("_active_repository_git_count("),
+        )
+        self.assertLess(
+            contract.index("_GitMetadataTransitionGuard("),
+            contract.index("_lock_repository_root("),
+        )
+        self.assertLess(
+            contract.index("transition_guard.assert_unchanged()"),
+            contract.index("_install_repository_recovery_barrier("),
+        )
+        self.assertLess(
+            contract.index("_install_repository_recovery_barrier("),
+            contract.index("transition_guard.assert_no_writer_events()"),
+        )
+        self.assertIn("transition_guard.assert_quarantined_unchanged(", contract)
+        self.assertGreaterEqual(
+            contract.count("_active_tracked_worktree_write_handle_count("),
+            6,
+        )
+        self.assertGreaterEqual(
+            contract.count("allow_missing=allow_journaled_transition"), 3
+        )
+        self.assertIn("_tracked_worktree_regular_paths(selected_roots)", contract)
+        self.assertIn("_selected_identity(root, git_directory)", contract)
+        self.assertIn("_lock_worktree_write_barrier(", contract)
+        self.assertGreaterEqual(
+            contract.count("_assert_worktree_write_barrier("),
+            3,
+        )
+        self.assertIn("_restore_worktree_write_barrier(", contract)
+        self.assertIn("_WorktreeReleaseGuard(", contract)
+        self.assertIn("_validate_released_worktree_contract(", contract)
+        self.assertIn("_repository_git_metadata_directories(", contract)
+        self.assertGreaterEqual(
+            contract.count("_git_metadata_release_fingerprint("), 2
+        )
+        self.assertGreaterEqual(
+            contract.count("_release_xattr_fingerprint("), 2
+        )
+        self.assertIn("release_paths.update(selected_roots)", contract)
+        self.assertIn("_hard_lock_repository_parent(parent_record)", contract)
+        self.assertNotIn("_active_guarded_owner_handle_count(", contract)
+        self.assertIn("_restore_repository_worktree_metadata(", contract)
+        self.assertIn("_restore_repository_git_metadata(", contract)
+        self.assertIn("_GuardedHandleQuiescence(", contract)
+        self.assertIn("release_quiescence.acquire()", contract)
+        self.assertIn("def validate_final_release()", contract)
+        self.assertIn("_PTRACE_SEIZE", source)
+        self.assertIn("_PTRACE_INTERRUPT", source)
+        self.assertIn("_PTRACE_DETACH", source)
+        self.assertNotIn("PTRACE_O_EXITKILL", source)
+        self.assertNotIn("pidfd_send_signal", source)
+        self.assertNotIn("SIGSTOP", source)
+        self.assertLess(
+            contract.index("_WorktreeReleaseGuard("),
+            contract.index("_GuardedHandleQuiescence("),
+        )
+        self.assertLess(
+            contract.index("release_quiescence.acquire()"),
+            contract.index("_restore_worktree_write_barrier("),
+        )
+        self.assertLess(
+            contract.index("_restore_repository_git_metadata("),
+            contract.index("release_guard.finalize_release("),
+        )
+        self.assertLess(
+            contract.index("release_guard.finalize_release("),
+            contract.index("_restore_repository_parent(parent_record)"),
+        )
+        self.assertLess(
+            contract.index("_restore_repository_parent(parent_record)"),
+            contract.index("release_quiescence.close()"),
+        )
+        self.assertGreaterEqual(contract.count("accept_release_attributes"), 2)
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
         )
@@ -856,6 +946,16 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             contract.index("_validate_repository_worktree_contract("),
             contract.index("_lock_repository_parent("),
         )
+        self.assertIn("fanotify_init", source)
+        self.assertIn("_FAN_OPEN_PERM", source)
+        self.assertIn("_FAN_DENY", source)
+        holders_start = source.index("def _guarded_handle_processes(")
+        holders_end = source.index(
+            "class _GuardedHandleQuiescence:", holders_start
+        )
+        holders_contract = source[holders_start:holders_end]
+        self.assertNotIn("_current_process_ancestry()", holders_contract)
+        self.assertIn("process.name == controller_pid", holders_contract)
 
     def test_release_acquisition_uses_only_digest_bound_offline_bundles(self) -> None:
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
@@ -921,7 +1021,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), original)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
-    def test_repository_handle_gate_detects_closed_fd_writable_mapping(self) -> None:
+    def test_tracked_worktree_gate_detects_closed_fd_writable_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mapped = root / "tracked.bin"
@@ -945,14 +1045,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             try:
                 self.assertEqual(child.stdout.readline().strip(), "ready")
                 self.assertGreater(
-                    runtime._active_recovery_git_handle_count((root,)), 0
+                    runtime._active_tracked_worktree_write_handle_count((mapped,)),
+                    0,
                 )
             finally:
                 child.terminate()
-                child.wait(timeout=10)
+                child.communicate(timeout=10)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
-    def test_repository_handle_gate_detects_upgradeable_shared_mapping(self) -> None:
+    def test_tracked_worktree_gate_detects_upgradeable_shared_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mapped = root / "tracked.bin"
@@ -976,14 +1077,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             try:
                 self.assertEqual(child.stdout.readline().strip(), "ready")
                 self.assertGreater(
-                    runtime._active_recovery_git_handle_count((root,)), 0
+                    runtime._active_tracked_worktree_write_handle_count((mapped,)),
+                    0,
                 )
             finally:
                 child.terminate()
-                child.wait(timeout=10)
+                child.communicate(timeout=10)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
-    def test_repository_handle_gate_detects_deleted_external_alias_mapping(self) -> None:
+    def test_tracked_worktree_gate_detects_deleted_external_alias_mapping(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = root / "repository"
@@ -1013,11 +1115,88 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 self.assertEqual(child.stdout.readline().strip(), "ready")
                 self.assertEqual(tracked.stat().st_nlink, 1)
                 self.assertGreater(
-                    runtime._active_recovery_git_handle_count((repository,)), 0
+                    runtime._active_tracked_worktree_write_handle_count((tracked,)),
+                    0,
                 )
             finally:
                 child.terminate()
-                child.wait(timeout=10)
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_tracked_worktree_gate_detects_writable_fd(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tracked = Path(directory) / "tracked.bin"
+            tracked.write_bytes(b"tracked\n")
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import sys,time;"
+                        "f=open(sys.argv[1],'r+b');"
+                        "print('ready',flush=True);time.sleep(30)"
+                    ),
+                    str(tracked),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                self.assertGreater(
+                    runtime._active_tracked_worktree_write_handle_count((tracked,)),
+                    0,
+                )
+            finally:
+                child.terminate()
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_tracked_worktree_gate_allows_read_only_and_private_handles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tracked = Path(directory) / "tracked.bin"
+            tracked.write_bytes(b"0" * 4096)
+            cases = (
+                "f=open(sys.argv[1],'rb')",
+                (
+                    "import mmap;f=open(sys.argv[1],'rb');"
+                    "m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ);f.close()"
+                ),
+                (
+                    "import mmap;f=open(sys.argv[1],'rb');"
+                    "m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_COPY);f.close()"
+                ),
+            )
+            for setup in cases:
+                with self.subTest(setup=setup):
+                    child = subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-c",
+                            (
+                                "import os,sys,time;os.chdir(sys.argv[2]);"
+                                + setup
+                                + ";print('ready',flush=True);time.sleep(30)"
+                            ),
+                            str(tracked),
+                            directory,
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    try:
+                        self.assertEqual(child.stdout.readline().strip(), "ready")
+                        self.assertEqual(
+                            runtime._active_tracked_worktree_write_handle_count(
+                                (tracked,)
+                            ),
+                            0,
+                        )
+                    finally:
+                        child.terminate()
+                        child.communicate(timeout=10)
 
     def test_repository_barrier_journal_precedes_mutation_and_binds_parent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1039,6 +1218,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "uid": 501,
                 "gid": 20,
                 "mode": "2775",
+                "xattr_fingerprint": "a" * 64,
             }
             captured: dict[str, object] = {}
 
@@ -1051,6 +1231,20 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(runtime, "CONTROL_ROOT", control),
                 mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
                 mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(
+                    runtime,
+                    "_capture_worktree_write_barrier",
+                    return_value={application: {}, control: {}},
+                ),
+                mock.patch.object(
+                    runtime, "_assert_repository_parent_xattrs"
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_repository_root_xattr_fingerprint",
+                    return_value="b" * 64,
+                ),
+                mock.patch.object(runtime, "_assert_repository_root_xattrs"),
                 mock.patch.object(runtime, "_atomic_json", side_effect=capture),
             ):
                 runtime._write_barrier_journal(
@@ -1060,6 +1254,152 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(captured["repository_parent"], parent_record)
             self.assertEqual(
                 set(captured["repositories"]), {"application", "control"}
+            )
+            self.assertTrue(
+                all(
+                    item["root_xattr_fingerprint"] == "b" * 64
+                    for item in captured["repositories"].values()
+                )
+            )
+            self.assertEqual(
+                set(captured["worktree_write_barrier"]),
+                {"application", "control"},
+            )
+
+    def test_worktree_barrier_journal_roundtrip_rejects_parent_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = root / "application"
+            control = root / "control"
+            application.mkdir()
+            control.mkdir()
+            tracked = application / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            metadata = tracked.lstat()
+            records = {
+                application: {
+                    tracked: {
+                        "kind": "regular",
+                        "device": metadata.st_dev,
+                        "inode": metadata.st_ino,
+                        "uid": metadata.st_uid,
+                        "gid": metadata.st_gid,
+                        "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                        "xattr_fingerprint": "a" * 64,
+                    }
+                },
+                control: {},
+            }
+            payload = runtime._worktree_barrier_payload(
+                (application, control), records
+            )
+            self.assertEqual(
+                runtime._parse_worktree_barrier_payload(
+                    payload, (application, control)
+                ),
+                records,
+            )
+
+            escaped = copy.deepcopy(payload)
+            escaped["application"][0]["path_hex"] = b"..".hex()
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            ):
+                runtime._parse_worktree_barrier_payload(
+                    escaped, (application, control)
+                )
+
+    def test_legacy_parent_journal_upgrade_binds_xattrs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / "repository-barrier.json"
+            marker.touch()
+            application = root / "application"
+            control = root / "control"
+            record = {
+                "root_uid": 501,
+                "root_gid": 20,
+                "root_mode": "0750",
+                "git_uid": 501,
+                "git_gid": 20,
+                "git_mode": "0750",
+            }
+            records = {application: record, control: record}
+            parent_record = {
+                "path": str(root),
+                "uid": 501,
+                "gid": 20,
+                "mode": "0755",
+            }
+            barrier = {application: {}, control: {}}
+            journal = {
+                "schema": runtime.LEGACY_BARRIER_SCHEMA,
+                "created_at": "2026-10-02T00:00:00Z",
+                "repositories": {},
+                "repository_parent": dict(parent_record),
+                "worktree_write_barrier": {},
+            }
+            captured: dict[str, object] = {}
+
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", root),
+                mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(
+                    runtime,
+                    "_load_barrier_journal",
+                    return_value=(
+                        records,
+                        dict(parent_record),
+                        barrier,
+                        runtime.LEGACY_BARRIER_SCHEMA,
+                    ),
+                ),
+                mock.patch.object(
+                    runtime, "_assert_legacy_repository_parent_xattrs_safe"
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_repository_parent_xattr_fingerprint",
+                    return_value="b" * 64,
+                ),
+                mock.patch.object(
+                    runtime, "_assert_repository_parent_xattrs"
+                ),
+                mock.patch.object(runtime, "_assert_legacy_path_xattrs_safe"),
+                mock.patch.object(
+                    runtime,
+                    "_repository_root_xattr_fingerprint",
+                    return_value="c" * 64,
+                ),
+                mock.patch.object(runtime, "_assert_repository_root_xattrs"),
+                mock.patch.object(
+                    runtime, "_private_json", return_value=journal
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_atomic_json",
+                    side_effect=lambda _path, payload: captured.update(payload),
+                ),
+            ):
+                self.assertIs(
+                    runtime._ensure_barrier_journal(records, parent_record),
+                    barrier,
+                )
+
+            self.assertEqual(parent_record["xattr_fingerprint"], "b" * 64)
+            self.assertEqual(captured["schema"], runtime.BARRIER_SCHEMA)
+            self.assertEqual(
+                captured["repository_parent"]["xattr_fingerprint"],
+                "b" * 64,
+            )
+            self.assertTrue(
+                all(
+                    item["root_xattr_fingerprint"] == "c" * 64
+                    for item in captured["repositories"].values()
+                )
             )
 
     def test_backup_snapshot_rejects_post_capture_repository_race(self) -> None:
@@ -1106,6 +1446,48 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "git_mode": "0755",
                 },
             )
+
+    def test_backup_state_excludes_barrier_only_root_fingerprint(self) -> None:
+        metadata = {
+            "root_uid": 501,
+            "root_gid": 20,
+            "root_mode": "0755",
+            "git_uid": 501,
+            "git_gid": 20,
+            "git_mode": "0755",
+            "root_xattr_fingerprint": "a" * 64,
+        }
+        with (
+            mock.patch.object(runtime, "_validate_canonical_index"),
+            mock.patch.object(
+                runtime,
+                "_selected_identity",
+                return_value=("b" * 40, "c" * 40),
+            ),
+            mock.patch.object(
+                runtime, "_selected_branch_or_none", return_value="main"
+            ),
+            mock.patch.object(
+                runtime, "_selected_git", return_value="d" * 40
+            ),
+            mock.patch.object(
+                runtime, "_selected_ref_or_none", return_value=None
+            ),
+        ):
+            state = runtime._repository_backup_state(
+                Path("/repository"), "main", path_metadata=metadata
+            )
+
+        expected_metadata = {
+            name: value
+            for name, value in metadata.items()
+            if name != "root_xattr_fingerprint"
+        }
+        self.assertNotIn("root_xattr_fingerprint", state)
+        self.assertEqual(
+            {name: state[name] for name in expected_metadata},
+            expected_metadata,
+        )
 
     def test_backup_rejects_noncanonical_index_flags(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1706,12 +2088,2448 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         with (
             mock.patch.object(runtime, "_competing_control_sync_count", return_value=0),
             mock.patch.object(runtime, "_active_repository_git_count", return_value=1),
+            mock.patch.object(
+                runtime, "_repository_git_metadata_paths", return_value=()
+            ),
+            mock.patch.object(
+                runtime, "_tracked_worktree_regular_paths", return_value=()
+            ),
         ):
             with self.assertRaisesRegex(
                 runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
             ):
                 with runtime._serialized_repository_recovery((Path("/unused"),)):
                     self.fail("active Git process unexpectedly passed recovery gate")
+
+    def test_journaled_index_scan_skips_only_missing_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            present = repository / "present.txt"
+            missing = repository / "missing.txt"
+            present.write_text("present\n", encoding="ascii")
+            missing.write_text("missing\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "present.txt", "missing.txt"],
+                cwd=repository,
+                check=True,
+            )
+            missing.unlink()
+
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
+            ):
+                runtime._tracked_worktree_regular_paths((repository,))
+
+            self.assertEqual(
+                runtime._tracked_worktree_regular_paths(
+                    (repository,), allow_missing=True
+                ),
+                (present,),
+            )
+            self.assertEqual(
+                runtime._tracked_worktree_barrier_paths(
+                    repository, allow_missing=True
+                ),
+                (present,),
+            )
+
+    def test_worktree_barrier_rejects_owner_only_access_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o600)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+            before = tracked.lstat()
+
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+            after = tracked.lstat()
+            self.assertEqual(
+                (after.st_uid, after.st_gid, stat.S_IMODE(after.st_mode)),
+                (before.st_uid, before.st_gid, 0o600),
+            )
+
+    def test_worktree_barrier_mode_preserves_nonowner_read_and_traversal(
+        self,
+    ) -> None:
+        uid = os.getuid()
+        gid = os.getgid()
+        self.assertEqual(runtime._worktree_barrier_mode(0o664, uid, gid), 0o444)
+        self.assertEqual(runtime._worktree_barrier_mode(0o775, uid, gid), 0o555)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_mode(0o604, uid, gid)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_mode(0o700, uid, gid)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_mode(0o4755, uid, gid)
+
+        account = SimpleNamespace(pw_name="service", pw_gid=2001)
+        with (
+            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
+            mock.patch.object(runtime.os, "getgrouplist", return_value=[2001]),
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            runtime._worktree_barrier_mode(0o604, 2000, 2001)
+        with (
+            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
+            mock.patch.object(runtime.os, "getgrouplist", return_value=[2002]),
+        ):
+            self.assertEqual(
+                runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
+            )
+
+    def test_worktree_barrier_rejects_setuid_file_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked"
+            tracked.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+            tracked.chmod(0o4755)
+            subprocess.run(
+                ["git", "add", "tracked"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+    def test_worktree_barrier_rejects_named_owner_acl_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o644)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            uid = repository.lstat().st_uid
+            if uid == 0:
+                uid = 65534
+                os.chown(repository, uid, repository.lstat().st_gid)
+                os.chown(tracked, uid, tracked.lstat().st_gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o6, 0xFFFFFFFF),
+                    (0x02, 0o0, uid),
+                    (0x04, 0o4, 0xFFFFFFFF),
+                    (0x10, 0o4, 0xFFFFFFFF),
+                    (0x20, 0o4, 0xFFFFFFFF),
+                )
+            )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    side_effect=lambda path, **_kwargs: (
+                        ["system.posix_acl_access"]
+                        if Path(path) == tracked
+                        else []
+                    ),
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+    def test_worktree_barrier_evaluates_group_acl_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o640)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            uid = repository.lstat().st_uid
+            gid = repository.lstat().st_gid
+            if uid == 0:
+                uid = 65534
+                gid = 65534
+                os.chown(repository, uid, gid)
+                os.chown(tracked, uid, gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o6, 0xFFFFFFFF),
+                    (0x04, 0o0, 0xFFFFFFFF),
+                    (0x08, 0o4, gid + 100000),
+                    (0x10, 0o4, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
+                )
+            )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    side_effect=lambda path, **_kwargs: (
+                        ["system.posix_acl_access"]
+                        if Path(path) == tracked
+                        else []
+                    ),
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.pwd,
+                    "getpwuid",
+                    return_value=SimpleNamespace(
+                        pw_name="service", pw_gid=gid
+                    ),
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid]
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+    def test_transition_accepts_valid_mask_only_access_acl(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            gid = path.lstat().st_gid
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os, "getxattr", return_value=acl, create=True
+                ),
+                mock.patch.object(
+                    runtime.pwd,
+                    "getpwuid",
+                    return_value=SimpleNamespace(
+                        pw_name="service", pw_gid=gid
+                    ),
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid]
+                ),
+            ):
+                runtime._assert_post_chown_acl_preserves_access(
+                    path,
+                    1001,
+                    0o5,
+                    0o5,
+                    0o0,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
+                )
+
+    def test_transition_rejects_mode_only_owner_outside_retained_group(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            gid = path.lstat().st_gid
+            with (
+                mock.patch.object(
+                    runtime.os, "listxattr", return_value=[], create=True
+                ),
+                mock.patch.object(runtime.os, "getxattr", create=True),
+                mock.patch.object(
+                    runtime.pwd,
+                    "getpwuid",
+                    return_value=SimpleNamespace(
+                        pw_name="service", pw_gid=gid + 1
+                    ),
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid + 1]
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
+                ),
+            ):
+                runtime._assert_post_chown_acl_preserves_access(
+                    path,
+                    1001,
+                    0o5,
+                    0o5,
+                    0o0,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
+                )
+
+    def test_worktree_barrier_rejects_xattr_drift_before_chown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+            xattrs = {tracked: b"baseline"}
+
+            with mock.patch.object(
+                runtime,
+                "_stable_xattr_payload",
+                side_effect=lambda path, *_args, **_kwargs: xattrs.get(
+                    path, b""
+                ),
+            ):
+                barrier = runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+                xattrs[tracked] = b"named-acl-drift"
+                with (
+                    mock.patch.object(runtime.os, "geteuid", return_value=0),
+                    mock.patch.object(runtime.os, "chown") as chown,
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    ),
+                ):
+                    runtime._lock_worktree_write_barrier(barrier)
+
+            chown.assert_not_called()
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_metadata_handle_scope_allows_live_shaped_worktree_users(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("runtime-readable\n", encoding="ascii")
+            (repository / ".gitignore").write_text(".venv/\n", encoding="ascii")
+            venv = repository / ".venv"
+            venv.mkdir()
+            mapped = venv / "runtime.bin"
+            mapped.write_bytes(b"0" * 4096)
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "add", "tracked.txt", ".gitignore"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            child_identity = None
+            if os.geteuid() == 0:
+                chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+                if chatops.pw_uid != 0:
+                    Path(directory).chmod(0o755)
+                    for current, directories, files in os.walk(repository):
+                        os.chown(current, chatops.pw_uid, chatops.pw_gid)
+                        for name in (*directories, *files):
+                            os.chown(
+                                Path(current) / name,
+                                chatops.pw_uid,
+                                chatops.pw_gid,
+                            )
+                    repository.chmod(0o2770)
+                    (repository / ".git").chmod(0o2770)
+
+                    def become_chatops() -> None:
+                        os.setgroups([chatops.pw_gid])
+                        os.setgid(chatops.pw_gid)
+                        os.setuid(chatops.pw_uid)
+
+                    child_identity = become_chatops
+            metadata = runtime._repository_git_metadata_paths((repository,))
+            tracked_paths = runtime._tracked_worktree_regular_paths((repository,))
+            unrelated_baseline = runtime._active_recovery_git_handle_count(metadata)
+            child_code = (
+                "import mmap,os,sys;"
+                "os.chdir(sys.argv[1]);"
+                "f=open(sys.argv[2],'rb');"
+                "mfile=open(sys.argv[3],'rb');"
+                "m=mmap.mmap(mfile.fileno(),0,access=mmap.ACCESS_READ);"
+                "mfile.close();print('ready',flush=True);"
+                "\nfor line in sys.stdin:\n"
+                " open(sys.argv[2],'rb').read();os.stat(sys.argv[3]);"
+                " print('ok',flush=True) if line.strip()=='probe' else None\n"
+            )
+            children = [
+                subprocess.Popen(
+                    [sys.executable, "-c", child_code, str(repository), str(tracked), str(mapped)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    preexec_fn=child_identity,
+                )
+                for _ in range(4)
+            ]
+            try:
+                for child in children:
+                    self.assertEqual(child.stdout.readline().strip(), "ready")
+                if child_identity is None:
+                    self.assertEqual(
+                        runtime._active_recovery_git_handle_count(metadata),
+                        unrelated_baseline,
+                    )
+                self.assertEqual(
+                    runtime._active_tracked_worktree_write_handle_count(
+                        tracked_paths
+                    ),
+                    0,
+                )
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_repository_git_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_recovery_git_handle_count", return_value=0
+                    ),
+                ):
+                    with runtime._serialized_repository_recovery((repository,)):
+                        for child in children:
+                            child.stdin.write("probe\n")
+                            child.stdin.flush()
+                            self.assertEqual(child.stdout.readline().strip(), "ok")
+                            self.assertIsNone(child.poll())
+            finally:
+                for child in children:
+                    child.terminate()
+                for child in children:
+                    child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_recovery_rejects_writable_tracked_worktree_handle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("runtime-readable\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import sys,time;f=open(sys.argv[1],'r+b');"
+                        "print('ready',flush=True);time.sleep(30)"
+                    ),
+                    str(tracked),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_repository_git_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_recovery_git_handle_count", return_value=0
+                    ),
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_ACTIVE_RED",
+                    ),
+                ):
+                    with runtime._serialized_repository_recovery((repository,)):
+                        self.fail("writable tracked handle reached protected body")
+                self.assertFalse(runtime._recovery_git_path(repository).exists())
+                self.assertTrue((repository / ".git").is_dir())
+            finally:
+                child.terminate()
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_recovery_rejects_closed_writer_dirtying_tracked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RELEASE_DIRTY_RED",
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    tracked.write_text("unexpected writer\n", encoding="ascii")
+            self.assertFalse(runtime._recovery_git_path(repository).exists())
+            self.assertTrue((repository / ".git").is_dir())
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_worktree_write_barrier_blocks_new_owner_write_until_teardown(
+        self,
+    ) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            os.chmod(root, 0o755)
+            repository = root / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            nested = repository / "nested"
+            nested.mkdir()
+            tracked = nested / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "nested/tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+
+            def become_chatops() -> None:
+                os.setgroups([])
+                os.setgid(chatops.pw_gid)
+                os.setuid(chatops.pw_uid)
+
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_WorktreeReleaseGuard",
+                    return_value=SimpleNamespace(
+                        accept_release_attributes=lambda: None,
+                        assert_no_events=lambda: None,
+                        finalize_release=lambda validator, shutdown_validator: (
+                            validator(),
+                            shutdown_validator(),
+                        ),
+                        close=lambda: None,
+                    ),
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    locked = tracked.lstat()
+                    self.assertEqual(locked.st_uid, 0)
+                    self.assertEqual(stat.S_IMODE(locked.st_mode) & 0o222, 0)
+                    child = subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            (
+                                "import pathlib,sys;"
+                                "p=pathlib.Path(sys.argv[1]);"
+                                "\ntry:\n p.write_text('race\\n')\n"
+                                "except PermissionError:\n print('blocked')\n"
+                                "else:\n print('writable')"
+                            ),
+                            str(tracked),
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        preexec_fn=become_chatops,
+                    )
+                    self.assertEqual(child.stdout.strip(), "blocked")
+                    self.assertEqual(tracked.read_text(encoding="ascii"), "reviewed\n")
+            restored = tracked.lstat()
+            self.assertEqual(restored.st_uid, chatops.pw_uid)
+            self.assertEqual(restored.st_gid, chatops.pw_gid)
+            self.assertEqual(stat.S_IMODE(restored.st_mode), 0o644)
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_worktree_write_barrier_resumes_root_owned_replacement(self) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            os.chmod(root, 0o755)
+            repository = root / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            nested = repository / "nested"
+            nested.mkdir()
+            tracked = nested / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "nested/tracked.txt"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            barrier = runtime._capture_worktree_write_barrier(
+                (repository,), {repository: repository_record}
+            )
+
+            tracked_record = barrier[repository][tracked]
+            restricted_mode = int(tracked_record["mode"], 8) & ~0o222
+            os.chmod(tracked, restricted_mode)
+            runtime._lock_worktree_write_barrier(barrier)
+            partial_chmod = tracked.lstat()
+            self.assertEqual(partial_chmod.st_uid, 0)
+            self.assertEqual(
+                stat.S_IMODE(partial_chmod.st_mode), restricted_mode
+            )
+            runtime._restore_worktree_write_barrier(barrier)
+            runtime._restore_repository_path_metadata(
+                repository, repository_record
+            )
+
+            os.chmod(tracked, restricted_mode)
+            os.chown(tracked, 0, chatops.pw_gid)
+            runtime._lock_worktree_write_barrier(barrier)
+            partial_chown = tracked.lstat()
+            self.assertEqual(partial_chown.st_uid, 0)
+            self.assertEqual(
+                stat.S_IMODE(partial_chown.st_mode), restricted_mode
+            )
+            runtime._restore_worktree_write_barrier(barrier)
+            runtime._restore_repository_path_metadata(
+                repository, repository_record
+            )
+
+            runtime._lock_worktree_write_barrier(barrier)
+            replacement = nested / ".tracked.replacement"
+            replacement.write_text("reviewed\n", encoding="ascii")
+            os.chmod(replacement, 0o644)
+            os.replace(replacement, tracked)
+            added = nested / "added.txt"
+            added.write_text("added\n", encoding="ascii")
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    f"safe.directory={repository}",
+                    "add",
+                    "nested/added.txt",
+                ],
+                cwd=repository,
+                check=True,
+            )
+
+            runtime._lock_worktree_write_barrier(barrier)
+            runtime._assert_worktree_write_barrier((repository,), barrier)
+            replacement_metadata = tracked.lstat()
+            self.assertEqual(replacement_metadata.st_uid, 0)
+            self.assertEqual(stat.S_IMODE(replacement_metadata.st_mode), 0o644)
+
+            runtime._refresh_worktree_barrier_for_release(
+                (repository,), {repository: repository_record}, barrier
+            )
+            runtime._restore_worktree_write_barrier(
+                barrier, {repository: repository_record}
+            )
+            for current in (tracked, added):
+                current_metadata = current.lstat()
+                self.assertEqual(current_metadata.st_uid, chatops.pw_uid)
+                self.assertEqual(current_metadata.st_gid, chatops.pw_gid)
+            runtime._lock_worktree_write_barrier(barrier)
+            runtime._assert_worktree_write_barrier((repository,), barrier)
+            for current in (tracked, added):
+                current_metadata = current.lstat()
+                self.assertEqual(current_metadata.st_uid, 0)
+                self.assertEqual(current_metadata.st_gid, chatops.pw_gid)
+                self.assertEqual(
+                    stat.S_IMODE(current_metadata.st_mode) & 0o222, 0
+                )
+            runtime._restore_worktree_write_barrier(
+                barrier, {repository: repository_record}
+            )
+            runtime._restore_repository_path_metadata(
+                repository, repository_record
+            )
+            restored = tracked.lstat()
+            self.assertEqual(restored.st_uid, chatops.pw_uid)
+            self.assertEqual(restored.st_gid, chatops.pw_gid)
+            self.assertEqual(stat.S_IMODE(restored.st_mode), 0o644)
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        f"safe.directory={repository}",
+                        "status",
+                        "--porcelain",
+                    ],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout,
+                "A  nested/added.txt\n",
+            )
+
+            unjournaled = nested / ".tracked.unjournaled"
+            unjournaled.write_text("untrusted\n", encoding="ascii")
+            os.chown(unjournaled, chatops.pw_uid, chatops.pw_gid)
+            os.chmod(unjournaled, 0o644)
+            os.replace(unjournaled, tracked)
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ):
+                runtime._lock_worktree_write_barrier(barrier)
+
+    def test_release_guard_allows_only_proven_read_only_open_syscalls(self) -> None:
+        cases = (
+            ("257 0 0 0x80000 0 0 0 0 0", True),
+            ("257 0 0 0x80001 0 0 0 0 0", False),
+            (f"257 0 0 {os.O_TRUNC:#x} 0 0 0 0 0", False),
+            ("85 0 0 0 0 0 0 0 0", False),
+            ("437 0 0 0x1234 0 0 0 0 0", False),
+            ("999 0 0 0 0 0 0 0 0", False),
+        )
+        for payload, expected in cases:
+            with self.subTest(payload=payload), mock.patch.object(
+                runtime.Path, "read_text", return_value=payload
+            ), mock.patch.object(
+                runtime.os,
+                "uname",
+                return_value=SimpleNamespace(machine="x86_64"),
+            ):
+                self.assertEqual(
+                    runtime._WorktreeReleaseGuard._fanotify_request_is_read_only(
+                        123
+                    ),
+                    expected,
+                )
+
+    def test_fanotify_worker_failure_precedes_sentinel_open(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_error = True
+        guard.fanotify_thread = mock.MagicMock()
+        guard.fanotify_lock = threading.Lock()
+        guard.sentinel_path = Path("/guarded")
+
+        with (
+            mock.patch.object(runtime.os, "open") as open_path,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            guard._assert_fanotify_quiet()
+
+        open_path.assert_not_called()
+
+    def test_fanotify_worker_failure_closes_permission_group(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_error = False
+        guard.fanotify_lock = threading.Lock()
+        guard.fanotify_stop = threading.Event()
+
+        with (
+            mock.patch.object(
+                runtime.select, "select", side_effect=OSError("overflow")
+            ),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard._fanotify_loop()
+
+        self.assertTrue(guard.fanotify_error)
+        self.assertIsNone(guard.fanotify_descriptor)
+        close.assert_called_once_with(123)
+
+    def test_fanotify_close_denies_pending_open_with_cached_group(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_thread = None
+        guard.fanotify_pending = [456]
+        guard.fanotify_lock = threading.Lock()
+        guard.fanotify_stop = threading.Event()
+        guard.descriptor = None
+        guard.inotify_watches = set()
+
+        with (
+            mock.patch.object(
+                guard,
+                "_flush_fanotify_marks",
+                return_value=True,
+            ),
+            mock.patch.object(
+                runtime.os,
+                "read",
+                side_effect=BlockingIOError,
+            ),
+            mock.patch.object(runtime.os, "write") as write,
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard.close()
+
+        write.assert_called_once_with(
+            123,
+            guard._FAN_RESPONSE.pack(456, guard._FAN_DENY),
+        )
+        self.assertEqual(
+            [call.args for call in close.call_args_list], [(456,), (123,)]
+        )
+        self.assertIsNone(guard.fanotify_descriptor)
+
+    def test_fanotify_close_drains_kernel_queued_open(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_thread = None
+        guard.fanotify_pending = []
+        guard.fanotify_lock = threading.Lock()
+        guard.fanotify_stop = threading.Event()
+        guard.descriptor = None
+        guard.inotify_watches = set()
+        payload = guard._FAN_EVENT.pack(
+            guard._FAN_EVENT.size,
+            guard._FANOTIFY_METADATA_VERSION,
+            0,
+            guard._FAN_EVENT.size,
+            guard._FAN_OPEN_PERM,
+            789,
+            1001,
+        )
+
+        with (
+            mock.patch.object(
+                guard,
+                "_flush_fanotify_marks",
+                return_value=True,
+            ) as flush,
+            mock.patch.object(
+                runtime.os,
+                "read",
+                side_effect=(payload, BlockingIOError()),
+            ) as read,
+            mock.patch.object(runtime.os, "write") as write,
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard.close()
+
+        flush.assert_called_once_with(123)
+        self.assertEqual(read.call_args_list, [mock.call(123, 1024 * 1024)] * 2)
+        write.assert_called_once_with(
+            123,
+            guard._FAN_RESPONSE.pack(789, guard._FAN_DENY),
+        )
+        self.assertEqual(
+            [call.args for call in close.call_args_list], [(789,), (123,)]
+        )
+        self.assertIsNone(guard.fanotify_descriptor)
+
+    def test_fanotify_mark_flush_closes_the_queue_entry_window(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        fanotify_mark = mock.MagicMock(return_value=0)
+        library = SimpleNamespace(fanotify_mark=fanotify_mark)
+
+        with mock.patch.object(runtime.ctypes, "CDLL", return_value=library):
+            self.assertTrue(guard._flush_fanotify_marks(123))
+
+        fanotify_mark.assert_called_once_with(
+            123,
+            guard._FAN_MARK_FLUSH,
+            0,
+            -100,
+            None,
+        )
+
+    def test_repository_root_lock_resumes_legacy_chown_boundary(self) -> None:
+        state = {"uid": 0, "gid": 1002, "mode": 0o500}
+
+        class RootPath:
+            parent = Path("/")
+
+            @staticmethod
+            def is_symlink() -> bool:
+                return False
+
+            @staticmethod
+            def lstat():
+                return SimpleNamespace(
+                    st_uid=state["uid"],
+                    st_gid=state["gid"],
+                    st_mode=stat.S_IFDIR | state["mode"],
+                )
+
+        root = RootPath()
+        record = {
+            "root_uid": 1001,
+            "root_gid": 1002,
+            "root_mode": "0755",
+        }
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime.os,
+                "chmod",
+                side_effect=lambda _path, mode: state.update(mode=mode),
+            ) as chmod,
+            mock.patch.object(runtime.os, "chown") as chown,
+            mock.patch.object(runtime, "_assert_repository_root_xattrs"),
+            mock.patch.object(
+                runtime, "_assert_post_chown_acl_preserves_access"
+            ),
+            mock.patch.object(runtime, "_fsync_directory"),
+        ):
+            runtime._lock_repository_root(root, record)
+
+        self.assertEqual(state, {"uid": 0, "gid": 1002, "mode": 0o555})
+        chown.assert_not_called()
+        chmod.assert_called_once_with(root, 0o555)
+
+    def test_git_release_fingerprint_binds_nested_metadata_and_modes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=S12 Test",
+                    "-c",
+                    "user.email=s12@example.invalid",
+                    "commit",
+                    "-m",
+                    "reviewed",
+                ],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            directories = set(
+                runtime._repository_git_metadata_directories((repository,))
+            )
+            self.assertIn(repository / ".git", directories)
+            self.assertIn(repository / ".git" / "objects", directories)
+
+            baseline = runtime._git_metadata_release_fingerprint((repository,))
+            config = repository / ".git" / "config"
+            original_mode = stat.S_IMODE(config.lstat().st_mode)
+            os.chmod(config, original_mode ^ stat.S_IXUSR)
+            self.assertNotEqual(
+                runtime._git_metadata_release_fingerprint((repository,)),
+                baseline,
+            )
+            os.chmod(config, original_mode)
+            self.assertEqual(
+                runtime._git_metadata_release_fingerprint((repository,)),
+                baseline,
+            )
+            config.write_text(
+                config.read_text(encoding="utf-8") + "\n# drift\n",
+                encoding="utf-8",
+            )
+            self.assertNotEqual(
+                runtime._git_metadata_release_fingerprint((repository,)),
+                baseline,
+            )
+
+    def test_release_xattr_fingerprint_binds_guarded_paths(self) -> None:
+        if not hasattr(os, "setxattr"):
+            self.skipTest("extended attributes unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tracked = root / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            try:
+                baseline = runtime._release_xattr_fingerprint((root, tracked))
+                os.setxattr(
+                    tracked,
+                    "user.tu1nz_s12_release",
+                    b"external",
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                self.skipTest(f"extended attributes unavailable: {error.errno}")
+            self.assertNotEqual(
+                runtime._release_xattr_fingerprint((root, tracked)),
+                baseline,
+            )
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_worktree_release_guard_detects_waiting_owner_writer(self) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            os.chmod(root, 0o755)
+            repository = root / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=S12 Test",
+                    "-c",
+                    "user.email=s12@example.invalid",
+                    "commit",
+                    "-m",
+                    "reviewed",
+                ],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            barrier = runtime._capture_worktree_write_barrier(
+                (repository,), {repository: repository_record}
+            )
+            runtime._lock_worktree_write_barrier(barrier)
+            try:
+                guard = runtime._WorktreeReleaseGuard((repository,))
+            except runtime.S12ControlError as error:
+                if str(error) == "S12_1_RECOVERY_WORKTREE_BARRIER_RED":
+                    self.skipTest("fanotify permission events unavailable")
+                raise
+
+            def become_chatops() -> None:
+                os.setgroups([])
+                os.setgid(chatops.pw_gid)
+                os.setuid(chatops.pw_uid)
+
+            reader = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import pathlib,sys;pathlib.Path(sys.argv[1]).read_bytes()",
+                    str(tracked),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                preexec_fn=become_chatops,
+                timeout=5,
+            )
+            self.assertEqual(reader.returncode, 0, reader.stderr)
+            self.assertFalse(guard.fanotify_external_open)
+
+            child = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import mmap,pathlib,sys,time;"
+                        "p=pathlib.Path(sys.argv[1]);"
+                        "print('ready',flush=True);"
+                        "\nwhile True:\n"
+                        " try:\n  f=p.open('r+b');break\n"
+                        " except PermissionError:\n  time.sleep(0.01)\n"
+                        "\nwith f:\n"
+                        " m=mmap.mmap(f.fileno(),0,access=mmap.ACCESS_WRITE)\n"
+                        " m[0:1]=b'R';m.flush();m.close()\n"
+                    ),
+                    str(tracked),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                preexec_fn=become_chatops,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                runtime._restore_worktree_write_barrier(barrier)
+                runtime._restore_repository_path_metadata(
+                    repository, repository_record
+                )
+                deadline = time.monotonic() + 5
+                while (
+                    not guard.fanotify_external_open
+                    and time.monotonic() < deadline
+                ):
+                    time.sleep(0.01)
+                self.assertTrue(guard.fanotify_external_open)
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ):
+                    guard.accept_release_attributes()
+            finally:
+                runtime._reseal_released_worktree_contract(
+                    (repository,),
+                    {repository: repository_record},
+                    barrier,
+                    include_current=True,
+                )
+                guard.close()
+                if child.poll() is None:
+                    child.terminate()
+                    child.communicate(timeout=5)
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_release_rejects_attribute_drift_during_post_barrier_restore(
+        self,
+    ) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        def exercise(mutation) -> None:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                os.chmod(root, 0o755)
+                repository = root / "application"
+                subprocess.run(
+                    ["git", "init", "-b", "main", str(repository)],
+                    check=True,
+                    capture_output=True,
+                )
+                tracked = repository / "tracked.txt"
+                tracked.write_text("reviewed\n", encoding="ascii")
+                subprocess.run(
+                    ["git", "add", "tracked.txt"], cwd=repository, check=True
+                )
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.name=S12 Test",
+                        "-c",
+                        "user.email=s12@example.invalid",
+                        "commit",
+                        "-m",
+                        "reviewed",
+                    ],
+                    cwd=repository,
+                    check=True,
+                    capture_output=True,
+                )
+                runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+                os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+
+                class ReleaseDriftGuard:
+                    @staticmethod
+                    def accept_release_attributes() -> None:
+                        return None
+
+                    @staticmethod
+                    def assert_no_events() -> None:
+                        return None
+
+                    @staticmethod
+                    def finalize_release(validator, shutdown_validator) -> None:
+                        validator()
+                        shutdown_validator()
+
+                    @staticmethod
+                    def close() -> None:
+                        return None
+
+                guard = ReleaseDriftGuard()
+                restore_git_metadata = runtime._restore_repository_git_metadata
+
+                def restore_then_mutate(root_path, record) -> None:
+                    restore_git_metadata(root_path, record)
+                    mutation(tracked)
+
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_repository_git_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_active_recovery_git_handle_count",
+                        return_value=0,
+                    ),
+                    mock.patch.object(
+                        runtime, "_WorktreeReleaseGuard", return_value=guard
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_restore_repository_git_metadata",
+                        side_effect=restore_then_mutate,
+                    ),
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_BARRIER_RED",
+                    ),
+                ):
+                    with runtime._serialized_repository_recovery((repository,)):
+                        pass
+
+        cases = {
+            "mode": lambda path: os.chmod(path, 0o600),
+            "xattr": lambda path: os.setxattr(
+                path,
+                "user.tu1nz_s12_release",
+                b"external",
+                follow_symlinks=False,
+            ),
+        }
+        for label, mutation in cases.items():
+            with self.subTest(attribute=label):
+                exercise(mutation)
+
+    @unittest.skipUnless(
+        Path("/proc").is_dir() and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_legacy_r3_namespace_locks_normalize_to_recorded_group(self) -> None:
+        try:
+            chatops = pwd.getpwnam(runtime.CHATOPS_USER)
+        except KeyError:
+            self.skipTest("chatops account required")
+        with tempfile.TemporaryDirectory() as directory:
+            deployment_root = Path(directory) / "repositories"
+            deployment_root.mkdir(mode=0o755)
+            repository = deployment_root / "application"
+            repository.mkdir(mode=0o755)
+            git_directory = repository / ".git"
+            git_directory.mkdir(mode=0o755)
+            runtime._chown_tree(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(repository, chatops.pw_uid, chatops.pw_gid)
+            os.chown(deployment_root, chatops.pw_uid, chatops.pw_gid)
+
+            with mock.patch.object(
+                runtime, "DEPLOYMENT_LOCK_ROOT", deployment_root
+            ):
+                parent_record = runtime._repository_parent_metadata()
+                repository_record = runtime._repository_path_metadata(repository)
+                repository_record["root_xattr_fingerprint"] = (
+                    runtime._repository_root_xattr_fingerprint(repository)
+                )
+                os.chown(deployment_root, 0, 0)
+                os.chmod(deployment_root, 0o500)
+                os.chown(repository, 0, 0)
+                os.chmod(repository, 0o500)
+
+                runtime._lock_repository_parent(parent_record)
+                runtime._lock_repository_root(repository, repository_record)
+
+                # Both syscall-boundary states of the hard parent lock must
+                # be resumable by the hardener and by ordinary recovery.
+                os.chown(deployment_root, 0, 0)
+                runtime._hard_lock_repository_parent(parent_record)
+                parent_metadata = deployment_root.lstat()
+                self.assertEqual(
+                    (
+                        parent_metadata.st_uid,
+                        parent_metadata.st_gid,
+                        stat.S_IMODE(parent_metadata.st_mode),
+                    ),
+                    (0, 0, 0o500),
+                )
+                os.chown(deployment_root, 0, chatops.pw_gid)
+                runtime._hard_lock_repository_parent(parent_record)
+                os.chown(
+                    deployment_root, chatops.pw_uid, chatops.pw_gid
+                )
+                runtime._lock_repository_parent(parent_record)
+
+                for path in (deployment_root, repository):
+                    metadata = path.lstat()
+                    self.assertEqual(metadata.st_uid, 0)
+                    self.assertEqual(metadata.st_gid, chatops.pw_gid)
+                    self.assertEqual(stat.S_IMODE(metadata.st_mode), 0o555)
+
+                runtime._restore_repository_path_metadata(
+                    repository, repository_record
+                )
+                runtime._restore_repository_parent(parent_record)
+                for path in (deployment_root, repository):
+                    metadata = path.lstat()
+                    self.assertEqual(metadata.st_uid, chatops.pw_uid)
+                    self.assertEqual(metadata.st_gid, chatops.pw_gid)
+                self.assertEqual(stat.S_IMODE(metadata.st_mode), 0o755)
+
+    def test_hard_parent_lock_resumes_every_syscall_boundary(self) -> None:
+        state = {"uid": 1001, "gid": 1002, "mode": 0o755}
+
+        class ParentPath:
+            parent = Path("/")
+
+            @staticmethod
+            def is_symlink() -> bool:
+                return False
+
+            @staticmethod
+            def lstat():
+                return SimpleNamespace(
+                    st_uid=state["uid"],
+                    st_gid=state["gid"],
+                    st_mode=stat.S_IFDIR | state["mode"],
+                )
+
+            def __str__(self) -> str:
+                return "/srv/repositories"
+
+        parent = ParentPath()
+        record = {
+            "path": str(parent),
+            "uid": 1001,
+            "gid": 1002,
+            "mode": "0755",
+            "xattr_fingerprint": "a" * 64,
+        }
+
+        def chown(_path, uid: int, gid: int) -> None:
+            state.update(uid=uid, gid=gid)
+
+        def chmod(_path, mode: int) -> None:
+            state["mode"] = mode
+
+        with (
+            mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(runtime.os, "chown", side_effect=chown),
+            mock.patch.object(runtime.os, "chmod", side_effect=chmod),
+            mock.patch.object(runtime, "_assert_repository_parent_xattrs"),
+            mock.patch.object(
+                runtime, "_assert_post_chown_acl_preserves_access"
+            ),
+            mock.patch.object(runtime, "_fsync_directory"),
+        ):
+            runtime._lock_repository_parent(record)
+            self.assertEqual(state, {"uid": 0, "gid": 1002, "mode": 0o555})
+
+            for interrupted in (
+                {"uid": 0, "gid": 0, "mode": 0o555},
+                {"uid": 0, "gid": 1002, "mode": 0o500},
+                {"uid": 0, "gid": 0, "mode": 0o500},
+            ):
+                state.update(interrupted)
+                runtime._hard_lock_repository_parent(record)
+                self.assertEqual(
+                    state, {"uid": 0, "gid": 0, "mode": 0o500}
+                )
+
+            state.update(uid=1001, gid=1002, mode=0o500)
+            runtime._lock_repository_parent(record)
+            self.assertEqual(state, {"uid": 0, "gid": 1002, "mode": 0o555})
+
+            runtime._hard_lock_repository_parent(record)
+            runtime._restore_repository_parent(record)
+            self.assertEqual(
+                state, {"uid": 1001, "gid": 1002, "mode": 0o755}
+            )
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_metadata_handle_scope_rejects_git_and_recovery_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            recovery = repository / runtime.RECOVERY_GIT_DIRECTORY
+            recovery.mkdir()
+            (recovery / "held").write_text("metadata\n", encoding="ascii")
+            cases = (
+                ("cwd", repository / ".git"),
+                ("fd", repository / ".git/HEAD"),
+                ("fd", recovery / "held"),
+            )
+            for kind, target in cases:
+                with self.subTest(kind=kind, target=target.name):
+                    baseline = runtime._active_recovery_git_handle_count(
+                        (repository / ".git", recovery)
+                    )
+                    code = (
+                        "import os,sys,time;"
+                        + (
+                            "os.chdir(sys.argv[1]);"
+                            if kind == "cwd"
+                            else "f=open(sys.argv[1],'rb');"
+                        )
+                        + "print('ready',flush=True);time.sleep(30)"
+                    )
+                    child = subprocess.Popen(
+                        [sys.executable, "-c", code, str(target)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    try:
+                        self.assertEqual(child.stdout.readline().strip(), "ready")
+                        self.assertGreater(
+                            runtime._active_recovery_git_handle_count(
+                                (repository / ".git", recovery)
+                            ),
+                            baseline,
+                        )
+                    finally:
+                        child.terminate()
+                        child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_actual_git_writer_targeting_repository_remains_red(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            child = subprocess.Popen(
+                ["git", "-C", str(repository), "hash-object", "--stdin"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                self.assertGreater(runtime._active_repository_git_count((repository,)), 0)
+            finally:
+                child.communicate(timeout=10)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_new_git_writer_race_is_detected_before_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            writer: subprocess.Popen[bytes] | None = None
+            original_lock = runtime._lock_repository_root
+
+            def launch_writer(root: Path, record: dict[str, object]) -> None:
+                nonlocal writer
+                original_lock(root, record)
+                writer = subprocess.Popen(
+                    ["git", "-C", str(repository), "hash-object", "--stdin"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+
+            try:
+                with (
+                    mock.patch.object(
+                        runtime, "_competing_control_sync_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime, "_active_recovery_git_handle_count", return_value=0
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_lock_repository_root",
+                        side_effect=launch_writer,
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_ACTIVE_RED",
+                    ):
+                        with runtime._serialized_repository_recovery((repository,)):
+                            self.fail("racing Git writer reached protected body")
+                self.assertIsNotNone(writer)
+                self.assertFalse(runtime._recovery_git_path(repository).exists())
+                self.assertTrue((repository / ".git").is_dir())
+            finally:
+                if writer is not None:
+                    writer.communicate(timeout=10)
+
+    def test_short_lived_metadata_writer_is_detected_before_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            original_lock = runtime._lock_repository_root
+            exchange_reached = False
+
+            def mutate_then_exit(root: Path, record: dict[str, object]) -> None:
+                original_lock(root, record)
+                subprocess.run(
+                    [
+                        "git", "-C", str(repository), "config", "--local",
+                        "s12.racing-writer", "completed",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+
+            def reject_exchange(_first: Path, _second: Path) -> None:
+                nonlocal exchange_reached
+                exchange_reached = True
+                raise AssertionError("metadata exchange must remain unreachable")
+
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    runtime, "_lock_repository_root", side_effect=mutate_then_exit
+                ),
+                mock.patch.object(runtime, "_atomic_exchange", side_effect=reject_exchange),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    self.fail("short-lived metadata writer reached protected body")
+            self.assertFalse(exchange_reached)
+            self.assertFalse(runtime._recovery_git_path(repository).exists())
+            self.assertTrue((repository / ".git").is_dir())
+
+    def test_transition_guard_rejects_drift_during_watch_installation(self) -> None:
+        with (
+            mock.patch.object(runtime.sys, "platform", "darwin"),
+            mock.patch.object(
+                runtime,
+                "_git_metadata_transition_fingerprint",
+                side_effect=("before-watch", "after-watch"),
+            ) as fingerprint,
+            self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
+            ),
+        ):
+            runtime._GitMetadataTransitionGuard((Path("/metadata"),))
+        self.assertEqual(fingerprint.call_count, 2)
+
+    def test_transition_fingerprint_binds_root_xattrs_not_lock_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ".git"
+            root.mkdir(mode=0o755)
+            xattrs = {"payload": b""}
+
+            with mock.patch.object(
+                runtime,
+                "_stable_xattr_payload",
+                side_effect=lambda path, _metadata, **_options: (
+                    xattrs["payload"] if path == root else b""
+                ),
+            ):
+                baseline = runtime._git_metadata_transition_fingerprint((root,))
+                os.chmod(root, 0o700)
+                self.assertEqual(
+                    runtime._git_metadata_transition_fingerprint((root,)),
+                    baseline,
+                )
+                xattrs["payload"] = b"external-root-xattr"
+                self.assertNotEqual(
+                    runtime._git_metadata_transition_fingerprint((root,)),
+                    baseline,
+                )
+
+    def test_transition_acl_normalization_ignores_only_chmod_fields(self) -> None:
+        header = struct.pack("<I", 2)
+        entries = (
+            (0x01, 0o7, 0xFFFFFFFF),
+            (0x02, 0o6, 1001),
+            (0x04, 0o5, 0xFFFFFFFF),
+            (0x10, 0o5, 0xFFFFFFFF),
+            (0x20, 0o5, 0xFFFFFFFF),
+        )
+
+        def acl(values) -> bytes:
+            return header + b"".join(
+                struct.pack("<HHI", *entry) for entry in values
+            )
+
+        baseline = runtime._normalize_posix_acl_mode_entries(acl(entries))
+        chmod_rewrite = tuple(
+            (tag, 0 if tag in {0x01, 0x10, 0x20} else permissions, identifier)
+            for tag, permissions, identifier in entries
+        )
+        self.assertEqual(
+            runtime._normalize_posix_acl_mode_entries(acl(chmod_rewrite)),
+            baseline,
+        )
+        named_entry_drift = list(entries)
+        named_entry_drift[1] = (0x02, 0o4, 1001)
+        self.assertNotEqual(
+            runtime._normalize_posix_acl_mode_entries(acl(named_entry_drift)),
+            baseline,
+        )
+
+    def test_repository_parent_fingerprint_rejects_xattr_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            xattrs = {"payload": b"baseline"}
+            with (
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime,
+                    "_stable_xattr_payload",
+                    side_effect=lambda *_args, **_kwargs: xattrs["payload"],
+                ),
+            ):
+                record = runtime._repository_parent_metadata()
+                runtime._assert_repository_parent_xattrs(record)
+                xattrs["payload"] = b"named-acl-drift"
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_REPOSITORY_PARENT_RED",
+                ):
+                    runtime._assert_repository_parent_xattrs(record)
+
+    def test_repository_root_fingerprint_rejects_drift_before_chown(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            xattrs = {"payload": b"baseline"}
+            with mock.patch.object(
+                runtime,
+                "_stable_xattr_payload",
+                side_effect=lambda path, _metadata, **_options: (
+                    xattrs["payload"] if path == repository else b""
+                ),
+            ):
+                record = runtime._repository_path_metadata(repository)
+                record["root_xattr_fingerprint"] = (
+                    runtime._repository_root_xattr_fingerprint(repository)
+                )
+                xattrs["payload"] = b"root-xattr-drift"
+                with (
+                    mock.patch.object(runtime.os, "geteuid", return_value=0),
+                    mock.patch.object(runtime.os, "chown") as chown,
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_BARRIER_RED",
+                    ),
+                ):
+                    runtime._lock_repository_root(repository, record)
+                chown.assert_not_called()
+
+    def test_legacy_parent_upgrade_rejects_named_acl_principal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o7, 1001),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o7, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_REPOSITORY_PARENT_RED",
+                ),
+            ):
+                runtime._assert_legacy_repository_parent_xattrs_safe()
+
+    def test_release_finalizer_rechecks_quiescence_after_watch_shutdown(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.descriptor = 123
+        guard.fanotify_descriptor = None
+        guard.fanotify_error = False
+        observed: list[str] = []
+
+        with (
+            mock.patch.object(
+                guard,
+                "assert_no_events",
+                side_effect=lambda: observed.append("drain"),
+            ),
+            mock.patch.object(
+                guard,
+                "_synchronized_inotify_shutdown",
+                side_effect=lambda: (
+                    setattr(guard, "descriptor", None),
+                    observed.append("shutdown-watches"),
+                ),
+            ),
+            mock.patch.object(
+                guard,
+                "close",
+                side_effect=lambda: observed.append("shutdown"),
+            ),
+        ):
+            guard.finalize_release(
+                lambda: observed.append(f"validate:{guard.descriptor}"),
+                lambda: observed.append(f"quiesced:{guard.descriptor}"),
+            )
+
+        self.assertEqual(
+            observed,
+            [
+                "drain",
+                "validate:123",
+                "shutdown-watches",
+                "quiesced:None",
+                "shutdown",
+            ],
+        )
+
+    def test_inotify_shutdown_requires_every_ignored_barrier(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.descriptor = 123
+        guard.inotify_watches = {7, 9}
+        remove = mock.MagicMock(return_value=0)
+        library = SimpleNamespace(inotify_rm_watch=remove)
+        payload = b"".join(
+            guard._EVENT.pack(watch, guard._IN_IGNORED, 0, 0)
+            for watch in (7, 9)
+        )
+
+        with (
+            mock.patch.object(runtime.ctypes, "CDLL", return_value=library),
+            mock.patch.object(runtime.os, "read", return_value=payload),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard._synchronized_inotify_shutdown()
+
+        self.assertEqual(
+            [call.args for call in remove.call_args_list],
+            [(123, 7), (123, 9)],
+        )
+        close.assert_called_once_with(123)
+        self.assertIsNone(guard.descriptor)
+        self.assertEqual(guard.inotify_watches, set())
+
+    def test_release_finalizer_keeps_fanotify_on_validation_failure(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.descriptor = 123
+        guard.fanotify_descriptor = None
+
+        with (
+            mock.patch.object(guard, "assert_no_events"),
+            mock.patch.object(guard, "_synchronized_inotify_shutdown"),
+            mock.patch.object(guard, "close") as shutdown,
+            self.assertRaisesRegex(RuntimeError, "final validation failed"),
+        ):
+            guard.finalize_release(
+                lambda: (_ for _ in ()).throw(
+                    RuntimeError("final validation failed")
+                ),
+                lambda: None,
+            )
+
+        shutdown.assert_not_called()
+        self.assertEqual(guard.descriptor, 123)
+
+    def test_guarded_handle_quiescence_uses_crash_safe_ptrace_lifecycle(self) -> None:
+        quiescence = runtime._GuardedHandleQuiescence(
+            (Path("/guarded/file"),), (Path("/guarded"),)
+        )
+        running = {123: ("S", 456)}
+        stopped = {123: ("t", 456)}
+        ptrace = mock.MagicMock()
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_guarded_handle_processes",
+                side_effect=(running, stopped, stopped),
+            ),
+            mock.patch.object(
+                runtime,
+                "_process_state_and_start_time",
+                side_effect=(("S", 456), ("t", 456), ("t", 789)),
+            ),
+            mock.patch.object(
+                runtime.os, "pidfd_open", return_value=77, create=True
+            ),
+            mock.patch.object(
+                runtime,
+                "_process_threads",
+                return_value={123: 789},
+            ),
+            mock.patch.object(runtime, "_ptrace", ptrace),
+            mock.patch.object(runtime, "_wait_ptrace_stop", return_value=0),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            quiescence.acquire()
+            quiescence.close()
+
+        self.assertEqual(
+            [call.args for call in ptrace.call_args_list],
+            [
+                (runtime._PTRACE_SEIZE, 123),
+                (runtime._PTRACE_INTERRUPT, 123),
+                (runtime._PTRACE_DETACH, 123, 0),
+            ],
+        )
+        close.assert_called_once_with(77)
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_guarded_handle_scan_includes_controller_parent_holder(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            guarded = root / "guarded.txt"
+            guarded.write_text("read-only holder\n", encoding="ascii")
+            child_code = (
+                "import os,sys;from pathlib import Path;"
+                "from scripts import tu1nz_adult_commercial_s12_1_runtime as r;"
+                "holders=r._guarded_handle_processes((Path(sys.argv[1]),),"
+                "(Path(sys.argv[2]),));"
+                "print('included' if os.getppid() in holders else 'excluded')"
+            )
+            with guarded.open("rb"):
+                child = subprocess.run(
+                    [sys.executable, "-c", child_code, str(guarded), str(root)],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            self.assertEqual(child.stdout.strip(), "included")
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_guarded_handle_scan_skips_deleted_journal_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing = root / "deleted-by-checkout.txt"
+
+            self.assertEqual(
+                runtime._guarded_handle_processes((missing,), (root,)),
+                {},
+            )
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_guarded_handle_scan_continues_after_unlinked_directory_fd(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            deleted = root / "deleted-directory"
+            deleted.mkdir()
+            guarded = root / "guarded.txt"
+            guarded.write_text("read-only holder\n", encoding="ascii")
+            child_code = (
+                "import os,sys,time;"
+                "directory_fd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY);"
+                "os.rmdir(sys.argv[1]);"
+                "guarded_fd=os.open(sys.argv[2],os.O_RDONLY);"
+                "print('ready',flush=True);time.sleep(30)"
+            )
+            child = subprocess.Popen(
+                [sys.executable, "-c", child_code, str(deleted), str(guarded)],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                holders = runtime._guarded_handle_processes(
+                    (guarded,), (root,)
+                )
+                self.assertIn(child.pid, holders)
+            finally:
+                child.terminate()
+                child.wait(timeout=5)
+
+    def test_guarded_handle_quiescence_detaches_after_stop_wait_failure(self) -> None:
+        quiescence = runtime._GuardedHandleQuiescence(
+            (Path("/guarded/file"),), (Path("/guarded"),)
+        )
+        ptrace = mock.MagicMock()
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_guarded_handle_processes",
+                return_value={123: ("S", 456)},
+            ),
+            mock.patch.object(
+                runtime,
+                "_process_state_and_start_time",
+                return_value=("S", 456),
+            ),
+            mock.patch.object(
+                runtime.os, "pidfd_open", return_value=77, create=True
+            ),
+            mock.patch.object(
+                runtime,
+                "_process_threads",
+                return_value={123: 789},
+            ),
+            mock.patch.object(runtime, "_ptrace", ptrace),
+            mock.patch.object(
+                runtime,
+                "_wait_ptrace_stop",
+                side_effect=(
+                    runtime.S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                    ),
+                    0,
+                ),
+            ),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
+            ):
+                quiescence.acquire()
+            quiescence.close()
+
+        self.assertEqual(
+            [call.args for call in ptrace.call_args_list],
+            [
+                (runtime._PTRACE_SEIZE, 123),
+                (runtime._PTRACE_INTERRUPT, 123),
+                (runtime._PTRACE_INTERRUPT, 123),
+                (runtime._PTRACE_DETACH, 123, 0),
+            ],
+        )
+        close.assert_called_once_with(77)
+
+    def test_release_fingerprints_normalize_only_acl_mode_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            header = struct.pack("<I", 2)
+            entries = [
+                (0x01, 0o7, 0xFFFFFFFF),
+                (0x02, 0o6, 1001),
+                (0x04, 0o5, 0xFFFFFFFF),
+                (0x10, 0o5, 0xFFFFFFFF),
+                (0x20, 0o5, 0xFFFFFFFF),
+            ]
+
+            def encoded_acl() -> bytes:
+                return header + b"".join(
+                    struct.pack("<HHI", *entry) for entry in entries
+                )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    side_effect=lambda *_args, **_kwargs: encoded_acl(),
+                    create=True,
+                ),
+            ):
+                baseline = runtime._release_xattr_fingerprint((root,))
+                entries[0] = (0x01, 0o5, 0xFFFFFFFF)
+                entries[3] = (0x10, 0o0, 0xFFFFFFFF)
+                entries[4] = (0x20, 0o0, 0xFFFFFFFF)
+                self.assertEqual(
+                    runtime._release_xattr_fingerprint((root,)), baseline
+                )
+                entries[1] = (0x02, 0o4, 1001)
+                self.assertNotEqual(
+                    runtime._release_xattr_fingerprint((root,)), baseline
+                )
+
+    def test_worktree_barrier_rejects_file_capability_before_chown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            metadata = tracked.lstat()
+            records = {
+                root: {
+                    tracked: {
+                        "kind": "regular",
+                        "device": metadata.st_dev,
+                        "inode": metadata.st_ino,
+                        "uid": metadata.st_uid,
+                        "gid": metadata.st_gid,
+                        "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                    }
+                }
+            }
+            with (
+                mock.patch.object(runtime.os, "geteuid", return_value=0),
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["security.capability"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime, "_assert_worktree_path_xattrs"
+                ),
+                mock.patch.object(runtime.os, "chown") as chown,
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+
+            chown.assert_not_called()
+
+    def test_closed_mmap_writer_is_detected_after_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=repository,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=repository,
+                check=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repository, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            config = repository / ".git/config"
+            original_install = runtime._install_repository_recovery_barrier
+
+            def mutate_quarantined_metadata(
+                root: Path, record: dict[str, object]
+            ) -> Path:
+                recovery = original_install(root, record)
+                quarantined_config = recovery / "config"
+                with quarantined_config.open("r+b") as handle:
+                    mapping = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_WRITE)
+                    try:
+                        mapping[0:1] = b"#"
+                        mapping.flush()
+                    finally:
+                        mapping.close()
+                return recovery
+
+            with (
+                mock.patch.object(
+                    runtime, "_competing_control_sync_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_repository_git_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime, "_active_recovery_git_handle_count", return_value=0
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_install_repository_recovery_barrier",
+                    side_effect=mutate_quarantined_metadata,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                ),
+            ):
+                with runtime._serialized_repository_recovery((repository,)):
+                    self.fail("closed mmap writer reached protected body")
+            self.assertTrue(config.is_file())
+            self.assertFalse(runtime._recovery_git_path(repository).exists())
+
+    def test_metadata_barrier_modes_preserve_existing_traversal_classes(self) -> None:
+        self.assertEqual(runtime._metadata_barrier_mode(0o2770), 0o2550)
+        self.assertEqual(runtime._metadata_barrier_mode(0o2775), 0o2555)
+        self.assertEqual(runtime._metadata_barrier_mode(0o755), 0o555)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError, "S12_1_RECOVERY_GIT_BARRIER_RED"
+        ):
+            runtime._metadata_barrier_mode(0o600)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError, "S12_1_RECOVERY_GIT_BARRIER_RED"
+        ):
+            runtime._metadata_barrier_mode(0o700)
+
+    def test_parent_and_repository_root_reject_named_owner_acl_before_chown(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            repository = parent / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            parent.chmod(0o775)
+            repository.chmod(0o775)
+            uid = parent.lstat().st_uid
+            if uid == 0:
+                uid = 65534
+                os.chown(parent, uid, parent.lstat().st_gid)
+                os.chown(repository, uid, repository.lstat().st_gid)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o0, uid),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+
+            with (
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                mock.patch.object(runtime, "_assert_repository_root_xattrs"),
+            ):
+                parent_record = runtime._repository_parent_metadata()
+                repository_record = runtime._repository_path_metadata(repository)
+                for target, action, error in (
+                    (
+                        parent,
+                        lambda: runtime._lock_repository_parent(parent_record),
+                        "S12_1_REPOSITORY_PARENT_RED",
+                    ),
+                    (
+                        repository,
+                        lambda: runtime._lock_repository_root(
+                            repository, repository_record
+                        ),
+                        "S12_1_RECOVERY_GIT_BARRIER_RED",
+                    ),
+                ):
+                    with self.subTest(target=target):
+                        with (
+                            mock.patch.object(
+                                runtime.os, "geteuid", return_value=0
+                            ),
+                            mock.patch.object(runtime.os, "chmod"),
+                            mock.patch.object(runtime.os, "chown") as chown,
+                            self.assertRaisesRegex(
+                                runtime.S12ControlError, error
+                            ),
+                        ):
+                            action()
+                        chown.assert_not_called()
+
+    def test_group_writable_canonical_git_metadata_is_scannable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            git_directory = repository / ".git"
+            git_directory.chmod(0o2770)
+            self.assertEqual(
+                runtime._repository_git_metadata_paths((repository,)),
+                (git_directory,),
+            )
+
+    def test_git_metadata_lock_resumes_recorded_owner_0700_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            git_directory = repository / ".git"
+            git_directory.mkdir(parents=True)
+            record = {
+                "git_uid": 501,
+                "git_gid": 20,
+                "git_mode": "2770",
+            }
+            transition = SimpleNamespace(
+                st_uid=501,
+                st_gid=20,
+                st_mode=stat.S_IFDIR | 0o700,
+            )
+            locked = SimpleNamespace(
+                st_uid=0,
+                st_gid=0,
+                st_mode=stat.S_IFDIR | 0o700,
+            )
+            state = {"locked": False}
+            real_lstat = Path.lstat
+
+            def recovery_lstat(path: Path):
+                if path == git_directory:
+                    return locked if state["locked"] else transition
+                return real_lstat(path)
+
+            def finish_chown(*_args, **_kwargs) -> None:
+                state["locked"] = True
+
+            with (
+                mock.patch.object(runtime.os, "geteuid", return_value=0),
+                mock.patch.object(Path, "lstat", new=recovery_lstat),
+                mock.patch.object(runtime.os, "chmod") as chmod,
+                mock.patch.object(runtime.os, "chown", side_effect=finish_chown) as chown,
+                mock.patch.object(runtime, "_fsync_directory"),
+            ):
+                runtime._lock_repository_git_metadata(repository, record)
+            chown.assert_called_once_with(git_directory, 0, 0)
+            chmod.assert_called_once_with(git_directory, 0o700)
 
     def test_recovery_barrier_blocks_new_git_and_restores_repository(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1748,6 +4566,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(runtime, "_competing_control_sync_count", return_value=0),
                 mock.patch.object(runtime, "_active_repository_git_count", return_value=0),
                 mock.patch.object(runtime, "_active_recovery_git_handle_count", return_value=0),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
             ):
                 with runtime._serialized_repository_recovery((repository,)) as barriers:
                     recovery_git = barriers[repository]
@@ -1836,8 +4659,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(runtime, "_competing_control_sync_count", return_value=0),
                 mock.patch.object(runtime, "_active_repository_git_count", return_value=0),
                 mock.patch.object(runtime, "_active_recovery_git_handle_count", return_value=0),
+                mock.patch.object(
+                    runtime,
+                    "_active_tracked_worktree_write_handle_count",
+                    return_value=0,
+                ),
             )
-            with checks[0], checks[1], checks[2]:
+            with checks[0], checks[1], checks[2], checks[3]:
                 with self.assertRaisesRegex(RuntimeError, "restore interrupted"):
                     with runtime._serialized_repository_recovery(
                         roots=(repository,),

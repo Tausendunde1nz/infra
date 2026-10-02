@@ -11,30 +11,36 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import fcntl
 import hashlib
 import json
 import os
 import pwd
 import re
+import select
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r3"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r4"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
-BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
+BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
+XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
+LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 TRACKED_PATH_HASH_SCHEMA = b"TU1NZ_S12_1_TRACKED_PATH_HASHES_V1\0"
 ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
 ROLLBACK_PHASE_STARTED = "RESTORE_STARTED"
@@ -1214,6 +1220,7 @@ def _repository_parent_metadata() -> dict[str, Any]:
         "uid": metadata.st_uid,
         "gid": metadata.st_gid,
         "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+        "xattr_fingerprint": _repository_parent_xattr_fingerprint(),
     }
 
 
@@ -1225,7 +1232,17 @@ def _repository_backup_state(
     git_directory: Path | None = None,
     path_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    selected_path_metadata = path_metadata or _repository_path_metadata(root)
+    captured_path_metadata = path_metadata or _repository_path_metadata(root)
+    try:
+        selected_path_metadata = {
+            name: captured_path_metadata[name]
+            for name in (
+                "root_uid", "root_gid", "root_mode",
+                "git_uid", "git_gid", "git_mode",
+            )
+        }
+    except (KeyError, TypeError):
+        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED") from None
     _validate_canonical_index(root, git_directory)
     commit, tree = _selected_identity(root, git_directory)
     branch = _selected_branch_or_none(root, git_directory)
@@ -2303,9 +2320,7 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
                 )
                 for line in maps.splitlines():
                     fields = line.split(maxsplit=5)
-                    if len(fields) < 5 or (
-                        "w" not in fields[1] and not fields[1].endswith("s")
-                    ):
+                    if len(fields) < 5:
                         continue
                     identity = _mapped_inode_identity(fields[3], fields[4])
                     if identity in protected_inodes:
@@ -2334,6 +2349,2251 @@ def _active_recovery_git_handle_count(git_directories: Sequence[Path]) -> int:
     return count
 
 
+def _repository_recovery_git_directory(root: Path) -> Path:
+    """Select the real Git directory before or during a recovery exchange."""
+
+    git_directory = root / ".git"
+    recovery_directory = _recovery_git_path(root)
+    if _is_canonical_git_directory(git_directory):
+        return git_directory
+    if _is_recovery_guard(git_directory) and _is_recovery_git_directory(
+        recovery_directory
+    ):
+        return recovery_directory
+    raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+
+
+def _tracked_worktree_regular_paths(
+    roots: Sequence[Path],
+    *,
+    allow_missing: bool = False,
+) -> tuple[Path, ...]:
+    """Resolve regular index entries without treating runtime-only files as protected."""
+
+    tracked: list[Path] = []
+    for root in roots:
+        for path, metadata in _tracked_worktree_index_entries(
+            root, allow_missing=allow_missing
+        ):
+            if stat.S_ISREG(metadata.st_mode):
+                tracked.append(path)
+    return tuple(tracked)
+
+
+def _tracked_worktree_index_entries(
+    root: Path,
+    *,
+    allow_missing: bool = False,
+) -> tuple[tuple[Path, os.stat_result], ...]:
+    """Resolve and validate every current index path exactly once."""
+
+    git_directory = _repository_recovery_git_directory(root)
+    records = _bounded_nul_command_records(
+        _selected_git_arguments(root, git_directory, "ls-files", "-z", "--"),
+        "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
+    )
+    selected: list[tuple[Path, os.stat_result]] = []
+    seen: set[Path] = set()
+    for record in records:
+        parts = record.split(b"/")
+        if (
+            record.startswith(b"/")
+            or any(part in {b"", b".", b".."} for part in parts)
+        ):
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        path = root / os.fsdecode(record)
+        if path in seen:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        seen.add(path)
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            if allow_missing:
+                continue
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+            ) from None
+        except OSError:
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+            ) from None
+        if stat.S_ISREG(metadata.st_mode):
+            if metadata.st_nlink != 1:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        elif not (
+            stat.S_ISLNK(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)
+        ):
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        selected.append((path, metadata))
+    return tuple(selected)
+
+
+def _fdinfo_is_write_capable(path: Path) -> bool:
+    try:
+        payload = path.read_text(encoding="ascii")
+    except FileNotFoundError:
+        return False
+    except (OSError, UnicodeError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED") from None
+    for line in payload.splitlines():
+        label, separator, value = line.partition(":")
+        if label != "flags" or not separator:
+            continue
+        try:
+            flags = int(value.strip(), 8)
+        except ValueError:
+            break
+        return flags & os.O_ACCMODE in {os.O_WRONLY, os.O_RDWR}
+    raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+
+_SMAPS_HEADER = re.compile(
+    r"^[0-9a-f]+-[0-9a-f]+\s+(?P<permissions>[-rwxps]{4})\s+"
+    r"[0-9a-f]+\s+(?P<device>[0-9a-f]+:[0-9a-f]+)\s+"
+    r"(?P<inode>[0-9]+)(?:\s+.*)?$"
+)
+
+
+def _smaps_has_write_capable_shared_mapping(
+    path: Path, protected_inodes: set[tuple[int, int]]
+) -> bool:
+    try:
+        lines = path.read_text(
+            encoding="utf-8", errors="surrogateescape"
+        ).splitlines()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED") from None
+    tracked_shared = False
+    for line in lines:
+        header = _SMAPS_HEADER.fullmatch(line)
+        if header is not None:
+            identity = _mapped_inode_identity(
+                header.group("device"), header.group("inode")
+            )
+            permissions = header.group("permissions")
+            tracked_shared = (
+                identity in protected_inodes and permissions[3] == "s"
+            )
+            if tracked_shared and "w" in permissions[:3]:
+                return True
+            continue
+        if tracked_shared and line.startswith("VmFlags:"):
+            if "mw" in line.split()[1:]:
+                return True
+            tracked_shared = False
+    return False
+
+
+def _active_tracked_worktree_write_handle_count(
+    tracked_paths: Sequence[Path],
+) -> int:
+    """Count processes that can mutate a currently tracked regular inode."""
+
+    proc = Path("/proc")
+    if not proc.is_dir():
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+    protected_inodes: set[tuple[int, int]] = set()
+    try:
+        for path in tracked_paths:
+            metadata = path.lstat()
+            if (
+                path.is_symlink()
+                or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+            ):
+                raise OSError
+            protected_inodes.add((metadata.st_dev, metadata.st_ino))
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED") from None
+    if not protected_inodes:
+        return 0
+    count = 0
+    for process in proc.iterdir():
+        if not process.name.isdigit() or process.name == str(os.getpid()):
+            continue
+        try:
+            matched = False
+            for descriptor in (process / "fd").iterdir():
+                try:
+                    metadata = descriptor.stat()
+                except FileNotFoundError:
+                    continue
+                if (metadata.st_dev, metadata.st_ino) not in protected_inodes:
+                    continue
+                if _fdinfo_is_write_capable(process / "fdinfo" / descriptor.name):
+                    matched = True
+                    break
+            if not matched:
+                matched = _smaps_has_write_capable_shared_mapping(
+                    process / "smaps", protected_inodes
+                )
+            if matched:
+                count += 1
+        except FileNotFoundError:
+            continue
+        except S12ControlError:
+            if os.geteuid() == 0:
+                count += 1
+        except OSError:
+            if os.geteuid() == 0:
+                count += 1
+    return count
+
+
+def _tracked_worktree_barrier_paths(
+    root: Path,
+    *,
+    allow_missing: bool = False,
+) -> tuple[Path, ...]:
+    """Return tracked regular entries and every directory needed to reach them."""
+
+    protected: set[Path] = set()
+    for path, metadata in _tracked_worktree_index_entries(
+        root, allow_missing=allow_missing
+    ):
+        if stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode):
+            protected.add(path)
+        parent = path.parent
+        while parent != root:
+            if root not in parent.parents:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+            protected.add(parent)
+            parent = parent.parent
+    return tuple(
+        sorted(
+            protected,
+            key=lambda path: (
+                len(path.relative_to(root).parts),
+                os.fsencode(path.relative_to(root)),
+            ),
+        )
+    )
+
+
+def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
+    """Preserve the former owner's effective access class after chown."""
+
+    if mode & stat.S_ISUID:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    restricted = mode & ~0o222
+    if uid == 0:
+        return restricted
+    try:
+        account = pwd.getpwuid(uid)
+        group_member = gid in os.getgrouplist(account.pw_name, account.pw_gid)
+    except (KeyError, OSError):
+        raise S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+        ) from None
+    owner_access = (restricted & 0o500) >> 6
+    effective_access = (
+        (restricted & 0o050) >> 3
+        if group_member
+        else restricted & 0o005
+    )
+    if owner_access & ~effective_access:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    return restricted
+
+
+def _assert_post_chown_acl_preserves_access(
+    path: Path,
+    uid: int,
+    required_access: int,
+    target_mask: int,
+    target_other: int,
+    safe_code: str,
+) -> None:
+    """Reject an ACL that would reduce the former owner's post-chown access."""
+
+    if uid == 0:
+        return
+    if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
+        if sys.platform == "linux":
+            raise S12ControlError(safe_code)
+        return
+    try:
+        before = path.lstat()
+        names = sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        )
+        if "system.posix_acl_access" not in names:
+            value = None
+        else:
+            value = os.getxattr(
+                path,
+                "system.posix_acl_access",
+                follow_symlinks=False,
+            )
+        if names != sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        ):
+            raise OSError
+        after = path.lstat()
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_ctime_ns",
+        )
+        if any(
+            getattr(before, field) != getattr(after, field)
+            for field in stable_fields
+        ):
+            raise OSError
+        if value is None:
+            account = pwd.getpwuid(uid)
+            groups = set(os.getgrouplist(account.pw_name, account.pw_gid))
+            effective_access = (
+                target_mask if before.st_gid in groups else target_other
+            )
+            if required_access & ~effective_access:
+                raise OSError
+            return
+
+        acl_header = struct.Struct("<I")
+        acl_entry = struct.Struct("<HHI")
+        if (
+            len(value) < acl_header.size
+            or acl_header.unpack_from(value)[0] != 2
+            or (len(value) - acl_header.size) % acl_entry.size
+        ):
+            raise OSError
+        entries = [
+            acl_entry.unpack_from(value, offset)
+            for offset in range(
+                acl_header.size, len(value), acl_entry.size
+            )
+        ]
+        if any(
+            tag not in {0x01, 0x02, 0x04, 0x08, 0x10, 0x20}
+            or permissions & ~0o7
+            for tag, permissions, _identifier in entries
+        ):
+            raise OSError
+        for tag in (0x01, 0x04, 0x20):
+            if sum(entry_tag == tag for entry_tag, *_rest in entries) != 1:
+                raise OSError
+        named_entries = [
+            (tag, permissions, identifier)
+            for tag, permissions, identifier in entries
+            if tag in {0x02, 0x08}
+        ]
+        if (
+            len({(tag, identifier) for tag, _, identifier in named_entries})
+            != len(named_entries)
+            or any(identifier == 0xFFFFFFFF for _, _, identifier in named_entries)
+            or any(
+                identifier != 0xFFFFFFFF
+                for tag, _, identifier in entries
+                if tag in {0x01, 0x04, 0x10, 0x20}
+            )
+            or sum(tag == 0x10 for tag, *_rest in entries)
+            not in ({1} if named_entries else {0, 1})
+        ):
+            raise OSError
+        named_users = [
+            permissions
+            for tag, permissions, identifier in entries
+            if tag == 0x02 and identifier == uid
+        ]
+        if len(named_users) > 1:
+            raise OSError
+        if named_users:
+            effective_access = named_users[0] & target_mask
+        else:
+            account = pwd.getpwuid(uid)
+            groups = set(os.getgrouplist(account.pw_name, account.pw_gid))
+            matching_group_permissions = [
+                permissions
+                for tag, permissions, identifier in entries
+                if (tag == 0x04 and before.st_gid in groups)
+                or (tag == 0x08 and identifier in groups)
+            ]
+            if matching_group_permissions:
+                effective_access = 0
+                for permissions in matching_group_permissions:
+                    effective_access |= permissions
+                effective_access &= target_mask
+            else:
+                effective_access = target_other
+        if required_access & ~effective_access:
+            raise OSError
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError(safe_code) from None
+
+
+def _worktree_path_xattr_fingerprint(path: Path) -> str:
+    try:
+        return _release_xattr_fingerprint((path,))
+    except S12ControlError:
+        raise S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+        ) from None
+
+
+def _assert_worktree_path_xattrs(
+    path: Path, record: dict[str, Any]
+) -> None:
+    fingerprint = record.get("xattr_fingerprint")
+    if (
+        not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or _worktree_path_xattr_fingerprint(path) != fingerprint
+    ):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+
+
+def _capture_worktree_write_barrier(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+) -> dict[Path, dict[Path, dict[str, Any]]]:
+    """Capture the exact metadata needed to recover a tracked-path write barrier."""
+
+    captured: dict[Path, dict[Path, dict[str, Any]]] = {}
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            entries: dict[Path, dict[str, Any]] = {}
+            for path in _tracked_worktree_barrier_paths(root):
+                metadata = path.lstat()
+                if stat.S_ISDIR(metadata.st_mode):
+                    kind = "directory"
+                elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
+                    kind = "regular"
+                    _assert_no_security_capability(path)
+                else:
+                    raise OSError
+                if (metadata.st_uid, metadata.st_gid) != (
+                    expected_uid,
+                    expected_gid,
+                ):
+                    raise OSError
+                mode = stat.S_IMODE(metadata.st_mode)
+                restricted_mode = _worktree_barrier_mode(
+                    mode, metadata.st_uid, metadata.st_gid
+                )
+                xattr_fingerprint = _worktree_path_xattr_fingerprint(path)
+                _assert_post_chown_acl_preserves_access(
+                    path,
+                    metadata.st_uid,
+                    (restricted_mode & 0o500) >> 6,
+                    (restricted_mode & 0o050) >> 3,
+                    restricted_mode & 0o005,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                )
+                entries[path] = {
+                    "kind": kind,
+                    "device": metadata.st_dev,
+                    "inode": metadata.st_ino,
+                    "uid": metadata.st_uid,
+                    "gid": metadata.st_gid,
+                    "mode": f"{mode:04o}",
+                    "xattr_fingerprint": xattr_fingerprint,
+                }
+            captured[root] = entries
+    except (KeyError, OSError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+    return captured
+
+
+def _worktree_barrier_payload(
+    roots: Sequence[Path],
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    payload: dict[str, list[dict[str, Any]]] = {}
+    for key, root in (("application", roots[0]), ("control", roots[1])):
+        entries = records.get(root)
+        if not isinstance(entries, dict):
+            raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+        payload[key] = [
+            {
+                "path_hex": os.fsencode(path.relative_to(root)).hex(),
+                **entry,
+            }
+            for path, entry in sorted(
+                entries.items(),
+                key=lambda item: os.fsencode(item[0].relative_to(root)),
+            )
+        ]
+    return payload
+
+
+def _refresh_worktree_barrier_for_release(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> None:
+    """Journal canonical metadata for tracked inodes created by root Git."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            root_records = records[root]
+            for path in _tracked_worktree_barrier_paths(root):
+                metadata = path.lstat()
+                if stat.S_ISDIR(metadata.st_mode):
+                    kind = "directory"
+                elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
+                    kind = "regular"
+                else:
+                    raise OSError
+                mode = stat.S_IMODE(metadata.st_mode)
+                if metadata.st_uid != 0 or mode & 0o022:
+                    raise OSError
+                existing = root_records.get(path)
+                if existing is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                    mode,
+                ) == (
+                    existing["device"],
+                    existing["inode"],
+                    int(existing["mode"], 8) & ~0o222,
+                ):
+                    _assert_worktree_path_xattrs(path, existing)
+                    continue
+                root_records[path] = {
+                    "kind": kind,
+                    "device": metadata.st_dev,
+                    "inode": metadata.st_ino,
+                    "uid": expected_uid,
+                    "gid": expected_gid,
+                    "mode": f"{mode:04o}",
+                    "xattr_fingerprint": (
+                        _worktree_path_xattr_fingerprint(path)
+                    ),
+                }
+        if (
+            tuple(roots) == (APPLICATION_ROOT, CONTROL_ROOT)
+            and (BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink())
+        ):
+            journal = _private_json(
+                BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+            )
+            journal["worktree_write_barrier"] = _worktree_barrier_payload(
+                roots, records
+            )
+            _atomic_json(BARRIER_MARKER, journal)
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError(
+            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+        ) from None
+
+
+def _parse_worktree_barrier_payload(
+    payload: Any,
+    roots: Sequence[Path],
+    *,
+    require_xattr: bool = True,
+) -> dict[Path, dict[Path, dict[str, Any]]]:
+    if not isinstance(payload, dict) or set(payload) != {"application", "control"}:
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    parsed: dict[Path, dict[Path, dict[str, Any]]] = {}
+    for key, root in (("application", roots[0]), ("control", roots[1])):
+        raw_entries = payload.get(key)
+        if not isinstance(raw_entries, list):
+            raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+        entries: dict[Path, dict[str, Any]] = {}
+        for raw in raw_entries:
+            expected_keys = {
+                "path_hex",
+                "kind",
+                "device",
+                "inode",
+                "uid",
+                "gid",
+                "mode",
+            }
+            if require_xattr:
+                expected_keys.add("xattr_fingerprint")
+            if not isinstance(raw, dict) or set(raw) != expected_keys:
+                raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+            try:
+                relative_bytes = bytes.fromhex(raw["path_hex"])
+                relative = Path(os.fsdecode(relative_bytes))
+            except (TypeError, ValueError):
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                ) from None
+            if (
+                not relative_bytes
+                or b"\0" in relative_bytes
+                or relative.is_absolute()
+                or any(part in {"", ".", ".."} for part in relative.parts)
+                or raw["kind"] not in {"regular", "directory"}
+                or any(
+                    type(raw[name]) is not int
+                    for name in ("device", "inode", "uid", "gid")
+                )
+                or raw["device"] < 0
+                or raw["inode"] <= 0
+                or raw["uid"] < 0
+                or raw["gid"] < 0
+                or not isinstance(raw["mode"], str)
+                or re.fullmatch(r"[0-7]{4}", raw["mode"]) is None
+                or (
+                    require_xattr
+                    and (
+                        not isinstance(raw["xattr_fingerprint"], str)
+                        or re.fullmatch(
+                            r"[0-9a-f]{64}", raw["xattr_fingerprint"]
+                        )
+                        is None
+                    )
+                )
+            ):
+                raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+            path = root / relative
+            if path in entries:
+                raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+            entries[path] = {
+                name: raw[name]
+                for name in ("kind", "device", "inode", "uid", "gid", "mode")
+            }
+            if require_xattr:
+                entries[path]["xattr_fingerprint"] = raw[
+                    "xattr_fingerprint"
+                ]
+        parsed[root] = entries
+    return parsed
+
+
+def _upgrade_legacy_worktree_xattr_records(
+    records: dict[Path, dict[Path, dict[str, Any]]]
+) -> None:
+    """Bind safe current xattrs while durably upgrading a V1 orphan."""
+
+    for root_entries in records.values():
+        for path, record in root_entries.items():
+            if "xattr_fingerprint" in record:
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                )
+            try:
+                path.lstat()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                ) from None
+            else:
+                _assert_legacy_path_xattrs_safe(
+                    path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+            record["xattr_fingerprint"] = (
+                _worktree_path_xattr_fingerprint(path)
+            )
+
+
+def _lock_worktree_write_barrier(
+    records: dict[Path, dict[Path, dict[str, Any]]],
+    *,
+    allow_missing: bool = False,
+) -> None:
+    """Prevent new non-root tracked-file writes while preserving read traversal."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root_entries in records.values():
+            for record in root_entries.values():
+                _worktree_barrier_mode(
+                    int(record["mode"], 8), record["uid"], record["gid"]
+                )
+        for root, root_entries in records.items():
+            for path, record in sorted(
+                root_entries.items(),
+                key=lambda item: (len(item[0].parts), os.fsencode(item[0])),
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    # A prior interrupted Git checkout may legitimately have
+                    # removed an old index path. Current paths are sealed in
+                    # the second pass below.
+                    continue
+                _assert_worktree_path_xattrs(path, record)
+                mode = int(record["mode"], 8)
+                restricted_mode = _worktree_barrier_mode(
+                    mode, record["uid"], record["gid"]
+                )
+                expected_kind = record["kind"]
+                original = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == record["uid"]
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == mode
+                )
+                locked = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == 0
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == restricted_mode
+                )
+                target_locked = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == 0
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == mode
+                    and not (mode & 0o022)
+                )
+                restricted = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == record["uid"]
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode) == restricted_mode
+                )
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                resumed = (
+                    actual_kind in {"directory", "regular"}
+                    and metadata.st_uid == 0
+                    and not stat.S_IMODE(metadata.st_mode) & 0o022
+                )
+                if actual_kind != expected_kind or not (
+                    original
+                    or locked
+                    or target_locked
+                    or restricted
+                    or resumed
+                ):
+                    raise OSError
+                if actual_kind == "regular":
+                    _assert_no_security_capability(path)
+                if original:
+                    os.chmod(path, restricted_mode, follow_symlinks=False)
+                _assert_post_chown_acl_preserves_access(
+                    path,
+                    record["uid"],
+                    (restricted_mode & 0o500) >> 6,
+                    (restricted_mode & 0o050) >> 3,
+                    restricted_mode & 0o005,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                )
+                if original or restricted:
+                    os.chown(path, 0, record["gid"], follow_symlinks=False)
+                    os.chmod(path, restricted_mode, follow_symlinks=False)
+                if target_locked:
+                    os.chmod(path, restricted_mode, follow_symlinks=False)
+                _assert_worktree_path_xattrs(path, record)
+            # New target paths created by a previously interrupted root Git
+            # checkout are absent from the durable pre-mutation record. They
+            # are safe to resume only when root-owned and already closed to
+            # group/other writers. Their root-only write bit remains intact so
+            # the final ownership restore releases their canonical Git mode.
+            for path in _tracked_worktree_barrier_paths(
+                root, allow_missing=allow_missing
+            ):
+                metadata = path.lstat()
+                record = root_entries.get(path)
+                if record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"]):
+                    continue
+                if (
+                    metadata.st_uid != 0
+                    or stat.S_IMODE(metadata.st_mode) & 0o022
+                    or (
+                        stat.S_ISREG(metadata.st_mode)
+                        and metadata.st_nlink != 1
+                    )
+                    or not (
+                        stat.S_ISREG(metadata.st_mode)
+                        or stat.S_ISDIR(metadata.st_mode)
+                    )
+                ):
+                    raise OSError
+        for root in records:
+            _sync_repository_filesystem(root)
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _assert_worktree_write_barrier(
+    roots: Sequence[Path],
+    records: dict[Path, dict[Path, dict[str, Any]]],
+    *,
+    allow_missing: bool = False,
+) -> None:
+    """Require every current tracked inode and ancestor to reject non-root writes."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        recorded_paths = {
+            path: record
+            for entries in records.values()
+            for path, record in entries.items()
+        }
+        for root in roots:
+            for path in _tracked_worktree_barrier_paths(
+                root, allow_missing=allow_missing
+            ):
+                metadata = path.lstat()
+                record = recorded_paths.get(path)
+                if record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"]):
+                    _assert_worktree_path_xattrs(path, record)
+                    expected_gid = record["gid"]
+                else:
+                    expected_gid = metadata.st_gid
+                if (
+                    metadata.st_uid != 0
+                    or metadata.st_gid != expected_gid
+                    or stat.S_IMODE(metadata.st_mode) & 0o022
+                    or (
+                        stat.S_ISREG(metadata.st_mode)
+                        and metadata.st_nlink != 1
+                    )
+                    or not (
+                        stat.S_ISREG(metadata.st_mode)
+                        or stat.S_ISDIR(metadata.st_mode)
+                    )
+                ):
+                    raise OSError
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _restore_worktree_write_barrier(
+    records: dict[Path, dict[Path, dict[str, Any]]],
+    repository_records: dict[Path, dict[str, Any]] | None = None,
+) -> None:
+    if os.geteuid() != 0:
+        return
+    try:
+        for root_entries in records.values():
+            for path, record in sorted(
+                root_entries.items(),
+                key=lambda item: (-len(item[0].parts), os.fsencode(item[0])),
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    continue
+                if (metadata.st_dev, metadata.st_ino) != (
+                    record["device"],
+                    record["inode"],
+                ):
+                    continue
+                expected_kind = record["kind"]
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                if actual_kind != expected_kind:
+                    raise OSError
+                _assert_worktree_path_xattrs(path, record)
+                os.chown(
+                    path,
+                    record["uid"],
+                    record["gid"],
+                    follow_symlinks=False,
+                )
+                os.chmod(path, int(record["mode"], 8), follow_symlinks=False)
+                _assert_worktree_path_xattrs(path, record)
+        if repository_records is not None:
+            if set(repository_records) != set(records):
+                raise OSError
+            for root, root_entries in records.items():
+                expected_uid, expected_gid, _ = _recorded_path_metadata(
+                    repository_records[root], "root"
+                )
+                for path in sorted(
+                    _tracked_worktree_barrier_paths(root),
+                    key=lambda item: (-len(item.parts), os.fsencode(item)),
+                ):
+                    metadata = path.lstat()
+                    record = root_entries.get(path)
+                    if record is not None and (
+                        metadata.st_dev,
+                        metadata.st_ino,
+                    ) == (record["device"], record["inode"]):
+                        continue
+                    if (
+                        metadata.st_uid != 0
+                        or stat.S_IMODE(metadata.st_mode) & 0o022
+                        or (
+                            stat.S_ISREG(metadata.st_mode)
+                            and metadata.st_nlink != 1
+                        )
+                        or not (
+                            stat.S_ISREG(metadata.st_mode)
+                            or stat.S_ISDIR(metadata.st_mode)
+                        )
+                    ):
+                        raise OSError
+                    os.chown(
+                        path,
+                        expected_uid,
+                        expected_gid,
+                        follow_symlinks=False,
+                    )
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _validate_released_worktree_contract(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+    barrier_records: dict[Path, dict[Path, dict[str, Any]]],
+) -> None:
+    """Validate exact old entries and safe canonical metadata for new entries."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            root_records = barrier_records[root]
+            current_paths = set(_tracked_worktree_barrier_paths(root))
+            for path in sorted(
+                current_paths | set(root_records), key=os.fsencode
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    if path in current_paths:
+                        raise
+                    continue
+                record = root_records.get(path)
+                same_recorded_inode = record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"])
+                if same_recorded_inode:
+                    _assert_worktree_path_xattrs(path, record)
+                    valid_metadata = (
+                        metadata.st_uid == record["uid"]
+                        and metadata.st_gid == record["gid"]
+                        and stat.S_IMODE(metadata.st_mode)
+                        == int(record["mode"], 8)
+                    )
+                    expected_kind = record["kind"]
+                else:
+                    valid_metadata = (
+                        metadata.st_uid == expected_uid
+                        and metadata.st_gid == expected_gid
+                        and not (stat.S_IMODE(metadata.st_mode) & 0o022)
+                    )
+                    expected_kind = (
+                        "directory"
+                        if stat.S_ISDIR(metadata.st_mode)
+                        else "regular"
+                    )
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                if not valid_metadata or actual_kind != expected_kind:
+                    raise OSError
+            _validate_repository_worktree_contract(
+                root,
+                repository_records[root],
+                allow_journaled_transition=True,
+            )
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _reseal_released_worktree_contract(
+    roots: Sequence[Path],
+    repository_records: dict[Path, dict[str, Any]],
+    barrier_records: dict[Path, dict[Path, dict[str, Any]]],
+    *,
+    include_current: bool,
+) -> None:
+    """Restore the durable root-owned write barrier before releasing leases."""
+
+    if os.geteuid() != 0:
+        return
+    try:
+        for root in roots:
+            expected_uid, expected_gid, _ = _recorded_path_metadata(
+                repository_records[root], "root"
+            )
+            root_records = barrier_records[root]
+            protected = set(root_records)
+            if include_current:
+                protected.update(_tracked_worktree_barrier_paths(root))
+            for path in sorted(
+                protected,
+                key=lambda item: (len(item.parts), os.fsencode(item)),
+            ):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    continue
+                record = root_records.get(path)
+                same_recorded_inode = record is not None and (
+                    metadata.st_dev,
+                    metadata.st_ino,
+                ) == (record["device"], record["inode"])
+                if same_recorded_inode:
+                    _assert_worktree_path_xattrs(path, record)
+                    released = (
+                        metadata.st_uid == record["uid"]
+                        and metadata.st_gid == record["gid"]
+                        and stat.S_IMODE(metadata.st_mode)
+                        == int(record["mode"], 8)
+                    )
+                    expected_kind = record["kind"]
+                    source_mode = int(record["mode"], 8)
+                    target_uid = record["uid"]
+                    target_gid = record["gid"]
+                else:
+                    released = (
+                        include_current
+                        and metadata.st_uid == expected_uid
+                        and metadata.st_gid == expected_gid
+                        and not (stat.S_IMODE(metadata.st_mode) & 0o022)
+                    )
+                    expected_kind = (
+                        "directory"
+                        if stat.S_ISDIR(metadata.st_mode)
+                        else "regular"
+                    )
+                    source_mode = stat.S_IMODE(metadata.st_mode)
+                    target_uid = expected_uid
+                    target_gid = expected_gid
+                actual_kind = (
+                    "directory"
+                    if stat.S_ISDIR(metadata.st_mode)
+                    else "regular"
+                    if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+                    else "invalid"
+                )
+                if not released or actual_kind != expected_kind:
+                    raise OSError
+                restricted_mode = _worktree_barrier_mode(
+                    source_mode, target_uid, target_gid
+                )
+                os.chmod(path, restricted_mode, follow_symlinks=False)
+                os.chown(path, 0, target_gid, follow_symlinks=False)
+                os.chmod(path, restricted_mode, follow_symlinks=False)
+                if same_recorded_inode:
+                    _assert_worktree_path_xattrs(path, record)
+            _sync_repository_filesystem(root)
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
+
+
+def _repository_git_metadata_paths(roots: Sequence[Path]) -> tuple[Path, ...]:
+    """Return only Git metadata paths participating in recovery exclusion."""
+
+    protected: list[Path] = []
+    for root in roots:
+        git_directory = root / ".git"
+        recovery_directory = _recovery_git_path(root)
+        if _is_recovery_guard(git_directory) and _is_recovery_git_directory(
+            recovery_directory
+        ):
+            protected.extend((git_directory, recovery_directory))
+        elif _is_canonical_git_directory(git_directory):
+            if _is_recovery_guard(recovery_directory):
+                protected.extend((git_directory, recovery_directory))
+            elif recovery_directory.exists() or recovery_directory.is_symlink():
+                raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+            else:
+                protected.append(git_directory)
+        else:
+            raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+    return tuple(protected)
+
+
+def _repository_git_metadata_directories(
+    roots: Sequence[Path],
+) -> tuple[Path, ...]:
+    """Return every Git metadata directory requiring a recursive release mark."""
+
+    directories: list[Path] = []
+    try:
+        for root in roots:
+            git_directory = root / ".git"
+            for current, children, _files in os.walk(
+                git_directory, topdown=True, followlinks=False
+            ):
+                directory = Path(current)
+                metadata = directory.lstat()
+                if directory.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                    raise OSError
+                directories.append(directory)
+                for name in children:
+                    child = directory / name
+                    child_metadata = child.lstat()
+                    if child.is_symlink() or not stat.S_ISDIR(
+                        child_metadata.st_mode
+                    ):
+                        raise OSError
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return tuple(directories)
+
+
+def _assert_no_security_capability(path: Path) -> None:
+    """Reject file capabilities that chown(2) would silently discard."""
+
+    if not hasattr(os, "listxattr"):
+        if sys.platform == "linux":
+            raise OSError
+        return
+    before = path.lstat()
+    names = sorted(
+        os.listxattr(path, follow_symlinks=False), key=os.fsencode
+    )
+    after = path.lstat()
+    stable_fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_ctime_ns")
+    if (
+        "security.capability" in names
+        or names
+        != sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        )
+        or any(
+            getattr(before, field) != getattr(after, field)
+            for field in stable_fields
+        )
+    ):
+        raise OSError
+
+
+def _normalize_posix_acl_mode_entries(value: bytes) -> bytes:
+    """Ignore only ACL fields deterministically rewritten by chmod(2)."""
+
+    acl_header = struct.Struct("<I")
+    acl_entry = struct.Struct("<HHI")
+    if (
+        len(value) < acl_header.size
+        or (len(value) - acl_header.size) % acl_entry.size != 0
+        or acl_header.unpack_from(value)[0] != 2
+    ):
+        raise OSError
+    entries = [
+        acl_entry.unpack_from(value, offset)
+        for offset in range(acl_header.size, len(value), acl_entry.size)
+    ]
+    has_mask = any(tag == 0x10 for tag, _permissions, _identifier in entries)
+    normalized = bytearray(value[: acl_header.size])
+    for tag, permissions, identifier in entries:
+        if tag in {0x01, 0x10, 0x20} or (tag == 0x04 and not has_mask):
+            permissions = 0
+        normalized.extend(acl_entry.pack(tag, permissions, identifier))
+    return bytes(normalized)
+
+
+def _stable_xattr_payload(
+    path: Path,
+    metadata: os.stat_result,
+    *,
+    normalize_posix_acl_mode: bool = False,
+) -> bytes:
+    """Read one inode's extended attributes without accepting concurrent drift."""
+
+    if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
+        if sys.platform == "linux":
+            raise OSError
+        return b""
+    before = path.lstat()
+    names = sorted(
+        os.listxattr(path, follow_symlinks=False), key=os.fsencode
+    )
+    payload = bytearray()
+    for name in names:
+        encoded = os.fsencode(name)
+        value = os.getxattr(path, name, follow_symlinks=False)
+        if normalize_posix_acl_mode and name == "system.posix_acl_access":
+            value = _normalize_posix_acl_mode_entries(value)
+        payload.extend(len(encoded).to_bytes(8, "big"))
+        payload.extend(encoded)
+        payload.extend(len(value).to_bytes(8, "big"))
+        payload.extend(value)
+    if names != sorted(
+        os.listxattr(path, follow_symlinks=False), key=os.fsencode
+    ):
+        raise OSError
+    after = path.lstat()
+    stable_fields = (
+        "st_dev",
+        "st_ino",
+        "st_mode",
+        "st_nlink",
+        "st_size",
+        "st_mtime_ns",
+        "st_ctime_ns",
+    )
+    if any(
+        getattr(before, field) != getattr(after, field)
+        or getattr(before, field) != getattr(metadata, field)
+        for field in stable_fields
+    ):
+        raise OSError
+    return bytes(payload)
+
+
+def _release_xattr_fingerprint(paths: Sequence[Path]) -> str:
+    """Bind extended attributes for every existing release-guard path."""
+
+    digest = hashlib.sha256()
+    try:
+        for path in sorted(set(paths), key=os.fsencode):
+            encoded_path = os.fsencode(path)
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                digest.update(b"missing\0" + encoded_path + b"\0")
+                continue
+            if path.is_symlink() or not (
+                stat.S_ISDIR(metadata.st_mode)
+                or (
+                    stat.S_ISREG(metadata.st_mode)
+                    and metadata.st_nlink == 1
+                )
+            ):
+                raise OSError
+            digest.update(
+                b"present\0"
+                + encoded_path
+                + b"\0"
+                + str(metadata.st_dev).encode("ascii")
+                + b":"
+                + str(metadata.st_ino).encode("ascii")
+                + b"\0"
+                + _stable_xattr_payload(
+                    path,
+                    metadata,
+                    normalize_posix_acl_mode=True,
+                )
+                + b"\0"
+            )
+    except (OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return digest.hexdigest()
+
+
+def _git_metadata_release_fingerprint(roots: Sequence[Path]) -> str:
+    """Bind Git namespace, bytes and modes while ignoring intentional chown."""
+
+    digest = hashlib.sha256()
+    try:
+        for root_index, root in enumerate(roots):
+            git_directory = root / ".git"
+            git_metadata = git_directory.lstat()
+            if git_directory.is_symlink() or not stat.S_ISDIR(
+                git_metadata.st_mode
+            ):
+                raise OSError
+            digest.update(
+                b"root\0"
+                + str(root_index).encode("ascii")
+                + b"\0"
+                + str(git_metadata.st_dev).encode("ascii")
+                + b":"
+                + str(git_metadata.st_ino).encode("ascii")
+                + b"\0"
+                + _stable_xattr_payload(
+                    git_directory,
+                    git_metadata,
+                    normalize_posix_acl_mode=True,
+                )
+                + b"\0"
+            )
+            pending = [git_directory]
+            while pending:
+                directory = pending.pop()
+                entries = sorted(
+                    os.scandir(directory), key=lambda entry: os.fsencode(entry.name)
+                )
+                child_directories: list[Path] = []
+                for entry in entries:
+                    path = Path(entry.path)
+                    metadata = entry.stat(follow_symlinks=False)
+                    relative = os.fsencode(path.relative_to(git_directory))
+                    if stat.S_ISDIR(metadata.st_mode):
+                        kind = b"directory"
+                        child_directories.append(path)
+                        payload = b""
+                    elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
+                        kind = b"regular"
+                        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                        try:
+                            before = os.fstat(descriptor)
+                            content = hashlib.sha256()
+                            while True:
+                                block = os.read(descriptor, 1024 * 1024)
+                                if not block:
+                                    break
+                                content.update(block)
+                            after = os.fstat(descriptor)
+                        finally:
+                            os.close(descriptor)
+                        stable_fields = (
+                            "st_dev",
+                            "st_ino",
+                            "st_mode",
+                            "st_nlink",
+                            "st_size",
+                            "st_mtime_ns",
+                        )
+                        if any(
+                            getattr(before, field) != getattr(after, field)
+                            or getattr(before, field) != getattr(metadata, field)
+                            for field in stable_fields
+                        ):
+                            raise OSError
+                        payload = content.digest()
+                    else:
+                        raise OSError
+                    digest.update(
+                        str(root_index).encode("ascii")
+                        + b"\0"
+                        + relative
+                        + b"\0"
+                        + kind
+                        + b"\0"
+                        + b":".join(
+                            str(value).encode("ascii")
+                            for value in (
+                                metadata.st_dev,
+                                metadata.st_ino,
+                                metadata.st_mode,
+                                metadata.st_nlink,
+                                metadata.st_size,
+                                metadata.st_mtime_ns,
+                            )
+                        )
+                        + b"\0"
+                        + payload
+                        + b"\0"
+                        + _stable_xattr_payload(path, metadata)
+                        + b"\0"
+                    )
+                pending.extend(reversed(child_directories))
+    except (OSError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return digest.hexdigest()
+
+
+def _git_metadata_transition_fingerprint(paths: Sequence[Path]) -> str:
+    """Bind the complete protected tree while normalizing its top lock attrs."""
+
+    digest = hashlib.sha256()
+    for index, root in enumerate(paths):
+        try:
+            root_metadata = root.lstat()
+            if root.is_symlink() or not stat.S_ISDIR(root_metadata.st_mode):
+                raise OSError
+            digest.update(
+                b"root\0"
+                + str(index).encode("ascii")
+                + b"\0"
+                + str(root_metadata.st_dev).encode("ascii")
+                + b":"
+                + str(root_metadata.st_ino).encode("ascii")
+                + b"\0"
+                + _stable_xattr_payload(
+                    root,
+                    root_metadata,
+                    normalize_posix_acl_mode=True,
+                )
+                + b"\0"
+            )
+            pending = [root]
+            while pending:
+                directory = pending.pop()
+                entries = sorted(
+                    os.scandir(directory), key=lambda entry: os.fsencode(entry.name)
+                )
+                child_directories: list[Path] = []
+                for entry in entries:
+                    path = Path(entry.path)
+                    metadata = entry.stat(follow_symlinks=False)
+                    relative = os.fsencode(path.relative_to(root))
+                    if stat.S_ISDIR(metadata.st_mode):
+                        kind = b"directory"
+                        child_directories.append(path)
+                        payload = b""
+                    elif stat.S_ISREG(metadata.st_mode):
+                        kind = b"regular"
+                        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                        try:
+                            before = os.fstat(descriptor)
+                            content = hashlib.sha256()
+                            while True:
+                                block = os.read(descriptor, 1024 * 1024)
+                                if not block:
+                                    break
+                                content.update(block)
+                            after = os.fstat(descriptor)
+                        finally:
+                            os.close(descriptor)
+                        stable_fields = (
+                            "st_dev", "st_ino", "st_mode", "st_uid", "st_gid",
+                            "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns",
+                        )
+                        if any(
+                            getattr(before, field) != getattr(after, field)
+                            or getattr(before, field) != getattr(metadata, field)
+                            for field in stable_fields
+                        ):
+                            raise OSError
+                        payload = content.digest()
+                    elif stat.S_ISLNK(metadata.st_mode):
+                        kind = b"symlink"
+                        payload = os.fsencode(os.readlink(path))
+                    else:
+                        raise OSError
+                    digest.update(
+                        relative
+                        + b"\0"
+                        + kind
+                        + b"\0"
+                        + b":".join(
+                            str(value).encode("ascii")
+                            for value in (
+                                metadata.st_dev,
+                                metadata.st_ino,
+                                metadata.st_mode,
+                                metadata.st_uid,
+                                metadata.st_gid,
+                                metadata.st_nlink,
+                                metadata.st_size,
+                                metadata.st_mtime_ns,
+                                metadata.st_ctime_ns,
+                            )
+                        )
+                        + b"\0"
+                        + payload
+                        + b"\0"
+                    )
+                pending.extend(reversed(child_directories))
+        except (OSError, ValueError):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+    return digest.hexdigest()
+
+
+class _GitMetadataTransitionGuard:
+    """Detect even short-lived metadata writers across the lock transition."""
+
+    _EVENT = struct.Struct("iIII")
+    _MUTATION_MASK = (
+        0x00000002  # IN_MODIFY
+        | 0x00000004  # IN_ATTRIB
+        | 0x00000008  # IN_CLOSE_WRITE
+        | 0x00000040  # IN_MOVED_FROM
+        | 0x00000080  # IN_MOVED_TO
+        | 0x00000100  # IN_CREATE
+        | 0x00000200  # IN_DELETE
+        | 0x00000400  # IN_DELETE_SELF
+        | 0x00000800  # IN_MOVE_SELF
+    )
+    _IN_Q_OVERFLOW = 0x00004000
+    _IN_ISDIR = 0x40000000
+    _ROOT_LOCK_EVENTS = 0x00000004 | 0x00000800  # ATTRIB | MOVE_SELF
+
+    def __init__(self, paths: Sequence[Path]):
+        self.paths = tuple(paths)
+        self.descriptor: int | None = None
+        self.root_watches: set[int] = set()
+        self.baseline = ""
+        try:
+            self.baseline = _git_metadata_transition_fingerprint(self.paths)
+            if sys.platform == "linux":
+                library = ctypes.CDLL(None, use_errno=True)
+                init = library.inotify_init1
+                init.argtypes = [ctypes.c_int]
+                init.restype = ctypes.c_int
+                descriptor = init(os.O_NONBLOCK | os.O_CLOEXEC)
+                if descriptor < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_init1")
+                self.descriptor = descriptor
+                add = library.inotify_add_watch
+                add.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+                add.restype = ctypes.c_int
+                for root in self.paths:
+                    pending = [root]
+                    first = True
+                    while pending:
+                        directory = pending.pop()
+                        watch = add(
+                            descriptor,
+                            os.fsencode(directory),
+                            self._MUTATION_MASK,
+                        )
+                        if watch < 0:
+                            raise OSError(ctypes.get_errno(), "inotify_add_watch")
+                        if first:
+                            self.root_watches.add(watch)
+                            first = False
+                        entries = sorted(
+                            os.scandir(directory),
+                            key=lambda entry: os.fsencode(entry.name),
+                        )
+                        children = [
+                            Path(entry.path)
+                            for entry in entries
+                            if entry.is_dir(follow_symlinks=False)
+                        ]
+                        pending.extend(reversed(children))
+            if _git_metadata_transition_fingerprint(self.paths) != self.baseline:
+                raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+            self._assert_event_queue_quiet()
+        except S12ControlError:
+            self.close()
+            raise
+        except (OSError, ValueError, AttributeError):
+            self.close()
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+
+    def _assert_event_queue_quiet(self) -> None:
+        if self.descriptor is None:
+            return
+        while True:
+            try:
+                payload = os.read(self.descriptor, 1024 * 1024)
+            except BlockingIOError:
+                return
+            except OSError:
+                raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+            if not payload:
+                return sentinel_seen
+            offset = 0
+            while offset < len(payload):
+                if len(payload) - offset < self._EVENT.size:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                    payload, offset
+                )
+                offset += self._EVENT.size
+                if name_length > len(payload) - offset:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                name = payload[offset : offset + name_length].rstrip(b"\0")
+                offset += name_length
+                normalized = mask & ~self._IN_ISDIR
+                if normalized & self._IN_Q_OVERFLOW:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                if (
+                    watch in self.root_watches
+                    and not name
+                    and normalized
+                    and normalized & ~self._ROOT_LOCK_EVENTS == 0
+                ):
+                    continue
+                if normalized:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+
+    def assert_unchanged(self) -> None:
+        self._assert_event_queue_quiet()
+        if _git_metadata_transition_fingerprint(self.paths) != self.baseline:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        self._assert_event_queue_quiet()
+
+    def assert_no_writer_events(self) -> None:
+        self._assert_event_queue_quiet()
+
+    def assert_quarantined_unchanged(self, paths: Sequence[Path]) -> None:
+        """Seal mmap and already-open-fd races after metadata is unreachable."""
+
+        self._assert_event_queue_quiet()
+        if _git_metadata_transition_fingerprint(paths) != self.baseline:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        self._assert_event_queue_quiet()
+
+    def close(self) -> None:
+        if self.descriptor is not None:
+            try:
+                os.close(self.descriptor)
+            finally:
+                self.descriptor = None
+
+
+class _WorktreeReleaseGuard:
+    """Observe mutations and block external opens through Worktree release."""
+
+    _EVENT = struct.Struct("iIII")
+    _ATTRIB = 0x00000004
+    _WATCH_MASK = (
+        0x00000002  # IN_MODIFY
+        | _ATTRIB
+        | 0x00000008  # IN_CLOSE_WRITE
+        | 0x00000040  # IN_MOVED_FROM
+        | 0x00000080  # IN_MOVED_TO
+        | 0x00000100  # IN_CREATE
+        | 0x00000200  # IN_DELETE
+        | 0x00000400  # IN_DELETE_SELF
+        | 0x00000800  # IN_MOVE_SELF
+    )
+    _IN_Q_OVERFLOW = 0x00004000
+    _IN_IGNORED = 0x00008000
+    _IN_ISDIR = 0x40000000
+    _FAN_EVENT = struct.Struct("=IBBHQii")
+    _FAN_RESPONSE = struct.Struct("=iI")
+    _FANOTIFY_METADATA_VERSION = 3
+    _FAN_CLOEXEC = 0x00000001
+    _FAN_NONBLOCK = 0x00000002
+    _FAN_CLASS_CONTENT = 0x00000004
+    _FAN_REPORT_TID = 0x00000100
+    _FAN_MARK_ADD = 0x00000001
+    _FAN_MARK_ONLYDIR = 0x00000008
+    _FAN_MARK_FLUSH = 0x00000080
+    _FAN_OPEN_PERM = 0x00010000
+    _FAN_EVENT_ON_CHILD = 0x08000000
+    _FAN_ALLOW = 0x01
+    _FAN_DENY = 0x02
+
+    def __init__(
+        self,
+        roots: Sequence[Path],
+        tracked_paths: Sequence[Path] | None = None,
+    ):
+        self.descriptor: int | None = None
+        self.sentinel_path: Path | None = None
+        self.sentinel_watch: int | None = None
+        self.inotify_watches: set[int] = set()
+        self.fanotify_descriptor: int | None = None
+        self.fanotify_stop = threading.Event()
+        self.fanotify_thread: threading.Thread | None = None
+        self.fanotify_lock = threading.Lock()
+        self.fanotify_external_open = False
+        self.fanotify_error = False
+        self.fanotify_pending: list[int] = []
+        self.controller_pid = os.getpid()
+        if sys.platform != "linux":
+            return
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            init = library.inotify_init1
+            init.argtypes = [ctypes.c_int]
+            init.restype = ctypes.c_int
+            descriptor = init(os.O_NONBLOCK | os.O_CLOEXEC)
+            if descriptor < 0:
+                raise OSError(ctypes.get_errno(), "inotify_init1")
+            self.descriptor = descriptor
+            add = library.inotify_add_watch
+            add.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+            add.restype = ctypes.c_int
+            paths = set(roots)
+            if tracked_paths is None:
+                for root in roots:
+                    paths.update(_tracked_worktree_barrier_paths(root))
+            else:
+                paths.update(tracked_paths)
+            self.sentinel_path = roots[0]
+            for path in sorted(paths, key=os.fsencode):
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    continue
+                watch = add(descriptor, os.fsencode(path), self._WATCH_MASK)
+                if watch < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_add_watch")
+                self.inotify_watches.add(watch)
+                if path == self.sentinel_path:
+                    self.sentinel_watch = watch
+            if self.sentinel_watch is None:
+                raise OSError("release sentinel watch missing")
+            if os.geteuid() == 0:
+                fanotify_init = library.fanotify_init
+                fanotify_init.argtypes = [ctypes.c_uint, ctypes.c_uint]
+                fanotify_init.restype = ctypes.c_int
+                fanotify_descriptor = fanotify_init(
+                    self._FAN_CLOEXEC
+                    | self._FAN_NONBLOCK
+                    | self._FAN_CLASS_CONTENT
+                    | self._FAN_REPORT_TID,
+                    os.O_RDONLY | os.O_CLOEXEC,
+                )
+                if fanotify_descriptor < 0:
+                    raise OSError(ctypes.get_errno(), "fanotify_init")
+                self.fanotify_descriptor = fanotify_descriptor
+                fanotify_mark = library.fanotify_mark
+                fanotify_mark.argtypes = [
+                    ctypes.c_int,
+                    ctypes.c_uint,
+                    ctypes.c_uint64,
+                    ctypes.c_int,
+                    ctypes.c_char_p,
+                ]
+                fanotify_mark.restype = ctypes.c_int
+                for path in sorted(paths, key=os.fsencode):
+                    try:
+                        metadata = path.lstat()
+                    except FileNotFoundError:
+                        continue
+                    mark_flags = self._FAN_MARK_ADD
+                    mask = self._FAN_OPEN_PERM
+                    if stat.S_ISDIR(metadata.st_mode):
+                        mark_flags |= self._FAN_MARK_ONLYDIR
+                        mask |= self._FAN_EVENT_ON_CHILD
+                    if (
+                        fanotify_mark(
+                            fanotify_descriptor,
+                            mark_flags,
+                            mask,
+                            -100,
+                            os.fsencode(path),
+                        )
+                        < 0
+                    ):
+                        raise OSError(ctypes.get_errno(), "fanotify_mark")
+                self.fanotify_thread = threading.Thread(
+                    target=self._fanotify_loop,
+                    name="s12-worktree-release-guard",
+                    daemon=True,
+                )
+                self.fanotify_thread.start()
+            self.assert_no_events()
+        except S12ControlError:
+            self.close()
+            raise
+        except (OSError, ValueError, AttributeError):
+            self.close()
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+
+    def _trusted_fanotify_pid(self, pid: int) -> bool:
+        current = pid
+        for _ in range(128):
+            if current == self.controller_pid:
+                return True
+            if current <= 1:
+                return False
+            try:
+                payload = Path(f"/proc/{current}/stat").read_text(
+                    encoding="ascii"
+                )
+                _, separator, remainder = payload.rpartition(")")
+                fields = remainder.strip().split()
+                if not separator or len(fields) < 2:
+                    return False
+                current = int(fields[1])
+            except (OSError, UnicodeError, ValueError):
+                return False
+        return False
+
+    def _fanotify_respond(
+        self,
+        event_descriptor: int,
+        decision: int,
+        *,
+        group_descriptor: int | None = None,
+    ) -> None:
+        descriptor = (
+            self.fanotify_descriptor
+            if group_descriptor is None
+            else group_descriptor
+        )
+        if descriptor is None:
+            raise OSError("fanotify descriptor closed")
+        os.write(
+            descriptor,
+            self._FAN_RESPONSE.pack(event_descriptor, decision),
+        )
+        os.close(event_descriptor)
+
+    @classmethod
+    def _fanotify_request_is_read_only(cls, pid: int) -> bool:
+        """Classify the blocked opener; unknown requests remain fail-closed."""
+
+        try:
+            fields = Path(f"/proc/{pid}/syscall").read_text(
+                encoding="ascii"
+            ).split()
+            if len(fields) < 5:
+                return False
+            syscall = int(fields[0], 0)
+            machine = os.uname().machine.lower()
+            open_flags_index: dict[int, int]
+            creators: set[int]
+            open_by_handle: set[int]
+            if machine in {"x86_64", "amd64"}:
+                open_flags_index = {2: 2, 257: 3}
+                creators = {85}
+                open_by_handle = {304}
+            elif machine in {"aarch64", "arm64", "riscv64"}:
+                open_flags_index = {56: 3}
+                creators = set()
+                open_by_handle = {265}
+            elif machine in {"i386", "i486", "i586", "i686"}:
+                open_flags_index = {5: 2, 295: 3}
+                creators = {8}
+                open_by_handle = {342}
+            elif machine.startswith("arm"):
+                open_flags_index = {5: 2, 322: 3}
+                creators = {8}
+                open_by_handle = {371}
+            elif machine in {"ppc64", "ppc64le"}:
+                open_flags_index = {5: 2, 286: 3}
+                creators = {8}
+                open_by_handle = {346}
+            else:
+                return False
+            if syscall in creators:
+                return False
+            if syscall == 437:
+                # The kernel already copied open_how before the permission
+                # event; its userspace pointer is mutable while blocked.
+                return False
+            if syscall in open_by_handle:
+                flags = int(fields[3], 0)
+            else:
+                index = open_flags_index.get(syscall)
+                if index is None or index >= len(fields):
+                    return False
+                flags = int(fields[index], 0)
+            mutation_flags = os.O_CREAT | os.O_TRUNC | os.O_APPEND
+            return (
+                flags & os.O_ACCMODE == os.O_RDONLY
+                and not flags & mutation_flags
+            )
+        except (OSError, UnicodeError, ValueError, AttributeError):
+            return False
+
+    def _fanotify_loop(self) -> None:
+        descriptor = self.fanotify_descriptor
+        if descriptor is None:
+            return
+        try:
+            while not self.fanotify_stop.is_set():
+                readable, _, _ = select.select((descriptor,), (), (), 0.05)
+                if not readable:
+                    continue
+                try:
+                    payload = os.read(descriptor, 1024 * 1024)
+                except BlockingIOError:
+                    continue
+                offset = 0
+                while offset < len(payload):
+                    if len(payload) - offset < self._FAN_EVENT.size:
+                        raise OSError("short fanotify event")
+                    (
+                        event_length,
+                        version,
+                        _reserved,
+                        metadata_length,
+                        mask,
+                        event_descriptor,
+                        pid,
+                    ) = self._FAN_EVENT.unpack_from(payload, offset)
+                    if (
+                        version != self._FANOTIFY_METADATA_VERSION
+                        or event_length < metadata_length
+                        or metadata_length < self._FAN_EVENT.size
+                        or event_length > len(payload) - offset
+                    ):
+                        raise OSError("invalid fanotify event")
+                    offset += event_length
+                    if (
+                        event_descriptor < 0
+                        or mask & self._IN_Q_OVERFLOW
+                        or not (mask & self._FAN_OPEN_PERM)
+                    ):
+                        if event_descriptor >= 0:
+                            self._fanotify_respond(
+                                event_descriptor, self._FAN_DENY
+                            )
+                        raise OSError("unexpected fanotify event")
+                    if self._trusted_fanotify_pid(pid):
+                        self._fanotify_respond(event_descriptor, self._FAN_ALLOW)
+                    elif self._fanotify_request_is_read_only(pid):
+                        self._fanotify_respond(event_descriptor, self._FAN_ALLOW)
+                    else:
+                        with self.fanotify_lock:
+                            self.fanotify_external_open = True
+                            self.fanotify_pending.append(event_descriptor)
+        except OSError:
+            failed_descriptor: int | None = None
+            with self.fanotify_lock:
+                self.fanotify_error = True
+                if self.fanotify_descriptor == descriptor:
+                    failed_descriptor = descriptor
+                    self.fanotify_descriptor = None
+            if failed_descriptor is not None:
+                try:
+                    os.close(failed_descriptor)
+                except OSError:
+                    pass
+
+    def _assert_fanotify_quiet(self) -> None:
+        if self.fanotify_descriptor is None:
+            if self.fanotify_error:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+            return
+        with self.fanotify_lock:
+            worker_failed = (
+                self.fanotify_error
+                or self.fanotify_thread is None
+                or not self.fanotify_thread.is_alive()
+            )
+        if worker_failed or self.sentinel_path is None:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        try:
+            sentinel = os.open(
+                self.sentinel_path,
+                os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            os.close(sentinel)
+        except OSError:
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        with self.fanotify_lock:
+            if self.fanotify_external_open or self.fanotify_error:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+
+    def _assert_events(
+        self,
+        *,
+        allow_attributes: bool,
+        sentinel_watch: int | None = None,
+    ) -> bool:
+        if self.descriptor is None:
+            return True
+        self._assert_fanotify_quiet()
+        sentinel_seen = False
+        while True:
+            try:
+                payload = os.read(self.descriptor, 1024 * 1024)
+            except BlockingIOError:
+                self._assert_fanotify_quiet()
+                return sentinel_seen
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                ) from None
+            if not payload:
+                return
+            offset = 0
+            while offset < len(payload):
+                if len(payload) - offset < self._EVENT.size:
+                    raise S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+                watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                    payload, offset
+                )
+                offset += self._EVENT.size
+                if name_length > len(payload) - offset:
+                    raise S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+                offset += name_length
+                normalized = mask & ~self._IN_ISDIR
+                if (
+                    sentinel_watch is not None
+                    and watch == sentinel_watch
+                    and name_length == 0
+                    and normalized == self._ATTRIB
+                ):
+                    sentinel_seen = True
+                if normalized & self._IN_Q_OVERFLOW or (
+                    normalized
+                    and not (
+                        allow_attributes
+                        and (normalized & ~self._ATTRIB) == 0
+                    )
+                ):
+                    raise S12ControlError(
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+            self._assert_fanotify_quiet()
+
+    def accept_release_attributes(self) -> None:
+        if self.descriptor is None:
+            return
+        self._assert_events(allow_attributes=True)
+        if self.sentinel_path is None or self.sentinel_watch is None:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        try:
+            mode = stat.S_IMODE(self.sentinel_path.lstat().st_mode)
+            os.chmod(self.sentinel_path, mode)
+        except OSError:
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        deadline = time.monotonic() + 1.0
+        while True:
+            if self._assert_events(
+                allow_attributes=True,
+                sentinel_watch=self.sentinel_watch,
+            ):
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+            try:
+                readable, _, _ = select.select(
+                    (self.descriptor,), (), (), remaining
+                )
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                ) from None
+            if not readable:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+
+    def assert_no_events(self) -> None:
+        self._assert_events(allow_attributes=False)
+
+    def _synchronized_inotify_shutdown(self) -> None:
+        """Remove every watch behind an IN_IGNORED queue barrier."""
+
+        if self.descriptor is None:
+            return
+        descriptor = self.descriptor
+        pending = set(self.inotify_watches)
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            remove = library.inotify_rm_watch
+            remove.argtypes = [ctypes.c_int, ctypes.c_int]
+            remove.restype = ctypes.c_int
+            for watch in sorted(pending):
+                if remove(descriptor, watch) < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_rm_watch")
+            deadline = time.monotonic() + 1.0
+            while pending:
+                try:
+                    payload = os.read(descriptor, 1024 * 1024)
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OSError("inotify shutdown timeout")
+                    readable, _, _ = select.select(
+                        (descriptor,), (), (), remaining
+                    )
+                    if not readable:
+                        raise OSError("inotify shutdown timeout")
+                    continue
+                if not payload:
+                    raise OSError("inotify shutdown EOF")
+                offset = 0
+                while offset < len(payload):
+                    if len(payload) - offset < self._EVENT.size:
+                        raise OSError("short inotify shutdown event")
+                    watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                        payload, offset
+                    )
+                    offset += self._EVENT.size
+                    if name_length > len(payload) - offset:
+                        raise OSError("invalid inotify shutdown event")
+                    name = payload[offset : offset + name_length].rstrip(b"\0")
+                    offset += name_length
+                    normalized = mask & ~self._IN_ISDIR
+                    if (
+                        watch in pending
+                        and not name
+                        and normalized == self._IN_IGNORED
+                    ):
+                        pending.remove(watch)
+                    elif normalized:
+                        raise OSError("mutation during inotify shutdown")
+            os.close(descriptor)
+        except (OSError, ValueError, AttributeError):
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        self.descriptor = None
+        self.inotify_watches.clear()
+
+    def finalize_release(
+        self,
+        validator: Callable[[], None],
+        shutdown_validator: Callable[[], None],
+    ) -> None:
+        """Validate released state and cross the ordered watch barrier."""
+
+        self.assert_no_events()
+        validator()
+        self._synchronized_inotify_shutdown()
+        shutdown_validator()
+        self._assert_fanotify_quiet()
+        self.close()
+
+    def _deny_queued_fanotify_events(self, group_descriptor: int) -> bool:
+        """Deny permission events that never reached the stopped worker."""
+
+        clean = True
+        while True:
+            try:
+                payload = os.read(group_descriptor, 1024 * 1024)
+            except BlockingIOError:
+                return clean
+            except OSError:
+                return False
+            if not payload:
+                return False
+            offset = 0
+            while offset < len(payload):
+                if len(payload) - offset < self._FAN_EVENT.size:
+                    return False
+                (
+                    event_length,
+                    version,
+                    _reserved,
+                    metadata_length,
+                    mask,
+                    event_descriptor,
+                    _pid,
+                ) = self._FAN_EVENT.unpack_from(payload, offset)
+                if (
+                    version != self._FANOTIFY_METADATA_VERSION
+                    or event_length < metadata_length
+                    or metadata_length < self._FAN_EVENT.size
+                    or event_length > len(payload) - offset
+                ):
+                    if event_descriptor >= 0:
+                        try:
+                            os.close(event_descriptor)
+                        except OSError:
+                            pass
+                    return False
+                offset += event_length
+                if (
+                    event_descriptor < 0
+                    or mask & self._IN_Q_OVERFLOW
+                    or not (mask & self._FAN_OPEN_PERM)
+                ):
+                    if event_descriptor >= 0:
+                        try:
+                            self._fanotify_respond(
+                                event_descriptor,
+                                self._FAN_DENY,
+                                group_descriptor=group_descriptor,
+                            )
+                        except OSError:
+                            try:
+                                os.close(event_descriptor)
+                            except OSError:
+                                pass
+                    return False
+                try:
+                    self._fanotify_respond(
+                        event_descriptor,
+                        self._FAN_DENY,
+                        group_descriptor=group_descriptor,
+                    )
+                except OSError:
+                    clean = False
+                    try:
+                        os.close(event_descriptor)
+                    except OSError:
+                        pass
+
+    def _flush_fanotify_marks(self, group_descriptor: int) -> bool:
+        """Atomically prevent new events before draining the permission group."""
+
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            fanotify_mark = library.fanotify_mark
+            fanotify_mark.argtypes = [
+                ctypes.c_int,
+                ctypes.c_uint,
+                ctypes.c_uint64,
+                ctypes.c_int,
+                ctypes.c_char_p,
+            ]
+            fanotify_mark.restype = ctypes.c_int
+            return (
+                fanotify_mark(
+                    group_descriptor,
+                    self._FAN_MARK_FLUSH,
+                    0,
+                    -100,
+                    None,
+                )
+                == 0
+            )
+        except (OSError, ValueError, AttributeError):
+            return False
+
+    def close(self) -> None:
+        self.fanotify_stop.set()
+        worker_stopped = True
+        if self.fanotify_thread is not None:
+            self.fanotify_thread.join(timeout=1.0)
+            worker_stopped = not self.fanotify_thread.is_alive()
+            self.fanotify_thread = None
+        with self.fanotify_lock:
+            pending = tuple(self.fanotify_pending)
+            self.fanotify_pending.clear()
+            fanotify_descriptor = self.fanotify_descriptor
+            self.fanotify_descriptor = None
+        shutdown_clean = worker_stopped
+        if fanotify_descriptor is not None:
+            shutdown_clean = (
+                self._flush_fanotify_marks(fanotify_descriptor)
+                and shutdown_clean
+            )
+        for event_descriptor in pending:
+            try:
+                self._fanotify_respond(
+                    event_descriptor,
+                    self._FAN_DENY,
+                    group_descriptor=fanotify_descriptor,
+                )
+            except OSError:
+                shutdown_clean = False
+                try:
+                    os.close(event_descriptor)
+                except OSError:
+                    pass
+        if fanotify_descriptor is not None:
+            if worker_stopped:
+                shutdown_clean = (
+                    self._deny_queued_fanotify_events(fanotify_descriptor)
+                    and shutdown_clean
+                )
+            try:
+                os.close(fanotify_descriptor)
+            except OSError:
+                shutdown_clean = False
+        if self.descriptor is not None:
+            try:
+                os.close(self.descriptor)
+            finally:
+                self.descriptor = None
+                self.inotify_watches.clear()
+        if not shutdown_clean:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+
+
 def _current_process_ancestry() -> set[str]:
     ancestry = {str(os.getpid())}
     current = os.getpid()
@@ -2350,6 +4610,323 @@ def _current_process_ancestry() -> set[str]:
             break
         ancestry.add(str(current))
     return ancestry
+
+
+def _process_state_and_start_time(process: Path) -> tuple[str, int]:
+    payload = (process / "stat").read_text(encoding="ascii")
+    _, separator, remainder = payload.rpartition(")")
+    fields = remainder.strip().split()
+    if not separator or len(fields) < 20:
+        raise OSError("invalid process stat")
+    return fields[0], int(fields[19])
+
+
+_PTRACE_DETACH = 17
+_PTRACE_SEIZE = 0x4206
+_PTRACE_INTERRUPT = 0x4207
+_PTRACE_EVENT_STOP = 128
+_WAIT_WALL = 0x40000000
+
+
+def _ptrace(request: int, thread_id: int, signal_number: int = 0) -> None:
+    library = ctypes.CDLL(None, use_errno=True)
+    operation = library.ptrace
+    operation.argtypes = (
+        ctypes.c_ulong,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    )
+    operation.restype = ctypes.c_long
+    ctypes.set_errno(0)
+    if (
+        operation(
+            request,
+            thread_id,
+            None,
+            ctypes.c_void_p(signal_number),
+        )
+        == -1
+    ):
+        error = ctypes.get_errno()
+        if error == errno.ESRCH:
+            raise ProcessLookupError(error, os.strerror(error))
+        raise OSError(error, os.strerror(error))
+
+
+def _wait_ptrace_stop(thread_id: int) -> int:
+    try:
+        waited, status = os.waitpid(thread_id, _WAIT_WALL)
+    except ChildProcessError:
+        raise ProcessLookupError(errno.ESRCH, os.strerror(errno.ESRCH)) from None
+    if waited != thread_id or not os.WIFSTOPPED(status):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+    event = status >> 16
+    if event == _PTRACE_EVENT_STOP:
+        return 0
+    if event == 0:
+        return os.WSTOPSIG(status)
+    raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+
+def _process_threads(pid: int) -> dict[int, int]:
+    task_root = Path("/proc") / str(pid) / "task"
+    try:
+        tasks = tuple(task_root.iterdir())
+    except FileNotFoundError:
+        return {}
+    threads: dict[int, int] = {}
+    for task in tasks:
+        if not task.name.isdigit():
+            continue
+        try:
+            _state, start_time = _process_state_and_start_time(task)
+        except FileNotFoundError:
+            continue
+        threads[int(task.name)] = start_time
+    return threads
+
+
+def _guarded_handle_processes(
+    paths: Sequence[Path], roots: Sequence[Path]
+) -> dict[int, tuple[str, int]]:
+    """Return every other process able to reach guarded inodes."""
+
+    proc = Path("/proc")
+    if not proc.is_dir():
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+    try:
+        protected: set[tuple[int, int]] = set()
+        present_paths = 0
+        for path in set(paths):
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                # A journaled pre-checkout path may have been deleted by the
+                # completed checkout. Release validation separately proves
+                # that an absent recorded path is obsolete, so it has no inode
+                # whose retained handles could be quiesced here.
+                continue
+            present_paths += 1
+            if path.is_symlink() or not (
+                stat.S_ISDIR(metadata.st_mode)
+                or (stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1)
+            ):
+                raise OSError
+            protected.add((metadata.st_dev, metadata.st_ino))
+        if len(protected) != present_paths:
+            raise OSError
+        canonical_roots = tuple(root.resolve(strict=True) for root in roots)
+    except OSError:
+        raise S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+        ) from None
+    controller_pid = str(os.getpid())
+    holders: dict[int, tuple[str, int]] = {}
+    for process in proc.iterdir():
+        if not process.name.isdigit() or process.name == controller_pid:
+            continue
+        try:
+            links: list[Path] = [process / "cwd"]
+            links.extend((process / "fd").iterdir())
+            matched = False
+            for link in links:
+                try:
+                    metadata = link.stat()
+                except FileNotFoundError:
+                    continue
+                if (metadata.st_dev, metadata.st_ino) in protected:
+                    matched = True
+                    break
+                if stat.S_ISDIR(metadata.st_mode):
+                    try:
+                        target = link.resolve(strict=True)
+                    except FileNotFoundError:
+                        # An unlinked directory fd must not hide a later
+                        # guarded fd owned by the same process.
+                        continue
+                    if any(
+                        target == root or root in target.parents
+                        for root in canonical_roots
+                    ):
+                        matched = True
+                        break
+            if matched:
+                holders[int(process.name)] = _process_state_and_start_time(
+                    process
+                )
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeError, ValueError):
+            if os.geteuid() == 0:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ) from None
+    return holders
+
+
+class _GuardedHandleQuiescence:
+    """Ptrace-stop retained handle owners with crash-safe kernel cleanup."""
+
+    def __init__(self, paths: Sequence[Path], roots: Sequence[Path]):
+        self.paths = tuple(paths)
+        self.roots = tuple(roots)
+        self.processes: dict[int, tuple[int, int]] = {}
+        self.threads: dict[int, tuple[int, int, int | None]] = {}
+
+    def acquire(self) -> None:
+        if os.geteuid() != 0:
+            return
+        try:
+            for _round in range(8):
+                holders = _guarded_handle_processes(self.paths, self.roots)
+                added = False
+                for pid in sorted(holders):
+                    state, start_time = holders[pid]
+                    process_record = self.processes.get(pid)
+                    if process_record is None:
+                        if state in {"T", "t"}:
+                            raise OSError
+                        try:
+                            descriptor = os.pidfd_open(pid, 0)
+                        except ProcessLookupError:
+                            continue
+                        try:
+                            current_state, current_start = (
+                                _process_state_and_start_time(
+                                    Path("/proc") / str(pid)
+                                )
+                            )
+                        except (OSError, UnicodeError, ValueError):
+                            os.close(descriptor)
+                            raise
+                        if (
+                            current_start != start_time
+                            or current_state in {"T", "t"}
+                        ):
+                            os.close(descriptor)
+                            raise OSError
+                        self.processes[pid] = (start_time, descriptor)
+                    elif process_record[0] != start_time:
+                        raise OSError
+                    for thread_id, thread_start in sorted(
+                        _process_threads(pid).items()
+                    ):
+                        existing = self.threads.get(thread_id)
+                        if existing is not None:
+                            if existing[:2] != (pid, thread_start):
+                                raise OSError
+                            continue
+                        try:
+                            # Zero options deliberately exclude EXITKILL:
+                            # tracer death auto-detaches and restarts tracees.
+                            _ptrace(_PTRACE_SEIZE, thread_id)
+                        except ProcessLookupError:
+                            continue
+                        self.threads[thread_id] = (
+                            pid,
+                            thread_start,
+                            None,
+                        )
+                        try:
+                            _ptrace(_PTRACE_INTERRUPT, thread_id)
+                            detach_signal = _wait_ptrace_stop(thread_id)
+                        except ProcessLookupError:
+                            del self.threads[thread_id]
+                            continue
+                        self.threads[thread_id] = (
+                            pid,
+                            thread_start,
+                            detach_signal,
+                        )
+                        added = True
+                if not added:
+                    self.assert_quiesced()
+                    return
+        except (OSError, AttributeError, UnicodeError, ValueError):
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+            ) from None
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+
+    def assert_quiesced(self) -> None:
+        if os.geteuid() != 0:
+            return
+        for pid, (start_time, _descriptor) in tuple(self.processes.items()):
+            try:
+                _state, current_start = _process_state_and_start_time(
+                    Path("/proc") / str(pid)
+                )
+            except FileNotFoundError:
+                continue
+            except (OSError, UnicodeError, ValueError):
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ) from None
+            if current_start != start_time:
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        for thread_id, (
+            pid,
+            start_time,
+            detach_signal,
+        ) in tuple(self.threads.items()):
+            try:
+                state, current_start = _process_state_and_start_time(
+                    Path("/proc")
+                    / str(pid)
+                    / "task"
+                    / str(thread_id)
+                )
+            except FileNotFoundError:
+                del self.threads[thread_id]
+                continue
+            except (OSError, UnicodeError, ValueError):
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                ) from None
+            if (
+                current_start != start_time
+                or detach_signal is None
+                or state not in {"T", "t"}
+            ):
+                raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
+        holders = _guarded_handle_processes(self.paths, self.roots)
+        for pid, (_state, start_time) in holders.items():
+            process_record = self.processes.get(pid)
+            if process_record is None or process_record[0] != start_time:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                )
+            if set(_process_threads(pid)) - set(self.threads):
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+                )
+
+    def close(self) -> None:
+        failed = False
+        for thread_id, (
+            _pid,
+            _start_time,
+            detach_signal,
+        ) in reversed(tuple(self.threads.items())):
+            try:
+                if detach_signal is None:
+                    _ptrace(_PTRACE_INTERRUPT, thread_id)
+                    detach_signal = _wait_ptrace_stop(thread_id)
+                _ptrace(_PTRACE_DETACH, thread_id, detach_signal)
+            except ProcessLookupError:
+                continue
+            except (OSError, AttributeError, S12ControlError):
+                failed = True
+        self.threads.clear()
+        for _pid, (_start_time, descriptor) in self.processes.items():
+            try:
+                os.close(descriptor)
+            except OSError:
+                failed = True
+        self.processes.clear()
+        if failed:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
 
 
 def _active_exact_directory_handle_count(directory: Path) -> int:
@@ -2430,6 +5007,26 @@ def _is_recovery_git_directory(path: Path) -> bool:
     except S12ControlError:
         return False
     return True
+
+
+def _is_canonical_git_directory(path: Path) -> bool:
+    """Recognize pre-lock Git metadata; exact baseline validation follows."""
+
+    try:
+        metadata = path.lstat()
+        return (
+            not path.is_symlink()
+            and stat.S_ISDIR(metadata.st_mode)
+            and metadata.st_uid in _git_owner_uids()
+            and (path / "HEAD").is_file()
+            and not (path / "HEAD").is_symlink()
+            and (path / "objects").is_dir()
+            and not (path / "objects").is_symlink()
+            and (path / "refs").is_dir()
+            and not (path / "refs").is_symlink()
+        )
+    except (OSError, S12ControlError):
+        return False
 
 
 def _atomic_exchange(first: Path, second: Path) -> None:
@@ -2593,6 +5190,12 @@ def _recorded_path_metadata(record: dict[str, Any], prefix: str) -> tuple[int, i
 def _barrier_repository_record(root: Path, record: dict[str, Any]) -> dict[str, Any]:
     _recorded_path_metadata(record, "root")
     _recorded_path_metadata(record, "git")
+    root_xattr_fingerprint = record.get("root_xattr_fingerprint")
+    if (
+        not isinstance(root_xattr_fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", root_xattr_fingerprint) is None
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     return {
         "root": str(root),
         **{
@@ -2602,32 +5205,150 @@ def _barrier_repository_record(root: Path, record: dict[str, Any]) -> dict[str, 
                 "git_uid", "git_gid", "git_mode",
             )
         },
+        "root_xattr_fingerprint": root_xattr_fingerprint,
     }
 
 
-def _recorded_parent_metadata(record: dict[str, Any]) -> tuple[int, int, int]:
+def _recorded_parent_metadata(
+    record: dict[str, Any], *, require_xattr: bool = True
+) -> tuple[int, int, int]:
     uid = record.get("uid")
     gid = record.get("gid")
     mode = record.get("mode")
+    xattr_fingerprint = record.get("xattr_fingerprint")
     if (
         record.get("path") != str(DEPLOYMENT_LOCK_ROOT)
         or type(uid) is not int
         or type(gid) is not int
         or not isinstance(mode, str)
         or re.fullmatch(r"[0-7]{4}", mode) is None
+        or (
+            xattr_fingerprint is not None
+            and (
+                not isinstance(xattr_fingerprint, str)
+                or re.fullmatch(r"[0-9a-f]{64}", xattr_fingerprint) is None
+            )
+        )
+        or (require_xattr and xattr_fingerprint is None)
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     return uid, gid, int(mode, 8)
 
 
+def _repository_parent_xattr_fingerprint() -> str:
+    try:
+        return _release_xattr_fingerprint((DEPLOYMENT_LOCK_ROOT,))
+    except S12ControlError:
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
+
+
+def _assert_repository_parent_xattrs(record: dict[str, Any]) -> None:
+    _recorded_parent_metadata(record)
+    if _repository_parent_xattr_fingerprint() != record["xattr_fingerprint"]:
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
+
+
+def _repository_root_xattr_fingerprint(root: Path) -> str:
+    try:
+        return _release_xattr_fingerprint((root,))
+    except S12ControlError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _assert_repository_root_xattrs(
+    root: Path, record: dict[str, Any]
+) -> None:
+    fingerprint = record.get("root_xattr_fingerprint")
+    if (
+        not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or _repository_root_xattr_fingerprint(root) != fingerprint
+    ):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+
+
+def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
+    """Permit a V1 record upgrade only without unbound xattr principals."""
+
+    if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
+        if sys.platform == "linux":
+            raise S12ControlError(safe_code)
+        return
+    try:
+        metadata = path.lstat()
+        names = sorted(
+            os.listxattr(path, follow_symlinks=False),
+            key=os.fsencode,
+        )
+        if any(name != "system.posix_acl_access" for name in names):
+            raise OSError
+        if names:
+            value = os.getxattr(
+                path,
+                "system.posix_acl_access",
+                follow_symlinks=False,
+            )
+            acl_header = struct.Struct("<I")
+            acl_entry = struct.Struct("<HHI")
+            if (
+                len(value) < acl_header.size
+                or acl_header.unpack_from(value)[0] != 2
+                or (len(value) - acl_header.size) % acl_entry.size
+            ):
+                raise OSError
+            tags = [
+                acl_entry.unpack_from(value, offset)[0]
+                for offset in range(
+                    acl_header.size, len(value), acl_entry.size
+                )
+            ]
+            if (
+                set(tags) - {0x01, 0x04, 0x10, 0x20}
+                or tags.count(0x01) != 1
+                or tags.count(0x04) != 1
+                or tags.count(0x20) != 1
+                or tags.count(0x10) > 1
+            ):
+                raise OSError
+        _stable_xattr_payload(
+            path,
+            metadata,
+            normalize_posix_acl_mode=True,
+        )
+    except (OSError, TypeError, ValueError):
+        raise S12ControlError(safe_code) from None
+
+
+def _assert_legacy_repository_parent_xattrs_safe() -> None:
+    _assert_legacy_path_xattrs_safe(
+        DEPLOYMENT_LOCK_ROOT, "S12_1_REPOSITORY_PARENT_RED"
+    )
+
+
+def _metadata_barrier_mode(mode: int) -> int:
+    """Remove namespace mutation while retaining every prior traversal class."""
+
+    restricted = mode & ~0o222
+    if restricted & 0o050 != 0o050:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+    return restricted
+
+
 def _write_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
-) -> None:
+) -> dict[Path, dict[Path, dict[str, Any]]]:
     if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     if set(records) != {APPLICATION_ROOT, CONTROL_ROOT}:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     _recorded_parent_metadata(parent_record)
+    _assert_repository_parent_xattrs(parent_record)
+    roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    for root in roots:
+        records[root]["root_xattr_fingerprint"] = (
+            _repository_root_xattr_fingerprint(root)
+        )
+    worktree_barrier = _capture_worktree_write_barrier(roots, records)
     _atomic_json(
         BARRIER_MARKER,
         {
@@ -2644,12 +5365,22 @@ def _write_barrier_journal(
                 ),
             },
             "repository_parent": parent_record,
+            "worktree_write_barrier": _worktree_barrier_payload(
+                roots, worktree_barrier
+            ),
         },
     )
+    _assert_repository_parent_xattrs(parent_record)
+    for root in roots:
+        _assert_repository_root_xattrs(root, records[root])
+    return worktree_barrier
 
 
 def _load_barrier_journal() -> tuple[
-    dict[Path, dict[str, Any]], dict[str, Any]
+    dict[Path, dict[str, Any]],
+    dict[str, Any],
+    dict[Path, dict[Path, dict[str, Any]]] | None,
+    str,
 ]:
     journal = _private_json(
         BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
@@ -2657,7 +5388,12 @@ def _load_barrier_journal() -> tuple[
     repositories = journal.get("repositories")
     parent_record = journal.get("repository_parent")
     if (
-        journal.get("schema") != BARRIER_SCHEMA
+        journal.get("schema")
+        not in {
+            BARRIER_SCHEMA,
+            XATTR_BARRIER_SCHEMA,
+            LEGACY_BARRIER_SCHEMA,
+        }
         or not isinstance(journal.get("created_at"), str)
         or not journal["created_at"]
         or not isinstance(repositories, dict)
@@ -2665,7 +5401,21 @@ def _load_barrier_journal() -> tuple[
         or not isinstance(parent_record, dict)
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
-    _recorded_parent_metadata(parent_record)
+    journal_schema = journal["schema"]
+    expected_parent_keys = {"path", "uid", "gid", "mode"}
+    if journal_schema in {BARRIER_SCHEMA, XATTR_BARRIER_SCHEMA}:
+        expected_parent_keys.add("xattr_fingerprint")
+    if set(parent_record) != expected_parent_keys:
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    _recorded_parent_metadata(
+        parent_record,
+        require_xattr=journal_schema != LEGACY_BARRIER_SCHEMA,
+    )
+    if (
+        journal_schema == LEGACY_BARRIER_SCHEMA
+        and "xattr_fingerprint" in parent_record
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     records: dict[Path, dict[str, Any]] = {}
     for key, root in (
         ("application", APPLICATION_ROOT),
@@ -2675,33 +5425,167 @@ def _load_barrier_journal() -> tuple[
         if not isinstance(item, dict) or item.get("root") != str(root):
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
         record = {name: value for name, value in item.items() if name != "root"}
-        if set(record) != {
+        expected_record_keys = {
             "root_uid", "root_gid", "root_mode",
             "git_uid", "git_gid", "git_mode",
-        }:
+        }
+        if journal_schema == BARRIER_SCHEMA:
+            expected_record_keys.add("root_xattr_fingerprint")
+        if set(record) != expected_record_keys:
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
         _recorded_path_metadata(record, "root")
         _recorded_path_metadata(record, "git")
+        if journal_schema == BARRIER_SCHEMA:
+            fingerprint = record.get("root_xattr_fingerprint")
+            if (
+                not isinstance(fingerprint, str)
+                or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+            ):
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                )
         records[root] = record
-    return records, parent_record
+    raw_worktree_barrier = journal.get("worktree_write_barrier")
+    worktree_barrier = (
+        None
+        if raw_worktree_barrier is None
+        else _parse_worktree_barrier_payload(
+            raw_worktree_barrier,
+            (APPLICATION_ROOT, CONTROL_ROOT),
+            require_xattr=journal_schema != LEGACY_BARRIER_SCHEMA,
+        )
+    )
+    if set(journal) not in (
+        {"schema", "created_at", "repositories", "repository_parent"},
+        {
+            "schema",
+            "created_at",
+            "repositories",
+            "repository_parent",
+            "worktree_write_barrier",
+        },
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    return records, parent_record, worktree_barrier, journal_schema
 
 
 def _ensure_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
-) -> None:
+) -> dict[Path, dict[Path, dict[str, Any]]]:
+    _recorded_parent_metadata(parent_record, require_xattr=False)
     if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
-        recorded_repositories, recorded_parent = _load_barrier_journal()
-        if recorded_repositories != records or recorded_parent != parent_record:
+        recorded_repositories, recorded_parent, worktree_barrier, schema = (
+            _load_barrier_journal()
+        )
+        recorded_parent_base = {
+            key: recorded_parent[key] for key in ("path", "uid", "gid", "mode")
+        }
+        parent_base = {
+            key: parent_record[key] for key in ("path", "uid", "gid", "mode")
+        }
+        repository_fields = (
+            "root_uid", "root_gid", "root_mode",
+            "git_uid", "git_gid", "git_mode",
+        )
+        recorded_repository_base = {
+            root: {key: record[key] for key in repository_fields}
+            for root, record in recorded_repositories.items()
+        }
+        repository_base = {
+            root: {key: record[key] for key in repository_fields}
+            for root, record in records.items()
+        }
+        if (
+            recorded_repository_base != repository_base
+            or recorded_parent_base != parent_base
+        ):
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
-        return
-    _write_barrier_journal(records, parent_record)
+        journal_changed = False
+        if schema == LEGACY_BARRIER_SCHEMA:
+            _assert_legacy_repository_parent_xattrs_safe()
+            recorded_parent["xattr_fingerprint"] = (
+                _repository_parent_xattr_fingerprint()
+            )
+            if worktree_barrier is not None:
+                _upgrade_legacy_worktree_xattr_records(worktree_barrier)
+            journal_changed = True
+        elif (
+            parent_record.get("xattr_fingerprint") is not None
+            and parent_record["xattr_fingerprint"]
+            != recorded_parent["xattr_fingerprint"]
+        ):
+            raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+        parent_record["xattr_fingerprint"] = recorded_parent[
+            "xattr_fingerprint"
+        ]
+        _assert_repository_parent_xattrs(parent_record)
+        for root in (APPLICATION_ROOT, CONTROL_ROOT):
+            recorded = recorded_repositories[root]
+            if schema != BARRIER_SCHEMA:
+                _assert_legacy_path_xattrs_safe(
+                    root, "S12_1_RECOVERY_GIT_BARRIER_RED"
+                )
+                recorded["root_xattr_fingerprint"] = (
+                    _repository_root_xattr_fingerprint(root)
+                )
+                journal_changed = True
+            elif (
+                records[root].get("root_xattr_fingerprint") is not None
+                and records[root]["root_xattr_fingerprint"]
+                != recorded["root_xattr_fingerprint"]
+            ):
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                )
+            records[root]["root_xattr_fingerprint"] = recorded[
+                "root_xattr_fingerprint"
+            ]
+            _assert_repository_root_xattrs(root, records[root])
+        if worktree_barrier is None:
+            # A legacy R3 orphan never mutated Worktree children. Upgrade its
+            # private journal durably before installing the new write barrier.
+            worktree_barrier = _capture_worktree_write_barrier(
+                (APPLICATION_ROOT, CONTROL_ROOT), records
+            )
+            journal_changed = True
+        if not journal_changed:
+            return worktree_barrier
+        journal = _private_json(
+            BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+        )
+        journal["schema"] = BARRIER_SCHEMA
+        journal["repositories"] = {
+            "application": _barrier_repository_record(
+                APPLICATION_ROOT, recorded_repositories[APPLICATION_ROOT]
+            ),
+            "control": _barrier_repository_record(
+                CONTROL_ROOT, recorded_repositories[CONTROL_ROOT]
+            ),
+        }
+        journal["repository_parent"] = recorded_parent
+        journal["worktree_write_barrier"] = _worktree_barrier_payload(
+            (APPLICATION_ROOT, CONTROL_ROOT), worktree_barrier
+        )
+        _atomic_json(BARRIER_MARKER, journal)
+        _assert_repository_parent_xattrs(parent_record)
+        for root in (APPLICATION_ROOT, CONTROL_ROOT):
+            _assert_repository_root_xattrs(root, records[root])
+        return worktree_barrier
+    if parent_record.get("xattr_fingerprint") is None:
+        _assert_legacy_repository_parent_xattrs_safe()
+        parent_record["xattr_fingerprint"] = (
+            _repository_parent_xattr_fingerprint()
+        )
+    return _write_barrier_journal(records, parent_record)
 
 
 def _lock_repository_parent(record: dict[str, Any]) -> None:
     if os.geteuid() != 0:
         return
     expected_uid, expected_gid, expected_mode = _recorded_parent_metadata(record)
+    restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
+        _assert_repository_parent_xattrs(record)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         original = (
             metadata.st_uid == expected_uid
@@ -2710,10 +5594,30 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
         )
         locked = (
             metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        restricted = (
+            metadata.st_uid == expected_uid
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_locked = (
+            metadata.st_uid == 0
             and metadata.st_gid == 0
             and stat.S_IMODE(metadata.st_mode) == 0o500
         )
-        restricted = (
+        hard_chowned = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_restricted = (
+            metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        owner_hard_restricted = (
             metadata.st_uid == expected_uid
             and metadata.st_gid == expected_gid
             and stat.S_IMODE(metadata.st_mode) == 0o500
@@ -2721,13 +5625,87 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (original or locked or restricted)
+            or not (
+                original
+                or locked
+                or restricted
+                or hard_locked
+                or hard_chowned
+                or hard_restricted
+                or owner_hard_restricted
+            )
         ):
             raise OSError
         if original:
-            os.chmod(DEPLOYMENT_LOCK_ROOT, 0o500)
-        if original or restricted:
-            os.chown(DEPLOYMENT_LOCK_ROOT, 0, 0)
+            os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
+        _assert_post_chown_acl_preserves_access(
+            DEPLOYMENT_LOCK_ROOT,
+            expected_uid,
+            (restricted_mode & 0o050) >> 3,
+            (restricted_mode & 0o050) >> 3,
+            restricted_mode & 0o005,
+            "S12_1_REPOSITORY_PARENT_RED",
+        )
+        os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
+        os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
+        metadata = DEPLOYMENT_LOCK_ROOT.lstat()
+        if (
+            metadata.st_uid != 0
+            or metadata.st_gid != expected_gid
+            or stat.S_IMODE(metadata.st_mode) != restricted_mode
+        ):
+            raise OSError
+        _assert_repository_parent_xattrs(record)
+        _fsync_directory(DEPLOYMENT_LOCK_ROOT.parent)
+    except (OSError, S12ControlError):
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
+
+
+def _hard_lock_repository_parent(record: dict[str, Any]) -> None:
+    """Remove every non-root traversal path through the shared parent."""
+
+    if os.geteuid() != 0:
+        return
+    _expected_uid, expected_gid, expected_mode = _recorded_parent_metadata(
+        record
+    )
+    restricted_mode = _metadata_barrier_mode(expected_mode)
+    try:
+        _assert_repository_parent_xattrs(record)
+        metadata = DEPLOYMENT_LOCK_ROOT.lstat()
+        soft_locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_chowned = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_restricted = (
+            metadata.st_uid == 0
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        hard_locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        if (
+            DEPLOYMENT_LOCK_ROOT.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or not (
+                soft_locked
+                or hard_chowned
+                or hard_restricted
+                or hard_locked
+            )
+        ):
+            raise OSError
+        os.chown(DEPLOYMENT_LOCK_ROOT, 0, 0)
+        os.chmod(DEPLOYMENT_LOCK_ROOT, 0o500)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         if (
             metadata.st_uid != 0
@@ -2735,8 +5713,30 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             or stat.S_IMODE(metadata.st_mode) != 0o500
         ):
             raise OSError
+        _assert_repository_parent_xattrs(record)
         _fsync_directory(DEPLOYMENT_LOCK_ROOT.parent)
-    except OSError:
+    except (OSError, S12ControlError):
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
+
+
+def _assert_hard_locked_repository_parent(record: dict[str, Any]) -> None:
+    """Prove namespace exclusion before fanotify marks are flushed."""
+
+    if os.geteuid() != 0:
+        return
+    _recorded_parent_metadata(record)
+    try:
+        _assert_repository_parent_xattrs(record)
+        metadata = DEPLOYMENT_LOCK_ROOT.lstat()
+        if (
+            DEPLOYMENT_LOCK_ROOT.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_gid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o500
+        ):
+            raise OSError
+    except (OSError, S12ControlError):
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
@@ -2744,14 +5744,36 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
     if os.geteuid() != 0:
         return
     uid, gid, mode = _recorded_parent_metadata(record)
+    restricted_mode = _metadata_barrier_mode(mode)
     try:
+        _assert_repository_parent_xattrs(record)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        restricted = (
+            metadata.st_uid == uid
+            and metadata.st_gid == gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_locked = (
             metadata.st_uid == 0
             and metadata.st_gid == 0
             and stat.S_IMODE(metadata.st_mode) == 0o500
         )
-        restricted = (
+        hard_chowned = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        hard_restricted = (
+            metadata.st_uid == 0
+            and metadata.st_gid == gid
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        owner_hard_restricted = (
             metadata.st_uid == uid
             and metadata.st_gid == gid
             and stat.S_IMODE(metadata.st_mode) == 0o500
@@ -2759,11 +5781,17 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
         if (
             DEPLOYMENT_LOCK_ROOT.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
-            or not (locked or restricted)
+            or not (
+                locked
+                or restricted
+                or hard_locked
+                or hard_chowned
+                or hard_restricted
+                or owner_hard_restricted
+            )
         ):
             raise OSError
-        if locked:
-            os.chown(DEPLOYMENT_LOCK_ROOT, uid, gid)
+        os.chown(DEPLOYMENT_LOCK_ROOT, uid, gid)
         os.chmod(DEPLOYMENT_LOCK_ROOT, mode)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         if (
@@ -2772,8 +5800,9 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
             or stat.S_IMODE(metadata.st_mode) != mode
         ):
             raise OSError
+        _assert_repository_parent_xattrs(record)
         _fsync_directory(DEPLOYMENT_LOCK_ROOT.parent)
-    except OSError:
+    except (OSError, S12ControlError):
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
@@ -2801,7 +5830,7 @@ def _validate_repository_worktree_contract(
                     metadata = entry.stat(follow_symlinks=False)
                     allowed_owners = {(expected_uid, expected_gid)}
                     if allow_journaled_transition:
-                        allowed_owners.add((0, 0))
+                        allowed_owners.update({(0, 0), (0, expected_gid)})
                     if (
                         (metadata.st_uid, metadata.st_gid) not in allowed_owners
                         or (
@@ -2826,6 +5855,9 @@ def _validate_repository_worktree_contract(
                 {
                     (root_uid, root_gid, 0o500),
                     (0, 0, 0o500),
+                    (0, root_gid, 0o500),
+                    (root_uid, root_gid, _metadata_barrier_mode(root_mode)),
+                    (0, root_gid, _metadata_barrier_mode(root_mode)),
                 }
             )
             git_states.update(
@@ -2870,7 +5902,9 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
     expected_uid, expected_gid, expected_mode = _recorded_path_metadata(
         record, "root"
     )
+    restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
+        _assert_repository_root_xattrs(root, record)
         metadata = root.lstat()
         original = (
             metadata.st_uid == expected_uid
@@ -2879,32 +5913,114 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
         )
         locked = (
             metadata.st_uid == 0
-            and metadata.st_gid == 0
-            and stat.S_IMODE(metadata.st_mode) == 0o500
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
         )
         restricted = (
             metadata.st_uid == expected_uid
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == restricted_mode
+        )
+        legacy_locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o500
+        )
+        legacy_chowned = (
+            metadata.st_uid == 0
             and metadata.st_gid == expected_gid
             and stat.S_IMODE(metadata.st_mode) == 0o500
         )
         if (
             root.is_symlink()
             or not stat.S_ISDIR(metadata.st_mode)
+            or not (
+                original
+                or locked
+                or restricted
+                or legacy_locked
+                or legacy_chowned
+            )
+        ):
+            raise OSError
+        if original:
+            os.chmod(root, restricted_mode)
+        _assert_repository_root_xattrs(root, record)
+        _assert_post_chown_acl_preserves_access(
+            root,
+            expected_uid,
+            (restricted_mode & 0o050) >> 3,
+            (restricted_mode & 0o050) >> 3,
+            restricted_mode & 0o005,
+            "S12_1_RECOVERY_GIT_BARRIER_RED",
+        )
+        if original or restricted or legacy_locked:
+            os.chown(root, 0, expected_gid)
+        if original or restricted or legacy_locked or legacy_chowned:
+            os.chmod(root, restricted_mode)
+        metadata = root.lstat()
+        if (
+            metadata.st_uid != 0
+            or metadata.st_gid != expected_gid
+            or stat.S_IMODE(metadata.st_mode) != restricted_mode
+        ):
+            raise OSError
+        _assert_repository_root_xattrs(root, record)
+        _fsync_directory(root.parent)
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _lock_repository_git_metadata(root: Path, record: dict[str, Any]) -> None:
+    """Block new unprivileged Git access without hiding the Worktree."""
+
+    if os.geteuid() != 0:
+        return
+    git_directory = root / ".git"
+    recovery_directory = _recovery_git_path(root)
+    if _is_recovery_guard(git_directory) and _is_recovery_git_directory(
+        recovery_directory
+    ):
+        return
+    expected_uid, expected_gid, expected_mode = _recorded_path_metadata(
+        record, "git"
+    )
+    try:
+        metadata = git_directory.lstat()
+        original = (
+            metadata.st_uid == expected_uid
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == expected_mode
+        )
+        locked = (
+            metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o700
+        )
+        restricted = (
+            metadata.st_uid == expected_uid
+            and metadata.st_gid == expected_gid
+            and stat.S_IMODE(metadata.st_mode) == 0o700
+        )
+        if (
+            git_directory.is_symlink()
+            or not stat.S_ISDIR(metadata.st_mode)
             or not (original or locked or restricted)
         ):
             raise OSError
         if original:
-            os.chmod(root, 0o500)
+            os.chmod(git_directory, 0o700)
         if original or restricted:
-            os.chown(root, 0, 0)
-        metadata = root.lstat()
+            os.chown(git_directory, 0, 0)
+            os.chmod(git_directory, 0o700)
+        metadata = git_directory.lstat()
         if (
             metadata.st_uid != 0
             or metadata.st_gid != 0
-            or stat.S_IMODE(metadata.st_mode) != 0o500
+            or stat.S_IMODE(metadata.st_mode) != 0o700
         ):
             raise OSError
-        _fsync_directory(root.parent)
+        _fsync_directory(root)
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
 
@@ -2939,12 +6055,12 @@ def _chown_tree(
         os.chown(root, uid, gid)
 
 
-def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> None:
+def _restore_repository_worktree_metadata(
+    root: Path, record: dict[str, Any]
+) -> None:
     if os.geteuid() != 0:
         return
     root_uid, root_gid, root_mode = _recorded_path_metadata(record, "root")
-    git_uid, git_gid, git_mode = _recorded_path_metadata(record, "git")
-    git_directory = root / ".git"
     try:
         _chown_tree(
             root,
@@ -2952,14 +6068,30 @@ def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> Non
             root_gid,
             {".git", RECOVERY_GIT_DIRECTORY},
         )
-        _chown_tree(git_directory, git_uid, git_gid)
-        os.chmod(git_directory, git_mode)
-        os.chown(git_directory, git_uid, git_gid)
         os.chown(root, root_uid, root_gid)
         os.chmod(root, root_mode)
         _fsync_directory(root.parent)
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _restore_repository_git_metadata(root: Path, record: dict[str, Any]) -> None:
+    if os.geteuid() != 0:
+        return
+    git_uid, git_gid, git_mode = _recorded_path_metadata(record, "git")
+    git_directory = root / ".git"
+    try:
+        _chown_tree(git_directory, git_uid, git_gid)
+        os.chown(git_directory, git_uid, git_gid)
+        os.chmod(git_directory, git_mode)
+        _fsync_directory(root)
+    except OSError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _restore_repository_path_metadata(root: Path, record: dict[str, Any]) -> None:
+    _restore_repository_worktree_metadata(root, record)
+    _restore_repository_git_metadata(root, record)
 
 
 def _fsync_recovery_exchange_parents(root: Path, recovery_dir: Path) -> None:
@@ -3027,7 +6159,6 @@ def _remove_repository_recovery_barrier(
         recovery_dir.rmdir()
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
-    _restore_repository_path_metadata(root, record)
     _fsync_directory(recovery_dir.parent)
 
 
@@ -3036,39 +6167,60 @@ def _serialized_repository_recovery(
     roots: Sequence[Path] | None = None,
     records: dict[Path, dict[str, Any]] | None = None,
     parent_record: dict[str, Any] | None = None,
+    worktree_barrier: dict[Path, dict[Path, dict[str, Any]]] | None = None,
     preserve_on_error: bool = False,
     allow_journaled_transition: bool = False,
 ):
     selected_roots = tuple(roots or (APPLICATION_ROOT, CONTROL_ROOT))
-    if (
-        _competing_control_sync_count() != 0
-        or _active_repository_git_count(selected_roots) != 0
-        or _active_recovery_git_handle_count(selected_roots) != 0
-    ):
-        raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
-    selected_records = records or {
-        root: _repository_path_metadata(root) for root in selected_roots
-    }
-    for root in selected_roots:
-        if not (
-            _is_recovery_guard(root / ".git")
-            and _is_recovery_git_directory(_recovery_git_path(root))
-        ):
-            _validate_repository_worktree_contract(
-                root,
-                selected_records[root],
-                allow_journaled_transition=allow_journaled_transition,
-            )
+    metadata_paths = _repository_git_metadata_paths(selected_roots)
+    transition_guard = _GitMetadataTransitionGuard(
+        tuple(path for path in metadata_paths if not _is_recovery_guard(path))
+    )
+    tracked_paths = _tracked_worktree_regular_paths(
+        selected_roots,
+        allow_missing=allow_journaled_transition,
+    )
+    selected_records: dict[Path, dict[str, Any]] = records or {}
+    selected_worktree_barrier = worktree_barrier
     barriers: dict[Path, Path] = {}
     parent_locked = False
+    transition_started = False
     completed = False
     try:
+        if (
+            _competing_control_sync_count() != 0
+            or _active_repository_git_count(selected_roots) != 0
+            or _active_recovery_git_handle_count(metadata_paths) != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
+        ):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        if records is None:
+            selected_records = {
+                root: _repository_path_metadata(root) for root in selected_roots
+            }
+        if selected_worktree_barrier is None:
+            selected_worktree_barrier = _capture_worktree_write_barrier(
+                selected_roots, selected_records
+            )
+        for root in selected_roots:
+            if not (
+                _is_recovery_guard(root / ".git")
+                and _is_recovery_git_directory(_recovery_git_path(root))
+            ):
+                _validate_repository_worktree_contract(
+                    root,
+                    selected_records[root],
+                    allow_journaled_transition=allow_journaled_transition,
+                )
+        transition_guard.assert_unchanged()
         if parent_record is not None:
-            _lock_repository_parent(parent_record)
+            transition_started = True
             parent_locked = True
+            _lock_repository_parent(parent_record)
             if (
                 _active_exact_directory_handle_count(DEPLOYMENT_LOCK_ROOT) != 0
-                or _active_recovery_git_handle_count(selected_roots) != 0
+                or _active_recovery_git_handle_count(metadata_paths) != 0
+                or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
             ):
                 raise S12ControlError("S12_1_REPOSITORY_PARENT_ACTIVE_RED")
         for root in selected_roots:
@@ -3081,35 +6233,71 @@ def _serialized_repository_recovery(
                     selected_records[root],
                     allow_journaled_transition=allow_journaled_transition,
                 )
+        transition_started = True
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
+        _lock_worktree_write_barrier(
+            selected_worktree_barrier,
+            allow_missing=allow_journaled_transition,
+        )
+        for root in selected_roots:
+            _lock_repository_git_metadata(root, selected_records[root])
+        transition_guard.assert_unchanged()
+        metadata_paths = _repository_git_metadata_paths(selected_roots)
         if (
             _active_repository_git_count(selected_roots) != 0
-            or _active_recovery_git_handle_count(selected_roots) != 0
+            or _active_recovery_git_handle_count(metadata_paths) != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        _assert_worktree_write_barrier(
+            selected_roots,
+            selected_worktree_barrier,
+            allow_missing=allow_journaled_transition,
+        )
+        for root in selected_roots:
+            _selected_identity(
+                root, _repository_recovery_git_directory(root)
+            )
         for root in selected_roots:
             barriers[root] = _install_repository_recovery_barrier(
                 root, selected_records[root]
             )
+        transition_guard.assert_no_writer_events()
         if (
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
             or _active_recovery_git_handle_count(
-                tuple(selected_roots) + tuple(barriers.values())
+                tuple(root / ".git" for root in selected_roots)
+                + tuple(barriers.values())
             )
             != 0
+            or _active_tracked_worktree_write_handle_count(tracked_paths) != 0
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        transition_guard.assert_no_writer_events()
+        transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
+        transition_guard.close()
         for git_directory in barriers.values():
             _validate_root_git_contract(git_directory)
         for root, git_dir in barriers.items():
             _clear_stale_git_locks(root, git_dir)
         yield barriers
+        tracked_paths = _tracked_worktree_regular_paths(selected_roots)
+        _assert_worktree_write_barrier(
+            selected_roots, selected_worktree_barrier
+        )
+        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        for root, git_directory in barriers.items():
+            _selected_identity(root, git_directory)
+        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         completed = True
     finally:
+        transition_guard.close()
         cleanup_failed = False
-        if not (preserve_on_error and not completed):
+        if transition_started and not (preserve_on_error and not completed):
             for root, git_dir in reversed(tuple(barriers.items())):
                 try:
                     _remove_repository_recovery_barrier(
@@ -3128,17 +6316,187 @@ def _serialized_repository_recovery(
                         _remove_repository_recovery_barrier(
                             root, recovery_dir, selected_records[root]
                         )
-                    else:
-                        _restore_repository_path_metadata(
+                except S12ControlError:
+                    cleanup_failed = True
+            if not cleanup_failed:
+                release_guard: _WorktreeReleaseGuard | None = None
+                release_quiescence: _GuardedHandleQuiescence | None = None
+                try:
+                    if completed:
+                        _refresh_worktree_barrier_for_release(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
+                        _assert_worktree_write_barrier(
+                            selected_roots, selected_worktree_barrier
+                        )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                        if (
+                            _active_tracked_worktree_write_handle_count(
+                                _tracked_worktree_regular_paths(selected_roots)
+                            )
+                            != 0
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                            )
+                    release_paths = {
+                        path
+                        for root_entries in selected_worktree_barrier.values()
+                        for path in root_entries
+                    }
+                    release_paths.update(selected_roots)
+                    release_paths.update(
+                        _repository_git_metadata_directories(selected_roots)
+                    )
+                    git_release_fingerprint = ""
+                    if completed:
+                        for root in selected_roots:
+                            release_paths.update(
+                                _tracked_worktree_barrier_paths(root)
+                            )
+                        git_release_fingerprint = (
+                            _git_metadata_release_fingerprint(selected_roots)
+                        )
+                    if parent_locked:
+                        _hard_lock_repository_parent(parent_record)
+                    release_guard = _WorktreeReleaseGuard(
+                        selected_roots,
+                        tuple(release_paths),
+                    )
+                    release_xattr_fingerprint = _release_xattr_fingerprint(
+                        tuple(release_paths)
+                    )
+                    release_quiescence = _GuardedHandleQuiescence(
+                        tuple(release_paths), selected_roots
+                    )
+                    release_quiescence.acquire()
+                    _restore_worktree_write_barrier(
+                        selected_worktree_barrier,
+                        selected_records if completed else None,
+                    )
+                    for root in reversed(selected_roots):
+                        _restore_repository_worktree_metadata(
                             root, selected_records[root]
                         )
+                    release_guard.accept_release_attributes()
+                    if completed:
+                        _validate_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                        released_paths = _tracked_worktree_regular_paths(
+                            selected_roots
+                        )
+                        if (
+                            _active_tracked_worktree_write_handle_count(
+                                released_paths
+                            )
+                            != 0
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                            )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+                    release_guard.assert_no_events()
+                    for root in reversed(selected_roots):
+                        _restore_repository_git_metadata(
+                            root, selected_records[root]
+                        )
+                    release_guard.accept_release_attributes()
+
+                    def validate_final_release() -> None:
+                        release_quiescence.assert_quiesced()
+                        if not completed:
+                            return
+                        _validate_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                        )
+                        for root in selected_roots:
+                            _validate_repository_worktree_contract(
+                                root, selected_records[root]
+                            )
+                        if (
+                            _git_metadata_release_fingerprint(selected_roots)
+                            != git_release_fingerprint
+                            or _release_xattr_fingerprint(
+                                tuple(release_paths)
+                            )
+                            != release_xattr_fingerprint
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_BARRIER_RED"
+                            )
+                        metadata_paths = tuple(
+                            root / ".git" for root in selected_roots
+                        )
+                        if (
+                            _active_repository_git_count(selected_roots) != 0
+                            or _active_recovery_git_handle_count(metadata_paths)
+                            != 0
+                            or _active_tracked_worktree_write_handle_count(
+                                _tracked_worktree_regular_paths(selected_roots)
+                            )
+                            != 0
+                        ):
+                            raise S12ControlError(
+                                "S12_1_RECOVERY_GIT_ACTIVE_RED"
+                            )
+                        for root in selected_roots:
+                            _selected_identity(root, root / ".git")
+
+                    def validate_release_shutdown() -> None:
+                        release_quiescence.assert_quiesced()
+                        if release_guard.fanotify_descriptor is not None:
+                            if not parent_locked or parent_record is None:
+                                raise S12ControlError(
+                                    "S12_1_REPOSITORY_PARENT_RED"
+                                )
+                            _assert_hard_locked_repository_parent(parent_record)
+
+                    release_guard.finalize_release(
+                        validate_final_release,
+                        validate_release_shutdown,
+                    )
+                    release_guard = None
+                    if parent_locked:
+                        _restore_repository_parent(parent_record)
+                        parent_locked = False
                 except S12ControlError:
                     cleanup_failed = True
-            if parent_locked:
-                try:
-                    _restore_repository_parent(parent_record)
-                except S12ControlError:
-                    cleanup_failed = True
+                    try:
+                        if parent_locked:
+                            _lock_repository_parent(parent_record)
+                        for root in selected_roots:
+                            _lock_repository_root(root, selected_records[root])
+                        _reseal_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                            include_current=completed,
+                        )
+                        for root in selected_roots:
+                            _lock_repository_git_metadata(
+                                root, selected_records[root]
+                            )
+                    except S12ControlError:
+                        pass
+                finally:
+                    if release_guard is not None:
+                        release_guard.close()
+                    if release_quiescence is not None:
+                        try:
+                            release_quiescence.close()
+                        except S12ControlError:
+                            cleanup_failed = True
         if cleanup_failed:
             raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
 
@@ -3497,11 +6855,12 @@ def _finalize_rollback(backup: Path, index: dict[str, Any]) -> None:
     parent_record = index.get("repository_parent")
     if not isinstance(parent_record, dict):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
-    _recorded_parent_metadata(parent_record)
-    _ensure_barrier_journal(path_records, parent_record)
+    _recorded_parent_metadata(parent_record, require_xattr=False)
+    worktree_barrier = _ensure_barrier_journal(path_records, parent_record)
     with _serialized_repository_recovery(
         records=path_records,
         parent_record=parent_record,
+        worktree_barrier=worktree_barrier,
         preserve_on_error=True,
         allow_journaled_transition=True,
     ) as git_directories:
@@ -3558,11 +6917,12 @@ def rollback_once(
     parent_record = index.get("repository_parent")
     if not isinstance(parent_record, dict):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
-    _recorded_parent_metadata(parent_record)
-    _ensure_barrier_journal(path_records, parent_record)
+    _recorded_parent_metadata(parent_record, require_xattr=False)
+    worktree_barrier = _ensure_barrier_journal(path_records, parent_record)
     with _serialized_repository_recovery(
         records=path_records,
         parent_record=parent_record,
+        worktree_barrier=worktree_barrier,
         preserve_on_error=True,
         allow_journaled_transition=True,
     ) as git_directories:
@@ -4353,10 +7713,12 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
 
 
 def _recover_repository_barrier_only() -> dict[str, Any]:
-    records, parent_record = _load_barrier_journal()
+    records, parent_record, _, _schema = _load_barrier_journal()
+    worktree_barrier = _ensure_barrier_journal(records, parent_record)
     with _serialized_repository_recovery(
         records=records,
         parent_record=parent_record,
+        worktree_barrier=worktree_barrier,
         allow_journaled_transition=True,
     ):
         _remove_fetch_stage(
@@ -4443,11 +7805,14 @@ def _deploy_locked() -> dict[str, Any]:
     release_repository_state: dict[str, Any] | None = None
     repository_sync_failure: BaseException | None = None
     try:
-        _write_barrier_journal(path_records, parent_record)
+        worktree_barrier = _write_barrier_journal(
+            path_records, parent_record
+        )
         with _pinned_release_input_bundles() as pinned_bundles:
             with _serialized_repository_recovery(
                 records=path_records,
                 parent_record=parent_record,
+                worktree_barrier=worktree_barrier,
                 preserve_on_error=True,
             ) as git_directories:
                 fetch_directories = _prepare_release_fetch_stage(pinned_bundles)

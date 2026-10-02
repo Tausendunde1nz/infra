@@ -1,0 +1,116 @@
+# S12.1 r3 Worktree-handle false positive — 2026-10-01
+
+## Observed failure
+
+The sole r3 controller invocation returned
+`S12_1_RECOVERY_GIT_ACTIVE_RED` before backup, deployment-attempt marker,
+repository synchronization, runtime installation or provider acceptance.
+Application and Control remained clean on their pre-deployment commits.
+
+## Reproduction from canonical r3 source
+
+`_serialized_repository_recovery()` passed `APPLICATION_ROOT` and
+`CONTROL_ROOT` directly to `_active_recovery_git_handle_count()`. That helper
+recursively materialized every inode below each supplied path. The four healthy
+S7/S8/S10 units use the Application Worktree as `WorkingDirectory`; their cwd,
+ordinary file and `.venv` handles were therefore counted as Git-recovery
+handles even though neither `.git` tree was retained.
+
+## Secondary permission finding
+
+The r3 parent/root locks changed the shared repository parent and checkout
+roots to `root:root` mode `0500`. That prevented new namespace writers but also
+removed traversal from the `chatops` service identity. Narrowing only the
+handle scanner would therefore have left an avoidable live-service risk.
+
+## Decision
+
+`RECOVERY_FIX_METADATA_SCOPING_SUFFICIENT`.
+
+The pinned Application delta changes only S12/Yoti modules, tests,
+documentation and packaging metadata; the active S7/S8/S10 entrypoints do not
+import those modules. The existing `.venv` is an ignored preserved path and is
+not replaced by canonical Git synchronization. For this exact frozen release,
+healthy services may remain running while Git metadata is isolated and the
+reviewed tracked delta is applied.
+
+The r4 contract:
+
+1. detects actual Git processes using cwd, chained `-C`, explicit Git paths and
+   Git environment selectors;
+2. scans cwd, fds and mappings only against `.git` and
+   `.git.s12-1-recovery` inode trees;
+3. removes namespace write permission from the shared parent and repository
+   roots while retaining the recorded group's read/traverse classes;
+4. fingerprints the complete Git-metadata tree, installs a kernel mutation
+   watch, requires a matching post-install fingerprint and only then performs
+   the first process scan;
+5. locks real `.git` metadata to `root:root` mode `0700`, then rejects any
+   fingerprint drift or queued mutation event from even an already-exited
+   writer before exchange;
+6. repeats writer and metadata-handle checks before atomic exchange;
+7. atomically exchanges `.git` with a root-owned mode-`000` guard while the
+   mutation watch remains active;
+8. checks both guards and quarantined metadata before root-only Git use;
+9. separately resolves regular index entries and rejects write-capable FDs,
+   writable shared mappings and write-upgradeable shared mappings while still
+   allowing read-only Worktree users and private copy-on-write mappings;
+10. repeats that resource-based writer check through the transition and against
+    the final tracked set, then requires a fresh clean identity and a second
+    final handle scan before barrier removal;
+11. durably journals and installs a tracked-path write barrier that preserves
+    read/traversal access but prevents new owner writes through Git-metadata
+    teardown;
+12. revalidates the clean identity under that barrier after canonical `.git`
+    returns, starts a tracked-path mutation watch, then restores exact recorded
+    ownership/modes;
+13. validates all released metadata, repeats identity/handle/identity checks
+    and rejects any waiting-writer event before closing the watch at the
+    explicit writer-release point;
+14. resumes cleanly from a crash after either chmod or chown and normalizes an
+    R3 `root:root 0500` parent/root lock to the recorded-group R4 contract;
+15. restores every new or replaced current tracked inode from root ownership
+    to the recorded canonical repository owner/group before release validation;
+16. blocks every external open with a fanotify permission barrier during the
+    release window, so a new shared writable mapping cannot evade inotify, and
+    keeps `.git` root-only until the Worktree validation is complete;
+17. refreshes the durable barrier with each exact current inode before release,
+    so a crash after ownership restoration can reseal that bound inode while a
+    subsequent unjournaled replacement still fails closed;
+18. allows an external release-window open only when the fanotify-reported
+    thread is provably blocked in a native open syscall whose requested flags
+    are read-only and non-mutating; unknown syscalls and writable opens remain
+    held fail-closed.
+19. watches every directory below canonical `.git` during ownership release
+    and binds the complete nested metadata namespace, inode identity, mode,
+    size, mtime and regular-file bytes to the pre-release state, so a Git
+    command cannot create a lock/ref or mutate configuration after the top
+    metadata directory becomes accessible;
+20. follows the controller-owned attribute-event drain with exact Worktree,
+    repository and Git-metadata fingerprint validation, fresh Git/handle and
+    identity checks, and a final event drain; an external chmod/fchmod that
+    overlaps the controller's own chown window therefore cannot be accepted as
+    harmless.
+21. binds extended-attribute names and values for every guarded Worktree and
+    Git-metadata path before release, checks stable inode metadata while reading
+    them, and requires the exact xattr fingerprint after the final attribute
+    drain; external setxattr/fsetxattr can no longer hide among controller chown
+    events.
+
+There is no process-name allowlist. A Git process under a product-service
+identity remains RED.
+
+## Server observation
+
+Both canonical `.git` directories were normal and both recovery directories
+were absent after the r3 failure. The private journal could not be
+distinguished as absent versus root-private from the unprivileged read-only
+inspection. It must be classified at the single authenticated server
+checkpoint and, if present, recovered only through the reviewed controller.
+
+## Required acceptance
+
+Linux regression must retain four live-shaped Worktree users while the barrier
+is installed, reject actual Git writers and Git/recovery metadata handles,
+exercise the new-writer race, recover the orphan journal canonically, preserve
+durability, and keep S11/Public WMS unchanged.
