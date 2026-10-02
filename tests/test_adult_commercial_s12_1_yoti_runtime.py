@@ -1268,6 +1268,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                         "uid": metadata.st_uid,
                         "gid": metadata.st_gid,
                         "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                        "xattr_fingerprint": "a" * 64,
                     }
                 },
                 control: {},
@@ -2134,6 +2135,45 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(
                 runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
             )
+
+    def test_worktree_barrier_rejects_xattr_drift_before_chown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+            xattrs = {tracked: b"baseline"}
+
+            with mock.patch.object(
+                runtime,
+                "_stable_xattr_payload",
+                side_effect=lambda path, *_args, **_kwargs: xattrs.get(
+                    path, b""
+                ),
+            ):
+                barrier = runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+                xattrs[tracked] = b"named-acl-drift"
+                with (
+                    mock.patch.object(runtime.os, "geteuid", return_value=0),
+                    mock.patch.object(runtime.os, "chown") as chown,
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    ),
+                ):
+                    runtime._lock_worktree_write_barrier(barrier)
+
+            chown.assert_not_called()
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_metadata_handle_scope_allows_live_shaped_worktree_users(self) -> None:
@@ -3766,6 +3806,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "listxattr",
                     return_value=["security.capability"],
                     create=True,
+                ),
+                mock.patch.object(
+                    runtime, "_assert_worktree_path_xattrs"
                 ),
                 mock.patch.object(runtime.os, "chown") as chown,
                 self.assertRaisesRegex(

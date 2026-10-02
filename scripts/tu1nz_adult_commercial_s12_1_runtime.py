@@ -2585,6 +2585,27 @@ def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
     return restricted
 
 
+def _worktree_path_xattr_fingerprint(path: Path) -> str:
+    try:
+        return _release_xattr_fingerprint((path,))
+    except S12ControlError:
+        raise S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+        ) from None
+
+
+def _assert_worktree_path_xattrs(
+    path: Path, record: dict[str, Any]
+) -> None:
+    fingerprint = record.get("xattr_fingerprint")
+    if (
+        not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or _worktree_path_xattr_fingerprint(path) != fingerprint
+    ):
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+
+
 def _capture_worktree_write_barrier(
     roots: Sequence[Path],
     repository_records: dict[Path, dict[str, Any]],
@@ -2621,6 +2642,9 @@ def _capture_worktree_write_barrier(
                     "uid": metadata.st_uid,
                     "gid": metadata.st_gid,
                     "mode": f"{mode:04o}",
+                    "xattr_fingerprint": (
+                        _worktree_path_xattr_fingerprint(path)
+                    ),
                 }
             captured[root] = entries
     except (KeyError, OSError, ValueError):
@@ -2686,6 +2710,7 @@ def _refresh_worktree_barrier_for_release(
                     existing["inode"],
                     int(existing["mode"], 8) & ~0o222,
                 ):
+                    _assert_worktree_path_xattrs(path, existing)
                     continue
                 root_records[path] = {
                     "kind": kind,
@@ -2694,6 +2719,9 @@ def _refresh_worktree_barrier_for_release(
                     "uid": expected_uid,
                     "gid": expected_gid,
                     "mode": f"{mode:04o}",
+                    "xattr_fingerprint": (
+                        _worktree_path_xattr_fingerprint(path)
+                    ),
                 }
         if (
             tuple(roots) == (APPLICATION_ROOT, CONTROL_ROOT)
@@ -2715,6 +2743,8 @@ def _refresh_worktree_barrier_for_release(
 def _parse_worktree_barrier_payload(
     payload: Any,
     roots: Sequence[Path],
+    *,
+    require_xattr: bool = True,
 ) -> dict[Path, dict[Path, dict[str, Any]]]:
     if not isinstance(payload, dict) or set(payload) != {"application", "control"}:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
@@ -2725,7 +2755,7 @@ def _parse_worktree_barrier_payload(
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
         entries: dict[Path, dict[str, Any]] = {}
         for raw in raw_entries:
-            if not isinstance(raw, dict) or set(raw) != {
+            expected_keys = {
                 "path_hex",
                 "kind",
                 "device",
@@ -2733,7 +2763,10 @@ def _parse_worktree_barrier_payload(
                 "uid",
                 "gid",
                 "mode",
-            }:
+            }
+            if require_xattr:
+                expected_keys.add("xattr_fingerprint")
+            if not isinstance(raw, dict) or set(raw) != expected_keys:
                 raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
             try:
                 relative_bytes = bytes.fromhex(raw["path_hex"])
@@ -2758,6 +2791,16 @@ def _parse_worktree_barrier_payload(
                 or raw["gid"] < 0
                 or not isinstance(raw["mode"], str)
                 or re.fullmatch(r"[0-7]{4}", raw["mode"]) is None
+                or (
+                    require_xattr
+                    and (
+                        not isinstance(raw["xattr_fingerprint"], str)
+                        or re.fullmatch(
+                            r"[0-9a-f]{64}", raw["xattr_fingerprint"]
+                        )
+                        is None
+                    )
+                )
             ):
                 raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
             path = root / relative
@@ -2767,8 +2810,40 @@ def _parse_worktree_barrier_payload(
                 name: raw[name]
                 for name in ("kind", "device", "inode", "uid", "gid", "mode")
             }
+            if require_xattr:
+                entries[path]["xattr_fingerprint"] = raw[
+                    "xattr_fingerprint"
+                ]
         parsed[root] = entries
     return parsed
+
+
+def _upgrade_legacy_worktree_xattr_records(
+    records: dict[Path, dict[Path, dict[str, Any]]]
+) -> None:
+    """Bind safe current xattrs while durably upgrading a V1 orphan."""
+
+    for root_entries in records.values():
+        for path, record in root_entries.items():
+            if "xattr_fingerprint" in record:
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                )
+            try:
+                path.lstat()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                ) from None
+            else:
+                _assert_legacy_path_xattrs_safe(
+                    path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+            record["xattr_fingerprint"] = (
+                _worktree_path_xattr_fingerprint(path)
+            )
 
 
 def _lock_worktree_write_barrier(
@@ -2798,6 +2873,7 @@ def _lock_worktree_write_barrier(
                     # removed an old index path. Current paths are sealed in
                     # the second pass below.
                     continue
+                _assert_worktree_path_xattrs(path, record)
                 mode = int(record["mode"], 8)
                 restricted_mode = _worktree_barrier_mode(
                     mode, record["uid"], record["gid"]
@@ -2861,6 +2937,7 @@ def _lock_worktree_write_barrier(
                     os.chmod(path, restricted_mode, follow_symlinks=False)
                 if target_locked:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
+                _assert_worktree_path_xattrs(path, record)
             # New target paths created by a previously interrupted root Git
             # checkout are absent from the durable pre-mutation record. They
             # are safe to resume only when root-owned and already closed to
@@ -2921,6 +2998,7 @@ def _assert_worktree_write_barrier(
                     metadata.st_dev,
                     metadata.st_ino,
                 ) == (record["device"], record["inode"]):
+                    _assert_worktree_path_xattrs(path, record)
                     expected_gid = record["gid"]
                 else:
                     expected_gid = metadata.st_gid
@@ -2973,6 +3051,7 @@ def _restore_worktree_write_barrier(
                 )
                 if actual_kind != expected_kind:
                     raise OSError
+                _assert_worktree_path_xattrs(path, record)
                 os.chown(
                     path,
                     record["uid"],
@@ -2980,6 +3059,7 @@ def _restore_worktree_write_barrier(
                     follow_symlinks=False,
                 )
                 os.chmod(path, int(record["mode"], 8), follow_symlinks=False)
+                _assert_worktree_path_xattrs(path, record)
         if repository_records is not None:
             if set(repository_records) != set(records):
                 raise OSError
@@ -3052,6 +3132,7 @@ def _validate_released_worktree_contract(
                     metadata.st_ino,
                 ) == (record["device"], record["inode"])
                 if same_recorded_inode:
+                    _assert_worktree_path_xattrs(path, record)
                     valid_metadata = (
                         metadata.st_uid == record["uid"]
                         and metadata.st_gid == record["gid"]
@@ -3122,6 +3203,7 @@ def _reseal_released_worktree_contract(
                     metadata.st_ino,
                 ) == (record["device"], record["inode"])
                 if same_recorded_inode:
+                    _assert_worktree_path_xattrs(path, record)
                     released = (
                         metadata.st_uid == record["uid"]
                         and metadata.st_gid == record["gid"]
@@ -3162,6 +3244,8 @@ def _reseal_released_worktree_contract(
                 os.chmod(path, restricted_mode, follow_symlinks=False)
                 os.chown(path, 0, target_gid, follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
+                if same_recorded_inode:
+                    _assert_worktree_path_xattrs(path, record)
             _sync_repository_filesystem(root)
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
@@ -4870,24 +4954,24 @@ def _assert_repository_parent_xattrs(record: dict[str, Any]) -> None:
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
 
 
-def _assert_legacy_repository_parent_xattrs_safe() -> None:
-    """Permit a V1 orphan upgrade only when no unbound ACL principal exists."""
+def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
+    """Permit a V1 record upgrade only without unbound xattr principals."""
 
     if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
         if sys.platform == "linux":
-            raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
+            raise S12ControlError(safe_code)
         return
     try:
-        metadata = DEPLOYMENT_LOCK_ROOT.lstat()
+        metadata = path.lstat()
         names = sorted(
-            os.listxattr(DEPLOYMENT_LOCK_ROOT, follow_symlinks=False),
+            os.listxattr(path, follow_symlinks=False),
             key=os.fsencode,
         )
         if any(name != "system.posix_acl_access" for name in names):
             raise OSError
         if names:
             value = os.getxattr(
-                DEPLOYMENT_LOCK_ROOT,
+                path,
                 "system.posix_acl_access",
                 follow_symlinks=False,
             )
@@ -4914,12 +4998,18 @@ def _assert_legacy_repository_parent_xattrs_safe() -> None:
             ):
                 raise OSError
         _stable_xattr_payload(
-            DEPLOYMENT_LOCK_ROOT,
+            path,
             metadata,
             normalize_posix_acl_mode=True,
         )
     except (OSError, TypeError, ValueError):
-        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
+        raise S12ControlError(safe_code) from None
+
+
+def _assert_legacy_repository_parent_xattrs_safe() -> None:
+    _assert_legacy_path_xattrs_safe(
+        DEPLOYMENT_LOCK_ROOT, "S12_1_REPOSITORY_PARENT_RED"
+    )
 
 
 def _metadata_barrier_mode(mode: int) -> int:
@@ -5026,6 +5116,7 @@ def _load_barrier_journal() -> tuple[
         else _parse_worktree_barrier_payload(
             raw_worktree_barrier,
             (APPLICATION_ROOT, CONTROL_ROOT),
+            require_xattr=journal_schema == BARRIER_SCHEMA,
         )
     )
     if set(journal) not in (
@@ -5067,6 +5158,8 @@ def _ensure_barrier_journal(
             recorded_parent["xattr_fingerprint"] = (
                 _repository_parent_xattr_fingerprint()
             )
+            if worktree_barrier is not None:
+                _upgrade_legacy_worktree_xattr_records(worktree_barrier)
             journal_changed = True
         elif (
             parent_record.get("xattr_fingerprint") is not None

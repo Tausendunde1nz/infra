@@ -46,8 +46,13 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    Reject the path unless that exact class retains every prior owner read and
    execute/traversal right. Owner-only `0600`/`0700` and the group-member case
    `0604` therefore cannot become unreadable or untraversable merely because
-   ownership moves to root. Read and execute/traversal bits are otherwise
-   preserved. Repeat actual-Git,
+   ownership moves to root. The V2 journal also binds each tracked inode's and
+   ancestor directory's normalized xattr/ACL fingerprint before any path is
+   locked, and validates it before and after lock, restore and reseal. A V1
+   orphan is upgraded only if each extant path has no unbound named ACL
+   principal or unrelated xattr; missing obsolete paths remain explicitly
+   bound as missing. Read and execute/traversal bits are otherwise preserved.
+   Repeat actual-Git,
    metadata-handle and writable tracked-worktree-handle checks, then require a
    fresh clean identity before the protected body.
 8. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.
