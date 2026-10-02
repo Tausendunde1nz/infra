@@ -4323,17 +4323,25 @@ def _guarded_handle_processes(
     if not proc.is_dir():
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_HANDLE_RED")
     try:
-        protected = {
-            (metadata.st_dev, metadata.st_ino)
-            for path in set(paths)
-            for metadata in (path.lstat(),)
-            if not path.is_symlink()
-            and (
+        protected: set[tuple[int, int]] = set()
+        present_paths = 0
+        for path in set(paths):
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                # A journaled pre-checkout path may have been deleted by the
+                # completed checkout. Release validation separately proves
+                # that an absent recorded path is obsolete, so it has no inode
+                # whose retained handles could be quiesced here.
+                continue
+            present_paths += 1
+            if path.is_symlink() or not (
                 stat.S_ISDIR(metadata.st_mode)
                 or (stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1)
-            )
-        }
-        if len(protected) != len(set(paths)):
+            ):
+                raise OSError
+            protected.add((metadata.st_dev, metadata.st_ino))
+        if len(protected) != present_paths:
             raise OSError
         canonical_roots = tuple(root.resolve(strict=True) for root in roots)
     except OSError:

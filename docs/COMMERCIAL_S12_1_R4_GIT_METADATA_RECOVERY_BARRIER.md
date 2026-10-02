@@ -79,8 +79,11 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    detaches and restarts ptrace-stopped tracees
    if the controller dies, so no persistent service stop can be orphaned.
    Validate process/thread start times and the ptrace-stop state, and iterate
-   the scan until no inheriting child or new thread remains. This changes no
-   unit state and causes no restart. With both inotify and fanotify
+   the scan until no inheriting child or new thread remains. A journaled path
+   legitimately deleted by the completed checkout is omitted from handle
+   discovery because no guarded inode remains; the later released-contract
+   validation must still prove that the recorded path is obsolete. This
+   changes no unit state and causes no restart. With both inotify and fanotify
    still active, restore exact journaled ownership/modes, accept only the
    controller's attribute events, validate the released contracts and both
    fingerprints, and re-check repository identity and writer exclusion. Then

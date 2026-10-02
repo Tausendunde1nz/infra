@@ -3458,6 +3458,17 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 )
             self.assertEqual(child.stdout.strip(), "included")
 
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_guarded_handle_scan_skips_deleted_journal_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing = root / "deleted-by-checkout.txt"
+
+            self.assertEqual(
+                runtime._guarded_handle_processes((missing,), (root,)),
+                {},
+            )
+
     def test_guarded_handle_quiescence_detaches_after_stop_wait_failure(self) -> None:
         quiescence = runtime._GuardedHandleQuiescence(
             (Path("/guarded/file"),), (Path("/guarded"),)
