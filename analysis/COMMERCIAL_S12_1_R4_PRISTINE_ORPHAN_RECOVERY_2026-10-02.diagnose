@@ -45,6 +45,10 @@ disabled. Before the final validation, the controller installs continuous Git
 metadata and repository-parent/tracked-worktree mutation guards; the latter
 also denies external write opens. Both guards remain live through the durable
 journal unlink and cross ordered inotify shutdown barriers before recovery returns.
+Before either guard baseline is accepted, every unbound V1 xattr surface is
+validated: parent, repository roots and tracked barrier paths permit only base
+POSIX access/default ACL entries without named principals; every other xattr
+fails closed.
 The controller releases only the journal. No repository xattr, ACL, mode,
 ownership, Git metadata or tracked content is changed.
 

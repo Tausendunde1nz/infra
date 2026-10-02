@@ -5357,12 +5357,15 @@ def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
             os.listxattr(path, follow_symlinks=False),
             key=os.fsencode,
         )
-        if any(name != "system.posix_acl_access" for name in names):
+        allowed_names = {"system.posix_acl_access"}
+        if stat.S_ISDIR(metadata.st_mode):
+            allowed_names.add("system.posix_acl_default")
+        if any(name not in allowed_names for name in names):
             raise OSError
-        if names:
+        for name in names:
             value = os.getxattr(
                 path,
-                "system.posix_acl_access",
+                name,
                 follow_symlinks=False,
             )
             acl_header = struct.Struct("<I")
@@ -5373,18 +5376,23 @@ def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
                 or (len(value) - acl_header.size) % acl_entry.size
             ):
                 raise OSError
-            tags = [
-                acl_entry.unpack_from(value, offset)[0]
+            entries = [
+                acl_entry.unpack_from(value, offset)
                 for offset in range(
                     acl_header.size, len(value), acl_entry.size
                 )
             ]
             if (
-                set(tags) - {0x01, 0x04, 0x10, 0x20}
-                or tags.count(0x01) != 1
-                or tags.count(0x04) != 1
-                or tags.count(0x20) != 1
-                or tags.count(0x10) > 1
+                any(
+                    tag not in {0x01, 0x04, 0x10, 0x20}
+                    or permissions & ~0o7
+                    or identifier != 0xFFFFFFFF
+                    for tag, permissions, identifier in entries
+                )
+                or sum(tag == 0x01 for tag, *_rest in entries) != 1
+                or sum(tag == 0x04 for tag, *_rest in entries) != 1
+                or sum(tag == 0x20 for tag, *_rest in entries) != 1
+                or sum(tag == 0x10 for tag, *_rest in entries) > 1
             ):
                 raise OSError
         _stable_xattr_payload(
@@ -7804,6 +7812,7 @@ def _pristine_legacy_orphan_is_releasable(
         int(current_parent["mode"], 8),
     ):
         return False
+    _assert_legacy_repository_parent_xattrs_safe()
     repository_fields = (
         "root_uid", "root_gid", "root_mode",
         "git_uid", "git_gid", "git_mode",
@@ -7816,6 +7825,13 @@ def _pristine_legacy_orphan_is_releasable(
         ):
             return False
         _validate_repository_worktree_contract(root, records[root])
+        _assert_legacy_path_xattrs_safe(
+            root, "S12_1_RECOVERY_GIT_BARRIER_RED"
+        )
+        for path in _tracked_worktree_barrier_paths(root):
+            _assert_legacy_path_xattrs_safe(
+                path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            )
         _validate_canonical_index(root, root / ".git")
     tracked_paths = _tracked_worktree_regular_paths(roots)
 

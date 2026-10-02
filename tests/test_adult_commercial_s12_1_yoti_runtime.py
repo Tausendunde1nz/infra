@@ -4022,6 +4022,116 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 runtime._assert_legacy_repository_parent_xattrs_safe()
 
+    def test_legacy_directory_xattrs_allow_only_base_access_and_default_acl(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=[
+                        "system.posix_acl_access",
+                        "system.posix_acl_default",
+                    ],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
+
+            named_acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o7, 1000),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=named_acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TEST_RED"
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
+
+            regular = path / "tracked.txt"
+            regular.write_text("tracked", encoding="utf-8")
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_default"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TEST_RED"
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    regular, "S12_1_TEST_RED"
+                )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["user.unbound"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=b"",
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TEST_RED"
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
+
     def test_release_finalizer_rechecks_quiescence_after_watch_shutdown(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
         guard.descriptor = 123
@@ -5690,6 +5800,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(
                     runtime, "_active_exact_directory_handle_count", return_value=0
                 ),
+                mock.patch.object(
+                    runtime, "_assert_legacy_repository_parent_xattrs_safe"
+                ) as parent_xattrs,
+                mock.patch.object(
+                    runtime, "_assert_legacy_path_xattrs_safe"
+                ) as path_xattrs,
             ):
                 records = {
                     application: runtime._repository_path_metadata(application),
@@ -5703,6 +5819,28 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                         None,
                         runtime.LEGACY_BARRIER_SCHEMA,
                     )
+                )
+                parent_xattrs.assert_called_once_with()
+                self.assertEqual(
+                    path_xattrs.call_args_list,
+                    [
+                        mock.call(
+                            application,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
+                        mock.call(
+                            application / "tracked.txt",
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        ),
+                        mock.call(
+                            control,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
+                        mock.call(
+                            control / "tracked.txt",
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        ),
+                    ],
                 )
 
     def test_pristine_legacy_checks_use_isolated_git_configuration(self) -> None:

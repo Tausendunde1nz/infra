@@ -242,6 +242,10 @@ Before the final validation, continuous Git-metadata and
 repository-parent/tracked-worktree mutation guards are installed; the latter
 also denies external write opens. Both remain live through the durable journal
 unlink and use ordered inotify shutdown barriers before recovery returns.
+Before a V1 state can enter that guarded interval, the parent, repository roots
+and every tracked barrier path are checked for unbound xattrs. Only base POSIX
+access/default ACL entries without named principals are accepted; every other
+xattr fails closed.
 
 This path performs no repository permission or ownership transition. It
 therefore neither upgrades unbound legacy ACL/xattr state nor constructs a new
