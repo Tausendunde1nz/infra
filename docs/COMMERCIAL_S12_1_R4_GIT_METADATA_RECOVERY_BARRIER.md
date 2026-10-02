@@ -22,7 +22,11 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    their owner to root, and retain their recorded groups and traversal classes.
    A baseline without recorded-group read/traverse permission is rejected.
 6. Change canonical `.git` to `root:root` mode `0700`, then require both the
-   transition fingerprint and the kernel event queue to remain unchanged.
+   transition fingerprint and the kernel event queue to remain unchanged. The
+   transition fingerprint normalizes the controller-owned top-directory
+   owner/mode/ctime change but binds that directory's complete extended-
+   attribute payload, so an external root xattr or ACL change cannot hide in
+   the accepted `IN_ATTRIB` transition events.
 7. From the durably journaled tracked-path set, remove every write bit and move
    tracked regular inodes plus their ancestor directories under root ownership.
    Read and execute/traversal bits are preserved. Repeat actual-Git,
@@ -99,7 +103,7 @@ subsequent validation or Git transition.
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |
 | external chmod/fchmod during release | final contract/fingerprint mismatch or event; RED |
-| external setxattr/fsetxattr during release | guarded-path xattr fingerprint mismatch or event; RED |
+| external setxattr/fsetxattr during lock or release | root transition or guarded-path xattr fingerprint mismatch/event; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |

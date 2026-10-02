@@ -3344,6 +3344,8 @@ def _git_metadata_transition_fingerprint(paths: Sequence[Path]) -> str:
                 + b":"
                 + str(root_metadata.st_ino).encode("ascii")
                 + b"\0"
+                + _stable_xattr_payload(root, root_metadata)
+                + b"\0"
             )
             pending = [root]
             while pending:

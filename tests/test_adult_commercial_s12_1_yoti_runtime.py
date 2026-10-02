@@ -2990,6 +2990,31 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             runtime._GitMetadataTransitionGuard((Path("/metadata"),))
         self.assertEqual(fingerprint.call_count, 2)
 
+    def test_transition_fingerprint_binds_root_xattrs_not_lock_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ".git"
+            root.mkdir(mode=0o755)
+            xattrs = {"payload": b""}
+
+            with mock.patch.object(
+                runtime,
+                "_stable_xattr_payload",
+                side_effect=lambda path, _metadata: (
+                    xattrs["payload"] if path == root else b""
+                ),
+            ):
+                baseline = runtime._git_metadata_transition_fingerprint((root,))
+                os.chmod(root, 0o700)
+                self.assertEqual(
+                    runtime._git_metadata_transition_fingerprint((root,)),
+                    baseline,
+                )
+                xattrs["payload"] = b"external-root-xattr"
+                self.assertNotEqual(
+                    runtime._git_metadata_transition_fingerprint((root,)),
+                    baseline,
+                )
+
     def test_closed_mmap_writer_is_detected_after_exchange(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory) / "repository"
