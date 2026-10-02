@@ -38,7 +38,8 @@ APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r4"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
-BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
+BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
+LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 TRACKED_PATH_HASH_SCHEMA = b"TU1NZ_S12_1_TRACKED_PATH_HASHES_V1\0"
 ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
 ROLLBACK_PHASE_STARTED = "RESTORE_STARTED"
@@ -1218,6 +1219,7 @@ def _repository_parent_metadata() -> dict[str, Any]:
         "uid": metadata.st_uid,
         "gid": metadata.st_gid,
         "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+        "xattr_fingerprint": _repository_parent_xattr_fingerprint(),
     }
 
 
@@ -4366,7 +4368,12 @@ def _guarded_handle_processes(
                     matched = True
                     break
                 if stat.S_ISDIR(metadata.st_mode):
-                    target = link.resolve(strict=True)
+                    try:
+                        target = link.resolve(strict=True)
+                    except FileNotFoundError:
+                        # An unlinked directory fd must not hide a later
+                        # guarded fd owned by the same process.
+                        continue
                     if any(
                         target == root or root in target.parents
                         for root in canonical_roots
@@ -4824,19 +4831,95 @@ def _barrier_repository_record(root: Path, record: dict[str, Any]) -> dict[str, 
     }
 
 
-def _recorded_parent_metadata(record: dict[str, Any]) -> tuple[int, int, int]:
+def _recorded_parent_metadata(
+    record: dict[str, Any], *, require_xattr: bool = True
+) -> tuple[int, int, int]:
     uid = record.get("uid")
     gid = record.get("gid")
     mode = record.get("mode")
+    xattr_fingerprint = record.get("xattr_fingerprint")
     if (
         record.get("path") != str(DEPLOYMENT_LOCK_ROOT)
         or type(uid) is not int
         or type(gid) is not int
         or not isinstance(mode, str)
         or re.fullmatch(r"[0-7]{4}", mode) is None
+        or (
+            xattr_fingerprint is not None
+            and (
+                not isinstance(xattr_fingerprint, str)
+                or re.fullmatch(r"[0-9a-f]{64}", xattr_fingerprint) is None
+            )
+        )
+        or (require_xattr and xattr_fingerprint is None)
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     return uid, gid, int(mode, 8)
+
+
+def _repository_parent_xattr_fingerprint() -> str:
+    try:
+        return _release_xattr_fingerprint((DEPLOYMENT_LOCK_ROOT,))
+    except S12ControlError:
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
+
+
+def _assert_repository_parent_xattrs(record: dict[str, Any]) -> None:
+    _recorded_parent_metadata(record)
+    if _repository_parent_xattr_fingerprint() != record["xattr_fingerprint"]:
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
+
+
+def _assert_legacy_repository_parent_xattrs_safe() -> None:
+    """Permit a V1 orphan upgrade only when no unbound ACL principal exists."""
+
+    if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
+        if sys.platform == "linux":
+            raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
+        return
+    try:
+        metadata = DEPLOYMENT_LOCK_ROOT.lstat()
+        names = sorted(
+            os.listxattr(DEPLOYMENT_LOCK_ROOT, follow_symlinks=False),
+            key=os.fsencode,
+        )
+        if any(name != "system.posix_acl_access" for name in names):
+            raise OSError
+        if names:
+            value = os.getxattr(
+                DEPLOYMENT_LOCK_ROOT,
+                "system.posix_acl_access",
+                follow_symlinks=False,
+            )
+            acl_header = struct.Struct("<I")
+            acl_entry = struct.Struct("<HHI")
+            if (
+                len(value) < acl_header.size
+                or acl_header.unpack_from(value)[0] != 2
+                or (len(value) - acl_header.size) % acl_entry.size
+            ):
+                raise OSError
+            tags = [
+                acl_entry.unpack_from(value, offset)[0]
+                for offset in range(
+                    acl_header.size, len(value), acl_entry.size
+                )
+            ]
+            if (
+                set(tags) - {0x01, 0x04, 0x10, 0x20}
+                or tags.count(0x01) != 1
+                or tags.count(0x04) != 1
+                or tags.count(0x20) != 1
+                or tags.count(0x10) > 1
+            ):
+                raise OSError
+        _stable_xattr_payload(
+            DEPLOYMENT_LOCK_ROOT,
+            metadata,
+            normalize_posix_acl_mode=True,
+        )
+    except (OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
 def _metadata_barrier_mode(mode: int) -> int:
@@ -4856,6 +4939,7 @@ def _write_barrier_journal(
     if set(records) != {APPLICATION_ROOT, CONTROL_ROOT}:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     _recorded_parent_metadata(parent_record)
+    _assert_repository_parent_xattrs(parent_record)
     roots = (APPLICATION_ROOT, CONTROL_ROOT)
     worktree_barrier = _capture_worktree_write_barrier(roots, records)
     _atomic_json(
@@ -4879,6 +4963,7 @@ def _write_barrier_journal(
             ),
         },
     )
+    _assert_repository_parent_xattrs(parent_record)
     return worktree_barrier
 
 
@@ -4886,6 +4971,7 @@ def _load_barrier_journal() -> tuple[
     dict[Path, dict[str, Any]],
     dict[str, Any],
     dict[Path, dict[Path, dict[str, Any]]] | None,
+    str,
 ]:
     journal = _private_json(
         BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
@@ -4893,7 +4979,7 @@ def _load_barrier_journal() -> tuple[
     repositories = journal.get("repositories")
     parent_record = journal.get("repository_parent")
     if (
-        journal.get("schema") != BARRIER_SCHEMA
+        journal.get("schema") not in {BARRIER_SCHEMA, LEGACY_BARRIER_SCHEMA}
         or not isinstance(journal.get("created_at"), str)
         or not journal["created_at"]
         or not isinstance(repositories, dict)
@@ -4901,7 +4987,21 @@ def _load_barrier_journal() -> tuple[
         or not isinstance(parent_record, dict)
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
-    _recorded_parent_metadata(parent_record)
+    journal_schema = journal["schema"]
+    expected_parent_keys = {"path", "uid", "gid", "mode"}
+    if journal_schema == BARRIER_SCHEMA:
+        expected_parent_keys.add("xattr_fingerprint")
+    if set(parent_record) != expected_parent_keys:
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    _recorded_parent_metadata(
+        parent_record,
+        require_xattr=journal_schema == BARRIER_SCHEMA,
+    )
+    if (
+        journal_schema == LEGACY_BARRIER_SCHEMA
+        and "xattr_fingerprint" in parent_record
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     records: dict[Path, dict[str, Any]] = {}
     for key, root in (
         ("application", APPLICATION_ROOT),
@@ -4939,33 +5039,70 @@ def _load_barrier_journal() -> tuple[
         },
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
-    return records, parent_record, worktree_barrier
+    return records, parent_record, worktree_barrier, journal_schema
 
 
 def _ensure_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
 ) -> dict[Path, dict[Path, dict[str, Any]]]:
+    _recorded_parent_metadata(parent_record, require_xattr=False)
     if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
-        recorded_repositories, recorded_parent, worktree_barrier = (
+        recorded_repositories, recorded_parent, worktree_barrier, schema = (
             _load_barrier_journal()
         )
-        if recorded_repositories != records or recorded_parent != parent_record:
+        recorded_parent_base = {
+            key: recorded_parent[key] for key in ("path", "uid", "gid", "mode")
+        }
+        parent_base = {
+            key: parent_record[key] for key in ("path", "uid", "gid", "mode")
+        }
+        if (
+            recorded_repositories != records
+            or recorded_parent_base != parent_base
+        ):
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
-        if worktree_barrier is not None:
+        journal_changed = False
+        if schema == LEGACY_BARRIER_SCHEMA:
+            _assert_legacy_repository_parent_xattrs_safe()
+            recorded_parent["xattr_fingerprint"] = (
+                _repository_parent_xattr_fingerprint()
+            )
+            journal_changed = True
+        elif (
+            parent_record.get("xattr_fingerprint") is not None
+            and parent_record["xattr_fingerprint"]
+            != recorded_parent["xattr_fingerprint"]
+        ):
+            raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+        parent_record["xattr_fingerprint"] = recorded_parent[
+            "xattr_fingerprint"
+        ]
+        _assert_repository_parent_xattrs(parent_record)
+        if worktree_barrier is None:
+            # A legacy R3 orphan never mutated Worktree children. Upgrade its
+            # private journal durably before installing the new write barrier.
+            worktree_barrier = _capture_worktree_write_barrier(
+                (APPLICATION_ROOT, CONTROL_ROOT), records
+            )
+            journal_changed = True
+        if not journal_changed:
             return worktree_barrier
-        # A legacy R3 orphan never mutated Worktree children. Upgrade its
-        # private journal durably before installing the new write barrier.
-        worktree_barrier = _capture_worktree_write_barrier(
-            (APPLICATION_ROOT, CONTROL_ROOT), records
-        )
         journal = _private_json(
             BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
         )
+        journal["schema"] = BARRIER_SCHEMA
+        journal["repository_parent"] = recorded_parent
         journal["worktree_write_barrier"] = _worktree_barrier_payload(
             (APPLICATION_ROOT, CONTROL_ROOT), worktree_barrier
         )
         _atomic_json(BARRIER_MARKER, journal)
+        _assert_repository_parent_xattrs(parent_record)
         return worktree_barrier
+    if parent_record.get("xattr_fingerprint") is None:
+        _assert_legacy_repository_parent_xattrs_safe()
+        parent_record["xattr_fingerprint"] = (
+            _repository_parent_xattr_fingerprint()
+        )
     return _write_barrier_journal(records, parent_record)
 
 
@@ -4975,6 +5112,7 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
     expected_uid, expected_gid, expected_mode = _recorded_parent_metadata(record)
     restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
+        _assert_repository_parent_xattrs(record)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         original = (
             metadata.st_uid == expected_uid
@@ -5036,8 +5174,9 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             or stat.S_IMODE(metadata.st_mode) != restricted_mode
         ):
             raise OSError
+        _assert_repository_parent_xattrs(record)
         _fsync_directory(DEPLOYMENT_LOCK_ROOT.parent)
-    except OSError:
+    except (OSError, S12ControlError):
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
@@ -5051,6 +5190,7 @@ def _hard_lock_repository_parent(record: dict[str, Any]) -> None:
     )
     restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
+        _assert_repository_parent_xattrs(record)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         soft_locked = (
             metadata.st_uid == 0
@@ -5092,8 +5232,9 @@ def _hard_lock_repository_parent(record: dict[str, Any]) -> None:
             or stat.S_IMODE(metadata.st_mode) != 0o500
         ):
             raise OSError
+        _assert_repository_parent_xattrs(record)
         _fsync_directory(DEPLOYMENT_LOCK_ROOT.parent)
-    except OSError:
+    except (OSError, S12ControlError):
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
@@ -5103,6 +5244,7 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
     uid, gid, mode = _recorded_parent_metadata(record)
     restricted_mode = _metadata_barrier_mode(mode)
     try:
+        _assert_repository_parent_xattrs(record)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
         locked = (
             metadata.st_uid == 0
@@ -5156,8 +5298,9 @@ def _restore_repository_parent(record: dict[str, Any]) -> None:
             or stat.S_IMODE(metadata.st_mode) != mode
         ):
             raise OSError
+        _assert_repository_parent_xattrs(record)
         _fsync_directory(DEPLOYMENT_LOCK_ROOT.parent)
-    except OSError:
+    except (OSError, S12ControlError):
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED") from None
 
 
@@ -6177,7 +6320,7 @@ def _finalize_rollback(backup: Path, index: dict[str, Any]) -> None:
     parent_record = index.get("repository_parent")
     if not isinstance(parent_record, dict):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
-    _recorded_parent_metadata(parent_record)
+    _recorded_parent_metadata(parent_record, require_xattr=False)
     worktree_barrier = _ensure_barrier_journal(path_records, parent_record)
     with _serialized_repository_recovery(
         records=path_records,
@@ -6239,7 +6382,7 @@ def rollback_once(
     parent_record = index.get("repository_parent")
     if not isinstance(parent_record, dict):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
-    _recorded_parent_metadata(parent_record)
+    _recorded_parent_metadata(parent_record, require_xattr=False)
     worktree_barrier = _ensure_barrier_journal(path_records, parent_record)
     with _serialized_repository_recovery(
         records=path_records,
@@ -7035,7 +7178,7 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
 
 
 def _recover_repository_barrier_only() -> dict[str, Any]:
-    records, parent_record, _ = _load_barrier_journal()
+    records, parent_record, _, _schema = _load_barrier_journal()
     worktree_barrier = _ensure_barrier_journal(records, parent_record)
     with _serialized_repository_recovery(
         records=records,

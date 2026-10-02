@@ -1213,6 +1213,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "uid": 501,
                 "gid": 20,
                 "mode": "2775",
+                "xattr_fingerprint": "a" * 64,
             }
             captured: dict[str, object] = {}
 
@@ -1229,6 +1230,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime,
                     "_capture_worktree_write_barrier",
                     return_value={application: {}, control: {}},
+                ),
+                mock.patch.object(
+                    runtime, "_assert_repository_parent_xattrs"
                 ),
                 mock.patch.object(runtime, "_atomic_json", side_effect=capture),
             ):
@@ -1287,6 +1291,85 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._parse_worktree_barrier_payload(
                     escaped, (application, control)
                 )
+
+    def test_legacy_parent_journal_upgrade_binds_xattrs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / "repository-barrier.json"
+            marker.touch()
+            application = root / "application"
+            control = root / "control"
+            record = {
+                "root_uid": 501,
+                "root_gid": 20,
+                "root_mode": "0750",
+                "git_uid": 501,
+                "git_gid": 20,
+                "git_mode": "0750",
+            }
+            records = {application: record, control: record}
+            parent_record = {
+                "path": str(root),
+                "uid": 501,
+                "gid": 20,
+                "mode": "0755",
+            }
+            barrier = {application: {}, control: {}}
+            journal = {
+                "schema": runtime.LEGACY_BARRIER_SCHEMA,
+                "created_at": "2026-10-02T00:00:00Z",
+                "repositories": {},
+                "repository_parent": dict(parent_record),
+                "worktree_write_barrier": {},
+            }
+            captured: dict[str, object] = {}
+
+            with (
+                mock.patch.object(runtime, "APPLICATION_ROOT", application),
+                mock.patch.object(runtime, "CONTROL_ROOT", control),
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", root),
+                mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(
+                    runtime,
+                    "_load_barrier_journal",
+                    return_value=(
+                        records,
+                        dict(parent_record),
+                        barrier,
+                        runtime.LEGACY_BARRIER_SCHEMA,
+                    ),
+                ),
+                mock.patch.object(
+                    runtime, "_assert_legacy_repository_parent_xattrs_safe"
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_repository_parent_xattr_fingerprint",
+                    return_value="b" * 64,
+                ),
+                mock.patch.object(
+                    runtime, "_assert_repository_parent_xattrs"
+                ),
+                mock.patch.object(
+                    runtime, "_private_json", return_value=journal
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_atomic_json",
+                    side_effect=lambda _path, payload: captured.update(payload),
+                ),
+            ):
+                self.assertIs(
+                    runtime._ensure_barrier_journal(records, parent_record),
+                    barrier,
+                )
+
+            self.assertEqual(parent_record["xattr_fingerprint"], "b" * 64)
+            self.assertEqual(captured["schema"], runtime.BARRIER_SCHEMA)
+            self.assertEqual(
+                captured["repository_parent"]["xattr_fingerprint"],
+                "b" * 64,
+            )
 
     def test_backup_snapshot_rejects_post_capture_repository_race(self) -> None:
         expected = {
@@ -3016,6 +3099,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             "uid": 1001,
             "gid": 1002,
             "mode": "0755",
+            "xattr_fingerprint": "a" * 64,
         }
 
         def chown(_path, uid: int, gid: int) -> None:
@@ -3029,6 +3113,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(runtime.os, "geteuid", return_value=0),
             mock.patch.object(runtime.os, "chown", side_effect=chown),
             mock.patch.object(runtime.os, "chmod", side_effect=chmod),
+            mock.patch.object(runtime, "_assert_repository_parent_xattrs"),
             mock.patch.object(runtime, "_fsync_directory"),
         ):
             runtime._lock_repository_parent(record)
@@ -3300,6 +3385,61 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             baseline,
         )
 
+    def test_repository_parent_fingerprint_rejects_xattr_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            xattrs = {"payload": b"baseline"}
+            with (
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime,
+                    "_stable_xattr_payload",
+                    side_effect=lambda *_args, **_kwargs: xattrs["payload"],
+                ),
+            ):
+                record = runtime._repository_parent_metadata()
+                runtime._assert_repository_parent_xattrs(record)
+                xattrs["payload"] = b"named-acl-drift"
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_REPOSITORY_PARENT_RED",
+                ):
+                    runtime._assert_repository_parent_xattrs(record)
+
+    def test_legacy_parent_upgrade_rejects_named_acl_principal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o7, 1001),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o7, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_REPOSITORY_PARENT_RED",
+                ),
+            ):
+                runtime._assert_legacy_repository_parent_xattrs_safe()
+
     def test_release_finalizer_rechecks_quiescence_after_watch_shutdown(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
         guard.descriptor = 123
@@ -3468,6 +3608,38 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._guarded_handle_processes((missing,), (root,)),
                 {},
             )
+
+    @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
+    def test_guarded_handle_scan_continues_after_unlinked_directory_fd(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            deleted = root / "deleted-directory"
+            deleted.mkdir()
+            guarded = root / "guarded.txt"
+            guarded.write_text("read-only holder\n", encoding="ascii")
+            child_code = (
+                "import os,sys,time;"
+                "directory_fd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY);"
+                "os.rmdir(sys.argv[1]);"
+                "guarded_fd=os.open(sys.argv[2],os.O_RDONLY);"
+                "print('ready',flush=True);time.sleep(30)"
+            )
+            child = subprocess.Popen(
+                [sys.executable, "-c", child_code, str(deleted), str(guarded)],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                holders = runtime._guarded_handle_processes(
+                    (guarded,), (root,)
+                )
+                self.assertIn(child.pid, holders)
+            finally:
+                child.terminate()
+                child.wait(timeout=5)
 
     def test_guarded_handle_quiescence_detaches_after_stop_wait_failure(self) -> None:
         quiescence = runtime._GuardedHandleQuiescence(

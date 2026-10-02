@@ -68,8 +68,12 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    and only then start both a kernel mutation watch and a fanotify
    open-permission barrier covering every tracked path, ancestor, repository
    root and every directory in each canonical `.git` tree. Before the guard is
-   drained, harden the shared parent to `root:root 0500`. Both syscall-boundary
-   states of that hardening transition are journal-recognized and resumable.
+   drained, bind the shared parent's normalized xattr/ACL fingerprint in the
+   V2 barrier journal and validate it before and after every soft lock, hard
+   lock and restore. A V1 orphan may be upgraded only when it contains no
+   unbound named ACL principal or unrelated xattr. Then harden the shared
+   parent to `root:root 0500`. Both syscall-boundary states of that hardening
+   transition are journal-recognized and resumable.
 13. Discover every non-controller process that retains an exact guarded inode
    or a directory handle/cwd inside either Worktree, including the controller's
    launcher, shell and supervisor ancestry; only the controller PID itself is
@@ -82,7 +86,9 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    the scan until no inheriting child or new thread remains. A journaled path
    legitimately deleted by the completed checkout is omitted from handle
    discovery because no guarded inode remains; the later released-contract
-   validation must still prove that the recorded path is obsolete. This
+   validation must still prove that the recorded path is obsolete. An
+   unresolved deleted directory fd is skipped per descriptor, never per
+   process, so it cannot hide a later guarded fd from quiescence. This
    changes no unit state and causes no restart. With both inotify and fanotify
    still active, restore exact journaled ownership/modes, accept only the
    controller's attribute events, validate the released contracts and both
