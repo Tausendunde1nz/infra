@@ -2575,6 +2575,8 @@ def _tracked_worktree_barrier_paths(
 def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
     """Preserve the former owner's effective access class after chown."""
 
+    if mode & stat.S_ISUID:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
     restricted = mode & ~0o222
     if uid == 0:
         return restricted

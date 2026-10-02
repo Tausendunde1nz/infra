@@ -22,9 +22,11 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 3. Journal the exact repository and shared-parent metadata durably, including
    normalized xattr/ACL fingerprints for the shared parent and both repository
    roots before any sequential lock begins. Reject a
-   tracked regular file carrying `security.capability` before any ownership
-   transition, because Linux `chown(2)` would otherwise clear that xattr and
-   make exact recovery impossible.
+   tracked regular file carrying `security.capability` or a set-user-ID mode
+   before any ownership transition. Linux `chown(2)` would otherwise clear the
+   capability xattr and make exact recovery impossible, while restoring the
+   set-user-ID mode after the temporary root handoff could create a transient
+   setuid-root executable.
 4. Fingerprint the complete protected Git-metadata tree, install a kernel
    mutation watch on every metadata directory, then require a second full-tree
    fingerprint to match before the first process scan begins.
@@ -178,6 +180,7 @@ subsequent validation or Git transition.
 | healthy retained read-only Worktree cwd/fd | allowed; briefly quiesced only for final ownership handoff |
 | read-only mapping without retained fd/cwd | allowed; no metadata capability to quiesce |
 | tracked file with `security.capability` | rejected before ownership transition; RED |
+| tracked path with set-user-ID mode | rejected before ownership transition; RED |
 | tracked path with owner-named ACL that would reduce post-chown read/traverse | rejected before ownership transition; RED |
 | repository parent/root with owner-named ACL that would override required group traversal | rejected before ownership transition; RED |
 | `.venv` executable/map | allowed |

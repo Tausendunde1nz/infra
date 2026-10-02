@@ -2184,6 +2184,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
         ):
             runtime._worktree_barrier_mode(0o700, uid, gid)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_mode(0o4755, uid, gid)
 
         account = SimpleNamespace(pw_name="service", pw_gid=2001)
         with (
@@ -2202,6 +2207,32 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(
                 runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
             )
+
+    def test_worktree_barrier_rejects_setuid_file_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked"
+            tracked.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+            tracked.chmod(0o4755)
+            subprocess.run(
+                ["git", "add", "tracked"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
 
     def test_worktree_barrier_rejects_named_owner_acl_before_transition(
         self,
