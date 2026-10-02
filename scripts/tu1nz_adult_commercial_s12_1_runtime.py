@@ -445,19 +445,6 @@ def _git_arguments(root: Path, *arguments: str) -> list[str]:
     )
 
 
-def _without_optional_git_locks(arguments: Sequence[str]) -> list[str]:
-    command = list(arguments)
-    positions = [
-        index
-        for index, argument in enumerate(command)
-        if argument in {"git", "/usr/bin/git"}
-    ]
-    if len(positions) != 1:
-        raise S12ControlError("S12_1_CONTROL_COMMAND_RED")
-    command.insert(positions[0] + 1, "--no-optional-locks")
-    return command
-
-
 def _isolated_root_git_prefix(root: Path) -> list[str]:
     return [
         "/usr/bin/env",
@@ -556,18 +543,10 @@ def _bounded_nul_command_records(
 
 
 def _validate_canonical_index(
-    root: Path,
-    git_directory: Path | None,
-    *,
-    no_optional_locks: bool = False,
+    root: Path, git_directory: Path | None
 ) -> None:
-    arguments = _selected_git_arguments(
-        root, git_directory, "ls-files", "-v", "-z", "--"
-    )
-    if no_optional_locks:
-        arguments = _without_optional_git_locks(arguments)
     records = _bounded_nul_command_records(
-        arguments,
+        _selected_git_arguments(root, git_directory, "ls-files", "-v", "-z", "--"),
         "S12_1_BACKUP_REPOSITORY_INDEX_RED",
     )
     paths: set[bytes] = set()
@@ -582,40 +561,19 @@ def _validate_canonical_index(
 
 
 def _selected_identity(
-    root: Path,
-    git_directory: Path | None,
-    *,
-    no_optional_locks: bool = False,
+    root: Path, git_directory: Path | None
 ) -> tuple[str, str]:
     status_arguments = ["status", "--porcelain"]
     if git_directory is not None:
         status_arguments.extend(
             ["--", ".", f":(exclude){RECOVERY_GIT_DIRECTORY}"]
         )
-    if not no_optional_locks:
-        if _selected_git(root, git_directory, *status_arguments):
-            raise S12ControlError("S12_1_RELEASE_DIRTY_RED")
-        return (
-            _selected_git(root, git_directory, "rev-parse", "HEAD"),
-            _selected_git(root, git_directory, "rev-parse", "HEAD^{tree}"),
-        )
-    commands = (
-        status_arguments,
-        ["rev-parse", "HEAD"],
-        ["rev-parse", "HEAD^{tree}"],
-    )
-    completed = []
-    for command in commands:
-        arguments = _without_optional_git_locks(
-            _selected_git_arguments(root, git_directory, *command)
-        )
-        result = _run(arguments)
-        if result.stderr.strip():
-            raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
-        completed.append(result.stdout.strip())
-    if completed[0]:
+    if _selected_git(root, git_directory, *status_arguments):
         raise S12ControlError("S12_1_RELEASE_DIRTY_RED")
-    return completed[1], completed[2]
+    return (
+        _selected_git(root, git_directory, "rev-parse", "HEAD"),
+        _selected_git(root, git_directory, "rev-parse", "HEAD^{tree}"),
+    )
 
 
 def _selected_branch_or_none(root: Path, git_directory: Path | None) -> str | None:
@@ -3860,13 +3818,21 @@ class _GitMetadataTransitionGuard:
         | 0x00000800  # IN_MOVE_SELF
     )
     _IN_Q_OVERFLOW = 0x00004000
+    _IN_IGNORED = 0x00008000
     _IN_ISDIR = 0x40000000
     _ROOT_LOCK_EVENTS = 0x00000004 | 0x00000800  # ATTRIB | MOVE_SELF
 
-    def __init__(self, paths: Sequence[Path]):
+    def __init__(
+        self,
+        paths: Sequence[Path],
+        *,
+        allow_root_lock_events: bool = True,
+    ):
         self.paths = tuple(paths)
         self.descriptor: int | None = None
+        self.watches: set[int] = set()
         self.root_watches: set[int] = set()
+        self.allow_root_lock_events = allow_root_lock_events
         self.baseline = ""
         try:
             self.baseline = _git_metadata_transition_fingerprint(self.paths)
@@ -3894,6 +3860,7 @@ class _GitMetadataTransitionGuard:
                         )
                         if watch < 0:
                             raise OSError(ctypes.get_errno(), "inotify_add_watch")
+                        self.watches.add(watch)
                         if first:
                             self.root_watches.add(watch)
                             first = False
@@ -3928,7 +3895,7 @@ class _GitMetadataTransitionGuard:
             except OSError:
                 raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
             if not payload:
-                return sentinel_seen
+                return
             offset = 0
             while offset < len(payload):
                 if len(payload) - offset < self._EVENT.size:
@@ -3945,7 +3912,8 @@ class _GitMetadataTransitionGuard:
                 if normalized & self._IN_Q_OVERFLOW:
                     raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
                 if (
-                    watch in self.root_watches
+                    self.allow_root_lock_events
+                    and watch in self.root_watches
                     and not name
                     and normalized
                     and normalized & ~self._ROOT_LOCK_EVENTS == 0
@@ -3971,12 +3939,79 @@ class _GitMetadataTransitionGuard:
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         self._assert_event_queue_quiet()
 
+    def _synchronized_inotify_shutdown(self) -> None:
+        """Remove every metadata watch behind an IN_IGNORED queue barrier."""
+
+        if self.descriptor is None:
+            return
+        descriptor = self.descriptor
+        pending = set(self.watches)
+        try:
+            library = ctypes.CDLL(None, use_errno=True)
+            remove = library.inotify_rm_watch
+            remove.argtypes = [ctypes.c_int, ctypes.c_int]
+            remove.restype = ctypes.c_int
+            for watch in sorted(pending):
+                if remove(descriptor, watch) < 0:
+                    raise OSError(ctypes.get_errno(), "inotify_rm_watch")
+            deadline = time.monotonic() + 1.0
+            while pending:
+                try:
+                    payload = os.read(descriptor, 1024 * 1024)
+                except BlockingIOError:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OSError("inotify shutdown timeout")
+                    readable, _, _ = select.select(
+                        (descriptor,), (), (), remaining
+                    )
+                    if not readable:
+                        raise OSError("inotify shutdown timeout")
+                    continue
+                if not payload:
+                    raise OSError("inotify shutdown EOF")
+                offset = 0
+                while offset < len(payload):
+                    if len(payload) - offset < self._EVENT.size:
+                        raise OSError("short inotify shutdown event")
+                    watch, mask, _cookie, name_length = self._EVENT.unpack_from(
+                        payload, offset
+                    )
+                    offset += self._EVENT.size
+                    if name_length > len(payload) - offset:
+                        raise OSError("invalid inotify shutdown event")
+                    name = payload[offset : offset + name_length].rstrip(b"\0")
+                    offset += name_length
+                    normalized = mask & ~self._IN_ISDIR
+                    if (
+                        watch in pending
+                        and not name
+                        and normalized == self._IN_IGNORED
+                    ):
+                        pending.remove(watch)
+                    elif normalized:
+                        raise OSError("mutation during inotify shutdown")
+            os.close(descriptor)
+        except (OSError, ValueError, AttributeError):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED") from None
+        self.descriptor = None
+        self.watches.clear()
+        self.root_watches.clear()
+
+    def finalize_release(self) -> None:
+        """Cross an ordered watch barrier after the durable journal release."""
+
+        self.assert_unchanged()
+        self._synchronized_inotify_shutdown()
+
     def close(self) -> None:
         if self.descriptor is not None:
             try:
                 os.close(self.descriptor)
             finally:
                 self.descriptor = None
+                self.watches.clear()
+                self.root_watches.clear()
 
 
 class _WorktreeReleaseGuard:
@@ -7781,7 +7816,7 @@ def _pristine_legacy_orphan_is_releasable(
         ):
             return False
         _validate_repository_worktree_contract(root, records[root])
-        _validate_canonical_index(root, None, no_optional_locks=True)
+        _validate_canonical_index(root, root / ".git")
     tracked_paths = _tracked_worktree_regular_paths(roots)
 
     def assert_no_writer() -> None:
@@ -7796,7 +7831,7 @@ def _pristine_legacy_orphan_is_releasable(
 
     assert_no_writer()
     for root in roots:
-        _selected_identity(root, None, no_optional_locks=True)
+        _selected_identity(root, root / ".git")
     assert_no_writer()
     return True
 
@@ -7825,13 +7860,50 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
     if _pristine_legacy_orphan_is_releasable(
         records, parent_record, existing_worktree_barrier, schema
     ):
-        _sync_repository_filesystem(APPLICATION_ROOT)
-        _sync_repository_filesystem(CONTROL_ROOT)
-        if not _pristine_legacy_orphan_is_releasable(
-            records, parent_record, existing_worktree_barrier, schema
-        ):
-            raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
-        _durable_unlink(BARRIER_MARKER)
+        roots = (APPLICATION_ROOT, CONTROL_ROOT)
+        metadata_guard: _GitMetadataTransitionGuard | None = None
+        worktree_guard: _WorktreeReleaseGuard | None = None
+        try:
+            metadata_guard = _GitMetadataTransitionGuard(
+                _repository_git_metadata_paths(roots),
+                allow_root_lock_events=False,
+            )
+            tracked_paths = tuple(
+                path
+                for root in roots
+                for path in _tracked_worktree_barrier_paths(root)
+            )
+            worktree_guard = _WorktreeReleaseGuard(
+                roots, tracked_paths=tracked_paths
+            )
+            if not _pristine_legacy_orphan_is_releasable(
+                records, parent_record, existing_worktree_barrier, schema
+            ):
+                raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+            metadata_guard.assert_unchanged()
+            worktree_guard.assert_no_events()
+            _sync_repository_filesystem(APPLICATION_ROOT)
+            _sync_repository_filesystem(CONTROL_ROOT)
+            if not _pristine_legacy_orphan_is_releasable(
+                records, parent_record, existing_worktree_barrier, schema
+            ):
+                raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
+            metadata_guard.assert_unchanged()
+            worktree_guard.assert_no_events()
+            _durable_unlink(BARRIER_MARKER)
+            metadata_guard.assert_unchanged()
+            worktree_guard.finalize_release(
+                metadata_guard.assert_unchanged,
+                metadata_guard.assert_unchanged,
+            )
+            worktree_guard = None
+            metadata_guard.finalize_release()
+            metadata_guard = None
+        finally:
+            if worktree_guard is not None:
+                worktree_guard.close()
+            if metadata_guard is not None:
+                metadata_guard.close()
         return {
             "ok": True,
             "safe_code": "S12_1_ORPHAN_BARRIER_RECOVERED",

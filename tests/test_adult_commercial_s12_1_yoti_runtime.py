@@ -3828,6 +3828,55 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             runtime._GitMetadataTransitionGuard((Path("/metadata"),))
         self.assertEqual(fingerprint.call_count, 2)
 
+    def test_transition_guard_finalizer_uses_ordered_watch_shutdown(self) -> None:
+        guard = object.__new__(runtime._GitMetadataTransitionGuard)
+        guard.descriptor = 123
+        observed: list[str] = []
+
+        with (
+            mock.patch.object(
+                guard,
+                "assert_unchanged",
+                side_effect=lambda: observed.append("validate"),
+            ),
+            mock.patch.object(
+                guard,
+                "_synchronized_inotify_shutdown",
+                side_effect=lambda: observed.append("shutdown-watches"),
+            ),
+        ):
+            guard.finalize_release()
+
+        self.assertEqual(observed, ["validate", "shutdown-watches"])
+
+    def test_transition_guard_shutdown_requires_every_ignored_barrier(self) -> None:
+        guard = object.__new__(runtime._GitMetadataTransitionGuard)
+        guard.descriptor = 123
+        guard.watches = {7, 9}
+        guard.root_watches = {7}
+        remove = mock.MagicMock(return_value=0)
+        library = SimpleNamespace(inotify_rm_watch=remove)
+        payload = b"".join(
+            guard._EVENT.pack(watch, guard._IN_IGNORED, 0, 0)
+            for watch in (7, 9)
+        )
+
+        with (
+            mock.patch.object(runtime.ctypes, "CDLL", return_value=library),
+            mock.patch.object(runtime.os, "read", return_value=payload),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard._synchronized_inotify_shutdown()
+
+        self.assertEqual(
+            [call.args for call in remove.call_args_list],
+            [(123, 7), (123, 9)],
+        )
+        close.assert_called_once_with(123)
+        self.assertIsNone(guard.descriptor)
+        self.assertEqual(guard.watches, set())
+        self.assertEqual(guard.root_watches, set())
+
     def test_transition_fingerprint_binds_root_xattrs_not_lock_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / ".git"
@@ -5416,6 +5465,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             runtime.CONTROL_ROOT: {},
         }
         parent_record: dict[str, object] = {}
+        metadata_guard = mock.Mock(unsafe=True)
+        worktree_guard = mock.Mock(unsafe=True)
         with (
             mock.patch.object(
                 runtime,
@@ -5430,8 +5481,28 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime,
                 "_pristine_legacy_orphan_is_releasable",
-                side_effect=(True, True),
+                side_effect=(True, True, True),
             ) as releasable,
+            mock.patch.object(
+                runtime,
+                "_repository_git_metadata_paths",
+                return_value=(Path("/application/.git"), Path("/control/.git")),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(),
+            ),
+            mock.patch.object(
+                runtime,
+                "_GitMetadataTransitionGuard",
+                return_value=metadata_guard,
+            ) as metadata_guard_type,
+            mock.patch.object(
+                runtime,
+                "_WorktreeReleaseGuard",
+                return_value=worktree_guard,
+            ) as worktree_guard_type,
             mock.patch.object(
                 runtime, "_sync_repository_filesystem"
             ) as sync,
@@ -5443,7 +5514,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         ):
             result = runtime._recover_repository_barrier_only()
 
-        self.assertEqual(releasable.call_count, 2)
+        self.assertEqual(releasable.call_count, 3)
+        metadata_guard_type.assert_called_once_with(
+            (Path("/application/.git"), Path("/control/.git")),
+            allow_root_lock_events=False,
+        )
+        worktree_guard_type.assert_called_once_with(
+            (runtime.APPLICATION_ROOT, runtime.CONTROL_ROOT),
+            tracked_paths=(),
+        )
         self.assertEqual(
             sync.call_args_list,
             [
@@ -5452,12 +5531,19 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ],
         )
         unlink.assert_called_once_with(runtime.BARRIER_MARKER)
+        worktree_guard.finalize_release.assert_called_once_with(
+            metadata_guard.assert_unchanged,
+            metadata_guard.assert_unchanged,
+        )
+        metadata_guard.finalize_release.assert_called_once_with()
         ensure.assert_not_called()
         barrier.assert_not_called()
         self.assertEqual(result["safe_code"], "S12_1_ORPHAN_BARRIER_RECOVERED")
         self.assertEqual(result["rollback_count"], 0)
 
     def test_pristine_legacy_orphan_rechecks_before_journal_release(self) -> None:
+        metadata_guard = mock.Mock(unsafe=True)
+        worktree_guard = mock.Mock(unsafe=True)
         with (
             mock.patch.object(
                 runtime,
@@ -5475,7 +5561,27 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime,
                 "_pristine_legacy_orphan_is_releasable",
-                side_effect=(True, False),
+                side_effect=(True, True, False),
+            ),
+            mock.patch.object(
+                runtime,
+                "_repository_git_metadata_paths",
+                return_value=(Path("/application/.git"), Path("/control/.git")),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(),
+            ),
+            mock.patch.object(
+                runtime,
+                "_GitMetadataTransitionGuard",
+                return_value=metadata_guard,
+            ),
+            mock.patch.object(
+                runtime,
+                "_WorktreeReleaseGuard",
+                return_value=worktree_guard,
             ),
             mock.patch.object(runtime, "_sync_repository_filesystem"),
             mock.patch.object(runtime, "_durable_unlink") as unlink,
@@ -5595,8 +5701,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     )
                 )
 
-    def test_pristine_legacy_checks_disable_optional_git_locks(self) -> None:
+    def test_pristine_legacy_checks_use_isolated_git_configuration(self) -> None:
         repository = Path("/repository")
+        git_directory = repository / ".git"
         completed = (
             subprocess.CompletedProcess([], 0, "", ""),
             subprocess.CompletedProcess([], 0, "a" * 40 + "\n", ""),
@@ -5605,33 +5712,83 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         with mock.patch.object(
             runtime, "_run", side_effect=completed
         ) as run:
-            identity = runtime._selected_identity(
-                repository, None, no_optional_locks=True
-            )
+            identity = runtime._selected_identity(repository, git_directory)
         self.assertEqual(identity, ("a" * 40, "b" * 40))
         self.assertEqual(run.call_count, 3)
         for call in run.call_args_list:
             arguments = call.args[0]
-            git_position = arguments.index("git")
-            self.assertEqual(
-                arguments[git_position : git_position + 2],
-                ["git", "--no-optional-locks"],
-            )
+            self.assertEqual(arguments[:3], ["/usr/bin/env", "-i", "HOME=/"])
+            self.assertIn("GIT_CONFIG_NOSYSTEM=1", arguments)
+            self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", arguments)
+            self.assertIn("GIT_OPTIONAL_LOCKS=0", arguments)
+            self.assertIn("core.hooksPath=/dev/null", arguments)
+            self.assertIn("core.fsmonitor=false", arguments)
+            self.assertIn(f"--git-dir={git_directory}", arguments)
 
         with mock.patch.object(
             runtime,
             "_bounded_nul_command_records",
             return_value=(b"H tracked.txt",),
         ) as bounded:
-            runtime._validate_canonical_index(
-                repository, None, no_optional_locks=True
-            )
+            runtime._validate_canonical_index(repository, git_directory)
         arguments = bounded.call_args.args[0]
-        git_position = arguments.index("git")
-        self.assertEqual(
-            arguments[git_position : git_position + 2],
-            ["git", "--no-optional-locks"],
-        )
+        self.assertEqual(arguments[:3], ["/usr/bin/env", "-i", "HOME=/"])
+        self.assertIn("GIT_CONFIG_NOSYSTEM=1", arguments)
+        self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", arguments)
+        self.assertIn("GIT_OPTIONAL_LOCKS=0", arguments)
+        self.assertIn("core.hooksPath=/dev/null", arguments)
+        self.assertIn("core.fsmonitor=false", arguments)
+        self.assertIn(f"--git-dir={git_directory}", arguments)
+
+    def test_isolated_pristine_identity_never_executes_local_fsmonitor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.name=S12 Test",
+                    "-c",
+                    "user.email=s12@example.invalid",
+                    "commit",
+                    "-m",
+                    "reviewed",
+                ],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+            )
+            marker = Path(directory) / "fsmonitor-executed"
+            hook = Path(directory) / "fsmonitor-hook"
+            hook.write_text(
+                f"#!/bin/sh\n/usr/bin/touch {marker}\nexit 97\n",
+                encoding="ascii",
+            )
+            hook.chmod(0o700)
+            subprocess.run(
+                ["git", "config", "core.fsmonitor", str(hook)],
+                cwd=repository,
+                check=True,
+            )
+
+            runtime._validate_canonical_index(repository, repository / ".git")
+            commit, tree = runtime._selected_identity(
+                repository, repository / ".git"
+            )
+
+            self.assertRegex(commit, r"^[0-9a-f]{40}$")
+            self.assertRegex(tree, r"^[0-9a-f]{40}$")
+            self.assertFalse(marker.exists())
 
     def test_completed_rollback_recovery_removes_lingering_barrier_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

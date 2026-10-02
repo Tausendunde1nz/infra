@@ -234,11 +234,14 @@ is allowed only when there is no deployment-attempt marker, no fetch stage, no
 worktree-barrier payload, both canonical `.git` directories are installed,
 neither recovery directory is present, and the repository-parent and both
 repository roots still match the six recorded owner/group/mode fields. Both
-indexes and clean identities are validated with Git optional locking disabled,
-so the classifier cannot refresh or replace an index. Control sync, Git processes,
-Git-metadata handles, tracked-file writers and exact parent-directory handles
-must be absent before and after repository filesystem synchronization. Only
-then may the reviewed recovery operation durably remove the V1 journal.
+indexes and clean identities are validated through the isolated recovery Git
+environment with optional locking, hooks, fsmonitor, maintenance, credentials
+and network protocols disabled. Control sync, Git processes, Git-metadata
+handles, tracked-file writers and exact parent-directory handles must be absent.
+Before the final validation, continuous Git-metadata and tracked-worktree
+mutation guards are installed; the worktree guard also denies external write
+opens. Both remain live through the durable journal unlink and use ordered
+inotify shutdown barriers before recovery returns.
 
 This path performs no repository permission or ownership transition. It
 therefore neither upgrades unbound legacy ACL/xattr state nor constructs a new
