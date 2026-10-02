@@ -167,6 +167,8 @@ subsequent validation or Git transition.
 | healthy retained read-only Worktree cwd/fd | allowed; briefly quiesced only for final ownership handoff |
 | read-only mapping without retained fd/cwd | allowed; no metadata capability to quiesce |
 | tracked file with `security.capability` | rejected before ownership transition; RED |
+| tracked path with owner-named ACL that would reduce post-chown read/traverse | rejected before ownership transition; RED |
+| repository parent/root with owner-named ACL that would override required group traversal | rejected before ownership transition; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |
 | `.git.s12-1-recovery` cwd/fd/map | RED |

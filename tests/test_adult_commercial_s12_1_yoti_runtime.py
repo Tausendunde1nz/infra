@@ -2136,6 +2136,65 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
             )
 
+    def test_worktree_barrier_rejects_named_owner_acl_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o644)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            uid = repository.lstat().st_uid
+            if uid == 0:
+                uid = 65534
+                os.chown(repository, uid, repository.lstat().st_gid)
+                os.chown(tracked, uid, tracked.lstat().st_gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o6, 0xFFFFFFFF),
+                    (0x02, 0o0, uid),
+                    (0x04, 0o4, 0xFFFFFFFF),
+                    (0x10, 0o4, 0xFFFFFFFF),
+                    (0x20, 0o4, 0xFFFFFFFF),
+                )
+            )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    side_effect=lambda path, **_kwargs: (
+                        ["system.posix_acl_access"]
+                        if Path(path) == tracked
+                        else []
+                    ),
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
     def test_worktree_barrier_rejects_xattr_drift_before_chown(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory) / "application"
@@ -3905,6 +3964,80 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             runtime.S12ControlError, "S12_1_RECOVERY_GIT_BARRIER_RED"
         ):
             runtime._metadata_barrier_mode(0o700)
+
+    def test_parent_and_repository_root_reject_named_owner_acl_before_chown(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            repository = parent / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            parent.chmod(0o775)
+            repository.chmod(0o775)
+            uid = parent.lstat().st_uid
+            if uid == 0:
+                uid = 65534
+                os.chown(parent, uid, parent.lstat().st_gid)
+                os.chown(repository, uid, repository.lstat().st_gid)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o0, uid),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+
+            with (
+                mock.patch.object(runtime, "DEPLOYMENT_LOCK_ROOT", parent),
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+            ):
+                parent_record = runtime._repository_parent_metadata()
+                repository_record = runtime._repository_path_metadata(repository)
+                for target, action, error in (
+                    (
+                        parent,
+                        lambda: runtime._lock_repository_parent(parent_record),
+                        "S12_1_REPOSITORY_PARENT_RED",
+                    ),
+                    (
+                        repository,
+                        lambda: runtime._lock_repository_root(
+                            repository, repository_record
+                        ),
+                        "S12_1_RECOVERY_GIT_BARRIER_RED",
+                    ),
+                ):
+                    with self.subTest(target=target):
+                        with (
+                            mock.patch.object(
+                                runtime.os, "geteuid", return_value=0
+                            ),
+                            mock.patch.object(runtime.os, "chmod"),
+                            mock.patch.object(runtime.os, "chown") as chown,
+                            self.assertRaisesRegex(
+                                runtime.S12ControlError, error
+                            ),
+                        ):
+                            action()
+                        chown.assert_not_called()
 
     def test_group_writable_canonical_git_metadata_is_scannable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

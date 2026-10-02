@@ -2585,6 +2585,95 @@ def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
     return restricted
 
 
+def _assert_named_owner_acl_preserves_access(
+    path: Path,
+    uid: int,
+    required_access: int,
+    target_mask: int,
+    safe_code: str,
+) -> None:
+    """Reject an owner-specific ACL that would reduce access after chown."""
+
+    if uid == 0:
+        return
+    if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
+        if sys.platform == "linux":
+            raise S12ControlError(safe_code)
+        return
+    try:
+        before = path.lstat()
+        names = sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        )
+        if "system.posix_acl_access" not in names:
+            value = None
+        else:
+            value = os.getxattr(
+                path,
+                "system.posix_acl_access",
+                follow_symlinks=False,
+            )
+        if names != sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        ):
+            raise OSError
+        after = path.lstat()
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_ctime_ns",
+        )
+        if any(
+            getattr(before, field) != getattr(after, field)
+            for field in stable_fields
+        ):
+            raise OSError
+        if value is None:
+            return
+
+        acl_header = struct.Struct("<I")
+        acl_entry = struct.Struct("<HHI")
+        if (
+            len(value) < acl_header.size
+            or acl_header.unpack_from(value)[0] != 2
+            or (len(value) - acl_header.size) % acl_entry.size
+        ):
+            raise OSError
+        entries = [
+            acl_entry.unpack_from(value, offset)
+            for offset in range(
+                acl_header.size, len(value), acl_entry.size
+            )
+        ]
+        if any(
+            tag not in {0x01, 0x02, 0x04, 0x08, 0x10, 0x20}
+            or permissions & ~0o7
+            for tag, permissions, _identifier in entries
+        ):
+            raise OSError
+        for tag in (0x01, 0x04, 0x20):
+            if sum(entry_tag == tag for entry_tag, *_rest in entries) != 1:
+                raise OSError
+        named_users = [
+            permissions
+            for tag, permissions, identifier in entries
+            if tag == 0x02 and identifier == uid
+        ]
+        if len(named_users) > 1:
+            raise OSError
+        if not named_users:
+            return
+        if sum(tag == 0x10 for tag, *_rest in entries) != 1:
+            raise OSError
+        effective_access = named_users[0] & target_mask
+        if required_access & ~effective_access:
+            raise OSError
+    except (OSError, TypeError, ValueError):
+        raise S12ControlError(safe_code) from None
+
+
 def _worktree_path_xattr_fingerprint(path: Path) -> str:
     try:
         return _release_xattr_fingerprint((path,))
@@ -2634,7 +2723,17 @@ def _capture_worktree_write_barrier(
                 ):
                     raise OSError
                 mode = stat.S_IMODE(metadata.st_mode)
-                _worktree_barrier_mode(mode, metadata.st_uid, metadata.st_gid)
+                restricted_mode = _worktree_barrier_mode(
+                    mode, metadata.st_uid, metadata.st_gid
+                )
+                xattr_fingerprint = _worktree_path_xattr_fingerprint(path)
+                _assert_named_owner_acl_preserves_access(
+                    path,
+                    metadata.st_uid,
+                    (restricted_mode & 0o500) >> 6,
+                    (restricted_mode & 0o050) >> 3,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                )
                 entries[path] = {
                     "kind": kind,
                     "device": metadata.st_dev,
@@ -2642,9 +2741,7 @@ def _capture_worktree_write_barrier(
                     "uid": metadata.st_uid,
                     "gid": metadata.st_gid,
                     "mode": f"{mode:04o}",
-                    "xattr_fingerprint": (
-                        _worktree_path_xattr_fingerprint(path)
-                    ),
+                    "xattr_fingerprint": xattr_fingerprint,
                 }
             captured[root] = entries
     except (KeyError, OSError, ValueError):
@@ -2932,6 +3029,13 @@ def _lock_worktree_write_barrier(
                     _assert_no_security_capability(path)
                 if original:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
+                _assert_named_owner_acl_preserves_access(
+                    path,
+                    record["uid"],
+                    (restricted_mode & 0o500) >> 6,
+                    (restricted_mode & 0o050) >> 3,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                )
                 if original or restricted:
                     os.chown(path, 0, record["gid"], follow_symlinks=False)
                     os.chmod(path, restricted_mode, follow_symlinks=False)
@@ -5258,6 +5362,13 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             raise OSError
         if original:
             os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
+        _assert_named_owner_acl_preserves_access(
+            DEPLOYMENT_LOCK_ROOT,
+            expected_uid,
+            (restricted_mode & 0o050) >> 3,
+            (restricted_mode & 0o050) >> 3,
+            "S12_1_REPOSITORY_PARENT_RED",
+        )
         os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
         os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
         metadata = DEPLOYMENT_LOCK_ROOT.lstat()
@@ -5523,6 +5634,13 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
             raise OSError
         if original:
             os.chmod(root, restricted_mode)
+        _assert_named_owner_acl_preserves_access(
+            root,
+            expected_uid,
+            (restricted_mode & 0o050) >> 3,
+            (restricted_mode & 0o050) >> 3,
+            "S12_1_RECOVERY_GIT_BARRIER_RED",
+        )
         if original or restricted or legacy_locked:
             os.chown(root, 0, expected_gid)
             os.chmod(root, restricted_mode)
