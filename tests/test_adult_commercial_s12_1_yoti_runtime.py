@@ -3056,6 +3056,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         guard.inotify_watches = set()
 
         with (
+            mock.patch.object(
+                runtime.os,
+                "read",
+                side_effect=BlockingIOError,
+            ),
             mock.patch.object(runtime.os, "write") as write,
             mock.patch.object(runtime.os, "close") as close,
         ):
@@ -3067,6 +3072,46 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertEqual(
             [call.args for call in close.call_args_list], [(456,), (123,)]
+        )
+        self.assertIsNone(guard.fanotify_descriptor)
+
+    def test_fanotify_close_drains_kernel_queued_open(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_thread = None
+        guard.fanotify_pending = []
+        guard.fanotify_lock = threading.Lock()
+        guard.fanotify_stop = threading.Event()
+        guard.descriptor = None
+        guard.inotify_watches = set()
+        payload = guard._FAN_EVENT.pack(
+            guard._FAN_EVENT.size,
+            guard._FANOTIFY_METADATA_VERSION,
+            0,
+            guard._FAN_EVENT.size,
+            guard._FAN_OPEN_PERM,
+            789,
+            1001,
+        )
+
+        with (
+            mock.patch.object(
+                runtime.os,
+                "read",
+                side_effect=(payload, BlockingIOError()),
+            ) as read,
+            mock.patch.object(runtime.os, "write") as write,
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard.close()
+
+        self.assertEqual(read.call_args_list, [mock.call(123, 1024 * 1024)] * 2)
+        write.assert_called_once_with(
+            123,
+            guard._FAN_RESPONSE.pack(789, guard._FAN_DENY),
+        )
+        self.assertEqual(
+            [call.args for call in close.call_args_list], [(789,), (123,)]
         )
         self.assertIsNone(guard.fanotify_descriptor)
 

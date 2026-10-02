@@ -4445,16 +4445,89 @@ class _WorktreeReleaseGuard:
         self._assert_fanotify_quiet()
         self.close()
 
+    def _deny_queued_fanotify_events(self, group_descriptor: int) -> bool:
+        """Deny permission events that never reached the stopped worker."""
+
+        clean = True
+        while True:
+            try:
+                payload = os.read(group_descriptor, 1024 * 1024)
+            except BlockingIOError:
+                return clean
+            except OSError:
+                return False
+            if not payload:
+                return False
+            offset = 0
+            while offset < len(payload):
+                if len(payload) - offset < self._FAN_EVENT.size:
+                    return False
+                (
+                    event_length,
+                    version,
+                    _reserved,
+                    metadata_length,
+                    mask,
+                    event_descriptor,
+                    _pid,
+                ) = self._FAN_EVENT.unpack_from(payload, offset)
+                if (
+                    version != self._FANOTIFY_METADATA_VERSION
+                    or event_length < metadata_length
+                    or metadata_length < self._FAN_EVENT.size
+                    or event_length > len(payload) - offset
+                ):
+                    if event_descriptor >= 0:
+                        try:
+                            os.close(event_descriptor)
+                        except OSError:
+                            pass
+                    return False
+                offset += event_length
+                if (
+                    event_descriptor < 0
+                    or mask & self._IN_Q_OVERFLOW
+                    or not (mask & self._FAN_OPEN_PERM)
+                ):
+                    if event_descriptor >= 0:
+                        try:
+                            self._fanotify_respond(
+                                event_descriptor,
+                                self._FAN_DENY,
+                                group_descriptor=group_descriptor,
+                            )
+                        except OSError:
+                            try:
+                                os.close(event_descriptor)
+                            except OSError:
+                                pass
+                    return False
+                try:
+                    self._fanotify_respond(
+                        event_descriptor,
+                        self._FAN_DENY,
+                        group_descriptor=group_descriptor,
+                    )
+                except OSError:
+                    clean = False
+                    try:
+                        os.close(event_descriptor)
+                    except OSError:
+                        pass
+
     def close(self) -> None:
         self.fanotify_stop.set()
+        worker_stopped = True
         if self.fanotify_thread is not None:
             self.fanotify_thread.join(timeout=1.0)
+            worker_stopped = not self.fanotify_thread.is_alive()
             self.fanotify_thread = None
         with self.fanotify_lock:
             pending = tuple(self.fanotify_pending)
             self.fanotify_pending.clear()
             fanotify_descriptor = self.fanotify_descriptor
             self.fanotify_descriptor = None
+        shutdown_clean = worker_stopped
         for event_descriptor in pending:
             try:
                 self._fanotify_respond(
@@ -4463,21 +4536,29 @@ class _WorktreeReleaseGuard:
                     group_descriptor=fanotify_descriptor,
                 )
             except OSError:
+                shutdown_clean = False
                 try:
                     os.close(event_descriptor)
                 except OSError:
                     pass
         if fanotify_descriptor is not None:
+            if worker_stopped:
+                shutdown_clean = (
+                    self._deny_queued_fanotify_events(fanotify_descriptor)
+                    and shutdown_clean
+                )
             try:
                 os.close(fanotify_descriptor)
             except OSError:
-                pass
+                shutdown_clean = False
         if self.descriptor is not None:
             try:
                 os.close(self.descriptor)
             finally:
                 self.descriptor = None
                 self.inotify_watches.clear()
+        if not shutdown_clean:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
 
 
 def _current_process_ancestry() -> set[str]:
