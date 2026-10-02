@@ -2352,12 +2352,16 @@ def _repository_recovery_git_directory(root: Path) -> Path:
 
 def _tracked_worktree_regular_paths(
     roots: Sequence[Path],
+    *,
+    allow_missing: bool = False,
 ) -> tuple[Path, ...]:
     """Resolve regular index entries without treating runtime-only files as protected."""
 
     tracked: list[Path] = []
     for root in roots:
-        for path, metadata in _tracked_worktree_index_entries(root):
+        for path, metadata in _tracked_worktree_index_entries(
+            root, allow_missing=allow_missing
+        ):
             if stat.S_ISREG(metadata.st_mode):
                 tracked.append(path)
     return tuple(tracked)
@@ -2365,6 +2369,8 @@ def _tracked_worktree_regular_paths(
 
 def _tracked_worktree_index_entries(
     root: Path,
+    *,
+    allow_missing: bool = False,
 ) -> tuple[tuple[Path, os.stat_result], ...]:
     """Resolve and validate every current index path exactly once."""
 
@@ -2388,6 +2394,12 @@ def _tracked_worktree_index_entries(
         seen.add(path)
         try:
             metadata = path.lstat()
+        except FileNotFoundError:
+            if allow_missing:
+                continue
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
+            ) from None
         except OSError:
             raise S12ControlError(
                 "S12_1_RECOVERY_WORKTREE_HANDLE_RED"
@@ -2517,11 +2529,17 @@ def _active_tracked_worktree_write_handle_count(
     return count
 
 
-def _tracked_worktree_barrier_paths(root: Path) -> tuple[Path, ...]:
+def _tracked_worktree_barrier_paths(
+    root: Path,
+    *,
+    allow_missing: bool = False,
+) -> tuple[Path, ...]:
     """Return tracked regular entries and every directory needed to reach them."""
 
     protected: set[Path] = set()
-    for path, metadata in _tracked_worktree_index_entries(root):
+    for path, metadata in _tracked_worktree_index_entries(
+        root, allow_missing=allow_missing
+    ):
         if stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode):
             protected.add(path)
         parent = path.parent
@@ -2539,6 +2557,17 @@ def _tracked_worktree_barrier_paths(root: Path) -> tuple[Path, ...]:
             ),
         )
     )
+
+
+def _worktree_barrier_mode(mode: int) -> int:
+    """Reject owner-only access, then remove every write bit."""
+
+    restricted = mode & ~0o222
+    owner_access = (restricted & 0o500) >> 6
+    surviving_access = ((restricted & 0o050) >> 3) | (restricted & 0o005)
+    if owner_access & ~surviving_access:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    return restricted
 
 
 def _capture_worktree_write_barrier(
@@ -2568,13 +2597,15 @@ def _capture_worktree_write_barrier(
                     expected_gid,
                 ):
                     raise OSError
+                mode = stat.S_IMODE(metadata.st_mode)
+                _worktree_barrier_mode(mode)
                 entries[path] = {
                     "kind": kind,
                     "device": metadata.st_dev,
                     "inode": metadata.st_ino,
                     "uid": metadata.st_uid,
                     "gid": metadata.st_gid,
-                    "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                    "mode": f"{mode:04o}",
                 }
             captured[root] = entries
     except (KeyError, OSError, ValueError):
@@ -2727,12 +2758,17 @@ def _parse_worktree_barrier_payload(
 
 def _lock_worktree_write_barrier(
     records: dict[Path, dict[Path, dict[str, Any]]],
+    *,
+    allow_missing: bool = False,
 ) -> None:
     """Prevent new non-root tracked-file writes while preserving read traversal."""
 
     if os.geteuid() != 0:
         return
     try:
+        for root_entries in records.values():
+            for record in root_entries.values():
+                _worktree_barrier_mode(int(record["mode"], 8))
         for root, root_entries in records.items():
             for path, record in sorted(
                 root_entries.items(),
@@ -2746,7 +2782,7 @@ def _lock_worktree_write_barrier(
                     # the second pass below.
                     continue
                 mode = int(record["mode"], 8)
-                restricted_mode = mode & ~0o222
+                restricted_mode = _worktree_barrier_mode(mode)
                 expected_kind = record["kind"]
                 original = (
                     metadata.st_dev == record["device"]
@@ -2811,7 +2847,9 @@ def _lock_worktree_write_barrier(
             # are safe to resume only when root-owned and already closed to
             # group/other writers. Their root-only write bit remains intact so
             # the final ownership restore releases their canonical Git mode.
-            for path in _tracked_worktree_barrier_paths(root):
+            for path in _tracked_worktree_barrier_paths(
+                root, allow_missing=allow_missing
+            ):
                 metadata = path.lstat()
                 record = root_entries.get(path)
                 if record is not None and (
@@ -2841,6 +2879,8 @@ def _lock_worktree_write_barrier(
 def _assert_worktree_write_barrier(
     roots: Sequence[Path],
     records: dict[Path, dict[Path, dict[str, Any]]],
+    *,
+    allow_missing: bool = False,
 ) -> None:
     """Require every current tracked inode and ancestor to reject non-root writes."""
 
@@ -2853,7 +2893,9 @@ def _assert_worktree_write_barrier(
             for path, record in entries.items()
         }
         for root in roots:
-            for path in _tracked_worktree_barrier_paths(root):
+            for path in _tracked_worktree_barrier_paths(
+                root, allow_missing=allow_missing
+            ):
                 metadata = path.lstat()
                 record = recorded_paths.get(path)
                 if record is not None and (
@@ -3093,7 +3135,7 @@ def _reseal_released_worktree_contract(
                 )
                 if not released or actual_kind != expected_kind:
                     raise OSError
-                restricted_mode = source_mode & ~0o222
+                restricted_mode = _worktree_barrier_mode(source_mode)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
                 os.chown(path, 0, target_gid, follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
@@ -5436,7 +5478,10 @@ def _serialized_repository_recovery(
     transition_guard = _GitMetadataTransitionGuard(
         tuple(path for path in metadata_paths if not _is_recovery_guard(path))
     )
-    tracked_paths = _tracked_worktree_regular_paths(selected_roots)
+    tracked_paths = _tracked_worktree_regular_paths(
+        selected_roots,
+        allow_missing=allow_journaled_transition,
+    )
     selected_records: dict[Path, dict[str, Any]] = records or {}
     selected_worktree_barrier = worktree_barrier
     barriers: dict[Path, Path] = {}
@@ -5493,7 +5538,10 @@ def _serialized_repository_recovery(
         transition_started = True
         for root in selected_roots:
             _lock_repository_root(root, selected_records[root])
-        _lock_worktree_write_barrier(selected_worktree_barrier)
+        _lock_worktree_write_barrier(
+            selected_worktree_barrier,
+            allow_missing=allow_journaled_transition,
+        )
         for root in selected_roots:
             _lock_repository_git_metadata(root, selected_records[root])
         transition_guard.assert_unchanged()
@@ -5505,7 +5553,9 @@ def _serialized_repository_recovery(
         ):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         _assert_worktree_write_barrier(
-            selected_roots, selected_worktree_barrier
+            selected_roots,
+            selected_worktree_barrier,
+            allow_missing=allow_journaled_transition,
         )
         for root in selected_roots:
             _selected_identity(

@@ -14,6 +14,11 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    the competing Control sync loop, actual Git processes, retained Git-metadata
    handles, writable tracked-file descriptors, writable shared mappings and
    read-only shared mappings whose `VmFlags` still permit a write upgrade.
+   A normal predeploy scan remains strict when an indexed path is absent.
+   Journal-backed recovery alone may skip an absent index path because an
+   interrupted root checkout can remove the old path before replacing the
+   index; all surviving entries remain fully validated and the restored result
+   is resolved again under the strict contract.
 3. Journal the exact repository and shared-parent metadata durably. Reject a
    tracked regular file carrying `security.capability` before any ownership
    transition, because Linux `chown(2)` would otherwise clear that xattr and
@@ -35,7 +40,11 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    in the accepted `IN_ATTRIB` transition events.
 7. From the durably journaled tracked-path set, remove every write bit and move
    tracked regular inodes plus their ancestor directories under root ownership.
-   Read and execute/traversal bits are preserved. Repeat actual-Git,
+   Before the journal or any transition, reject a path whose owner read or
+   execute/traversal right is not also present in a non-owner permission class;
+   an owner-only `0600` file or `0700` directory therefore cannot become
+   unreadable or untraversable merely because ownership moves to root. Read and
+   execute/traversal bits are otherwise preserved. Repeat actual-Git,
    metadata-handle and writable tracked-worktree-handle checks, then require a
    fresh clean identity before the protected body.
 8. Create a root-owned mode-`000` guard and atomically exchange it with `.git`.
@@ -105,6 +114,9 @@ their existing Worktree and `.venv` paths.
 Every permission mutation is resumable at its syscall boundary. Recovery
 accepts the journaled owner with write bits already removed and
 `root:<recorded-group>` with the restricted mode, then completes the lock.
+An indexed old path already removed by an interrupted checkout is accepted
+only in this journal-backed entry phase; the path is never fabricated or
+silently accepted in a fresh deployment.
 Before permission release, the barrier journal is refreshed with the exact
 current inode and canonical target metadata for every path created or replaced
 by root Git. A release interrupted after ownership restoration can therefore

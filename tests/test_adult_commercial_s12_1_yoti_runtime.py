@@ -879,6 +879,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             contract.count("_active_tracked_worktree_write_handle_count("),
             6,
         )
+        self.assertGreaterEqual(
+            contract.count("allow_missing=allow_journaled_transition"), 3
+        )
         self.assertIn("_tracked_worktree_regular_paths(selected_roots)", contract)
         self.assertIn("_selected_identity(root, git_directory)", contract)
         self.assertIn("_lock_worktree_write_barrier(", contract)
@@ -1934,6 +1937,93 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 with runtime._serialized_repository_recovery((Path("/unused"),)):
                     self.fail("active Git process unexpectedly passed recovery gate")
+
+    def test_journaled_index_scan_skips_only_missing_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            present = repository / "present.txt"
+            missing = repository / "missing.txt"
+            present.write_text("present\n", encoding="ascii")
+            missing.write_text("missing\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "present.txt", "missing.txt"],
+                cwd=repository,
+                check=True,
+            )
+            missing.unlink()
+
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_HANDLE_RED",
+            ):
+                runtime._tracked_worktree_regular_paths((repository,))
+
+            self.assertEqual(
+                runtime._tracked_worktree_regular_paths(
+                    (repository,), allow_missing=True
+                ),
+                (present,),
+            )
+            self.assertEqual(
+                runtime._tracked_worktree_barrier_paths(
+                    repository, allow_missing=True
+                ),
+                (present,),
+            )
+
+    def test_worktree_barrier_rejects_owner_only_access_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o600)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+            before = tracked.lstat()
+
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+            after = tracked.lstat()
+            self.assertEqual(
+                (after.st_uid, after.st_gid, stat.S_IMODE(after.st_mode)),
+                (before.st_uid, before.st_gid, 0o600),
+            )
+
+    def test_worktree_barrier_mode_preserves_nonowner_read_and_traversal(
+        self,
+    ) -> None:
+        self.assertEqual(runtime._worktree_barrier_mode(0o664), 0o444)
+        self.assertEqual(runtime._worktree_barrier_mode(0o775), 0o555)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_mode(0o600)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_mode(0o700)
 
     @unittest.skipUnless(Path("/proc").is_dir(), "Linux /proc required")
     def test_metadata_handle_scope_allows_live_shaped_worktree_users(self) -> None:

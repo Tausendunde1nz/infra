@@ -187,6 +187,10 @@ content, and a later ignored writer can never be silently overwritten by the
 forced restore checkout.
 
 Initial deployment still accepts only the recorded ownership posture.
+Before journaling or changing tracked Worktree ownership, the controller also
+rejects any entry whose owner read or execute/traversal access would disappear
+after the root ownership handoff (including owner-only `0600` files and `0700`
+directories). No service access can therefore be removed by the barrier.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining
@@ -195,6 +199,10 @@ mode. Nested entries may be either
 the recorded owner or root-owned controller output only. Arbitrary ownership
 or mode drift remains RED, while a stop between root locking, Git exchange and
 metadata restoration remains idempotently recoverable.
+Only that journal-backed entry path tolerates an indexed path already absent
+because an interrupted checkout removed an old path before replacing the
+index. Fresh predeploy scans remain strict, and completed recovery revalidates
+the restored tracked set strictly.
 
 On the normal first-install posture, an explicitly reported `LoadState=not-found`
 or systemd “unit could not be found” result is normalized to `inactive/dead`;
