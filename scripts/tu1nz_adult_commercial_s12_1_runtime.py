@@ -3281,7 +3281,11 @@ def _release_xattr_fingerprint(paths: Sequence[Path]) -> str:
                 + b":"
                 + str(metadata.st_ino).encode("ascii")
                 + b"\0"
-                + _stable_xattr_payload(path, metadata)
+                + _stable_xattr_payload(
+                    path,
+                    metadata,
+                    normalize_posix_acl_mode=True,
+                )
                 + b"\0"
             )
     except (OSError, TypeError, ValueError):
@@ -3309,7 +3313,11 @@ def _git_metadata_release_fingerprint(roots: Sequence[Path]) -> str:
                 + b":"
                 + str(git_metadata.st_ino).encode("ascii")
                 + b"\0"
-                + _stable_xattr_payload(git_directory, git_metadata)
+                + _stable_xattr_payload(
+                    git_directory,
+                    git_metadata,
+                    normalize_posix_acl_mode=True,
+                )
                 + b"\0"
             )
             pending = [git_directory]
@@ -4118,12 +4126,11 @@ class _WorktreeReleaseGuard:
         self.inotify_watches.clear()
 
     def finalize_release(self, validator: Callable[[], None]) -> None:
-        """Validate, cross the watch-removal barrier, then validate again."""
+        """Validate under active watches, then cross their ordered barrier."""
 
         self.assert_no_events()
         validator()
         self._synchronized_inotify_shutdown()
-        validator()
         self._assert_fanotify_quiet()
         self.close()
 

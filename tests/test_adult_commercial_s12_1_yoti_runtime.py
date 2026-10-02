@@ -3052,7 +3052,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             baseline,
         )
 
-    def test_release_finalizer_synchronizes_shutdown_between_validations(self) -> None:
+    def test_release_finalizer_validates_before_synchronized_shutdown(self) -> None:
         guard = object.__new__(runtime._WorktreeReleaseGuard)
         guard.descriptor = 123
         guard.fanotify_descriptor = None
@@ -3088,7 +3088,6 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "drain",
                 "validate:123",
                 "shutdown-watches",
-                "validate:None",
                 "shutdown",
             ],
         )
@@ -3138,6 +3137,49 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
         shutdown.assert_not_called()
         self.assertEqual(guard.descriptor, 123)
+
+    def test_release_fingerprints_normalize_only_acl_mode_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            header = struct.pack("<I", 2)
+            entries = [
+                (0x01, 0o7, 0xFFFFFFFF),
+                (0x02, 0o6, 1001),
+                (0x04, 0o5, 0xFFFFFFFF),
+                (0x10, 0o5, 0xFFFFFFFF),
+                (0x20, 0o5, 0xFFFFFFFF),
+            ]
+
+            def encoded_acl() -> bytes:
+                return header + b"".join(
+                    struct.pack("<HHI", *entry) for entry in entries
+                )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    side_effect=lambda *_args, **_kwargs: encoded_acl(),
+                    create=True,
+                ),
+            ):
+                baseline = runtime._release_xattr_fingerprint((root,))
+                entries[0] = (0x01, 0o5, 0xFFFFFFFF)
+                entries[3] = (0x10, 0o0, 0xFFFFFFFF)
+                entries[4] = (0x20, 0o0, 0xFFFFFFFF)
+                self.assertEqual(
+                    runtime._release_xattr_fingerprint((root,)), baseline
+                )
+                entries[1] = (0x02, 0o4, 1001)
+                self.assertNotEqual(
+                    runtime._release_xattr_fingerprint((root,)), baseline
+                )
 
     def test_worktree_barrier_rejects_file_capability_before_chown(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

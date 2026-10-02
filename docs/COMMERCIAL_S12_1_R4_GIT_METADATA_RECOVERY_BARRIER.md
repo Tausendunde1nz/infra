@@ -72,13 +72,16 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    and drains the event queue once more. Shutdown repeats that validation while
    all inotify watches remain active, removes every watch, and requires the
    ordered `IN_IGNORED` event for every watch without any intervening mutation.
-   It then repeats the entire released-state validation while fanotify still
-   blocks new writable opens. A retained read descriptor's `fchmod`/`fsetxattr`
-   in the former drain-to-close gap is therefore either rejected before the
-   watch-removal barrier or caught by the post-barrier contract/xattr
-   fingerprint. The Git fingerprint
+   The final released-state validation therefore runs entirely under active
+   attribute watches, and a retained read descriptor's `fchmod`/`fsetxattr` in
+   the former drain-to-close gap is rejected while the ordered watch-removal
+   barrier is consumed. Fanotify remains active until that barrier completes.
+   The Git fingerprint
    intentionally ignores only ownership/ctime and the top `.git` mode changed
-   by the controller; it
+   by the controller. Both release fingerprints normalize the same POSIX ACL
+   base permission fields deterministically rewritten by the intentional mode
+   restore, while still binding ACL structure, named entries and all unrelated
+   xattrs; the Git fingerprint otherwise
    binds nested modes, names, inode identities, sizes, mtimes and file bytes.
    Flush repository filesystems throughout; the synchronized watch-removal
    barrier is the transaction's explicit writer-release point.
