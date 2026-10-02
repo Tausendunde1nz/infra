@@ -1,0 +1,32 @@
+{
+  "ahead": 8,
+  "behind": 0,
+  "head": "e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+  "index_sha256": "623fd407ab393599423b2aee4a3a603466198cc8767deef3abe87fbb8749e863",
+  "live_start_authorized": false,
+  "merge_base": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+  "pins": {
+    "managed/bin/tu1nz-mychatbuddy-rc5-controlled-start": {
+      "blob": "df326023d16402c1e2187a9991b7ed895204cd47",
+      "sha256": "c9e47a406892db70b9f3543181ca4eee2221067145eb3105cb335a77d273917b"
+    },
+    "managed/tests/test_mychatbuddy_rc5_controlled_start.py": {
+      "blob": "1ae6295033e1f4352b8cb2138e9f73a77947e21a",
+      "sha256": "a56bf3564fd99a1b9d0dfb3cb104b38bce0f3aac804d59ce2faeb7740106f175"
+    },
+    "plans/business/MYCHATBUDDY_RC5_CONTROLLED_START_V2.md": {
+      "blob": "48cf3ca54796be21949422882e865b5fc779190d",
+      "sha256": "d5ad0e011b899230bc510c3362057675713c5047d48f40f2dce597d9ac6579d4"
+    },
+    "plans/business/MYCHATBUDDY_RC5_POST_HEALTH_ROLLBACK_2026-10-02.diagnose": {
+      "blob": "cf7121b95831992f32c0201557df6d934ce60f9f",
+      "sha256": "8cd7080f775b6239107b3dfae505b26b87d7381ef60fd32e66d73fe6bddfca12"
+    }
+  },
+  "pr": 68,
+  "schema": 1,
+  "source": "Tausendunde1nz/control",
+  "supersedes": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+  "tracked_count": 187,
+  "tree": "4640102c40af0111be62b845842f0d7b99ca69f2"
+}

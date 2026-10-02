@@ -1,0 +1,37 @@
+{
+  "all_four_protected_inputs_still_missing": true,
+  "control_head": "e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+  "control_tree": "4640102c40af0111be62b845842f0d7b99ca69f2",
+  "evidence_sha256": {
+    "guard-cutover-crash.json": "fb099decc6095e7fee84fe69f88010fc91c999f79016f2d31929278861c43878",
+    "pr68-tests.json": "157d761280d2fddabc583025841b270e5dc7e53ac0987807bee6a472fbab8acf",
+    "tests-final/results.json": "8ddec17ec51a95c99da90c9d135988d0c4b41a14bdeca4d929e2299614ebe44b"
+  },
+  "host_composition_complete": false,
+  "live_mutations": false,
+  "optional_skips": 2,
+  "pr68_tests": 35,
+  "preserved_counts": [
+    701,
+    42,
+    1125,
+    30
+  ],
+  "private_evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-host-20261002",
+  "root_collector_executed": false,
+  "root_collector_sha256": "ad5a22e16f305a38183378bf5ea45c809d0bd1c3ca5c3f31423deb379dbb9017",
+  "schema": 1,
+  "skips_reason": "paired application checkout absent; checked canonical /opt/tu1nz_repos/application and worktrees/application",
+  "source_sha256": {
+    "scripts/v11_authority/authority.py": "07c9c9084e5589194c7bfb1e996ee68f08ba4acadbe1d7fd0c21c5dbe55ccd1a",
+    "scripts/v11_authority/contract.json": "c27f94a7a078a109befacbf2dc1d23f91013e7e4c0bc5d9f82383115d21bb317",
+    "scripts/v11_docs_authority/deployment.py": "fe1588707e5dbb69c8a8fe0555f19af76251e4489c22d61ac23e1ffaf77e393e",
+    "scripts/v11_host/baseline.py": "9027a7c403715deadc800f8e9f0689780053cb3dcfb90168f0910ce63d6b2211",
+    "scripts/v11_host/rc5_gate.py": "5418e4c6a56577f22ef1fa9b15545efd716663d68be451d708692000ca3c8c26",
+    "scripts/v11_host/test_baseline_rc5.py": "ccbd27170a30863062541fc4d3b8a7100ab9d3d68ca667db91522f697e9960b0"
+  },
+  "status": "OFFLINE_BASELINE_ACCEPTED_HOST_RECOVERY_NO_GO",
+  "targeted_tests": 726,
+  "watchdog_boot_order_verified": false,
+  "workflow_steps": 108
+}
