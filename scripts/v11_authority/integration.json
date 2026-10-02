@@ -1,0 +1,161 @@
+{
+  "baseline": {
+    "commit": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+    "github_base": "main",
+    "github_merge_pr": 67,
+    "prior_restore_forbidden": "b78bb2a753aa815d47a99969668d64960573050b",
+    "tree": "28715cc0b6eaa4ab5c17fd659fffbd1afbacfcc1"
+  },
+  "components": {
+    "privileged_v11": {
+      "apparmor_readonly_v11.py": "cc7c4a4b45002f2da5906f9aaa3652dae6624cf6df658d3e02f484e42f71f586",
+      "compatibility_test.py": "344996c6eac843cf91a49f55d5b46b2f8cfb51931f709b36c445f16f53b9b425",
+      "host_boundary_v11.py": "260559e041d3a88d8ce1d657a0eeb7907858807e5a4612555cafaa1babea3da0",
+      "network_contract_v11.py": "03d507988ace15a76ad4954d598e6f34e5ae5e578b2f2f46b218a8cea9d8826d",
+      "network_evidence_v11.py": "a22ffb53a7b916de005fdd675d2042857afcab507377eda0faeef485674d54ce",
+      "network_recovery_test.py": "eb6c40d7be117a5b097ebd1dc25e84f321b6aa4327a38b9dabcbd52a60ad5d31",
+      "network_semantic_experiment_v11.py": "2f673a50e1ae074e8ac79aa85644121781c17d2d6219f51f911d18bb7bcaa327",
+      "readonly_compatibility.py": "0b7670cd89aaa48cde3171ae704484fc469d269a91092995faf5a1593f7b9b5b",
+      "reconcile_current.py": "48fe98e57532ddcba5ad9563f4c2a5489a000db9a97a1fc925b35837e44c8bd6",
+      "scope_gate_v11.py": "cda64641c81ce07e5ed2e02ed657918f86f3f20a01bfec09b625e4f45b32d48c"
+    },
+    "privileged_v11_offline": {
+      "broker_v11.py": "c51ec71b10ce8fd3c65b53b8aa4085b2b1dbb4ee70be6d9a1ec3e0eb823843bc",
+      "doc_publish.py": "64e18361516872c639df7148ae195c13fcadf17e04a7baf173c49e9a99220970",
+      "doc_worker.py": "2e1197ae0fc5ce307e97c14f7e103751328bd9a95d9c0e0054f0e3b4c97ca3cc",
+      "replacements_v11.py": "f796ee0fa6bb558de642bd698458a716eba708bc003a3b3fca89d01cf983b5be",
+      "transaction_v11.py": "6de78b957fc8f42cc3da1de34290eb835c5e50f97546062594ca2efa4326e15b"
+    },
+    "privileged_v11_recovery": {
+      "agentmode_adapter.py": "9646d6739c717a4045c9b161ea9cd0347ef4616394fffc35849e042f47a33fd9",
+      "bootstrap_v11.py": "e9836bf2d81ed0ce0e6a2aa76c04f42815ad6669d736033408e1145b20f7e402",
+      "forward_recovery_journal.py": "b2ebc95e477c598ea565ed62aaba050fe31e80ecdc7853c44b4d6e2a67de5923",
+      "recovery_protocol.py": "b037b6f793df1882f0e72290155a04a30622e04e9cf16fc460ca72d137a94cc7",
+      "rotation_contract.py": "424f3fb934d31d7df387fd8f5324c73c304d1cc609a0502ee9b3f938ca73e3e5",
+      "trendwatch_secret_candidate.py": "dbe36a5678da4bbad20db23154db35441d21cfd6ed756e19780b74df725767b1"
+    }
+  },
+  "deployment_migration": {
+    "not_executed": true,
+    "prepare_only": true,
+    "steps": [
+      "Create separate non-live Control Gitdir as chatops with no shared alternates",
+      "Verify authenticated Control PR merge SHA, commit tree, all tracked bytes and regular chatops 0600 index",
+      "Disable hooks and automatic fetch/pull/branch switching; validate index before and after runuser read checks",
+      "Retain old shared Gitdir and every worktree; never move/delete it",
+      "Cut over only explicit consumer references in separate future maintenance transaction",
+      "Before authority seal restore own candidate changes; after seal retain safe root authority or stop consumers"
+    ]
+  },
+  "historical_files_rewritten": false,
+  "launcher": null,
+  "production_activation_ready": false,
+  "remaining_gates": [
+    "authoritative filelist and checksum reference review",
+    "root delete guard consumer replacement and timer maintenance window",
+    "complete production host adapter and independent watchdog installation proof",
+    "Agentmode readiness and token-provider consumer recovery checks",
+    "dedicated Gitdir consumer cutover rehearsal against real paths"
+  ],
+  "schema": 1,
+  "supersedes_historical_baseline_assumptions": true,
+  "ten_paths": [
+    {
+      "automatic_privileged_acceptance": false,
+      "candidate_trust": "NOT_APPROVED_FROM_CURRENT_FILE",
+      "consumer": "root tu1nz_delete_guard.service from active enabled timer",
+      "historical_sha256": null,
+      "live_mutation": false,
+      "live_risk": "ACTIVE_ROOT_CONSUMER_MUTABLE_BASELINE",
+      "path": "_filelist_reference.txt",
+      "producer": "tu1nz_delete_guard.sh creates when missing/empty; replaces after missing files",
+      "target": "REVIEWED_VERSIONED_BASELINE_ROOT_COPY_FAIL_CLOSED_NO_AUTO_UPDATE"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "NO_ACTIVE_CALLER_FOUND_IN_BOUNDED_SCOPE",
+      "historical_sha256": "7297bef9611b68fb57bc8c1cf7ffd8df68cd6ed5fae9926021f6b4dafce216f1",
+      "live_mutation": false,
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_apply_tokens.py",
+      "producer": "historical incident operator tools; root-owned but replaceable ancestor",
+      "target": "KEEP_EVIDENCE_AND_DENY_WORKFLOW_SOURCE; future private archive copy before any removal"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "NO_ACTIVE_CALLER_FOUND_IN_BOUNDED_SCOPE",
+      "historical_sha256": "f93c3a9eea10729cf30036248874477c69a2be9c4131620cb50dc42ba072d9c3",
+      "live_mutation": false,
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_identify.py",
+      "producer": "historical incident operator tools; root-owned but replaceable ancestor",
+      "target": "KEEP_EVIDENCE_AND_DENY_WORKFLOW_SOURCE; future private archive copy before any removal"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "NO_ACTIVE_CALLER_FOUND_IN_BOUNDED_SCOPE",
+      "historical_sha256": "583618ac309403173cff5e026228908f8ac512faf644847a217a7249f3a6cfc5",
+      "live_mutation": false,
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_reapply_bot_b.py",
+      "producer": "historical incident operator tools; root-owned but replaceable ancestor",
+      "target": "KEEP_EVIDENCE_AND_DENY_WORKFLOW_SOURCE; future private archive copy before any removal"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "NO_ACTIVE_CALLER_FOUND_IN_BOUNDED_SCOPE",
+      "historical_sha256": "32d472068f7b96a4fdb4c6caf475b1eaa51780f92aa17b0f87929654d0d9a603",
+      "live_mutation": false,
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_send_tests.py",
+      "producer": "historical incident operator tools; root-owned but replaceable ancestor",
+      "target": "KEEP_EVIDENCE_AND_DENY_WORKFLOW_SOURCE; future private archive copy before any removal"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "NO_ACTIVE_CALLER_FOUND_IN_BOUNDED_SCOPE",
+      "historical_sha256": "97a854340eb427e37fcfc94969737f22e6dab228ad6fdac889ff6b0d412ab0bf",
+      "live_mutation": false,
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_validate_tokens.py",
+      "producer": "historical incident operator tools; root-owned but replaceable ancestor",
+      "target": "KEEP_EVIDENCE_AND_DENY_WORKFLOW_SOURCE; future private archive copy before any removal"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "checksum_verify called by tu1nz_monitor.sh; monitor unit User=chatops",
+      "effect": "whole-file SHA equality only; never sha256sum -c, no command/path execution",
+      "historical_sha256": null,
+      "live_mutation": false,
+      "path": "checksums_current.txt",
+      "producer": "measurement producer not established; postpush helper only archives current file",
+      "target": "ROOT_REFERENCE_AND_UNTRUSTED_CURRENT_STRICT_PARSER"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "checksum_verify called by tu1nz_monitor.sh; monitor unit User=chatops",
+      "effect": "whole-file SHA equality only; never sha256sum -c, no command/path execution",
+      "historical_sha256": null,
+      "live_mutation": false,
+      "path": "checksums_reference.txt",
+      "producer": "measurement producer not established; postpush helper only archives current file",
+      "target": "ROOT_REFERENCE_AND_UNTRUSTED_CURRENT_STRICT_PARSER"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "/usr/local/bin/pandoc_safe; active invocation unproven",
+      "historical_sha256": "eece58840199bb578c97994246d990c9ef842ced06d29c579e5cc42064d6655b",
+      "live_mutation": false,
+      "path": "emoji_map.sed",
+      "producer": "reviewed six literal sed substitutions, now versioned",
+      "target": "ROOT_OWNED_HASH_PINNED_SED_PROGRAM_DESCRIPTOR",
+      "versioned_source": "scripts/v11_authority/emoji_map.sed"
+    },
+    {
+      "automatic_privileged_acceptance": false,
+      "consumer": "NO_ACTIVE_CALLER_FOUND_IN_BOUNDED_SCOPE",
+      "historical_sha256": "290b5f7a9212bc01cfd6ad42ef4d8fab8fac18aaadb97460f8416916e75cfc30",
+      "live_mutation": false,
+      "path": "scripts/encrypted_drive_backup",
+      "producer": "historical executable; no active direct reference found",
+      "replacement_equivalence": "UNPROVEN: newer backup components do not prove complete functional equivalence",
+      "secret_review": "no obvious TOKEN/PASSWORD/SECRET/KEY assignments found; semantic absence not proven; no contents committed",
+      "target": "PRESERVE_HASH_ARCHIVE_NO_EXECUTION"
+    }
+  ]
+}

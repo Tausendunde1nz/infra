@@ -1,0 +1,43 @@
+{
+  "active_security_finding": "ROOT_DELETE_GUARD_CONSUMES_MUTABLE_BASELINE",
+  "candidate_checksum_reference": {
+    "authority_approved": false,
+    "entries": 797,
+    "sha256": "cdd41db69d0a2e5219e934244694b9fef9741b0146461e123ecbea21ec1c8eb4"
+  },
+  "contract": "EXPECTED_CHATOPS_CONTROLLED",
+  "filelist_candidate": {
+    "entries": 1150,
+    "status": "VALID_SYNTAX_NOT_AUTHORITY"
+  },
+  "github_pr67_verified_merged": true,
+  "no_live_mutation": true,
+  "no_new_root_run": true,
+  "private_backups": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/authority-offline-20261002/originals",
+  "production_activation_ready": false,
+  "production_basis": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+  "production_tree": "28715cc0b6eaa4ab5c17fd659fffbd1afbacfcc1",
+  "remaining_gates": [
+    "active root guard needs separately authorized safe consumer cutover",
+    "filelist protected namespace and reference approval; checksum reference producer/provenance",
+    "dedicated Control Gitdir publishing activation",
+    "production host adapter composition is not established by fixture tests"
+  ],
+  "schema": 1,
+  "sources": {
+    "authority.py": "210a4434b1a7270c11fef0084b05420dcd8995d8c70da1a126bb846268b6d6ae",
+    "contract.json": "bb8b271fc8f6cba1ac5431d8d565eb485bc2de180b65abdf8cb5096acc12de5c",
+    "emoji_map.sed": "eece58840199bb578c97994246d990c9ef842ced06d29c579e5cc42064d6655b",
+    "integration.json": "fd2dfb85b3cc443ff9f14c95881cdbdd136beae16d485aca285a4a384ac4c63a",
+    "offline_transaction.py": "f3cf7f107c48716ce5df7457c8267c21835b269dd99d307db1fe6449f8d45013",
+    "test_authority.py": "8884a4cd35086dc50f87538c15429e5a44f1fae2c1d5e9fdf83029efddb3d8df"
+  },
+  "tests": {
+    "manifest_sha256": "ff1822840e6eb989b67f70b692e310ae5f94c3e3099ded2ab44cf6f69d8bab37",
+    "new": 47,
+    "skips_reported_by_unittest": 2,
+    "targeted": 641,
+    "workflow_steps": 108
+  },
+  "topology_migration_activated": false
+}

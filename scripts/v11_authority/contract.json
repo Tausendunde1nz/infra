@@ -1,0 +1,63 @@
+{
+  "actual": {
+    "common_gitdir": "/opt/tu1nz_repos/control/.git",
+    "detached": true,
+    "index_gid": 1001,
+    "index_mode": "0600",
+    "index_uid": 1001,
+    "origin": "Tausendunde1nz/infra",
+    "shared_authoring": true
+  },
+  "gates": [
+    "trusted_merge_pin",
+    "tracked_bytes",
+    "index_identity_before_after",
+    "no_active_writer",
+    "installed_authority_rules",
+    "consumer_cutover_plan",
+    "root_owned_watchdog",
+    "tested_forward_recovery"
+  ],
+  "migration": {
+    "activated": false,
+    "candidate_path": "/opt/tu1nz_repos/control-deployment-v11-candidate",
+    "cutover_requires": "VERIFIED_PINNED_TREE_INDEX_AND_CONSUMER_PATH_PLAN",
+    "no_history_rewrite": true,
+    "origin": "Tausendunde1nz/control",
+    "preserve_existing_checkout": true,
+    "shared_objects_or_alternates": false,
+    "strategy": "DEDICATED_CONTROL_GITDIR"
+  },
+  "privileged_source_deny_prefixes": [
+    "/opt/tu1nz_repos/control/analysis/security_incident_2026-08-25/",
+    "/opt/tu1nz_repos/control/scripts/encrypted_drive_backup"
+  ],
+  "production_activation_ready": false,
+  "production_basis": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+  "production_tree": "28715cc0b6eaa4ab5c17fd659fffbd1afbacfcc1",
+  "provenance": {
+    "merge_pr": 67,
+    "prior_commit": "b78bb2a753aa815d47a99969668d64960573050b",
+    "prior_commit_restore_forbidden": true
+  },
+  "schema": 1,
+  "source_of_truth": "Tausendunde1nz/control",
+  "status": "OFFLINE_TARGET_CONTRACT_APPROVED_NOT_ACTIVATED",
+  "target": {
+    "auto_merge": false,
+    "auto_pull": false,
+    "branch_switch": false,
+    "detached": true,
+    "git_optional_locks": "0",
+    "git_reader": "chatops",
+    "index_gid": 1001,
+    "index_mode": "0600",
+    "index_nlink": 1,
+    "index_regular": true,
+    "index_uid": 1001,
+    "root_git_writes": false,
+    "safe_directory": "/opt/tu1nz_repos/control",
+    "source_authority": "PINNED_VERSIONED_BYTES_ONLY",
+    "untracked_execution_authority": false
+  }
+}
