@@ -6,6 +6,7 @@ import os
 import pwd
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -932,7 +933,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         self.assertLess(
             final_release.index("_release_xattr_fingerprint("),
-            final_release.index("release_guard.assert_no_events()"),
+            final_release.index("release_guard.finalize_release("),
         )
         self.assertGreaterEqual(
             contract.count("_validate_repository_worktree_contract("), 2
@@ -2999,7 +3000,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             with mock.patch.object(
                 runtime,
                 "_stable_xattr_payload",
-                side_effect=lambda path, _metadata: (
+                side_effect=lambda path, _metadata, **_options: (
                     xattrs["payload"] if path == root else b""
                 ),
             ):
@@ -3014,6 +3015,91 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime._git_metadata_transition_fingerprint((root,)),
                     baseline,
                 )
+
+    def test_transition_acl_normalization_ignores_only_chmod_fields(self) -> None:
+        header = struct.pack("<I", 2)
+        entries = (
+            (0x01, 0o7, 0xFFFFFFFF),
+            (0x02, 0o6, 1001),
+            (0x04, 0o5, 0xFFFFFFFF),
+            (0x10, 0o5, 0xFFFFFFFF),
+            (0x20, 0o5, 0xFFFFFFFF),
+        )
+
+        def acl(values) -> bytes:
+            return header + b"".join(
+                struct.pack("<HHI", *entry) for entry in values
+            )
+
+        baseline = runtime._normalize_posix_acl_mode_entries(acl(entries))
+        chmod_rewrite = tuple(
+            (tag, 0 if tag in {0x01, 0x10, 0x20} else permissions, identifier)
+            for tag, permissions, identifier in entries
+        )
+        self.assertEqual(
+            runtime._normalize_posix_acl_mode_entries(acl(chmod_rewrite)),
+            baseline,
+        )
+        named_entry_drift = list(entries)
+        named_entry_drift[1] = (0x02, 0o4, 1001)
+        self.assertNotEqual(
+            runtime._normalize_posix_acl_mode_entries(acl(named_entry_drift)),
+            baseline,
+        )
+
+    def test_release_finalizer_closes_inotify_before_validation(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.descriptor = 123
+        guard.fanotify_descriptor = None
+        observed: list[str] = []
+
+        with (
+            mock.patch.object(
+                guard,
+                "assert_no_events",
+                side_effect=lambda: observed.append("drain"),
+            ),
+            mock.patch.object(
+                runtime.os,
+                "close",
+                side_effect=lambda descriptor: observed.append(
+                    f"close:{descriptor}"
+                ),
+            ),
+            mock.patch.object(
+                guard,
+                "close",
+                side_effect=lambda: observed.append("shutdown"),
+            ),
+        ):
+            guard.finalize_release(
+                lambda: observed.append(f"validate:{guard.descriptor}")
+            )
+
+        self.assertEqual(
+            observed,
+            ["drain", "close:123", "validate:None", "shutdown"],
+        )
+
+    def test_release_finalizer_keeps_fanotify_on_validation_failure(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.descriptor = 123
+        guard.fanotify_descriptor = None
+
+        with (
+            mock.patch.object(guard, "assert_no_events"),
+            mock.patch.object(runtime.os, "close"),
+            mock.patch.object(guard, "close") as shutdown,
+            self.assertRaisesRegex(RuntimeError, "final validation failed"),
+        ):
+            guard.finalize_release(
+                lambda: (_ for _ in ()).throw(
+                    RuntimeError("final validation failed")
+                )
+            )
+
+        shutdown.assert_not_called()
+        self.assertIsNone(guard.descriptor)
 
     def test_closed_mmap_writer_is_detected_after_exchange(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

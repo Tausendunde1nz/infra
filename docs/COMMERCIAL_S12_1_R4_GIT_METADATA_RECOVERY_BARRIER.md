@@ -24,9 +24,12 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 6. Change canonical `.git` to `root:root` mode `0700`, then require both the
    transition fingerprint and the kernel event queue to remain unchanged. The
    transition fingerprint normalizes the controller-owned top-directory
-   owner/mode/ctime change but binds that directory's complete extended-
-   attribute payload, so an external root xattr or ACL change cannot hide in
-   the accepted `IN_ATTRIB` transition events.
+   owner/mode/ctime change. In a POSIX access ACL it also normalizes only the
+   base permission fields that `chmod(0700)` deterministically rewrites; ACL
+   structure, named user/group entries, default ACLs and every other xattr
+   remain bound. The canonical mode restore rewrites those normalized base
+   fields again, so an external persistent root xattr or ACL change cannot hide
+   in the accepted `IN_ATTRIB` transition events.
 7. From the durably journaled tracked-path set, remove every write bit and move
    tracked regular inodes plus their ancestor directories under root ownership.
    Read and execute/traversal bits are preserved. Repeat actual-Git,
@@ -63,10 +66,16 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    repository contracts, matches an exact Git-metadata namespace/content/mode
    fingerprint captured before release, matches a separate extended-attribute
    fingerprint across every guarded path, repeats Git/handle/identity checks
-   and drains the event queue once more. The Git fingerprint intentionally ignores
-   only ownership/ctime and the top `.git` mode changed by the controller; it
+   and drains the event queue once more. Shutdown then closes the inotify
+   descriptor first and repeats the entire final released-state validation
+   while fanotify still blocks new writable opens. A retained read descriptor's
+   `fchmod`/`fsetxattr` in the former drain-to-close gap therefore cannot be
+   discarded with an unread event; persistent drift is caught by the post-close
+   contract/xattr fingerprint before fanotify is released. The Git fingerprint
+   intentionally ignores only ownership/ctime and the top `.git` mode changed
+   by the controller; it
    binds nested modes, names, inode identities, sizes, mtimes and file bytes.
-   Flush repository filesystems throughout; closing this checked watch is the
+   Flush repository filesystems throughout; the post-inotify validation is the
    transaction's explicit writer-release point.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
@@ -102,7 +111,7 @@ subsequent validation or Git transition.
 | writer waiting for restored owner permission | detected by release watch; RED |
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |
-| external chmod/fchmod during release | final contract/fingerprint mismatch or event; RED |
+| external chmod/fchmod during release or guard shutdown | final post-inotify contract/fingerprint mismatch or event; RED |
 | external setxattr/fsetxattr during lock or release | root transition or guarded-path xattr fingerprint mismatch/event; RED |
 | `.venv` executable/map | allowed |
 | `.git` cwd/fd/map | RED |

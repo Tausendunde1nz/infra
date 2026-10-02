@@ -29,7 +29,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
@@ -3150,7 +3150,36 @@ def _repository_git_metadata_directories(
     return tuple(directories)
 
 
-def _stable_xattr_payload(path: Path, metadata: os.stat_result) -> bytes:
+def _normalize_posix_acl_mode_entries(value: bytes) -> bytes:
+    """Ignore only ACL fields deterministically rewritten by chmod(2)."""
+
+    acl_header = struct.Struct("<I")
+    acl_entry = struct.Struct("<HHI")
+    if (
+        len(value) < acl_header.size
+        or (len(value) - acl_header.size) % acl_entry.size != 0
+        or acl_header.unpack_from(value)[0] != 2
+    ):
+        raise OSError
+    entries = [
+        acl_entry.unpack_from(value, offset)
+        for offset in range(acl_header.size, len(value), acl_entry.size)
+    ]
+    has_mask = any(tag == 0x10 for tag, _permissions, _identifier in entries)
+    normalized = bytearray(value[: acl_header.size])
+    for tag, permissions, identifier in entries:
+        if tag in {0x01, 0x10, 0x20} or (tag == 0x04 and not has_mask):
+            permissions = 0
+        normalized.extend(acl_entry.pack(tag, permissions, identifier))
+    return bytes(normalized)
+
+
+def _stable_xattr_payload(
+    path: Path,
+    metadata: os.stat_result,
+    *,
+    normalize_posix_acl_mode: bool = False,
+) -> bytes:
     """Read one inode's extended attributes without accepting concurrent drift."""
 
     if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
@@ -3165,6 +3194,8 @@ def _stable_xattr_payload(path: Path, metadata: os.stat_result) -> bytes:
     for name in names:
         encoded = os.fsencode(name)
         value = os.getxattr(path, name, follow_symlinks=False)
+        if normalize_posix_acl_mode and name == "system.posix_acl_access":
+            value = _normalize_posix_acl_mode_entries(value)
         payload.extend(len(encoded).to_bytes(8, "big"))
         payload.extend(encoded)
         payload.extend(len(value).to_bytes(8, "big"))
@@ -3344,7 +3375,11 @@ def _git_metadata_transition_fingerprint(paths: Sequence[Path]) -> str:
                 + b":"
                 + str(root_metadata.st_ino).encode("ascii")
                 + b"\0"
-                + _stable_xattr_payload(root, root_metadata)
+                + _stable_xattr_payload(
+                    root,
+                    root_metadata,
+                    normalize_posix_acl_mode=True,
+                )
                 + b"\0"
             )
             pending = [root]
@@ -3988,6 +4023,23 @@ class _WorktreeReleaseGuard:
 
     def assert_no_events(self) -> None:
         self._assert_events(allow_attributes=False)
+
+    def finalize_release(self, validator: Callable[[], None]) -> None:
+        """End inotify first, then validate the exact final released state."""
+
+        self.assert_no_events()
+        if self.descriptor is not None:
+            descriptor = self.descriptor
+            self.descriptor = None
+            try:
+                os.close(descriptor)
+            except OSError:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                ) from None
+        validator()
+        self._assert_fanotify_quiet()
+        self.close()
 
     def close(self) -> None:
         self.fanotify_stop.set()
@@ -5107,7 +5159,9 @@ def _serialized_repository_recovery(
                             root, selected_records[root]
                         )
                     release_guard.accept_release_attributes()
-                    if completed:
+                    def validate_final_release() -> None:
+                        if not completed:
+                            return
                         _validate_released_worktree_contract(
                             selected_roots,
                             selected_records,
@@ -5145,8 +5199,8 @@ def _serialized_repository_recovery(
                             )
                         for root in selected_roots:
                             _selected_identity(root, root / ".git")
-                        release_guard.assert_no_events()
-                    release_guard.close()
+
+                    release_guard.finalize_release(validate_final_release)
                     release_guard = None
                 except S12ControlError:
                     cleanup_failed = True
