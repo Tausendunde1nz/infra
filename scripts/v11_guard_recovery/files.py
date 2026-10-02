@@ -1,9 +1,17 @@
 """Fixed guard file backend; root production and explicit nonroot /tmp test backend."""
-import os,stat,hashlib,base64,uuid
+import os,stat,hashlib,base64,uuid,ctypes
 from pathlib import Path
 from runtime import *
 TARGETS=tuple(sorted((ALLOWED_PATHS-{LEGACY})|{CONTRACT}))
 DIRECTORIES={PACKAGE:(0,0,0o755),ROOT:(0,0,0o700),'/usr/local/libexec/tu1nz-docs-authority-v11':(0,0,0o755),'/etc/tu1nz/docs-authority-v11':(0,0,0o700),'/var/lib/tu1nz-docs-authority-v11':(0,1001,0o750),'/var/lib/tu1nz-docs-authority-v11/results':(0,0,0o700),'/etc/systemd/system/'+GUARD+'.d':(0,0,0o755),'/etc/systemd/system/'+TIMER+'.d':(0,0,0o755)}
+
+def rename_no_replace(source,target):
+ libc=ctypes.CDLL(None,use_errno=True)
+ fn=getattr(libc,'renameat2',None)
+ if fn is None:raise Refused('ATOMIC_NOREPLACE_UNAVAILABLE')
+ fn.argtypes=(ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint);fn.restype=ctypes.c_int
+ if fn(-100,os.fsencode(source),-100,os.fsencode(target),1):
+  error=ctypes.get_errno();raise OSError(error,os.strerror(error))
 
 class Files:
  def __init__(self,prefix='/',fixture=False,save=None):
@@ -52,9 +60,16 @@ class Files:
     self.chain(p)
     if stat.S_IMODE(p.stat().st_mode)!=mode or p.stat().st_gid!=(os.getegid() if self.fixture else gid):raise Refused('DIRECTORY_MODE')
    else:
-    self.created.append({'path':n,'status':'INTENT'});self.persist();os.mkdir(p,mode);os.chmod(p,mode)
-    os.chown(p,self.uid,os.getegid() if self.fixture else gid)
-    self.created[-1].update(status='CREATED',inode=p.stat().st_ino);self.persist()
+    self.created.append({'path':n,'status':'INTENT'});self.persist()
+    tmp=p.parent/('.v11-dir-'+uuid.uuid4().hex);os.mkdir(tmp,0o700)
+    try:
+     os.chown(tmp,self.uid,os.getegid() if self.fixture else gid);os.chmod(tmp,mode)
+     fd=os.open(tmp,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW);os.fsync(fd);identity=os.fstat(fd);os.close(fd)
+     self.created[-1].update(status='PUBLISH_READY',inode=identity.st_ino,dev=identity.st_dev,uid=identity.st_uid,gid=identity.st_gid,mode=mode);self.persist()
+     rename_no_replace(tmp,p);fd=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY);os.fsync(fd);os.close(fd)
+     self.created[-1].update(status='CREATED');self.persist()
+    finally:
+     if tmp.exists():tmp.rmdir()
  def install_exact(self,n,candidate,originals):
   if n not in TARGETS or hashlib.sha256(candidate['bytes']).hexdigest()!=candidate['sha256']:raise Refused('PAYLOAD')
   p=self.path(n);self.chain(p.parent);before=self.snapshot_one(n)
@@ -66,6 +81,9 @@ class Files:
    with os.fdopen(fd,'wb') as f:
     os.fchown(f.fileno(),self.uid,os.getegid() if self.fixture else candidate['gid']);os.fchmod(f.fileno(),candidate['mode']);f.write(candidate['bytes']);f.flush();os.fsync(f.fileno())
    if self.snapshot_one(n)!=before:raise Refused('PRE_REPLACE_DRIFT')
+   staged=tmp.lstat()
+   self.receipts[n].update(status='PUBLISH_READY',staged={'dev':staged.st_dev,'inode':staged.st_ino,'uid':staged.st_uid,'gid':staged.st_gid,'mode':stat.S_IMODE(staged.st_mode),'size':staged.st_size,'mtime_ns':staged.st_mtime_ns,'sha256':candidate['sha256']})
+   self.persist()  # Bind the exact inode BEFORE atomic publication.
    os.replace(tmp,p);d=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY);os.fsync(d);os.close(d)
   finally:
    if tmp.exists():tmp.unlink()
@@ -73,13 +91,28 @@ class Files:
  def verify_exact(self,n,c):
   r=self.snapshot_one(n)
   if r.get('sha256')!=c['sha256'] or r['uid']!=self.uid or r['mode']!=c['mode'] or r['gid']!=(os.getegid() if self.fixture else c['gid']):raise Refused('POSTIMAGE')
- def restore_owned_changes(self,originals):
+ def restore_owned_changes(self,originals,only=None,cleanup=True):
+  if only is not None and not set(only)<=set(TARGETS):raise Refused('RESTORE_SCOPE')
   for n,receipt in reversed(list(self.receipts.items())):
+   if only is not None and n not in only:continue
    current=self.snapshot_one(n)
    if current==originals[n]:continue
+   if receipt.get('status')=='RESTORE_TIMES_PENDING':
+    old=receipt['after'];wanted=receipt['restore_times']
+    stable=('dev','inode','uid','gid','mode','sha256','bytes','acls')
+    if any(current.get(k)!=old.get(k) for k in stable) or (current.get('atime_ns'),current.get('mtime_ns')) not in ((old['atime_ns'],old['mtime_ns']),tuple(wanted)):raise Refused('RESTORE_TIME_DRIFT')
+    os.utime(self.path(n),ns=tuple(wanted));fd=os.open(self.path(n),os.O_RDONLY|os.O_NOFOLLOW);os.fsync(fd);os.close(fd)
+    receipt.update(status='RESTORED',restored=self.snapshot_one(n));self.persist();continue
    if receipt.get('status')=='RESTORED':
     if current!=receipt.get('restored'):raise Refused('RESTORED_POSTIMAGE_DRIFT')
     continue
+   # The rename can finish before VERIFIED is journaled. A durable staged
+   # inode plus exact bytes/metadata identifies that publication; a same-byte
+   # replacement inode is not sufficient. Rename changes ctime, not mtime.
+   if receipt.get('status')=='PUBLISH_READY':
+    staged=receipt.get('staged',{})
+    if set(staged)!={'dev','inode','uid','gid','mode','size','mtime_ns','sha256'} or any(current.get(k)!=v for k,v in staged.items() if k!='size') or len(base64.b64decode(current.get('bytes',''),validate=True))!=staged['size']:raise Refused('UNPROVEN_PUBLICATION')
+    receipt.update(status='VERIFIED',after=current);self.persist()
    # Content alone cannot identify our postimage: preserve foreign chmod,
    # chown, replacement and timestamp changes even when bytes stayed equal.
    if receipt.get('status')!='VERIFIED' or current!=receipt.get('after'):raise Refused('RECOVERY_FOREIGN_WRITER_OR_INCOMPLETE_RECEIPT')
@@ -90,13 +123,17 @@ class Files:
     data=base64.b64decode(before['bytes'],validate=True)
     self.receipts[n]['after']=current
     self.install_exact(n,{'bytes':data,'sha256':before['sha256'],'mode':before['mode'],'gid':before['gid'],'uid':before['uid']},originals)
+    self.receipts[n].update(status='RESTORE_TIMES_PENDING',restore_times=[before['atime_ns'],before['mtime_ns']]);self.persist()
     os.utime(self.path(n),ns=(before['atime_ns'],before['mtime_ns']))
+    fd=os.open(self.path(n),os.O_RDONLY|os.O_NOFOLLOW);os.fsync(fd);os.close(fd)
    self.receipts[n].update(status='RESTORED',restored=self.snapshot_one(n));self.persist()
-  for r in reversed(self.created):
+  for r in reversed(self.created) if cleanup else ():
    p=self.path(r['path'])
    if not p.exists():continue
-   if r.get('status')!='CREATED' or p.is_symlink() or p.stat().st_ino!=r['inode']:raise Refused('DIRECTORY_OWNERSHIP_UNPROVEN')
-   p.rmdir()
+   st=p.lstat()
+   if r.get('status') not in ('CREATED','PUBLISH_READY') or p.is_symlink() or not stat.S_ISDIR(st.st_mode):raise Refused('DIRECTORY_OWNERSHIP_UNPROVEN')
+   if (st.st_ino,st.st_dev,st.st_uid,st.st_gid,stat.S_IMODE(st.st_mode))!=(r['inode'],r['dev'],r['uid'],r['gid'],r['mode']):raise Refused('DIRECTORY_OWNERSHIP_UNPROVEN')
+   p.rmdir();fd=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY);os.fsync(fd);os.close(fd)
   # Atomic replacement necessarily changes inode/ctime; compare restorable metadata.
  def same_restored_snapshot(self,s):
   for n,before in s.items():

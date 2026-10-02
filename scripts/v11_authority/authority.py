@@ -1,8 +1,8 @@
 """V11 authority primitives. No CLI, live installer, service calls or implicit trust."""
 import hashlib,json,os,re,stat,unicodedata
 from pathlib import Path
-BASE='e60aa2f515c89f94bce1dbd6496d358cdfb85300'
-TREE='4640102c40af0111be62b845842f0d7b99ca69f2'
+BASE='05b127033d734aa4abce10b2e5b7d513b99ed5d2'
+TREE='5459b09c4f986ac947dff1466b490a61238cb676'
 CHECKOUT='/opt/tu1nz_repos/control'
 LIMIT=2_000_000
 class Refused(RuntimeError): pass

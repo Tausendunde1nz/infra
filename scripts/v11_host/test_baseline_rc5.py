@@ -5,7 +5,7 @@ class Baseline(unittest.TestCase):
  def setUp(self):
   i={'uid':1001,'gid':1001,'mode':0o600,'nlink':1,'regular':True,'sha256':'a'*64,'inode':4}
   self.o={'active_writer':False,'tracked_match':True,'index_before':i,'index_after':dict(i),'head':b.HEAD,'tree':b.TREE}
-  self.t={'from':b.PREVIOUS,'to':b.HEAD,'tree':b.TREE,'merge_base':b.PREVIOUS,'ahead':8,'behind':0,'changed_paths':sorted(b.PATHS),'authorized':True}
+  self.t={'from':b.PREVIOUS,'to':b.HEAD,'tree':b.TREE,'merge_base':b.PREVIOUS,'ahead':b.AHEAD,'behind':0,'changed_paths':sorted(b.PATHS),'authorized':True}
  def test_authorized(self):self.assertEqual(b.admit(self.o,self.t)['status'],'AUTHORIZED_FORWARD_SUPERSESSION')
  def test_old(self):
   self.o['head']=b.PREVIOUS

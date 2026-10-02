@@ -62,7 +62,7 @@ class Store:
    self.check(f,mode=0o600);fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB);self.depth=1;yield
   finally:self.depth=0;os.close(f)
  def read(self,name):
-  if name not in ('SEALED','STOP') and not re.fullmatch(r'(?:state|intent)-[0-9]{6}\.json',name):raise Refused('NAME')
+  if name not in ('SEALED','STOP','PRESEAL_INHIBIT') and not re.fullmatch(r'(?:state|intent|recovery)-[0-9]{6}\.json',name):raise Refused('NAME')
   f=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=self.fd)
   try:
    self.check(f);before=os.fstat(f);raw=os.read(f,65537);after=os.fstat(f)
@@ -72,7 +72,7 @@ class Store:
   finally:os.close(f)
  def publish(self,name,value):
   if name.startswith('state-'):self.publish(name.replace('state-','intent-',1),{'name':name,'sha256':digest(encode(value))})
-  if name not in ('SEALED','STOP') and not re.fullmatch(r'(?:state|intent)-[0-9]{6}\.json',name):raise Refused('NAME')
+  if name not in ('SEALED','STOP','PRESEAL_INHIBIT') and not re.fullmatch(r'(?:state|intent|recovery)-[0-9]{6}\.json',name):raise Refused('NAME')
   tmp='.tmp-'+uuid.uuid4().hex;f=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o400,dir_fd=self.fd)
   try:
    os.fchmod(f,0o400)

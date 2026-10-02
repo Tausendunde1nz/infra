@@ -1,10 +1,11 @@
 """Exact authorized supersession. A descendant alone never grants admission."""
 import re
-HEAD='e60aa2f515c89f94bce1dbd6496d358cdfb85300'
-TREE='4640102c40af0111be62b845842f0d7b99ca69f2'
-PREVIOUS='21e822f8cadecf5eb186693d1ceac2d5d0bf6969'
+HEAD='05b127033d734aa4abce10b2e5b7d513b99ed5d2'
+TREE='5459b09c4f986ac947dff1466b490a61238cb676'
+PREVIOUS='e60aa2f515c89f94bce1dbd6496d358cdfb85300'
+AHEAD=11
 FORBIDDEN_RESTORE={PREVIOUS,'b78bb2a753aa815d47a99969668d64960573050b'}
-PATHS=frozenset(('managed/bin/tu1nz-mychatbuddy-rc5-controlled-start','managed/tests/test_mychatbuddy_rc5_controlled_start.py','plans/business/MYCHATBUDDY_RC5_CONTROLLED_START_V2.md','plans/business/MYCHATBUDDY_RC5_POST_HEALTH_ROLLBACK_2026-10-02.diagnose'))
+PATHS=frozenset(('governance/SUPERSEDED.md','governance/chatgpt-project-instructions-v1.1.txt','governance/efficiency-standard-v1.1.md','governance/operative-policy-v1.1.md','managed/bin/tu1nz-mychatbuddy-state-metadata-repair','managed/tests/test_mychatbuddy_state_metadata_repair.py','plans/business/MYCHATBUDDY_RC5_STATE_METADATA_REPAIR_V1.md'))
 class Refused(ValueError):pass
 
 def admit(observation,transition):
@@ -18,6 +19,6 @@ def admit(observation,transition):
  if observation['head'] in FORBIDDEN_RESTORE:raise Refused('SUPERSEDED_BASE')
  if observation['head']!=HEAD:raise Refused('UNKNOWN_COMMIT')
  if observation['tree']!=TREE:raise Refused('TREE_MISMATCH')
- expected={'from':PREVIOUS,'to':HEAD,'tree':TREE,'merge_base':PREVIOUS,'ahead':8,'behind':0,'changed_paths':sorted(PATHS),'authorized':True}
+ expected={'from':PREVIOUS,'to':HEAD,'tree':TREE,'merge_base':PREVIOUS,'ahead':AHEAD,'behind':0,'changed_paths':sorted(PATHS),'authorized':True}
  if transition!=expected:raise Refused('UNAUTHORIZED_SUPERSESSION')
  return {'status':'AUTHORIZED_FORWARD_SUPERSESSION','head':HEAD,'tree':TREE,'root_index_writes':False,'live_start_authorized':False}

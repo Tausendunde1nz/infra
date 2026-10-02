@@ -26,14 +26,17 @@ def execute(argv):
  if p.returncode or len(p.stdout)>32768:raise Refused('SYSTEMD_ACTION')
  return p.stdout.decode()
 
+# Remains false until lifetime and late-failure re-fencing are fully bound.
+PRESEAL_PRODUCTION_READY=False
+
 class Host:
  def __init__(self,store,bundle,original_pins,run=execute):
   if os.geteuid()!=0:raise Refused('ROOT_HOST_ONLY')
-  self.store=store;self.bundle=bundle;self.pin=bundle['contract_sha256'];self.c=bundle['contract'];self.run=run;self.original_pins=original_pins;self.counter=0
+  self.store=store;self.bundle=bundle;self.pin=bundle['contract_sha256'];self.c=bundle['contract'];self.run=run;self.original_pins=original_pins;self.counter=0;self.receipt_previous='0'*64
   self.files=Files(save=self.save_receipts)
   if store.current()['binding']['contract_sha256']!=self.pin or digest(encode(self.c))!=self.pin:raise Refused('BUNDLE_PIN')
  def evidence(self,name,value):
-  if name not in ('originals.json','receipt-%06d.json'%self.counter):raise Refused('EVIDENCE_NAME')
+  if name not in ('originals.json','rollback-bundle.json','receipt-%06d.json'%self.counter):raise Refused('EVIDENCE_NAME')
   # Immutable generation, fsync, no overwrite. A root capsule owns the directory.
   raw=encode(value);tmp='.evidence-'+uuid.uuid4().hex
   fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.store.fd)
@@ -44,7 +47,9 @@ class Host:
    os.close(fd)
    try:os.unlink(tmp,dir_fd=self.store.fd)
    except FileNotFoundError:pass
- def save_receipts(self,value):self.evidence('receipt-%06d.json'%self.counter,value);self.counter+=1
+ def save_receipts(self,value):
+  row={'seq':self.counter,'binding':self.store.current()['binding'],'previous':self.receipt_previous,'payload':value}
+  self.evidence('receipt-%06d.json'%self.counter,row);self.receipt_previous=digest(encode(row));self.counter+=1
  def preflight(self):
   if set(self.bundle['payloads'])!=set(TARGETS):raise Refused('PAYLOAD_SET')
   for path,row in self.bundle['payloads'].items():
@@ -61,7 +66,10 @@ class Host:
   timer=properties(self.run(SHOW_TIMER))
   if timer['ActiveState']!='active' or timer['UnitFileState']!='enabled':raise Refused('TIMER_DRIFT')
   return True
- def backup(self):self.evidence('originals.json',self.before);return True
+ def backup(self):
+  self.evidence('originals.json',self.before)
+  bundle={**self.bundle,'payloads':{p:{**r,'bytes':base64.b64encode(r['bytes']).decode()} for p,r in self.bundle['payloads'].items()}}
+  self.evidence('rollback-bundle.json',bundle);return True
  def install(self,path):self.files.install_exact(path,self.bundle['payloads'][path],self.before);self.files.verify_exact(path,self.bundle['payloads'][path])
  def install_fence_recovery(self):
   self.files.create_declared_directories(DIRECTORIES)
@@ -174,3 +182,66 @@ class Host:
   t=properties(self.run(SHOW_TIMER))
   if t['ActiveState']!='active' or t['UnitFileState']!='enabled':raise Refused('ORIGINAL_TIMER_STATE')
   return 'ROLLED_BACK_PRESEAL'
+
+ def preseal_admitted(self):return PRESEAL_PRODUCTION_READY
+ def preseal_step(self,step,binding,boot):
+  # A rollback dispatcher must outlive removal/disablement of these very units.
+  # No production factory currently supplies such a verified lifetime binding.
+  # Refuse before the first mutation; a guard-only watchdog is insufficient.
+  if not PRESEAL_PRODUCTION_READY:raise Refused('INDEPENDENT_ROLLBACK_DISPATCHER_NOT_BOUND')
+  from preseal import STEPS
+  if step not in STEPS or self.store.current()['binding']!=binding or self.store.current()['sealed']:raise Refused('PRESEAL_BINDING')
+  if not self.store.exists('PRESEAL_INHIBIT'):raise Refused('PRESEAL_FENCE_MARKER')
+  protected={PROGRAM,CONTRACT,FENCE,TIMER_DEP,'/etc/systemd/system/'+RECOVERY,'/etc/systemd/system/'+WATCHDOG}
+  core=set(TARGETS)-protected
+  if step=='INHIBIT':
+   self.install_fence_recovery();self.reload_fence();self.verify_fence_loaded()
+  elif step=='VALIDATE_ORIGINALS':
+   for path,original in self.before.items():
+    actual=self.files.snapshot_one(path);receipt=self.files.receipts.get(path)
+    if actual==original:continue
+    if receipt is None or receipt.get('status')!='VERIFIED' or actual!=receipt.get('after'):raise Refused('PRESEAL_FOREIGN_POSTIMAGE')
+  elif step=='QUIESCE':self.stop_timer();self.quiesce_prearm()
+  elif step=='RESTORE_PAYLOADS':self.files.restore_owned_changes(self.before,only=core,cleanup=False)
+  elif step=='RESTORE_UNITS':
+   # Base service/timer are never rewritten. Only this transaction's drop-ins
+   # are eligible; the fence and its recovery dependency remain until commit.
+   self.verify_fence_loaded()
+  elif step=='RELOAD':self.run(ACTIONS['reload'])
+  elif step=='VERIFY_MANAGER':self.verify_fence_loaded()
+  elif step=='RESTORE_TIMER_INHIBITED':
+   if condition(self.store,self.c,self.pin,self.run):raise Refused('FENCE_OPEN_DURING_RESTORE')
+   self.run(ACTIONS['start_timer'])
+  elif step=='VERIFY_ORIGINALS':
+   if any(self.files.snapshot_one(p)!=self.before[p] for p in core):raise Refused('CORE_ORIGINALS')
+   self.verify_fence_loaded();timer=properties(self.run(SHOW_TIMER))
+   if timer['ActiveState']!='active' or timer['UnitFileState']!='enabled' or properties(self.run(SHOW_GUARD))['ActiveState']!='inactive':raise Refused('RESTORED_MANAGER')
+  elif step=='ROLLBACK_COMMITTED':
+   s=self.store.current()
+   if s['phase']!='ROLLED_BACK_PRESEAL':self.store.rollback({'originals_identical':True,'no_foreign_writer':True,'timer_original_verified':True})
+  elif step=='REMOVE_FENCE':
+   if self.store.current()['phase']!='ROLLED_BACK_PRESEAL':raise Refused('NO_DURABLE_ROLLBACK_COMMIT')
+   self.files.restore_owned_changes(self.before,only={FENCE,TIMER_DEP},cleanup=False)
+   self.run(ACTIONS['reload']);self.verify_original_manager()
+  elif step=='CLEANUP':
+   # Disabling is not stopping. Do not kill the currently executing recovery
+   # process before its terminal record is durable.
+   for key,unit,wants in (('watchdog',WATCHDOG,'multi-user.target.wants'),('recovery',RECOVERY,'sysinit.target.wants')):
+    link=Path('/etc/systemd/system')/wants/unit
+    if link.is_symlink():
+     if link.lstat().st_uid!=0 or os.path.realpath(link)!='/etc/systemd/system/'+unit:raise Refused('FOREIGN_ENABLEMENT')
+     self.run(ACTIONS['disable_'+key])
+    elif link.exists():raise Refused('ENABLEMENT_TYPE')
+   self.files.restore_owned_changes(self.before)
+   self.run(ACTIONS['reload']);self.verify_original_manager()
+  elif step=='ROLLED_BACK':
+   if not self.files.same_restored_snapshot(self.before):raise Refused('ROLLBACK_METADATA')
+   self.verify_original_manager()
+  return {'verified':True,'sha256':digest(encode({'step':step,'binding':binding,'boot':boot}))}
+ def verify_original_manager(self):
+  g=properties(self.run(SHOW_GUARD));t=properties(self.run(SHOW_TIMER))
+  if re.findall(r'argv\[\]=(.*?) ;',g['ExecStart'])!=[LEGACY] or g['ExecCondition'] or g['DropInPaths'] or t['DropInPaths'] or RECOVERY in g['Requires'].split() or RECOVERY in t['Requires'].split() or t['ActiveState']!='active' or t['UnitFileState']!='enabled':raise Refused('ORIGINAL_MANAGER_NOT_RESTORED')
+ def preseal_secured_stop(self):
+  # Never claim closure solely because a stop command was requested.
+  self.run(ACTIONS['stop_timer'])
+  if properties(self.run(SHOW_TIMER))['ActiveState']!='inactive':raise Refused('PRESEAL_STOP_UNCONFIRMED')

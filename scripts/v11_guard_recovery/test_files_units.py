@@ -29,6 +29,55 @@ class FileTests(unittest.TestCase):
  def test_restore_repeated_existing(self):
   self.f.create_declared_directories(DIRECTORIES);p=TARGETS[0];f=self.f.path(p);f.write_bytes(b'original');f.chmod(0o640);before=self.f.snapshot(TARGETS,DIRECTORIES);self.f.created=[]
   self.f.install_exact(p,self.payload(),before);self.f.restore_owned_changes(before);restored=self.f.snapshot_one(p);self.f.restore_owned_changes(before);self.assertEqual(self.f.snapshot_one(p),restored)
+ def test_crash_after_publish_before_receipt_resumes(self):
+  from unittest import mock
+  self.f.create_declared_directories(DIRECTORIES);p=TARGETS[0];original_replace=os.replace
+  def interrupted(src,dst):original_replace(src,dst);raise KeyboardInterrupt('after-rename')
+  with mock.patch('files.os.replace',side_effect=interrupted):
+   with self.assertRaises(KeyboardInterrupt):self.f.install_exact(p,self.payload(),self.before)
+  self.assertEqual(self.f.receipts[p]['status'],'PUBLISH_READY');self.f.restore_owned_changes(self.before);self.assertTrue(self.f.same_restored_snapshot(self.before))
+ def test_crashed_publish_foreign_same_bytes_refused(self):
+  from unittest import mock
+  self.f.create_declared_directories(DIRECTORIES);p=TARGETS[0];original_replace=os.replace
+  def interrupted(src,dst):original_replace(src,dst);raise KeyboardInterrupt('after-rename')
+  with mock.patch('files.os.replace',side_effect=interrupted):
+   with self.assertRaises(KeyboardInterrupt):self.f.install_exact(p,self.payload(),self.before)
+  f=self.f.path(p);other=f.with_name('foreign');other.write_bytes(b'candidate');other.chmod(0o600);other.replace(f)
+  with self.assertRaises(Refused):self.f.restore_owned_changes(self.before)
+ def test_crash_after_restore_times_resumes(self):
+  from unittest import mock
+  self.f.create_declared_directories(DIRECTORIES);p=TARGETS[0];f=self.f.path(p);f.write_bytes(b'original');f.chmod(0o640);before=self.f.snapshot(TARGETS,DIRECTORIES);self.f.created=[];self.f.install_exact(p,self.payload(),before)
+  original_utime=os.utime
+  def interrupted(*args,**kw):original_utime(*args,**kw);raise KeyboardInterrupt('after-utime')
+  with mock.patch('files.os.utime',side_effect=interrupted):
+   with self.assertRaises(KeyboardInterrupt):self.f.restore_owned_changes(before)
+  self.assertEqual(self.f.receipts[p]['status'],'RESTORE_TIMES_PENDING');self.f.restore_owned_changes(before);self.assertTrue(self.f.same_restored_snapshot(before))
+ def test_foreign_times_after_restore_interruption_refused(self):
+  from unittest import mock
+  self.f.create_declared_directories(DIRECTORIES);p=TARGETS[0];f=self.f.path(p);f.write_bytes(b'original');f.chmod(0o640);before=self.f.snapshot(TARGETS,DIRECTORIES);self.f.created=[];self.f.install_exact(p,self.payload(),before)
+  original_utime=os.utime
+  def interrupted(*args,**kw):original_utime(*args,**kw);raise KeyboardInterrupt('after-utime')
+  with mock.patch('files.os.utime',side_effect=interrupted):
+   with self.assertRaises(KeyboardInterrupt):self.f.restore_owned_changes(before)
+  st=f.stat();os.utime(f,ns=(st.st_atime_ns,st.st_mtime_ns+10000))
+  with self.assertRaises(Refused):self.f.restore_owned_changes(before)
+ def test_directory_publication_crash_recovery(self):
+  from unittest import mock
+  import files
+  original=files.rename_no_replace
+  def interrupted(src,dst):original(src,dst);raise KeyboardInterrupt('directory-published')
+  with mock.patch('files.rename_no_replace',side_effect=interrupted):
+   with self.assertRaises(KeyboardInterrupt):self.f.create_declared_directories(DIRECTORIES)
+  self.assertEqual(self.f.created[-1]['status'],'PUBLISH_READY');self.f.restore_owned_changes(self.before);self.assertTrue(self.f.same_restored_snapshot(self.before))
+ def test_foreign_directory_never_replaced(self):
+  from unittest import mock
+  import files
+  original=files.rename_no_replace;created=[]
+  def intervening(src,dst):dst.mkdir();created.append((dst,dst.stat().st_ino));original(src,dst)
+  with mock.patch('files.rename_no_replace',side_effect=intervening):
+   with self.assertRaises(FileExistsError):self.f.create_declared_directories(DIRECTORIES)
+  path,inode=created[0];self.assertEqual(path.stat().st_ino,inode)
+  with self.assertRaises(Refused):self.f.restore_owned_changes(self.before)
  def test_wrong_hash(self):
   self.f.create_declared_directories(DIRECTORIES);v=self.payload();v['sha256']='0'*64
   with self.assertRaises(Refused):self.f.install_exact(TARGETS[0],v,self.before)

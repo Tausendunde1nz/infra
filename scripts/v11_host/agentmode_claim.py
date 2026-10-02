@@ -8,7 +8,7 @@ PROGRAM='/usr/local/libexec/tu1nz-privileged-v11/agentmode_claim.py'
 OBSERVER='/usr/local/libexec/tu1nz-privileged-v11/agentmode_observer.sh'
 DROPIN='/etc/systemd/system/tu1nz_agentmode.service.d/90-v11-observer.conf'
 UNIT='/etc/systemd/system/tu1nz_agentmode.service'
-HEAD='e60aa2f515c89f94bce1dbd6496d358cdfb85300'
+HEAD='05b127033d734aa4abce10b2e5b7d513b99ed5d2'
 SHOW=('/usr/bin/systemctl','show','--property=Id,InvocationID,ControlPID,NeedDaemonReload,DropInPaths,User,Group','--','tu1nz_agentmode.service')
 class Refused(RuntimeError):pass
 

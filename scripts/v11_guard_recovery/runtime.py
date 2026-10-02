@@ -92,6 +92,7 @@ def loaded(pin,new,run=command):
 def condition(store,c,pin,run=command,verify=verify_files):
  try:
   s=store.current()
+  if store.exists('PRESEAL_INHIBIT'):return False
   if s['binding']['contract_sha256']!=pin:return False
   new=s['phase'] in ('NEW_CONSUMER_VERIFIED','COMPLETED')
   verify(c,pin,new);loaded(pin,new,run)
