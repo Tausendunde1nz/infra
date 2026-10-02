@@ -1,0 +1,4508 @@
+{
+  "activation_baseline_adopted": false,
+  "all_ignored_by": {
+    "line": 2,
+    "pattern": "*",
+    "source": ".gitignore"
+  },
+  "entries": [
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "backup",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787729175014358442,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1403292,
+      "mode": "0o644",
+      "mtime_ns": 1787729175014358442,
+      "nlink": 1,
+      "parents": [],
+      "path": ".r28r4-control-payload-clean.tar.gz",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "e4f62b291b34e901925e48a96c7e2dbe1a2315de7bbdd319a1712bd86611fb2c",
+      "size": 3207,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1776056401378311681,
+      "execution_references": [
+        {
+          "active_invocation_proven": false,
+          "kind": "GUARD_BASELINE_REFERENCE",
+          "line": 10,
+          "source": "/usr/local/bin/tu1nz_delete_guard.sh"
+        }
+      ],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "SECURITY_RELEVANT",
+      "inode": 1288154,
+      "mode": "0o660",
+      "mtime_ns": 1776056401378311681,
+      "nlink": 1,
+      "parents": [],
+      "path": "_filelist_reference.txt",
+      "reason": "Baseline used by installed deletion guard; reference is proven, active invocation/authority contract not established",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 72672,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "backup",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771143723747639753,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1348110,
+      "mode": "0o660",
+      "mtime_ns": 1763442001346585954,
+      "nlink": 1,
+      "parents": [],
+      "path": "_filelist_reference.txt.bak_20260215T082155Z",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1773851494820692387,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1551787,
+      "mode": "0o664",
+      "mtime_ns": 1773851494820692387,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "n8n_fix_2026-03-18",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "analysis/n8n_fix_2026-03-18/docker_inspect_n8n_before.json",
+      "reason": "Historical evidence snapshot; no checkout mount except read-only cAdvisor /rootfs; no readable nginx checkout include; two protected nginx reference checks pending",
+      "relevant_xattrs": [],
+      "sha256": "99e31de44069c1914a8a53c6795d78057b34c3ef05b1cd6f1df7e2a2e938478d",
+      "size": 12574,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1773851494897691933,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1551790,
+      "mode": "0o664",
+      "mtime_ns": 1773851494897691933,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "n8n_fix_2026-03-18",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "analysis/n8n_fix_2026-03-18/docker_ps_before.txt",
+      "reason": "Historical evidence snapshot; no checkout mount except read-only cAdvisor /rootfs; no readable nginx checkout include; two protected nginx reference checks pending",
+      "relevant_xattrs": [],
+      "sha256": "7bfef5960845d51deff7336c14d9fec5f0f147bc86226bdb5b816f77599e834f",
+      "size": 3000,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "backup",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1773851494850692210,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1551788,
+      "mode": "0o644",
+      "mtime_ns": 1773851494850692210,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "n8n_fix_2026-03-18",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "analysis/n8n_fix_2026-03-18/n8n.conf.before",
+      "reason": "Historical evidence snapshot; no checkout mount except read-only cAdvisor /rootfs; no readable nginx checkout include; two protected nginx reference checks pending",
+      "relevant_xattrs": [],
+      "sha256": "99971fe65f30406614cd6ab8ac2353641c602260a663235b5abb1388472a0bb9",
+      "size": 834,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1773851494918691809,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1551791,
+      "mode": "0o664",
+      "mtime_ns": 1773851494918691809,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "n8n_fix_2026-03-18",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "analysis/n8n_fix_2026-03-18/ss_before.txt",
+      "reason": "Historical evidence snapshot; no checkout mount except read-only cAdvisor /rootfs; no readable nginx checkout include; two protected nginx reference checks pending",
+      "relevant_xattrs": [],
+      "sha256": "ded2af6cb00a12b9f3683971e1028663296ed2939935fc48910b85f8a50c3d8c",
+      "size": 2356,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1773851909708852456,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1552056,
+      "mode": "0o664",
+      "mtime_ns": 1773851909708852456,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "n8n_perms_2026-03-18",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "analysis/n8n_perms_2026-03-18/key_files_before.txt",
+      "reason": "Historical evidence snapshot; no checkout mount except read-only cAdvisor /rootfs; no readable nginx checkout include; two protected nginx reference checks pending",
+      "relevant_xattrs": [],
+      "sha256": "621c82f80c5acb4c09f49af83381d93b13173331fc5e6d33a4440ecd5d31d6b1",
+      "size": 152,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1773851909702852501,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1551846,
+      "mode": "0o664",
+      "mtime_ns": 1773851909702852501,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "n8n_perms_2026-03-18",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "analysis/n8n_perms_2026-03-18/permissions_before.txt",
+      "reason": "Historical evidence snapshot; no checkout mount except read-only cAdvisor /rootfs; no readable nginx checkout include; two protected nginx reference checks pending",
+      "relevant_xattrs": [],
+      "sha256": "82419875167653a944045822265af3a72a3cb2aeb35ae9c4460981b77f11ee83",
+      "size": 1088,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "runtime_status"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787685940372040650,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554555,
+      "mode": "0o600",
+      "mtime_ns": 1787685415900188479,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/.token_rotation.lock",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 0,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787684329614838912,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1553655,
+      "mode": "0o600",
+      "mtime_ns": 1787684320815536550,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_INCIDENT_2026-08-25.diagnose",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "d46c93d2e9b7c3c62aaedf5367de827cb365a23c3aa0867c5de05aea3c37bab6",
+      "size": 5792,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787685606660655042,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554557,
+      "mode": "0o600",
+      "mtime_ns": 1787685606656654906,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_APPLY_RESULT.json",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "dcd6bb770abcfa6b7fc39ff9cdbf0583dcb224e8a29e6cc814b3abd2a01ffd8b",
+      "size": 731,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787685975210232961,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554560,
+      "mode": "0o600",
+      "mtime_ns": 1787685975206232824,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_B_REAPPLY_RESULT.json",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "d2112c602252dd55aa22bd06f527fdd44b6ffde721214ef5687407bce8315178",
+      "size": 538,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787685064440158580,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554266,
+      "mode": "0o600",
+      "mtime_ns": 1787685059691994699,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_CONTAINMENT_2026-08-25.diagnose",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "0652c4191d6a6a03f7f34b10c4365cd93a7ccab45ba0dacabd3c1102d06de4f3",
+      "size": 2503,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787686251628709371,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554561,
+      "mode": "0o600",
+      "mtime_ns": 1787686247299560773,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_FINAL_2026-08-25.diagnose",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "ecfbcb29b24c7e4298749b8624b797c01c3779ce41691a6432a95699d62e60af",
+      "size": 4950,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787684776852237175,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1553681,
+      "mode": "0o600",
+      "mtime_ns": 1787684773343116184,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_STATE_BEFORE_2026-08-25.diagnose",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "98bbace5a546ff0653a9b6237236fa5c20bbfd221837822a14edaa14656f2cf8",
+      "size": 2997,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787686114393001341,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554562,
+      "mode": "0o600",
+      "mtime_ns": 1787686114392001306,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_TEST_RESULT.json",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "4683413523a8674a22cbfb2df2f64f0d28016cb1fa55623f1929df8a45663709",
+      "size": 396,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1787685332892388506,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1554554,
+      "mode": "0o700",
+      "mtime_ns": 1787685329390270596,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_apply_tokens.py",
+      "reason": "Historical root-owned executable; no active caller found in reviewed units/helpers/cron; never executed. Parent analysis is chatops-owned and permits ancestor rename: root leaf ownership is not an immutable trust boundary.",
+      "relevant_xattrs": [],
+      "sha256": "7297bef9611b68fb57bc8c1cf7ffd8df68cd6ed5fae9926021f6b4dafce216f1",
+      "size": 10143,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "backup",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787684784875513816,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1553682,
+      "mode": "0o600",
+      "mtime_ns": 1787684780804373443,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_chatops.crontab.before",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "75534ff14f7a1296b11159de5b4e297726774e1904894c656652990c5b9ab57e",
+      "size": 581,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "backup",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787684792849788777,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1553683,
+      "mode": "0o600",
+      "mtime_ns": 1787684789474672399,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_chatops.crontab.paused",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "a294b5a43c5be291fa82adf8b108f9a8f98f47a4b3eb483644a8447900b066b7",
+      "size": 680,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1787684566723996230,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1553674,
+      "mode": "0o700",
+      "mtime_ns": 1787684563280877661,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_identify.py",
+      "reason": "Historical root-owned executable; no active caller found in reviewed units/helpers/cron; never executed. Parent analysis is chatops-owned and permits ancestor rename: root leaf ownership is not an immutable trust boundary.",
+      "relevant_xattrs": [],
+      "sha256": "f93c3a9eea10729cf30036248874477c69a2be9c4131620cb50dc42ba072d9c3",
+      "size": 2239,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1787685925478531102,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1554558,
+      "mode": "0o700",
+      "mtime_ns": 1787685921145382872,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_reapply_bot_b.py",
+      "reason": "Historical root-owned executable; no active caller found in reviewed units/helpers/cron; never executed. Parent analysis is chatops-owned and permits ancestor rename: root leaf ownership is not an immutable trust boundary.",
+      "relevant_xattrs": [],
+      "sha256": "583618ac309403173cff5e026228908f8ac512faf644847a217a7249f3a6cfc5",
+      "size": 10695,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1787686105156684686,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1554559,
+      "mode": "0o700",
+      "mtime_ns": 1787686101727567130,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_send_tests.py",
+      "reason": "Historical root-owned executable; no active caller found in reviewed units/helpers/cron; never executed. Parent analysis is chatops-owned and permits ancestor rename: root leaf ownership is not an immutable trust boundary.",
+      "relevant_xattrs": [],
+      "sha256": "32d472068f7b96a4fdb4c6caf475b1eaa51780f92aa17b0f87929654d0d9a603",
+      "size": 4672,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1787686048648748032,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1554556,
+      "mode": "0o700",
+      "mtime_ns": 1787686045209630206,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/TU1NZ_SECURITY_S3_validate_tokens.py",
+      "reason": "Historical root-owned executable; no active caller found in reviewed units/helpers/cron; never executed. Parent analysis is chatops-owned and permits ancestor rename: root leaf ownership is not an immutable trust boundary.",
+      "relevant_xattrs": [],
+      "sha256": "97a854340eb427e37fcfc94969737f22e6dab228ad6fdac889ff6b0d412ab0bf",
+      "size": 5601,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "backup",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787684947310116540,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1553684,
+      "mode": "0o600",
+      "mtime_ns": 1787684947310116540,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/cron.before",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "75534ff14f7a1296b11159de5b4e297726774e1904894c656652990c5b9ab57e",
+      "size": 581,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "ancestor_replacement_caveat": "analysis parent chatops:chatops 2775; root 0700 child does not prevent parent-level rename/replacement",
+      "categories": [
+        "backup",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787684951429258662,
+      "execution_references": [],
+      "gid": 0,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554265,
+      "mode": "0o600",
+      "mtime_ns": 1787684951428258627,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "analysis",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        },
+        {
+          "component": "security_incident_2026-08-25",
+          "gid": 0,
+          "mode": "0o700",
+          "uid": 0
+        }
+      ],
+      "path": "analysis/security_incident_2026-08-25/cron.paused",
+      "reason": "Historical root-owned incident evidence/runtime marker; no active consumer found in reviewed scope. Root leaf metadata confirmed; archive contents not disclosed. Lock existence alone is not an active transaction.",
+      "relevant_xattrs": [],
+      "sha256": "a294b5a43c5be291fa82adf8b108f9a8f98f47a4b3eb483644a8447900b066b7",
+      "size": 680,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787950692804794057,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1283386,
+      "mode": "0o660",
+      "mtime_ns": 1787950692804794057,
+      "nlink": 1,
+      "parents": [],
+      "path": "checksums.txt",
+      "reason": "Historical checkout-side state; current observer/wrapper/integrity defaults use /var/lib/tausendunde1nz/agentmode; basename-only matches are not consumers of this path",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 117,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [
+        {
+          "active_invocation_proven": false,
+          "kind": "CHECKSUM_DATA_REFERENCE",
+          "line": 3,
+          "source": "/usr/local/bin/checksum_verify"
+        }
+      ],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1284738,
+      "mode": "0o660",
+      "mtime_ns": 1762376775539966607,
+      "nlink": 1,
+      "parents": [],
+      "path": "checksums_current.txt",
+      "reason": "Installed checksum helpers reference these paths as data; no script evaluation proven; writer/consumer contract requires bounded completion",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 112081,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843881750563,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1286804,
+      "mode": "0o660",
+      "mtime_ns": 1762377243595836070,
+      "nlink": 1,
+      "parents": [],
+      "path": "checksums_reference.sha256",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 90,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1764360843881750563,
+      "execution_references": [
+        {
+          "active_invocation_proven": false,
+          "kind": "CHECKSUM_DATA_REFERENCE",
+          "line": 4,
+          "source": "/usr/local/bin/checksum_verify"
+        }
+      ],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1286803,
+      "mode": "0o660",
+      "mtime_ns": 1762377243587835722,
+      "nlink": 1,
+      "parents": [],
+      "path": "checksums_reference.txt",
+      "reason": "Installed checksum helpers reference these paths as data; no script evaluation proven; writer/consumer contract requires bounded completion",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 112081,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1764360843881750563,
+      "execution_references": [
+        {
+          "active_invocation_proven": false,
+          "kind": "DIRECT_SED_PROGRAM",
+          "line": 24,
+          "source": "/usr/local/bin/pandoc_safe"
+        }
+      ],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1286857,
+      "mode": "0o660",
+      "mtime_ns": 1762373567109843339,
+      "nlink": 1,
+      "parents": [],
+      "path": "emoji_map.sed",
+      "reason": "Loaded as a sed program by root-owned pandoc_safe; current invocation not established; input is chatops-owned 0660",
+      "relevant_xattrs": [],
+      "sha256": "eece58840199bb578c97994246d990c9ef842ced06d29c579e5cc42064d6655b",
+      "size": 93,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843881750563,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1286602,
+      "mode": "0o660",
+      "mtime_ns": 1762376342726851590,
+      "nlink": 1,
+      "parents": [],
+      "path": "integrity_baseline.sha256",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 1904,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1286715,
+      "mode": "0o660",
+      "mtime_ns": 1762376856585354790,
+      "nlink": 1,
+      "parents": [],
+      "path": "integrity_reference.sha256",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 90,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status",
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1286699,
+      "mode": "0o660",
+      "mtime_ns": 1762376856577354456,
+      "nlink": 1,
+      "parents": [],
+      "path": "integrity_reference.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 112081,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787950692843795427,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1284610,
+      "mode": "0o644",
+      "mtime_ns": 1787950692836795181,
+      "nlink": 1,
+      "parents": [],
+      "path": "last_sync.ok",
+      "reason": "Historical checkout-side state; current observer/wrapper/integrity defaults use /var/lib/tausendunde1nz/agentmode; basename-only matches are not consumers of this path",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 78,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306239,
+      "mode": "0o644",
+      "mtime_ns": 1761892323942315798,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/aide-daily.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "936feba2d9f5a58ce9829ccda69155cdfd6e62bed2c0a299b5270b737e902dd3",
+      "size": 285,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306250,
+      "mode": "0o644",
+      "mtime_ns": 1761892323974317155,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/aide-daily.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "fce222d671082cb2a22528c05968abf8832cb1615b8b15c5b55048f9b3832444",
+      "size": 182,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306240,
+      "mode": "0o644",
+      "mtime_ns": 1761167247604931869,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/codex-queue.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "d0f31cefdb46e3ebc43193504c94aba86c0d146e82d6fec82718198095b0c520",
+      "size": 257,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306251,
+      "mode": "0o644",
+      "mtime_ns": 1761167247624932729,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/codex-queue.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "c0cc74d8835790cb637e8abceb0e5f109aa7c1481d9d105dbcee359e4bda9d95",
+      "size": 176,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306241,
+      "mode": "0o644",
+      "mtime_ns": 1760774900824899025,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/doc-trigger.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "ee8524773741d95cd0663b3e73305ec695f81d672c29aba02f5b90e9035f55ff",
+      "size": 127,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306252,
+      "mode": "0o644",
+      "mtime_ns": 1760774900797897903,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/doc-trigger.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "08e1b55690462a29765ae4eb6326f64150711a197b335665111fb30682189bd2",
+      "size": 128,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306242,
+      "mode": "0o644",
+      "mtime_ns": 1761404206075304131,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/docs-upload.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "fbdc79ab53853ce5550025b9e90ea58497f6e046e53387f69185d788c673ee06",
+      "size": 496,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306253,
+      "mode": "0o644",
+      "mtime_ns": 1761403152633730645,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/docs-upload.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "1257c6b0a354decc1e113dfc83b963f8e882621bc173ff7ba35a8f638f62ecec",
+      "size": 187,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306243,
+      "mode": "0o644",
+      "mtime_ns": 1762293442472247542,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/tu1nz-docspush-watchdog.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "275a8f2e31a56ed7db06c416f23bd4623a9aaee3b4ca63c77fa155fe81949e24",
+      "size": 118,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843881750563,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306254,
+      "mode": "0o644",
+      "mtime_ns": 1762293442448246528,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/tu1nz-docspush-watchdog.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "30e20f380e033b0e8b4dd958c4af7d732291fdcbaeb62d92ee4305ac4c99664f",
+      "size": 201,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306244,
+      "mode": "0o644",
+      "mtime_ns": 1762292299106020355,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/tu1nz-docspush.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "12651189394ce5ce7b2249246b4d92a8cafc0b7cfa1a5ebcff75a819a1d593f1",
+      "size": 189,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306255,
+      "mode": "0o644",
+      "mtime_ns": 1762293354192517783,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/tu1nz-docspush.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "193a48d79d22fa7025e3e553cb20a2c1c5f05ad8604ac61376ec8e121e60f7e1",
+      "size": 191,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306245,
+      "mode": "0o644",
+      "mtime_ns": 1762368941246117730,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/tu1nz-integrity.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "a11b844904d5256e6c4363d5256bf367beaff16c510b63d578bd9282f0748f4a",
+      "size": 171,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1306256,
+      "mode": "0o644",
+      "mtime_ns": 1762368941278119243,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "legacy_units",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "legacy_units/tu1nz-integrity.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "6183831bd3aca6ff65506bfb86c9771da2475cbe743f861c82f010de91def532",
+      "size": 180,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1764360843882750599,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1288438,
+      "mode": "0o660",
+      "mtime_ns": 1762415843973024068,
+      "nlink": 1,
+      "parents": [],
+      "path": "monitor_last.txt",
+      "reason": "Historical checkout-side state; current observer/wrapper/integrity defaults use /var/lib/tausendunde1nz/agentmode; basename-only matches are not consumers of this path",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 127,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "runtime_status"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787729827474010835,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "POTENTIALLY_ACTIVE_RUNTIME_NOT_OPENED",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554667,
+      "mode": "0o644",
+      "mtime_ns": 1787729827474010835,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "nginx",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "nginx/validation.pid",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": null,
+      "size": 0,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771149353893729661,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1430912,
+      "mode": "0o664",
+      "mtime_ns": 1771149353893729661,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/_tg_direct_callers_ACTIVE.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "976ad6f7af833b6546a9476b7dbf984a12f8eeb1e5bbd13fa4127a457aee72a4",
+      "size": 5847,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771149368296239201,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1430913,
+      "mode": "0o664",
+      "mtime_ns": 1771149368296239201,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/_tg_wrapper_users_ACTIVE.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771149385882861457,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1453851,
+      "mode": "0o664",
+      "mtime_ns": 1771149385882861457,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/_unitlist_tu1nz.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "c61ad2389412e2cf28937d9dcbc560026a7c00a3788498f92f9df1f72ca7135a",
+      "size": 1134,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140525786126652,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1433131,
+      "mode": "0o664",
+      "mtime_ns": 1771140525786126652,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/guard_units.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "0bc47161875f6ddbf25e71e19e9c9861db5bcd1e9de0f63b1716b193a6d64ce0",
+      "size": 990,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140525792126866,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1453847,
+      "mode": "0o664",
+      "mtime_ns": 1771140525792126866,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/health_units.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "da6ff9fd42a9815a03a8958da37f9af5e81b18abe461d38f43bcda60886b880c",
+      "size": 402,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140525795126974,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1453848,
+      "mode": "0o664",
+      "mtime_ns": 1771140525795126974,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/lock_units.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "37c8a9c21648dc748f9fcdb4dcd5b27174aaace976d975efc4cf385a0142ea09",
+      "size": 1110,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140393465385567,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1433128,
+      "mode": "0o664",
+      "mtime_ns": 1771140393465385567,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/opt_root.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "95a87278ec50ece66f0e21ad030cb504ae78ad6b3290904a21aadd4552c3fc08",
+      "size": 1911,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140393456385245,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1433115,
+      "mode": "0o664",
+      "mtime_ns": 1771140393456385245,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/systemd_system.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "838d70e4098aea0d77859b19048c65e1a6c26ab040910a3022591bb1c13b8476",
+      "size": 10907,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140384382060013,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1430917,
+      "mode": "0o664",
+      "mtime_ns": 1771140384382060013,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/timers.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "4ab63e90e780ec66a7739e62e7e5784608a3b35d43e1b9793f6dcfb6c26d3f92",
+      "size": 7918,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140525781126472,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1433130,
+      "mode": "0o664",
+      "mtime_ns": 1771140525781126472,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/trendwatch_units.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "bdbeacf6a2fc2a5a3126c1b2bdfb66fbd8bbb8b793fcfe808499e04e509c02cb",
+      "size": 1500,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140525777126329,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1433129,
+      "mode": "0o664",
+      "mtime_ns": 1771140525777126329,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/tu1nz_units.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "d191d66d1fb887321f813e88e4552cd074a6af684e20300a7fbf81feb2090bdc",
+      "size": 4794,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140384173052522,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1430873,
+      "mode": "0o664",
+      "mtime_ns": 1771140384173052522,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/unit_files.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "c61e4c9f74a3c0673d7defaab069b879acb1a596e3b3a81892167308a2618e5c",
+      "size": 50042,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140384208053777,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1430916,
+      "mode": "0o664",
+      "mtime_ns": 1771140384208053777,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/units_active.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "905d2c2536a2cc1ec2b208d5f9179e02df38a407023e19e09c768469ecde3428",
+      "size": 102796,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "operator_state"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1771140393449384994,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1430959,
+      "mode": "0o664",
+      "mtime_ns": 1771140393449384994,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "rebaseline_2026",
+          "gid": 1001,
+          "mode": "0o2775",
+          "uid": 1001
+        }
+      ],
+      "path": "rebaseline_2026/usr_local_bin.txt",
+      "reason": "Retained operator/evidence or data artifact; no direct execution reference in reviewed scope",
+      "relevant_xattrs": [],
+      "sha256": "209197227911890898638f517fd58bd48e72da4eb658be2ac8f68e1df5ffecda",
+      "size": 13356,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787975345525730213,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1585062,
+      "mode": "0o644",
+      "mtime_ns": 1787975345525730213,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_commercial_s0_first_start.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "469c2f569baf3321e2d20d076667e27d168d7afbf4f07e167b5ba689732dbfc9",
+      "size": 71443,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787936205793090778,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1579514,
+      "mode": "0o644",
+      "mtime_ns": 1787936205793090778,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_commercial_s0_manifest.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "21b4def03f475e56df1001b32c204763706a49a27e501342ec45935fdd96f9a6",
+      "size": 12366,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1790100175077269460,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1585770,
+      "mode": "0o600",
+      "mtime_ns": 1790100175077269460,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_public_community_health_contract.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "7d36f583e7beaeda6ef42455c1295b07b7e772ce88a5d15afe376ad526edad06",
+      "size": 10724,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1789672356917909041,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1553213,
+      "mode": "0o644",
+      "mtime_ns": 1789672356917909041,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_public_s10_1_health.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "a6f375cf544cccce3a8b5251b4b731c032d164c8c876d1bdf72265fe36651b8c",
+      "size": 21238,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1789304913419849258,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1534004,
+      "mode": "0o644",
+      "mtime_ns": 1789304913419849258,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_public_s10_2d_aggregate_contract.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "cb6e1a346d8ba8128a9b1455203ef80795d788cbe19d921c6f6de940306ea0ec",
+      "size": 35645,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1789672356904908591,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1553212,
+      "mode": "0o644",
+      "mtime_ns": 1789672356904908591,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_public_s10_2d_health_gate.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "f7b448a83bb11deec35099a064520da8d164d254daff99cec5a482d0f5b95577",
+      "size": 9546,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788979018972633365,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1585573,
+      "mode": "0o644",
+      "mtime_ns": 1788979018972633365,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_public_s10_2d_state_reconcile.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "6b177c062bbd008bdbb382c15afd6901857a8b1c251222d3a995940ba346c248",
+      "size": 42226,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787936205822091789,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1579679,
+      "mode": "0o644",
+      "mtime_ns": 1787936205822091789,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 0
+        }
+      ],
+      "path": "scripts/__pycache__/tu1nz_adult_staging_manifest.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "13347a07bed88a189f599fbfe1ce1ac09dc04b32ba79d702e8761a8d7f97c4d5",
+      "size": 10047,
+      "type": "regular",
+      "uid": 0
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": false,
+      "ctime_ns": 1787727466546020261,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "EXECUTION_RELEVANT",
+      "inode": 1554572,
+      "mode": "0o755",
+      "mtime_ns": 1787727466546020261,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "scripts",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "scripts/encrypted_drive_backup",
+      "reason": "Executable legacy script; no direct installed unit/PATH link or container command reference observed; privileged crontab references pending",
+      "relevant_xattrs": [],
+      "sha256": "290b5f7a9212bc01cfd6ad42ef4d8fab8fac18aaadb97460f8416916e75cfc30",
+      "size": 1392,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787729324693554674,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554660,
+      "mode": "0o644",
+      "mtime_ns": 1787729324693554674,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "systemd",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "systemd/tu1nz-git-sync.service",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "45c8483b89ab82d83b42910b1372568548e8e10da3837edd105a16db3ef8f02d",
+      "size": 261,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "possible_source_or_configuration"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1787729324772557417,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1554661,
+      "mode": "0o644",
+      "mtime_ns": 1787729324772557417,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "systemd",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "systemd/tu1nz-git-sync.timer",
+      "reason": "Unit copy outside systemd load paths; matching installed unit names all not-found; no checkout symlinks in PATH",
+      "relevant_xattrs": [],
+      "sha256": "f47a908b83b08520cbe6505cafe944244465521d7501535078eadfbaeaa53b1f",
+      "size": 168,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798064570481,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679484,
+      "mode": "0o644",
+      "mtime_ns": 1788090798064570481,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_final_first_start.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "5df1b8962843e9f9b50550523208cdae82503a4906d4a6fd58c9205e217c2dad",
+      "size": 15475,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798110572095,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679485,
+      "mode": "0o644",
+      "mtime_ns": 1788090798110572095,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_first_start.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "020d4bd2d7ce2d61f94bd2d94f195332d8570334e9b8f00fceb0ddc95fb04478",
+      "size": 61588,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798149573464,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679486,
+      "mode": "0o644",
+      "mtime_ns": 1788090798149573464,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_host_access_design.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "dc1b4eb89e085f0df0ef5f9b7d0a9727298e47ada0e76b5f6e458a21c69a7e73",
+      "size": 15483,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798151573534,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679487,
+      "mode": "0o644",
+      "mtime_ns": 1788090798151573534,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_installation_authorization.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "4caa00defd25260ee7498d62e49fdd7bac45be9a87c52f7609c076b8d2499761",
+      "size": 8726,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798154573639,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679488,
+      "mode": "0o644",
+      "mtime_ns": 1788090798154573639,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_installation_preflight.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "109b0712829fc8a648f5ce52ac10353a51208ebd82b06007616a989c78e6ffe2",
+      "size": 8174,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798158573780,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679489,
+      "mode": "0o644",
+      "mtime_ns": 1788090798158573780,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_m4_26.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "f9d05631e509716c811e2b2be45fb08970482bbe852550105050ce6fdb643dcd",
+      "size": 9711,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798167574095,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679490,
+      "mode": "0o644",
+      "mtime_ns": 1788090798167574095,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_m4_27.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "8dc72256cd05109389197cb05991a574223d2f04833c1e6cd96130f0350c4e72",
+      "size": 12822,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798178574481,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679491,
+      "mode": "0o644",
+      "mtime_ns": 1788090798178574481,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_m4_28.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "03f26c887a7d0dacc642c05fc394308e26615326b66bcab0bdb25cb3a28b5fed",
+      "size": 21595,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798191574937,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679492,
+      "mode": "0o644",
+      "mtime_ns": 1788090798190574902,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_m4_29.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "32c65a5f8d45239a05bd0ae162310a310197d7c773b90a3d9ce4331c8e5612aa",
+      "size": 23908,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798202575323,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679493,
+      "mode": "0o644",
+      "mtime_ns": 1788090798202575323,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_readiness.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "28b6861938ecf05b386d0066e6c0117ffdf13010bc98054ed4cdd45eb028d0c1",
+      "size": 11718,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798210575604,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679494,
+      "mode": "0o644",
+      "mtime_ns": 1788090798210575604,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s0_installation_design.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "62feadc925da1505cae65a3ef11a871f5e8948dea08bedeb17be1b1994b8da8d",
+      "size": 28467,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798217575850,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679495,
+      "mode": "0o644",
+      "mtime_ns": 1788090798217575850,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s0_stopped_installation.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "699ffed28aaaf708f53e70cdbaaa50ad725fe8086529ddea212dfb6cb582eacd",
+      "size": 7742,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798220575955,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679496,
+      "mode": "0o644",
+      "mtime_ns": 1788090798220575955,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s0_unit_refresh.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "8879df3e646986ecb1a04b104d4fc70a19941b3c3c2333a2df0a5c0bfc32b1d5",
+      "size": 7547,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798224576095,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679497,
+      "mode": "0o644",
+      "mtime_ns": 1788090798224576095,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s3_1_bootstrap_ownership_control.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "d4daeb15fd4d914a8f0eb04a5f76e4b38cb3c747b0632191473fc786fec2f95b",
+      "size": 11300,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798230576306,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679498,
+      "mode": "0o644",
+      "mtime_ns": 1788090798230576306,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s3_2_rolling_debug_control.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "04cf8d22bb9e1d954aea7b641e71de246f4d56d6c7bd347d4c388999d41256b6",
+      "size": 9535,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798235576481,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1678026,
+      "mode": "0o644",
+      "mtime_ns": 1788090798235576481,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s3_server_staging_control.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "8a74a042bb777a352725e31b423504a2ef616f596972c7cdb1d8467dd8be34ad",
+      "size": 6992,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798253577113,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679499,
+      "mode": "0o644",
+      "mtime_ns": 1788090798253577113,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s4_extended_staging_control.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "2272f5e4d3e0eb563a6daf860a24dcd3a2e490470a4198be94f801c47da583f7",
+      "size": 14929,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798258577288,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679500,
+      "mode": "0o644",
+      "mtime_ns": 1788090798258577288,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s5_s6_offline_staging.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "2624b4d5a093fb67711e6f85ce2c5c23fb43fb0845491457cefc08f142d0e44d",
+      "size": 8063,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788091122683087809,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679518,
+      "mode": "0o664",
+      "mtime_ns": 1788091122683087809,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_commercial_s7_public_soft_launch.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "614eb45632bd50aa9427f4f30a9d36cf28f0f61c7b2a559ad7617d6b284ef4fc",
+      "size": 15205,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798266577569,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679501,
+      "mode": "0o644",
+      "mtime_ns": 1788090798266577569,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_restore_verify.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "6f352ea0b42fe0a91f244cbae40959fbcc1a7303448b5673cd097167a563ffe2",
+      "size": 22343,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798271577745,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679502,
+      "mode": "0o644",
+      "mtime_ns": 1788090798271577745,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_s0_deployment_readiness.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "f6d5c2d8ef179f843f95d5b0191ed0f12ce6af3b8dbe3a71124243463d5dffe9",
+      "size": 21962,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798276577920,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679503,
+      "mode": "0o644",
+      "mtime_ns": 1788090798276577920,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_adult_s1_runtime.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "f9fa7ab16aa557eb4672f8eb68e368eff2a45c94db818e540fbaace74e5de9fb",
+      "size": 25188,
+      "type": "regular",
+      "uid": 1001
+    },
+    {
+      "acls": {},
+      "active_shadow_risk": false,
+      "categories": [
+        "cache"
+      ],
+      "classification_stage": "BOUNDED_ROOT_COMPLETED_REFERENCE_SCOPE_LIMITED",
+      "controlled": true,
+      "ctime_ns": 1788090798283578166,
+      "execution_references": [],
+      "gid": 1001,
+      "hash_reason": "STABLE_REGULAR_BYTES_ONLY",
+      "ignore": {
+        "line": 2,
+        "matched": true,
+        "method": "isolated git check-ignore --no-index -v -z; local .gitignore + copied info/exclude; neutral globals",
+        "pattern": "*",
+        "source": ".gitignore"
+      },
+      "impact": "BENIGN",
+      "inode": 1679504,
+      "mode": "0o644",
+      "mtime_ns": 1788090798283578166,
+      "nlink": 1,
+      "parents": [
+        {
+          "component": "tests",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        },
+        {
+          "component": "__pycache__",
+          "gid": 1001,
+          "mode": "0o2755",
+          "uid": 1001
+        }
+      ],
+      "path": "tests/__pycache__/test_m4_29_2_agentmode_maintenance.cpython-312.pyc",
+      "reason": "Orphan __pycache__ entry: matching .py source absent; standard Python 3.12 import test refuses orphan cache; no observed direct loader reference",
+      "relevant_xattrs": [],
+      "sha256": "40c6f76426db434b58946de1afb93e10483109d73ddb6737e701b20a02549fa2",
+      "size": 30027,
+      "type": "regular",
+      "uid": 1001
+    }
+  ],
+  "entry_count": 99,
+  "generated_utc": "2026-10-02T15:15:25.461391+00:00",
+  "github_pr": 67,
+  "impact_counts": {
+    "BENIGN": 89,
+    "EXECUTION_RELEVANT": 9,
+    "SECURITY_RELEVANT": 1
+  },
+  "new_forward_commits": 2,
+  "parent_acls": [
+    {
+      "acls": {
+        "system.posix_acl_access": [
+          {
+            "effective_permissions": 7,
+            "id": null,
+            "permissions": 7,
+            "tag": "user_obj"
+          },
+          {
+            "effective_permissions": 1,
+            "id": 995,
+            "permissions": 1,
+            "tag": "user"
+          },
+          {
+            "effective_permissions": 1,
+            "id": 996,
+            "permissions": 1,
+            "tag": "user"
+          },
+          {
+            "effective_permissions": 7,
+            "id": 1001,
+            "permissions": 7,
+            "tag": "user"
+          },
+          {
+            "effective_permissions": 7,
+            "id": null,
+            "permissions": 7,
+            "tag": "group_obj"
+          },
+          {
+            "effective_permissions": 7,
+            "id": 1001,
+            "permissions": 7,
+            "tag": "group"
+          },
+          {
+            "effective_permissions": 7,
+            "id": null,
+            "permissions": 7,
+            "tag": "mask"
+          },
+          {
+            "effective_permissions": 0,
+            "id": null,
+            "permissions": 0,
+            "tag": "other"
+          }
+        ],
+        "system.posix_acl_default": [
+          {
+            "effective_permissions": 7,
+            "id": null,
+            "permissions": 7,
+            "tag": "user_obj"
+          },
+          {
+            "effective_permissions": 7,
+            "id": 1001,
+            "permissions": 7,
+            "tag": "user"
+          },
+          {
+            "effective_permissions": 7,
+            "id": null,
+            "permissions": 7,
+            "tag": "group_obj"
+          },
+          {
+            "effective_permissions": 5,
+            "id": 1001,
+            "permissions": 5,
+            "tag": "group"
+          },
+          {
+            "effective_permissions": 7,
+            "id": null,
+            "permissions": 7,
+            "tag": "mask"
+          },
+          {
+            "effective_permissions": 0,
+            "id": null,
+            "permissions": 0,
+            "tag": "other"
+          }
+        ]
+      },
+      "path": "/opt/tu1nz_repos"
+    },
+    {
+      "acls": {},
+      "path": "/opt/tu1nz_repos/control"
+    },
+    {
+      "acls": {},
+      "path": "/opt/tu1nz_repos/control/.git"
+    },
+    {
+      "acls": {},
+      "path": "/opt/tu1nz_repos/control/.git/refs"
+    },
+    {
+      "acls": {},
+      "path": "/opt/tu1nz_repos/control/.git/objects"
+    }
+  ],
+  "prior_trusted_commit": "b78bb2a753aa815d47a99969668d64960573050b",
+  "private_evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/untracked-impact-20261002T144106Z",
+  "protected_reference_results": {
+    "cron-00.json": {
+      "matches": [
+        {
+          "checkout_literal": true,
+          "comment": true,
+          "known_names": [],
+          "line": 2,
+          "pandoc_safe": false
+        }
+      ],
+      "path": "/var/spool/cron/crontabs/chatops",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "ee1b86fddef70cf05ac3f31f0333714b307fb7faa0b279da10eae07dacaab6bf"
+    },
+    "cron-01.json": {
+      "matches": [],
+      "path": "/var/spool/cron/crontabs/chatops.bak.20251106T185008Z",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "78b5c539e118681d17c919341677699732b9a4a6705a7d30a615a1fe62028284"
+    },
+    "cron-inventory.json": {
+      "paths": [
+        "/var/spool/cron/crontabs/chatops",
+        "/var/spool/cron/crontabs/chatops.bak.20251106T185008Z"
+      ],
+      "scope": "DIRECT_CHILDREN_REFERENCE_ONLY"
+    },
+    "git-config-00.json": {
+      "config_not_executed": true,
+      "path": "/root/.gitconfig",
+      "settings": [
+        {
+          "key": "safe.directory",
+          "line": 2,
+          "value": "OTHER_PATH_REDACTED",
+          "value_sha256": "3700398b5c9a88d4a2e27b6274ef1d0d56dc6e1867a0c6fd5e1753a990bc486d"
+        },
+        {
+          "key": "safe.directory",
+          "line": 3,
+          "value": "OTHER_PATH_REDACTED",
+          "value_sha256": "058c6698648d4abd4dc7dfe6a275833b9a496a656aa6e0f802edd1ed566b4db5"
+        }
+      ],
+      "sha256": "20ee242d4242d7e12f266254eae181752b784e6064b456cc46387df797dba4bc"
+    },
+    "git-config-01.json": {
+      "config_not_executed": true,
+      "path": "/etc/gitconfig",
+      "settings": [
+        {
+          "key": "safe.directory",
+          "line": 2,
+          "value": "OTHER_PATH_REDACTED",
+          "value_sha256": "3700398b5c9a88d4a2e27b6274ef1d0d56dc6e1867a0c6fd5e1753a990bc486d"
+        }
+      ],
+      "sha256": "6b64b67e2388648a7d4d73fbd81609d179070e6581d5846f5ab29bdca29a1302"
+    },
+    "helper-00.json": {
+      "matches": [],
+      "path": "/usr/local/bin/aide_daily.sh",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "3aa1df2a21c8f4ebef92ac2469756182950850f6642758c302479f36aba910eb"
+    },
+    "helper-01.json": {
+      "matches": [],
+      "path": "/usr/local/bin/backup_notify.sh",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "878fdc573fe13393656b73d2d0d9f38e93477af3b8e3094f03ac375c0defa311"
+    },
+    "helper-02.json": {
+      "matches": [],
+      "path": "/usr/local/bin/doku_agent_health.sh",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "96f0a2cd70582632ed5df5bb541dc40d677b96feef4ab13442e039e6c8400ab6"
+    },
+    "helper-03.json": {
+      "matches": [],
+      "path": "/usr/local/bin/tu1nz-ape-notify-core",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "57abd41fdf79763873d32f2c10e1469e7c6b0ef835d0aea8da90c4d05503b997"
+    },
+    "helper-04.json": {
+      "matches": [],
+      "path": "/etc/nginx/sites-available/tu1nz.conf",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "ddf14f890cf9d991b631371102663e8984f9586e3a2ee2afb7dace3b30a27843"
+    },
+    "helper-05.json": {
+      "matches": [],
+      "path": "/etc/nginx/sites-enabled/tu1nz.conf",
+      "scope": "REFERENCE_TOKENS_ONLY_NO_CONTENT",
+      "sha256": "65c0bc9d12981a4532d5453c668f8b2f9a4ad32cf5a7a18b8ef4ed3b56a0f062"
+    }
+  },
+  "root_evidence": {
+    "collector_sha256": "f5bb206c458cfca5375ad7ffca79e31980225b176907b5eae9f6e9969e9de140",
+    "manifest_sha256": "b5353fe3fa55670b5e0096dc7374c98092678168fe4c1fd8058b6110bbd5666e",
+    "path": "/var/lib/tu1nz-v11-untracked-evidence-zmagu4ae",
+    "sections": 31,
+    "status": "COMPLETE",
+    "writer_snapshots_clear": true
+  },
+  "root_metadata_paths": [],
+  "root_run_executed": true,
+  "schema": 1,
+  "snapshot_note": "Metadata completed; prior nonprivileged snapshot retained. Negative literal references are bounded evidence, not proof against arbitrary dynamic/manual calls.",
+  "statuses": {
+    "CHECKOUT_CONTRACT": "UNPROVEN",
+    "TRACKED_INTEGRITY": "PASS",
+    "UNTRACKED_IMPACT": "SECURITY_RELEVANT",
+    "overall": "CHECKOUT_CONTRACT_UNPROVEN"
+  },
+  "test_results": {
+    "manifest_sha256": "1e33baf98dbf26d336120651ef2ed6051868ec5f87b54e131afd1be90cd9853c",
+    "new_tests": 40,
+    "targeted": 594,
+    "workflow_run_blocks": 108
+  },
+  "tracked_commit": "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
+  "tracked_tree": "28715cc0b6eaa4ab5c17fd659fffbd1afbacfcc1"
+}
