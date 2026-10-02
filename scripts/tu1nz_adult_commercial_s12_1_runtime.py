@@ -41,6 +41,7 @@ BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
 XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
+BARRIER_RELEASE_COMPLETION_SCHEMA = "TU1NZ_S12_1_BARRIER_RELEASE_COMPLETE_V1"
 TRACKED_PATH_HASH_SCHEMA = b"TU1NZ_S12_1_TRACKED_PATH_HASHES_V1\0"
 ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
 ROLLBACK_PHASE_STARTED = "RESTORE_STARTED"
@@ -77,6 +78,7 @@ RELEASE_ENVIRONMENT = RELEASE_ROOT / "runtime-environment.json"
 ATTEMPT_MARKER = STATE_ROOT / "deployment-attempted.json"
 BARRIER_MARKER = STATE_ROOT / "repository-barrier.json"
 BARRIER_RELEASE_BACKUP = STATE_ROOT / "repository-barrier.release-backup.json"
+BARRIER_RELEASE_COMPLETION = STATE_ROOT / "repository-barrier.release-complete.json"
 FETCH_ROOT = DEPLOYMENT_LOCK_ROOT / ".s12-1-fetch"
 RELEASE_INPUT_ROOT = Path("/opt/tu1nz_repos/backups/s12-1-input")
 APPLICATION_INPUT_BUNDLE = RELEASE_INPUT_ROOT / "application.bundle"
@@ -401,6 +403,45 @@ def _assert_barrier_release_file(path: Path, *, links: int) -> os.stat_result:
         ) from None
 
 
+def _barrier_release_completion() -> dict[str, Any] | None:
+    if not _barrier_path_present(BARRIER_RELEASE_COMPLETION):
+        return None
+    value = _private_json(
+        BARRIER_RELEASE_COMPLETION,
+        "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+    )
+    if (
+        set(value) != {"schema", "completed_at", "journal_sha256"}
+        or value.get("schema") != BARRIER_RELEASE_COMPLETION_SCHEMA
+        or not isinstance(value.get("completed_at"), str)
+        or not value["completed_at"]
+        or not isinstance(value.get("journal_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", value["journal_sha256"]) is None
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    return value
+
+
+def _write_barrier_release_completion() -> None:
+    _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=1)
+    _atomic_json(
+        BARRIER_RELEASE_COMPLETION,
+        {
+            "schema": BARRIER_RELEASE_COMPLETION_SCHEMA,
+            "completed_at": datetime.now(timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "journal_sha256": _sha256(BARRIER_RELEASE_BACKUP),
+        },
+    )
+    completion = _barrier_release_completion()
+    if (
+        completion is None
+        or completion["journal_sha256"] != _sha256(BARRIER_RELEASE_BACKUP)
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+
+
 def _normalize_barrier_release_backup() -> None:
     """Restore the canonical journal after an interrupted guarded release."""
 
@@ -417,6 +458,16 @@ def _normalize_barrier_release_backup() -> None:
             )
         _durable_unlink(BARRIER_RELEASE_BACKUP)
         _assert_barrier_release_file(BARRIER_MARKER, links=1)
+        return
+    completion = _barrier_release_completion()
+    if completion is not None:
+        _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=1)
+        if _sha256(BARRIER_RELEASE_BACKUP) != completion["journal_sha256"]:
+            raise S12ControlError(
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+            )
+        _fsync_directory(STATE_ROOT)
+        _durable_unlink(BARRIER_RELEASE_BACKUP)
         return
     _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=1)
     try:
@@ -8022,6 +8073,7 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
             worktree_guard = None
             metadata_guard.finalize_release()
             metadata_guard = None
+            _write_barrier_release_completion()
             _durable_unlink(BARRIER_RELEASE_BACKUP)
         finally:
             if worktree_guard is not None:
@@ -8059,6 +8111,18 @@ def _recover_locked() -> dict[str, Any]:
     _normalize_barrier_release_backup()
     barrier_present = _barrier_journal_present()
     attempt_present = ATTEMPT_MARKER.exists() or ATTEMPT_MARKER.is_symlink()
+    if (
+        not barrier_present
+        and not attempt_present
+        and _barrier_release_completion() is not None
+    ):
+        result = {
+            "ok": True,
+            "safe_code": "S12_1_ORPHAN_BARRIER_RECOVERED",
+            "rollback_count": 0,
+        }
+        _atomic_json(STATE_ROOT / "recovery-result.json", result)
+        return result
     if barrier_present and not attempt_present:
         result = _recover_repository_barrier_only()
         _atomic_json(STATE_ROOT / "recovery-result.json", result)

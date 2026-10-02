@@ -5637,6 +5637,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime, "_prepare_barrier_release_backup"
             ) as prepare_release_backup,
+            mock.patch.object(
+                runtime, "_write_barrier_release_completion"
+            ) as write_release_completion,
             mock.patch.object(runtime, "_durable_unlink") as unlink,
             mock.patch.object(runtime, "_ensure_barrier_journal") as ensure,
             mock.patch.object(
@@ -5689,6 +5692,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ],
         )
         prepare_release_backup.assert_called_once_with()
+        write_release_completion.assert_called_once_with()
         self.assertEqual(
             unlink.call_args_list,
             [
@@ -5786,6 +5790,72 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertTrue(marker.is_file())
             self.assertFalse(backup.exists())
             self.assertEqual(marker.stat().st_nlink, 1)
+
+    def test_completed_barrier_release_is_retryable_without_journal_link(
+        self,
+    ) -> None:
+        completion = {
+            "schema": runtime.BARRIER_RELEASE_COMPLETION_SCHEMA,
+            "completed_at": "2026-10-02T00:00:00Z",
+            "journal_sha256": "a" * 64,
+        }
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(runtime, "_normalize_barrier_release_backup"),
+            mock.patch.object(runtime, "_barrier_journal_present", return_value=False),
+            mock.patch.object(runtime, "_barrier_release_completion", return_value=completion),
+            mock.patch.object(runtime, "ATTEMPT_MARKER", Path("/missing-attempt")),
+            mock.patch.object(runtime, "_atomic_json") as atomic_json,
+        ):
+            result = runtime._recover_locked()
+
+        self.assertEqual(result["safe_code"], "S12_1_ORPHAN_BARRIER_RECOVERED")
+        self.assertEqual(result["rollback_count"], 0)
+        atomic_json.assert_called_once_with(
+            runtime.STATE_ROOT / "recovery-result.json", result
+        )
+
+    def test_completed_barrier_release_keeps_backup_until_completion_fsync(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            marker = state / "repository-barrier.json"
+            backup = state / "repository-barrier.release-backup.json"
+            completion_path = state / "repository-barrier.release-complete.json"
+            backup.write_text("{}\n", encoding="ascii")
+            backup.chmod(0o600)
+            completion = {
+                "schema": runtime.BARRIER_RELEASE_COMPLETION_SCHEMA,
+                "completed_at": "2026-10-02T00:00:00Z",
+                "journal_sha256": runtime._sha256(backup),
+            }
+            with (
+                mock.patch.object(runtime, "STATE_ROOT", state),
+                mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(runtime, "BARRIER_RELEASE_BACKUP", backup),
+                mock.patch.object(
+                    runtime, "BARRIER_RELEASE_COMPLETION", completion_path
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_barrier_release_completion",
+                    return_value=completion,
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_fsync_directory",
+                    side_effect=runtime.S12ControlError("S12_1_DURABILITY_RED"),
+                ),
+                mock.patch.object(runtime, "_durable_unlink") as unlink,
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_DURABILITY_RED"
+                ),
+            ):
+                runtime._normalize_barrier_release_backup()
+
+            unlink.assert_not_called()
+            self.assertTrue(backup.is_file())
 
     def test_pristine_legacy_orphan_rechecks_before_journal_release(self) -> None:
         metadata_guard = mock.Mock(unsafe=True)

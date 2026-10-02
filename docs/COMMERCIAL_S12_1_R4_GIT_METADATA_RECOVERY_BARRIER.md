@@ -245,6 +245,10 @@ unlink while a root-private hard-link backup retains the exact journal. The
 backup is durably removed only after both ordered inotify shutdown barriers
 finish; an interrupted or failed finalization is normalized back to the
 canonical journal path by the next canonical recovery.
+A root-private completion tombstone binds the retained journal digest before
+the final backup unlink and remains as evidence. This keeps a failed final
+unlink/fsync distinguishable and safely retryable even if that directory entry
+has already disappeared.
 Before a V1 state can enter that guarded interval, the parent, repository roots
 and every tracked barrier path are checked for unbound xattrs. Only base POSIX
 access/default ACL entries without named principals are accepted; every other
