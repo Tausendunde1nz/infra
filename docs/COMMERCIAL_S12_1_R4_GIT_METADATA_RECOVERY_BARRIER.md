@@ -85,6 +85,12 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    binds nested modes, names, inode identities, sizes, mtimes and file bytes.
    Flush repository filesystems throughout; the synchronized watch-removal
    barrier is the transaction's explicit writer-release point.
+   Fanotify classifies only native open forms whose access flags are present in
+   immutable syscall arguments; `openat2` remains fail-closed because its
+   already-consumed `open_how` userspace structure can change while the caller
+   is blocked. Worker health is checked before every sentinel open, and a
+   worker error closes the permission group to wake blocked syscalls before the
+   controller reports RED.
 
 The namespace locks prevent an unprivileged writer from replacing `.git` in
 the scan/exchange race. The fingerprint plus the kernel mutation watch closes
@@ -116,6 +122,8 @@ subsequent validation or Git transition.
 | private copy-on-write mapping without writable fd | allowed |
 | new path-based tracked-file writer after lock | blocked by permissions |
 | external read-only open during release | allowed after blocked-syscall flag proof |
+| `openat2` during release | unclassifiable mutable argument; held fail-closed |
+| fanotify worker error/overflow | permission group closed to wake waiters; RED |
 | writer waiting for restored owner permission | detected by release watch; RED |
 | new writable mmap opened during release | blocked/denied by fanotify; RED |
 | nested `.git` create/write during release | recursively watched and fingerprinted; RED |

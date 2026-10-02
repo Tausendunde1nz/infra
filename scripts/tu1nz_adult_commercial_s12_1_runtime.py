@@ -3802,40 +3802,6 @@ class _WorktreeReleaseGuard:
         )
         os.close(event_descriptor)
 
-    @staticmethod
-    def _open_how_flags(pid: int, address: int) -> int:
-        class IOVec(ctypes.Structure):
-            _fields_ = [
-                ("base", ctypes.c_void_p),
-                ("length", ctypes.c_size_t),
-            ]
-
-        library = ctypes.CDLL(None, use_errno=True)
-        process_vm_readv = library.process_vm_readv
-        process_vm_readv.argtypes = [
-            ctypes.c_int,
-            ctypes.POINTER(IOVec),
-            ctypes.c_ulong,
-            ctypes.POINTER(IOVec),
-            ctypes.c_ulong,
-            ctypes.c_ulong,
-        ]
-        process_vm_readv.restype = ctypes.c_ssize_t
-        flags = ctypes.c_uint64()
-        local = IOVec(ctypes.addressof(flags), ctypes.sizeof(flags))
-        remote = IOVec(address, ctypes.sizeof(flags))
-        transferred = process_vm_readv(
-            pid,
-            ctypes.byref(local),
-            1,
-            ctypes.byref(remote),
-            1,
-            0,
-        )
-        if transferred != ctypes.sizeof(flags):
-            raise OSError(ctypes.get_errno(), "process_vm_readv")
-        return flags.value
-
     @classmethod
     def _fanotify_request_is_read_only(cls, pid: int) -> bool:
         """Classify the blocked opener; unknown requests remain fail-closed."""
@@ -3875,9 +3841,11 @@ class _WorktreeReleaseGuard:
                 return False
             if syscall in creators:
                 return False
-            if syscall == 437:  # openat2(dfd, path, struct open_how *, size)
-                flags = cls._open_how_flags(pid, int(fields[3], 0))
-            elif syscall in open_by_handle:
+            if syscall == 437:
+                # The kernel already copied open_how before the permission
+                # event; its userspace pointer is mutable while blocked.
+                return False
+            if syscall in open_by_handle:
                 flags = int(fields[3], 0)
             else:
                 index = open_flags_index.get(syscall)
@@ -3945,13 +3913,32 @@ class _WorktreeReleaseGuard:
                             self.fanotify_external_open = True
                             self.fanotify_pending.append(event_descriptor)
         except OSError:
+            failed_descriptor: int | None = None
             with self.fanotify_lock:
                 self.fanotify_error = True
+                if self.fanotify_descriptor == descriptor:
+                    failed_descriptor = descriptor
+                    self.fanotify_descriptor = None
+            if failed_descriptor is not None:
+                try:
+                    os.close(failed_descriptor)
+                except OSError:
+                    pass
 
     def _assert_fanotify_quiet(self) -> None:
         if self.fanotify_descriptor is None:
+            if self.fanotify_error:
+                raise S12ControlError(
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
             return
-        if self.sentinel_path is None or self.fanotify_thread is None:
+        with self.fanotify_lock:
+            worker_failed = (
+                self.fanotify_error
+                or self.fanotify_thread is None
+                or not self.fanotify_thread.is_alive()
+            )
+        if worker_failed or self.sentinel_path is None:
             raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
         try:
             sentinel = os.open(
@@ -4142,6 +4129,8 @@ class _WorktreeReleaseGuard:
         with self.fanotify_lock:
             pending = tuple(self.fanotify_pending)
             self.fanotify_pending.clear()
+            fanotify_descriptor = self.fanotify_descriptor
+            self.fanotify_descriptor = None
         for event_descriptor in pending:
             try:
                 self._fanotify_respond(event_descriptor, self._FAN_DENY)
@@ -4150,11 +4139,11 @@ class _WorktreeReleaseGuard:
                     os.close(event_descriptor)
                 except OSError:
                     pass
-        if self.fanotify_descriptor is not None:
+        if fanotify_descriptor is not None:
             try:
-                os.close(self.fanotify_descriptor)
-            finally:
-                self.fanotify_descriptor = None
+                os.close(fanotify_descriptor)
+            except OSError:
+                pass
         if self.descriptor is not None:
             try:
                 os.close(self.descriptor)

@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager
 from datetime import datetime
@@ -2439,6 +2440,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ("257 0 0 0x80001 0 0 0 0 0", False),
             (f"257 0 0 {os.O_TRUNC:#x} 0 0 0 0 0", False),
             ("85 0 0 0 0 0 0 0 0", False),
+            ("437 0 0 0x1234 0 0 0 0 0", False),
             ("999 0 0 0 0 0 0 0 0", False),
         )
         for payload, expected in cases:
@@ -2455,6 +2457,44 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     ),
                     expected,
                 )
+
+    def test_fanotify_worker_failure_precedes_sentinel_open(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_error = True
+        guard.fanotify_thread = mock.MagicMock()
+        guard.fanotify_lock = threading.Lock()
+        guard.sentinel_path = Path("/guarded")
+
+        with (
+            mock.patch.object(runtime.os, "open") as open_path,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            guard._assert_fanotify_quiet()
+
+        open_path.assert_not_called()
+
+    def test_fanotify_worker_failure_closes_permission_group(self) -> None:
+        guard = object.__new__(runtime._WorktreeReleaseGuard)
+        guard.fanotify_descriptor = 123
+        guard.fanotify_error = False
+        guard.fanotify_lock = threading.Lock()
+        guard.fanotify_stop = threading.Event()
+
+        with (
+            mock.patch.object(
+                runtime.select, "select", side_effect=OSError("overflow")
+            ),
+            mock.patch.object(runtime.os, "close") as close,
+        ):
+            guard._fanotify_loop()
+
+        self.assertTrue(guard.fanotify_error)
+        self.assertIsNone(guard.fanotify_descriptor)
+        close.assert_called_once_with(123)
 
     def test_git_release_fingerprint_binds_nested_metadata_and_modes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -3056,6 +3096,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         guard = object.__new__(runtime._WorktreeReleaseGuard)
         guard.descriptor = 123
         guard.fanotify_descriptor = None
+        guard.fanotify_error = False
         observed: list[str] = []
 
         with (
