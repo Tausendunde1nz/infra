@@ -1,0 +1,27 @@
+{
+  "activation_launcher_created": false,
+  "approval_empty_gate": false,
+  "approval_payloads_required": false,
+  "base_commit": "3285fda95d0a11e28fb1ee58a644e9e08299b4f1",
+  "files": {
+    "scripts/privileged_v11_recovery/recovery_protocol.py": "b037b6f793df1882f0e72290155a04a30622e04e9cf16fc460ca72d137a94cc7",
+    "scripts/privileged_v11_recovery/test_recovery_protocol.py": "10fe0fbde8a814cd74eaa0cd8417730e3d3d1b47895ce4f858c8e3be86560c58",
+    "scripts/v11_scoped_evidence/bootstrap.py": "4699b55afae453276b47534a70436506bf42030b34a963ea16e44a6b06dd36dd",
+    "scripts/v11_scoped_evidence/collector.py": "a1d139c258d954a74cf91db33b9cc03390ce6628b980b8dbbd3c71e0637791e8",
+    "scripts/v11_scoped_evidence/command.py": "ad3b94335ba81efeb7c94c4618f467f6bae1d7560287bd3f6f1dc090456ef8a8",
+    "scripts/v11_scoped_evidence/test_scoped_evidence.py": "5c9b684e1b93898fcebc736fd7f9cc9c932cb246bf342c437d5a90076d24a1e2"
+  },
+  "independent_watchdog_complete": false,
+  "known_optional_skips": 2,
+  "overall_status": "LIVE_NO_GO",
+  "private_evidence": {
+    "final-tests-reviewed/results.json": "5448e25eeb7ab0152f77fcbb16f1d9ce0ff4cfdff526a0f00b93d6a71cec5a5a",
+    "final-tests/results.json": "24c2efafb1d3939c670d76b7378192246cb2a76ecb6f0bf3e5090e15cd526ca4",
+    "preservation.json": "e5cc2c6243aa662ba16cb795d475279bffbd344614369ee3974a4d1c87df6317"
+  },
+  "production_integration_complete": false,
+  "root_run": false,
+  "scoped_reader_status": "OFFLINE_TESTED_NOT_EXECUTED",
+  "targeted_tests": 488,
+  "workflow_steps": 108
+}
