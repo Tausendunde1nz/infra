@@ -590,6 +590,24 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ],
                 check=True,
             )
+            subprocess.run(
+                [
+                    "git", "--git-dir", str(repository), "config",
+                    "filter.evil.clean", "/bin/false",
+                ],
+                check=True,
+            )
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_ROOT_GIT_CONFIG_RED"
+            ):
+                runtime._validate_root_git_contract(repository)
+            subprocess.run(
+                [
+                    "git", "--git-dir", str(repository), "config",
+                    "--unset-all", "filter.evil.clean",
+                ],
+                check=True,
+            )
             hook = repository / "hooks" / "pre-commit"
             hook.write_text("#!/bin/sh\nexit 1\n", encoding="ascii")
             with self.assertRaisesRegex(
@@ -5897,6 +5915,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(
                     runtime, "_assert_legacy_path_xattrs_safe"
                 ) as path_xattrs,
+                mock.patch.object(
+                    runtime, "_validate_root_git_contract"
+                ) as root_git_contract,
             ):
                 records = {
                     application: runtime._repository_path_metadata(application),
@@ -5931,6 +5952,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                             control / "tracked.txt",
                             "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
                         ),
+                    ],
+                )
+                self.assertEqual(
+                    root_git_contract.call_args_list,
+                    [
+                        mock.call(application / ".git"),
+                        mock.call(control / ".git"),
                     ],
                 )
 

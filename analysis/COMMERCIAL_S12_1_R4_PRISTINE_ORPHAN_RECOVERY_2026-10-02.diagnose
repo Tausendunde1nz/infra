@@ -52,6 +52,9 @@ Before either guard baseline is accepted, every unbound V1 xattr surface is
 validated: parent, repository roots and tracked barrier paths permit only base
 POSIX access/default ACL entries without named principals; every other xattr
 fails closed.
+The repository-local Git contract is also validated before any identity/status
+command, so clean/smudge filters, executable hooks and other local execution
+surfaces cannot participate in the legacy classification.
 The controller releases only the journal. No repository xattr, ACL, mode,
 ownership, Git metadata or tracked content is changed.
 

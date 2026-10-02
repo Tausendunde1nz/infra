@@ -7925,6 +7925,7 @@ def _pristine_legacy_orphan_is_releasable(
             _assert_legacy_path_xattrs_safe(
                 path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
             )
+        _validate_root_git_contract(root / ".git")
         _validate_canonical_index(root, root / ".git")
     tracked_paths = _tracked_worktree_regular_paths(roots)
 
