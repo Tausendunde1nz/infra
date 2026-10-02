@@ -1,0 +1,19 @@
+{
+  "active_invocation_proven": false,
+  "no_live_command": true,
+  "offline_test": "Hash-bound copy into isolated directory and exact removal of only the newly created matching candidate; original bytes remain unchanged",
+  "preconditions": [
+    "Finish root reference checks",
+    "Confirm actual invoking service/identity",
+    "Preserve current source/reader bytes, modes, ACL and hashes",
+    "Bind reviewed map content and protected candidate path",
+    "Reject symlink, hardlink, unexpected owner or hash drift"
+  ],
+  "preferred_strategy": "Version reviewed mapping and make a verified immutable runtime copy; retain current file until a separately approved caller cutover",
+  "reader": "/usr/local/bin/pandoc_safe",
+  "reader_sha256": "774301cac338d38cbcc73707f4a1c2fbc0d19978df514235bec09f5e564e3aab",
+  "rollback": "Before cutover discard only own matching candidate; after any future cutover restore backed-up caller only under reviewed authority model, otherwise keep caller stopped. Never delete existing evidence or restore an unsafe privileged dependency automatically.",
+  "source": "/opt/tu1nz_repos/control/emoji_map.sed",
+  "source_sha256": "eece58840199bb578c97994246d990c9ef842ced06d29c579e5cc42064d6655b",
+  "status": "OFFLINE_DESIGN_ONLY_NO_ACTIVATION"
+}

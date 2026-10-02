@@ -1,0 +1,21 @@
+{
+  "preservation": {
+    "baseline": 701,
+    "hardening": 42,
+    "historical": 1125,
+    "v9_sources": 30
+  },
+  "private_evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/untracked-impact-20261002T144106Z",
+  "protected_reference_count": 6,
+  "remaining_metadata_count": 18,
+  "root_run_executed": false,
+  "source_base_commit": "dd5e11d6776c1ca3c05c9a6b2c5b542949a97c9e",
+  "sources": {
+    "bootstrap.py": "d87c8c6e953f4a15a42e794e5d73b2eff2e45f1d1be16ab44be10ee6b1a893f3",
+    "collector.py": "f5bb206c458cfca5375ad7ffca79e31980225b176907b5eae9f6e9969e9de140",
+    "command.py": "c889602d4c670557573e1d135d2857c66d4b665f00e299a69d903e8acdbad224",
+    "impact.py": "92fbf5413b7fe68155fb815814f63a74a3a9041bc70029c84752e1ae20625ec8",
+    "test_impact.py": "0ed26a73b2550b7c1ded007182f0d9f6ff2e88a0f48fd1c83f5799819e7eebcb"
+  },
+  "test_manifest_sha256": "1e33baf98dbf26d336120651ef2ed6051868ec5f87b54e131afd1be90cd9853c"
+}
