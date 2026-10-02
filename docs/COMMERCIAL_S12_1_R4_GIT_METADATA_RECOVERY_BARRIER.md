@@ -249,9 +249,10 @@ Before a V1 state can enter that guarded interval, the parent, repository roots
 and every tracked barrier path are checked for unbound xattrs. Only base POSIX
 access/default ACL entries without named principals are accepted; every other
 xattr fails closed.
-The repository-local Git contract is validated before every legacy
-identity/status check as well; clean/smudge filters, executable hooks and other
-local execution surfaces therefore fail closed before Git can invoke them.
+The initial V1 shape check is filesystem-only. Repository-local Git contracts,
+canonical indexes and identity/status commands run only after both continuous
+guards are installed; clean/smudge filters, executable hooks and other local
+execution surfaces therefore cannot participate in an unguarded classifier.
 
 This path performs no repository permission or ownership transition. It
 therefore neither upgrades unbound legacy ACL/xattr state nor constructs a new

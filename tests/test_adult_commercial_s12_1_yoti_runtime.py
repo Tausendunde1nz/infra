@@ -5645,7 +5645,30 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         ):
             result = runtime._recover_repository_barrier_only()
 
-        self.assertEqual(releasable.call_count, 3)
+        self.assertEqual(
+            releasable.call_args_list,
+            [
+                mock.call(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                    guarded_git_checks=False,
+                ),
+                mock.call(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+                mock.call(
+                    records,
+                    parent_record,
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ],
+        )
         metadata_guard_type.assert_called_once_with(
             (Path("/application/.git"), Path("/control/.git")),
             allow_root_lock_events=False,
@@ -5959,6 +5982,54 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     [
                         mock.call(application / ".git"),
                         mock.call(control / ".git"),
+                    ],
+                )
+                parent_xattrs.reset_mock()
+                path_xattrs.reset_mock()
+                root_git_contract.reset_mock()
+                with (
+                    mock.patch.object(
+                        runtime,
+                        "_tracked_worktree_barrier_paths",
+                        side_effect=AssertionError("unguarded Git path lookup"),
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_validate_canonical_index",
+                        side_effect=AssertionError("unguarded index check"),
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_selected_identity",
+                        side_effect=AssertionError("unguarded identity check"),
+                    ),
+                    mock.patch.object(
+                        runtime,
+                        "_tracked_worktree_regular_paths",
+                        side_effect=AssertionError("unguarded tracked scan"),
+                    ),
+                ):
+                    self.assertTrue(
+                        runtime._pristine_legacy_orphan_is_releasable(
+                            records,
+                            parent_record,
+                            None,
+                            runtime.LEGACY_BARRIER_SCHEMA,
+                            guarded_git_checks=False,
+                        )
+                    )
+                root_git_contract.assert_not_called()
+                self.assertEqual(
+                    path_xattrs.call_args_list,
+                    [
+                        mock.call(
+                            application,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
+                        mock.call(
+                            control,
+                            "S12_1_RECOVERY_GIT_BARRIER_RED",
+                        ),
                     ],
                 )
 

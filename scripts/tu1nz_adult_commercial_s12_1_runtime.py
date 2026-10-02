@@ -7878,6 +7878,8 @@ def _pristine_legacy_orphan_is_releasable(
     parent_record: dict[str, Any],
     worktree_barrier: dict[Path, dict[Path, dict[str, Any]]] | None,
     schema: str,
+    *,
+    guarded_git_checks: bool = True,
 ) -> bool:
     """Recognize a V1 journal left before any repository mutation began."""
 
@@ -7921,13 +7923,16 @@ def _pristine_legacy_orphan_is_releasable(
         _assert_legacy_path_xattrs_safe(
             root, "S12_1_RECOVERY_GIT_BARRIER_RED"
         )
-        for path in _tracked_worktree_barrier_paths(root):
-            _assert_legacy_path_xattrs_safe(
-                path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
-            )
-        _validate_root_git_contract(root / ".git")
-        _validate_canonical_index(root, root / ".git")
-    tracked_paths = _tracked_worktree_regular_paths(roots)
+        if guarded_git_checks:
+            for path in _tracked_worktree_barrier_paths(root):
+                _assert_legacy_path_xattrs_safe(
+                    path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                )
+            _validate_root_git_contract(root / ".git")
+            _validate_canonical_index(root, root / ".git")
+    tracked_paths = (
+        _tracked_worktree_regular_paths(roots) if guarded_git_checks else ()
+    )
 
     def assert_no_writer() -> None:
         if (
@@ -7940,8 +7945,9 @@ def _pristine_legacy_orphan_is_releasable(
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
 
     assert_no_writer()
-    for root in roots:
-        _selected_identity(root, root / ".git")
+    if guarded_git_checks:
+        for root in roots:
+            _selected_identity(root, root / ".git")
     assert_no_writer()
     return True
 
@@ -7969,7 +7975,11 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
         _load_barrier_journal()
     )
     if _pristine_legacy_orphan_is_releasable(
-        records, parent_record, existing_worktree_barrier, schema
+        records,
+        parent_record,
+        existing_worktree_barrier,
+        schema,
+        guarded_git_checks=False,
     ):
         roots = (APPLICATION_ROOT, CONTROL_ROOT)
         metadata_guard: _GitMetadataTransitionGuard | None = None
