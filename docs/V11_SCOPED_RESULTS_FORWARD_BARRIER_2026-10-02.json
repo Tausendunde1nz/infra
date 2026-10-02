@@ -1,0 +1,27 @@
+{
+  "branch_ci": "CHECK_AFTER_PUSH",
+  "detached_actual_head": "b78bb2a753aa815d47a99969668d64960573050b",
+  "detached_clean": null,
+  "detached_expected_head": "9b383960291da469671c3888cfa4fdcc3c33cf01",
+  "detached_index": {
+    "gid": 1001,
+    "inode": 1460562,
+    "mode": "0600",
+    "uid": 0
+  },
+  "detached_status_error": "INDEX_PERMISSION_DENIED",
+  "integration_1cf0d79_preserved": true,
+  "live_activation": false,
+  "preservation": {
+    "baseline_files": 701,
+    "hardening_files": 42,
+    "historical_evidence": 1125,
+    "v9_sources": 30
+  },
+  "root_run_48_files_preserved": true,
+  "status": "LIVE_NO_GO_BASELINE_DRIFT",
+  "targeted_tests": 519,
+  "test_manifest_sha256": "18df6546f71f3b78391b18c9f8f4d4b2a79c3e2ff87ae6431ffb6ac1ce914b0a",
+  "utc": "2026-10-02T13:30:08.316124+00:00",
+  "workflow_steps_passed": 108
+}
