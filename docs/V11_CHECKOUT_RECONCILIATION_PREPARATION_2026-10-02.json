@@ -1,0 +1,29 @@
+{
+  "ahead": 17,
+  "base_commit": "79cdc7019a0b9b934aba07281d4e78fda8073819",
+  "behind": 0,
+  "expected_control_commit": "b78bb2a753aa815d47a99969668d64960573050b",
+  "expected_control_tree": "5135053083ceb2e669e5932cf0ff61b3d24dab9d",
+  "github_pr": 65,
+  "live_activation": false,
+  "new_tests": 35,
+  "preservation": {
+    "baseline": 701,
+    "hardening": 42,
+    "historical": 1125,
+    "v9_sources": 30
+  },
+  "private_evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/checkout-attestation-20261002T134042Z",
+  "root_execution": false,
+  "sources": {
+    "bootstrap.py": "7a8beb94e0dbfa994ac84577d38e31acaf035aafee3ffd861d1fffed7cd3eaf3",
+    "collector.py": "2d0c799bc846344da0688b0feb1dd41b7ca25e53a1db8e28c81c0cb44bf4fd28",
+    "command.py": "b40c61e06fd6897be8c02a98bfc9154ec191c99a004dac7b24cf374a2beca427",
+    "test_attestation.py": "7b122bca1458e84a97a7aaf9e9e869c48efef0bb458a59f9c74053a24bb9db82"
+  },
+  "status": "ROOT_ATTESTATION_PREPARED_OWNERSHIP_CONTRACT_UNCONFIRMED",
+  "targeted_tests": 554,
+  "test_manifest_sha256": "a32486a3923c9319c7ca23430f871325bebf41ac08068f84d73d2bb9be84f72d",
+  "trusted_previous_control": "9b383960291da469671c3888cfa4fdcc3c33cf01",
+  "workflow_steps": 108
+}
