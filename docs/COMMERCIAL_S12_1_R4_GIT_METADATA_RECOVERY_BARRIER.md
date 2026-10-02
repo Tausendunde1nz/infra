@@ -241,7 +241,10 @@ handles, tracked-file writers and exact parent-directory handles must be absent.
 Before the final validation, continuous Git-metadata and
 repository-parent/tracked-worktree mutation guards are installed; the latter
 also denies external write opens. Both remain live through the durable journal
-unlink and use ordered inotify shutdown barriers before recovery returns.
+unlink while a root-private hard-link backup retains the exact journal. The
+backup is durably removed only after both ordered inotify shutdown barriers
+finish; an interrupted or failed finalization is normalized back to the
+canonical journal path by the next canonical recovery.
 Before a V1 state can enter that guarded interval, the parent, repository roots
 and every tracked barrier path are checked for unbound xattrs. Only base POSIX
 access/default ACL entries without named principals are accepted; every other

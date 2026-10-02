@@ -76,6 +76,7 @@ RELEASE_VENV_ROOT = RELEASE_ROOT / "venv"
 RELEASE_ENVIRONMENT = RELEASE_ROOT / "runtime-environment.json"
 ATTEMPT_MARKER = STATE_ROOT / "deployment-attempted.json"
 BARRIER_MARKER = STATE_ROOT / "repository-barrier.json"
+BARRIER_RELEASE_BACKUP = STATE_ROOT / "repository-barrier.release-backup.json"
 FETCH_ROOT = DEPLOYMENT_LOCK_ROOT / ".s12-1-fetch"
 RELEASE_INPUT_ROOT = Path("/opt/tu1nz_repos/backups/s12-1-input")
 APPLICATION_INPUT_BUNDLE = RELEASE_INPUT_ROOT / "application.bundle"
@@ -366,6 +367,98 @@ def _durable_unlink(path: Path) -> None:
     except OSError:
         raise S12ControlError("S12_1_DURABILITY_RED") from None
     _fsync_directory(path.parent)
+
+
+def _barrier_path_present(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _barrier_journal_present() -> bool:
+    return _barrier_path_present(BARRIER_MARKER) or _barrier_path_present(
+        BARRIER_RELEASE_BACKUP
+    )
+
+
+def _assert_barrier_release_file(path: Path, *, links: int) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+        expected_uid = 0 if os.geteuid() == 0 else os.geteuid()
+        expected_gid = 0 if os.geteuid() == 0 else os.getegid()
+        if (
+            path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != expected_uid
+            or metadata.st_gid != expected_gid
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != links
+            or not 1 <= metadata.st_size <= 131072
+        ):
+            raise OSError
+        return metadata
+    except OSError:
+        raise S12ControlError(
+            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+        ) from None
+
+
+def _normalize_barrier_release_backup() -> None:
+    """Restore the canonical journal after an interrupted guarded release."""
+
+    marker_present = _barrier_path_present(BARRIER_MARKER)
+    backup_present = _barrier_path_present(BARRIER_RELEASE_BACKUP)
+    if not backup_present:
+        return
+    if marker_present:
+        marker = _assert_barrier_release_file(BARRIER_MARKER, links=2)
+        backup = _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=2)
+        if (marker.st_dev, marker.st_ino) != (backup.st_dev, backup.st_ino):
+            raise S12ControlError(
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+            )
+        _durable_unlink(BARRIER_RELEASE_BACKUP)
+        _assert_barrier_release_file(BARRIER_MARKER, links=1)
+        return
+    _assert_barrier_release_file(BARRIER_RELEASE_BACKUP, links=1)
+    try:
+        os.replace(BARRIER_RELEASE_BACKUP, BARRIER_MARKER)
+    except OSError:
+        raise S12ControlError("S12_1_DURABILITY_RED") from None
+    _fsync_directory(STATE_ROOT)
+    _assert_barrier_release_file(BARRIER_MARKER, links=1)
+
+
+def _prepare_barrier_release_backup() -> None:
+    """Retain one durable journal link until every guard has finalized."""
+
+    if _barrier_path_present(BARRIER_RELEASE_BACKUP):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    marker = _assert_barrier_release_file(BARRIER_MARKER, links=1)
+    try:
+        os.link(
+            BARRIER_MARKER,
+            BARRIER_RELEASE_BACKUP,
+            follow_symlinks=False,
+        )
+    except OSError:
+        raise S12ControlError("S12_1_DURABILITY_RED") from None
+    _fsync_directory(STATE_ROOT)
+    linked_marker = _assert_barrier_release_file(BARRIER_MARKER, links=2)
+    linked_backup = _assert_barrier_release_file(
+        BARRIER_RELEASE_BACKUP, links=2
+    )
+    if (
+        marker.st_dev,
+        marker.st_ino,
+        marker.st_size,
+    ) != (
+        linked_marker.st_dev,
+        linked_marker.st_ino,
+        linked_marker.st_size,
+    ) or (linked_marker.st_dev, linked_marker.st_ino) != (
+        linked_backup.st_dev,
+        linked_backup.st_ino,
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
 
 
 def _durable_symlink(target: str, path: Path) -> None:
@@ -3999,7 +4092,7 @@ class _GitMetadataTransitionGuard:
         self.root_watches.clear()
 
     def finalize_release(self) -> None:
-        """Cross an ordered watch barrier after the durable journal release."""
+        """Cross an ordered watch barrier while a journal backup remains."""
 
         self.assert_unchanged()
         self._synchronized_inotify_shutdown()
@@ -5422,7 +5515,7 @@ def _metadata_barrier_mode(mode: int) -> int:
 def _write_barrier_journal(
     records: dict[Path, dict[str, Any]], parent_record: dict[str, Any]
 ) -> dict[Path, dict[Path, dict[str, Any]]]:
-    if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
+    if _barrier_journal_present():
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     if set(records) != {APPLICATION_ROOT, CONTROL_ROOT}:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
@@ -7870,6 +7963,7 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
 
 
 def _recover_repository_barrier_only() -> dict[str, Any]:
+    _normalize_barrier_release_backup()
     records, parent_record, existing_worktree_barrier, schema = (
         _load_barrier_journal()
     )
@@ -7907,6 +8001,7 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
                 raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
             metadata_guard.assert_unchanged()
             worktree_guard.assert_no_events()
+            _prepare_barrier_release_backup()
             _durable_unlink(BARRIER_MARKER)
             metadata_guard.assert_unchanged()
             worktree_guard.finalize_release(
@@ -7916,6 +8011,7 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
             worktree_guard = None
             metadata_guard.finalize_release()
             metadata_guard = None
+            _durable_unlink(BARRIER_RELEASE_BACKUP)
         finally:
             if worktree_guard is not None:
                 worktree_guard.close()
@@ -7949,7 +8045,8 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
 def _recover_locked() -> dict[str, Any]:
     if os.geteuid() != 0:
         raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
-    barrier_present = BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink()
+    _normalize_barrier_release_backup()
+    barrier_present = _barrier_journal_present()
     attempt_present = ATTEMPT_MARKER.exists() or ATTEMPT_MARKER.is_symlink()
     if barrier_present and not attempt_present:
         result = _recover_repository_barrier_only()
@@ -7963,7 +8060,7 @@ def _recover_locked() -> dict[str, Any]:
         marker = _private_json(completed, "S12_1_RECOVERY_RESULT_RED")
         if marker.get("safe_code") != "S12_1_ROLLBACK_GREEN" or marker.get("count") != 1:
             raise S12ControlError("S12_1_RECOVERY_RESULT_RED")
-        if BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
+        if _barrier_journal_present():
             _recover_repository_barrier_only()
         safe_code = "S12_1_RECOVERY_ALREADY_COMPLETE"
     else:
@@ -7990,9 +8087,9 @@ def _deploy_locked() -> dict[str, Any]:
         or stat.S_IMODE(STATE_ROOT.stat().st_mode) != 0o700
     ):
         raise S12ControlError("S12_1_RUNTIME_STATE_RED")
-    if (
-        (BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink())
-        and not (ATTEMPT_MARKER.exists() or ATTEMPT_MARKER.is_symlink())
+    _normalize_barrier_release_backup()
+    if _barrier_journal_present() and not (
+        ATTEMPT_MARKER.exists() or ATTEMPT_MARKER.is_symlink()
     ):
         _recover_repository_barrier_only()
         raise S12ControlError("S12_1_ORPHAN_BARRIER_RECOVERED")
@@ -8194,7 +8291,7 @@ def _deploy_locked() -> dict[str, Any]:
             pass
         elif mutation_started and backup is not None and index is not None:
             rollback_once(backup, index, release_repository_state)
-        elif BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink():
+        elif _barrier_journal_present():
             _recover_repository_barrier_only()
         raise
 

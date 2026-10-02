@@ -5616,6 +5616,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(
                 runtime, "_sync_repository_filesystem"
             ) as sync,
+            mock.patch.object(
+                runtime, "_prepare_barrier_release_backup"
+            ) as prepare_release_backup,
             mock.patch.object(runtime, "_durable_unlink") as unlink,
             mock.patch.object(runtime, "_ensure_barrier_journal") as ensure,
             mock.patch.object(
@@ -5644,7 +5647,14 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.call(runtime.CONTROL_ROOT),
             ],
         )
-        unlink.assert_called_once_with(runtime.BARRIER_MARKER)
+        prepare_release_backup.assert_called_once_with()
+        self.assertEqual(
+            unlink.call_args_list,
+            [
+                mock.call(runtime.BARRIER_MARKER),
+                mock.call(runtime.BARRIER_RELEASE_BACKUP),
+            ],
+        )
         worktree_guard.finalize_release.assert_called_once_with(
             metadata_guard.assert_unchanged,
             metadata_guard.assert_unchanged,
@@ -5654,6 +5664,87 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         barrier.assert_not_called()
         self.assertEqual(result["safe_code"], "S12_1_ORPHAN_BARRIER_RECOVERED")
         self.assertEqual(result["rollback_count"], 0)
+
+    def test_pristine_legacy_orphan_retains_backup_when_guard_finalization_fails(
+        self,
+    ) -> None:
+        metadata_guard = mock.Mock(unsafe=True)
+        worktree_guard = mock.Mock(unsafe=True)
+        worktree_guard.finalize_release.side_effect = runtime.S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+        )
+        with (
+            mock.patch.object(
+                runtime,
+                "_load_barrier_journal",
+                return_value=(
+                    {
+                        runtime.APPLICATION_ROOT: {},
+                        runtime.CONTROL_ROOT: {},
+                    },
+                    {},
+                    None,
+                    runtime.LEGACY_BARRIER_SCHEMA,
+                ),
+            ),
+            mock.patch.object(
+                runtime,
+                "_pristine_legacy_orphan_is_releasable",
+                side_effect=(True, True, True),
+            ),
+            mock.patch.object(
+                runtime,
+                "_repository_git_metadata_paths",
+                return_value=(Path("/application/.git"), Path("/control/.git")),
+            ),
+            mock.patch.object(
+                runtime, "_tracked_worktree_barrier_paths", return_value=()
+            ),
+            mock.patch.object(
+                runtime,
+                "_GitMetadataTransitionGuard",
+                return_value=metadata_guard,
+            ),
+            mock.patch.object(
+                runtime,
+                "_WorktreeReleaseGuard",
+                return_value=worktree_guard,
+            ),
+            mock.patch.object(runtime, "_sync_repository_filesystem"),
+            mock.patch.object(runtime, "_prepare_barrier_release_backup") as prepare,
+            mock.patch.object(runtime, "_durable_unlink") as unlink,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            runtime._recover_repository_barrier_only()
+
+        prepare.assert_called_once_with()
+        unlink.assert_called_once_with(runtime.BARRIER_MARKER)
+        metadata_guard.finalize_release.assert_not_called()
+
+    def test_barrier_release_backup_restores_interrupted_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            marker = state / "repository-barrier.json"
+            backup = state / "repository-barrier.release-backup.json"
+            marker.write_text("{}\n", encoding="ascii")
+            marker.chmod(0o600)
+            with (
+                mock.patch.object(runtime, "STATE_ROOT", state),
+                mock.patch.object(runtime, "BARRIER_MARKER", marker),
+                mock.patch.object(runtime, "BARRIER_RELEASE_BACKUP", backup),
+            ):
+                runtime._prepare_barrier_release_backup()
+                self.assertEqual(marker.stat().st_ino, backup.stat().st_ino)
+                self.assertEqual(marker.stat().st_nlink, 2)
+                runtime._durable_unlink(marker)
+                runtime._normalize_barrier_release_backup()
+
+            self.assertTrue(marker.is_file())
+            self.assertFalse(backup.exists())
+            self.assertEqual(marker.stat().st_nlink, 1)
 
     def test_pristine_legacy_orphan_rechecks_before_journal_release(self) -> None:
         metadata_guard = mock.Mock(unsafe=True)
