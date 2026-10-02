@@ -38,7 +38,8 @@ APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r4"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
-BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
+BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
+XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 TRACKED_PATH_HASH_SCHEMA = b"TU1NZ_S12_1_TRACKED_PATH_HASHES_V1\0"
 ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
@@ -2585,14 +2586,15 @@ def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
     return restricted
 
 
-def _assert_named_owner_acl_preserves_access(
+def _assert_post_chown_acl_preserves_access(
     path: Path,
     uid: int,
     required_access: int,
     target_mask: int,
+    target_other: int,
     safe_code: str,
 ) -> None:
-    """Reject an owner-specific ACL that would reduce access after chown."""
+    """Reject an ACL that would reduce the former owner's post-chown access."""
 
     if uid == 0:
         return
@@ -2656,6 +2658,24 @@ def _assert_named_owner_acl_preserves_access(
         for tag in (0x01, 0x04, 0x20):
             if sum(entry_tag == tag for entry_tag, *_rest in entries) != 1:
                 raise OSError
+        named_entries = [
+            (tag, permissions, identifier)
+            for tag, permissions, identifier in entries
+            if tag in {0x02, 0x08}
+        ]
+        if (
+            len({(tag, identifier) for tag, _, identifier in named_entries})
+            != len(named_entries)
+            or any(identifier == 0xFFFFFFFF for _, _, identifier in named_entries)
+            or any(
+                identifier != 0xFFFFFFFF
+                for tag, _, identifier in entries
+                if tag in {0x01, 0x04, 0x10, 0x20}
+            )
+            or sum(tag == 0x10 for tag, *_rest in entries)
+            != (1 if named_entries else 0)
+        ):
+            raise OSError
         named_users = [
             permissions
             for tag, permissions, identifier in entries
@@ -2663,14 +2683,27 @@ def _assert_named_owner_acl_preserves_access(
         ]
         if len(named_users) > 1:
             raise OSError
-        if not named_users:
-            return
-        if sum(tag == 0x10 for tag, *_rest in entries) != 1:
-            raise OSError
-        effective_access = named_users[0] & target_mask
+        if named_users:
+            effective_access = named_users[0] & target_mask
+        else:
+            account = pwd.getpwuid(uid)
+            groups = set(os.getgrouplist(account.pw_name, account.pw_gid))
+            matching_group_permissions = [
+                permissions
+                for tag, permissions, identifier in entries
+                if (tag == 0x04 and before.st_gid in groups)
+                or (tag == 0x08 and identifier in groups)
+            ]
+            if matching_group_permissions:
+                effective_access = 0
+                for permissions in matching_group_permissions:
+                    effective_access |= permissions
+                effective_access &= target_mask
+            else:
+                effective_access = target_other
         if required_access & ~effective_access:
             raise OSError
-    except (OSError, TypeError, ValueError):
+    except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError(safe_code) from None
 
 
@@ -2727,11 +2760,12 @@ def _capture_worktree_write_barrier(
                     mode, metadata.st_uid, metadata.st_gid
                 )
                 xattr_fingerprint = _worktree_path_xattr_fingerprint(path)
-                _assert_named_owner_acl_preserves_access(
+                _assert_post_chown_acl_preserves_access(
                     path,
                     metadata.st_uid,
                     (restricted_mode & 0o500) >> 6,
                     (restricted_mode & 0o050) >> 3,
+                    restricted_mode & 0o005,
                     "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
                 )
                 entries[path] = {
@@ -3029,11 +3063,12 @@ def _lock_worktree_write_barrier(
                     _assert_no_security_capability(path)
                 if original:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
-                _assert_named_owner_acl_preserves_access(
+                _assert_post_chown_acl_preserves_access(
                     path,
                     record["uid"],
                     (restricted_mode & 0o500) >> 6,
                     (restricted_mode & 0o050) >> 3,
+                    restricted_mode & 0o005,
                     "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
                 )
                 if original or restricted:
@@ -5007,6 +5042,12 @@ def _recorded_path_metadata(record: dict[str, Any], prefix: str) -> tuple[int, i
 def _barrier_repository_record(root: Path, record: dict[str, Any]) -> dict[str, Any]:
     _recorded_path_metadata(record, "root")
     _recorded_path_metadata(record, "git")
+    root_xattr_fingerprint = record.get("root_xattr_fingerprint")
+    if (
+        not isinstance(root_xattr_fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", root_xattr_fingerprint) is None
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     return {
         "root": str(root),
         **{
@@ -5016,6 +5057,7 @@ def _barrier_repository_record(root: Path, record: dict[str, Any]) -> dict[str, 
                 "git_uid", "git_gid", "git_mode",
             )
         },
+        "root_xattr_fingerprint": root_xattr_fingerprint,
     }
 
 
@@ -5056,6 +5098,25 @@ def _assert_repository_parent_xattrs(record: dict[str, Any]) -> None:
     _recorded_parent_metadata(record)
     if _repository_parent_xattr_fingerprint() != record["xattr_fingerprint"]:
         raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
+
+
+def _repository_root_xattr_fingerprint(root: Path) -> str:
+    try:
+        return _release_xattr_fingerprint((root,))
+    except S12ControlError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+
+
+def _assert_repository_root_xattrs(
+    root: Path, record: dict[str, Any]
+) -> None:
+    fingerprint = record.get("root_xattr_fingerprint")
+    if (
+        not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or _repository_root_xattr_fingerprint(root) != fingerprint
+    ):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED")
 
 
 def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
@@ -5135,6 +5196,10 @@ def _write_barrier_journal(
     _recorded_parent_metadata(parent_record)
     _assert_repository_parent_xattrs(parent_record)
     roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    for root in roots:
+        records[root]["root_xattr_fingerprint"] = (
+            _repository_root_xattr_fingerprint(root)
+        )
     worktree_barrier = _capture_worktree_write_barrier(roots, records)
     _atomic_json(
         BARRIER_MARKER,
@@ -5158,6 +5223,8 @@ def _write_barrier_journal(
         },
     )
     _assert_repository_parent_xattrs(parent_record)
+    for root in roots:
+        _assert_repository_root_xattrs(root, records[root])
     return worktree_barrier
 
 
@@ -5173,7 +5240,12 @@ def _load_barrier_journal() -> tuple[
     repositories = journal.get("repositories")
     parent_record = journal.get("repository_parent")
     if (
-        journal.get("schema") not in {BARRIER_SCHEMA, LEGACY_BARRIER_SCHEMA}
+        journal.get("schema")
+        not in {
+            BARRIER_SCHEMA,
+            XATTR_BARRIER_SCHEMA,
+            LEGACY_BARRIER_SCHEMA,
+        }
         or not isinstance(journal.get("created_at"), str)
         or not journal["created_at"]
         or not isinstance(repositories, dict)
@@ -5183,13 +5255,13 @@ def _load_barrier_journal() -> tuple[
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     journal_schema = journal["schema"]
     expected_parent_keys = {"path", "uid", "gid", "mode"}
-    if journal_schema == BARRIER_SCHEMA:
+    if journal_schema in {BARRIER_SCHEMA, XATTR_BARRIER_SCHEMA}:
         expected_parent_keys.add("xattr_fingerprint")
     if set(parent_record) != expected_parent_keys:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     _recorded_parent_metadata(
         parent_record,
-        require_xattr=journal_schema == BARRIER_SCHEMA,
+        require_xattr=journal_schema != LEGACY_BARRIER_SCHEMA,
     )
     if (
         journal_schema == LEGACY_BARRIER_SCHEMA
@@ -5205,13 +5277,25 @@ def _load_barrier_journal() -> tuple[
         if not isinstance(item, dict) or item.get("root") != str(root):
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
         record = {name: value for name, value in item.items() if name != "root"}
-        if set(record) != {
+        expected_record_keys = {
             "root_uid", "root_gid", "root_mode",
             "git_uid", "git_gid", "git_mode",
-        }:
+        }
+        if journal_schema == BARRIER_SCHEMA:
+            expected_record_keys.add("root_xattr_fingerprint")
+        if set(record) != expected_record_keys:
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
         _recorded_path_metadata(record, "root")
         _recorded_path_metadata(record, "git")
+        if journal_schema == BARRIER_SCHEMA:
+            fingerprint = record.get("root_xattr_fingerprint")
+            if (
+                not isinstance(fingerprint, str)
+                or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+            ):
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                )
         records[root] = record
     raw_worktree_barrier = journal.get("worktree_write_barrier")
     worktree_barrier = (
@@ -5220,7 +5304,7 @@ def _load_barrier_journal() -> tuple[
         else _parse_worktree_barrier_payload(
             raw_worktree_barrier,
             (APPLICATION_ROOT, CONTROL_ROOT),
-            require_xattr=journal_schema == BARRIER_SCHEMA,
+            require_xattr=journal_schema != LEGACY_BARRIER_SCHEMA,
         )
     )
     if set(journal) not in (
@@ -5251,8 +5335,20 @@ def _ensure_barrier_journal(
         parent_base = {
             key: parent_record[key] for key in ("path", "uid", "gid", "mode")
         }
+        repository_fields = (
+            "root_uid", "root_gid", "root_mode",
+            "git_uid", "git_gid", "git_mode",
+        )
+        recorded_repository_base = {
+            root: {key: record[key] for key in repository_fields}
+            for root, record in recorded_repositories.items()
+        }
+        repository_base = {
+            root: {key: record[key] for key in repository_fields}
+            for root, record in records.items()
+        }
         if (
-            recorded_repositories != records
+            recorded_repository_base != repository_base
             or recorded_parent_base != parent_base
         ):
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
@@ -5275,6 +5371,28 @@ def _ensure_barrier_journal(
             "xattr_fingerprint"
         ]
         _assert_repository_parent_xattrs(parent_record)
+        for root in (APPLICATION_ROOT, CONTROL_ROOT):
+            recorded = recorded_repositories[root]
+            if schema != BARRIER_SCHEMA:
+                _assert_legacy_path_xattrs_safe(
+                    root, "S12_1_RECOVERY_GIT_BARRIER_RED"
+                )
+                recorded["root_xattr_fingerprint"] = (
+                    _repository_root_xattr_fingerprint(root)
+                )
+                journal_changed = True
+            elif (
+                records[root].get("root_xattr_fingerprint") is not None
+                and records[root]["root_xattr_fingerprint"]
+                != recorded["root_xattr_fingerprint"]
+            ):
+                raise S12ControlError(
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                )
+            records[root]["root_xattr_fingerprint"] = recorded[
+                "root_xattr_fingerprint"
+            ]
+            _assert_repository_root_xattrs(root, records[root])
         if worktree_barrier is None:
             # A legacy R3 orphan never mutated Worktree children. Upgrade its
             # private journal durably before installing the new write barrier.
@@ -5288,12 +5406,22 @@ def _ensure_barrier_journal(
             BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
         )
         journal["schema"] = BARRIER_SCHEMA
+        journal["repositories"] = {
+            "application": _barrier_repository_record(
+                APPLICATION_ROOT, recorded_repositories[APPLICATION_ROOT]
+            ),
+            "control": _barrier_repository_record(
+                CONTROL_ROOT, recorded_repositories[CONTROL_ROOT]
+            ),
+        }
         journal["repository_parent"] = recorded_parent
         journal["worktree_write_barrier"] = _worktree_barrier_payload(
             (APPLICATION_ROOT, CONTROL_ROOT), worktree_barrier
         )
         _atomic_json(BARRIER_MARKER, journal)
         _assert_repository_parent_xattrs(parent_record)
+        for root in (APPLICATION_ROOT, CONTROL_ROOT):
+            _assert_repository_root_xattrs(root, records[root])
         return worktree_barrier
     if parent_record.get("xattr_fingerprint") is None:
         _assert_legacy_repository_parent_xattrs_safe()
@@ -5362,11 +5490,12 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             raise OSError
         if original:
             os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
-        _assert_named_owner_acl_preserves_access(
+        _assert_post_chown_acl_preserves_access(
             DEPLOYMENT_LOCK_ROOT,
             expected_uid,
             (restricted_mode & 0o050) >> 3,
             (restricted_mode & 0o050) >> 3,
+            restricted_mode & 0o005,
             "S12_1_REPOSITORY_PARENT_RED",
         )
         os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
@@ -5605,6 +5734,7 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
     )
     restricted_mode = _metadata_barrier_mode(expected_mode)
     try:
+        _assert_repository_root_xattrs(root, record)
         metadata = root.lstat()
         original = (
             metadata.st_uid == expected_uid
@@ -5634,11 +5764,13 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
             raise OSError
         if original:
             os.chmod(root, restricted_mode)
-        _assert_named_owner_acl_preserves_access(
+        _assert_repository_root_xattrs(root, record)
+        _assert_post_chown_acl_preserves_access(
             root,
             expected_uid,
             (restricted_mode & 0o050) >> 3,
             (restricted_mode & 0o050) >> 3,
+            restricted_mode & 0o005,
             "S12_1_RECOVERY_GIT_BARRIER_RED",
         )
         if original or restricted or legacy_locked:
@@ -5651,6 +5783,7 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
             or stat.S_IMODE(metadata.st_mode) != restricted_mode
         ):
             raise OSError
+        _assert_repository_root_xattrs(root, record)
         _fsync_directory(root.parent)
     except OSError:
         raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None

@@ -19,7 +19,9 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    interrupted root checkout can remove the old path before replacing the
    index; all surviving entries remain fully validated and the restored result
    is resolved again under the strict contract.
-3. Journal the exact repository and shared-parent metadata durably. Reject a
+3. Journal the exact repository and shared-parent metadata durably, including
+   normalized xattr/ACL fingerprints for the shared parent and both repository
+   roots before any sequential lock begins. Reject a
    tracked regular file carrying `security.capability` before any ownership
    transition, because Linux `chown(2)` would otherwise clear that xattr and
    make exact recovery impossible.
@@ -28,7 +30,9 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    fingerprint to match before the first process scan begins.
 5. Remove write bits from the shared parent and repository roots, change only
    their owner to root, and retain their recorded groups and traversal classes.
-   A baseline without recorded-group read/traverse permission is rejected.
+   Validate each journaled root fingerprint before and after its lock. A
+   baseline without effective recorded-owner read/traverse permission after
+   the handoff is rejected.
 6. Change canonical `.git` to `root:root` mode `0700`, then require both the
    transition fingerprint and the kernel event queue to remain unchanged. The
    transition fingerprint normalizes the controller-owned top-directory
@@ -41,12 +45,15 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
 7. From the durably journaled tracked-path set, remove every write bit and move
    tracked regular inodes plus their ancestor directories under root ownership.
    Before the journal or any transition, resolve the permission class that the
-   recorded owner will actually receive after the handoff: the group class
-   when that account belongs to the retained group, otherwise the other class.
+   recorded owner will actually receive after the handoff: a matching named
+   user entry takes precedence; otherwise the union of the owning-group and
+   matching named-group ACL entries is filtered through the ACL mask; only an
+   account matching no group entry receives the other class.
    Reject the path unless that exact class retains every prior owner read and
    execute/traversal right. Owner-only `0600`/`0700` and the group-member case
    `0604` therefore cannot become unreadable or untraversable merely because
-   ownership moves to root. The V2 journal also binds each tracked inode's and
+   ownership moves to root. The V3 journal also binds both repository roots,
+   while retaining the V2 binding for each tracked inode's and
    ancestor directory's normalized xattr/ACL fingerprint before any path is
    locked, and validates it before and after lock, restore and reseal. A V1
    orphan is upgraded only if each extant path has no unbound named ACL
@@ -74,9 +81,10 @@ atomic exchange, `.git.s12-1-recovery`. Ordinary tracked files, the preserved
    open-permission barrier covering every tracked path, ancestor, repository
    root and every directory in each canonical `.git` tree. Before the guard is
    drained, bind the shared parent's normalized xattr/ACL fingerprint in the
-   V2 barrier journal and validate it before and after every soft lock, hard
-   lock and restore. A V1 orphan may be upgraded only when it contains no
-   unbound named ACL principal or unrelated xattr. Then harden the shared
+   V3 barrier journal and validate it before and after every soft lock, hard
+   lock and restore. V1/V2 orphan upgrades bind repository-root xattrs only
+   when the previously unbound root contains no named ACL principal or
+   unrelated xattr; the V1 parent/path upgrade keeps the same rule. Then harden the shared
    parent to `root:root 0500`. Both syscall-boundary states of that hardening
    transition are journal-recognized and resumable.
 13. Discover every non-controller process that retains an exact guarded inode

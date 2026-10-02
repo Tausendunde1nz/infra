@@ -1234,6 +1234,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(
                     runtime, "_assert_repository_parent_xattrs"
                 ),
+                mock.patch.object(
+                    runtime,
+                    "_repository_root_xattr_fingerprint",
+                    return_value="b" * 64,
+                ),
+                mock.patch.object(runtime, "_assert_repository_root_xattrs"),
                 mock.patch.object(runtime, "_atomic_json", side_effect=capture),
             ):
                 runtime._write_barrier_journal(
@@ -1243,6 +1249,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(captured["repository_parent"], parent_record)
             self.assertEqual(
                 set(captured["repositories"]), {"application", "control"}
+            )
+            self.assertTrue(
+                all(
+                    item["root_xattr_fingerprint"] == "b" * 64
+                    for item in captured["repositories"].values()
+                )
             )
             self.assertEqual(
                 set(captured["worktree_write_barrier"]),
@@ -1351,6 +1363,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(
                     runtime, "_assert_repository_parent_xattrs"
                 ),
+                mock.patch.object(runtime, "_assert_legacy_path_xattrs_safe"),
+                mock.patch.object(
+                    runtime,
+                    "_repository_root_xattr_fingerprint",
+                    return_value="c" * 64,
+                ),
+                mock.patch.object(runtime, "_assert_repository_root_xattrs"),
                 mock.patch.object(
                     runtime, "_private_json", return_value=journal
                 ),
@@ -1370,6 +1389,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(
                 captured["repository_parent"]["xattr_fingerprint"],
                 "b" * 64,
+            )
+            self.assertTrue(
+                all(
+                    item["root_xattr_fingerprint"] == "c" * 64
+                    for item in captured["repositories"].values()
+                )
             )
 
     def test_backup_snapshot_rejects_post_capture_repository_race(self) -> None:
@@ -2185,6 +2210,77 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "getxattr",
                     return_value=acl,
                     create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+    def test_worktree_barrier_evaluates_group_acl_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o640)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            uid = repository.lstat().st_uid
+            gid = repository.lstat().st_gid
+            if uid == 0:
+                uid = 65534
+                gid = 65534
+                os.chown(repository, uid, gid)
+                os.chown(tracked, uid, gid)
+            repository_record = runtime._repository_path_metadata(repository)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o6, 0xFFFFFFFF),
+                    (0x04, 0o0, 0xFFFFFFFF),
+                    (0x08, 0o4, gid + 100000),
+                    (0x10, 0o4, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
+                )
+            )
+
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    side_effect=lambda path, **_kwargs: (
+                        ["system.posix_acl_access"]
+                        if Path(path) == tracked
+                        else []
+                    ),
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=acl,
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.pwd,
+                    "getpwuid",
+                    return_value=SimpleNamespace(
+                        pw_name="service", pw_gid=gid
+                    ),
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid]
                 ),
                 self.assertRaisesRegex(
                     runtime.S12ControlError,
@@ -3127,6 +3223,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ):
                 parent_record = runtime._repository_parent_metadata()
                 repository_record = runtime._repository_path_metadata(repository)
+                repository_record["root_xattr_fingerprint"] = (
+                    runtime._repository_root_xattr_fingerprint(repository)
+                )
                 os.chown(deployment_root, 0, 0)
                 os.chmod(deployment_root, 0o500)
                 os.chown(repository, 0, 0)
@@ -3214,7 +3313,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             mock.patch.object(runtime.os, "chmod", side_effect=chmod),
             mock.patch.object(runtime, "_assert_repository_parent_xattrs"),
             mock.patch.object(
-                runtime, "_assert_named_owner_acl_preserves_access"
+                runtime, "_assert_post_chown_acl_preserves_access"
             ),
             mock.patch.object(runtime, "_fsync_directory"),
         ):
@@ -3507,6 +3606,40 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "S12_1_REPOSITORY_PARENT_RED",
                 ):
                     runtime._assert_repository_parent_xattrs(record)
+
+    def test_repository_root_fingerprint_rejects_drift_before_chown(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "repository"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            xattrs = {"payload": b"baseline"}
+            with mock.patch.object(
+                runtime,
+                "_stable_xattr_payload",
+                side_effect=lambda path, _metadata, **_options: (
+                    xattrs["payload"] if path == repository else b""
+                ),
+            ):
+                record = runtime._repository_path_metadata(repository)
+                record["root_xattr_fingerprint"] = (
+                    runtime._repository_root_xattr_fingerprint(repository)
+                )
+                xattrs["payload"] = b"root-xattr-drift"
+                with (
+                    mock.patch.object(runtime.os, "geteuid", return_value=0),
+                    mock.patch.object(runtime.os, "chown") as chown,
+                    self.assertRaisesRegex(
+                        runtime.S12ControlError,
+                        "S12_1_RECOVERY_GIT_BARRIER_RED",
+                    ),
+                ):
+                    runtime._lock_repository_root(repository, record)
+                chown.assert_not_called()
 
     def test_legacy_parent_upgrade_rejects_named_acl_principal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -4011,6 +4144,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     return_value=acl,
                     create=True,
                 ),
+                mock.patch.object(runtime, "_assert_repository_root_xattrs"),
             ):
                 parent_record = runtime._repository_parent_metadata()
                 repository_record = runtime._repository_path_metadata(repository)
