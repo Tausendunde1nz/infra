@@ -664,7 +664,7 @@ class IntegratedChainTests(unittest.TestCase):
         self.full_chain(crash_at='OBJECT_BOUND',tamper=during_recovery)
         self.assertEqual(fired,['PENDING_MATERIALIZATION_UNDONE'])
 
-    def test_full_success_chain_and_replay(self):
+    def test_00_full_success_chain_and_replay(self):
         self.full_chain(provider_failure=False)
 
     def test_full_failed_activation_rollback_chain_and_replay(self):

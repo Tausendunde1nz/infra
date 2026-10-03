@@ -10546,7 +10546,10 @@ class _R13GitWriters:
                     try:
                         while True:
                             _,status = os.waitpid(tid,0x40000000)
-                            if os.WIFEXITED(status) or os.WIFSIGNALED(status): break
+                            if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+                                if tid == process.pid:
+                                    process.returncode = os.waitstatus_to_exitcode(status)
+                                break
                             self.ptrace(7,tid,signal.SIGKILL)
                     except (ChildProcessError,S12ControlError): pass
             raise
