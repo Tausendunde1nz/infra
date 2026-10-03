@@ -250,9 +250,14 @@ the final backup unlink and remains as evidence. This keeps a failed final
 unlink/fsync distinguishable and safely retryable even if that directory entry
 has already disappeared.
 Before a V1 state can enter that guarded interval, the parent, repository roots
-and every tracked barrier path are checked for unbound xattrs. Only base POSIX
-access/default ACL entries without named principals are accepted; every other
-xattr fails closed.
+and every tracked barrier path are checked for unbound xattrs. The r6 delta
+accepts only POSIX access/default ACL xattrs with exactly one owner, owning
+group and other entry; named user/group entries must be unique, carry a real
+numeric identifier and have exactly one mask. Their exact bytes are bound by
+the continuous parent/root/worktree fingerprints before the journal is
+released. Unknown xattrs, malformed ACLs, duplicate principals and unmasked
+named entries remain fail-closed. This direct-release path performs no chmod,
+chown or ACL rewrite.
 The initial V1 shape check is filesystem-only. Repository-local Git contracts,
 canonical indexes and identity/status commands run only after both continuous
 guards are installed; clean/smudge filters, executable hooks and other local

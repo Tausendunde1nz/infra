@@ -4006,7 +4006,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime._lock_repository_root(repository, record)
                 chown.assert_not_called()
 
-    def test_legacy_parent_upgrade_rejects_named_acl_principal(self) -> None:
+    def test_legacy_parent_upgrade_accepts_well_formed_named_acl_principal(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             parent = Path(directory)
             acl = struct.pack("<I", 2) + b"".join(
@@ -4033,14 +4035,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     return_value=acl,
                     create=True,
                 ),
-                self.assertRaisesRegex(
-                    runtime.S12ControlError,
-                    "S12_1_REPOSITORY_PARENT_RED",
-                ),
             ):
                 runtime._assert_legacy_repository_parent_xattrs_safe()
 
-    def test_legacy_directory_xattrs_allow_only_base_access_and_default_acl(
+    def test_legacy_directory_xattrs_allow_well_formed_posix_acls(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -4096,6 +4094,65 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime.os,
                     "getxattr",
                     return_value=named_acl,
+                    create=True,
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
+
+            duplicate_named_acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o7, 1000),
+                    (0x02, 0o5, 1000),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=duplicate_named_acl,
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_TEST_RED"
+                ),
+            ):
+                runtime._assert_legacy_path_xattrs_safe(
+                    path, "S12_1_TEST_RED"
+                )
+
+            unmasked_named_acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x08, 0o5, 1001),
+                    (0x04, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o5, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=unmasked_named_acl,
                     create=True,
                 ),
                 self.assertRaisesRegex(

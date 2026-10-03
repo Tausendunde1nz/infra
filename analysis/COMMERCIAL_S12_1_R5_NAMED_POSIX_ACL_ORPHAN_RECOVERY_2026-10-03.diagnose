@@ -1,0 +1,40 @@
+# S12.1 r5 named-POSIX-ACL orphan recovery diagnosis
+
+## Observed delta
+
+The sole r5 recovery invocation stopped before journal release, backup or a
+new deployment attempt with `S12_1_REPOSITORY_PARENT_RED`. The canonical
+repository parent remains `chatops:chatops 2770`; both canonical repositories
+retain their recorded ownership/modes and installed `.git` directories. The
+r5 upload inputs and trusted-controller copy were removed by the operator
+wrapper.
+
+Read-only aggregation across the repository parent, both repository roots and
+all tracked barrier paths found 882 protected paths. 702 carry named POSIX ACL
+entries. Only `system.posix_acl_access` and `system.posix_acl_default` occur;
+there are no read errors or other xattr-name classes. These ACLs are an
+intentional runtime-access property of the canonical repository ancestry, not
+repository or release drift.
+
+## Root cause
+
+The pristine-V1 direct-release classifier accepted only base POSIX ACL entries.
+That contract cannot recover the legitimate canonical server posture even
+though the path performs no ownership, mode or ACL transition and already
+holds continuous parent, tracked-worktree and Git-metadata mutation guards
+through durable journal release.
+
+## r6 correction
+
+The smallest safe correction accepts named user/group entries only inside a
+structurally complete POSIX access/default ACL. Base owner, owning-group and
+other entries remain unique and mandatory; named principals require a real
+numeric identifier, uniqueness and exactly one mask. Unknown xattrs, malformed
+ACLs, duplicate principals and unmasked named entries remain RED. The existing
+continuous fingerprints bind the exact ACL bytes before the legacy journal is
+released, and the direct-release path still performs no chmod, chown or ACL
+rewrite.
+
+Product and provider boundaries are unchanged: Yoti remains Sandbox-only and
+real AVS, Adult media/submission, community Adult media, external publishing,
+payments, Controlled Beta and Production remain closed.
