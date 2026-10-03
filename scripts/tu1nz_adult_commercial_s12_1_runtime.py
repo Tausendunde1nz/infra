@@ -7266,6 +7266,8 @@ def _serialized_repository_recovery_guarded(
         # alter ctime. The new live stream then owns those declared transitions.
         writers = _r13_git_writers(selected_roots)
         transition_guard.assert_unchanged()
+        if writers is not None:
+            materialization_guards.retain(_r13_initial_worktree_guards(selected_roots, writers))
         if (
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
@@ -7377,6 +7379,9 @@ def _serialized_repository_recovery_guarded(
             MATERIALIZATION_RECORDS = selected_worktree_barrier
             MATERIALIZATION_GUARDS = materialization_guards
             try:
+                if ACTIVE_ATTEMPT is not None:
+                    materialization_guards.assert_quiet()
+                    _r13_boundary('REPOSITORY_BODY_ENTERED')
                 yield barriers
                 if ACTIVE_ATTEMPT is not None:
                     # Authorized Git writes have finished. Watch the complete
@@ -8640,6 +8645,7 @@ def _sync_repositories(
         timeout=300,
     )
     if ACTIVE_ATTEMPT is not None:
+        _r13_boundary('APPLICATION_FETCHED')
         _r13_materialize(APPLICATION_ROOT, application_git, APPLICATION_COMMIT, "main")
     else:
         _run(_selected_git_arguments(APPLICATION_ROOT, application_git, "checkout", "main"))
@@ -10186,7 +10192,7 @@ null_fd=int(sys.argv[5])
 null_rule=ctypes.create_string_buffer(struct.pack('=Qi',2,null_fd))
 if c.syscall(445,rs,1,ctypes.byref(null_rule),0)<0: os._exit(125)
 if c.prctl(38,1,0,0,0)<0 or c.syscall(446,rs,0)<0: os._exit(125)
-os.close(rs); os.close(fd); os.close(null_fd)
+os.close(rs); os.close(fd); os.close(null_fd); os.close(int(sys.argv[6]))
 if c.ptrace(0,0,0,0)<0: os._exit(125)
 os.kill(os.getpid(),signal.SIGSTOP)
 os.execve(args[0],args,env)
@@ -10256,7 +10262,8 @@ class _R13GitWriters:
             env={'HOME':'/','PATH':'/usr/bin:/bin','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'},
             text=True,timeout=10).strip())
         _validate_secure_directory_chain(exec_path,Path('/'))
-        self.image_paths = {'git':Path('/usr/bin/git'),'shell':Path('/bin/sh'),
+        self.image_paths = {'bootstrap':Path('/proc/self/exe'),
+                            'git':Path('/usr/bin/git'),'shell':Path('/bin/sh'),
                             'git-core':exec_path/'git','upload-pack':exec_path/'git-upload-pack'}
         self.images = {name:self.executable(path) for name,path in self.image_paths.items()}
         self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=ACTIVE_ATTEMPT,
@@ -10427,7 +10434,8 @@ class _R13GitWriters:
         fields = Path(f'/proc/{tid}/stat').read_text().rsplit(')',1)[1].split()
         if (tid in self.tasks or fields[0] not in {'t','T'} or len(self.tasks) >= 256
                 or len(self.operation['task_history']) >= 2048
-                or fields[2:4] != [str(self.operation['session'])]*2):
+                or fields[2:4] != [str(self.operation['session'])]*2
+                or (parent is None and self.executable(Path(f'/proc/{tid}/exe')) != self.images['bootstrap'])):
             self.fail()
         record = dict(tid=tid,start=fields[19],root=str(root),parent=parent,exited=False)
         self.tasks[tid] = record
@@ -10446,8 +10454,16 @@ class _R13GitWriters:
         if re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',boot_id) is None:
             self.fail()
         directory = self.directories[root]
-        directory_fd = null_fd = None
+        directory_fd = null_fd = bootstrap_fd = None
         try:
+            # Execute the actual running interpreter through a held descriptor,
+            # never resolve sys.executable again at spawn. The live interpreter
+            # is text-busy; replacement of its pathname cannot replace this
+            # inode. Pin metadata/digest before intent and verify at ptrace stop.
+            bootstrap_fd = os.open('/proc/self/exe',os.O_RDONLY|os.O_CLOEXEC)
+            bootstrap_path = Path(f'/proc/self/fd/{bootstrap_fd}')
+            if self.executable(bootstrap_path) != self.images['bootstrap']:
+                self.fail()
             directory_fd = os.open(directory,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW)
             null_fd = os.open('/dev/null',os.O_PATH|os.O_NOFOLLOW)
             null = os.fstat(null_fd)
@@ -10468,16 +10484,19 @@ class _R13GitWriters:
             self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
             _atomic_json(self.journal,self.value)  # Intent before spawning any writer.
         except BaseException:
-            for descriptor in (null_fd,directory_fd):
+            for descriptor in (bootstrap_fd,null_fd,directory_fd):
                 if descriptor is not None: os.close(descriptor)
             raise
         process = None
         pending = {}
         buffers = {}
         try:
-            process = subprocess.Popen([sys.executable,'-I','-S','-c',_GIT_WRITER_BOOTSTRAP,
-                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd)],stdin=stdin or subprocess.DEVNULL,
-                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd),close_fds=True,
+            _r13_boundary('GIT_WRITER_INTENT')
+            if self.executable(bootstrap_path) != self.images['bootstrap']:
+                self.fail()
+            process = subprocess.Popen([str(bootstrap_path),'-I','-S','-c',_GIT_WRITER_BOOTSTRAP,
+                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd),str(bootstrap_fd)],stdin=stdin or subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd,bootstrap_fd),close_fds=True,
                 start_new_session=True,env={'HOME':'/','PATH':'/usr/bin:/bin'})
             pending[process.pid] = None
             self.operation['session'] = process.pid
@@ -10634,6 +10653,7 @@ class _R13GitWriters:
         finally:
             os.close(directory_fd)
             os.close(null_fd)
+            os.close(bootstrap_fd)
             for stream in buffers: stream.close()
 
     def close(self, *, aborted=False):
@@ -10675,6 +10695,7 @@ class _R13GuardStack(ExitStack):
     def retain(self, context):
         if self.failed:
             raise S12ControlError(MATERIALIZATION_RED)
+        self.assert_quiet()
         check = self.enter_context(context)
         self.checks.append(check)
         return check
@@ -10713,6 +10734,31 @@ def _r13_guard_scope():
                 GIT_WRITER_SCOPE.close(aborted=True)
                 GIT_WRITER_SCOPE = None
             MATERIALIZATION_GUARDS = None
+
+
+@contextmanager
+def _r13_initial_worktree_guards(roots: Sequence[Path], writers: _R13GitWriters):
+    # Both existing worktrees must be watched before fetch preparation, backup
+    # or the first Git writer, not first baselined by each later materializer.
+    attrs = None
+    try:
+        paths = _r12_index_guard_paths(roots)
+        before = _r12_scope_snapshot(paths,{})
+        attrs = _R12AttributeGuard(tuple(paths),event_mask=0xFCE)
+        if _r12_scope_snapshot(paths,{}) != before:
+            writers.fail()
+        if MATERIALIZATION_GUARDS is not None:
+            MATERIALIZATION_GUARDS.paths.update(paths)
+        def check():
+            try: attrs.assert_quiet()
+            except S12ControlError: writers.fail()
+        check()
+        yield check
+        check()
+    except S12ControlError:
+        writers.fail()
+    finally:
+        if attrs is not None: attrs.close()
 
 
 @contextmanager
@@ -11048,8 +11094,11 @@ def _r13_recover_pending() -> None:
     # between the first undo write and the later serialized protection handoff.
     transition = _GitMetadataTransitionGuard(tuple(metadata))
     try:
-        _r13_git_writers(roots)
+        writers = _r13_git_writers(roots)
         transition.assert_unchanged()
+        if writers is None or MATERIALIZATION_GUARDS is None:
+            raise S12ControlError(GIT_WRITER_RED)
+        MATERIALIZATION_GUARDS.retain(_r13_initial_worktree_guards(roots,writers))
     finally:
         transition.close()
     for root in existing:

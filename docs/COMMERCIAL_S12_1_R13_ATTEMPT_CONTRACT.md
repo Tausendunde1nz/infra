@@ -28,6 +28,21 @@ skips in that non-root suite; native gates ran separately). The subsequent
 failure-cleanup and in-flight interruption cases require the same complete
 CI gate and fresh exact-SHA review; this earlier GREEN is not substituted.
 
+Exact-head review of `0baec87d7e49d96afb1fe00348be8f8b81160a2a` found two
+additional P1 intervals (4174122623/4174122629). Both existing worktrees now
+receive retained attributed watches before the serialized body can prepare
+fetch inputs or a backup; pending undo receives the same early coverage.
+Installation snapshots include ctime and subsequent materializers must check
+the retained history before adding their own guards. Foreign pre-materialization
+events poison the writer epoch, so an empty materialization journal is not a
+recovery exemption. The bootstrap image is the prospectively hashed running
+interpreter, opened via `/proc/self/exe` and descriptor-executed. Replacing
+`sys.executable` after intent cannot execute replacement code; the initial
+ptrace stop also revalidates the bootstrap inode/digest before writer admission.
+Native negatives cover both worktrees at body entry/after Application fetch and
+an interpreter-path replacement at the pre-spawn seam. Final CI/review remain
+required; these corrections have no runtime authority.
+
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.
 Root ownership, payload equality, arbitrary descendant trust, or rebasing a

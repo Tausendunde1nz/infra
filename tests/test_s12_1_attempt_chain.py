@@ -90,6 +90,34 @@ class AWriterTests(unittest.TestCase):
         self.assertTrue(result.stdout.strip())
         self.assertEqual(result.stderr,'')
 
+    def test_bootstrap_path_replacement_after_intent_cannot_execute(self):
+        interpreter=sys.executable
+        decoy=self.base/'bootstrap-python'
+        shutil.copy2(interpreter,decoy);decoy.chmod(0o500)
+        replacement=self.base/'replacement-python'
+        outside=self.base/'unrestricted-bootstrap-executed'
+        replacement.write_text(f'#!{interpreter}\nimport os,sys\nfrom pathlib import Path\n'
+            f'Path({str(outside)!r}).write_text("bad")\n'
+            f'os.execv({interpreter!r},[{interpreter!r},*sys.argv[1:]])\n')
+        replacement.chmod(0o500)
+        fired=False
+        def replace(name):
+            nonlocal fired
+            if name=='GIT_WRITER_INTENT':
+                fired=True
+                subprocess.run([interpreter,'-c','import os,sys; os.replace(sys.argv[1],sys.argv[2])',
+                                str(replacement),str(decoy)],check=True)
+        selected=self.writer.command(r._recovery_git_arguments(
+            self.root,self.root/'.git','update-ref','refs/heads/bound-bootstrap',self.sha))
+        with mock.patch.object(r.sys,'executable',str(decoy)), \
+                mock.patch.object(r,'_r13_boundary',side_effect=replace):
+            result=self.writer.run(selected,30)
+        self.assertTrue(fired)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse(outside.exists())
+        self.assertEqual(json.loads(self.writer.journal.read_text())['images']['bootstrap'],
+                         self.writer.executable(Path('/proc/self/exe')))
+
     def test_real_git_new_nested_metadata_and_foreign_reversion(self):
         command=r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/new/deep/ref',self.sha)
         result=self.writer.run(self.writer.command(command),30)
@@ -693,6 +721,19 @@ class IntegratedChainTests(unittest.TestCase):
                         'os.chmod(p,m^64); os.chmod(p,m)',str(path),str(mode)],check=True)
                     self.assertEqual(path.stat().st_mode&0o7777,mode)
                 self.full_chain(attack=attack,attack_at=boundary)
+
+    def test_existing_worktrees_are_watched_before_fetch_and_materialization(self):
+        for boundary in ('REPOSITORY_BODY_ENTERED','APPLICATION_FETCHED'):
+            for key in ('app','control'):
+                with self.subTest(boundary=boundary,repository=key):
+                    def attack(f):
+                        path=f[key]/'.gitignore'
+                        mode=path.stat().st_mode&0o7777
+                        subprocess.run([sys.executable,'-c',
+                            'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); '
+                            'os.chmod(p,m^64); os.chmod(p,m)',str(path),str(mode)],check=True)
+                        self.assertEqual(path.stat().st_mode&0o7777,mode)
+                    self.full_chain(attack=attack,attack_at=boundary)
 
     def test_interruption_cannot_adopt_unknown_inode_acl_or_parent(self):
         def staged(f):
