@@ -60,6 +60,9 @@ permission/event guard before draining. PID-attributed mutation watches also
 cover the declared release metadata transitions and retained rollback objects;
 failed handoff re-seals and reinstalls both Git barriers. Native negatives
 include reverted mutations after barrier exchange and during metadata release.
+The interrupted undo prefix shares this same guard owner with canonical
+recovery; a separate Linux negative covers reverted root mutation between
+those phases. Neither a normal return nor snapshot equality ends supervision.
 
 ## Delta and trust boundary
 

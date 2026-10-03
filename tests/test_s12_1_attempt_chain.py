@@ -303,6 +303,8 @@ class IntegratedChainTests(unittest.TestCase):
                         if cleanup:cleanup()
                     self.assertEqual(self.starts,0)
                     self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                    for root in (f['app'],f['control']):
+                        self.assertTrue(r._is_recovery_guard(root/'.git'))
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
                     return
@@ -466,6 +468,22 @@ class IntegratedChainTests(unittest.TestCase):
             override.start()
             return override.stop
         self.full_chain(crash_at='OBJECT_BOUND',tamper=active)
+
+    def test_pending_undo_hands_event_history_to_canonical_recovery(self):
+        fired=[]
+        def during_recovery(f):
+            def attack(name):
+                if name=='PENDING_MATERIALIZATION_UNDONE':
+                    fired.append(name)
+                    path=f['app']/'.gitignore';mode=path.stat().st_mode&0o7777
+                    subprocess.run([sys.executable,'-c',
+                        'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); '
+                        'os.chmod(p,m^64); os.chmod(p,m)',str(path),str(mode)],check=True)
+            override=mock.patch.object(r,'_r13_boundary',side_effect=attack)
+            override.start()
+            return override.stop
+        self.full_chain(crash_at='OBJECT_BOUND',tamper=during_recovery)
+        self.assertEqual(fired,['PENDING_MATERIALIZATION_UNDONE'])
 
     def test_full_success_chain_and_replay(self):
         self.full_chain(provider_failure=False)

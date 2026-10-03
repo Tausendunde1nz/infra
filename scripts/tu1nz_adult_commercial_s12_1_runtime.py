@@ -7211,7 +7211,7 @@ def _serialized_repository_recovery(
 ):
     # This owner outlives both the yielded body and its release cleanup. Only
     # an already-installed release guard may take over its event history.
-    with _R13GuardStack() as guards:
+    with _r13_guard_scope() as guards:
         with _serialized_repository_recovery_guarded(
             roots, records, parent_record, worktree_barrier, preserve_on_error,
             allow_journaled_transition, materialization_guards=guards,
@@ -10137,6 +10137,20 @@ class _R13GuardStack(ExitStack):
 
 
 @contextmanager
+def _r13_guard_scope():
+    global MATERIALIZATION_GUARDS
+    if MATERIALIZATION_GUARDS is not None:
+        yield MATERIALIZATION_GUARDS
+        return
+    with _R13GuardStack() as guards:
+        MATERIALIZATION_GUARDS = guards
+        try:
+            yield guards
+        finally:
+            MATERIALIZATION_GUARDS = None
+
+
+@contextmanager
 def _r13_guards(root: Path, tx: Path, value: dict):
     if MATERIALIZATION_GUARDS is None:
         with _r13_guard_context(root, tx, value) as check:
@@ -10469,6 +10483,7 @@ def _r13_recover_pending() -> None:
         git=_recovery_git_path(root)
         _validate_root_git_contract(git)
         _r13_materialize_undo(root,git)
+    _r13_boundary("PENDING_MATERIALIZATION_UNDONE")
 
 
 def _followup_authorization(path: Path, digest: str, *, recovering: bool) -> dict:
@@ -10633,9 +10648,10 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
                 _atomic_json(closure,result)
                 _r13_boundary("FOLLOWUP_EARLY_CLOSURE_WRITTEN")
                 return result
-            with _followup_namespace(binding):
+            with _followup_namespace(binding), _r13_guard_scope() as guards:
                 # Recovery never invokes deploy, admission, or activation.
                 _r13_recover_pending()
+                guards.assert_quiet()
                 result=_recover_locked()
                 result={**result,"attempt_binding":binding}
                 _atomic_json(STATE_ROOT/"recovery-result.json",result)
