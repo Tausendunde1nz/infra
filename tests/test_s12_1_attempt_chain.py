@@ -148,6 +148,11 @@ class AWriterTests(unittest.TestCase):
                 str(fetch/'application.git/config'),'--null','--name-only','--list'],text=True).split('\0')
             self.assertEqual(sorted(n for n in names if n),
                              ['core.bare','core.filemode','core.repositoryformatversion'])
+            bound=r._run(['/usr/bin/env','-i','HOME=/','PATH=/usr/bin:/bin',
+                'GIT_CONFIG_NOSYSTEM=1','GIT_CONFIG_GLOBAL=/dev/null','/usr/bin/git',
+                'config','--no-includes','--file',str(fetch/'application.git/config'),
+                '--null','--name-only','--list']).stdout.split('\0')
+            self.assertEqual(bound,names)
             r._validate_root_git_contract(fetch/'application.git')
 
     def test_replaced_git_path_cannot_run_unrestricted_read_only_code(self):

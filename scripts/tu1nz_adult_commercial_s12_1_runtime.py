@@ -10352,14 +10352,19 @@ class _R13GitWriters:
                           meta.st_nlink,meta.st_mtime_ns,meta.st_ctime_ns])
         return dict(tree=_git_metadata_transition_fingerprint(paths),roots=roots)
 
-    def fail(self):
+    def fail(self, reason=None):
         self.failed = True
+        if reason is not None:
+            self.value.setdefault('failure_reason',reason)
         self.value['phase'] = 'FAILED'
         _atomic_json(self.journal,self.value)
         for root in self.roots:
             if _barrier_path_present(_r13_location(root)):
                 _r13_poison(_r13_location(root))
-        raise S12ControlError(GIT_WRITER_RED)
+        error = S12ControlError(GIT_WRITER_RED)
+        if 'failure_reason' in self.value:
+            error.add_note(self.value['failure_reason'])
+        raise error
 
     def check(self):
         if self.failed or self.fd is None:
@@ -10395,7 +10400,7 @@ class _R13GitWriters:
                     root = roots.pop()
                     worktree = any(k in getattr(self,'worktree_members',()) for k in (*parents,target))
                     if actor != 'controller' and (worktree or actor != str(root)):
-                        self.fail()
+                        self.fail('FOREIGN_WORKTREE_EVENT' if worktree else 'FOREIGN_METADATA_EVENT')
                     if target and target not in self.members:
                         # New identity has an observed parent association,
                         # not a later equal-content/inode-owner inference.
