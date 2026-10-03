@@ -9937,14 +9937,35 @@ def _r13_load(root: Path) -> tuple[Path, dict]:
     tx = _r13_location(root)
     _validate_secure_directory_chain(tx, Path("/"))
     value = _private_json(tx/"journal.json", MATERIALIZATION_RED, maximum=32*1024*1024)
-    if (value.get("schema") != "TU1NZ_S12_1_MATERIALIZATION_V1"
+    if (set(value) - {"unsafe"} != {"schema","attempt_binding","root","phase",
+                "historical_continuity","entries","old_commit","target_commit","branch"}
+            or value.get("schema") != "TU1NZ_S12_1_MATERIALIZATION_V1"
             or value.get("attempt_binding") != ACTIVE_ATTEMPT or value.get("root") != str(root)
             or value.get("phase") not in {"PREPARING", "READY", "APPLYING", "APPLIED", "UNDOING", "UNDONE"}
-            or value.get("historical_continuity") is not False or value.get("unsafe") is True
+            or value.get("historical_continuity") is not False or "unsafe" in value
             or not isinstance(value.get("entries"), list)):
+        raise S12ControlError(MATERIALIZATION_RED)
+    key = "application" if root == APPLICATION_ROOT else "control"
+    _,index,_ = _load_recovery_backup()
+    uid,gid,_ = _recorded_path_metadata(index[key], "root")
+    if (value["old_commit"] != index[key]["commit"]
+            or value["target_commit"] != ACTIVE_ATTEMPT["release"][key+"_commit"]
+            or value["branch"] != ("main" if key=="application" else "control-main")):
         raise S12ControlError(MATERIALIZATION_RED)
     names = []
     for entry in value["entries"]:
+        if (not isinstance(entry,dict) or set(entry) != {"path_hex","git_mode","blob",
+                "before","before_record","after","after_record","policy","step"}
+                or entry["git_mode"] not in {None,"directory","100644","100755","120000"}
+                or not isinstance(entry["path_hex"],str)
+                or re.fullmatch(r"(?:[0-9a-f]{2})+",entry["path_hex"]) is None
+                or entry["step"] not in {"PREPARED","BOUND","RETIRE_INTENT","PUBLISH_INTENT",
+                                        "APPLIED","WITHDRAW_INTENT","RESTORE_INTENT","UNDONE"}
+                or entry["policy"] != dict(uid=uid,gid=gid,mode=_r13_mode(entry["git_mode"]))
+                or (entry["git_mode"] in {None,"directory"} and entry["blob"] is not None)
+                or (entry["git_mode"] not in {None,"directory"} and
+                    (not isinstance(entry["blob"],str) or re.fullmatch(r"[0-9a-f]{40}",entry["blob"]) is None))):
+            raise S12ControlError(MATERIALIZATION_RED)
         name = bytes.fromhex(entry["path_hex"])
         _validated_git_paths((name,), MATERIALIZATION_RED)
         if name.split(b"/")[0] in {b".git", os.fsencode(RECOVERY_GIT_DIRECTORY)}:
@@ -9953,6 +9974,10 @@ def _r13_load(root: Path) -> tuple[Path, dict]:
     if len(set(names)) != len(names):
         raise S12ControlError(MATERIALIZATION_RED)
     return tx, value
+
+
+def _r13_mode(mode: str | None) -> str:
+    return {"directory":"2770","120000":"0777","100755":"0770"}.get(mode,"0660")
 
 
 def _r13_save(tx: Path, value: dict) -> None:
@@ -10076,7 +10101,7 @@ def _r13_materialize(root: Path, git: Path, target: str, branch: str) -> None:
             raise S12ControlError(MATERIALIZATION_RED)
         entries.append(dict(path_hex=name.hex(), git_mode=mode, blob=oid, before=current,
             before_record=MATERIALIZATION_RECORDS[root].get(path), after=None, after_record=None,
-            policy=dict(uid=uid,gid=gid,mode="2770" if mode=="directory" else "0770" if mode=="100755" else "0660"),
+            policy=dict(uid=uid,gid=gid,mode=_r13_mode(mode)),
             step="PREPARED"))
     _ensure_private_directory_durable(tx, Path("/"))
     if tx.stat().st_dev != root.stat().st_dev:
@@ -10121,7 +10146,11 @@ def _r13_allocate_and_apply(root: Path, git: Path, tx: Path, value: dict,
                 stage.symlink_to(link)
             else:
                 _write_private_backup_blob(stage,blob)
-        os.chown(stage,0,entry["policy"]["gid"],follow_symlinks=False)
+        # Existing quarantine contracts fence a symlink by its parents, not by
+        # chmod/chown of the link. Allocate it at the declared maintenance UID
+        # under the private parent; later release must not invent a new state.
+        os.chown(stage,entry["policy"]["uid"] if mode=="120000" else 0,
+                 entry["policy"]["gid"],follow_symlinks=False)
         if mode != "120000":
             if os.listxattr(stage):
                 raise S12ControlError(MATERIALIZATION_RED)

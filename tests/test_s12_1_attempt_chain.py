@@ -133,6 +133,7 @@ class IntegratedChainTests(unittest.TestCase):
         if argv[0]=='systemctl':
             if 'start' in argv:
                 self.starts += 1
+                self.start_witness.write_text(str(self.starts))
                 self.assertEqual(argv,['systemctl','start',r.UNIT_NAME])
                 self.assertEqual(r.STATE_ROOT.name,r.FOLLOWUP_SLOT)
                 if self.provider_failure:
@@ -157,22 +158,10 @@ class IntegratedChainTests(unittest.TestCase):
         if argv[0]=='curl':return subprocess.CompletedProcess(argv,0,'308' if '.de/' in argv[-1] else '200','')
         return self.real_run(argv,**kwargs)
 
-    def full_chain(self, *, provider_failure):
+    def full_chain(self, *, provider_failure=False, crash_at=None, attack=None):
         with fixture(complete_backup=True) as f, ExitStack() as patches:
             self.real_run=r._run;self.starts=0;self.provider_failure=provider_failure
-            def trace(frame,event,arg):
-                if not frame.f_code.co_name.startswith('_r13_'):
-                    return None
-                if event=='exception' and isinstance(arg[1],r.S12ControlError):
-                    detail=dict(function=frame.f_code.co_name,line=frame.f_lineno,
-                        error=getattr(arg[1],'safe_code',type(arg[1]).__name__),starts=self.starts)
-                    if frame.f_code.co_name=='_r13_materialize_undo':
-                        value=frame.f_locals
-                        if 'path' in value:detail['path']=str(value['path'].relative_to(f['base']))
-                        detail.update({key:value.get(key) for key in ('current','stage','retired','entry')})
-                    print('OFFLINE_DIAGNOSTIC '+json.dumps(detail,sort_keys=True),flush=True)
-                return trace
-            sys.settrace(trace);patches.callback(sys.settrace,None)
+            self.start_witness=f['base']/'isolated-start-count'
             patches.enter_context(mock.patch.object(r,'_run',side_effect=self.host_boundary))
             # The offline interpreter is synthetic. All copy/hash/ownership and
             # immutable-tree checks run on its real bytes; no provider executes.
@@ -242,7 +231,41 @@ class IntegratedChainTests(unittest.TestCase):
                 self.assertEqual(r._verify_immutable_release_stage(),(control_sha,control_tree))
                 self.assertEqual(r._root_git(r.RELEASE_CONTROL_ROOT,'rev-parse',r.FREEZE_TAG),tag_object)
             patches.enter_context(mock.patch.object(r,'_verify_release_freeze',side_effect=fixture_freeze))
-            if provider_failure:
+            if crash_at:
+                pid=os.fork()
+                if pid==0:
+                    def terminate(name):
+                        if name==crash_at:os._exit(73)
+                    try:
+                        with mock.patch.object(r,'_r13_boundary',side_effect=terminate):
+                            r.followup(authorization,grant_hash)
+                    except BaseException:
+                        import traceback
+                        traceback.print_exc()
+                    os._exit(74)  # Fault seam not reached is a test failure.
+                _,status=os.waitpid(pid,0)
+                self.assertEqual(os.waitstatus_to_exitcode(status),73,crash_at)
+                self.starts=int(self.start_witness.read_text()) if self.start_witness.exists() else 0
+                result=r.followup(authorization,grant_hash,recovering=True)
+                self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
+                self.assertFalse(r.RELEASE_ROOT.exists())
+            elif attack:
+                fired=False
+                def interfere(name):
+                    nonlocal fired
+                    if name=='OBJECT_BOUND' and not fired:
+                        fired=True
+                        attack(f)
+                with mock.patch.object(r,'_r13_boundary',side_effect=interfere):
+                    with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash)
+                self.assertTrue(fired)
+                with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash,recovering=True)
+                self.assertEqual(self.starts,0)
+                self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                    r.followup(authorization,grant_hash)
+                return
+            elif provider_failure:
                 with self.assertRaisesRegex(r.S12ControlError,'S12_1_RUNTIME_ACCEPTANCE_RED'):
                     r.followup(authorization,grant_hash)
                 result=r.followup(authorization,grant_hash,recovering=True)
@@ -252,10 +275,11 @@ class IntegratedChainTests(unittest.TestCase):
                 result=r.followup(authorization,grant_hash)
                 self.assertTrue(result['ok']);self.assertEqual(result['deployment_count'],1)
                 self.assertEqual(result['rollback_count'],0)
-            self.assertEqual(self.starts,1)
+            expected_starts=0 if crash_at and not provider_failure else 1
+            self.assertEqual(self.starts,expected_starts)
             with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                 r.followup(authorization,grant_hash)
-            self.assertEqual(self.starts,1)
+            self.assertEqual(self.starts,expected_starts)
             self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
             new_state=f['state']/'attempts'/r.FOLLOWUP_SLOT
             marker=json.loads((new_state/'deployment-attempted.json').read_bytes())
@@ -263,6 +287,34 @@ class IntegratedChainTests(unittest.TestCase):
             self.assertNotEqual(Path(marker['backup']),f['backup'])
             for root in (f['app'],f['control']):
                 self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
+            if provider_failure or crash_at:
+                for key,root in [('application',f['app']),('control',f['control'])]:
+                    self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+            else:
+                self.assertNotIn('system.posix_acl_default',os.listxattr(f['app']/'created'))
+                self.assertIn('system.posix_acl_default',os.listxattr(f['app']))
+
+    def test_process_loss_at_each_materialization_boundary(self):
+        for boundary in ('OBJECT_BOUND','RETIRE_INTENT','RETIRED','PUBLISH_INTENT',
+                         'PUBLISHED','RECORDS_PUBLISHED','INDEX_UPDATED','REF_UPDATED'):
+            with self.subTest(boundary=boundary):
+                self.full_chain(crash_at=boundary)
+
+    def test_process_loss_at_each_rollback_boundary(self):
+        for boundary in ('WITHDRAW_INTENT','WITHDRAWN','RESTORE_INTENT','RESTORED'):
+            with self.subTest(boundary=boundary):
+                self.full_chain(provider_failure=True,crash_at=boundary)
+
+    def test_foreign_root_mutation_and_reversion_stays_closed(self):
+        def attack(f):
+            # A different root TID changes and restores an unrelated tracked
+            # mode. Equality after the attack must not legitimize this writer.
+            path=f['app']/'.gitignore'
+            mode=path.stat().st_mode&0o7777
+            subprocess.run([sys.executable,'-c',
+                'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); os.chmod(p,m^64); os.chmod(p,m)',
+                str(path),str(mode)],check=True)
+        self.full_chain(attack=attack)
 
     def test_full_success_chain_and_replay(self):
         self.full_chain(provider_failure=False)
