@@ -35,10 +35,13 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r11"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r12"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
+R12_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V4"
+R12_CONTRACT_SHA256 = "97794cddc84a5d9a0ddd6600236aee5f8c8c79013089ef9b20fb01060ca8e00f"
+R12_RED = "S12_1_R12_METADATA_RECONCILIATION_RED"
 XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 BARRIER_RELEASE_COMPLETION_SCHEMA = "TU1NZ_S12_1_BARRIER_RELEASE_COMPLETE_V1"
@@ -6398,6 +6401,7 @@ def _load_barrier_journal() -> tuple[
         journal.get("schema")
         not in {
             BARRIER_SCHEMA,
+            R12_BARRIER_SCHEMA,
             XATTR_BARRIER_SCHEMA,
             LEGACY_BARRIER_SCHEMA,
         }
@@ -6410,7 +6414,7 @@ def _load_barrier_journal() -> tuple[
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     journal_schema = journal["schema"]
     expected_parent_keys = {"path", "uid", "gid", "mode"}
-    if journal_schema in {BARRIER_SCHEMA, XATTR_BARRIER_SCHEMA}:
+    if journal_schema in {BARRIER_SCHEMA, R12_BARRIER_SCHEMA, XATTR_BARRIER_SCHEMA}:
         expected_parent_keys.add("xattr_fingerprint")
     if set(parent_record) != expected_parent_keys:
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
@@ -6436,13 +6440,13 @@ def _load_barrier_journal() -> tuple[
             "root_uid", "root_gid", "root_mode",
             "git_uid", "git_gid", "git_mode",
         }
-        if journal_schema == BARRIER_SCHEMA:
+        if journal_schema in {BARRIER_SCHEMA, R12_BARRIER_SCHEMA}:
             expected_record_keys.add("root_xattr_fingerprint")
         if set(record) != expected_record_keys:
             raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
         _recorded_path_metadata(record, "root")
         _recorded_path_metadata(record, "git")
-        if journal_schema == BARRIER_SCHEMA:
+        if journal_schema in {BARRIER_SCHEMA, R12_BARRIER_SCHEMA}:
             fingerprint = record.get("root_xattr_fingerprint")
             if (
                 not isinstance(fingerprint, str)
@@ -6462,7 +6466,11 @@ def _load_barrier_journal() -> tuple[
             require_xattr=journal_schema != LEGACY_BARRIER_SCHEMA,
         )
     )
-    if set(journal) not in (
+    journal_keys = set(journal)
+    if journal_schema == R12_BARRIER_SCHEMA:
+        _r12_validate_lineage(journal)
+        journal_keys.remove("r12_metadata_reconciliation")
+    if journal_keys not in (
         {"schema", "created_at", "repositories", "repository_parent"},
         {
             "schema",
@@ -6528,7 +6536,7 @@ def _ensure_barrier_journal(
         _assert_repository_parent_xattrs(parent_record)
         for root in (APPLICATION_ROOT, CONTROL_ROOT):
             recorded = recorded_repositories[root]
-            if schema != BARRIER_SCHEMA:
+            if schema not in {BARRIER_SCHEMA, R12_BARRIER_SCHEMA}:
                 _assert_legacy_path_xattrs_safe(
                     root, "S12_1_RECOVERY_GIT_BARRIER_RED"
                 )
@@ -6558,7 +6566,7 @@ def _ensure_barrier_journal(
         if not journal_changed:
             return worktree_barrier
         journal = _barrier_json(BARRIER_MARKER)
-        journal["schema"] = BARRIER_SCHEMA
+        journal["schema"] = R12_BARRIER_SCHEMA if schema == R12_BARRIER_SCHEMA else BARRIER_SCHEMA
         journal["repositories"] = {
             "application": _barrier_repository_record(
                 APPLICATION_ROOT, recorded_repositories[APPLICATION_ROOT]
@@ -9184,14 +9192,460 @@ def simulator() -> dict[str, Any]:
     return run_simulator()
 
 
+def _r12_xattr_fingerprint(path: Path, identity: dict, attrs: dict) -> str:
+    """Bind a specified identity; callers must never relabel this as history."""
+    payload = bytearray()
+    for name, value_hex in sorted(attrs.items(), key=lambda item: os.fsencode(item[0])):
+        name_bytes, value = os.fsencode(name), bytes.fromhex(value_hex)
+        if name == "system.posix_acl_access":
+            value = _normalize_posix_acl_mode_entries(value)
+        payload.extend(len(name_bytes).to_bytes(8, "big") + name_bytes)
+        payload.extend(len(value).to_bytes(8, "big") + value)
+    return hashlib.sha256(
+        b"present\0" + os.fsencode(path) + b"\0"
+        + str(identity["device"]).encode() + b":"
+        + str(identity["inode"]).encode() + b"\0" + payload + b"\0"
+    ).hexdigest()
+
+
+def _r12_stat(fd: int) -> dict:
+    metadata = os.fstat(fd)
+    kind = ("directory" if stat.S_ISDIR(metadata.st_mode) else
+            "regular" if stat.S_ISREG(metadata.st_mode) else "invalid")
+    if kind == "invalid" or (kind == "regular" and metadata.st_nlink != 1):
+        raise S12ControlError(R12_RED)
+    return dict(device=metadata.st_dev, inode=metadata.st_ino, kind=kind,
+                uid=metadata.st_uid, gid=metadata.st_gid,
+                mode=f"{stat.S_IMODE(metadata.st_mode):04o}", links=metadata.st_nlink)
+
+
+def _r12_birth(fd: int) -> list[int]:
+    # statx(AT_EMPTY_PATH): a second, kernel-provided identity binding for
+    # crash/resume. An unsupported birth time is NOT silently downgraded.
+    library = ctypes.CDLL(None, use_errno=True)
+    function = library.statx
+    function.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+                         ctypes.c_uint, ctypes.c_void_p]
+    function.restype = ctypes.c_int
+    buffer = ctypes.create_string_buffer(256)
+    if function(fd, b"", 0x1000 | 0x100, 0x800, buffer) != 0:
+        raise S12ControlError(R12_RED)
+    if not struct.unpack_from("=I", buffer.raw)[0] & 0x800:
+        raise S12ControlError(R12_RED)
+    seconds, nanoseconds = struct.unpack_from("=qI", buffer.raw, 80)
+    if seconds <= 0 or nanoseconds >= 1_000_000_000:
+        raise S12ControlError(R12_RED)
+    return [seconds, nanoseconds]
+
+
+def _r12_attrs(fd: int) -> dict[str, str]:
+    names = sorted(os.listxattr(fd))
+    if any(name not in {"system.posix_acl_access", "system.posix_acl_default"}
+           for name in names):
+        raise S12ControlError(R12_RED)
+    values = {name: os.getxattr(fd, name).hex() for name in names}
+    if names != sorted(os.listxattr(fd)):
+        raise S12ControlError(R12_RED)
+    return values
+
+
+def _r12_open(path: Path) -> int:
+    # Pin each ancestor, reject symlinks at every component, including roots.
+    parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for part in path.parts[1:-1]:
+            next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                              | os.O_CLOEXEC, dir_fd=parent)
+            os.close(parent)
+            parent = next_fd
+        return os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+                       | os.O_NONBLOCK, dir_fd=parent)
+    finally:
+        os.close(parent)
+
+
+def _r12_snapshot(path: Path, fd: int, content: str | None) -> dict:
+    before = os.fstat(fd)
+    value = dict(metadata=_r12_stat(fd), birth=_r12_birth(fd), xattrs=_r12_attrs(fd))
+    if content is not None and _sha256_descriptor(fd) != content:
+        raise S12ControlError(R12_RED)
+    after = os.fstat(fd)
+    fresh = _r12_open(path)
+    try:
+        if _r12_stat(fresh) != value["metadata"] or _r12_birth(fresh) != value["birth"]:
+            raise S12ControlError(R12_RED)
+    finally:
+        os.close(fresh)
+    for field in ("st_dev", "st_ino", "st_uid", "st_gid", "st_mode",
+                  "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns"):
+        if getattr(before, field) != getattr(after, field):
+            raise S12ControlError(R12_RED)
+    return value
+
+
+def _r12_chmod_attrs(attrs: dict, mode: int) -> dict:
+    copied = dict(attrs)
+    name = "system.posix_acl_access"
+    if name in copied:
+        raw = bytes.fromhex(copied[name])
+        _normalize_posix_acl_mode_entries(raw)  # validate framing
+        entries = list(struct.iter_unpack("<HHI", raw[4:]))
+        has_mask = any(tag == 0x10 for tag, _, _ in entries)
+        changed = {1: (mode >> 6) & 7, 0x10 if has_mask else 4: (mode >> 3) & 7,
+                   0x20: mode & 7}
+        copied[name] = (raw[:4] + b"".join(struct.pack("<HHI", tag,
+                         changed.get(tag, permissions), identifier)
+                         for tag, permissions, identifier in entries)).hex()
+    return copied
+
+
+def _r12_plan(entry: dict, observed: dict) -> list[dict]:
+    """Finite syscall-boundary states, saved BEFORE the first metadata write."""
+    states = [json.loads(json.dumps(observed))]
+    def add(operation, value):
+        states.append(dict(metadata=dict(value["metadata"]), birth=value["birth"],
+                           xattrs=dict(value["xattrs"]), operation=operation))
+    current = json.loads(json.dumps(observed))
+    current["metadata"].update(uid=0, gid=entry["target"]["gid"])
+    add("chown", current)
+    if entry["historical_record"] is None:
+        if "system.posix_acl_default" in current["xattrs"]:
+            del current["xattrs"]["system.posix_acl_default"]
+            add("remove_default_acl", current)
+        acl = _worktree_barrier_owner_acl(int(entry["target"]["mode"], 8),
+                  entry["target"]["uid"], kind=current["metadata"]["kind"])
+        if acl is None:
+            raise S12ControlError(R12_RED)
+        current["xattrs"]["system.posix_acl_access"] = acl.hex()
+        entries = list(struct.iter_unpack("<HHI", acl[4:]))
+        bits = {tag: permissions for tag, permissions, _ in entries if tag in {1, 0x10, 0x20}}
+        mode = (int(current["metadata"]["mode"], 8) & 0o7000) | bits[1] << 6 | bits[0x10] << 3 | bits[0x20]
+        current["metadata"]["mode"] = f"{mode:04o}"
+        add("set_access_acl", current)
+    mode = int(entry["target"]["mode"], 8) & ~0o222
+    current["xattrs"] = _r12_chmod_attrs(current["xattrs"], mode)
+    current["metadata"]["mode"] = f"{mode:04o}"
+    add("chmod", current)
+    return states
+
+
+class _R12AttributeGuard:
+    """PID-attributed FAN_ATTRIB events complement the existing open barrier.
+
+    Inotify alone cannot distinguish our fchmod from a competing owner's
+    chmod. Attribute events from ANY other TID (including root) are RED.
+    """
+    def __init__(self, paths: Sequence[Path]):
+        self.fd = None
+        library = ctypes.CDLL(None, use_errno=True)
+        init = library.fanotify_init
+        init.argtypes = [ctypes.c_uint, ctypes.c_uint]
+        init.restype = ctypes.c_int
+        descriptor = init(0x303, os.O_RDONLY | os.O_CLOEXEC)
+        if descriptor < 0:
+            raise S12ControlError(R12_RED)
+        self.fd = descriptor
+        mark = library.fanotify_mark
+        mark.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.c_uint64,
+                         ctypes.c_int, ctypes.c_char_p]
+        mark.restype = ctypes.c_int
+        try:
+            for path in sorted(set(paths), key=os.fsencode):
+                mask = 4 | (0x48000000 if path.is_dir() else 0)
+                if mark(descriptor, 1, mask, -100, os.fsencode(path)) != 0:
+                    raise S12ControlError(R12_RED)
+            self.assert_quiet()
+        except BaseException:
+            self.close()
+            raise
+
+    def assert_quiet(self):
+        while True:
+            try:
+                data = os.read(self.fd, 65536)
+            except BlockingIOError:
+                return
+            offset = 0
+            while offset < len(data):
+                size, version, _, metadata_size, mask, fd, pid = struct.unpack_from("=IBBHQii", data, offset)
+                if fd >= 0:
+                    os.close(fd)
+                if size < 24 or offset + size > len(data) or metadata_size != 24 or version != 3:
+                    raise S12ControlError(R12_RED)
+                if mask & ~(4 | 0x40000000) or pid != threading.get_native_id():
+                    raise S12ControlError(R12_RED)
+                offset += size
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+
+def _r12_load_contract(path: Path) -> dict:
+    # Digest pins the ENTIRE finite schema and all 254 entries; no arbitrary
+    # supplied JSON can expand paths, owners, modes or accepted xattrs.
+    raw = _read_private_backup_blob(path, R12_CONTRACT_SHA256, R12_RED)
+    value = json.loads(raw)
+    if value["schema"] != "TU1NZ_S12_1_R12_METADATA_CONTRACT_V1":
+        raise S12ControlError(R12_RED)
+    return value
+
+
+def _r12_validate_lineage(journal: dict) -> None:
+    lineage = journal.get("r12_metadata_reconciliation")
+    if not isinstance(lineage, dict) or set(lineage) != {
+        "contract_sha256", "original_journal_sha256", "ledger_sha256"
+    } or lineage["contract_sha256"] != R12_CONTRACT_SHA256:
+        raise S12ControlError(R12_RED)
+    original = STATE_ROOT / "repository-barrier.r12-original.json"
+    _read_private_backup_blob(original, lineage["original_journal_sha256"], R12_RED)
+    ledger = json.loads(_read_private_backup_blob(
+        STATE_ROOT / "repository-barrier.r12-bindings.json", lineage["ledger_sha256"], R12_RED))
+    if (ledger.get("schema") != "TU1NZ_S12_1_R12_BINDINGS_V1"
+            or ledger.get("phase") != "SEALED"
+            or ledger.get("contract_sha256") != R12_CONTRACT_SHA256
+            or ledger.get("original_journal_sha256") != lineage["original_journal_sha256"]
+            or ledger.get("historical_continuity") is not False):
+        raise S12ControlError(R12_RED)
+
+
+def _r12_reconcile_locked(contract_path: Path) -> dict:
+    """Explicit future maintenance entrypoint: seals only; NEVER runs recovery.
+
+    Called under the existing exclusive deployment flock. Historical evidence
+    is immutable. Even after success both Git guards stay installed.
+    """
+    if os.geteuid() != 0 or sys.platform != "linux":
+        raise S12ControlError(R12_RED)
+    contract = _r12_load_contract(contract_path)
+    roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    if contract["roots"] != dict(application=str(roots[0]), control=str(roots[1])):
+        raise S12ControlError(R12_RED)
+    by_name = dict(zip(("application", "control"), roots))
+    original_path = STATE_ROOT / "repository-barrier.r12-original.json"
+    ledger_path = STATE_ROOT / "repository-barrier.r12-bindings.json"
+    original_sha = contract["protected_inputs"]["repository-barrier.json"]
+    backup = BACKUP_ROOT / contract["backup_name"]
+    for private in (STATE_ROOT, backup):
+        _validate_secure_directory_chain(private, Path("/"))
+    for name, path in (("deployment-attempted.json", ATTEMPT_MARKER),
+                       ("restore-index.json", backup / "restore-index.json")):
+        _read_private_backup_blob(path, contract["protected_inputs"][name], R12_RED)
+    journal = _barrier_json(BARRIER_MARKER)
+    if journal["schema"] == R12_BARRIER_SCHEMA:
+        _r12_validate_lineage(journal)
+        # A completed transaction is never reapplied and is not stale health
+        # evidence. The next, separately authorized recovery must revalidate.
+        raise S12ControlError("S12_1_R12_ALREADY_SEALED_RECOVERY_PREFLIGHT_REQUIRED")
+    original_raw = _read_private_backup_blob(BARRIER_MARKER, original_sha, R12_RED)
+    records, parent_record, worktree, schema = _load_barrier_journal()
+    if schema != BARRIER_SCHEMA or worktree is None:
+        raise S12ControlError(R12_RED)
+    for root in (*roots, DEPLOYMENT_LOCK_ROOT):
+        metadata = root.lstat()
+        if root.is_symlink() or metadata.st_uid != 0 or stat.S_IMODE(metadata.st_mode) & 0o022:
+            raise S12ControlError(R12_RED)
+    _assert_repository_parent_xattrs(parent_record)
+    for root in roots:
+        _assert_repository_root_xattrs(root, records[root])
+    index = _private_json(backup / "restore-index.json", R12_RED)
+    for key in ("application", "control"):
+        record = index[key]
+        for suffix, field in ((".bundle", "bundle_sha256"),
+                              (".tracked-path-hashes", "tracked_path_hashes_sha256")):
+            _read_private_backup_blob(backup / (key + suffix), record[field], R12_RED)
+        if _reflog_tree_digest(backup / (key + ".reflogs")) != record["reflog_snapshot_sha256"]:
+            raise S12ControlError(R12_RED)
+    # This is a narrowly bound repair of an existing quarantine, not a path
+    # to take ownership of an unguarded checkout.
+    for expected in contract["guards"]:
+        path = by_name[expected["repository"]] / expected["name"]
+        fd = _r12_open(path)
+        try:
+            if _r12_stat(fd) != expected["metadata"]:
+                raise S12ControlError(R12_RED)
+        finally:
+            os.close(fd)
+    entries = sorted(contract["entries"], key=lambda e: (len(Path(e["path"]).parts), e["repository"], e["path"]))
+    paths = [by_name[e["repository"]] / e["path"] for e in entries]
+    tracked = _tracked_worktree_regular_paths(roots, allow_missing=True)
+    metadata_paths = _repository_git_metadata_paths(roots)
+    if (_competing_control_sync_count() or _active_repository_git_count(roots)
+            or _active_recovery_git_handle_count(metadata_paths)
+            or _active_tracked_worktree_write_handle_count(tracked)):
+        raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+    guarded = set(paths) | set(roots)
+    for path in paths:
+        root = next(root for root in roots if root in path.parents)
+        guarded.update(parent for parent in path.parents if parent == root or root in parent.parents)
+    guard = None
+    git_guard = None
+    attrs_guard = None
+    quiescence = None
+    descriptors = []
+    try:
+        git_guard = _GitMetadataTransitionGuard(tuple(
+            path for path in metadata_paths if not _is_recovery_guard(path)),
+            allow_root_lock_events=False)
+        guard = _WorktreeReleaseGuard(roots, tuple(guarded))
+        attrs_guard = _R12AttributeGuard(tuple(guarded))
+        quiescence = _GuardedHandleQuiescence(tuple(guarded), roots)
+        quiescence.acquire()
+        if _active_tracked_worktree_write_handle_count(tracked):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        for path in paths:
+            descriptors.append(_r12_open(path))
+        if ledger_path.exists() or ledger_path.is_symlink():
+            ledger = _barrier_json(ledger_path)
+            _read_private_backup_blob(original_path, original_sha, R12_RED)
+            if (ledger.get("schema") != "TU1NZ_S12_1_R12_BINDINGS_V1"
+                    or ledger.get("contract_sha256") != R12_CONTRACT_SHA256
+                    or ledger.get("original_journal_sha256") != original_sha
+                    or ledger.get("phase") not in {"PREPARED", "SEALED"}
+                    or ledger.get("historical_continuity") is not False
+                    or len(ledger.get("bindings", [])) != len(entries)):
+                raise S12ControlError(R12_RED)
+        else:
+            bindings = []
+            for entry, path, fd in zip(entries, paths, descriptors):
+                root = by_name[entry["repository"]]
+                old = worktree[root].get(path)
+                if old != entry["historical_record"]:
+                    raise S12ControlError(R12_RED)
+                current = _r12_snapshot(path, fd, entry["content_sha256"])
+                if current["metadata"] != entry["admission"] or current["xattrs"] != entry["admission_xattrs"]:
+                    raise S12ControlError(R12_RED)
+                if old is not None and _r12_xattr_fingerprint(path, old, entry["target"]["xattrs"]) != old["xattr_fingerprint"]:
+                    raise S12ControlError(R12_RED)
+                successor = dict(entry["target"])
+                successor.pop("xattrs")
+                successor.update(kind=current["metadata"]["kind"], device=current["metadata"]["device"], inode=current["metadata"]["inode"],
+                                 xattr_fingerprint=_r12_xattr_fingerprint(path, current["metadata"], entry["target"]["xattrs"]))
+                bindings.append(dict(path=str(path), provenance=entry["provenance"], historical_record=old,
+                                     successor=successor, states=_r12_plan(entry, current), step=0, intent=None))
+            guard.assert_no_events()
+            attrs_guard.assert_quiet()
+            quiescence.assert_quiesced()
+            if original_path.exists() or original_path.is_symlink():
+                _read_private_backup_blob(original_path, original_sha, R12_RED)
+            else:
+                _write_private_backup_blob(original_path, original_raw)
+            ledger = dict(schema="TU1NZ_S12_1_R12_BINDINGS_V1", phase="PREPARED",
+                          contract_sha256=R12_CONTRACT_SHA256, original_journal_sha256=original_sha,
+                          historical_continuity=False, bindings=bindings)
+            _atomic_barrier_json(ledger_path, ledger)
+        # Bind the ledger to the exact admission contract again on resume.
+        for entry, path, fd, binding in zip(entries, paths, descriptors, ledger["bindings"]):
+            if binding["path"] != str(path) or binding["historical_record"] != entry["historical_record"]:
+                raise S12ControlError(R12_RED)
+            initial = binding["states"][0]
+            if initial["metadata"] != entry["admission"] or initial["xattrs"] != entry["admission_xattrs"] or binding["states"] != _r12_plan(entry, initial):
+                raise S12ControlError(R12_RED)
+            expected_successor = dict(entry["target"])
+            expected_successor.pop("xattrs")
+            expected_successor.update(kind=initial["metadata"]["kind"],
+                device=initial["metadata"]["device"], inode=initial["metadata"]["inode"],
+                xattr_fingerprint=_r12_xattr_fingerprint(path, initial["metadata"], entry["target"]["xattrs"]))
+            if binding["successor"] != expected_successor or binding["provenance"] != entry["provenance"]:
+                raise S12ControlError(R12_RED)
+            states = binding["states"]
+            while True:
+                step = binding["step"]
+                if (type(step) is not int or not 0 <= step < len(states)
+                        or (binding["intent"] is not None and (
+                            type(binding["intent"]) is not int or binding["intent"] != step + 1))):
+                    raise S12ControlError(R12_RED)
+                actual = _r12_snapshot(path, fd, entry["content_sha256"])
+                expected = {k:v for k,v in states[step].items() if k != "operation"}
+                if actual != expected:
+                    pending = binding["intent"]
+                    if pending is None or pending >= len(states) or actual != {k:v for k,v in states[pending].items() if k != "operation"}:
+                        raise S12ControlError(R12_RED)
+                    binding.update(step=pending, intent=None)
+                    _atomic_barrier_json(ledger_path, ledger)
+                    continue
+                if step == len(states) - 1:
+                    break
+                binding["intent"] = step + 1
+                _atomic_barrier_json(ledger_path, ledger)
+                quiescence.assert_quiesced()
+                attrs_guard.assert_quiet()
+                guard.accept_release_attributes()
+                operation = states[step + 1]["operation"]
+                if operation == "chown":
+                    os.fchown(fd, 0, entry["target"]["gid"])
+                elif operation == "remove_default_acl":
+                    os.removexattr(fd, "system.posix_acl_default")
+                elif operation == "set_access_acl":
+                    os.setxattr(fd, "system.posix_acl_access", bytes.fromhex(states[step + 1]["xattrs"]["system.posix_acl_access"]))
+                elif operation == "chmod":
+                    os.fchmod(fd, int(states[step + 1]["metadata"]["mode"], 8))
+                else:
+                    raise S12ControlError(R12_RED)
+                os.fsync(fd)
+                guard.accept_release_attributes()
+                attrs_guard.assert_quiet()
+                after = _r12_snapshot(path, fd, entry["content_sha256"])
+                if after != {k:v for k,v in states[step + 1].items() if k != "operation"}:
+                    raise S12ControlError(R12_RED)
+                binding.update(step=step + 1, intent=None)
+                _atomic_barrier_json(ledger_path, ledger)
+            worktree[by_name[entry["repository"]]][path] = binding["successor"]
+        for entry, path, fd, binding in zip(entries, paths, descriptors, ledger["bindings"]):
+            if _r12_snapshot(path, fd, entry["content_sha256"]) != {k:v for k,v in binding["states"][-1].items() if k != "operation"}:
+                raise S12ControlError(R12_RED)
+            _assert_worktree_path_xattrs(path, binding["successor"], barrier_locked=True)
+        attrs_guard.assert_quiet()
+        guard.assert_no_events()
+        git_guard.assert_unchanged()
+        quiescence.assert_quiesced()
+        ledger["phase"] = "SEALED"
+        _atomic_barrier_json(ledger_path, ledger)
+        journal["schema"] = R12_BARRIER_SCHEMA
+        journal["r12_metadata_reconciliation"] = dict(contract_sha256=R12_CONTRACT_SHA256,
+            original_journal_sha256=original_sha, ledger_sha256=_sha256(ledger_path))
+        journal["worktree_write_barrier"] = _worktree_barrier_payload(roots, worktree)
+        _atomic_barrier_json(BARRIER_MARKER, journal)
+        guard.finalize_release(git_guard.assert_unchanged, quiescence.assert_quiesced)
+        attrs_guard.assert_quiet()
+        return dict(ok=True, safe_code="S12_1_R12_METADATA_SEALED", bound_paths=len(entries),
+                    historical_continuity=False, recovery_started=False, git_guards_released=False)
+    except Exception:
+        # A detected violation is not an interruption-resume candidate. Poison
+        # the separate ledger; neither silently rebaseline nor retry it.
+        if ledger_path.exists() and "ledger" in locals():
+            ledger["phase"] = "ABORTED"
+            _atomic_barrier_json(ledger_path, ledger)
+        raise
+    finally:
+        for fd in descriptors:
+            os.close(fd)
+        if guard is not None:
+            guard.close()
+        if attrs_guard is not None:
+            attrs_guard.close()
+        if git_guard is not None:
+            git_guard.close()
+        if quiescence is not None:
+            quiescence.close()
+
+
+def reconcile_metadata(contract_path: Path) -> dict:
+    with _exclusive_deployment_lock():
+        return _r12_reconcile_locked(contract_path)
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "operation", choices=("verify-source", "simulate", "preflight", "deploy", "recover")
+        "operation", choices=("verify-source", "simulate", "preflight", "deploy", "recover", "reconcile-metadata")
     )
+    parser.add_argument("--metadata-contract", type=Path)
     arguments = parser.parse_args(argv)
     try:
-        if arguments.operation in {"deploy", "recover"}:
+        if (arguments.operation == "reconcile-metadata") != (arguments.metadata_contract is not None):
+            raise S12ControlError(R12_RED)
+        if arguments.operation in {"deploy", "recover", "reconcile-metadata"}:
             if os.geteuid() != 0:
                 raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
             _trusted_controller_digest()
@@ -9205,6 +9659,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif arguments.operation == "recover":
             result = recover()
+        elif arguments.operation == "reconcile-metadata":
+            result = reconcile_metadata(arguments.metadata_contract)
         else:
             result = deploy()
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))

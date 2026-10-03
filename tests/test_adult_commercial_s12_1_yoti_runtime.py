@@ -895,7 +895,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('arguments.operation in {"deploy", "recover"}', source)
+        self.assertIn('arguments.operation in {"deploy", "recover", "reconcile-metadata"}', source[-4000:])
         self.assertIn(
             "runtime_digest_bindings != [_trusted_controller_digest()]", source
         )
@@ -8419,13 +8419,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         unknown = annotation + "unknown_key=true\n"
         self.assertFalse(freeze.verify_annotation(unknown, expected)["ok"])
 
-    def test_freeze_classifies_journaled_root_git_reseal(self) -> None:
+    def test_freeze_classifies_explicit_nonhistorical_binding(self) -> None:
         classification = freeze.STATIC_BINDINGS[
             "recovery_fix_classification"
         ]
         self.assertEqual(
             classification,
-            "JOURNALED_ROOT_GIT_SAME_INODE_RESEAL_BEFORE_ACCEPTANCE",
+            "EXPLICIT_NONHISTORICAL_METADATA_SUCCESSOR_BINDINGS",
         )
         self.assertNotIn("GROUP", classification)
 

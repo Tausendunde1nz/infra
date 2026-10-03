@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r11` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r12` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -130,6 +130,10 @@ contract defect: r10 rebuilds the r9 attempt's `managed_refs` using its own r10
 freeze name, producing `S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED` even if all
 repository identity, refs and reflogs are unchanged. This is a reproduced
 blocker, not a claim that the unpersisted r10 terminal exception was recovered.
+R12 adds only the explicit [metadata reconciliation contract](COMMERCIAL_S12_1_R12_METADATA_RECONCILIATION.md).
+It does not invoke recovery or deployment. Historical gaps remain recorded and
+both live Git barriers remain untouched by the source-only task.
+
 The r11 reader selects the one strictly validated S12 runtime-freeze reference
 from the authenticated durable snapshot. It still compares its exact target,
 every ref, commit/tree, branch, canonical index, path metadata and reflog digest;

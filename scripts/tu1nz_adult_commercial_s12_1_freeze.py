@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r11"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r12"
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
@@ -42,6 +42,10 @@ CONTROL_ARTIFACTS = {
     "control_doc_sha256": "docs/COMMERCIAL_S12_1_YOTI_SANDBOX_RUNTIME_CONTROL.md",
     "control_recovery_doc_sha256": "docs/COMMERCIAL_S12_1_R4_GIT_METADATA_RECOVERY_BARRIER.md",
     "control_recovery_diagnosis_sha256": "analysis/COMMERCIAL_S12_1_R9_ROOT_GIT_WORKTREE_TRANSITION_2026-10-03.diagnose",
+    "control_r12_metadata_contract_sha256": "manifests/s12-1-r12-metadata-contract.json",
+    "control_r12_metadata_tests_sha256": "tests/test_s12_1_r12_metadata_contract.py",
+    "control_r12_metadata_doc_sha256": "docs/COMMERCIAL_S12_1_R12_METADATA_RECONCILIATION.md",
+    "control_validation_workflow_sha256": ".github/workflows/control-validation.yml",
 }
 
 STATIC_BINDINGS = {
@@ -57,7 +61,7 @@ STATIC_BINDINGS = {
     "rollback_contract": "EXACTLY_ONCE_BACKUP_FIRST_CONTROLLED_INACTIVE",
     "deployment_contract": "EXACTLY_ONE_NO_HOTFIX_NO_RETRY",
     "recovery_barrier_contract": "GIT_METADATA_SCOPED_TRAVERSAL_PRESERVING",
-    "recovery_fix_classification": "JOURNALED_ROOT_GIT_SAME_INODE_RESEAL_BEFORE_ACCEPTANCE",
+    "recovery_fix_classification": "EXPLICIT_NONHISTORICAL_METADATA_SUCCESSOR_BINDINGS",
     "runtime_python_sha256": RUNTIME_PYTHON_SHA256,
     "runtime_venv_sha256": RUNTIME_VENV_SHA256,
     "real_avs_enabled": "false",
