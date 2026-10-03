@@ -10500,7 +10500,11 @@ class _R13GitWriters:
         if verb in {'init','clone','checkout'} and root not in (FETCH_ROOT,RELEASE_STAGING_ROOT):
             self.fail()
         if readonly: return 'READ_ONLY'
-        return 'STAGE_WRITE' if root==RELEASE_STAGING_ROOT else 'BOUND_WRITE'
+        # Git init probes symlink support in its new bare metadata directory;
+        # denying that probe silently persists core.symlinks=false. Permit it
+        # only for the finite staging initialization/checkout roles, not for a
+        # live repository's metadata writer.
+        return 'STAGE_WRITE' if root==RELEASE_STAGING_ROOT or verb=='init' else 'BOUND_WRITE'
         return None
 
     def ptrace(self, request, tid, data=0):

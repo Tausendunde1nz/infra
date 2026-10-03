@@ -87,7 +87,7 @@ class AWriterTests(unittest.TestCase):
         self.root=self.base/'repo';self.root.mkdir()
         self.state=self.base/'state';self.state.mkdir(mode=0o700)
         subprocess.run(['git','init',str(self.root)],check=True,capture_output=True)
-        subprocess.run(['git','-C',str(self.root),'-c','user.name=Fixture',
+        subprocess.run(['git','-C',str(self.root),'-c','gc.auto=0','-c','maintenance.auto=false','-c','user.name=Fixture',
             '-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','fixture'],check=True,capture_output=True)
         self.sha=subprocess.check_output(['git','-C',str(self.root),'rev-parse','HEAD'],text=True).strip()
         for name,value in {'STATE_ROOT':self.state,'ACTIVE_ATTEMPT':{'isolated':'writer-test'},
