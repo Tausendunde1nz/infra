@@ -10182,8 +10182,11 @@ rules=ctypes.create_string_buffer(struct.pack('=Q',0x7ff2))
 rs=c.syscall(444,ctypes.byref(rules),8,0)
 rule=ctypes.create_string_buffer(struct.pack('=Qi',0x61b2,fd))
 if rs<0 or c.syscall(445,rs,1,ctypes.byref(rule),0)<0: os._exit(125)
+null_fd=int(sys.argv[5])
+null_rule=ctypes.create_string_buffer(struct.pack('=Qi',2,null_fd))
+if c.syscall(445,rs,1,ctypes.byref(null_rule),0)<0: os._exit(125)
 if c.prctl(38,1,0,0,0)<0 or c.syscall(446,rs,0)<0: os._exit(125)
-os.close(rs); os.close(fd)
+os.close(rs); os.close(fd); os.close(null_fd)
 if c.ptrace(0,0,0,0)<0: os._exit(125)
 os.kill(os.getpid(),signal.SIGSTOP)
 os.execve(args[0],args,env)
@@ -10421,11 +10424,18 @@ class _R13GitWriters:
             self.fail()
         directory = self.directories[root]
         directory_fd = os.open(directory,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW)
+        null_fd = os.open('/dev/null',os.O_PATH|os.O_NOFOLLOW)
+        null = os.fstat(null_fd)
+        if (not stat.S_ISCHR(null.st_mode) or null.st_uid != 0 or null.st_gid != 0
+                or null.st_rdev != os.makedev(1,3) or null.st_nlink != 1):
+            os.close(null_fd); os.close(directory_fd)
+            self.fail()
         allowed_git = self.executable(Path('/usr/bin/git'))
         allowed_shell = self.executable(Path('/bin/sh'))
         self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,
                               namespace=self.handle(directory).hex(),bootstrap_sha256=
-                              hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[])
+                              hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[],
+                              null_device=[null.st_dev,null.st_ino,null.st_rdev])
         if self.value['sequence'] >= 1024:
             self.fail()
         self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
@@ -10435,8 +10445,8 @@ class _R13GitWriters:
         buffers = {}
         try:
             process = subprocess.Popen([sys.executable,'-I','-S','-c',_GIT_WRITER_BOOTSTRAP,
-                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid())],stdin=stdin or subprocess.DEVNULL,
-                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,),close_fds=True,
+                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd)],stdin=stdin or subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd),close_fds=True,
                 env={'HOME':'/','PATH':'/usr/bin:/bin'})
             pending[process.pid] = None
             buffers = {process.stdout:bytearray(),process.stderr:bytearray()}
@@ -10542,6 +10552,7 @@ class _R13GitWriters:
             raise
         finally:
             os.close(directory_fd)
+            os.close(null_fd)
             for stream in buffers: stream.close()
 
     def close(self, *, aborted=False):
