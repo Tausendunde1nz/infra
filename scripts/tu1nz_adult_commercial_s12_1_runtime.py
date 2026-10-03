@@ -3497,7 +3497,7 @@ def _lock_worktree_write_barrier(
                     and metadata.st_uid == record["uid"]
                     and metadata.st_gid == record["gid"]
                     and stat.S_IMODE(metadata.st_mode)
-                    == base_restricted_mode
+                    in {base_restricted_mode, generated_restricted_mode}
                 )
                 owner_acl_transition = False
                 if (

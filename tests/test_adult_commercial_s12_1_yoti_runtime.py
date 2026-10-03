@@ -2632,14 +2632,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     runtime,
-                    "_recorded_path_metadata",
-                    return_value=(1000, 1000, 0o700),
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
                 ),
                 mock.patch.object(runtime, "_sync_repository_filesystem"),
             ):
-                runtime._reseal_released_worktree_contract(
-                    (root,), {root: {}}, records, include_current=False
-                )
+                runtime._lock_worktree_write_barrier(records)
             self.assertEqual(tracked.lstat().st_uid, 0)
             self.assertEqual(
                 runtime._worktree_locked_acl_state(tracked, record),

@@ -68,10 +68,11 @@ The normalized source xattr fingerprint remains bound; during the barrier only
 the byte-exact generated owner ACL may be omitted from that fingerprint. A
 generated ACL is installed and verified before the root ownership handoff,
 then retained until the exact owner has been restored during teardown; a bound
-source ACL is retained throughout. Failure-path reseal recognizes both bounded
-reverse-transition states—owner restored while the generated ACL remains, and
-owner restored after that ACL is removed but before the original mode is
-restored—and re-establishes the root-owned barrier before any guard is released.
+source ACL is retained throughout. The recovery lock and failure-path reseal
+recognize both bounded reverse-transition states—owner restored while the
+generated ACL remains, and owner restored after that ACL is removed but before
+the original mode is restored—and re-establish the root-owned barrier before
+any guard is released.
 The controller also
 rejects setuid and setgid regular files and all unrelated ownership, mode, ACL
 or xattr drift, preserves the original journal mode across same-inode release
