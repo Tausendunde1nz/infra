@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r6"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r7"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -7997,7 +7997,11 @@ def _pristine_legacy_orphan_is_releasable(
             for field in repository_fields
         ):
             return False
-        _validate_repository_worktree_contract(root, records[root])
+        _validate_repository_worktree_contract(
+            root,
+            records[root],
+            allow_journaled_transition=True,
+        )
         _assert_legacy_path_xattrs_safe(
             root, "S12_1_RECOVERY_GIT_BARRIER_RED"
         )
