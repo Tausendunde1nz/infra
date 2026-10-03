@@ -67,6 +67,11 @@ CI retains the complete native test matrix with a 60-minute job bound: tracing
 every Git reader increased the measured isolated success case from about
 23 to 55 seconds. No assertion, negative case or kernel mechanism is skipped
 to fit the former 30-minute bound.
+Interruption coverage distinguishes the newly supervised first reader (before
+any Git mutation/barrier installation) from an in-flight writer under both
+barriers. The former must retain the unchanged repositories and consumed slot;
+the latter must retain both barriers. Neither may adopt a RUNNING journal as
+a live supervisor, resume its command, or gain another activation.
 
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.

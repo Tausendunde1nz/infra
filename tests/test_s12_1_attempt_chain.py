@@ -646,6 +646,10 @@ class IntegratedChainTests(unittest.TestCase):
                 pid=os.fork()
                 if pid==0:
                     def terminate(name):
+                        if name=='GIT_WRITER_BOUND':
+                            profile=r.GIT_WRITER_SCOPE.operation['access_profile']
+                            if crash_at=='GIT_READER_BOUND' and profile=='READ_ONLY':os._exit(73)
+                            if crash_at=='GIT_WRITER_BOUND' and profile=='READ_ONLY':return
                         if name==crash_at:os._exit(73)
                     try:
                         with mock.patch.object(r,'_r13_boundary',side_effect=terminate):
@@ -657,6 +661,21 @@ class IntegratedChainTests(unittest.TestCase):
                 _,status=os.waitpid(pid,0)
                 self.assertEqual(os.waitstatus_to_exitcode(status),73,crash_at)
                 self.starts=int(self.start_witness.read_text()) if self.start_witness.exists() else 0
+                if crash_at=='GIT_READER_BOUND':
+                    # This reader precedes the first authorized mutation and
+                    # barrier installation. Its death must not invent either
+                    # installed barriers or a continuously live supervisor.
+                    state=f['state']/'attempts'/r.FOLLOWUP_SLOT
+                    self.assertEqual(json.loads((state/'git-writer-scope.json').read_text())['phase'],'RUNNING')
+                    with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash,recovering=True)
+                    with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                        r.followup(authorization,grant_hash)
+                    self.assertEqual(self.starts,0)
+                    self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                    for key,root in [('application',f['app']),('control',f['control'])]:
+                        self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
+                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                    return
                 if tamper:
                     cleanup=tamper(f)
                     try:
@@ -755,6 +774,9 @@ class IntegratedChainTests(unittest.TestCase):
 
     def test_inflight_writer_loss_retains_both_barriers_without_resume(self):
         self.full_chain(crash_at='GIT_WRITER_BOUND',tamper=lambda fixture:None)
+
+    def test_inflight_reader_loss_before_mutation_denies_resume_and_replay(self):
+        self.full_chain(crash_at='GIT_READER_BOUND')
 
     def test_foreign_root_mutation_and_reversion_stays_closed(self):
         def attack(f):
