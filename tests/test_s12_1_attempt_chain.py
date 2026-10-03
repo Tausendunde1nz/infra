@@ -203,6 +203,38 @@ class AWriterTests(unittest.TestCase):
         self.assertTrue(all(t['exited'] for t in history))
         self.assertTrue(all(t['parent']==history[0]['tid'] for t in history[1:]))
 
+    def test_journal_failure_still_reaps_writers_and_keeps_unrelated_process(self):
+        selected=self.writer.command(r._recovery_git_arguments(
+            self.root,self.root/'.git','update-ref','refs/heads/never',self.sha))
+        unavailable=False
+        atomic=r._atomic_json
+        def journal(*args,**kwargs):
+            if unavailable:raise OSError('isolated journal unavailable')
+            return atomic(*args,**kwargs)
+        def interrupt(name):
+            nonlocal unavailable
+            if name=='GIT_WRITER_BOUND':
+                unavailable=True
+                raise OSError('isolated interruption')
+        unrelated=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'])
+        try:
+            with mock.patch.object(r,'_atomic_json',side_effect=journal), \
+                    mock.patch.object(r,'_r13_boundary',side_effect=interrupt), \
+                    mock.patch.object(r.os,'kill',wraps=os.kill) as killed, \
+                    self.assertRaisesRegex(OSError,'isolated journal unavailable'):
+                self.writer.run(selected,30)
+            tids={c.args[0] for c in killed.call_args_list if c.args[1]==signal.SIGKILL}
+            self.assertTrue(tids)
+            for tid in tids:
+                with self.assertRaises(ChildProcessError):os.waitpid(tid,os.WNOHANG|0x40000000)
+            self.assertIsNone(unrelated.poll())
+            self.assertFalse((self.root/'.git/refs/heads/never').exists())
+            self.assertEqual(json.loads(self.writer.journal.read_text())['phase'],'RUNNING')
+            self.writer.close(aborted=True)
+            with self.assertRaises(r.S12ControlError):r._R13GitWriters((self.root,))
+        finally:
+            unrelated.terminate();unrelated.wait(timeout=5)
+
 
 class GuardOwnerTests(unittest.TestCase):
     def test_verified_handoff_does_not_reuse_closed_callbacks(self):

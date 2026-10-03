@@ -65,6 +65,9 @@ fallible guard checks, but receive no writer grant before durable task binding.
 The private process session is only a bounded failure-cleanup fence, never
 writer authority; it also terminates fork/clone tracees whose notifications
 have not yet been consumed. This is not an ancestry-only permission grant.
+Failure journaling cannot prevent process cleanup: if that write fails, the
+durable RUNNING intent continues to deny resumption and all held writers are
+terminated/reaped without signalling unrelated controller children.
 
 RUNNING/FAILED journals never authorize resumed writers. QUIET checkpoints bind
 the protected metadata fingerprint including root and descendant ctime; resumption

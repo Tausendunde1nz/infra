@@ -10582,7 +10582,11 @@ class _R13GitWriters:
         except BaseException:
             self.value['phase'] = 'FAILED'
             self.failed = True
-            _atomic_json(self.journal,self.value)
+            # A failed disk/journal write must not skip live-writer cleanup.
+            # The last durable RUNNING intent still denies any resumed grant.
+            journal_error = None
+            try: _atomic_json(self.journal,self.value)
+            except BaseException as error: journal_error = error
             if process is not None:
                 # Private session membership is a cleanup fence, NEVER writer
                 # authority. An outside process cannot join this session.
@@ -10624,6 +10628,8 @@ class _R13GitWriters:
                             tid,status = os.waitpid(-process.pid,0x40000000)
                             if os.WIFSTOPPED(status): self.ptrace(7,tid,signal.SIGKILL)
                         except ChildProcessError: break
+            if journal_error is not None:
+                raise journal_error
             raise
         finally:
             os.close(directory_fd)
