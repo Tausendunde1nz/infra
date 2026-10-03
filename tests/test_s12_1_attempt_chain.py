@@ -151,6 +151,27 @@ class AWriterTests(unittest.TestCase):
         with self.assertRaises(r.S12ControlError):self.writer.run((root,args,env),30)
         self.assertFalse(forbidden.exists())
 
+    def test_real_git_pack_threads_have_bound_lifetimes(self):
+        files=[]
+        for i in range(80):
+            path=self.base/f'blob-{i}'
+            path.write_bytes((b'common content '+str(i).encode()+b'\n')*4000)
+            files.append(str(path))
+        root,args,env=self.writer.command(r._recovery_git_arguments(
+            self.root,self.root/'.git','update-ref','refs/heads/new',self.sha))
+        prefix=args[:-3]
+        objects=self.writer.run((root,prefix+['hash-object','-w',*files],env),30)
+        self.assertEqual(objects.returncode,0,objects.stderr)
+        with tempfile.TemporaryFile() as source:
+            source.write(objects.stdout.encode());source.seek(0)
+            packed=self.writer.run((root,prefix+['pack-objects','--threads=2','--window=20',
+                str(self.root/'.git/objects/pack/bound')],env),30,stdin=source)
+        self.assertEqual(packed.returncode,0,packed.stderr)
+        history=json.loads(self.writer.journal.read_text())['history'][-1]['task_history']
+        self.assertGreaterEqual(len(history),3)  # main plus real clone threads
+        self.assertTrue(all(t['exited'] for t in history))
+        self.assertTrue(all(t['parent']==history[0]['tid'] for t in history[1:]))
+
 
 class GuardOwnerTests(unittest.TestCase):
     def test_verified_handoff_does_not_reuse_closed_callbacks(self):
@@ -517,7 +538,22 @@ class IntegratedChainTests(unittest.TestCase):
                 self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
                 self.assertFalse(r.RELEASE_ROOT.exists())
             else:
-                result=r.followup(authorization,grant_hash)
+                try:
+                    result=r.followup(authorization,grant_hash)
+                except r.S12ControlError as error:
+                    # Synthetic fixture only: identify an unplanned helper
+                    # without broadening the production executable allowlist.
+                    cause=error
+                    while cause is not None:
+                        trace=cause.__traceback__
+                        while trace is not None:
+                            local=trace.tb_frame.f_locals
+                            if trace.tb_frame.f_code.co_name=='run' and 'allowed_shell' in local:
+                                print('ISOLATED_WRITER_EXEC',repr({key:local.get(key) for key in
+                                    ('args','actual','allowed_git','allowed_shell','sources','scripts')}),flush=True)
+                            trace=trace.tb_next
+                        cause=cause.__context__
+                    raise
                 self.assertTrue(result['ok']);self.assertEqual(result['deployment_count'],1)
                 self.assertEqual(result['rollback_count'],0)
             expected_starts=0 if crash_at and not provider_failure else 1
