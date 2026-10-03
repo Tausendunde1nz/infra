@@ -57,27 +57,21 @@ deployment invocation stopped before backup, the durable attempt marker and
 repository sync with `S12_1_RECOVERY_WORKTREE_BARRIER_RED`: 30 tracked Control
 files intentionally use owner-only `0600`/`0700`, so a root ownership handoff
 would have removed the recorded owner's read or traversal access. The r8
-controller may copy only the owner's already read-only read/execute bits into
-the retained group class, and only after proving that group is the recorded
-owner's private primary group with no other primary or explicit members. It
-still removes every write bit. A path requiring that promotion is rejected if
-it has a POSIX access ACL, because widening the ACL mask could activate a named
-principal. This rejection is repeated before a release-failure reseal's first
-`chmod`, including for paths newly journaled after the Git operation.
-Immediately before capture and every promotion/reseal boundary, the controller
-also scans every live Linux thread credential and rejects a target GID retained
-by any non-root process whose filesystem UID is not the recorded owner. This
-also rejects any non-root owner thread that does not yet hold the promoted GID,
-so the handoff cannot remove its former owner-class access. These checks cover
-stale credentials before and after NSS membership changes. A
-process/thread disappearing or changing kernel start identity mid-scan
-invalidates the complete snapshot; PID/TID start times are bound during
-enumeration and checked before and after credential reads. Four fresh bounded
-attempts are allowed, then the transition is RED. The controller also rejects
-setuid and setgid regular files, non-private groups and all
-unrelated ownership, mode, ACL or xattr drift, preserves the original journal
-mode across same-inode release refresh, and restores the exact original mode
-and ownership during teardown or rollback.
+controller preserves that access with an exact POSIX ACL entry for the
+recorded numeric UID. On ACL-free paths this is one generated temporary entry;
+an existing canonical ACL is preserved only when it already contains the
+named UID with sufficient effective read/execute access under a mask that is
+not widened. Group-object and named-group entries are never authorization
+proof. This avoids using the retained GID as a capability and has no dependency
+on complete NSS account or group enumeration. Every write bit remains removed.
+The normalized source xattr fingerprint remains bound; during the barrier only
+the byte-exact generated owner ACL may be omitted from that fingerprint. A
+generated ACL is removed before exact ownership and mode restoration; a bound
+source ACL is retained. The controller also
+rejects setuid and setgid regular files and all unrelated ownership, mode, ACL
+or xattr drift, preserves the original journal mode across same-inode release
+refresh, and restores the exact original mode and ownership during teardown or
+rollback.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
@@ -232,28 +226,22 @@ content, and a later ignored writer can never be silently overwritten by the
 forced restore checkout.
 
 Initial deployment still accepts only the recorded ownership posture.
-Before journaling or changing tracked Worktree ownership, the controller also
-resolves the exact Unix permission class the recorded owner will receive after
-the root ownership handoff (group for a member of the retained group,
-otherwise other). If existing group/other permission bits would remove owner
-read or execute/traversal access, the controller rejects the entry unless the
-retained group is proven to be the owner's private primary group with no other
-primary or explicit members. Only in that bounded case are the owner's
-read/execute bits copied to the group class; write stays removed. Owner-only
-`0600`/`0700` therefore become temporary root-owned `0440`/`0550` barriers for
-the private owner group, while non-private groups, `0604`, setuid, setgid
-regular files and any
-unsafe expansion remain RED. No recorded-owner access can disappear and no
-unrelated principal gains access through the barrier. In particular, an
-extended POSIX access ACL makes private-group promotion fail closed rather
-than widening its mask, and same-inode refresh compares against the computed
-temporary barrier mode while retaining the journaled original mode. Newly
-tracked paths are subjected to the same promotion-ACL and live-credential
-checks during refresh, before any ownership or write-barrier release. A stable
-`/proc/*/task/*/status` credential scan additionally proves that no unrelated
-live filesystem identity retains the promoted GID; unreadable, malformed or
-racing process state is RED. A disappearing or PID-reused task is never skipped
-as safe.
+Before journaling or changing tracked Worktree ownership, the controller
+requires either an ACL-free mode contract or a canonical ACL containing an
+explicit named-user entry for the journaled UID. Existing ACL masks may only be
+tightened; group entries do not prove access. Where an ACL-free owner's read or
+traversal would otherwise disappear, the controller derives one byte-exact
+named-user POSIX ACL from the journaled UID and original read/execute class.
+Owner-only `0600`/`0700`
+therefore appear as temporary root-owned `0440`/`0550` barriers, but the owning
+group's ACL entry remains `---`; only the named former UID receives `r--` or
+`r-x`. A shared, externally enumerated or setgid-acquired GID cannot gain those
+permissions. The exact temporary ACL is excluded only from the already-bound
+xattr fingerprint and every differing ACL remains RED. Same-inode refresh
+compares against the computed temporary barrier mode and exact ACL while
+retaining the journaled original mode. Newly tracked root-owned paths remain
+closed to group/other write and are journaled without inventing a group-based
+authorization path.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining

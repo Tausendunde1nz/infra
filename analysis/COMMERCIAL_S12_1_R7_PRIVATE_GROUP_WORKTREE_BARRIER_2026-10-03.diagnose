@@ -18,40 +18,36 @@ their tracked-path ancestors matched the recorded `chatops:chatops` owner; the
 rejection was exclusively loss of owner read/execute access after the planned
 root ownership handoff.
 
-The retained group is deterministically a private primary group: the recorded
-owner is its only primary member and there are no other explicit members.
+The original R8 draft attempted to treat the retained primary group as a
+private authorization boundary. Final review correctly rejected that proof:
+NSS enumeration need not be complete, and a setgid executable elsewhere on the
+host could grant the numeric GID after a point-in-time process scan.
 
 ## Bounded correction
 
-R8 preserves the no-write barrier and exact rollback contract. When the
-existing group/other class is insufficient, it copies the owner's read/execute
-bits into the retained group class only after verifying that the group is the
-recorded owner's private primary group with no other primary or explicit
-members. Thus `0600` and `0700` become temporary root-owned `0440` and `0550`;
-the original ownership and mode remain journaled for exact restoration.
+R8 preserves the no-write barrier and exact rollback contract without using a
+GID as an authorization capability. When existing public permissions do not
+preserve the former owner's read/execute class, it creates one exact temporary
+POSIX access-ACL entry for the recorded numeric UID. The group-object entry
+keeps its original read/execute permissions; the visible group-class bits are
+only the ACL mask. Thus `0600` and `0700` still appear as temporary root-owned
+`0440` and `0550`, but a shared group member or a process launched through an
+unrelated setgid executable receives no new access.
 
-The same-inode release refresh compares against that computed temporary mode
-without replacing the journaled original mode. If private-group promotion is
-required, any POSIX access ACL is rejected before chmod: changing group bits
-would change the ACL mask and could otherwise activate an unrelated named
-principal whose permissions were previously masked out.
+Canonical Application paths already carry a versioned access ACL. The
+controller preserves such an ACL only when the recorded numeric UID has an
+explicit named-user entry whose effective read/execute permissions remain
+sufficient under the existing, write-stripped mask. Group entries are never
+used to prove owner access and the mask is never widened. ACL-free Control
+paths instead receive the byte-exact generated owner ACL after write removal
+and chown. The original normalized xattr fingerprint remains authoritative;
+only the exact generated temporary ACL may be omitted while its barrier is
+active. Teardown removes only a generated ACL and restores exact journaled UID,
+GID and mode. Same-inode refresh and failure-path reseal enforce the same
+contract. Interrupted states with the exact source fingerprint are safely
+resealed or restored; any foreign ACL or xattr drift remains RED.
 
-NSS membership alone is insufficient because an already-running process can
-retain a removed group in its supplementary credentials. Before capture and
-each promotion/reseal boundary, R8 therefore reads stable credentials for
-every live Linux thread and rejects the target GID when it is held by a
-non-root filesystem identity other than the recorded owner. It also rejects a
-non-root owner identity that does not hold the promoted GID, preventing access
-loss from stale pre-membership credentials. Unreadable, malformed or racing
-process state fails closed before chmod. A disappearing
-process or thread or PID reuse invalidates the start-time-bound scan and
-triggers at most four fresh scans; it is never silently skipped. Setgid regular
-files are rejected together with setuid so no executable can grant the retained
-group after the live scan. The access-ACL rejection also runs during refresh
-before ownership release and before the first chmod of a failure-path reseal,
-including newly journaled Git paths.
-
-Non-private groups, supplementary-only membership, other explicit or primary
-members, setuid, setgid regular files, write permissions, owner/ACL/xattr drift,
-hardlinks and special files remain fail-closed. No runtime boundary, provider
-policy or hard gate changes.
+NSS account enumeration and live GID scans are therefore no longer security
+inputs. Setuid and setgid regular files, write permissions, owner/ACL/xattr
+drift, hardlinks and special files remain fail-closed. No runtime boundary,
+provider policy or hard gate changes.

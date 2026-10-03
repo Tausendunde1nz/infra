@@ -2157,7 +2157,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (present,),
             )
 
-    def test_worktree_barrier_rejects_owner_only_access_before_transition(
+    def test_worktree_barrier_captures_owner_only_access_without_nss(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2174,78 +2174,35 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ["git", "add", "tracked.txt"], cwd=repository, check=True
             )
             repository_record = runtime._repository_path_metadata(repository)
-            before = tracked.lstat()
-
-            group = SimpleNamespace(gr_gid=os.getgid(), gr_mem=["other"])
-            with (
-                mock.patch.object(runtime.grp, "getgrgid", return_value=group),
-                self.assertRaisesRegex(
-                    runtime.S12ControlError,
-                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-                ),
-            ):
-                runtime._capture_worktree_write_barrier(
-                    (repository,), {repository: repository_record}
-                )
-
-            after = tracked.lstat()
-            self.assertEqual(
-                (after.st_uid, after.st_gid, stat.S_IMODE(after.st_mode)),
-                (before.st_uid, before.st_gid, 0o600),
+            barrier = runtime._capture_worktree_write_barrier(
+                (repository,), {repository: repository_record}
             )
-
-    def test_worktree_barrier_captures_owner_only_access_for_private_group(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            repository = Path(directory) / "control"
-            subprocess.run(
-                ["git", "init", "-b", "control-main", str(repository)],
-                check=True,
-                capture_output=True,
-            )
-            tracked = repository / "tracked.txt"
-            tracked.write_text("reviewed\n", encoding="ascii")
-            tracked.chmod(0o600)
-            subprocess.run(
-                ["git", "add", "tracked.txt"], cwd=repository, check=True
-            )
-            repository_record = runtime._repository_path_metadata(repository)
-            uid = os.getuid()
-            gid = os.getgid()
-            account = SimpleNamespace(
-                pw_uid=uid, pw_name="service", pw_gid=gid
-            )
-            group = SimpleNamespace(gr_gid=gid, gr_mem=[])
-            live_group_guard = mock.Mock()
-
-            with (
-                mock.patch.object(
-                    runtime.pwd, "getpwuid", return_value=account
-                ),
-                mock.patch.object(
-                    runtime.pwd, "getpwall", return_value=[account]
-                ),
-                mock.patch.object(
-                    runtime.grp, "getgrgid", return_value=group
-                ),
-                mock.patch.object(
-                    runtime.os, "getgrouplist", return_value=[gid]
-                ),
-                mock.patch.object(
-                    runtime,
-                    "_assert_private_group_has_no_unrelated_process",
-                    live_group_guard,
-                ),
-            ):
-                barrier = runtime._capture_worktree_write_barrier(
-                    (repository,), {repository: repository_record}
-                )
 
             self.assertEqual(barrier[repository][tracked]["mode"], "0600")
-            live_group_guard.assert_called_once_with(uid, gid)
 
-    def test_worktree_barrier_rejects_acl_before_private_group_promotion(
+    def test_worktree_barrier_owner_acl_is_uid_scoped_not_gid_scoped(
+        self,
+    ) -> None:
+        acl = runtime._worktree_barrier_owner_acl(
+            0o600, 2000, kind="regular"
+        )
+        self.assertIsNotNone(acl)
+        entries = [
+            struct.Struct("<HHI").unpack_from(acl, offset)
+            for offset in range(4, len(acl), 8)
+        ]
+        self.assertEqual(
+            entries,
+            [
+                (0x01, 0o4, 0xFFFFFFFF),
+                (0x02, 0o4, 2000),
+                (0x04, 0o0, 0xFFFFFFFF),
+                (0x10, 0o4, 0xFFFFFFFF),
+                (0x20, 0o0, 0xFFFFFFFF),
+            ],
+        )
+
+    def test_worktree_barrier_rejects_preexisting_acl_before_transition(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2262,30 +2219,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ["git", "add", "tracked.txt"], cwd=repository, check=True
             )
             repository_record = runtime._repository_path_metadata(repository)
-            uid = os.getuid()
-            gid = os.getgid()
-            account = SimpleNamespace(
-                pw_uid=uid, pw_name="service", pw_gid=gid
-            )
-            group = SimpleNamespace(gr_gid=gid, gr_mem=[])
-
             with (
-                mock.patch.object(
-                    runtime.pwd, "getpwuid", return_value=account
-                ),
-                mock.patch.object(
-                    runtime.pwd, "getpwall", return_value=[account]
-                ),
-                mock.patch.object(
-                    runtime.grp, "getgrgid", return_value=group
-                ),
-                mock.patch.object(
-                    runtime.os, "getgrouplist", return_value=[gid]
-                ),
-                mock.patch.object(
-                    runtime,
-                    "_assert_private_group_has_no_unrelated_process",
-                ),
                 mock.patch.object(
                     runtime,
                     "_worktree_path_xattr_fingerprint",
@@ -2312,223 +2246,256 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     (repository,), {repository: repository_record}
                 )
 
-    def test_private_group_promotion_rejects_stale_live_credentials(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            proc_root = Path(directory) / "proc"
-            task = proc_root / "321" / "task" / "321"
-            task.mkdir(parents=True)
-            task.joinpath("status").write_text(
-                "Uid:\t2002\t2002\t2002\t2002\n"
-                "Gid:\t3000\t3000\t3000\t3000\n"
-                "Groups:\t2001 3000\n",
-                encoding="ascii",
-            )
-
-            with (
-                mock.patch.object(
-                    runtime,
-                    "_process_state_and_start_time",
-                    return_value=("S", 42),
-                ),
-                self.assertRaisesRegex(
-                    runtime.S12ControlError,
-                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-                ),
-            ):
-                runtime._assert_private_group_has_no_unrelated_process(
-                    2000, 2001, proc_root=proc_root
-                )
-
-    def test_private_group_promotion_allows_owner_and_root_credentials(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            proc_root = Path(directory) / "proc"
-            owner_task = proc_root / "321" / "task" / "321"
-            root_task = proc_root / "322" / "task" / "322"
-            owner_task.mkdir(parents=True)
-            root_task.mkdir(parents=True)
-            owner_task.joinpath("status").write_text(
-                "Uid:\t2000\t2000\t2000\t2000\n"
-                "Gid:\t2001\t2001\t2001\t2001\n"
-                "Groups:\t2001\n",
-                encoding="ascii",
-            )
-            root_task.joinpath("status").write_text(
-                "Uid:\t0\t0\t0\t0\n"
-                "Gid:\t0\t0\t0\t0\n"
-                "Groups:\t0 2001\n",
-                encoding="ascii",
-            )
-
-            with mock.patch.object(
-                runtime,
-                "_process_state_and_start_time",
-                return_value=("S", 42),
-            ):
-                runtime._assert_private_group_has_no_unrelated_process(
-                    2000, 2001, proc_root=proc_root
-                )
-
-    def test_private_group_promotion_rejects_stale_owner_credentials(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            proc_root = Path(directory) / "proc"
-            task = proc_root / "321" / "task" / "321"
-            task.mkdir(parents=True)
-            task.joinpath("status").write_text(
-                "Uid:\t2000\t2000\t2000\t2000\n"
-                "Gid:\t3000\t3000\t3000\t3000\n"
-                "Groups:\t3000\n",
-                encoding="ascii",
-            )
-
-            with (
-                mock.patch.object(
-                    runtime,
-                    "_process_state_and_start_time",
-                    return_value=("S", 42),
-                ),
-                self.assertRaisesRegex(
-                    runtime.S12ControlError,
-                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-                ),
-            ):
-                runtime._assert_private_group_has_no_unrelated_process(
-                    2000, 2001, proc_root=proc_root
-                )
-
-    def test_private_group_scan_retries_disappearing_process_snapshot(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            proc_root = Path(directory) / "proc"
-            task = proc_root / "321" / "task" / "321"
-            task.mkdir(parents=True)
-            task.joinpath("status").write_text(
-                "Uid:\t2000\t2000\t2000\t2000\n"
-                "Gid:\t2001\t2001\t2001\t2001\n"
-                "Groups:\t2001\n",
-                encoding="ascii",
-            )
-            state_probe = mock.Mock(
-                side_effect=(
-                    FileNotFoundError(),
-                    *(("S", 42),) * 4,
-                )
-            )
-
-            with mock.patch.object(
-                runtime, "_process_state_and_start_time", state_probe
-            ):
-                runtime._assert_private_group_has_no_unrelated_process(
-                    2000, 2001, proc_root=proc_root
-                )
-
-            self.assertEqual(state_probe.call_count, 5)
-
-    def test_private_group_scan_retries_reused_process_identity(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            proc_root = Path(directory) / "proc"
-            task = proc_root / "321" / "task" / "321"
-            task.mkdir(parents=True)
-            task.joinpath("status").write_text(
-                "Uid:\t2000\t2000\t2000\t2000\n"
-                "Gid:\t2001\t2001\t2001\t2001\n"
-                "Groups:\t2001\n",
-                encoding="ascii",
-            )
-            state_probe = mock.Mock(
-                side_effect=(
-                    ("S", 41),
-                    ("S", 41),
-                    ("S", 42),
-                    *(("S", 43),) * 4,
-                )
-            )
-
-            with mock.patch.object(
-                runtime, "_process_state_and_start_time", state_probe
-            ):
-                runtime._assert_private_group_has_no_unrelated_process(
-                    2000, 2001, proc_root=proc_root
-                )
-
-            self.assertEqual(state_probe.call_count, 7)
-
-    def test_private_group_scan_fails_after_bounded_snapshot_races(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            proc_root = Path(directory) / "proc"
-            task = proc_root / "321" / "task" / "321"
-            task.mkdir(parents=True)
-            task.joinpath("status").write_text(
-                "Uid:\t2000\t2000\t2000\t2000\n"
-                "Gid:\t2001\t2001\t2001\t2001\n"
-                "Groups:\t2001\n",
-                encoding="ascii",
-            )
-            state_probe = mock.Mock(side_effect=FileNotFoundError)
-
-            with (
-                mock.patch.object(
-                    runtime, "_process_state_and_start_time", state_probe
-                ),
-                self.assertRaisesRegex(
-                    runtime.S12ControlError,
-                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-                ),
-            ):
-                runtime._assert_private_group_has_no_unrelated_process(
-                    2000, 2001, proc_root=proc_root
-                )
-
-            self.assertEqual(state_probe.call_count, 4)
-
-    def test_private_group_live_guard_precedes_worktree_chmod(self) -> None:
-        root = Path("/synthetic/control")
-        tracked = root / "tracked.txt"
-        records = {
-            root: {
-                tracked: {
-                    "mode": "0600",
-                    "uid": 1001,
-                    "gid": 1001,
-                }
-            }
-        }
-        rejection = runtime.S12ControlError(
-            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
-        )
+    def test_worktree_owner_acl_does_not_consult_nss_membership(self) -> None:
         with (
-            mock.patch.object(runtime.os, "geteuid", return_value=0),
             mock.patch.object(
-                runtime, "_worktree_barrier_mode", return_value=0o440
+                runtime.pwd,
+                "getpwall",
+                side_effect=AssertionError("NSS enumeration is forbidden"),
             ),
             mock.patch.object(
-                runtime,
-                "_assert_private_group_has_no_unrelated_process",
-                side_effect=rejection,
-            ),
-            mock.patch.object(runtime.os, "chmod") as chmod,
-            mock.patch.object(runtime.os, "chown") as chown,
-            self.assertRaisesRegex(
-                runtime.S12ControlError,
-                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                runtime.os,
+                "getgrouplist",
+                side_effect=AssertionError("group membership is forbidden"),
             ),
         ):
-            runtime._lock_worktree_write_barrier(records)
+            self.assertEqual(
+                runtime._worktree_barrier_mode(0o600, 2000, 2001), 0o440
+            )
+            self.assertIsNotNone(
+                runtime._worktree_barrier_owner_acl(
+                    0o600, 2000, kind="regular"
+                )
+            )
 
-        chmod.assert_not_called()
-        chown.assert_not_called()
+    def test_worktree_owner_acl_rejects_unrepresentable_uid(self) -> None:
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_owner_acl(
+                0o600, 0xFFFFFFFF, kind="regular"
+            )
 
-    def test_reseal_rejects_acl_before_private_group_promotion(self) -> None:
+    def test_worktree_owner_acl_is_the_only_omitted_xattr(self) -> None:
+        path = Path("/synthetic/tracked")
+        acl = runtime._worktree_barrier_owner_acl(
+            0o600, 2000, kind="regular"
+        )
+        with mock.patch.object(
+            runtime, "_release_xattr_fingerprint", return_value="a" * 64
+        ) as fingerprint:
+            self.assertEqual(
+                runtime._worktree_path_xattr_fingerprint(
+                    path, barrier_acl=acl
+                ),
+                "a" * 64,
+            )
+        fingerprint.assert_called_once_with(
+            (path,),
+            expected_omitted_xattrs={
+                path: {"system.posix_acl_access": acl}
+            },
+        )
+
+    def test_worktree_lock_installs_acl_before_widening_mask(self) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "tracked.txt"
+        state = {"uid": 1001, "gid": 1001, "mode": 0o600}
+        record = {
+            "kind": "regular",
+            "device": 10,
+            "inode": 20,
+            "uid": 1001,
+            "gid": 1001,
+            "mode": "0600",
+            "xattr_fingerprint": "0" * 64,
+        }
+        events = []
+
+        def metadata():
+            return SimpleNamespace(
+                st_mode=stat.S_IFREG | state["mode"],
+                st_nlink=1,
+                st_uid=state["uid"],
+                st_gid=state["gid"],
+                st_dev=10,
+                st_ino=20,
+            )
+
+        def chmod(_path, mode, **_kwargs):
+            events.append(("chmod", mode))
+            state["mode"] = mode
+
+        def chown(_path, uid, gid, **_kwargs):
+            events.append(("chown", uid, gid))
+            state.update(uid=uid, gid=gid)
+
+        def install(_path, _record):
+            events.append(("acl", state["mode"]))
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(runtime.Path, "lstat", side_effect=metadata),
+            mock.patch.object(runtime.os, "chmod", side_effect=chmod),
+            mock.patch.object(runtime.os, "chown", side_effect=chown),
+            mock.patch.object(runtime, "_assert_worktree_path_xattrs"),
+            mock.patch.object(
+                runtime,
+                "_assert_source_worktree_acl_access",
+                return_value=None,
+            ),
+            mock.patch.object(runtime, "_assert_no_security_capability"),
+            mock.patch.object(
+                runtime,
+                "_install_worktree_barrier_owner_acl",
+                side_effect=install,
+            ),
+            mock.patch.object(runtime, "_assert_worktree_barrier_owner_acl"),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(tracked,),
+            ),
+            mock.patch.object(runtime, "_sync_repository_filesystem"),
+        ):
+            runtime._lock_worktree_write_barrier(
+                {root: {tracked: record}}
+            )
+
+        self.assertEqual(
+            events,
+            [
+                ("chmod", 0o400),
+                ("chown", 0, 1001),
+                ("acl", 0o400),
+                ("chmod", 0o440),
+            ],
+        )
+
+    @unittest.skipUnless(
+        sys.platform == "linux" and hasattr(os, "setxattr"),
+        "Linux POSIX ACL required",
+    )
+    def test_named_owner_acl_roundtrip_preserves_original_xattrs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tracked"
+            path.write_text("reviewed\n", encoding="ascii")
+            path.chmod(0o600)
+            metadata = path.lstat()
+            record = {
+                "kind": "regular",
+                "uid": metadata.st_uid,
+                "gid": metadata.st_gid,
+                "mode": "0600",
+                "xattr_fingerprint": (
+                    runtime._worktree_path_xattr_fingerprint(path)
+                ),
+            }
+
+            path.chmod(0o400)
+            runtime._install_worktree_barrier_owner_acl(path, record)
+            path.chmod(0o440)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o440)
+            runtime._assert_worktree_barrier_owner_acl(
+                path, record, "S12_TEST_RED"
+            )
+            runtime._assert_worktree_path_xattrs(
+                path, record, barrier_locked=True
+            )
+
+            runtime._remove_worktree_barrier_owner_acl(path, record)
+            path.chmod(0o400)
+            runtime._assert_worktree_path_xattrs(path, record)
+
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_existing_named_owner_acl_lock_and_restore_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "tracked"], cwd=repository, check=True
+            )
+            os.chown(repository, 1000, 1000)
+            os.chown(tracked, 1000, 1000)
+            tracked.chmod(0o660)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o6, 0xFFFFFFFF),
+                    (0x02, 0o7, 1000),
+                    (0x04, 0o7, 0xFFFFFFFF),
+                    (0x08, 0o5, 1000),
+                    (0x10, 0o6, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
+                )
+            )
+            os.setxattr(
+                tracked,
+                "system.posix_acl_access",
+                acl,
+                follow_symlinks=False,
+            )
+            original_acl = os.getxattr(
+                tracked,
+                "system.posix_acl_access",
+                follow_symlinks=False,
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+            with mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(tracked,),
+            ):
+                records = runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+                with mock.patch.object(
+                    runtime, "_sync_repository_filesystem"
+                ):
+                    runtime._lock_worktree_write_barrier(records)
+                    locked = tracked.lstat()
+                    self.assertEqual(
+                        (locked.st_uid, stat.S_IMODE(locked.st_mode)),
+                        (0, 0o440),
+                    )
+                    self.assertEqual(
+                        runtime._worktree_locked_acl_state(
+                            tracked, records[repository][tracked]
+                        ),
+                        ("preserved", 0o440),
+                    )
+                    runtime._restore_worktree_write_barrier(records)
+            restored = tracked.lstat()
+            self.assertEqual(
+                (
+                    restored.st_uid,
+                    restored.st_gid,
+                    stat.S_IMODE(restored.st_mode),
+                ),
+                (1000, 1000, 0o660),
+            )
+            self.assertEqual(
+                os.getxattr(
+                    tracked,
+                    "system.posix_acl_access",
+                    follow_symlinks=False,
+                ),
+                original_acl,
+            )
+
+    def test_reseal_rejects_preexisting_acl_without_named_owner_access(
+        self,
+    ) -> None:
         root = Path("/synthetic/control")
         tracked = root / "tracked.txt"
         record = {
@@ -2567,11 +2534,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime, "_worktree_barrier_mode", return_value=0o440
             ),
             mock.patch.object(
-                runtime, "_assert_private_group_has_no_unrelated_process"
-            ),
-            mock.patch.object(
                 runtime,
-                "_assert_post_chown_acl_preserves_access",
+                "_assert_source_worktree_acl_access",
                 acl_guard,
             ),
             mock.patch.object(runtime.os, "chmod") as chmod,
@@ -2590,17 +2554,14 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
         acl_guard.assert_called_once_with(
             tracked,
+            0o600,
             1001,
-            0o4,
-            0o4,
-            0o0,
             "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-            reject_access_acl=True,
         )
         chmod.assert_not_called()
         chown.assert_not_called()
 
-    def test_refresh_rejects_new_acl_before_worktree_release(self) -> None:
+    def test_refresh_rejects_new_acl_without_named_owner_access(self) -> None:
         root = Path("/synthetic/control")
         tracked = root / "new.txt"
         records = {root: {}}
@@ -2635,11 +2596,8 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime, "_worktree_barrier_mode", return_value=0o440
             ),
             mock.patch.object(
-                runtime, "_assert_private_group_has_no_unrelated_process"
-            ) as live_group_guard,
-            mock.patch.object(
                 runtime,
-                "_assert_post_chown_acl_preserves_access",
+                "_assert_source_worktree_acl_access",
                 acl_guard,
             ),
             mock.patch.object(
@@ -2654,20 +2612,16 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (root,), {root: {}}, records
             )
 
-        live_group_guard.assert_called_once_with(1001, 1001)
         acl_guard.assert_called_once_with(
             tracked,
+            0o600,
             1001,
-            0o4,
-            0o4,
-            0o0,
             "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
-            reject_access_acl=True,
         )
         fingerprint.assert_not_called()
         self.assertEqual(records, {root: {}})
 
-    def test_refresh_preserves_original_private_group_barrier_mode(
+    def test_refresh_preserves_original_named_owner_acl_barrier_mode(
         self,
     ) -> None:
         root = Path("/synthetic/control")
@@ -2690,9 +2644,6 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             st_dev=10,
             st_ino=20,
         )
-        assert_xattrs = mock.Mock()
-        acl_guard = mock.Mock()
-
         with (
             mock.patch.object(runtime.os, "geteuid", return_value=0),
             mock.patch.object(
@@ -2711,35 +2662,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ),
             mock.patch.object(
                 runtime,
-                "_assert_private_group_has_no_unrelated_process",
-            ) as live_group_guard,
-            mock.patch.object(
-                runtime,
-                "_assert_worktree_path_xattrs",
-                assert_xattrs,
-            ),
-            mock.patch.object(
-                runtime,
-                "_assert_post_chown_acl_preserves_access",
-                acl_guard,
+                "_worktree_locked_acl_state",
+                return_value=("generated", 0o440),
             ),
         ):
             runtime._refresh_worktree_barrier_for_release(
                 (root,), {root: {}}, records
-            )
+        )
 
         self.assertEqual(records[root][tracked], original_record)
-        assert_xattrs.assert_called_once_with(tracked, original_record)
-        live_group_guard.assert_called_once_with(1001, 1001)
-        acl_guard.assert_called_once_with(
-            tracked,
-            1001,
-            0o4,
-            0o4,
-            0o0,
-            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
-            reject_access_acl=True,
-        )
 
     def test_refresh_rejects_same_inode_mode_instead_of_rejournaling_it(
         self,
@@ -2779,11 +2710,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ),
             mock.patch.object(runtime.Path, "lstat", return_value=unexpected),
             mock.patch.object(
-                runtime, "_worktree_barrier_mode", return_value=0o440
-            ),
-            mock.patch.object(
                 runtime,
-                "_assert_private_group_has_no_unrelated_process",
+                "_worktree_locked_acl_state",
+                return_value=("generated", 0o440),
             ),
             self.assertRaisesRegex(
                 runtime.S12ControlError,
@@ -2799,27 +2728,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
     def test_worktree_barrier_mode_preserves_nonowner_read_and_traversal(
         self,
     ) -> None:
-        uid = os.getuid()
-        gid = os.getgid()
+        uid = 2000
+        gid = 2001
         self.assertEqual(runtime._worktree_barrier_mode(0o664, uid, gid), 0o444)
         self.assertEqual(runtime._worktree_barrier_mode(0o775, uid, gid), 0o555)
-        group = SimpleNamespace(gr_gid=gid, gr_mem=["other"])
-        with (
-            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
-            self.assertRaisesRegex(
-                runtime.S12ControlError,
-                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-            ),
-        ):
-            runtime._worktree_barrier_mode(0o604, uid, gid)
-        with (
-            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
-            self.assertRaisesRegex(
-                runtime.S12ControlError,
-                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-            ),
-        ):
-            runtime._worktree_barrier_mode(0o700, uid, gid)
+        self.assertEqual(runtime._worktree_barrier_mode(0o604, uid, gid), 0o404)
+        self.assertEqual(runtime._worktree_barrier_mode(0o700, uid, gid), 0o550)
         with self.assertRaisesRegex(
             runtime.S12ControlError,
             "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
@@ -2837,63 +2751,21 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             0o2555,
         )
 
-        account = SimpleNamespace(pw_name="service", pw_gid=2001)
-        with (
-            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
-            mock.patch.object(runtime.os, "getgrouplist", return_value=[2001]),
-            self.assertRaisesRegex(
-                runtime.S12ControlError,
-                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-            ),
-        ):
-            runtime._worktree_barrier_mode(0o604, 2000, 2001)
-        with (
-            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
-            mock.patch.object(runtime.os, "getgrouplist", return_value=[2002]),
-        ):
-            self.assertEqual(
-                runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
-            )
+        self.assertEqual(
+            runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
+        )
 
-    def test_worktree_barrier_mode_preserves_private_group_owner_access(
+    def test_worktree_barrier_mode_preserves_named_owner_acl_access(
         self,
     ) -> None:
         uid = 2000
         gid = 2001
-        account = SimpleNamespace(pw_uid=uid, pw_name="service", pw_gid=gid)
-        group = SimpleNamespace(gr_gid=gid, gr_mem=[])
-        with (
-            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
-            mock.patch.object(runtime.pwd, "getpwall", return_value=[account]),
-            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
-            mock.patch.object(runtime.os, "getgrouplist", return_value=[gid]),
-        ):
-            self.assertEqual(
-                runtime._worktree_barrier_mode(0o600, uid, gid), 0o440
-            )
-            self.assertEqual(
-                runtime._worktree_barrier_mode(0o700, uid, gid), 0o550
-            )
-
-    def test_worktree_barrier_mode_rejects_shared_primary_group(self) -> None:
-        uid = 2000
-        gid = 2001
-        account = SimpleNamespace(pw_uid=uid, pw_name="service", pw_gid=gid)
-        other = SimpleNamespace(pw_uid=2002, pw_name="other", pw_gid=gid)
-        group = SimpleNamespace(gr_gid=gid, gr_mem=[])
-        with (
-            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
-            mock.patch.object(
-                runtime.pwd, "getpwall", return_value=[account, other]
-            ),
-            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
-            mock.patch.object(runtime.os, "getgrouplist", return_value=[gid]),
-            self.assertRaisesRegex(
-                runtime.S12ControlError,
-                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-            ),
-        ):
-            runtime._worktree_barrier_mode(0o600, uid, gid)
+        self.assertEqual(
+            runtime._worktree_barrier_mode(0o600, uid, gid), 0o440
+        )
+        self.assertEqual(
+            runtime._worktree_barrier_mode(0o700, uid, gid), 0o550
+        )
 
     def test_worktree_barrier_rejects_setuid_file_before_transition(
         self,
@@ -2947,7 +2819,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     (repository,), {repository: repository_record}
                 )
 
-    def test_worktree_barrier_rejects_named_owner_acl_before_transition(
+    def test_worktree_barrier_rejects_insufficient_named_owner_acl(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2959,7 +2831,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             )
             tracked = repository / "tracked.txt"
             tracked.write_text("reviewed\n", encoding="ascii")
-            tracked.chmod(0o644)
+            tracked.chmod(0o640)
             subprocess.run(
                 ["git", "add", "tracked.txt"], cwd=repository, check=True
             )
@@ -2976,7 +2848,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     (0x02, 0o0, uid),
                     (0x04, 0o4, 0xFFFFFFFF),
                     (0x10, 0o4, 0xFFFFFFFF),
-                    (0x20, 0o4, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
                 )
             )
 
@@ -3006,7 +2878,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     (repository,), {repository: repository_record}
                 )
 
-    def test_worktree_barrier_evaluates_group_acl_before_transition(
+    def test_worktree_barrier_rejects_group_acl_without_named_owner(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -3061,12 +2933,12 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 mock.patch.object(
                     runtime.pwd,
                     "getpwuid",
-                    return_value=SimpleNamespace(
-                        pw_name="service", pw_gid=gid
-                    ),
+                    side_effect=AssertionError("NSS lookup is forbidden"),
                 ),
                 mock.patch.object(
-                    runtime.os, "getgrouplist", return_value=[gid]
+                    runtime.os,
+                    "getgrouplist",
+                    side_effect=AssertionError("NSS lookup is forbidden"),
                 ),
                 self.assertRaisesRegex(
                     runtime.S12ControlError,
@@ -3077,7 +2949,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     (repository,), {repository: repository_record}
                 )
 
-    def test_transition_accepts_valid_mask_only_access_acl(self) -> None:
+    def test_transition_rejects_group_only_access_acl(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             gid = path.lstat().st_gid
@@ -3109,6 +2981,54 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ),
                 mock.patch.object(
                     runtime.os, "getgrouplist", return_value=[gid]
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
+                ),
+            ):
+                runtime._assert_post_chown_acl_preserves_access(
+                    path,
+                    1001,
+                    0o5,
+                    0o5,
+                    0o0,
+                    "S12_1_RECOVERY_GIT_BARRIER_RED",
+                )
+
+    def test_transition_accepts_named_owner_acl_without_nss(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o7, 0xFFFFFFFF),
+                    (0x02, 0o7, 1001),
+                    (0x04, 0o7, 0xFFFFFFFF),
+                    (0x08, 0o5, 1001),
+                    (0x10, 0o5, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os, "getxattr", return_value=acl, create=True
+                ),
+                mock.patch.object(
+                    runtime.pwd,
+                    "getpwuid",
+                    side_effect=AssertionError("NSS lookup is forbidden"),
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getgrouplist",
+                    side_effect=AssertionError("NSS lookup is forbidden"),
                 ),
             ):
                 runtime._assert_post_chown_acl_preserves_access(
