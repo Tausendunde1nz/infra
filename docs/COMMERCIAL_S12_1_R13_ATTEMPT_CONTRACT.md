@@ -64,6 +64,13 @@ an isolated private mount namespace during recovery validation: rejection must
 precede execution and the unrestricted-process witness must remain absent.
 Existing success, closure/interruption, reverted-write and replay tests remain
 mandatory. This delta requires fresh complete CI and exact-head review.
+The validation stream remains live through claim and namespace preparation;
+the attempt stream and identical executable bindings are checked before the
+old stream is retired. A reverted foreign write at this overlapping handoff
+must also be rejected with the claim consumed and no activation. CI 37161553654
+stopped at the receipt-only unit fixture (which intentionally has no Git repos);
+its existing validation mock is moved to the new supervised-validation boundary.
+The full Linux chain still uses the actual validation and kernel mechanisms.
 
 **Current source release status: pending final CI/review and Git closure.** Exact-head Code Review of
 `28d7fe240068c6e728d4a5566403eae44843d4c7` found one remaining P1

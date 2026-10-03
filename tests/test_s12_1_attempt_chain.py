@@ -33,6 +33,9 @@ class WriterEnvelopeTests(unittest.TestCase):
         source=inspect.getsource(r.followup)
         self.assertNotIn('_followup_parent_closed(',source)
         self.assertEqual(source.count('_followup_validate_parent(binding)'),3)
+        source=inspect.getsource(r._r13_git_writers)
+        self.assertLess(source.index('replacement=_R13GitWriters(roots)'),source.index('previous.close()'))
+        self.assertLess(source.index('previous.close()'),source.index('replacement.check()'))
 
     def test_immutable_release_observation_overlaps_writer_and_acceptance(self):
         import inspect
@@ -517,7 +520,9 @@ class AdmissionTests(unittest.TestCase):
 
     def test_crash_after_admission_burns_slot_and_only_allows_recovery(self):
         digest=self.write()
-        with mock.patch.object(r,'_followup_parent_closed'), mock.patch.object(r,'read_only_preflight'), \
+        # Receipt-only unit fixture has no repositories. The full native chain
+        # below retains real parent validation, Git and kernel supervision.
+        with mock.patch.object(r,'_followup_validate_parent'), \
                 mock.patch.object(r,'_deploy_locked',side_effect=KeyboardInterrupt) as deploy:
             with self.assertRaises(KeyboardInterrupt):r.followup(self.path,digest)
             claim=self.state/(r.FOLLOWUP_SLOT+'.consumed.json');original=claim.read_bytes()
@@ -532,7 +537,7 @@ class AdmissionTests(unittest.TestCase):
             r.STATE_ROOT.mkdir(parents=True,mode=0o700)
             return dict(ok=True,safe_code='S12_1_NO_PENDING_RECOVERY')
         with mock.patch.object(r,'_recover_locked',side_effect=recovered), \
-                mock.patch.object(r,'_followup_parent_closed'),mock.patch.object(r,'read_only_preflight'), \
+                mock.patch.object(r,'_followup_validate_parent'), \
                 mock.patch.object(r,'_deploy_locked') as deploy:
             result=r.followup(self.path,digest,recovering=True)
             self.assertEqual(result['safe_code'],'S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT')
@@ -553,7 +558,7 @@ class AdmissionTests(unittest.TestCase):
 
     def test_parent_failure_does_not_consume_and_never_deploys(self):
         digest=self.write()
-        with mock.patch.object(r,'_followup_parent_closed',side_effect=r.S12ControlError('PARENT_RED')), \
+        with mock.patch.object(r,'_followup_validate_parent',side_effect=r.S12ControlError('PARENT_RED')), \
                 mock.patch.object(r,'_deploy_locked') as deploy:
             with self.assertRaisesRegex(r.S12ControlError,'PARENT_RED'):r.followup(self.path,digest)
             deploy.assert_not_called()
@@ -564,8 +569,8 @@ class AdmissionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir='/dev/shm') as temporary:
             state=Path(temporary)
             self.assertNotEqual(state.stat().st_dev,self.base.stat().st_dev)
-            with mock.patch.object(r,'STATE_ROOT',state),mock.patch.object(r,'_followup_parent_closed'), \
-                    mock.patch.object(r,'read_only_preflight'),mock.patch.object(r,'_deploy_locked') as deploy:
+            with mock.patch.object(r,'STATE_ROOT',state),mock.patch.object(r,'_followup_validate_parent'), \
+                    mock.patch.object(r,'_deploy_locked') as deploy:
                 with self.assertRaisesRegex(r.S12ControlError,'MATERIALIZATION_FILESYSTEM_RED'):
                     r.followup(self.path,digest)
                 deploy.assert_not_called()
@@ -573,7 +578,7 @@ class AdmissionTests(unittest.TestCase):
 
     def test_empty_namespace_closure_survives_process_loss_without_adoption(self):
         digest=self.write()
-        with mock.patch.object(r,'_followup_parent_closed'),mock.patch.object(r,'read_only_preflight'), \
+        with mock.patch.object(r,'_followup_validate_parent'), \
                 mock.patch.object(r,'_deploy_locked',side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):r.followup(self.path,digest)
             namespace=self.state/'attempts'/r.FOLLOWUP_SLOT
@@ -882,7 +887,7 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(self.starts,expected)
                     return
                 for root in (f['app'],f['control']):
-                    if attack_at in {'PREDEPLOY_PREFLIGHT','PREDEPLOY_BARRIER_CAPTURE'}:
+                    if attack_at in {'PREDEPLOY_PREFLIGHT','PREDEPLOY_BARRIER_CAPTURE','FOLLOWUP_VALIDATION_HANDOFF'}:
                         self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
                     else:
                         self.assertTrue(r._is_recovery_guard(root/'.git'))
@@ -1024,6 +1029,14 @@ class IntegratedChainTests(unittest.TestCase):
                 'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); os.chmod(p,m^64); os.chmod(p,m)',
                 str(path),str(mode)],check=True)
         self.full_chain(attack=attack)
+
+    def test_parent_validation_handoff_detects_reverted_foreign_write(self):
+        def attack(f):
+            path=f['app']/'.gitignore'
+            subprocess.run([sys.executable,'-c',
+                'import os,sys; p=sys.argv[1]; m=os.stat(p).st_mode&0o7777; '
+                'os.chmod(p,m^64); os.chmod(p,m)',str(path)],check=True)
+        self.full_chain(attack=attack,attack_at='FOLLOWUP_VALIDATION_HANDOFF')
 
     def test_immutable_release_reverted_bytes_through_activation_and_final_audit(self):
         for boundary,name in (('RELEASE_TREE_PREVERIFY','application/kept'),

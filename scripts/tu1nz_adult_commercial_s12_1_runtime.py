@@ -10923,6 +10923,23 @@ def _r13_git_writers(roots: Sequence[Path]) -> _R13GitWriters | None:
         return None
     if GIT_WRITER_SCOPE is None:
         GIT_WRITER_SCOPE = _R13GitWriters(roots)
+    elif GIT_WRITER_SCOPE.validation_only:
+        # Install the attempt stream before retiring parent validation. Never
+        # rebaseline executable identity or forget a reverted handoff event.
+        previous=GIT_WRITER_SCOPE
+        replacement=None
+        try:
+            replacement=_R13GitWriters(roots)
+            _r13_boundary('FOLLOWUP_VALIDATION_HANDOFF')
+            if (replacement.images!=previous.images
+                    or previous.value['observer_baseline']!=_r13_observer_baseline(previous.roots)):
+                previous.fail()
+            previous.close()
+            replacement.check()
+            GIT_WRITER_SCOPE=replacement
+        except BaseException:
+            if replacement is not None:replacement.close(aborted=True)
+            raise
     elif set(GIT_WRITER_SCOPE.roots) != set(roots):
         raise S12ControlError(GIT_WRITER_RED)
     GIT_WRITER_SCOPE.check()
@@ -11450,10 +11467,12 @@ def _followup_validate_parent(binding: dict) -> None:
         writers.check()
         if writers.value['observer_baseline']!=_r13_observer_baseline(writers.roots):
             writers.fail()
-        _r13_retire_git_writers()
-    finally:
+        # Remain live through claim/namespace preparation and the overlapping
+        # attempt-scope handoff, or until the checked empty-closure retirement.
+    except BaseException:
         writers.close(aborted=True)
         GIT_WRITER_SCOPE=None
+        raise
 
 
 def _followup_parent_closed(proof: dict) -> None:
@@ -11529,7 +11548,7 @@ def _followup_namespace(binding: dict):
 
 
 def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
-    with _exclusive_deployment_lock():
+    with _exclusive_deployment_lock(), _r13_guard_scope():
         authorization=_followup_authorization(path,digest,recovering=recovering)
         binding=dict(slot=FOLLOWUP_SLOT,authorization_sha256=digest,
                      parent_classification="INTERRUPTED_DEPLOYMENT_RECOVERED_R12_NONHISTORICAL_BINDINGS",
@@ -11616,10 +11635,12 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
                 if _barrier_path_present(closure):
                     if _private_json(closure,FOLLOWUP_RED)!=result:
                         raise S12ControlError(FOLLOWUP_RED)
+                    _r13_retire_git_writers()
                     return result
                 _r13_boundary("FOLLOWUP_EARLY_CLOSURE_BEFORE_WRITE")
                 _atomic_json(closure,result)
                 _r13_boundary("FOLLOWUP_EARLY_CLOSURE_WRITTEN")
+                _r13_retire_git_writers()
                 return result
             with _followup_namespace(binding), _r13_guard_scope() as guards:
                 # Recovery never invokes deploy, admission, or activation.
