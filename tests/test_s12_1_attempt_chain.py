@@ -15,10 +15,39 @@ import copy
 import shutil
 import unittest
 from unittest import mock
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 
 from scripts import tu1nz_adult_commercial_s12_1_runtime as r
 from tests.test_s12_1_r12_metadata_contract import fixture, private_json
+
+
+class GuardOwnerTests(unittest.TestCase):
+    def test_verified_handoff_does_not_reuse_closed_callbacks(self):
+        events=[]
+        @contextmanager
+        def guard():
+            live=True
+            def check():self.assertTrue(live)
+            yield check
+            check();live=False;events.append('closed')
+        with r._R13GuardStack() as owner:
+            for _ in range(2):
+                owner.retain(guard());owner.paths.add(Path('/isolated-test-only'))
+                owner.assert_quiet();owner.close()
+                self.assertEqual(owner.checks,[]);self.assertEqual(owner.paths,set())
+                owner.assert_quiet()
+        self.assertEqual(events,['closed','closed'])
+
+    def test_failed_handoff_cannot_reuse_owner(self):
+        @contextmanager
+        def guard():
+            yield lambda:None
+            raise r.S12ControlError(r.MATERIALIZATION_RED)
+        with r._R13GuardStack() as owner:
+            owner.retain(guard())
+            with self.assertRaises(r.S12ControlError):owner.close()
+            with self.assertRaises(r.S12ControlError):owner.assert_quiet()
+            with self.assertRaises(r.S12ControlError):owner.retain(guard())
 
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,

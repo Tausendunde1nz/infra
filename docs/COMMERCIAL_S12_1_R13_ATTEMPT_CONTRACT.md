@@ -63,6 +63,9 @@ include reverted mutations after barrier exchange and during metadata release.
 The interrupted undo prefix shares this same guard owner with canonical
 recovery; a separate Linux negative covers reverted root mutation between
 those phases. Neither a normal return nor snapshot equality ends supervision.
+Successful transfer retires only the in-memory watch callbacks, allowing the
+canonical second finalization phase to establish a fresh watch set. A failed
+transfer poisons the owner; no closed descriptor is treated as a live guard.
 
 ## Delta and trust boundary
 

@@ -10125,15 +10125,32 @@ class _R13GuardStack(ExitStack):
         super().__init__()
         self.checks: list[Callable] = []
         self.paths: set[Path] = set()
+        self.failed = False
 
     def retain(self, context):
+        if self.failed:
+            raise S12ControlError(MATERIALIZATION_RED)
         check = self.enter_context(context)
         self.checks.append(check)
         return check
 
     def assert_quiet(self):
+        if self.failed:
+            raise S12ControlError(MATERIALIZATION_RED)
         for check in self.checks:
             check()
+
+    def close(self):
+        try:
+            super().close()
+        except BaseException:
+            self.failed = True
+            raise
+        # Canonical rollback has a second serialized finalization phase. Only
+        # after a verified handoff may it start a fresh watch set; closed file
+        # descriptors and their callbacks must not masquerade as live guards.
+        self.checks.clear()
+        self.paths.clear()
 
 
 @contextmanager
