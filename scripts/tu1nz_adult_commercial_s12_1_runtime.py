@@ -2775,21 +2775,20 @@ def _assert_private_group_has_no_unrelated_process(
         return
 
     def scan_once() -> None:
-        processes = tuple(proc_root.iterdir())
-        for process in processes:
+        for process in proc_root.iterdir():
             if not process.name.isdigit():
                 continue
-            tasks = tuple((process / "task").iterdir())
-            for task in tasks:
+            process_start = _process_state_and_start_time(process)[1]
+            for task in (process / "task").iterdir():
                 if not task.name.isdigit():
                     continue
-                before = _process_state_and_start_time(task)
+                captured_start = _process_state_and_start_time(task)[1]
                 payload = (task / "status").read_text(encoding="ascii")
                 after = _process_state_and_start_time(task)
                 # Scheduler state may legitimately change between reads; PID
                 # identity is bound by the immutable kernel start time.
-                if before[1] != after[1]:
-                    raise OSError
+                if after[1] != captured_start:
+                    raise FileNotFoundError
                 fields: dict[str, tuple[int, ...]] = {}
                 for line in payload.splitlines():
                     name, separator, value = line.partition(":")
@@ -2800,7 +2799,9 @@ def _assert_private_group_has_no_unrelated_process(
                         continue
                     if name in fields:
                         raise OSError
-                    fields[name] = tuple(int(item) for item in value.split())
+                    fields[name] = tuple(
+                        int(item) for item in value.split()
+                    )
                 if (
                     set(fields) != {"Uid", "Gid", "Groups"}
                     or len(fields["Uid"]) != 4
@@ -2813,14 +2814,17 @@ def _assert_private_group_has_no_unrelated_process(
                 )
                 if holds_group and filesystem_uid not in {0, uid}:
                     raise OSError
+            if _process_state_and_start_time(process)[1] != process_start:
+                raise FileNotFoundError
 
     for _attempt in range(4):
         try:
             scan_once()
         except FileNotFoundError:
-            # A process or thread that disappears from the captured /proc
-            # namespace may have forked a still-live credential holder. Start
-            # over from a fresh namespace snapshot rather than skipping it.
+            # A process or thread that disappears or changes identity in the
+            # captured /proc namespace may have forked a still-live credential
+            # holder. Start over from a fresh namespace snapshot rather than
+            # skipping it.
             continue
         except (OSError, UnicodeError, ValueError):
             raise S12ControlError(

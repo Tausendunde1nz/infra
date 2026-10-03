@@ -2366,12 +2366,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             with mock.patch.object(
                 runtime,
                 "_process_state_and_start_time",
-                side_effect=(
-                    ("R", 42),
-                    ("S", 42),
-                    ("D", 43),
-                    ("R", 43),
-                ),
+                return_value=("S", 42),
             ):
                 runtime._assert_private_group_has_no_unrelated_process(
                     2000, 2001, proc_root=proc_root
@@ -2393,8 +2388,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             state_probe = mock.Mock(
                 side_effect=(
                     FileNotFoundError(),
-                    ("R", 42),
-                    ("S", 42),
+                    *(("S", 42),) * 4,
                 )
             )
 
@@ -2405,7 +2399,38 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     2000, 2001, proc_root=proc_root
                 )
 
-            self.assertEqual(state_probe.call_count, 3)
+            self.assertEqual(state_probe.call_count, 5)
+
+    def test_private_group_scan_retries_reused_process_identity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            proc_root = Path(directory) / "proc"
+            task = proc_root / "321" / "task" / "321"
+            task.mkdir(parents=True)
+            task.joinpath("status").write_text(
+                "Uid:\t2000\t2000\t2000\t2000\n"
+                "Gid:\t2001\t2001\t2001\t2001\n"
+                "Groups:\t2001\n",
+                encoding="ascii",
+            )
+            state_probe = mock.Mock(
+                side_effect=(
+                    ("S", 41),
+                    ("S", 41),
+                    ("S", 42),
+                    *(("S", 43),) * 4,
+                )
+            )
+
+            with mock.patch.object(
+                runtime, "_process_state_and_start_time", state_probe
+            ):
+                runtime._assert_private_group_has_no_unrelated_process(
+                    2000, 2001, proc_root=proc_root
+                )
+
+            self.assertEqual(state_probe.call_count, 7)
 
     def test_private_group_scan_fails_after_bounded_snapshot_races(
         self,

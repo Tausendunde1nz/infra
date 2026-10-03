@@ -42,8 +42,9 @@ each promotion/reseal boundary, R8 therefore reads stable credentials for
 every live Linux thread and rejects the target GID when it is held by a
 non-root filesystem identity other than the recorded owner. Unreadable,
 malformed or racing process state fails closed before chmod. A disappearing
-process or thread invalidates the whole snapshot and triggers at most four
-fresh scans; it is never silently skipped. The access-ACL rejection also runs
+process or thread or PID reuse invalidates the start-time-bound scan and
+triggers at most four fresh scans; it is never silently skipped. The access-ACL
+rejection also runs
 before the first chmod of a failure-path reseal, including newly journaled Git
 paths.
 
