@@ -5531,6 +5531,16 @@ def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
                 for tag, permissions, identifier in entries
                 if tag in {0x02, 0x08}
             ]
+            user_entries = [entry for entry in entries if entry[0] == 0x02]
+            group_entries = [entry for entry in entries if entry[0] == 0x08]
+            canonical_entries = (
+                [entry for entry in entries if entry[0] == 0x01]
+                + sorted(user_entries, key=lambda entry: entry[2])
+                + [entry for entry in entries if entry[0] == 0x04]
+                + sorted(group_entries, key=lambda entry: entry[2])
+                + [entry for entry in entries if entry[0] == 0x10]
+                + [entry for entry in entries if entry[0] == 0x20]
+            )
             if (
                 any(
                     tag not in {0x01, 0x02, 0x04, 0x08, 0x10, 0x20}
@@ -5553,6 +5563,7 @@ def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
                 )
                 or len({(tag, identifier) for tag, _, identifier in named_entries})
                 != len(named_entries)
+                or entries != canonical_entries
             ):
                 raise OSError
         _stable_xattr_payload(

@@ -41,7 +41,7 @@ CONTROL_ARTIFACTS = {
     "control_tests_sha256": "tests/test_adult_commercial_s12_1_yoti_runtime.py",
     "control_doc_sha256": "docs/COMMERCIAL_S12_1_YOTI_SANDBOX_RUNTIME_CONTROL.md",
     "control_recovery_doc_sha256": "docs/COMMERCIAL_S12_1_R4_GIT_METADATA_RECOVERY_BARRIER.md",
-    "control_recovery_diagnosis_sha256": "analysis/COMMERCIAL_S12_1_R4_PRISTINE_ORPHAN_RECOVERY_2026-10-02.diagnose",
+    "control_recovery_diagnosis_sha256": "analysis/COMMERCIAL_S12_1_R5_NAMED_POSIX_ACL_ORPHAN_RECOVERY_2026-10-03.diagnose",
 }
 
 STATIC_BINDINGS = {
@@ -57,7 +57,7 @@ STATIC_BINDINGS = {
     "rollback_contract": "EXACTLY_ONCE_BACKUP_FIRST_CONTROLLED_INACTIVE",
     "deployment_contract": "EXACTLY_ONE_NO_HOTFIX_NO_RETRY",
     "recovery_barrier_contract": "GIT_METADATA_SCOPED_TRAVERSAL_PRESERVING",
-    "recovery_fix_classification": "PRISTINE_LEGACY_ORPHAN_RELEASE_AND_METADATA_SCOPING_SUFFICIENT",
+    "recovery_fix_classification": "PRISTINE_LEGACY_ORPHAN_RELEASE_WITH_STRUCTURALLY_VALID_POSIX_ACLS",
     "runtime_python_sha256": RUNTIME_PYTHON_SHA256,
     "runtime_venv_sha256": RUNTIME_VENV_SHA256,
     "real_avs_enabled": "false",
