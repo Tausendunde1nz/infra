@@ -10407,6 +10407,15 @@ class _R13GitWriters:
                     raise S12ControlError(GIT_WRITER_RED)
                 self.value['sequence'] = old['sequence']
                 self.value['history'] = old.get('history',[])
+                if 'observer_baseline' in old:
+                    self.value['observer_baseline'] = old['observer_baseline']
+            elif (self.roots == (APPLICATION_ROOT, CONTROL_ROOT)
+                  and not _barrier_journal_present()
+                  and not _barrier_path_present(ATTEMPT_MARKER)):
+                # Prospective, observed checkpoint, NOT historical provenance.
+                # Preserve it across read-only commands; never replace it with
+                # current metadata when recovering an observer-only namespace.
+                self.value['observer_baseline'] = _r13_observer_baseline(self.roots)
             self.check()
             self.checkpoint()
         except BaseException:
@@ -10907,6 +10916,14 @@ def _r13_retire_git_writers():
     if GIT_WRITER_SCOPE is not None:
         GIT_WRITER_SCOPE.close()
         GIT_WRITER_SCOPE = None
+
+
+def _r13_observer_baseline(roots: Sequence[Path]) -> dict:
+    fields = ('st_dev','st_ino','st_uid','st_gid','st_mode','st_nlink',
+              'st_size','st_mtime_ns','st_ctime_ns')
+    metadata=[path.lstat() for path in (DEPLOYMENT_LOCK_ROOT, *roots)]
+    return dict(tree=_git_metadata_transition_fingerprint(roots),
+                roots=[[getattr(value, field) for field in fields] for value in metadata])
 
 
 def _r13_begin_attempt_observation():
@@ -11483,11 +11500,67 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
             no_namespace=not _barrier_path_present(namespace)
             no_backup=not _barrier_path_present(BACKUP_ROOT/FOLLOWUP_SLOT)
             empty_namespace=False
+            observer_only=False
             if not no_namespace:
                 _validate_secure_directory_chain(namespace,Path("/"))
                 metadata=namespace.lstat()
-                empty_namespace=(metadata.st_gid==0 and stat.S_IMODE(metadata.st_mode)==0o700
-                                 and not os.listxattr(namespace) and not any(namespace.iterdir()))
+                private=(metadata.st_gid==0 and stat.S_IMODE(metadata.st_mode)==0o700
+                         and not os.listxattr(namespace))
+                names={entry.name for entry in namespace.iterdir()}
+                empty_namespace=private and not names
+                observer_only=private and names=={'git-writer-scope.json'}
+            if no_backup and observer_only:
+                _followup_parent_closed(authorization['parent_proof'])
+                read_only_preflight()
+                with _followup_namespace(binding), _r13_guard_scope():
+                    journal=STATE_ROOT/'git-writer-scope.json'
+                    original=_private_json(journal,FOLLOWUP_RED,maximum=4*1024*1024)
+                    roots=(APPLICATION_ROOT,CONTROL_ROOT)
+                    if (original.get('attempt_binding')!=binding
+                            or original.get('phase')!='QUIET'
+                            or original.get('tasks')!=[] or original.get('operation') is not None
+                            or not isinstance(original.get('history'),list)
+                            or any(not isinstance(op,dict) or op.get('access_profile')!='READ_ONLY'
+                                   or 'stdout' in op or not isinstance(op.get('task_history'),list)
+                                   or any(not isinstance(task,dict) or task.get('exited') is not True
+                                          for task in op['task_history'])
+                                   for op in original['history'])
+                            or original.get('observer_baseline')!=_r13_observer_baseline(roots)):
+                        raise S12ControlError(FOLLOWUP_RED)
+                    original_digest=_sha256(journal)
+                    # Resume only observation, never a command or activation.
+                    # The constructor checks image identities, Git ctimes,
+                    # sequence/history consistency and installs a fresh stream.
+                    writers=_r13_git_writers(roots)
+                    if (_sha256(journal)!=original_digest
+                            or original['observer_baseline']!=_r13_observer_baseline(roots)):
+                        writers.fail()
+                    writers.check()
+                    result=dict(ok=True,safe_code='S12_1_FOLLOWUP_OBSERVER_ONLY_CLOSED',
+                                deployment_count=0,rollback_count=0,attempt_binding=binding,
+                                observer_journal_sha256=original_digest,
+                                observation_continuity='NOT_ASSERTED_ACROSS_INTERRUPTION')
+                    parent_guard=_R12AttributeGuard((DEPLOYMENT_LOCK_ROOT,),event_mask=0xFCE)
+                    try:
+                        if _barrier_path_present(closure):
+                            if _private_json(closure,FOLLOWUP_RED)!=result:
+                                raise S12ControlError(FOLLOWUP_RED)
+                        else:
+                            _r13_boundary('FOLLOWUP_OBSERVER_CLOSURE_BEFORE_WRITE')
+                            _atomic_json(closure,result)
+                            _r13_boundary('FOLLOWUP_OBSERVER_CLOSURE_WRITTEN')
+                        if original['observer_baseline']!=_r13_observer_baseline(roots):
+                            writers.fail()
+                        writers.check()
+                        parent_guard.assert_quiet()
+                        _r13_retire_git_writers()
+                        parent_guard.assert_quiet()
+                        if (_sha256(journal)!=original_digest
+                                or {entry.name for entry in STATE_ROOT.iterdir()}!={'git-writer-scope.json'}):
+                            raise S12ControlError(FOLLOWUP_RED)
+                    finally:
+                        parent_guard.close()
+                    return result
             if no_backup and (no_namespace or empty_namespace):
                 _followup_parent_closed(authorization["parent_proof"])
                 read_only_preflight()

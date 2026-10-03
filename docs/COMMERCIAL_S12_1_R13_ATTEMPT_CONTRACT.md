@@ -29,6 +29,24 @@ active, and interrupt before/after activation with rollback and replay denial.
 These corrections require fresh complete CI and exact-SHA review; they do not
 authorize runtime activity or replace any earlier evidence.
 
+CI 37153812727 on `f33d383f7321fce39ef2141a77ae7919421fef3a` passed
+55 integrated tests with native mechanisms (3097.181s), 20 native R12 tests,
+and 1101 full-suite tests. Exact-head review 5402958153 found P1 4175039844:
+process loss after observer initialization but before barrier journaling left
+a consumed, nonempty namespace with no backup to recover. The observer now
+records a prospective full-worktree/parent identity-and-ctime baseline while
+the filesystem stream is live. Recovery can durably close only a matching
+QUIET, read-only observer-only namespace, retaining its journal and consumed
+slot without asserting continuous observation across the interruption.
+No activation is resumed. Image/Git identities, full worktree metadata,
+read-only task lifetimes, absence of backup/other namespace entries, parent
+closure and public preflight remain required. RUNNING, FAILED, missing
+baseline, changed binding, writer history and reverted offline worktree
+changes remain RED. Native tests interrupt initialization/capture and each
+closure write boundary, repeat closure idempotently and deny replay. With the
+prior complete native step already exceeding 51 minutes, the job bound is
+75 minutes for the additional cases; no test or protection is removed.
+
 **Current source release status: pending final CI/review and Git closure.** Exact-head Code Review of
 `28d7fe240068c6e728d4a5566403eae44843d4c7` found one remaining P1
 (`4173769781`): the prior recursive Git watch was installed after the yielded body's
@@ -82,7 +100,7 @@ R13 reseals the prospectively journaled, successor-updated path set without
 executing another Git command in a failed epoch. Neither failed attribution
 nor cleanup creates a new command grant; existing handoff negatives require
 both barriers to remain and reject recovery/replay.
-CI retains the complete native test matrix with a 60-minute job bound: tracing
+CI retains the complete native test matrix with a 75-minute job bound: tracing
 every Git reader increased the measured isolated success case from about
 23 to 55 seconds. No assertion, negative case or kernel mechanism is skipped
 to fit the former 30-minute bound.

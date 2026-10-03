@@ -716,6 +716,9 @@ class IntegratedChainTests(unittest.TestCase):
                 _,status=os.waitpid(pid,0)
                 self.assertEqual(os.waitstatus_to_exitcode(status),73,crash_at)
                 self.starts=int(self.start_witness.read_text()) if self.start_witness.exists() else 0
+                observer_only=crash_at in {'PREDEPLOY_PREFLIGHT','PREDEPLOY_BARRIER_CAPTURE'}
+                observer_journal=f['state']/'attempts'/r.FOLLOWUP_SLOT/'git-writer-scope.json'
+                observer_before=observer_journal.read_bytes() if observer_only else None
                 if crash_at=='GIT_READER_BOUND':
                     # This reader precedes the first authorized mutation and
                     # barrier installation. Its death must not invent either
@@ -741,7 +744,7 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(self.starts,0)
                     self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
                     for root in (f['app'],f['control']):
-                        self.assertTrue(r._is_recovery_guard(root/'.git'))
+                        self.assertEqual(r._is_recovery_guard(root/'.git'),not observer_only)
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
                     return
@@ -761,6 +764,25 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(os.waitstatus_to_exitcode(status),73,recovery_crash_at)
                 result=r.followup(authorization,grant_hash,recovering=True)
                 self.assertTrue(result['ok'])
+                if observer_only:
+                    self.assertEqual(result['safe_code'],'S12_1_FOLLOWUP_OBSERVER_ONLY_CLOSED')
+                    self.assertEqual(result['rollback_count'],0)
+                    self.assertEqual(result['deployment_count'],0)
+                    self.assertEqual(result['observation_continuity'],'NOT_ASSERTED_ACROSS_INTERRUPTION')
+                    self.assertEqual(observer_journal.read_bytes(),observer_before)
+                    closure=f['state']/(r.FOLLOWUP_SLOT+'.closed-without-deployment.json')
+                    closed=closure.read_bytes()
+                    self.assertEqual(r.followup(authorization,grant_hash,recovering=True),result)
+                    self.assertEqual(closure.read_bytes(),closed)
+                    self.assertEqual(observer_journal.read_bytes(),observer_before)
+                    self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                    self.assertEqual(self.starts,0)
+                    for key,root in [('application',f['app']),('control',f['control'])]:
+                        self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
+                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                    with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                        r.followup(authorization,grant_hash)
+                    return
                 if crash_at=='FOLLOWUP_NAMESPACE_CREATED':
                     self.assertEqual(result['rollback_count'],0)
                     self.assertEqual(result['deployment_count'],0)
@@ -882,6 +904,32 @@ class IntegratedChainTests(unittest.TestCase):
                          'PREATTEMPT_RELEASE_COMPLETED'):
             with self.subTest(boundary=boundary):
                 self.full_chain(crash_at='PREATTEMPT_BARRIER_JOURNALED',recovery_crash_at=boundary)
+
+    def test_01_observer_only_interruption_has_durable_idempotent_closure(self):
+        for boundary,closure in (('PREDEPLOY_PREFLIGHT',None),('PREDEPLOY_BARRIER_CAPTURE',None),
+                                 ('PREDEPLOY_PREFLIGHT','FOLLOWUP_OBSERVER_CLOSURE_BEFORE_WRITE'),
+                                 ('PREDEPLOY_PREFLIGHT','FOLLOWUP_OBSERVER_CLOSURE_WRITTEN')):
+            with self.subTest(boundary=boundary,closure=closure):
+                self.full_chain(crash_at=boundary,recovery_crash_at=closure)
+
+    def test_02_observer_only_closure_rejects_unproven_or_changed_state(self):
+        def alter_journal(f, change):
+            path=f['state']/'attempts'/r.FOLLOWUP_SLOT/'git-writer-scope.json'
+            value=json.loads(path.read_bytes());change(value);private_json(path,value)
+        def reverted_worktree(f):
+            path=f['app']/'kept';before=path.read_bytes();metadata=path.stat()
+            path.write_bytes(b'foreign');path.write_bytes(before)
+            os.utime(path,ns=(metadata.st_atime_ns,metadata.st_mtime_ns))
+        cases={
+            'missing_baseline':lambda f:alter_journal(f,lambda value:value.pop('observer_baseline')),
+            'wrong_binding':lambda f:alter_journal(f,lambda value:value.update(attempt_binding={})),
+            'running':lambda f:alter_journal(f,lambda value:value.update(phase='RUNNING')),
+            'failed':lambda f:alter_journal(f,lambda value:value.update(phase='FAILED')),
+            'writer_history':lambda f:alter_journal(f,lambda value:value['history'][0].update(access_profile='BOUND_WRITE')),
+            'reverted_worktree':reverted_worktree,
+        }
+        for name,tamper in cases.items():
+            with self.subTest(case=name):self.full_chain(crash_at='PREDEPLOY_PREFLIGHT',tamper=tamper)
 
     def test_process_loss_at_each_rollback_boundary(self):
         for boundary in ('WITHDRAW_INTENT','WITHDRAWN','RESTORE_INTENT','RESTORED'):
