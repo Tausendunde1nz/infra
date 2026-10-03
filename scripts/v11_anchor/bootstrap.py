@@ -15,6 +15,7 @@ def plan_pin(store,candidates,originals):
 class Bootstrap:
  def __init__(self,store,installer,host):self.s=store;self.i=installer;self.h=host;self.gate=Gate(store)
  def stage(self,context,boot,recovery_generation,candidates,originals):
+  if not self.s.fixture:raise Refused('LEGACY_COMPLETION_BOOTSTRAP_DISABLED')
   try:
    phase0.phase1_admitted(self.s,self.h)
    expected=plan_pin(self.s,candidates,originals)

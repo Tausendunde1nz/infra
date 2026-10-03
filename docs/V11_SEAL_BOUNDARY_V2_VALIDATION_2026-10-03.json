@@ -1,0 +1,80 @@
+{
+  "attestations": [
+    "PRESEAL_READY",
+    "SEALED",
+    "POSTSEAL_COMPLETE"
+  ],
+  "contract": {
+    "journal_alone_proves_seal": false,
+    "preseal": "EXACT_ROLLBACK_WITH_RETAINED_PHASE0",
+    "sealed": "VERIFIED_FORWARD_OR_SECURED_STOP_SEALED",
+    "unknown": "SECURED_STOP_SEAL_UNKNOWN"
+  },
+  "control_commit": "2281b2b397c017bc370ba108eab3dc00c989eaa5",
+  "control_tree": "3d52fe0898238e1132d8947a7e171d8086982170",
+  "governance": "GOVERNANCE_V1_1_ACTIVE",
+  "historical_integration": "1cf0d797ab025fb08466b92aed156ca5d7d63035",
+  "infra_parent": "cd4a10320fe935fd615570a3e90d3fa6127c0fa5",
+  "intent": "FILE_AND_DIRECTORY_FSYNC_BEFORE_BARRIER",
+  "live_operations_performed": false,
+  "merge_performed": false,
+  "offline_status": "DIRECTIONAL_MODEL_AND_FILE_GUARD_INTEGRATION_TESTED",
+  "pr_created": false,
+  "preservation": [
+    {
+      "count": 42,
+      "passed": true,
+      "set": "hardening42"
+    },
+    {
+      "count": 701,
+      "passed": true,
+      "set": "historical701"
+    },
+    {
+      "count": 1125,
+      "passed": true,
+      "set": "private1125"
+    },
+    {
+      "count": 30,
+      "passed": true,
+      "set": "sources30"
+    },
+    {
+      "count": 17,
+      "inodes_unchanged": true,
+      "passed": true,
+      "set": "original_anchor17"
+    }
+  ],
+  "private_evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-seal-boundary-20261003T081023Z",
+  "privileged_boundary": "PROTECTED_CONTROL_METADATA_AND_SEALING_REMOVAL_MECHANISM_UNRESOLVED",
+  "production_activation_ready": false,
+  "production_control": "UNRESOLVED_PRODUCTION_DRIFT",
+  "remaining_offline_bindings": [
+    "PRODUCTION_DIRECTIONAL_HOST_NOT_BOUND",
+    "DIRECTIONAL_RETAINED_WORKER_TRANSPORT_NOT_BOUND",
+    "ISOLATED_DIRECTIONAL_ROOT_PROFILE_NOT_BOUND",
+    "INDEPENDENT_OUTER_TIMEOUT_CLEANUP_NOT_PROVEN"
+  ],
+  "root_validation_ready": false,
+  "schema": 2,
+  "status": "LIVE_NO_GO",
+  "tests": {
+    "all_executed_checks_passed": true,
+    "anchor_cases": 187,
+    "application_checkouts_absent": true,
+    "application_skips": 2,
+    "control_cases": 60,
+    "control_runner": "RUNPY_DIRECT_FUNCTIONS_EXACT_PARAMETRIZATION_ADAPTER",
+    "full_suite_sha256": "024dd05f694de18555be3c00e54efafa1ce0a272feef7b999336e59f6da89599",
+    "governance_cases": 26,
+    "governance_log_sha256": "2e6b3a9e10ab40f02791fac2ae0a1bb3bff95c657d28573c9db8bbb7ce5830c4",
+    "new_boundary_cases": 60,
+    "original_anchor_cases": 78,
+    "targeted_cases": 2572,
+    "workflow_reported_cases": 585,
+    "workflow_steps": 108
+  }
+}

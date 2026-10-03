@@ -88,7 +88,7 @@ class Store:
   if (s.st_dev,s.st_ino)!=(self.identity.st_dev,self.identity.st_ino):raise Refused('PATH_REPLACED')
  def name(self,n):
   self.check()
-  if n not in ('lock','base.json','selection.json','fence.json','stop.json','phase1.json','terminal.json','phase0.json','anchor.py','guard-binding.json','bootstrap.json') and not re.fullmatch(r'(?:slot-[AB]\.(?:py|json)|event-[0-9]{6}\.json|attestation(?:-commit|-use)?-[0-9]{6}\.json)',n):raise Refused('NAME')
+  if n not in ('lock','base.json','selection.json','fence.json','stop.json','phase1.json','terminal.json','phase0.json','anchor.py','guard-binding.json','bootstrap.json','boundary-context.json','boundary-stop.json') and not re.fullmatch(r'(?:slot-[AB]\.(?:py|json)|event-[0-9]{6}\.json|attestation(?:-commit|-use)?-[0-9]{6}\.json|boundary-(?:preseal|intent|sealed|complete)(?:-commit)?\.json)',n):raise Refused('NAME')
  def read(self,n,mode=0o400):
   f=self.open(n,mode)
   try:
@@ -204,6 +204,7 @@ class Anchor:
     self.s.base();self.s.journal()
     if self.s.exists('stop.json'):return 'SECURED_STOP'
     selected=self.s.choose();self.h.verify_base()
+    if self.s.exists('boundary-context.json'):raise Refused('DIRECTIONAL_WORKER_NOT_BOUND')
     if not self.s.exists('phase1.json'):return 'RECOVERY_BASE_READY'
     phase=parse(self.s.read('phase1.json',0o600))
     if set(phase)!={'transaction','manifest_sha256','paths'} or not tx(phase['transaction']) or not pin(phase['manifest_sha256']) or phase['paths']!=self.s.base()['phase1_paths']:raise Refused('TRANSACTION_MANIFEST')

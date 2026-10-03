@@ -10,7 +10,7 @@ def embedded(rows):
 
 def modules(directory):
  d=Path(directory);g=d.parent/'v11_guard_recovery';old=d.parent/'v11_dispatcher'
- return [(n,(g/(n+'.py')).read_bytes()) for n in ('state','runtime','files')]+[(n,(old/(n+'.py')).read_bytes()) for n in ('core','units','publication','systemd_adapter')]+[(n,(d/(n+'.py')).read_bytes()) for n in ('anchor','worker','manager','base_host','phase0','attestation','bootstrap','phase1','install','host','guard_verifier')]
+ return [(n,(g/(n+'.py')).read_bytes()) for n in ('state','runtime','files','coordinator')]+[(n,(old/(n+'.py')).read_bytes()) for n in ('core','units','publication','systemd_adapter')]+[(n,(d/(n+'.py')).read_bytes()) for n in ('anchor','worker','manager','base_host','phase0','attestation','bootstrap','phase1','install','host','guard_verifier','seal_boundary','split_guard')]
 
 def build(directory,profile):
  if profile not in ('production','validation'):raise ValueError('PROFILE')

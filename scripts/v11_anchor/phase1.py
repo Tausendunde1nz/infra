@@ -5,8 +5,8 @@ The recovery implementation itself resides in the retained phase-0 worker slot.
 from anchor import Refused,encode,digest,tx,pin,parse,TERMINAL
 import os
 class Installer:
- def __init__(self,store,files,journal,host,inject=lambda point:None):
-  self.s=store;self.f=files;self.j=journal;self.h=host;self.inject=inject;self.state=None;self.f.save=self.receipt
+ def __init__(self,store,files,journal,host,inject=lambda point:None,boundary=None):
+  self.s=store;self.f=files;self.j=journal;self.h=host;self.inject=inject;self.state=None;self.f.save=self.receipt;self.boundary=boundary
  def persist(self):self.j.save(self.state)
  def receipt(self,value):self.state['files']=value;self.persist();self.inject('file_receipt')
  def load(self):
@@ -17,17 +17,13 @@ class Installer:
  def attest_root(self,transaction):
   if self.s.fixture:return # Component fixtures confer no production admission.
   if os.geteuid()!=0 or self.f.fixture:raise Refused('PHASE1_ROOT_BINDING')
-  from attestation import Gate
-  from pathlib import Path
-  g=Gate(self.s);c=g.context();boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-  if c['transaction']!=transaction:raise Refused('PHASE1_GUARD_TRANSACTION')
-  receipt=g.admit_locked(c,boot,c['recovery_generation'],c['activation_manifest_sha256'],resume=True)
-  row=parse(self.s.read('bootstrap.json'))
-  if row!={'schema':1,'state':'ATTESTED_BOOTSTRAP','context_sha256':digest(encode(c)),'transaction':transaction,'phase_manifest_sha256':c['activation_manifest_sha256'],'admission':receipt}:raise Refused('PHASE1_ATTESTED_BOOTSTRAP')
+  raise Refused('SPLIT_PRODUCTION_ADMISSION_NOT_BOUND')
  def start(self,transaction,candidates,expected_originals):
   # Serialize publication and recovery; the external systemd timeout is the
   # independent lifetime bound. The fence remains CLOSED throughout publication.
-  with self.s.locked(),self.j.locked():
+  with self.s.locked():return self.start_locked(transaction,candidates,expected_originals)
+ def start_locked(self,transaction,candidates,expected_originals):
+  with self.j.locked():
    self.attest_root(transaction)
    self.s.base();self.s.choose();self.h.verify_base();self.h.confirm_closed();self.h.no_worker()
    if parse(self.s.read('phase0.json',0o600))!={'state':'PHASE0_VERIFIED','base_sha256':digest(self.s.read('base.json'))}:raise Refused('PHASE0_NOT_VERIFIED')
@@ -66,6 +62,11 @@ class Installer:
    if phase['transaction']!=self.state['transaction'] or phase['manifest_sha256']!=digest(encode({'before':self.state['before'],'manager_before':self.state['manager_before'],'pins':self.state['pins']})):raise Refused('RECOVERY_BINDING')
    return self._rollback()
  def _rollback(self):
+  if self.s.exists('boundary-context.json'):
+   if self.boundary is None:raise Refused('DIRECTIONAL_ROLLBACK_NOT_BOUND')
+   if not self.boundary.rollback_allowed():raise Refused('DIRECTIONAL_ROLLBACK_FORBIDDEN')
+  return self._rollback_preseal_verified()
+ def _rollback_preseal_verified(self):
   self.s.close_fence();self.h.confirm_closed()
   if self.state['sealed']:self.s.stop('POSTSEAL_SECURED_STOP');return 'SECURED_STOP'
   if self.state['status']==TERMINAL:
