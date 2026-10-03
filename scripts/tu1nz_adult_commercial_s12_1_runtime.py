@@ -708,13 +708,7 @@ def _bounded_nul_command_records(
     arguments: Sequence[str], safe_code: str
 ) -> tuple[bytes, ...]:
     try:
-        completed = subprocess.run(
-            list(arguments),
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=120,
-        )
+        completed = _git_process(arguments)
     except (OSError, subprocess.SubprocessError):
         raise S12ControlError(safe_code) from None
     output = completed.stdout
@@ -732,6 +726,17 @@ def _bounded_nul_command_records(
     if len(records) > 500_000 or any(not record for record in records):
         raise S12ControlError(safe_code)
     return records
+
+
+def _git_process(arguments, *, timeout=120, stdin=None, stdout=None, text=False):
+    """Binary/streaming Git helpers share the epoch router, without a bypass."""
+    if GIT_WRITER_SCOPE is not None:
+        selected = GIT_WRITER_SCOPE.command(arguments)
+        if selected is None:
+            GIT_WRITER_SCOPE.fail()
+        return GIT_WRITER_SCOPE.run(selected,timeout,stdin=stdin,stdout=stdout,text=text)
+    return subprocess.run(list(arguments),check=False,stdin=stdin,
+        stdout=stdout or subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,text=text)
 
 
 def _validate_canonical_index(
@@ -1297,13 +1302,11 @@ def _create_git_bundle(
         )
         with os.fdopen(descriptor, "wb") as output:
             descriptor = None
-            completed = subprocess.run(
+            completed = _git_process(
                 _selected_git_arguments(
                     root, git_directory, "bundle", "create", "-", *revisions
                 ),
-                check=False,
                 stdout=output,
-                stderr=subprocess.PIPE,
                 timeout=300,
             )
             output.flush()
@@ -1323,14 +1326,11 @@ def _verify_git_bundle(
 ) -> None:
     try:
         with source.open("rb") as input_stream:
-            completed = subprocess.run(
+            completed = _git_process(
                 _selected_git_arguments(
                     root, git_directory, "bundle", "verify", "/dev/stdin"
                 ),
-                check=False,
                 stdin=input_stream,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
                 timeout=120,
             )
     except (OSError, subprocess.SubprocessError):
@@ -1344,14 +1344,11 @@ def _git_bundle_heads(
 ) -> dict[str, str]:
     try:
         with source.open("rb") as input_stream:
-            completed = subprocess.run(
+            completed = _git_process(
                 _selected_git_arguments(
                     root, git_directory, "bundle", "list-heads", "/dev/stdin"
                 ),
-                check=False,
                 stdin=input_stream,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
                 text=True,
                 timeout=120,
             )
@@ -7701,12 +7698,7 @@ def _seed_repository_from_bundle(
         try:
             with bundle.open("rb") as input_stream:
                 arguments = git_arguments("bundle", operation, "/dev/stdin")
-                selected = GIT_WRITER_SCOPE.command(arguments) if GIT_WRITER_SCOPE is not None else None
-                if selected is not None:
-                    completed = GIT_WRITER_SCOPE.run(selected,300,stdin=input_stream)
-                else:
-                    completed = subprocess.run(arguments,check=False,stdin=input_stream,
-                        stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=300)
+                completed = _git_process(arguments,timeout=300,stdin=input_stream)
         except (OSError, subprocess.SubprocessError):
             raise S12ControlError("S12_1_BACKUP_BUNDLE_RED") from None
         if completed.returncode != 0:
@@ -10186,8 +10178,9 @@ if c.prctl(1,signal.SIGKILL,0,0,0)<0 or os.getppid()!=int(sys.argv[4]): os._exit
 if os.uname().machine not in ('x86_64','aarch64') or c.syscall(444,0,0,1)<3: os._exit(125)
 rules=ctypes.create_string_buffer(struct.pack('=Q',0x7ff2))
 rs=c.syscall(444,ctypes.byref(rules),8,0)
-rule=ctypes.create_string_buffer(struct.pack('=Qi',0x61b2,fd))
-if rs<0 or c.syscall(445,rs,1,ctypes.byref(rule),0)<0: os._exit(125)
+rule=ctypes.create_string_buffer(struct.pack('=Qi',0x71b2 if sys.argv[8]=='STAGE_WRITE' else 0x61b2,fd))
+if rs<0: os._exit(125)
+if sys.argv[8]!='READ_ONLY' and c.syscall(445,rs,1,ctypes.byref(rule),0)<0: os._exit(125)
 null_fd=int(sys.argv[5])
 null_rule=ctypes.create_string_buffer(struct.pack('=Qi',2,null_fd))
 if c.syscall(445,rs,1,ctypes.byref(null_rule),0)<0: os._exit(125)
@@ -10195,7 +10188,8 @@ if c.prctl(38,1,0,0,0)<0 or c.syscall(446,rs,0)<0: os._exit(125)
 os.close(rs); os.close(fd); os.close(null_fd); os.close(int(sys.argv[6]))
 if c.ptrace(0,0,0,0)<0: os._exit(125)
 os.kill(os.getpid(),signal.SIGSTOP)
-os.execve(args[0],args,env)
+git_fd=int(sys.argv[7]); os.set_inheritable(git_fd,False)
+os.execve(git_fd,args,env)
 '''
 
 
@@ -10252,22 +10246,15 @@ class _R13GitWriters:
         self.fd = None
         self.failed = False
         self.members: dict[bytes, Path] = {}
+        self.worktree_members: set[bytes] = set()
         self.pending: list[tuple] = []
         self.tasks: dict[int, dict] = {}
         self.operation = None
         self.libc = ctypes.CDLL(None, use_errno=True)
         self.libc.ptrace.restype = ctypes.c_long
         self.journal = STATE_ROOT/'git-writer-scope.json'
-        exec_path = Path(subprocess.check_output(['/usr/bin/git','--exec-path'],
-            env={'HOME':'/','PATH':'/usr/bin:/bin','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'},
-            text=True,timeout=10).strip())
-        _validate_secure_directory_chain(exec_path,Path('/'))
-        self.image_paths = {'bootstrap':Path('/proc/self/exe'),
-                            'git':Path('/usr/bin/git'),'shell':Path('/bin/sh'),
-                            'git-core':exec_path/'git','upload-pack':exec_path/'git-upload-pack'}
-        self.images = {name:self.executable(path) for name,path in self.image_paths.items()}
         self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=ACTIVE_ATTEMPT,
-                          phase='QUIET', sequence=0, tasks=[], operation=None,history=[],images=self.images)
+                          phase='QUIET', sequence=0, tasks=[], operation=None,history=[])
         try:
             if (sys.platform != 'linux' or os.geteuid() != 0 or ACTIVE_ATTEMPT is None
                     or os.uname().machine not in {'x86_64','aarch64'}
@@ -10283,6 +10270,41 @@ class _R13GitWriters:
             if self.libc.fanotify_mark(self.fd, 0x101, ctypes.c_uint64(0x40000FCE),
                                       -100, os.fsencode(first)) < 0:
                 raise S12ControlError(GIT_WRITER_RED)
+            # The filesystem stream already exists before enumerating ANY
+            # worktree/index name or invoking Git. It covers existing inodes,
+            # absent/new names and reverted writes during inventory itself.
+            for root in self.roots:
+                key = self.handle(root)
+                self.members[key] = root
+                self.worktree_members.add(key)
+            _r13_boundary('GIT_WRITER_INVENTORY')
+            for root in self.roots:
+                for base,dirs,files in os.walk(root,followlinks=False):
+                    if Path(base) == root:
+                        dirs[:] = [n for n in dirs if n not in ('.git',RECOVERY_GIT_DIRECTORY)]
+                    for p in (Path(base),*(Path(base)/n for n in dirs+files)):
+                        if p.lstat().st_dev != first.stat().st_dev:
+                            raise S12ControlError(GIT_WRITER_RED)
+                        key = self.handle(p)
+                        self.members[key] = root
+                        self.worktree_members.add(key)
+            for root,directory in self.directories.items():
+                for base,dirs,files in os.walk(directory, followlinks=False):
+                    for p in (Path(base), *(Path(base)/n for n in dirs+files)):
+                        if p.is_symlink() or p.stat().st_dev != first.stat().st_dev:
+                            raise S12ControlError(GIT_WRITER_RED)
+                        self.members[self.handle(p)] = root
+            self.check()
+            # Fixed Linux installation contract; discovering this path must
+            # not execute an as-yet unbound Git binary. Unsupported layouts
+            # fail closed. Git children receive this exact GIT_EXEC_PATH.
+            exec_path = Path('/usr/lib/git-core')
+            _validate_secure_directory_chain(exec_path,Path('/'))
+            self.image_paths = {'bootstrap':Path('/proc/self/exe'),
+                                'git':Path('/usr/bin/git'),'shell':Path('/bin/sh'),
+                                'git-core':exec_path/'git','upload-pack':exec_path/'git-upload-pack'}
+            self.images = {name:self.executable(path) for name,path in self.image_paths.items()}
+            self.value['images'] = self.images
             if _barrier_path_present(self.journal):
                 old = _private_json(self.journal, GIT_WRITER_RED, maximum=4*1024*1024)
                 if (old.get('schema') != self.value['schema'] or old.get('attempt_binding') != ACTIVE_ATTEMPT
@@ -10294,12 +10316,6 @@ class _R13GitWriters:
                     raise S12ControlError(GIT_WRITER_RED)
                 self.value['sequence'] = old['sequence']
                 self.value['history'] = old.get('history',[])
-            for root,directory in self.directories.items():
-                for base,dirs,files in os.walk(directory, followlinks=False):
-                    for p in (Path(base), *(Path(base)/n for n in dirs+files)):
-                        if p.is_symlink() or p.stat().st_dev != first.stat().st_dev:
-                            raise S12ControlError(GIT_WRITER_RED)
-                        self.members[self.handle(p)] = root
             self.check()
             self.checkpoint()
         except BaseException:
@@ -10373,7 +10389,8 @@ class _R13GitWriters:
                     if len(roots) != 1:
                         self.fail()
                     root = roots.pop()
-                    if actor not in ('controller',str(root)):
+                    worktree = any(k in getattr(self,'worktree_members',()) for k in (*parents,target))
+                    if actor != 'controller' and (worktree or actor != str(root)):
                         self.fail()
                     if target and target not in self.members:
                         # New identity has an observed parent association,
@@ -10381,6 +10398,8 @@ class _R13GitWriters:
                         if not any(p in self.members for p in parents):
                             self.fail()
                         self.members[target] = root
+                        if worktree:
+                            self.worktree_members.add(target)
                         changed = True
                 self.pending = remaining
         except (OSError,ValueError,struct.error,S12ControlError):
@@ -10399,6 +10418,8 @@ class _R13GitWriters:
 
     def command(self, arguments):
         argv = list(arguments)
+        env = dict(item.split('=',1) for item in _isolated_root_git_prefix(self.roots[0])[2:8])
+        env['GIT_EXEC_PATH'] = '/usr/lib/git-core'
         for root,directory in self.directories.items():
             prefix = _recovery_git_arguments(root,directory)
             if argv[:len(prefix)] != prefix:
@@ -10406,10 +10427,71 @@ class _R13GitWriters:
             suffix = argv[len(prefix):]
             if not suffix:
                 self.fail()
-            if suffix[0] not in {'fetch','read-tree','update-ref','branch','symbolic-ref','bundle'}:
-                return None
-            env = dict(item.split('=',1) for item in prefix[2:8])
             return root, argv[8:], env
+        # Every remaining Git invocation also enters ptrace/Landlock. These
+        # finite auxiliary roles operate only on controller-owned fetch or
+        # immutable-stage namespaces, never widen a live-worktree grant.
+        if argv[:6] == _isolated_root_git_prefix(self.roots[0])[:6] and argv[6:7] == ['/usr/bin/git']:
+            suffix = argv[7:]
+            if (len(suffix)==7 and suffix[:3]==['config','--no-includes','--file']
+                    and suffix[4:]==['--null','--name-only','--list']):
+                return self.roots[0],argv[6:],env
+            self.fail()
+        if argv[:8] != _isolated_root_git_prefix(self.roots[0])[:8]:
+            # Unknown/wrapped Git is never silently run through subprocess.
+            if any(Path(item).name == 'git' for item in argv):
+                self.fail()
+            return None
+        for context in (FETCH_ROOT, FETCH_ROOT/'application.git', FETCH_ROOT/'control.git',
+                        *self.directories.values(), RELEASE_STAGING_ROOT/'application',
+                        RELEASE_STAGING_ROOT/'control', RELEASE_APPLICATION_ROOT, RELEASE_CONTROL_ROOT,
+                        *self.roots):
+            prefix = _isolated_root_git_prefix(context)
+            if argv[:len(prefix)] != prefix:
+                continue
+            suffix = argv[len(prefix):]
+            if suffix[:2] == ['init','--bare'] and context == FETCH_ROOT:
+                if len(suffix)!=3 or Path(suffix[2]) not in (FETCH_ROOT/'application.git',FETCH_ROOT/'control.git'):
+                    self.fail()
+                return FETCH_ROOT,argv[8:],env
+            if suffix[:3] == ['clone','--no-local','--no-checkout'] and context in self.directories.values():
+                root = next(r for r,d in self.directories.items() if d == context)
+                destination = RELEASE_STAGING_ROOT/('application' if root==APPLICATION_ROOT else 'control')
+                if suffix != ['clone','--no-local','--no-checkout',str(context),str(destination)]:
+                    self.fail()
+                return RELEASE_STAGING_ROOT,argv[8:],env
+            if suffix[:1] == [f'--git-dir={context}'] and context in (FETCH_ROOT/'application.git',FETCH_ROOT/'control.git'):
+                return FETCH_ROOT,argv[8:],env
+            if suffix[:2] == ['-C',str(context)] and context in (
+                    RELEASE_STAGING_ROOT/'application',RELEASE_STAGING_ROOT/'control',
+                    RELEASE_APPLICATION_ROOT,RELEASE_CONTROL_ROOT):
+                return RELEASE_STAGING_ROOT if context.is_relative_to(RELEASE_STAGING_ROOT) else self.roots[0],argv[8:],env
+        # Bundle helpers select a bare fetch directory with its application
+        # safe.directory context rather than the bare directory as context.
+        for root,key in ((APPLICATION_ROOT,'application'),(CONTROL_ROOT,'control')):
+            prefix = _recovery_git_arguments(root,FETCH_ROOT/(key+'.git'))
+            if argv[:len(prefix)] == prefix:
+                return FETCH_ROOT,argv[8:],env
+        self.fail()
+
+    def access_profile(self, root, argv):
+        args = argv[1:]
+        while args and (args[0] in ('-c','-C') or args[0].startswith(('--git-dir=','--work-tree='))):
+            args = args[2:] if args[0] in ('-c','-C') else args[1:]
+        if not args:
+            self.fail()
+        verb = args[0]
+        readonly = verb in {'status','rev-parse','merge-base','ls-tree','ls-files','cat-file',
+                           'for-each-ref','show-ref','config','diff','diff-index'}
+        readonly |= verb=='symbolic-ref' and ('--quiet' in args or '--short' in args)
+        readonly |= verb=='bundle' and args[1:2] in (['verify'],['list-heads'],['create'])
+        if not readonly and verb not in {'fetch','read-tree','update-ref','branch','symbolic-ref',
+                                        'bundle','init','clone','checkout'}:
+            self.fail()
+        if verb in {'init','clone','checkout'} and root not in (FETCH_ROOT,RELEASE_STAGING_ROOT):
+            self.fail()
+        if readonly: return 'READ_ONLY'
+        return 'STAGE_WRITE' if root==RELEASE_STAGING_ROOT else 'BOUND_WRITE'
         return None
 
     def ptrace(self, request, tid, data=0):
@@ -10443,7 +10525,7 @@ class _R13GitWriters:
         self.value['tasks'] = list(self.tasks.values())
         _atomic_json(self.journal,self.value)
 
-    def run(self, selected, timeout, *, input_text=None, stdin=None):
+    def run(self, selected, timeout, *, input_text=None, stdin=None, stdout=None, text=True):
         # Bundle restore also calls this directly; a failed epoch must never
         # gain a fresh subprocess merely by avoiding the ordinary _run router.
         self.check()
@@ -10453,8 +10535,17 @@ class _R13GitWriters:
         boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         if re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',boot_id) is None:
             self.fail()
-        directory = self.directories[root]
-        directory_fd = null_fd = bootstrap_fd = None
+        profile = self.access_profile(root,argv)
+        directory = self.directories[root] if root in self.directories else root
+        if root not in self.directories:
+            if root not in (FETCH_ROOT,RELEASE_STAGING_ROOT):
+                self.fail()
+            _validate_secure_directory_chain(directory,Path('/'))
+            for base,dirs,files in os.walk(directory,followlinks=False):
+                for p in (Path(base),*(Path(base)/n for n in dirs+files)):
+                    self.members[self.handle(p)] = root
+            self.check()
+        directory_fd = null_fd = bootstrap_fd = git_fd = None
         try:
             # Execute the actual running interpreter through a held descriptor,
             # never resolve sys.executable again at spawn. The live interpreter
@@ -10463,6 +10554,10 @@ class _R13GitWriters:
             bootstrap_fd = os.open('/proc/self/exe',os.O_RDONLY|os.O_CLOEXEC)
             bootstrap_path = Path(f'/proc/self/fd/{bootstrap_fd}')
             if self.executable(bootstrap_path) != self.images['bootstrap']:
+                self.fail()
+            git_fd = os.open(self.image_paths['git'],os.O_RDONLY|os.O_CLOEXEC)
+            git_path = Path(f'/proc/self/fd/{git_fd}')
+            if self.executable(git_path) != self.images['git']:
                 self.fail()
             directory_fd = os.open(directory,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW)
             null_fd = os.open('/dev/null',os.O_PATH|os.O_NOFOLLOW)
@@ -10475,16 +10570,23 @@ class _R13GitWriters:
             if current_images != self.images:
                 self.fail()
             self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,boot_id=boot_id,
+                                  access_profile=profile,
                                   isolation='new-private-session',
                                   namespace=self.handle(directory).hex(),bootstrap_sha256=
                                   hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[],
                                   null_device=[null.st_dev,null.st_ino,null.st_rdev])
+            if stdout is not None:
+                output = os.fstat(stdout.fileno())
+                if (not stat.S_ISREG(output.st_mode) or output.st_uid!=0
+                        or output.st_nlink!=1 or stat.S_IMODE(output.st_mode)!=0o600):
+                    self.fail()
+                self.operation['stdout'] = [output.st_dev,output.st_ino,output.st_mode,output.st_uid]
             if self.value['sequence'] >= 1024:
                 self.fail()
             self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
             _atomic_json(self.journal,self.value)  # Intent before spawning any writer.
         except BaseException:
-            for descriptor in (bootstrap_fd,null_fd,directory_fd):
+            for descriptor in (git_fd,bootstrap_fd,null_fd,directory_fd):
                 if descriptor is not None: os.close(descriptor)
             raise
         process = None
@@ -10495,12 +10597,13 @@ class _R13GitWriters:
             if self.executable(bootstrap_path) != self.images['bootstrap']:
                 self.fail()
             process = subprocess.Popen([str(bootstrap_path),'-I','-S','-B','-c',_GIT_WRITER_BOOTSTRAP,
-                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd),str(bootstrap_fd)],stdin=stdin or subprocess.DEVNULL,
-                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd,bootstrap_fd),close_fds=True,
+                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd),str(bootstrap_fd),
+                str(git_fd),profile],stdin=stdin or subprocess.DEVNULL,
+                stdout=stdout or subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd,bootstrap_fd,git_fd),close_fds=True,
                 start_new_session=True,env={'HOME':'/','PATH':'/usr/bin:/bin'})
             pending[process.pid] = None
             self.operation['session'] = process.pid
-            buffers = {process.stdout:bytearray(),process.stderr:bytearray()}
+            buffers = {stream:bytearray() for stream in (process.stdout,process.stderr) if stream is not None}
             for stream in buffers:
                 os.set_blocking(stream.fileno(),False)
             deadline = time.monotonic()+timeout
@@ -10559,7 +10662,8 @@ class _R13GitWriters:
                         if actual not in (allowed_git,self.images['git-core']):
                             # Git's local transport uses this one shell bridge;
                             # never authorize a shell merely by its ancestry.
-                            sources = [a for a in argv if a.startswith(str(FETCH_ROOT)+'/')]
+                            sources = [a for a in argv if a.startswith(str(FETCH_ROOT)+'/') or a in
+                                       {str(d) for d in self.directories.values()}]
                             expected = [b'/bin/sh',b'-c']
                             scripts = {os.fsencode("git-upload-pack '"+p+"'") for p in sources
                                        if not any(c in p for c in "'\n\r")}
@@ -10583,7 +10687,7 @@ class _R13GitWriters:
                     except BlockingIOError:
                         continue
                     buffer.extend(chunk)
-                    if len(buffer) > 16*1024*1024:
+                    if len(buffer) > 32*1024*1024:
                         self.fail()
                 if not progress:
                     select.select([self.fd,*[s.fileno() for s in buffers]],[],[],0.005)
@@ -10596,8 +10700,12 @@ class _R13GitWriters:
             self.value['history'].append(self.operation)
             self.operation = None
             self.checkpoint()
+            def result(stream):
+                if stream is None: return None
+                payload = bytes(buffers[stream])
+                return payload.decode('utf-8') if text else payload
             return subprocess.CompletedProcess(argv,process.returncode,
-                buffers[process.stdout].decode('utf-8'),buffers[process.stderr].decode('utf-8'))
+                result(process.stdout),result(process.stderr))
         except BaseException:
             self.value['phase'] = 'FAILED'
             self.failed = True
@@ -10654,6 +10762,7 @@ class _R13GitWriters:
             os.close(directory_fd)
             os.close(null_fd)
             os.close(bootstrap_fd)
+            os.close(git_fd)
             for stream in buffers: stream.close()
 
     def close(self, *, aborted=False):
@@ -10943,8 +11052,10 @@ def _r13_allocate_and_apply(root: Path, git: Path, tx: Path, value: dict,
         if mode == "directory":
             stage.mkdir(mode=0o700)
         else:
-            blob = subprocess.run(_selected_git_arguments(root,git,"cat-file","blob",entry["blob"]),
-                check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120).stdout
+            completed = _git_process(_selected_git_arguments(root,git,"cat-file","blob",entry["blob"]))
+            if completed.returncode or completed.stderr:
+                raise S12ControlError(MATERIALIZATION_RED)
+            blob = completed.stdout
             if len(blob)>32*1024*1024 or hashlib.sha1(b"blob "+str(len(blob)).encode()+b"\0"+blob).hexdigest()!=entry["blob"]:
                 raise S12ControlError(MATERIALIZATION_RED)
             if mode == "120000":

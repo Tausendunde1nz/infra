@@ -43,6 +43,22 @@ Native negatives cover both worktrees at body entry/after Application fetch and
 an interpreter-path replacement at the pre-spawn seam. Final CI/review remain
 required; these corrections have no runtime authority.
 
+Review of `77521969c946de99e93d111e468519c4c25fe9c3` identified three more
+P1 gaps (4174243927/4174243936/4174243942): index enumeration preceded the
+worktree stream, helper-path discovery executed unbound Git, and read-only
+Git/binary/backup helpers bypassed supervision. The stream now precedes all
+worktree enumeration; queued opaque events are classified against the captured
+inodes and new parent/target edges, including reverted inventory-time writes.
+Linux helper paths are fixed and validated without executing Git. Every Git
+invocation in the epoch uses the same descriptor-bound, traced executor.
+Read-only commands receive no filesystem write grant (apart from the bound
+null device and an explicitly journaled backup-output descriptor when needed).
+Fetch and immutable-stage writers have finite, separate staging namespaces;
+they cannot write the live worktrees. Native negatives cover inventory-time
+reversion and replaced Git pathname execution; the integrated suite exercises
+the real backup, binary readers, staging and rollback through this executor.
+No earlier CI or review is substituted for this candidate's complete gates.
+
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.
 Root ownership, payload equality, arbitrary descendant trust, or rebasing a

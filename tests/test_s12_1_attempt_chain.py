@@ -24,6 +24,19 @@ from tests.test_s12_1_r12_metadata_contract import fixture, private_json
 
 
 class WriterEnvelopeTests(unittest.TestCase):
+    def test_no_unrouted_git_subprocess_helpers_remain(self):
+        import ast
+        tree=ast.parse(Path(r.__file__).read_text())
+        owners=[]
+        for function in tree.body:
+            if isinstance(function,(ast.FunctionDef,ast.AsyncFunctionDef)):
+                for node in ast.walk(function):
+                    if (isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute)
+                            and isinstance(node.func.value,ast.Name) and node.func.value.id=='subprocess'
+                            and node.func.attr in {'run','check_output','check_call','Popen'}):
+                        owners.append(function.name)
+        self.assertEqual(sorted(owners),['_git_process','_run'])
+
     def test_failed_epoch_rejects_direct_bundle_entry_before_spawn(self):
         guard=r._R13GitWriters.__new__(r._R13GitWriters)
         guard.failed=True;guard.fd=12345
@@ -89,6 +102,64 @@ class AWriterTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertTrue(result.stdout.strip())
         self.assertEqual(result.stderr,'')
+
+    def test_worktree_reverted_write_during_initial_inventory_is_rejected(self):
+        path=self.root/'existing';path.write_text('same contents');path.chmod(0o600)
+        self.writer.close()
+        fired=False
+        def attack(name):
+            nonlocal fired
+            if name=='GIT_WRITER_INVENTORY':
+                subprocess.run([sys.executable,'-c',
+                    'import os,sys; p=sys.argv[1]; os.chmod(p,0o640); os.chmod(p,0o600)',
+                    str(path)],check=True)
+                fired=True
+        with mock.patch.object(r,'_r13_boundary',side_effect=attack), \
+                mock.patch.object(r.subprocess,'check_output',side_effect=AssertionError('unbound Git')), \
+                self.assertRaises(r.S12ControlError):
+            r._R13GitWriters((self.root,))
+        self.assertTrue(fired)
+        self.assertEqual(path.read_text(),'same contents')
+        self.assertEqual(json.loads(self.writer.journal.read_text())['phase'],'FAILED')
+
+    def test_read_only_text_binary_and_bundle_helpers_are_supervised(self):
+        with mock.patch.object(r,'GIT_WRITER_SCOPE',self.writer):
+            self.assertEqual(r._recovery_git(self.root,self.root/'.git','rev-parse','HEAD'),self.sha)
+            r._recovery_git(self.root,self.root/'.git','status','--porcelain')
+            r._bounded_nul_command_records(r._recovery_git_arguments(
+                self.root,self.root/'.git','ls-files','-z'),r.GIT_WRITER_RED)
+            result=r._git_process(r._recovery_git_arguments(
+                self.root,self.root/'.git','cat-file','commit',self.sha))
+            self.assertIsInstance(result.stdout,bytes)
+            bundle=self.base/'fixture.bundle'
+            r._create_git_bundle(self.root,bundle,self.root/'.git')
+            r._verify_git_bundle(self.root,bundle,self.root/'.git')
+            r._git_bundle_heads(self.root,bundle,self.root/'.git')
+        history=json.loads(self.writer.journal.read_text())['history']
+        self.assertGreaterEqual(len(history),7)
+        self.assertTrue(all(op['access_profile']=='READ_ONLY' for op in history))
+        self.assertTrue(all(task['exited'] for op in history for task in op['task_history']))
+
+    def test_replaced_git_path_cannot_run_unrestricted_read_only_code(self):
+        decoy=self.base/'approved-git';shutil.copy2('/usr/bin/git',decoy);decoy.chmod(0o500)
+        self.writer.image_paths['git']=decoy
+        self.writer.images['git']=self.writer.executable(decoy)
+        replacement=self.base/'replacement-git';outside=self.base/'unrestricted-git-ran'
+        replacement.write_text(f'#!{sys.executable}\nfrom pathlib import Path\nPath({str(outside)!r}).touch()\n')
+        replacement.chmod(0o500)
+        fired=False
+        def replace(name):
+            nonlocal fired
+            if name=='GIT_WRITER_INTENT':
+                subprocess.run([sys.executable,'-c','import os,sys; os.replace(sys.argv[1],sys.argv[2])',
+                                str(replacement),str(decoy)],check=True)
+                fired=True
+        with mock.patch.object(r,'GIT_WRITER_SCOPE',self.writer), \
+                mock.patch.object(r,'_r13_boundary',side_effect=replace),self.assertRaises(r.S12ControlError):
+            r._recovery_git(self.root,self.root/'.git','status','--porcelain')
+        self.assertTrue(fired)
+        self.assertFalse(outside.exists())
+        self.assertEqual(json.loads(self.writer.journal.read_text())['phase'],'FAILED')
 
     def test_bootstrap_path_replacement_after_intent_cannot_execute(self):
         interpreter=sys.executable
