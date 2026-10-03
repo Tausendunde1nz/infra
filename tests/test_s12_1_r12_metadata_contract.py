@@ -130,8 +130,15 @@ def fixture():
         (unrelated/'readme').write_bytes(b'outside contract\n')
         for path in (unrelated.parent,unrelated,unrelated/'readme'):
             os.chown(path,0,1001);path.chmod(0o550 if path.is_dir() else 0o440)
+        external=base/'outside-repository';external.write_bytes(b'unrelated target\n')
+        link=control/'index-links'/'nested'/'link';link.parent.mkdir(parents=True)
+        link.symlink_to(external)
+        missing=control/'index-missing'/'nested'/'file';missing.parent.mkdir(parents=True)
+        missing.write_bytes(b'indexed then absent\n')
+        git(control,'add','.')
+        missing.unlink()
         for root in (app,control):
-            git(root,'add','.')
+            if root==app:git(root,'add','.')
             os.chown(root,0,1001);root.chmod(0o2550)
             (root/'.git').rename(root/r.RECOVERY_GIT_DIRECTORY)
             (root/r.RECOVERY_GIT_DIRECTORY).chmod(0o700)
@@ -296,6 +303,47 @@ class LinuxTests(unittest.TestCase):
             self.assertTrue(fired)
             self.assertEqual(json.loads(r.BARRIER_MARKER.read_bytes())['schema'],r.BARRIER_SCHEMA)
             self.assertEqual(json.loads((f['state']/'repository-barrier.r12-bindings.json').read_bytes())['phase'],'ABORTED')
+
+    def test_all_index_names_guard_ancestors_without_following_symlink(self):
+        with fixture() as f:
+            guarded=r._r12_index_guard_paths((f['app'],f['control']))
+            for name in ('index-links','index-missing'):
+                self.assertIn(f['control']/name/'nested',guarded)
+            self.assertNotIn(f['control']/'index-links'/'nested'/'link',guarded)
+            self.assertNotIn(f['base']/'outside-repository',guarded)
+
+    def test_late_missing_or_symlink_index_change_is_rejected(self):
+        for kind in ('missing-file','symlink','missing-ancestors'):
+            with self.subTest(kind=kind),fixture() as f:
+                target=f['control']/('index-links/nested/link' if kind=='symlink' else 'index-missing/nested/file')
+                if kind=='missing-ancestors':
+                    (f['control']/'index-missing').rename(f['base']/'removed-ancestors')
+                original=r._atomic_barrier_json;fired=False
+                def inject(path,payload):
+                    nonlocal fired
+                    original(path,payload)
+                    if path.name.endswith('r12-bindings.json') and not fired:
+                        fired=True
+                        code=('from pathlib import Path;import sys;p=Path(sys.argv[1]);'
+                              'p.unlink();p.symlink_to("different-target")' if kind=='symlink' else
+                              'from pathlib import Path;import sys;p=Path(sys.argv[1]);'
+                              'p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b"new writer")')
+                        subprocess.run([sys.executable,'-c',code,str(target)],check=True)
+                with mock.patch.object(r,'_atomic_barrier_json',side_effect=inject):
+                    with self.assertRaisesRegex(r.S12ControlError,'WORKTREE_BARRIER_RED'):
+                        r.reconcile_metadata(f['contract'])
+                self.assertTrue(fired)
+                self.assertEqual(json.loads(r.BARRIER_MARKER.read_bytes())['schema'],r.BARRIER_SCHEMA)
+                self.assertEqual(json.loads((f['state']/'repository-barrier.r12-bindings.json').read_bytes())['phase'],'ABORTED')
+
+    def test_symlink_index_ancestor_fails_before_metadata_assignment(self):
+        with fixture() as f:
+            directory=f['control']/'index-links'
+            directory.rename(f['base']/'outside-index-parent')
+            directory.symlink_to(f['base']/'outside-index-parent')
+            with self.assertRaisesRegex(r.S12ControlError,'R12_METADATA_RECONCILIATION_RED'):
+                r.reconcile_metadata(f['contract'])
+            self.assertFalse((f['state']/'repository-barrier.r12-bindings.json').exists())
 
 
 if __name__=='__main__':unittest.main()

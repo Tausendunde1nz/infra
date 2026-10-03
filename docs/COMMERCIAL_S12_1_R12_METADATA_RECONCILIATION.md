@@ -50,9 +50,12 @@ owners/modes, unsupported birth time and drift are rejected, never normalized aw
    barriers and unchanged Git guards. Reject actual Git/sync or retained writers.
 2. Pin all path components without symlink traversal. Keep the existing Git
    metadata watch, Worktree inotify/open-permission guard and retained-handle
-   quiescence across **all tracked files and ancestors**, not only the 254
-   assignment paths. The late-writer regression covers an unrelated nested
-   tracked file. A separate PID-attributed `FAN_ATTRIB` guard rejects other threads'
+   quiescence across **all index names and existing ancestors**, not only the 254
+   assignment paths or present regular files. Absent entries are guarded through
+   their nearest existing ancestor; symlinks through their parent without
+   following their targets. Intermediate symlinks fail closed. Late-writer
+   regressions cover unrelated regular, missing and symlink index entries, also
+   with missing ancestor directories. A separate PID-attributed `FAN_ATTRIB` guard rejects other threads'
    chmod/chown/xattr events, including changes later reverted. Linux
    [file-handle fanotify events](https://man7.org/linux/man-pages/man2/fanotify_mark.2.html)
    and open-permission support are mandatory; there is no fallback.

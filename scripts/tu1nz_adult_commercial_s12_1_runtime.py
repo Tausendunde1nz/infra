@@ -9410,6 +9410,44 @@ def _r12_validate_lineage(journal: dict) -> None:
         raise S12ControlError(R12_RED)
 
 
+def _r12_index_guard_paths(roots: Sequence[Path]) -> set[Path]:
+    """Guard every index name, including absent names and symlink parents.
+
+    A missing inode cannot be marked; its nearest existing ancestor detects
+    creation. Never follow an index symlink into an unrelated object. Its
+    directory entry is watched through its parent instead. Intermediate
+    symlinks and non-directory components are ambiguous and fail closed.
+    """
+    guarded = set(roots)
+    for root in roots:
+        names = _bounded_nul_command_records(_selected_git_arguments(
+            root, _repository_recovery_git_directory(root), "ls-files", "-z", "--"), R12_RED)
+        seen = set()
+        for name in names:
+            parts = name.split(b"/")
+            if name.startswith(b"/") or any(p in {b"", b".", b".."} for p in parts) or name in seen:
+                raise S12ControlError(R12_RED)
+            seen.add(name)
+            path = root
+            for position, part in enumerate(parts):
+                path = path / os.fsdecode(part)
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    break  # The already included ancestor watches creation.
+                except OSError:
+                    raise S12ControlError(R12_RED) from None
+                if position < len(parts) - 1:
+                    if not stat.S_ISDIR(metadata.st_mode):
+                        raise S12ControlError(R12_RED)
+                    guarded.add(path)
+                elif stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode):
+                    guarded.add(path)
+                elif not stat.S_ISLNK(metadata.st_mode):
+                    raise S12ControlError(R12_RED)
+    return guarded
+
+
 def _r12_reconcile_locked(contract_path: Path) -> dict:
     """Explicit future maintenance entrypoint: seals only; NEVER runs recovery.
 
@@ -9469,6 +9507,7 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
             os.close(fd)
     entries = sorted(contract["entries"], key=lambda e: (len(Path(e["path"]).parts), e["repository"], e["path"]))
     paths = [by_name[e["repository"]] / e["path"] for e in entries]
+    index_guarded = _r12_index_guard_paths(roots)
     tracked = _tracked_worktree_regular_paths(roots, allow_missing=True)
     metadata_paths = _repository_git_metadata_paths(roots)
     if (_competing_control_sync_count() or _active_repository_git_count(roots)
@@ -9476,9 +9515,9 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
             or _active_tracked_worktree_write_handle_count(tracked)):
         raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
     # Point-in-time scans are insufficient: a writer can open an unrelated
-    # tracked inode after them. Keep every tracked inode and ancestor watched
-    # and in the handle-quiescence scope until the transaction is committed.
-    guarded = set(paths) | set(tracked) | set(roots)
+    # tracked name after them. Include existing ancestors of absent entries
+    # and symlink entries too; regular present files alone are insufficient.
+    guarded = set(paths) | index_guarded
     for path in tuple(guarded - set(roots)):
         root = next(root for root in roots if root in path.parents)
         guarded.update(parent for parent in path.parents if parent == root or root in parent.parents)
@@ -9495,6 +9534,8 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
         attrs_guard = _R12AttributeGuard(tuple(guarded))
         quiescence = _GuardedHandleQuiescence(tuple(guarded), roots)
         quiescence.acquire()
+        if _r12_index_guard_paths(roots) != index_guarded:
+            raise S12ControlError(R12_RED)
         if _active_tracked_worktree_write_handle_count(tracked):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         for path in paths:
