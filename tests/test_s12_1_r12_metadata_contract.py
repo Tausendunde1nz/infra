@@ -90,7 +90,20 @@ def fixture(*, complete_backup=False):
             git(root,'config','user.name','R12 Fixture')
             git(root,'config','user.email','fixture@example.invalid')
             (root/'kept').write_bytes(b'original\n')
-            git(root,'add','kept');git(root,'commit','-m','before')
+            if complete_backup and root==app:
+                (root/'.gitignore').write_text('.venv/\n')
+                interpreter=root/'.venv'/'bin'/'python';interpreter.parent.mkdir(parents=True)
+                interpreter.write_bytes(b'#!/bin/sh\n# OFFLINE fixture, never provider execution\nexit 1\n')
+                interpreter.chmod(0o755)
+            if complete_backup and root==control:
+                for relative in ('systemd/'+r.UNIT_NAME,'nginx/current/wantmeseen.s12-1-acceptance.conf'):
+                    target=root/relative;target.parent.mkdir(parents=True,exist_ok=True)
+                    target.write_bytes((ROOT/relative).read_bytes())
+            git(root,'add','.');git(root,'commit','-m','before')
+            if complete_backup:
+                for path in root.rglob('*'):
+                    if '.git' in path.parts or '.venv' in path.parts:continue
+                    os.chown(path,1001,1001);path.chmod(0o2770 if path.is_dir() else 0o660)
             os.chown(root,1001,1001);root.chmod(0o2770)
             os.chown(root/'kept',1001,1001);(root/'kept').chmod(0o660)
         os.setxattr(app,'system.posix_acl_default',acl())
@@ -154,7 +167,7 @@ def fixture(*, complete_backup=False):
             os.chown(path,0,1001);path.chmod(0o550 if path.is_dir() else 0o440)
         external=base/'outside-repository';external.write_bytes(b'unrelated target\n')
         link=control/'index-links'/'nested'/'link';link.parent.mkdir(parents=True)
-        link.symlink_to(external)
+        link.symlink_to('../../kept' if complete_backup else external)
         missing=control/'index-missing'/'nested'/'file';missing.parent.mkdir(parents=True)
         missing.write_bytes(b'indexed then absent\n')
         git(control,'add','.')

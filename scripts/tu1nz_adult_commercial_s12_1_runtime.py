@@ -38,6 +38,11 @@ APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r12"
 FOLLOWUP_SLOT = "r13-followup-1"
 FOLLOWUP_RED = "S12_1_FOLLOWUP_AUTHORIZATION_RED"
+FOLLOWUP_PARENT = {
+    "attempt": "30189b22f290361e901ac4f6b0af95ebc75424014ff190fb86cc9600c5ab680c",
+    "index": "18fad15bfc806ad1359648fc06353678ca78380a7924e30024050af726ce196e",
+    "r12_original": "8e2bb8ec334584d2a87e7b1d5b0f01fcf9463ed37281510fa56a9e49d89250ae",
+}
 ACTIVE_ATTEMPT: dict[str, Any] | None = None
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
@@ -9893,7 +9898,8 @@ def _followup_authorization(path: Path, digest: str, *, recovering: bool) -> dic
             or release["application_commit"] != APPLICATION_COMMIT
             or release["application_tree"] != APPLICATION_TREE
             or release["controller_sha256"] != _trusted_controller_digest()
-            or any(not isinstance(v,str) or re.fullmatch(r"[0-9a-f]{64}",v) is None for v in parent.values())):
+            or any(not isinstance(v,str) or re.fullmatch(r"[0-9a-f]{64}",v) is None for v in parent.values())
+            or any(parent[key] != value for key,value in FOLLOWUP_PARENT.items())):
         raise S12ControlError(FOLLOWUP_RED)
     if not recovering and (
         release["application_bundle_sha256"] != os.environ.get(APPLICATION_BUNDLE_DIGEST_ENV)
@@ -9986,7 +9992,9 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
             with _followup_namespace(binding):
                 # Recovery never invokes deploy, admission, or activation.
                 result=_recover_locked()
-                return {**result,"attempt_binding":binding}
+                result={**result,"attempt_binding":binding}
+                _atomic_json(STATE_ROOT/"recovery-result.json",result)
+                return result
         if _barrier_path_present(claim):
             raise S12ControlError("S12_1_FOLLOWUP_ALREADY_CONSUMED_RED")
         if any(_barrier_path_present(p) for p in (

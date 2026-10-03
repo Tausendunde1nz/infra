@@ -307,11 +307,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("ExecStartPost=", unit)
         self.assertIn("tu1nz_s12.runtime safe-stop", unit)
         self.assertIn(
-            "/etc/tu1nz/adult-commercial-s12-1-private/state/final-state.json",
+            "/etc/tu1nz/adult-commercial-s12-1-private/state/attempts/r13-followup-1/final-state.json",
             unit,
         )
         self.assertIn(
-            "ReadWritePaths=/etc/tu1nz/adult-commercial-s12-1-private/state",
+            "ReadWritePaths=/etc/tu1nz/adult-commercial-s12-1-private/state/attempts/r13-followup-1",
             unit,
         )
         self.assertIn(

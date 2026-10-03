@@ -9,6 +9,9 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
+import time
+import copy
 import unittest
 from unittest import mock
 from contextlib import ExitStack
@@ -18,33 +21,149 @@ from tests.test_s12_1_r12_metadata_contract import fixture, private_json
 
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,
+                     'native Linux protected receipt checks required')
+class AdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.stack=ExitStack();self.addCleanup(self.stack.close)
+        self.base=Path(self.stack.enter_context(tempfile.TemporaryDirectory(dir='/root')))
+        self.state=self.base/'state';self.state.mkdir(mode=0o700)
+        for key,value in dict(PRIVATE_ROOT=self.base,STATE_ROOT=self.state,
+                BACKUP_ROOT=self.base/'backups',DEPLOYMENT_LOCK_ROOT=self.base).items():
+            self.stack.enter_context(mock.patch.object(r,key,value))
+        self.stack.enter_context(mock.patch.object(r,'_trusted_controller_digest',return_value='c'*64))
+        self.stack.enter_context(mock.patch.dict(os.environ,{
+            r.APPLICATION_BUNDLE_DIGEST_ENV:'a'*64,r.CONTROL_BUNDLE_DIGEST_ENV:'b'*64}))
+        self.path=self.base/'authorizations'/(r.FOLLOWUP_SLOT+'.json')
+        self.path.parent.mkdir(mode=0o700)
+        self.grant=dict(schema='TU1NZ_S12_1_FOLLOWUP_AUTHORIZATION_V1',slot=r.FOLLOWUP_SLOT,
+            human_authorization_sha256='d'*64,
+            acknowledgment='AUTHORIZE_ONE_SYNTHETIC_SANDBOX_DEPLOYMENT_AFTER_RECOVERY',
+            authorized_at=int(time.time())-1,expires_at=int(time.time())+3600,
+            parent_proof={**r.FOLLOWUP_PARENT,**{k:'e'*64 for k in ('rollback','progress','recovery','r12_ledger')}},
+            release=dict(tag=r.FREEZE_TAG,tag_object='a'*40,control_commit='b'*40,control_tree='c'*40,
+                application_commit=r.APPLICATION_COMMIT,application_tree=r.APPLICATION_TREE,
+                controller_sha256='c'*64,application_bundle_sha256='a'*64,control_bundle_sha256='b'*64))
+
+    def write(self,value=None):
+        private_json(self.path,self.grant if value is None else value)
+        return hashlib.sha256(self.path.read_bytes()).hexdigest()
+
+    def test_exact_grant_and_recovery_after_expiry(self):
+        digest=self.write()
+        self.assertEqual(r._followup_authorization(self.path,digest,recovering=False),self.grant)
+        self.grant.update(authorized_at=int(time.time())-7200,expires_at=int(time.time())-3600)
+        digest=self.write()
+        with self.assertRaises(r.S12ControlError):r._followup_authorization(self.path,digest,recovering=False)
+        self.assertEqual(r._followup_authorization(self.path,digest,recovering=True),self.grant)
+
+    def test_authority_release_parent_and_time_negative_cases(self):
+        mutations=[lambda v:v.update(slot='another-attempt'),lambda v:v.update(acknowledgment='YES'),
+            lambda v:v.update(human_authorization_sha256='0'*64),
+            lambda v:v.update(authorized_at=True),lambda v:v.update(expires_at=v['authorized_at']+86401),
+            lambda v:v.update(authorized_at=int(time.time())+100,expires_at=int(time.time())+200),
+            lambda v:v['release'].update(tag=r.FREEZE_TAG+'-new'),
+            lambda v:v['release'].update(application_commit='0'*40),
+            lambda v:v['release'].update(controller_sha256='0'*64),
+            lambda v:v['release'].update(control_bundle_sha256='0'*64),
+            lambda v:v['parent_proof'].update(attempt='0'*64),
+            lambda v:v['release'].update(extra='not-allowed'),lambda v:v.pop('human_authorization_sha256')]
+        for index,change in enumerate(mutations):
+            with self.subTest(index=index):
+                value=copy.deepcopy(self.grant);change(value);digest=self.write(value)
+                with self.assertRaises(r.S12ControlError):r._followup_authorization(self.path,digest,recovering=False)
+
+    def test_receipt_digest_rights_and_hardlink_fail_closed(self):
+        digest=self.write()
+        with self.assertRaises(r.S12ControlError):r._followup_authorization(self.path,'0'*64,recovering=False)
+        self.path.chmod(0o640)
+        with self.assertRaises(r.S12ControlError):r._followup_authorization(self.path,digest,recovering=False)
+        self.path.chmod(0o600)
+        os.link(self.path,self.base/'linked')
+        with self.assertRaises(r.S12ControlError):r._followup_authorization(self.path,digest,recovering=False)
+
+    def test_crash_after_admission_burns_slot_and_only_allows_recovery(self):
+        digest=self.write()
+        with mock.patch.object(r,'_followup_parent_closed'), mock.patch.object(r,'read_only_preflight'), \
+                mock.patch.object(r,'_deploy_locked',side_effect=KeyboardInterrupt) as deploy:
+            with self.assertRaises(KeyboardInterrupt):r.followup(self.path,digest)
+            claim=self.state/(r.FOLLOWUP_SLOT+'.consumed.json');original=claim.read_bytes()
+            with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):r.followup(self.path,digest)
+            self.grant['expires_at']+=1;different=self.write()
+            with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):r.followup(self.path,different)
+            deploy.assert_called_once()
+            self.assertEqual(claim.read_bytes(),original)
+        self.grant['expires_at']-=1;self.assertEqual(self.write(),digest)
+        def recovered():
+            self.assertEqual(r.STATE_ROOT,self.state/'attempts'/r.FOLLOWUP_SLOT)
+            r.STATE_ROOT.mkdir(parents=True,mode=0o700)
+            return dict(ok=True,safe_code='S12_1_NO_PENDING_RECOVERY')
+        with mock.patch.object(r,'_recover_locked',side_effect=recovered), \
+                mock.patch.object(r,'_deploy_locked') as deploy:
+            self.assertTrue(r.followup(self.path,digest,recovering=True)['ok']);deploy.assert_not_called()
+        self.assertEqual(claim.read_bytes(),original)
+        self.assertEqual(r.STATE_ROOT,self.state)
+
+    def test_partial_claim_and_unknown_existing_namespace_both_block(self):
+        digest=self.write()
+        claim=self.state/(r.FOLLOWUP_SLOT+'.consumed.json');claim.touch(mode=0o600)
+        with mock.patch.object(r,'_deploy_locked') as deploy:
+            with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):r.followup(self.path,digest)
+            with self.assertRaises(r.S12ControlError):r.followup(self.path,digest,recovering=True)
+            deploy.assert_not_called()
+        # New isolated fixture slot, not a production reset.
+        claim.unlink();(self.state/'attempts'/r.FOLLOWUP_SLOT).mkdir(parents=True)
+        with self.assertRaises(r.S12ControlError):r.followup(self.path,digest)
+
+    def test_parent_failure_does_not_consume_and_never_deploys(self):
+        digest=self.write()
+        with mock.patch.object(r,'_followup_parent_closed',side_effect=r.S12ControlError('PARENT_RED')), \
+                mock.patch.object(r,'_deploy_locked') as deploy:
+            with self.assertRaisesRegex(r.S12ControlError,'PARENT_RED'):r.followup(self.path,digest)
+            deploy.assert_not_called()
+        self.assertFalse((self.state/(r.FOLLOWUP_SLOT+'.consumed.json')).exists())
+
+
+@unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,
                      'native Linux root + kernel guards required')
 class IntegratedChainTests(unittest.TestCase):
     def host_boundary(self, argv, **kwargs):
         if argv[0]=='systemctl':
             if 'start' in argv:
                 self.starts += 1
-                raise AssertionError('provider simulation not yet implemented')
+                self.assertEqual(argv,['systemctl','start',r.UNIT_NAME])
+                self.assertEqual(r.STATE_ROOT.name,r.FOLLOWUP_SLOT)
+                if self.provider_failure:
+                    return subprocess.CompletedProcess(argv,1,'','')
+                r._atomic_json(r.STATE_ROOT/'acceptance.json',dict(
+                    safe_code='S12_1_SANDBOX_RUNTIME_ACCEPTANCE_GREEN',hard_gates_closed=True,runtime_active=False))
+                r._atomic_json(r.STATE_ROOT/'final-state.json',dict(
+                    safe_code='S12_RUNTIME_CONTROLLED_INACTIVE',hard_gates_closed=True,runtime_active=False,callback='INACTIVE'))
+                return subprocess.CompletedProcess(argv,0,'','')
             if 'is-enabled' in argv:
-                output='enabled\n' if argv[-1]==r.S11_TIMER else 'not-found\n'
+                output='enabled\n' if argv[-1]==r.S11_TIMER else 'static\n' if r.UNIT_PATH.exists() else 'not-found\n'
             elif '--property=LoadState,ActiveState,SubState' in argv:
                 output='LoadState=not-found\nActiveState=inactive\nSubState=dead\n'
             elif '-p' in argv:
                 name=argv[argv.index('-p')+1]
                 output={'ActiveState':'active','NRestarts':'0','SubState':'waiting','Result':'success',
-                        'ExecMainStatus':'0','NextElapseUSecRealtime':'2099-01-01 00:00:00 UTC'}.get(name,'')
+                        'ExecMainStatus':'0','FragmentPath':str(r.UNIT_PATH),
+                        'NextElapseUSecRealtime':'2099-01-01 00:00:00 UTC'}.get(name,'')
             else:output=''
             return subprocess.CompletedProcess(argv,0,output,'')
         if argv[0]=='nginx':return subprocess.CompletedProcess(argv,0,'','')
         if argv[0]=='curl':return subprocess.CompletedProcess(argv,0,'308' if '.de/' in argv[-1] else '200','')
         return self.real_run(argv,**kwargs)
 
-    def test_followup_chain_through_real_git_sync(self):
+    def full_chain(self, *, provider_failure):
         with fixture(complete_backup=True) as f, ExitStack() as patches:
-            self.real_run=r._run;self.starts=0
+            self.real_run=r._run;self.starts=0;self.provider_failure=provider_failure
             patches.enter_context(mock.patch.object(r,'_run',side_effect=self.host_boundary))
-            # Substitute only the fixture's interpreter/venv attestation.
-            patches.enter_context(mock.patch.object(r,'_validate_source_runtime_environment'))
+            # The offline interpreter is synthetic. All copy/hash/ownership and
+            # immutable-tree checks run on its real bytes; no provider executes.
+            patches.enter_context(mock.patch.object(r,'RUNTIME_PYTHON_SHA256',r._sha256(f['app']/'.venv/bin/python')))
+            patches.enter_context(mock.patch.object(r,'RUNTIME_VENV_SHA256',
+                r._runtime_environment_fingerprint(f['app']/'.venv',allow_file_symlinks=True)))
+            patches.enter_context(mock.patch.object(r,'_runtime_dependency_versions',return_value=r.RUNTIME_DEPENDENCY_VERSIONS))
             trusted=f['base']/'controller.py'
             trusted.write_bytes(Path(r.__file__).read_bytes());trusted.chmod(0o500)
             controller_hash=hashlib.sha256(trusted.read_bytes()).hexdigest()
@@ -86,6 +205,8 @@ class IntegratedChainTests(unittest.TestCase):
                 rollback=f['backup']/'rollback-complete.json',progress=f['backup']/'rollback-progress.json',
                 recovery=f['state']/'recovery-result.json',r12_original=f['state']/'repository-barrier.r12-original.json',
                 r12_ledger=f['state']/'repository-barrier.r12-bindings.json').items()}
+            patches.enter_context(mock.patch.object(r,'FOLLOWUP_PARENT',
+                {key:proof[key] for key in r.FOLLOWUP_PARENT}))
             import time
             grant=dict(schema='TU1NZ_S12_1_FOLLOWUP_AUTHORIZATION_V1',slot=r.FOLLOWUP_SLOT,
                 human_authorization_sha256=hashlib.sha256(b'ISOLATED TEST ONLY').hexdigest(),
@@ -98,14 +219,40 @@ class IntegratedChainTests(unittest.TestCase):
             authorization=r.PRIVATE_ROOT/'authorizations'/(r.FOLLOWUP_SLOT+'.json')
             authorization.parent.mkdir(mode=0o700);private_json(authorization,grant)
             grant_hash=hashlib.sha256(authorization.read_bytes()).hexdigest()
-            # Until the real storage chain reaches this boundary, no provider
-            # simulation can hide a failed metadata/backup/Git prerequisite.
-            def stage_boundary(*args):
-                raise AssertionError('REACHED_IMMUTABLE_STAGE_BOUNDARY')
-            patches.enter_context(mock.patch.object(r,'_create_immutable_release_stage',side_effect=stage_boundary))
-            with self.assertRaisesRegex(AssertionError,'REACHED_IMMUTABLE_STAGE_BOUNDARY'):
+            # Fixture commits differ from production; validate its real tag and
+            # target identities. Canonical all-artifact freeze verification is
+            # separately mandatory in the source suite and release completion.
+            def fixture_freeze():
+                self.assertEqual(r._verify_immutable_release_stage(),(control_sha,control_tree))
+                self.assertEqual(r._root_git(r.RELEASE_CONTROL_ROOT,'rev-parse',r.FREEZE_TAG),tag_object)
+            patches.enter_context(mock.patch.object(r,'_verify_release_freeze',side_effect=fixture_freeze))
+            if provider_failure:
+                with self.assertRaisesRegex(r.S12ControlError,'S12_1_RUNTIME_ACCEPTANCE_RED'):
+                    r.followup(authorization,grant_hash)
+                result=r.followup(authorization,grant_hash,recovering=True)
+                self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
+                self.assertFalse(r.RELEASE_ROOT.exists())
+            else:
+                result=r.followup(authorization,grant_hash)
+                self.assertTrue(result['ok']);self.assertEqual(result['deployment_count'],1)
+                self.assertEqual(result['rollback_count'],0)
+            self.assertEqual(self.starts,1)
+            with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                 r.followup(authorization,grant_hash)
+            self.assertEqual(self.starts,1)
             self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+            new_state=f['state']/'attempts'/r.FOLLOWUP_SLOT
+            marker=json.loads((new_state/'deployment-attempted.json').read_bytes())
+            self.assertEqual(marker['attempt_binding'],result['attempt_binding'])
+            self.assertNotEqual(Path(marker['backup']),f['backup'])
+            for root in (f['app'],f['control']):
+                self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
+
+    def test_full_success_chain_and_replay(self):
+        self.full_chain(provider_failure=False)
+
+    def test_full_failed_activation_rollback_chain_and_replay(self):
+        self.full_chain(provider_failure=True)
 
     def test_r12_metadata_then_actual_recovery(self):
         with fixture(complete_backup=True) as f:
