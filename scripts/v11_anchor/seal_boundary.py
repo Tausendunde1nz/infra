@@ -70,7 +70,9 @@ class Boundary:
  remain closed until independent lifetime/marker adapters are verified."""
  def __init__(self,s,host):
   self.s=s;self.h=host;self.chain=Chain(s);self.depth=0
-  if not s.fixture:raise Refused('PRODUCTION_DIRECTIONAL_HOST_NOT_BOUND')
+  if not s.fixture:
+   from isolated_runtime import Runtime
+   if type(host)!=Runtime or not host.root_binding(s):raise Refused('PRODUCTION_DIRECTIONAL_HOST_NOT_BOUND')
  @contextlib.contextmanager
  def locked(self):
   # Same ordering everywhere: outer anchor, then actual Guard writer lock.
@@ -100,6 +102,8 @@ class Boundary:
   else:self.s.write('boundary-stop.json',encode(r))
   return state
  def prior_stop(self):
+  if self.s.exists('stop.json') and not self.s.exists('boundary-stop.json'):
+   self.s.read('stop.json');return self.stop(UNKNOWN)
   if not self.s.exists('boundary-stop.json'):return None
   r=parse(self.s.read('boundary-stop.json'))
   if r!={'schema':2,'state':r.get('state'),'context_sha256':digest(encode(self.chain.context())),'fence':'CLOSED','starts':'CLOSED'} or r['state'] not in (UNKNOWN,SEALED_STOP):raise Refused('STOP_BINDING')
@@ -144,19 +148,21 @@ class Boundary:
    self.chain.complete();self.close();return 'COMPLETE'
   except Exception:return self.stop(SEALED_STOP)
  def run(self):
-  with self.locked():
-   old=self.prior_stop()
-   if old:return old
-   try:
-    p=self.probe()
-    if self.s.exists(NAMES['SEAL_INTENT']):return self.recover_locked()
-    if p['state']!='UNSEALED':return self.stop(UNKNOWN)
-    ready=self.prepare_locked()
-    self.chain.publish('SEAL_INTENT',ready,{'ready':ready,'guard_contract':self.chain.context()['guard_contract_sha256']})
-    self.chain.intent() # file+directory fsync before the first barrier action
-    self.s.inject('before_barrier');self.h.seal();self.s.inject('after_barrier')
-    return self.forward(self.probe())
-   except Exception:return self.recover_locked()
+  with self.locked():return self.run_locked()
+ def run_locked(self):
+  if self.depth!=1:raise Refused('BOUNDARY_LOCK_REQUIRED')
+  old=self.prior_stop()
+  if old:return old
+  try:
+   p=self.probe()
+   if self.s.exists(NAMES['SEAL_INTENT']):return self.recover_locked()
+   if p['state']!='UNSEALED':return self.stop(UNKNOWN)
+   ready=self.prepare_locked()
+   self.chain.publish('SEAL_INTENT',ready,{'ready':ready,'guard_contract':self.chain.context()['guard_contract_sha256']})
+   self.chain.intent() # file+directory fsync before the first barrier action
+   self.s.inject('before_barrier');self.h.seal();self.s.inject('after_barrier')
+   return self.forward(self.probe())
+  except Exception:return self.recover_locked()
  def recover_locked(self):
   old=self.prior_stop()
   if old:return old

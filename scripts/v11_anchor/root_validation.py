@@ -5,6 +5,7 @@ import os,sys,time,signal,stat,json,hashlib
 from pathlib import Path
 import anchor,manager,phase0,phase1,install,host,decommission
 from publication import Journal
+CREATION_HOOK=lambda path,identity:None
 class ValidationTimeout(RuntimeError):pass
 
 def exclusive_file(path,data,mode):
@@ -13,6 +14,7 @@ def exclusive_file(path,data,mode):
   f=os.open(p.name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,mode,dir_fd=parent)
   try:
    os.fchmod(f,mode)
+   st=os.fstat(f);CREATION_HOOK(p,(st.st_dev,st.st_ino))
    with os.fdopen(f,'wb',closefd=False) as out:out.write(data);out.flush();os.fsync(f)
    s=os.fstat(f)
    if s.st_uid!=0 or s.st_gid!=0 or s.st_nlink!=1 or os.listxattr(f):raise anchor.Refused('ROOT_TEST_FILE_METADATA')
@@ -69,7 +71,7 @@ def execute(capsule,worker_b,interpreter,interpreter_sha256,transaction):
   consumer_id=exclusive_file(consumer,b'[Service]\nType=oneshot\nExecStart=/usr/bin/true\n',0o644);m.action('daemon-reload')
   def root_created(identity):
    nonlocal root_identity
-   root_identity=identity
+   root_identity=identity;CREATION_HOOK(root,identity)
   phase0.prepare(root,capsule['anchor'],[capsule['worker'],worker_b],interpreter,interpreter_sha256,list(host.VALIDATION_TARGETS),validation=True,created=root_created)
   z=root.stat();root_identity=(z.st_dev,z.st_ino);s=anchor.Store(root,validation=True);j0=Journal(root/'phase0-journal',create=True)
   m=manager.Manager('validation',s.record,s.close_fence);installation=install.Install(s,j0,install.file_backend('validation'),m,'validation')

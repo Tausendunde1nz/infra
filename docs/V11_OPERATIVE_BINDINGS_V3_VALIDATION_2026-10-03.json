@@ -1,0 +1,85 @@
+{
+  "actual_host_reboot_performed": false,
+  "basis": "b9fac72d94a0ddf7f1788131f9289f4a2844b6b7",
+  "bindings": {
+    "cleanup": "OFFLINE_BOUND_RETAINED_PHASE0_DIRECTIONAL",
+    "concrete_root_profile": "ISOLATED_VALIDATION_ONLY",
+    "production_admission": false,
+    "systemd": "OFFLINE_BOUND_STORED_AND_LOADED_CHECKS",
+    "workers": "OFFLINE_BOUND_WITH_FIXED_DIRECTION_MATRIX"
+  },
+  "bootstrap_installer": "ISOLATED_ROOT_PIPELINE_PREPARED_NOT_EXECUTED",
+  "control_commit": "2281b2b397c017bc370ba108eab3dc00c989eaa5",
+  "control_handoff": "CONTROL_HANDOFF_PENDING",
+  "control_regressions": 60,
+  "control_tree": "3d52fe0898238e1132d8947a7e171d8086982170",
+  "governance": "GOVERNANCE_V1_1_ACTIVE",
+  "governance_tests": 26,
+  "launcher": {
+    "anchor_sha256": "350761321a7b76b107a3c22956f289ef702d4c1ca82d80fa758fe179a24eef9d",
+    "blocked_by": [
+      "CONTROL_HANDOFF_PENDING"
+    ],
+    "command_disclosed": false,
+    "control_handoff_status": "CONTROL_HANDOFF_PENDING",
+    "execution_performed": false,
+    "interpreter": "/usr/bin/python3.12",
+    "interpreter_sha256": "1d3cf64f97cadc79fdc6fe2496a21b7b456cb94211978cfef5a65f616af74fd5",
+    "offline_stage_b_ready": true,
+    "production_admission": false,
+    "root_copy_bootstrap_compiles": true,
+    "root_copy_bootstrap_sha256": "e12b12c1902d824674c516c183e533375bfacf77ef3a7901202fc9ada65eac6e",
+    "root_copy_directory_mode": "0700 root:root",
+    "root_copy_nonroot_denial_verified": true,
+    "root_validation_ready": false,
+    "sha256": "c928bd63984fa10c9b76e8bc37da989ee76a4d7ae2427fbc6642b538b3494ae3",
+    "source_copy_mode": "0400 root:root",
+    "transaction": "v11-0cb8eb6c1ab24c35a29db8d2d1d3696c",
+    "worker_a_sha256": "a68639bb6a5daff06b64e995eb302698f2e57d076d70a33048e7d426267eefc3",
+    "worker_b_sha256": "66e629a4bd1d3375473fa8bbdd8b2741e3193578359bc1c877e927d627c5ad42"
+  },
+  "next_gate": "WAITING_FOR_CONTROL_HANDOFF",
+  "permitted_application_skips": 2,
+  "pr_created": false,
+  "preservation": {
+    "comparison_note": "Historical source_mode is an octal string; parsed explicitly. No actual metadata or content drift.",
+    "integration_1cf0d79": true,
+    "sets": [
+      {
+        "count": 42,
+        "passed": true,
+        "set": "hardening42"
+      },
+      {
+        "count": 701,
+        "passed": true,
+        "set": "historical701"
+      },
+      {
+        "count": 1125,
+        "passed": true,
+        "set": "private1125"
+      },
+      {
+        "count": 30,
+        "passed": true,
+        "set": "sources30"
+      },
+      {
+        "count": 17,
+        "inodes_unchanged": true,
+        "modes_unchanged": true,
+        "passed": true,
+        "set": "original_anchor17"
+      }
+    ]
+  },
+  "production_actions": false,
+  "reported_cases_total": 3295,
+  "root_execution_performed": false,
+  "schema": 3,
+  "status": "LIVE_NO_GO",
+  "v11_tests": 2624,
+  "workflow_cases": 585,
+  "workflow_steps": 108
+}

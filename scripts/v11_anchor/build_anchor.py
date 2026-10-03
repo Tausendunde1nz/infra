@@ -10,14 +10,14 @@ def embedded(rows):
 
 def modules(directory):
  d=Path(directory);g=d.parent/'v11_guard_recovery';old=d.parent/'v11_dispatcher'
- return [(n,(g/(n+'.py')).read_bytes()) for n in ('state','runtime','files','coordinator')]+[(n,(old/(n+'.py')).read_bytes()) for n in ('core','units','publication','systemd_adapter')]+[(n,(d/(n+'.py')).read_bytes()) for n in ('anchor','worker','manager','base_host','phase0','attestation','bootstrap','phase1','install','host','guard_verifier','seal_boundary','split_guard')]
+ return [(n,(g/(n+'.py')).read_bytes()) for n in ('state','runtime','files','coordinator')]+[(n,(old/(n+'.py')).read_bytes()) for n in ('core','units','publication','systemd_adapter')]+[(n,(d/(n+'.py')).read_bytes()) for n in ('anchor','worker','manager','base_host','phase0','attestation','bootstrap','phase1','install','host','guard_verifier','seal_boundary','split_guard','typed_adapter','directional','phase0_cleanup','isolated_runtime','routing')]
 
 def build(directory,profile):
  if profile not in ('production','validation'):raise ValueError('PROFILE')
  prelude='import os,sys\nif os.geteuid()!=0 or not sys.flags.isolated or not sys.dont_write_bytecode:raise SystemExit(78)\nos.umask(0o077)\nos.environ.clear();os.environ.update({"PATH":"/usr/bin:/bin","LC_ALL":"C","HOME":"/var/empty","PYTHONDONTWRITEBYTECODE":"1"})\n'
  full=modules(directory)
  common=prelude+embedded(full)+'\nPROFILE='+repr(profile)+'\n'
- retained=prelude+embedded([(n,b) for n,b in full if n in ('anchor','worker','manager','base_host')])+'\nPROFILE='+repr(profile)+'\n'
+ retained=prelude+embedded([(n,b) for n,b in full if n in ('anchor','worker','manager','seal_boundary','base_host','routing')])+'\nPROFILE='+repr(profile)+'\n'
  if profile=='production':
   retained+='raise SystemExit(78) # Inner transaction admission remains closed.\n'
   common+='raise SystemExit(78) # No production recovery before inner binding.\n'
@@ -35,13 +35,25 @@ try:
   s.base();raise SystemExit(1)
  result=anchor.Anchor(s,base_host.RootHost(s,PROFILE)).run()
  print(result)
- raise SystemExit(0 if result in ('RECOVERY_BASE_READY',anchor.TERMINAL,'SECURED_STOP') else 1)
+ raise SystemExit(0 if result in ('RECOVERY_BASE_READY',anchor.TERMINAL,'SECURED_STOP','COMPLETE','SECURED_STOP_SEAL_UNKNOWN','SECURED_STOP_SEALED') else 1)
 finally:s.close()
 """
  worker=common+"""
+# Direct workers wait until the independent supervisor owns their pidfd.
+if len(sys.argv)!=4 or not sys.argv[3].isdecimal():raise SystemExit(78)
+import stat
+_gate=int(sys.argv.pop())
+if not stat.S_ISFIFO(os.fstat(_gate).st_mode) or os.read(_gate,1)!=b'G':raise SystemExit(78)
+os.close(_gate)
 import host,anchor
-if len(sys.argv)!=3 or sys.argv[1] not in ('recover','verify') or not anchor.pin(sys.argv[2]):raise SystemExit(78)
-print(anchor.encode(host.recover_entry(PROFILE,sys.argv[2],sys.argv[1])).decode(),end='')
+if len(sys.argv)!=3 or not anchor.pin(sys.argv[2]):raise SystemExit(78)
+if sys.argv[1].startswith('directional-'):
+ if PROFILE!='validation':raise SystemExit(78)
+ import isolated_runtime
+ print(anchor.encode(isolated_runtime.worker_entry(sys.argv[2],sys.argv[1])).decode(),end='')
+else:
+ if sys.argv[1] not in ('recover','verify'):raise SystemExit(78)
+ print(anchor.encode(host.recover_entry(PROFILE,sys.argv[2],sys.argv[1])).decode(),end='')
 """
  for name,source in [('anchor.py',anchor),('worker.py',worker)]:compile(source,name,'exec')
  return {'anchor':anchor.encode(),'worker':worker.encode(),'profile':profile,'production_activation_ready':False}

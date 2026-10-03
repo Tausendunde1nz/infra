@@ -9,7 +9,10 @@ import coordinator as old
 class GuardBridge:
  def __init__(self,store,host,audit):
   self.g=store;self.h=host;self.audit=audit
-  if os.geteuid()==0 or store.uid==0 or store.path.parent!=Path('/tmp') or not store.path.name.startswith('tu1nz-fence-test-'):raise Refused('PRODUCTION_GUARD_SPLIT_NOT_BOUND')
+  if os.geteuid()==0:
+   from isolated_runtime import GuardStore,GuardHost,Audit
+   if type(store)!=GuardStore or type(host)!=GuardHost or type(audit)!=Audit:raise Refused('PRODUCTION_GUARD_SPLIT_NOT_BOUND')
+  elif store.uid==0 or store.path.parent!=Path('/tmp') or not store.path.name.startswith('tu1nz-fence-test-'):raise Refused('PRODUCTION_GUARD_SPLIT_NOT_BOUND')
  def locked(self):return self.g.locked()
  def close(self):self.audit.close()
  def confirm_closed(self):self.audit.confirm_closed()

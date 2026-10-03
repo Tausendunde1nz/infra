@@ -17,7 +17,9 @@ class Installer:
  def attest_root(self,transaction):
   if self.s.fixture:return # Component fixtures confer no production admission.
   if os.geteuid()!=0 or self.f.fixture:raise Refused('PHASE1_ROOT_BINDING')
-  raise Refused('SPLIT_PRODUCTION_ADMISSION_NOT_BOUND')
+  from isolated_runtime import Runtime
+  if self.boundary is None or type(self.boundary.h)!=Runtime or not self.boundary.h.root_binding(self.s) or self.boundary.h.i is not self:raise Refused('SPLIT_PRODUCTION_ADMISSION_NOT_BOUND')
+  if self.boundary.depth!=1 or self.boundary.chain.context()['transaction']!=transaction:raise Refused('SPLIT_ROOT_LOCK_BINDING')
  def start(self,transaction,candidates,expected_originals):
   # Serialize publication and recovery; the external systemd timeout is the
   # independent lifetime bound. The fence remains CLOSED throughout publication.

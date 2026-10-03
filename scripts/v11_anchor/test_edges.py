@@ -53,7 +53,7 @@ class Edges(unittest.TestCase):
  def test_root_validation_artifact_stays_blocked(self):
   v=build_validation.render(HERE,'/usr/bin/python3.12','a'*64,'v11-'+'b'*32)
   self.assertFalse(v['root_validation_ready']);self.assertEqual(digest(v['bytes']),v['sha256'])
-  self.assertIn(b"raise SystemExit('OFFLINE_INTEGRATION_NOT_COMPLETE')",v['bytes'])
+  self.assertIn(b"raise SystemExit('WAITING_FOR_CONTROL_HANDOFF')",v['bytes'])
   compile(v['bytes'],'validation','exec')
  def test_decommission_is_separate_and_nonterminal_refused(self):
   self.prepare()

@@ -47,3 +47,14 @@ class RootHost:
   if row['UnitFileState'].startswith('enabled'):self.manager.action('disable','watch')
   after=self.manager.show('watch')
   if after['ActiveState']!='inactive' or after['UnitFileState'].startswith('enabled'):raise Refused('WATCHDOG_NOT_QUIESCENT')
+
+ def run_directional(self):
+  import routing
+  with self.s.locked():
+   self.verify_base();self.confirm_closed();self.no_worker()
+   c=routing.Chain(self.s).context();selected=self.s.choose()
+  result=self.transport.invoke_directional(selected,c,'directional-recover')
+  self.no_worker()
+  with self.s.locked():
+   self.verify_base();routing.verify(self.s,self.manager,result,trusted_file)
+  return result

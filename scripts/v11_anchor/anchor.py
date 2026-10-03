@@ -88,7 +88,7 @@ class Store:
   if (s.st_dev,s.st_ino)!=(self.identity.st_dev,self.identity.st_ino):raise Refused('PATH_REPLACED')
  def name(self,n):
   self.check()
-  if n not in ('lock','base.json','selection.json','fence.json','stop.json','phase1.json','terminal.json','phase0.json','anchor.py','guard-binding.json','bootstrap.json','boundary-context.json','boundary-stop.json') and not re.fullmatch(r'(?:slot-[AB]\.(?:py|json)|event-[0-9]{6}\.json|attestation(?:-commit|-use)?-[0-9]{6}\.json|boundary-(?:preseal|intent|sealed|complete)(?:-commit)?\.json)',n):raise Refused('NAME')
+  if n not in ('lock','base.json','selection.json','fence.json','stop.json','phase1.json','terminal.json','phase0.json','anchor.py','guard-binding.json','bootstrap.json','boundary-context.json','boundary-stop.json','directional-plan.json','rollback-proof.json','shadow-ownership.json') and not re.fullmatch(r'(?:slot-[AB]\.(?:py|json)|event-[0-9]{6}\.json|attestation(?:-commit|-use)?-[0-9]{6}\.json|boundary-(?:preseal|intent|sealed|complete)(?:-commit)?\.json)',n):raise Refused('NAME')
  def read(self,n,mode=0o400):
   f=self.open(n,mode)
   try:
@@ -198,6 +198,8 @@ class Store:
 class Anchor:
  def __init__(self,store,host):self.s=store;self.h=host
  def run(self):
+  if self.s.exists('boundary-context.json'):
+   return self.h.run_directional()
   with self.s.locked():
    try:
     self.s.close_fence();self.h.confirm_closed()
