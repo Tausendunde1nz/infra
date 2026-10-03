@@ -2377,6 +2377,66 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     2000, 2001, proc_root=proc_root
                 )
 
+    def test_private_group_scan_retries_disappearing_process_snapshot(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            proc_root = Path(directory) / "proc"
+            task = proc_root / "321" / "task" / "321"
+            task.mkdir(parents=True)
+            task.joinpath("status").write_text(
+                "Uid:\t2000\t2000\t2000\t2000\n"
+                "Gid:\t2001\t2001\t2001\t2001\n"
+                "Groups:\t2001\n",
+                encoding="ascii",
+            )
+            state_probe = mock.Mock(
+                side_effect=(
+                    FileNotFoundError(),
+                    ("R", 42),
+                    ("S", 42),
+                )
+            )
+
+            with mock.patch.object(
+                runtime, "_process_state_and_start_time", state_probe
+            ):
+                runtime._assert_private_group_has_no_unrelated_process(
+                    2000, 2001, proc_root=proc_root
+                )
+
+            self.assertEqual(state_probe.call_count, 3)
+
+    def test_private_group_scan_fails_after_bounded_snapshot_races(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            proc_root = Path(directory) / "proc"
+            task = proc_root / "321" / "task" / "321"
+            task.mkdir(parents=True)
+            task.joinpath("status").write_text(
+                "Uid:\t2000\t2000\t2000\t2000\n"
+                "Gid:\t2001\t2001\t2001\t2001\n"
+                "Groups:\t2001\n",
+                encoding="ascii",
+            )
+            state_probe = mock.Mock(side_effect=FileNotFoundError)
+
+            with (
+                mock.patch.object(
+                    runtime, "_process_state_and_start_time", state_probe
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._assert_private_group_has_no_unrelated_process(
+                    2000, 2001, proc_root=proc_root
+                )
+
+            self.assertEqual(state_probe.call_count, 4)
+
     def test_private_group_live_guard_precedes_worktree_chmod(self) -> None:
         root = Path("/synthetic/control")
         tracked = root / "tracked.txt"
@@ -2411,6 +2471,78 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         ):
             runtime._lock_worktree_write_barrier(records)
 
+        chmod.assert_not_called()
+        chown.assert_not_called()
+
+    def test_reseal_rejects_acl_before_private_group_promotion(self) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "tracked.txt"
+        record = {
+            "kind": "regular",
+            "device": 10,
+            "inode": 20,
+            "uid": 1001,
+            "gid": 1001,
+            "mode": "0600",
+            "xattr_fingerprint": "0" * 64,
+        }
+        metadata = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o600,
+            st_nlink=1,
+            st_uid=1001,
+            st_gid=1001,
+            st_dev=10,
+            st_ino=20,
+        )
+        acl_guard = mock.Mock(
+            side_effect=runtime.S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            )
+        )
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_recorded_path_metadata",
+                return_value=(1001, 1001, 0o700),
+            ),
+            mock.patch.object(runtime.Path, "lstat", return_value=metadata),
+            mock.patch.object(runtime, "_assert_worktree_path_xattrs"),
+            mock.patch.object(
+                runtime, "_worktree_barrier_mode", return_value=0o440
+            ),
+            mock.patch.object(
+                runtime, "_assert_private_group_has_no_unrelated_process"
+            ),
+            mock.patch.object(
+                runtime,
+                "_assert_post_chown_acl_preserves_access",
+                acl_guard,
+            ),
+            mock.patch.object(runtime.os, "chmod") as chmod,
+            mock.patch.object(runtime.os, "chown") as chown,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            runtime._reseal_released_worktree_contract(
+                (root,),
+                {root: {}},
+                {root: {tracked: record}},
+                include_current=False,
+            )
+
+        acl_guard.assert_called_once_with(
+            tracked,
+            1001,
+            0o4,
+            0o4,
+            0o0,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            reject_access_acl=True,
+        )
         chmod.assert_not_called()
         chown.assert_not_called()
 

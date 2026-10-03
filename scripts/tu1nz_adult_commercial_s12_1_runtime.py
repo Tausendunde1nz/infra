@@ -2773,24 +2773,19 @@ def _assert_private_group_has_no_unrelated_process(
         if sys.platform == "linux":
             raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
         return
-    try:
+
+    def scan_once() -> None:
         processes = tuple(proc_root.iterdir())
         for process in processes:
             if not process.name.isdigit():
                 continue
-            try:
-                tasks = tuple((process / "task").iterdir())
-            except FileNotFoundError:
-                continue
+            tasks = tuple((process / "task").iterdir())
             for task in tasks:
                 if not task.name.isdigit():
                     continue
-                try:
-                    before = _process_state_and_start_time(task)
-                    payload = (task / "status").read_text(encoding="ascii")
-                    after = _process_state_and_start_time(task)
-                except FileNotFoundError:
-                    continue
+                before = _process_state_and_start_time(task)
+                payload = (task / "status").read_text(encoding="ascii")
+                after = _process_state_and_start_time(task)
                 # Scheduler state may legitimately change between reads; PID
                 # identity is bound by the immutable kernel start time.
                 if before[1] != after[1]:
@@ -2818,10 +2813,23 @@ def _assert_private_group_has_no_unrelated_process(
                 )
                 if holds_group and filesystem_uid not in {0, uid}:
                     raise OSError
-    except (OSError, UnicodeError, ValueError):
-        raise S12ControlError(
-            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
-        ) from None
+
+    for _attempt in range(4):
+        try:
+            scan_once()
+        except FileNotFoundError:
+            # A process or thread that disappears from the captured /proc
+            # namespace may have forked a still-live credential holder. Start
+            # over from a fresh namespace snapshot rather than skipping it.
+            continue
+        except (OSError, UnicodeError, ValueError):
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        return
+    raise S12ControlError(
+        "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+    )
 
 
 def _assert_post_chown_acl_preserves_access(
@@ -3686,14 +3694,24 @@ def _reseal_released_worktree_contract(
                     source_mode, target_uid, target_gid
                 )
                 private_group = (target_uid, target_gid)
-                if (
+                promotion_rejects_acl = (
                     restricted_mode != (source_mode & ~0o222)
-                    and private_group not in verified_live_groups
-                ):
-                    _assert_private_group_has_no_unrelated_process(
-                        *private_group
+                )
+                if promotion_rejects_acl:
+                    if private_group not in verified_live_groups:
+                        _assert_private_group_has_no_unrelated_process(
+                            *private_group
+                        )
+                        verified_live_groups.add(private_group)
+                    _assert_post_chown_acl_preserves_access(
+                        path,
+                        target_uid,
+                        (restricted_mode & 0o500) >> 6,
+                        (restricted_mode & 0o050) >> 3,
+                        restricted_mode & 0o005,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        reject_access_acl=True,
                     )
-                    verified_live_groups.add(private_group)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
                 os.chown(path, 0, target_gid, follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
