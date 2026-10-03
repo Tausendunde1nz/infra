@@ -6125,6 +6125,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime, "_active_exact_directory_handle_count", return_value=0
                 ),
                 mock.patch.object(
+                    runtime,
+                    "_validate_repository_worktree_contract",
+                    wraps=runtime._validate_repository_worktree_contract,
+                ) as worktree_contract,
+                mock.patch.object(
                     runtime, "_assert_legacy_repository_parent_xattrs_safe"
                 ) as parent_xattrs,
                 mock.patch.object(
@@ -6146,6 +6151,21 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                         None,
                         runtime.LEGACY_BARRIER_SCHEMA,
                     )
+                )
+                self.assertEqual(
+                    worktree_contract.call_args_list,
+                    [
+                        mock.call(
+                            application,
+                            records[application],
+                            allow_journaled_transition=True,
+                        ),
+                        mock.call(
+                            control,
+                            records[control],
+                            allow_journaled_transition=True,
+                        ),
+                    ],
                 )
                 parent_xattrs.assert_called_once_with()
                 self.assertEqual(
@@ -6179,6 +6199,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 parent_xattrs.reset_mock()
                 path_xattrs.reset_mock()
                 root_git_contract.reset_mock()
+                worktree_contract.reset_mock()
                 with (
                     mock.patch.object(
                         runtime,
@@ -6210,6 +6231,21 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                             guarded_git_checks=False,
                         )
                     )
+                self.assertEqual(
+                    worktree_contract.call_args_list,
+                    [
+                        mock.call(
+                            application,
+                            records[application],
+                            allow_journaled_transition=True,
+                        ),
+                        mock.call(
+                            control,
+                            records[control],
+                            allow_journaled_transition=True,
+                        ),
+                    ],
+                )
                 root_git_contract.assert_not_called()
                 self.assertEqual(
                     path_xattrs.call_args_list,

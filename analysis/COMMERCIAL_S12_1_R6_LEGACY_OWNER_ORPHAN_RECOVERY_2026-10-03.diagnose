@@ -1,0 +1,38 @@
+# S12.1 r6 legacy-owner orphan recovery diagnosis
+
+## Observed stop
+
+The sole r6 operator invocation authenticated successfully and stopped in the
+canonical pre-deployment orphan recovery with `S12_1_WORKTREE_LAYOUT_RED`.
+Preflight, fixed release-input installation, backup and deployment did not
+begin. Wrapper cleanup removed the trusted controller, fixed inputs and private
+upload directory.
+
+## Deterministic cause
+
+The pristine V1 journal records unchanged `chatops:chatops` repository roots
+and Git directories. A read-only traversal found no multiply-linked regular
+files. It did find pre-existing nested ownership created by historical
+privileged validation/runtime activity: 105 Application worktree entries, 12
+Control worktree entries and 29 Control Git entries are `root:chatops` or
+`root:root`. Representative classes are Python bytecode caches, validation
+state, historical analysis material and Git objects/refs.
+
+The r6 pristine-release predicate called the strict non-transition worktree
+validator. That validator permits only the recorded repository owner for every
+nested entry, so it cannot recognize the canonical server posture even though
+the V1 journal is pristine and direct release performs no recursive ownership
+mutation.
+
+## Minimal correction
+
+Use the validator's existing journal-transition owner set only inside the
+pristine V1 orphan predicate. The accepted nested owners remain exactly the
+recorded owner/group, root with the recorded group, or root/root. Exact
+repository-root and Git-directory metadata are compared before this call.
+Single-link regular files, canonical Git/index identity, structurally valid and
+fingerprinted POSIX ACLs, active-handle checks, filesystem-event guards and
+durable journal release remain fail-closed.
+
+No manual journal, Git metadata, ACL or ownership repair is authorized or
+performed.
