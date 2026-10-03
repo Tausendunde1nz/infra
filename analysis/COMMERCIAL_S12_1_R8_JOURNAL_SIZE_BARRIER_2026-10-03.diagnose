@@ -1,0 +1,29 @@
+TU1NZ S12.1-R8 root-private barrier journal size diagnosis
+
+classification=SOURCE_CONTRACT_DEFECT
+safe_code=S12_1_REPOSITORY_BARRIER_JOURNAL_RED
+deployment_controller_invoked=true
+backup_started=false
+deployment_attempt_marker_written=false
+repository_sync_started=false
+runtime_installed=false
+public_callback_activated=false
+rollback_required=false
+
+The reviewed r8 controller captured the complete tracked-path write barrier:
+669 Application entries and 210 Control entries. The resulting canonical JSON
+was 236,582 bytes. Its writer had no conflicting bound, while the generic
+private-JSON reader and guarded-release file check retained a 131,072-byte
+ceiling. The first read therefore rejected the journal immediately after its
+durable publication, before backup or repository mutation.
+
+The r9 correction assigns only the authenticated barrier journal a 1 MiB
+ceiling. Other private JSON artifacts retain their existing 128 KiB bound.
+The journal writer measures the exact canonical ASCII representation before
+publication and rejects an oversized payload without replacing the current
+journal. Existing schema, root ownership, mode 0600, single-link, duplicate-key
+and exact metadata validation remain fail-closed.
+
+R8 remains immutable and is not retried. Recovery of the pristine r8 orphan
+journal and any subsequent runtime attempt require the reviewed r9 controller,
+new Same-SHA review, merge, CI and a distinct immutable freeze.

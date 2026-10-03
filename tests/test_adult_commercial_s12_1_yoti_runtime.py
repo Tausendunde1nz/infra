@@ -1331,6 +1331,46 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     escaped, (application, control)
                 )
 
+    def test_large_barrier_journal_has_dedicated_bounded_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "repository-barrier.json"
+            payload = {"padding": "x" * 240000}
+            runtime._atomic_barrier_json(marker, payload)
+            self.assertGreater(marker.stat().st_size, 131072)
+            self.assertLessEqual(
+                marker.stat().st_size, runtime.BARRIER_JOURNAL_MAX_BYTES
+            )
+            metadata = marker.lstat()
+            root_metadata = SimpleNamespace(
+                st_mode=metadata.st_mode,
+                st_uid=0,
+                st_gid=0,
+                st_nlink=metadata.st_nlink,
+                st_size=metadata.st_size,
+            )
+            with mock.patch.object(Path, "lstat", return_value=root_metadata):
+                self.assertEqual(runtime._barrier_json(marker), payload)
+            with (
+                mock.patch.object(Path, "lstat", return_value=root_metadata),
+                mock.patch.object(os, "geteuid", return_value=0),
+                mock.patch.object(os, "getegid", return_value=0),
+            ):
+                self.assertEqual(
+                    runtime._assert_barrier_release_file(marker, links=1).st_size,
+                    metadata.st_size,
+                )
+
+            oversized = {
+                "padding": "x" * runtime.BARRIER_JOURNAL_MAX_BYTES
+            }
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            ):
+                runtime._atomic_barrier_json(marker, oversized)
+            with mock.patch.object(Path, "lstat", return_value=root_metadata):
+                self.assertEqual(runtime._barrier_json(marker), payload)
+
     def test_legacy_parent_journal_upgrade_binds_xattrs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

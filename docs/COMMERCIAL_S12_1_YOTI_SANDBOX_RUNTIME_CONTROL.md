@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r8` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r9` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -88,6 +88,17 @@ rejects setuid and setgid regular files and all unrelated ownership, mode, ACL
 or xattr drift, preserves the original journal mode across same-inode release
 refresh, and restores the exact original mode and ownership during teardown or
 rollback.
+
+The immutable r8 freeze is preserved as the first controller to capture the
+complete tracked-path write barrier successfully. Its sole deployment
+invocation stopped before backup and before repository mutation with
+`S12_1_REPOSITORY_BARRIER_JOURNAL_RED`: the 879-entry root-private journal was
+236,582 bytes, while the generic private-JSON reader still enforced the older
+128 KiB ceiling. The r9 controller gives only the authenticated barrier
+journal a 1 MiB ceiling, retains the 128 KiB ceiling for every other private
+JSON artifact, and rejects an oversized barrier payload before publishing it
+atomically. Journal parsing, exact schema validation, ownership, mode and
+single-link checks remain unchanged.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
