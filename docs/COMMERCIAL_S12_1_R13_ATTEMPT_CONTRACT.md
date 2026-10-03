@@ -10,6 +10,25 @@ the immutable R13 annotation generated and checked by the canonical freeze
 tool. The original materialization blocker remains historical evidence in
 `analysis/COMMERCIAL_S12_1_R13_OFFLINE_CHAIN_BLOCKER_2026-10-03.diagnose`.
 
+**Current source release status: NO-GO.** Exact-head Code Review of
+`28d7fe240068c6e728d4a5566403eae44843d4c7` found one remaining P1
+(`4173769781`): the recursive Git watch is installed after the yielded body's
+authorized Git writes and immutable-stage work. It cannot attest to a reverted
+foreign mutation before that installation. The real-root regression now also
+exercises `REF_UPDATED` and `REPOSITORIES_MATERIALIZED`; it must reject those
+writers with both barriers retained and no activation. Prior GREEN CI proves
+the covered boundaries, not this missing interval. No test expectation is
+relaxed, no finding is dismissed, and no merge/freeze is permitted.
+
+The existing attributed guard trusts only the controller TID; real Git writes
+run in subprocesses and may create further processes/metadata directories.
+Root ownership, payload equality, arbitrary descendant trust, or rebasing a
+fingerprint after those writes is not sufficient provenance. Closing this
+interval requires a reviewed, prospective Git-writer/namespace contract that
+also covers child-process lifetime, newly created metadata and rollback, with
+unbroken transfer from the initial quarantine guard. No such new trust
+mechanism has been applied here. R12 remains canonical; runtime starts are 0.
+
 Continuation under expanded source-only authority: the candidate now allocates
 Git blobs in a same-filesystem, root-private per-attempt transaction directory.
 Finite path/policy intent precedes allocation; device/inode/kernel-birth and

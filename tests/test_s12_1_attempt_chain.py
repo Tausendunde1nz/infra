@@ -458,10 +458,17 @@ class IntegratedChainTests(unittest.TestCase):
                 self.full_chain(attack=attack,attack_at=boundary)
 
     def test_deep_git_reverted_writer_cannot_cross_release_handoff(self):
-        for boundary in ('RELEASE_BARRIERS_EXCHANGED','RELEASE_ATTRIBUTES_RESTORED'):
+        for boundary in ('REF_UPDATED','REPOSITORIES_MATERIALIZED',
+                         'RELEASE_BARRIERS_EXCHANGED','RELEASE_ATTRIBUTES_RESTORED'):
             with self.subTest(boundary=boundary):
                 def attack(f):
-                    path=f['control']/'.git/refs/heads/control-main'
+                    # REF_UPDATED first fires for Application. Both pre-release
+                    # seams still have the real Git metadata quarantined.
+                    root=f['app'] if boundary=='REF_UPDATED' else f['control']
+                    branch='main' if boundary=='REF_UPDATED' else 'control-main'
+                    metadata=(r.RECOVERY_GIT_DIRECTORY if boundary in
+                              {'REF_UPDATED','REPOSITORIES_MATERIALIZED'} else '.git')
+                    path=root/metadata/'refs/heads'/branch
                     mode=path.stat().st_mode&0o7777
                     subprocess.run([sys.executable,'-c',
                         'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); '
