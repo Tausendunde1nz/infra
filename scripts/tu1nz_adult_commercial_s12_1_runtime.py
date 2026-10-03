@@ -7442,6 +7442,11 @@ def _serialized_repository_recovery_guarded(
                 except S12ControlError:
                     cleanup_failed = True
             if not cleanup_failed:
+                if ACTIVE_ATTEMPT is not None and GIT_WRITER_SCOPE is not None:
+                    # Rename changes the selector, not the inode authority.
+                    # Subsequent read-only audit commands use the live name
+                    # while the same filesystem stream and handles persist.
+                    GIT_WRITER_SCOPE.directories = {r:r/'.git' for r in selected_roots}
                 release_guard: _WorktreeReleaseGuard | None = None
                 release_quiescence: _GuardedHandleQuiescence | None = None
                 release_attributes = None
@@ -7556,8 +7561,6 @@ def _serialized_repository_recovery_guarded(
                         _restore_repository_git_metadata(
                             root, selected_records[root]
                         )
-                    if ACTIVE_ATTEMPT is not None and GIT_WRITER_SCOPE is not None:
-                        GIT_WRITER_SCOPE.directories = {r:r/'.git' for r in selected_roots}
                     if ACTIVE_ATTEMPT is not None:
                         _r13_boundary("RELEASE_ATTRIBUTES_RESTORED")
                     release_guard.accept_release_attributes()

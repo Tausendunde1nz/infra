@@ -140,6 +140,16 @@ class AWriterTests(unittest.TestCase):
         self.assertTrue(all(op['access_profile']=='READ_ONLY' for op in history))
         self.assertTrue(all(task['exited'] for op in history for task in op['task_history']))
 
+    def test_finite_auxiliary_bare_init_preserves_config_contract(self):
+        fetch=self.base/'fetch';fetch.mkdir(mode=0o700)
+        with mock.patch.object(r,'FETCH_ROOT',fetch),mock.patch.object(r,'GIT_WRITER_SCOPE',self.writer):
+            r._run([*r._isolated_root_git_prefix(fetch),'init','--bare',str(fetch/'application.git')])
+            names=subprocess.check_output(['/usr/bin/git','config','--no-includes','--file',
+                str(fetch/'application.git/config'),'--null','--name-only','--list'],text=True).split('\0')
+            self.assertEqual(sorted(n for n in names if n),
+                             ['core.bare','core.filemode','core.repositoryformatversion'])
+            r._validate_root_git_contract(fetch/'application.git')
+
     def test_replaced_git_path_cannot_run_unrestricted_read_only_code(self):
         decoy=self.base/'approved-git';shutil.copy2('/usr/bin/git',decoy);decoy.chmod(0o500)
         self.writer.image_paths['git']=decoy
