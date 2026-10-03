@@ -13,6 +13,7 @@ import tempfile
 import time
 import copy
 import shutil
+import signal
 import struct
 import unittest
 from unittest import mock
@@ -23,6 +24,13 @@ from tests.test_s12_1_r12_metadata_contract import fixture, private_json
 
 
 class WriterEnvelopeTests(unittest.TestCase):
+    def test_failed_epoch_rejects_direct_bundle_entry_before_spawn(self):
+        guard=r._R13GitWriters.__new__(r._R13GitWriters)
+        guard.failed=True;guard.fd=12345
+        with mock.patch.object(r.subprocess,'Popen') as spawn,self.assertRaises(r.S12ControlError):
+            guard.run((Path('/isolated'),['git','bundle','unbundle'],{}),30)
+        spawn.assert_not_called()
+
     @staticmethod
     def event(*, tid=42, mask=0x104, kind=1, handle=b'abcd', name=b''):
         info=struct.pack('=BBH',kind,0,20+len(handle)+len(name))+b'12345678'
@@ -150,6 +158,29 @@ class AWriterTests(unittest.TestCase):
         args=args[:-3]+['-c','alias.unplanned=!touch '+str(forbidden),'unplanned']
         with self.assertRaises(r.S12ControlError):self.writer.run((root,args,env),30)
         self.assertFalse(forbidden.exists())
+
+    def test_failure_at_fork_stop_reaps_unadmitted_child(self):
+        root,args,env=self.writer.command(r._recovery_git_arguments(
+            self.root,self.root/'.git','update-ref','refs/heads/new',self.sha))
+        args=args[:-3]+['-c','alias.forktest=!true','forktest']
+        fired=False
+        def attack(name):
+            nonlocal fired
+            if name=='GIT_WRITER_FORK' and not fired:
+                fired=True
+                subprocess.run([sys.executable,'-c',
+                    'import os,sys; p=sys.argv[1]; m=os.stat(p).st_mode; os.chmod(p,m^64); os.chmod(p,m)',
+                    str(self.root/'.git/HEAD')],check=True)
+        with mock.patch.object(r,'_r13_boundary',side_effect=attack), \
+                mock.patch.object(r.os,'kill',wraps=os.kill) as killed, \
+                self.assertRaises(r.S12ControlError):
+            self.writer.run((root,args,env),30)
+        self.assertTrue(fired)
+        tids={c.args[0] for c in killed.call_args_list if c.args[1]==signal.SIGKILL}
+        self.assertGreaterEqual(len(tids),2)
+        for tid in tids:
+            with self.assertRaises(ChildProcessError):os.waitpid(tid,os.WNOHANG|0x40000000)
+        self.assertEqual(json.loads(self.writer.journal.read_text())['phase'],'FAILED')
 
     def test_real_git_pack_threads_have_bound_lifetimes(self):
         files=[]
@@ -538,22 +569,7 @@ class IntegratedChainTests(unittest.TestCase):
                 self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
                 self.assertFalse(r.RELEASE_ROOT.exists())
             else:
-                try:
-                    result=r.followup(authorization,grant_hash)
-                except r.S12ControlError as error:
-                    # Synthetic fixture only: identify an unplanned helper
-                    # without broadening the production executable allowlist.
-                    cause=error
-                    while cause is not None:
-                        trace=cause.__traceback__
-                        while trace is not None:
-                            local=trace.tb_frame.f_locals
-                            if trace.tb_frame.f_code.co_name=='run' and 'allowed_shell' in local:
-                                print('ISOLATED_WRITER_EXEC',repr({key:local.get(key) for key in
-                                    ('args','actual','allowed_git','allowed_shell','sources','scripts')}),flush=True)
-                            trace=trace.tb_next
-                        cause=cause.__context__
-                    raise
+                result=r.followup(authorization,grant_hash)
                 self.assertTrue(result['ok']);self.assertEqual(result['deployment_count'],1)
                 self.assertEqual(result['rollback_count'],0)
             expected_starts=0 if crash_at and not provider_failure else 1
@@ -585,6 +601,9 @@ class IntegratedChainTests(unittest.TestCase):
         for boundary in ('WITHDRAW_INTENT','WITHDRAWN','RESTORE_INTENT','RESTORED'):
             with self.subTest(boundary=boundary):
                 self.full_chain(provider_failure=True,crash_at=boundary)
+
+    def test_inflight_writer_loss_retains_both_barriers_without_resume(self):
+        self.full_chain(crash_at='GIT_WRITER_BOUND',tamper=lambda fixture:None)
 
     def test_foreign_root_mutation_and_reversion_stays_closed(self):
         def attack(f):

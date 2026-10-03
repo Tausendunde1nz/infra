@@ -10,15 +10,23 @@ the immutable R13 annotation generated and checked by the canonical freeze
 tool. The original materialization blocker remains historical evidence in
 `analysis/COMMERCIAL_S12_1_R13_OFFLINE_CHAIN_BLOCKER_2026-10-03.diagnose`.
 
-**Current source release status: NO-GO.** Exact-head Code Review of
+**Current source release status: pending final CI/review and Git closure.** Exact-head Code Review of
 `28d7fe240068c6e728d4a5566403eae44843d4c7` found one remaining P1
-(`4173769781`): the recursive Git watch is installed after the yielded body's
+(`4173769781`): the prior recursive Git watch was installed after the yielded body's
 authorized Git writes and immutable-stage work. It cannot attest to a reverted
 foreign mutation before that installation. The real-root regression now also
 exercises `REF_UPDATED` and `REPOSITORIES_MATERIALIZED`; it must reject those
 writers with both barriers retained and no activation. Prior GREEN CI proves
 the covered boundaries, not this missing interval. No test expectation is
-relaxed, no finding is dismissed, and no merge/freeze is permitted.
+relaxed and no finding is dismissed without final-head evidence.
+
+The attributed-writer candidate `d7385c54954ea9801e862bdab58c5d0bc6235171`
+passed CI 37137943280: 35 native integrated tests (including both new ref
+boundaries, real Git threads, success, interruption, rollback and replay),
+20 native R12 kernel tests, and the full 1081-test suite (67 privilege/platform
+skips in that non-root suite; native gates ran separately). The subsequent
+failure-cleanup and in-flight interruption cases require the same complete
+CI gate and fresh exact-SHA review; this earlier GREEN is not substituted.
 
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.
@@ -40,18 +48,31 @@ no writer exemption. Overflow, unsupported kernel features and ambiguous object
 identity fail closed. Unrelated names/content are not retained.
 
 Each selected Git command is durably bound to the attempt/release, exact argv,
-metadata inode, executable identity and bootstrap digest before spawn. An
+metadata inode, boot ID, executable identity and bootstrap digest before spawn. An
 isolated bootstrap applies Landlock ABI >=3 write confinement to that metadata
-inode (no worktree/backup writes) before its ptrace stop. Fork/clone/exec/exit
+inode (no worktree/backup writes) before its ptrace stop. The sole additional
+write sink is an O_PATH-bound root-owned `/dev/null` character device (1:3),
+not a general `/dev` grant. Parent-death protection covers the pre-ptrace
+bootstrap interval. Fork/clone/exec/exit
 stops bind each task's kernel identity and lifetime before continuation; only
-the fixed Git executable and exact local-upload-pack shell bridge can execute.
+the prospectively bound Git frontends, separate upload-pack inode and exact
+local-upload-pack shell bridge can execute. Equal bytes do not substitute for
+these explicit system-tool path/inode bindings; image metadata/digests remain
+fixed across the epoch and its interrupted continuation.
 EXITKILL closes live writers on controller death. Queue draining precedes PID
-retirement/admission. This is not an ancestry-only permission grant.
+retirement/admission. Kernel-stopped newborns enter the cleanup set before
+fallible guard checks, but receive no writer grant before durable task binding.
+The private process session is only a bounded failure-cleanup fence, never
+writer authority; it also terminates fork/clone tracees whose notifications
+have not yet been consumed. This is not an ancestry-only permission grant.
 
 RUNNING/FAILED journals never authorize resumed writers. QUIET checkpoints bind
-the protected metadata fingerprint including descendant ctime; resumption
+the protected metadata fingerprint including root and descendant ctime; resumption
 requires a fresh live guard and exact checkpoint agreement, not a claim that
-the old monitor survived. Pending undo shares the epoch with canonical recovery.
+the old monitor survived. Validation precedes new lock metadata changes.
+Per-command task histories retain birth/exit evidence; concurrent tasks, total
+task births, command count, output and pending events are bounded. Pending undo
+shares the epoch with canonical recovery.
 Final release guards overlap epoch retirement. Landlock does not restrict all
 chmod/chown/xattr operations; attributed filesystem events and pinned executable
 identity remain required, not optional substitutes. This candidate still needs

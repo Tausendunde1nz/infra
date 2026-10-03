@@ -10426,7 +10426,8 @@ class _R13GitWriters:
         self.check()  # No queued event may inherit this new PID's authority.
         fields = Path(f'/proc/{tid}/stat').read_text().rsplit(')',1)[1].split()
         if (tid in self.tasks or fields[0] not in {'t','T'} or len(self.tasks) >= 256
-                or len(self.operation['task_history']) >= 2048):
+                or len(self.operation['task_history']) >= 2048
+                or fields[2:4] != [str(self.operation['session'])]*2):
             self.fail()
         record = dict(tid=tid,start=fields[19],root=str(root),parent=parent,exited=False)
         self.tasks[tid] = record
@@ -10435,30 +10436,41 @@ class _R13GitWriters:
         _atomic_json(self.journal,self.value)
 
     def run(self, selected, timeout, *, input_text=None, stdin=None):
+        # Bundle restore also calls this directly; a failed epoch must never
+        # gain a fresh subprocess merely by avoiding the ordinary _run router.
+        self.check()
         root,argv,env = selected
         if self.tasks or self.operation is not None or input_text is not None:
             self.fail()
+        boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        if re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',boot_id) is None:
+            self.fail()
         directory = self.directories[root]
-        directory_fd = os.open(directory,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW)
-        null_fd = os.open('/dev/null',os.O_PATH|os.O_NOFOLLOW)
-        null = os.fstat(null_fd)
-        if (not stat.S_ISCHR(null.st_mode) or null.st_uid != 0 or null.st_gid != 0
-                or null.st_rdev != os.makedev(1,3) or null.st_nlink != 1):
-            os.close(null_fd); os.close(directory_fd)
-            self.fail()
-        current_images = {name:self.executable(path) for name,path in self.image_paths.items()}
-        allowed_git,allowed_shell = self.images['git'],self.images['shell']
-        if current_images != self.images:
-            os.close(null_fd); os.close(directory_fd)
-            self.fail()
-        self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,
-                              namespace=self.handle(directory).hex(),bootstrap_sha256=
-                              hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[],
-                              null_device=[null.st_dev,null.st_ino,null.st_rdev])
-        if self.value['sequence'] >= 1024:
-            self.fail()
-        self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
-        _atomic_json(self.journal,self.value)  # Intent before spawning any writer.
+        directory_fd = null_fd = None
+        try:
+            directory_fd = os.open(directory,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW)
+            null_fd = os.open('/dev/null',os.O_PATH|os.O_NOFOLLOW)
+            null = os.fstat(null_fd)
+            if (not stat.S_ISCHR(null.st_mode) or null.st_uid != 0 or null.st_gid != 0
+                    or null.st_rdev != os.makedev(1,3) or null.st_nlink != 1):
+                self.fail()
+            current_images = {name:self.executable(path) for name,path in self.image_paths.items()}
+            allowed_git,allowed_shell = self.images['git'],self.images['shell']
+            if current_images != self.images:
+                self.fail()
+            self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,boot_id=boot_id,
+                                  isolation='new-private-session',
+                                  namespace=self.handle(directory).hex(),bootstrap_sha256=
+                                  hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[],
+                                  null_device=[null.st_dev,null.st_ino,null.st_rdev])
+            if self.value['sequence'] >= 1024:
+                self.fail()
+            self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
+            _atomic_json(self.journal,self.value)  # Intent before spawning any writer.
+        except BaseException:
+            for descriptor in (null_fd,directory_fd):
+                if descriptor is not None: os.close(descriptor)
+            raise
         process = None
         pending = {}
         buffers = {}
@@ -10466,8 +10478,9 @@ class _R13GitWriters:
             process = subprocess.Popen([sys.executable,'-I','-S','-c',_GIT_WRITER_BOOTSTRAP,
                 str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd)],stdin=stdin or subprocess.DEVNULL,
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd),close_fds=True,
-                env={'HOME':'/','PATH':'/usr/bin:/bin'})
+                start_new_session=True,env={'HOME':'/','PATH':'/usr/bin:/bin'})
             pending[process.pid] = None
+            self.operation['session'] = process.pid
             buffers = {process.stdout:bytearray(),process.stderr:bytearray()}
             for stream in buffers:
                 os.set_blocking(stream.fileno(),False)
@@ -10482,9 +10495,24 @@ class _R13GitWriters:
                     if event is None:
                         continue
                     progress = True
-                    # The task still owns its PID until this event is reaped.
-                    self.check()
-                    _,status = os.waitpid(tid,os.WNOHANG|0x40000000)
+                    # A stop does not retire the PID. Capture a kernel-stopped
+                    # newborn for cleanup BEFORE any fallible event check;
+                    # it receives no writer grant until bind() below. Otherwise
+                    # a failure at the parent's fork stop can strand a tracee
+                    # absent from pending. Exits still drain before PID release.
+                    if event.si_code in (os.CLD_EXITED,os.CLD_KILLED,os.CLD_DUMPED):
+                        self.check()
+                        _,status = os.waitpid(tid,os.WNOHANG|0x40000000)
+                    else:
+                        _,status = os.waitpid(tid,os.WNOHANG|0x40000000)
+                        if os.WIFSTOPPED(status) and status >> 16 in (1,2,3):
+                            child = ctypes.c_ulong()
+                            self.ptrace(0x4201,tid,ctypes.addressof(child))
+                            if child.value in pending or not child.value:
+                                self.fail()
+                            pending[child.value] = tid
+                            _r13_boundary('GIT_WRITER_FORK')
+                        self.check()
                     if os.WIFEXITED(status) or os.WIFSIGNALED(status):
                         pending.pop(tid)
                         if tid in self.tasks:
@@ -10505,11 +10533,7 @@ class _R13GitWriters:
                         initial = False
                         _r13_boundary('GIT_WRITER_BOUND')
                     elif kind in (1,2,3):
-                        child = ctypes.c_ulong()
-                        self.ptrace(0x4201,tid,ctypes.addressof(child))
-                        if child.value in pending or not child.value:
-                            self.fail()
-                        pending[child.value] = tid
+                        pass  # Newborn is already held in pending, not admitted.
                     elif kind == 4:
                         actual = self.executable(Path(f'/proc/{tid}/exe'))
                         args = Path(f'/proc/{tid}/cmdline').read_bytes().rstrip(b'\0').split(b'\0')
@@ -10560,6 +10584,22 @@ class _R13GitWriters:
             self.failed = True
             _atomic_json(self.journal,self.value)
             if process is not None:
+                # Private session membership is a cleanup fence, NEVER writer
+                # authority. An outside process cannot join this session.
+                # An unreaped owned task proves the group ID is not recycled.
+                # Kill its entire group before reaping: another stopped parent
+                # may have a newborn whose fork notification is not yet read.
+                session_owned = False
+                for tid in pending:
+                    try:
+                        fields = Path(f'/proc/{tid}/stat').read_text().rsplit(')',1)[1].split()
+                        if fields[2:4] == [str(process.pid)]*2:
+                            session_owned = True
+                            break
+                    except (FileNotFoundError,ProcessLookupError): pass
+                if session_owned:
+                    try: os.killpg(process.pid,signal.SIGKILL)
+                    except ProcessLookupError: pass
                 # Only unreaped children/tracees still own these kernel PIDs.
                 # A completed leader's numeric PID is never a cleanup target.
                 for tid in pending:
@@ -10576,6 +10616,14 @@ class _R13GitWriters:
                                 break
                             self.ptrace(7,tid,signal.SIGKILL)
                     except (ChildProcessError,S12ControlError): pass
+                if session_owned:
+                    # Reap even an unadmitted tracee; waitpid's group filter
+                    # plus the private session excludes unrelated children.
+                    while True:
+                        try:
+                            tid,status = os.waitpid(-process.pid,0x40000000)
+                            if os.WIFSTOPPED(status): self.ptrace(7,tid,signal.SIGKILL)
+                        except ChildProcessError: break
             raise
         finally:
             os.close(directory_fd)
