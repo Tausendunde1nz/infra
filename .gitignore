@@ -348,6 +348,8 @@
 !scripts/tu1nz_adult_commercial_s12_1_simulator.py
 !systemd/tu1nz-adult-commercial-s12-yoti-runtime.service
 !tests/test_adult_commercial_s12_1_yoti_runtime.py
+!tests/test_s12_1_r12_metadata_contract.py
+!manifests/s12-1-r12-metadata-contract.json
 !analysis/COMMERCIAL_S12_1_LOCAL_PLATFORM_AND_SIMULATOR_IMPORT_2026-09-28.diagnose
 !analysis/COMMERCIAL_S12_1_GITHUB_EMAIL_PRIVACY_2026-09-28.diagnose
 !analysis/COMMERCIAL_S12_1_CI_SOURCE_FREEZE_TAG_FETCH_2026-09-28.diagnose
