@@ -122,7 +122,8 @@ def fixture(*, complete_backup=False):
         private_json(r.ATTEMPT_MARKER,dict(attempt=1))
         index={}
         if complete_backup:
-            backup,index=r.create_backup(path_records=records,parent_record=parent)
+            with mock.patch.object(r,'FREEZE_TAG','s12-yoti-sandbox-runtime-freeze-r9'):
+                backup,index=r.create_backup(path_records=records,parent_record=parent)
         for key in (() if complete_backup else ('application','control')):
             root=app if key=='application' else control
             commit=git(root,'rev-parse','HEAD').decode().strip()
@@ -192,7 +193,8 @@ def fixture(*, complete_backup=False):
         if complete_backup:
             private_json(r.ATTEMPT_MARKER,dict(attempt=1,backup=str(backup),started_at='fixture',
                 release_repository_state=r._release_repository_states(
-                    {root:root/r.RECOVERY_GIT_DIRECTORY for root in (app,control)},records)))
+                    {root:root/r.RECOVERY_GIT_DIRECTORY for root in (app,control)},records,
+                    control_freeze_ref='refs/tags/s12-yoti-sandbox-runtime-freeze-r9')))
             contract['protected_inputs'][r.ATTEMPT_MARKER.name]=hashlib.sha256(r.ATTEMPT_MARKER.read_bytes()).hexdigest()
         contract_path=base/'contract.json';private_json(contract_path,contract)
         stack.enter_context(mock.patch.object(r,'R12_CONTRACT_SHA256',hashlib.sha256(contract_path.read_bytes()).hexdigest()))

@@ -7621,6 +7621,17 @@ def _restore_repository(
     detached = record["detached"]
     release_branch = record["release_branch"]
     release_branch_tip = record["release_branch_tip"]
+    managed_refs = record.get("managed_refs", {})
+    # Restore the authenticated backup's finite freeze ref, not this newer
+    # controller's tag. Never extend this to arbitrary refs or floating names.
+    if not isinstance(managed_refs, dict) or len(managed_refs) > 1 or any(
+        not isinstance(reference, str)
+        or re.fullmatch(r"refs/tags/s12-yoti-sandbox-runtime-freeze-r[1-9][0-9]{0,8}", reference) is None
+        or (target is not None and (not isinstance(target, str)
+            or re.fullmatch(r"[0-9a-f]{40}", target) is None))
+        for reference, target in managed_refs.items()
+    ):
+        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     if (
         detached is not (branch is None)
         or (
@@ -7638,18 +7649,7 @@ def _restore_repository(
             _run(git_arguments("branch", "-f", branch, commit))
         _run(git_arguments("checkout", "--force", branch))
         _run(git_arguments(*clean_arguments))
-    managed_refs = record.get("managed_refs", {})
-    if not isinstance(managed_refs, dict):
-        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     for reference, target in sorted(managed_refs.items()):
-        if reference != f"refs/tags/{FREEZE_TAG}" or (
-            target is not None
-            and (
-                not isinstance(target, str)
-                or re.fullmatch(r"[0-9a-f]{40}", target) is None
-            )
-        ):
-            raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
         if target is None:
             _run(git_arguments("update-ref", "-d", reference))
         else:
@@ -7664,9 +7664,10 @@ def _restore_repository(
         _run(git_arguments("update-ref", "-d", "ORIG_HEAD"), check=False)
     else:
         _run(git_arguments("update-ref", "ORIG_HEAD", orig_head))
-    status = git("status", "--porcelain")
-    identity = (git("rev-parse", "HEAD"), git("rev-parse", "HEAD^{tree}"))
-    if status or identity != (commit, record["tree"]):
+    # Use the same narrow quarantine-directory exclusion as every other
+    # guarded identity check. Unrelated untracked paths still fail closed.
+    identity = _selected_identity(root, git_directory)
+    if identity != (commit, record["tree"]):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     if git("rev-parse", f"refs/heads/{release_branch}") != release_branch_tip:
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
