@@ -19,6 +19,7 @@ import os
 import pwd
 import re
 import select
+import signal
 import shutil
 import stat
 import struct
@@ -27,7 +28,7 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -35,7 +36,19 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r12"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r13"
+FOLLOWUP_SLOT = "r13-followup-1"
+FOLLOWUP_RED = "S12_1_FOLLOWUP_AUTHORIZATION_RED"
+FOLLOWUP_PARENT = {
+    "attempt": "30189b22f290361e901ac4f6b0af95ebc75424014ff190fb86cc9600c5ab680c",
+    "index": "18fad15bfc806ad1359648fc06353678ca78380a7924e30024050af726ce196e",
+    "r12_original": "8e2bb8ec334584d2a87e7b1d5b0f01fcf9463ed37281510fa56a9e49d89250ae",
+}
+ACTIVE_ATTEMPT: dict[str, Any] | None = None
+MATERIALIZATION_RECORDS: dict | None = None
+MATERIALIZATION_GUARDS: _R13GuardStack | None = None
+GIT_WRITER_SCOPE: _R13GitWriters | None = None
+MATERIALIZATION_RED = "S12_1_MATERIALIZATION_CONTRACT_RED"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -182,6 +195,12 @@ def expected_manifest_contract() -> dict[str, Any]:
             "values_committed": False,
         },
         "decision": "SOURCE_GREEN_RUNTIME_DEPLOYMENT_REQUIRES_EXACT_FREEZE",
+        "followup_admission": {
+            "slot": FOLLOWUP_SLOT,
+            "authority": "PROTECTED_HUMAN_GRANT_AND_CLOSED_R12_RECOVERY",
+            "historical_marker_preserved": True,
+            "consumption": "DURABLE_BEFORE_DEPLOY_NO_RETRY",
+        },
         "environment": "SANDBOX",
         "final_posture": {
             "callback": "INACTIVE",
@@ -415,12 +434,14 @@ def _barrier_release_completion() -> dict[str, Any] | None:
         "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
     )
     if (
-        set(value) != {"schema", "completed_at", "journal_sha256"}
+        set(value) != ({"schema", "completed_at", "journal_sha256"}
+                       | ({"attempt_binding"} if ACTIVE_ATTEMPT is not None else set()))
         or value.get("schema") != BARRIER_RELEASE_COMPLETION_SCHEMA
         or not isinstance(value.get("completed_at"), str)
         or not value["completed_at"]
         or not isinstance(value.get("journal_sha256"), str)
         or re.fullmatch(r"[0-9a-f]{64}", value["journal_sha256"]) is None
+        or (ACTIVE_ATTEMPT is not None and value.get("attempt_binding") != ACTIVE_ATTEMPT)
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     return value
@@ -453,6 +474,7 @@ def _write_barrier_release_completion() -> None:
                 "+00:00", "Z"
             ),
             "journal_sha256": _sha256(BARRIER_RELEASE_BACKUP),
+            **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
         },
     )
     completion = _barrier_release_completion()
@@ -581,6 +603,14 @@ def _run(
     timeout: int = 120,
     input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if GIT_WRITER_SCOPE is not None:
+        GIT_WRITER_SCOPE.check()
+        selected = GIT_WRITER_SCOPE.command(arguments)
+        if selected is not None:
+            completed = GIT_WRITER_SCOPE.run(selected, timeout, input_text=input_text)
+            if check and completed.returncode:
+                raise S12ControlError("S12_1_CONTROL_COMMAND_RED")
+            return completed
     try:
         completed = subprocess.run(
             list(arguments),
@@ -681,13 +711,7 @@ def _bounded_nul_command_records(
     arguments: Sequence[str], safe_code: str
 ) -> tuple[bytes, ...]:
     try:
-        completed = subprocess.run(
-            list(arguments),
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=120,
-        )
+        completed = _git_process(arguments)
     except (OSError, subprocess.SubprocessError):
         raise S12ControlError(safe_code) from None
     output = completed.stdout
@@ -705,6 +729,17 @@ def _bounded_nul_command_records(
     if len(records) > 500_000 or any(not record for record in records):
         raise S12ControlError(safe_code)
     return records
+
+
+def _git_process(arguments, *, timeout=120, stdin=None, stdout=None, text=False):
+    """Binary/streaming Git helpers share the epoch router, without a bypass."""
+    if GIT_WRITER_SCOPE is not None:
+        selected = GIT_WRITER_SCOPE.command(arguments)
+        if selected is None:
+            GIT_WRITER_SCOPE.fail()
+        return GIT_WRITER_SCOPE.run(selected,timeout,stdin=stdin,stdout=stdout,text=text)
+    return subprocess.run(list(arguments),check=False,stdin=stdin,
+        stdout=stdout or subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,text=text)
 
 
 def _validate_canonical_index(
@@ -1270,13 +1305,11 @@ def _create_git_bundle(
         )
         with os.fdopen(descriptor, "wb") as output:
             descriptor = None
-            completed = subprocess.run(
+            completed = _git_process(
                 _selected_git_arguments(
                     root, git_directory, "bundle", "create", "-", *revisions
                 ),
-                check=False,
                 stdout=output,
-                stderr=subprocess.PIPE,
                 timeout=300,
             )
             output.flush()
@@ -1296,14 +1329,11 @@ def _verify_git_bundle(
 ) -> None:
     try:
         with source.open("rb") as input_stream:
-            completed = subprocess.run(
+            completed = _git_process(
                 _selected_git_arguments(
                     root, git_directory, "bundle", "verify", "/dev/stdin"
                 ),
-                check=False,
                 stdin=input_stream,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
                 timeout=120,
             )
     except (OSError, subprocess.SubprocessError):
@@ -1317,14 +1347,11 @@ def _git_bundle_heads(
 ) -> dict[str, str]:
     try:
         with source.open("rb") as input_stream:
-            completed = subprocess.run(
+            completed = _git_process(
                 _selected_git_arguments(
                     root, git_directory, "bundle", "list-heads", "/dev/stdin"
                 ),
-                check=False,
                 stdin=input_stream,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
                 text=True,
                 timeout=120,
             )
@@ -1782,6 +1809,7 @@ def create_backup(
     }
     index = {
         "schema": BACKUP_SCHEMA,
+        **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "application": {
             **application_state,
@@ -3433,6 +3461,11 @@ def _refresh_worktree_barrier_for_release(
                 if metadata.st_uid != 0 or mode & 0o022:
                     raise OSError
                 existing = root_records.get(path)
+                if ACTIVE_ATTEMPT is not None and (existing is None or
+                        (metadata.st_dev,metadata.st_ino) != (existing["device"],existing["inode"])):
+                    # Follow-up objects must have a prospective binding. The
+                    # legacy root-Git fallback is not authority for R13.
+                    raise S12ControlError(MATERIALIZATION_RED)
                 if existing is not None and (
                     metadata.st_dev,
                     metadata.st_ino,
@@ -4898,10 +4931,15 @@ class _GitMetadataTransitionGuard:
         self.watches.clear()
         self.root_watches.clear()
 
-    def finalize_release(self) -> None:
+    def finalize_release(self, relocated_paths: Sequence[Path] | None = None) -> None:
         """Cross an ordered watch barrier while a journal backup remains."""
 
-        self.assert_unchanged()
+        if relocated_paths is None:
+            self.assert_unchanged()
+        else:
+            # Atomic exchange retains the watched directory inodes. Compare
+            # against the pre-exchange baseline, never baseline exposed paths.
+            self.assert_quarantined_unchanged(relocated_paths)
         self._synchronized_inotify_shutdown()
 
     def close(self) -> None:
@@ -6360,6 +6398,8 @@ def _write_barrier_journal(
         records[root]["root_xattr_fingerprint"] = (
             _repository_root_xattr_fingerprint(root)
         )
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREDEPLOY_BARRIER_CAPTURE")
     worktree_barrier = _capture_worktree_write_barrier(roots, records)
     _atomic_barrier_json(
         BARRIER_MARKER,
@@ -6385,6 +6425,8 @@ def _write_barrier_journal(
     _assert_repository_parent_xattrs(parent_record)
     for root in roots:
         _assert_repository_root_xattrs(root, records[root])
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_BARRIER_JOURNALED")
     return worktree_barrier
 
 
@@ -7186,14 +7228,31 @@ def _serialized_repository_recovery(
     preserve_on_error: bool = False,
     allow_journaled_transition: bool = False,
 ):
+    # This owner outlives both the yielded body and its release cleanup. Only
+    # an already-installed release guard may take over its event history.
+    with _r13_guard_scope() as guards:
+        with _serialized_repository_recovery_guarded(
+            roots, records, parent_record, worktree_barrier, preserve_on_error,
+            allow_journaled_transition, materialization_guards=guards,
+        ) as barriers:
+            yield barriers
+
+
+@contextmanager
+def _serialized_repository_recovery_guarded(
+    roots: Sequence[Path] | None = None,
+    records: dict[Path, dict[str, Any]] | None = None,
+    parent_record: dict[str, Any] | None = None,
+    worktree_barrier: dict[Path, dict[Path, dict[str, Any]]] | None = None,
+    preserve_on_error: bool = False,
+    allow_journaled_transition: bool = False,
+    *,
+    materialization_guards: _R13GuardStack,
+):
     selected_roots = tuple(roots or (APPLICATION_ROOT, CONTROL_ROOT))
     metadata_paths = _repository_git_metadata_paths(selected_roots)
     transition_guard = _GitMetadataTransitionGuard(
         tuple(path for path in metadata_paths if not _is_recovery_guard(path))
-    )
-    tracked_paths = _tracked_worktree_regular_paths(
-        selected_roots,
-        allow_missing=allow_journaled_transition,
     )
     selected_records: dict[Path, dict[str, Any]] = records or {}
     selected_worktree_barrier = worktree_barrier
@@ -7201,7 +7260,18 @@ def _serialized_repository_recovery(
     parent_locked = False
     transition_started = False
     completed = False
+    git_handoff_guard: _GitMetadataTransitionGuard | None = None
     try:
+        # Check a quiet interrupted epoch before any lock chmod/chown can
+        # alter ctime. The new live stream then owns those declared transitions.
+        writers = _r13_git_writers(selected_roots)
+        transition_guard.assert_unchanged()
+        if writers is not None:
+            materialization_guards.retain(_r13_initial_worktree_guards(selected_roots, writers))
+        tracked_paths = _tracked_worktree_regular_paths(
+            selected_roots,
+            allow_missing=allow_journaled_transition,
+        )
         if (
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
@@ -7292,32 +7362,67 @@ def _serialized_repository_recovery(
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         transition_guard.assert_no_writer_events()
         transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
+        # Establish attributed, filesystem-wide coverage while the initial
+        # recursive quarantine guard still owns the mutation history.
+        if writers is not None:
+            writers.directories = dict(barriers)
+            writers.check()
+        transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
         transition_guard.close()
         for git_directory in barriers.values():
             _validate_root_git_contract(git_directory)
         for root, git_dir in barriers.items():
             _clear_stale_git_locks(root, git_dir)
-        yield barriers
-        # Root Git may preserve a journaled inode while temporarily restoring
-        # its source write mode, or normalize its non-executable permission
-        # class while replacing the checked-out content.  Re-seal those exact
-        # root-owned transitions before accepting the post-body identity.  An
-        # unjournaled replacement must already reject group/other writes and
-        # is still rejected by the second pass in the barrier lock.
-        _lock_worktree_write_barrier(
-            selected_worktree_barrier,
-            allow_missing=allow_journaled_transition,
-        )
-        tracked_paths = _tracked_worktree_regular_paths(selected_roots)
-        _assert_worktree_write_barrier(
-            selected_roots, selected_worktree_barrier
-        )
-        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
-            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
-        for root, git_directory in barriers.items():
-            _selected_identity(root, git_directory)
-        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
-            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        global MATERIALIZATION_RECORDS, MATERIALIZATION_GUARDS
+        previous_materialization = MATERIALIZATION_RECORDS
+        previous_guards = MATERIALIZATION_GUARDS
+        # Retain both allocation and successor watches across repositories,
+        # immutable staging and the complete post-yield audit. Snapshot equality
+        # alone must not erase an intervening foreign writer's event history.
+        try:
+            MATERIALIZATION_RECORDS = selected_worktree_barrier
+            MATERIALIZATION_GUARDS = materialization_guards
+            try:
+                if ACTIVE_ATTEMPT is not None:
+                    materialization_guards.assert_quiet()
+                    _r13_boundary('REPOSITORY_BODY_ENTERED')
+                yield barriers
+                if ACTIVE_ATTEMPT is not None:
+                    # Authorized Git writes have finished. Watch the complete
+                    # quarantined metadata tree before exposing it, including
+                    # deep refs/objects not covered by worktree/root watches.
+                    if writers is None:
+                        raise S12ControlError(GIT_WRITER_RED)
+                    writers.check()
+                    git_handoff_guard = _GitMetadataTransitionGuard(
+                        tuple(barriers.values())
+                    )
+                    materialization_guards.callback(git_handoff_guard.close)
+                    _r13_audit_materialized(selected_roots)
+                # Legacy Git may normalize a journaled inode's mode. R13 only
+                # accepts its prospectively bound objects; the guards above
+                # remain live throughout the final identity checks.
+                _lock_worktree_write_barrier(
+                    selected_worktree_barrier,
+                    allow_missing=allow_journaled_transition,
+                )
+                tracked_paths = _tracked_worktree_regular_paths(selected_roots)
+                _assert_worktree_write_barrier(
+                    selected_roots, selected_worktree_barrier
+                )
+                if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                materialization_guards.assert_quiet()
+                for root, git_directory in barriers.items():
+                    _selected_identity(root, git_directory)
+                if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+            finally:
+                MATERIALIZATION_RECORDS = previous_materialization
+                MATERIALIZATION_GUARDS = previous_guards
+        except BaseException:
+            # Leave the watches installed through fail-closed cleanup too.
+            raise
         completed = True
     finally:
         transition_guard.close()
@@ -7344,9 +7449,17 @@ def _serialized_repository_recovery(
                 except S12ControlError:
                     cleanup_failed = True
             if not cleanup_failed:
+                if ACTIVE_ATTEMPT is not None and GIT_WRITER_SCOPE is not None:
+                    # Rename changes the selector, not the inode authority.
+                    # Subsequent read-only audit commands use the live name
+                    # while the same filesystem stream and handles persist.
+                    GIT_WRITER_SCOPE.directories = {r:r/'.git' for r in selected_roots}
                 release_guard: _WorktreeReleaseGuard | None = None
                 release_quiescence: _GuardedHandleQuiescence | None = None
+                release_attributes = None
                 try:
+                    if ACTIVE_ATTEMPT is not None and completed:
+                        _r13_boundary("RELEASE_BARRIERS_EXCHANGED")
                     if completed:
                         _refresh_worktree_barrier_for_release(
                             selected_roots,
@@ -7374,6 +7487,10 @@ def _serialized_repository_recovery(
                     }
                     release_paths.update(selected_roots)
                     release_paths.update(
+                        p for p in materialization_guards.paths
+                        if p.exists() and not p.is_symlink()
+                    )
+                    release_paths.update(
                         _repository_git_metadata_directories(selected_roots)
                     )
                     git_release_fingerprint = ""
@@ -7387,10 +7504,18 @@ def _serialized_repository_recovery(
                         )
                     if parent_locked:
                         _hard_lock_repository_parent(parent_record)
+                        if ACTIVE_ATTEMPT is not None:
+                            # The final namespace permission/attribute handoff
+                            # includes the parent, not just its repositories.
+                            release_paths.add(DEPLOYMENT_LOCK_ROOT)
                     release_guard = _WorktreeReleaseGuard(
                         selected_roots,
                         tuple(release_paths),
                     )
+                    if ACTIVE_ATTEMPT is not None:
+                        release_attributes = _R12AttributeGuard(tuple(
+                            p for p in release_paths if p.exists() and not p.is_symlink()
+                        ), event_mask=0xFCE)
                     release_xattr_omissions = (
                         _worktree_release_xattr_omissions(
                             selected_worktree_barrier
@@ -7404,6 +7529,13 @@ def _serialized_repository_recovery(
                         tuple(release_paths), selected_roots
                     )
                     release_quiescence.acquire()
+                    if git_handoff_guard is not None:
+                        git_handoff_guard.finalize_release(tuple(
+                            root / ".git" for root in selected_roots
+                        ))
+                    # Both watch sets overlap here. Drain/check the retained
+                    # attributed history before any release metadata changes.
+                    materialization_guards.close()
                     _restore_worktree_write_barrier(
                         selected_worktree_barrier,
                         selected_records if completed else None,
@@ -7440,10 +7572,14 @@ def _serialized_repository_recovery(
                         _restore_repository_git_metadata(
                             root, selected_records[root]
                         )
+                    if ACTIVE_ATTEMPT is not None:
+                        _r13_boundary("RELEASE_ATTRIBUTES_RESTORED")
                     release_guard.accept_release_attributes()
 
                     def validate_final_release() -> None:
                         release_quiescence.assert_quiesced()
+                        if release_attributes is not None:
+                            release_attributes.assert_quiet()
                         if not completed:
                             return
                         _validate_released_worktree_contract(
@@ -7491,36 +7627,82 @@ def _serialized_repository_recovery(
                                 raise S12ControlError(
                                     "S12_1_REPOSITORY_PARENT_RED"
                                 )
-                            _assert_hard_locked_repository_parent(parent_record)
+                            if ACTIVE_ATTEMPT is None:
+                                _assert_hard_locked_repository_parent(parent_record)
+                            elif _repository_parent_metadata() != parent_record:
+                                raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
+                        if release_attributes is not None:
+                            release_attributes.assert_quiet()
+                        if ACTIVE_ATTEMPT is not None:
+                            writers.check()
+                            _r13_boundary("RELEASE_SHUTDOWN")
+                            release_attributes.assert_quiet()
+                            writers.check()
+
+                    if ACTIVE_ATTEMPT is not None and parent_locked:
+                        # Restore while permission, attributed and filesystem
+                        # guards still overlap. IN_IGNORED shutdown follows
+                        # this last declared mutation, never precedes it.
+                        _restore_repository_parent(parent_record)
+                        _r13_boundary("RELEASE_PARENT_RESTORED")
+                        release_guard.accept_release_attributes()
+                        release_attributes.assert_quiet()
+                        writers.check()
 
                     release_guard.finalize_release(
                         validate_final_release,
                         validate_release_shutdown,
                     )
                     release_guard = None
+                    if release_attributes is not None:
+                        release_attributes.assert_quiet()
+                    if ACTIVE_ATTEMPT is not None:
+                        # Attributed release guards still cover all existing
+                        # directories while the writer epoch drains and retires.
+                        _r13_retire_git_writers()
+                        if release_attributes is not None:
+                            release_attributes.assert_quiet()
                     if parent_locked:
-                        _restore_repository_parent(parent_record)
+                        if ACTIVE_ATTEMPT is None:
+                            _restore_repository_parent(parent_record)
                         parent_locked = False
                 except S12ControlError:
                     cleanup_failed = True
                     try:
+                        if ACTIVE_ATTEMPT is not None:
+                            for root in selected_roots:
+                                if _barrier_path_present(_r13_location(root)):
+                                    _r13_poison(_r13_location(root))
                         if parent_locked:
                             _lock_repository_parent(parent_record)
                         for root in selected_roots:
                             _lock_repository_root(root, selected_records[root])
-                        _reseal_released_worktree_contract(
-                            selected_roots,
-                            selected_records,
-                            selected_worktree_barrier,
-                            include_current=completed,
-                        )
                         for root in selected_roots:
                             _lock_repository_git_metadata(
                                 root, selected_records[root]
                             )
+                        if ACTIVE_ATTEMPT is not None:
+                            for root in selected_roots:
+                                _install_repository_recovery_barrier(
+                                    root, selected_records[root]
+                                )
+                        # A failed writer epoch can never admit another Git
+                        # reader. R13 already prospectively bound every new
+                        # tracked path in selected_worktree_barrier; reseal
+                        # that closed set without a fresh index enumeration.
+                        # Reinstall Git barriers first so a failed worktree
+                        # reseal cannot leave released Git namespaces behind.
+                        _reseal_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                            include_current=completed and ACTIVE_ATTEMPT is None,
+                        )
                     except S12ControlError:
                         pass
                 finally:
+                    if release_attributes is not None:
+                        release_attributes.close()
                     if release_guard is not None:
                         release_guard.close()
                     if release_quiescence is not None:
@@ -7556,14 +7738,8 @@ def _seed_repository_from_bundle(
     for operation in ("verify", "unbundle"):
         try:
             with bundle.open("rb") as input_stream:
-                completed = subprocess.run(
-                    git_arguments("bundle", operation, "/dev/stdin"),
-                    check=False,
-                    stdin=input_stream,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=300,
-                )
+                arguments = git_arguments("bundle", operation, "/dev/stdin")
+                completed = _git_process(arguments,timeout=300,stdin=input_stream)
         except (OSError, subprocess.SubprocessError):
             raise S12ControlError("S12_1_BACKUP_BUNDLE_RED") from None
         if completed.returncode != 0:
@@ -7621,6 +7797,17 @@ def _restore_repository(
     detached = record["detached"]
     release_branch = record["release_branch"]
     release_branch_tip = record["release_branch_tip"]
+    managed_refs = record.get("managed_refs", {})
+    # Restore the authenticated backup's finite freeze ref, not this newer
+    # controller's tag. Never extend this to arbitrary refs or floating names.
+    if not isinstance(managed_refs, dict) or len(managed_refs) > 1 or any(
+        not isinstance(reference, str)
+        or re.fullmatch(r"refs/tags/s12-yoti-sandbox-runtime-freeze-r[1-9][0-9]{0,8}", reference) is None
+        or (target is not None and (not isinstance(target, str)
+            or re.fullmatch(r"[0-9a-f]{40}", target) is None))
+        for reference, target in managed_refs.items()
+    ):
+        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     if (
         detached is not (branch is None)
         or (
@@ -7630,26 +7817,23 @@ def _restore_repository(
     ):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     _seed_repository_from_bundle(root, git_arguments, bundle, record)
-    _run(git_arguments("checkout", "--force", "--detach", commit))
-    _run(git_arguments(*clean_arguments))
+    if ACTIVE_ATTEMPT is not None:
+        _r13_materialize_undo(root, git_directory)
+        _run(git_arguments("read-tree", commit))
+        _run(git_arguments("update-ref", "--no-deref", "HEAD", commit))
+    else:
+        _run(git_arguments("checkout", "--force", "--detach", commit))
+        _run(git_arguments(*clean_arguments))
     _run(git_arguments("branch", "-f", release_branch, release_branch_tip))
     if branch is not None:
         if branch != release_branch:
             _run(git_arguments("branch", "-f", branch, commit))
-        _run(git_arguments("checkout", "--force", branch))
-        _run(git_arguments(*clean_arguments))
-    managed_refs = record.get("managed_refs", {})
-    if not isinstance(managed_refs, dict):
-        raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
+        if ACTIVE_ATTEMPT is not None:
+            _run(git_arguments("symbolic-ref", "HEAD", "refs/heads/"+branch))
+        else:
+            _run(git_arguments("checkout", "--force", branch))
+            _run(git_arguments(*clean_arguments))
     for reference, target in sorted(managed_refs.items()):
-        if reference != f"refs/tags/{FREEZE_TAG}" or (
-            target is not None
-            and (
-                not isinstance(target, str)
-                or re.fullmatch(r"[0-9a-f]{40}", target) is None
-            )
-        ):
-            raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
         if target is None:
             _run(git_arguments("update-ref", "-d", reference))
         else:
@@ -7664,9 +7848,10 @@ def _restore_repository(
         _run(git_arguments("update-ref", "-d", "ORIG_HEAD"), check=False)
     else:
         _run(git_arguments("update-ref", "ORIG_HEAD", orig_head))
-    status = git("status", "--porcelain")
-    identity = (git("rev-parse", "HEAD"), git("rev-parse", "HEAD^{tree}"))
-    if status or identity != (commit, record["tree"]):
+    # Use the same narrow quarantine-directory exclusion as every other
+    # guarded identity check. Unrelated untracked paths still fail closed.
+    identity = _selected_identity(root, git_directory)
+    if identity != (commit, record["tree"]):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     if git("rev-parse", f"refs/heads/{release_branch}") != release_branch_tip:
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
@@ -8357,6 +8542,12 @@ def _seal_release_fetch_stage(
         or runtime_digest_bindings != [_trusted_controller_digest()]
     ):
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
+    if ACTIVE_ATTEMPT is not None:
+        release = ACTIVE_ATTEMPT["release"]
+        if (control_commit != release["control_commit"]
+                or _bare_root_git(control_fetch, "rev-parse", f"refs/tags/{FREEZE_TAG}") != release["tag_object"]
+                or _bare_root_git(control_fetch, "rev-parse", "refs/s12/control-main^{tree}") != release["control_tree"]):
+            raise S12ControlError(FOLLOWUP_RED)
 
 
 def _validated_git_paths(
@@ -8486,12 +8677,16 @@ def _sync_repositories(
         ),
         timeout=300,
     )
-    _run(_selected_git_arguments(APPLICATION_ROOT, application_git, "checkout", "main"))
-    _run(
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary('APPLICATION_FETCHED')
+        _r13_materialize(APPLICATION_ROOT, application_git, APPLICATION_COMMIT, "main")
+    else:
+        _run(_selected_git_arguments(APPLICATION_ROOT, application_git, "checkout", "main"))
+        _run(
         _selected_git_arguments(
             APPLICATION_ROOT, application_git, "merge", "--ff-only", APPLICATION_COMMIT
         )
-    )
+        )
     _run(
         _selected_git_arguments(
             CONTROL_ROOT,
@@ -8521,12 +8716,15 @@ def _sync_repositories(
     target_control = _selected_git(
         CONTROL_ROOT, control_git, "rev-parse", f"{FREEZE_TAG}^{{commit}}"
     )
-    _run(_selected_git_arguments(CONTROL_ROOT, control_git, "checkout", "control-main"))
-    _run(
+    if ACTIVE_ATTEMPT is not None:
+        _r13_materialize(CONTROL_ROOT, control_git, target_control, "control-main")
+    else:
+        _run(_selected_git_arguments(CONTROL_ROOT, control_git, "checkout", "control-main"))
+        _run(
         _selected_git_arguments(
             CONTROL_ROOT, control_git, "merge", "--ff-only", target_control
         )
-    )
+        )
     if _selected_identity(APPLICATION_ROOT, application_git) != (
         APPLICATION_COMMIT,
         APPLICATION_TREE,
@@ -8725,6 +8923,11 @@ def _load_recovery_backup() -> tuple[Path, dict[str, Any], dict[str, Any]]:
     index = _private_json(backup / "restore-index.json", "S12_1_RECOVERY_INDEX_RED")
     if index.get("schema") != BACKUP_SCHEMA:
         raise S12ControlError("S12_1_RECOVERY_INDEX_RED")
+    if ACTIVE_ATTEMPT is not None and (
+        attempt.get("attempt_binding") != ACTIVE_ATTEMPT
+        or index.get("attempt_binding") != ACTIVE_ATTEMPT
+    ):
+        raise S12ControlError("S12_1_FOLLOWUP_RECOVERY_BINDING_RED")
     return backup, index, attempt
 
 
@@ -8825,6 +9028,7 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
         and result.get("deployment_count") == 1
         and result.get("backup") == attempt.get("backup")
         and result.get("attempt_started_at") == attempt.get("started_at")
+        and (ACTIVE_ATTEMPT is None or result.get("attempt_binding") == ACTIVE_ATTEMPT)
     )
 
 
@@ -8905,7 +9109,18 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
         )
     _sync_repository_filesystem(APPLICATION_ROOT)
     _sync_repository_filesystem(CONTROL_ROOT)
+    # Retain the pre-attempt journal until the bound release completion is
+    # durable. Normalization recovers interrupted unlink/completion steps.
+    _prepare_barrier_release_backup()
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_RELEASE_BACKED_UP")
     _durable_unlink(BARRIER_MARKER)
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_RELEASE_UNLINKED")
+    _write_barrier_release_completion()
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_RELEASE_COMPLETED")
+    _durable_unlink(BARRIER_RELEASE_BACKUP)
     return {
         "ok": True,
         "safe_code": "S12_1_ORPHAN_BARRIER_RECOVERED",
@@ -8976,6 +9191,11 @@ def _deploy_locked() -> dict[str, Any]:
     ):
         _recover_repository_barrier_only()
         raise S12ControlError("S12_1_ORPHAN_BARRIER_RECOVERED")
+    if ACTIVE_ATTEMPT is not None:
+        _ensure_private_directory_durable(STATE_ROOT, Path("/"))
+        _r13_boundary("FOLLOWUP_NAMESPACE_CREATED")
+        _r13_begin_attempt_observation()
+        _r13_boundary("PREDEPLOY_PREFLIGHT")
     read_only_preflight()
     initial_active, initial_sub = _rollback_unit_state()
     if initial_active != "inactive" or initial_sub != "dead":
@@ -8996,6 +9216,7 @@ def _deploy_locked() -> dict[str, Any]:
     mutation_started = False
     release_repository_state: dict[str, Any] | None = None
     repository_sync_failure: BaseException | None = None
+    release_observation: _GitMetadataTransitionGuard | None = None
     try:
         worktree_barrier = _write_barrier_journal(
             path_records, parent_record
@@ -9028,6 +9249,7 @@ def _deploy_locked() -> dict[str, Any]:
                     ATTEMPT_MARKER,
                     {
                         "attempt": 1,
+                        **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
                         "backup": str(backup),
                         "started_at": attempt_started_at,
                     },
@@ -9038,6 +9260,8 @@ def _deploy_locked() -> dict[str, Any]:
                     control_sha, control_tree = _sync_repositories(
                         git_directories, fetch_directories
                     )
+                    if ACTIVE_ATTEMPT is not None:
+                        _r13_boundary("REPOSITORIES_MATERIALIZED")
                     release_repository_state = _release_repository_states(
                         git_directories, path_records
                     )
@@ -9045,6 +9269,7 @@ def _deploy_locked() -> dict[str, Any]:
                         ATTEMPT_MARKER,
                         {
                             "attempt": 1,
+                            **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
                             "backup": str(backup),
                             "started_at": attempt_started_at,
                             "release_repository_state": release_repository_state,
@@ -9055,6 +9280,17 @@ def _deploy_locked() -> dict[str, Any]:
                         control_sha,
                         control_tree,
                     )
+                    if ACTIVE_ATTEMPT is not None:
+                        # Install before the filesystem writer epoch retires.
+                        # This immutable subtree admits NO mutations (including
+                        # controller/root writes); ordinary runtime reads need
+                        # no writer grant. Creation of any new child is RED.
+                        release_observation = _GitMetadataTransitionGuard(
+                            (RELEASE_ROOT,), allow_root_lock_events=False
+                        )
+                        if GIT_WRITER_SCOPE is None:
+                            raise S12ControlError(GIT_WRITER_RED)
+                        GIT_WRITER_SCOPE.check()
                     _remove_fetch_stage(index)
                     _durable_unlink(_rollback_progress_path(backup))
                 except BaseException as error:
@@ -9072,6 +9308,9 @@ def _deploy_locked() -> dict[str, Any]:
         _sync_repository_filesystem(APPLICATION_ROOT)
         _sync_repository_filesystem(CONTROL_ROOT)
         _durable_unlink(BARRIER_MARKER)
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_PREVERIFY")
+            release_observation.assert_unchanged()
         _verify_release_freeze()
         _atomic_json(RUNTIME_CONTRACT, runtime_contract(control_sha, control_tree))
         os.chown(RUNTIME_CONTRACT, 0, 0)
@@ -9119,7 +9358,13 @@ def _deploy_locked() -> dict[str, Any]:
         ):
             _durable_unlink(path)
         evidence_not_before_ns = time.time_ns()
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_PREACTIVATION")
+            release_observation.assert_unchanged()
         start = _run(["systemctl", "start", UNIT_NAME], check=False, timeout=900)
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_ACTIVATED")
+            release_observation.assert_unchanged()
         if start.returncode != 0:
             raise S12ControlError("S12_1_RUNTIME_ACCEPTANCE_RED")
         if _systemctl_property(UNIT_NAME, "Result") != "success":
@@ -9153,9 +9398,17 @@ def _deploy_locked() -> dict[str, Any]:
         _run(["systemctl", "reload", "nginx.service"])
         _durable_unlink(RUNTIME_CONTRACT)
         read_only_preflight(immutable_release_allowed=True)
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_FINAL_AUDIT")
+            # The existing ordered IN_IGNORED shutdown checks queued history
+            # through the final inactive/public audit. No release execution
+            # follows this boundary. Process loss never resumes activation:
+            # the consumed attempt can only enter canonical recovery.
+            release_observation.finalize_release()
         result = {
             "ok": True,
             "safe_code": "S12_1_SANDBOX_RUNTIME_ACCEPTANCE_GREEN",
+            **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
             "backup": str(backup),
             "attempt_started_at": attempt_started_at,
             "deployment_count": 1,
@@ -9170,6 +9423,11 @@ def _deploy_locked() -> dict[str, Any]:
         _atomic_json(STATE_ROOT / "deployment-result.json", result)
         return result
     except BaseException:
+        # Observation failure must NOT poison the global Git executor and
+        # thereby prevent systemctl stop or the verified backup rollback.
+        # Abort this immutable epoch before the authorized release removal.
+        if release_observation is not None:
+            release_observation.close()
         if repository_sync_failure is not None:
             pass
         elif mutation_started and backup is not None and index is not None:
@@ -9177,6 +9435,9 @@ def _deploy_locked() -> dict[str, Any]:
         elif _barrier_journal_present():
             _recover_repository_barrier_only()
         raise
+    finally:
+        if release_observation is not None:
+            release_observation.close()
 
 
 def deploy() -> dict[str, Any]:
@@ -9335,8 +9596,9 @@ class _R12AttributeGuard:
     Inotify alone cannot distinguish our fchmod from a competing owner's
     chmod. Attribute events from ANY other TID (including root) are RED.
     """
-    def __init__(self, paths: Sequence[Path]):
+    def __init__(self, paths: Sequence[Path], *, event_mask: int = 4):
         self.fd = None
+        self.event_mask = event_mask
         library = ctypes.CDLL(None, use_errno=True)
         init = library.fanotify_init
         init.argtypes = [ctypes.c_uint, ctypes.c_uint]
@@ -9351,7 +9613,7 @@ class _R12AttributeGuard:
         mark.restype = ctypes.c_int
         try:
             for path in sorted(set(paths), key=os.fsencode):
-                mask = 4 | (0x48000000 if path.is_dir() else 0)
+                mask = event_mask | (0x48000000 if path.is_dir() else 0)
                 if mark(descriptor, 1, mask, -100, os.fsencode(path)) != 0:
                     raise S12ControlError(R12_RED)
             self.assert_quiet()
@@ -9372,7 +9634,7 @@ class _R12AttributeGuard:
                     os.close(fd)
                 if size < 24 or offset + size > len(data) or metadata_size != 24 or version != 3:
                     raise S12ControlError(R12_RED)
-                if mask & ~(4 | 0x40000000) or pid != threading.get_native_id():
+                if mask & ~(self.event_mask | 0x40000000) or pid != threading.get_native_id():
                     raise S12ControlError(R12_RED)
                 offset += size
 
@@ -9833,16 +10095,1594 @@ def reconcile_metadata(contract_path: Path) -> dict:
     with _exclusive_deployment_lock():
         return _r12_reconcile_locked(contract_path)
 
+
+def _r13_boundary(name: str) -> None:
+    """Fault-injection boundary; production never retries activation."""
+
+
+def _r13_tree(root: Path, git: Path, revision: str) -> dict[bytes, tuple[str, str]]:
+    entries = {}
+    for raw in _bounded_nul_command_records(_selected_git_arguments(
+            root, git, "ls-tree", "-r", "-z", revision), MATERIALIZATION_RED):
+        header, name = raw.split(b"\t", 1)
+        mode, kind, oid = header.decode("ascii").split()
+        _validated_git_paths((name,), MATERIALIZATION_RED)
+        if mode not in {"100644", "100755", "120000"} or kind != "blob" or name in entries:
+            raise S12ControlError(MATERIALIZATION_RED)
+        entries[name] = (mode, oid)
+    return entries
+
+
+def _r13_snapshot(path: Path) -> dict | None:
+    if not _barrier_path_present(path):
+        return None
+    meta = path.lstat()
+    link = stat.S_ISLNK(meta.st_mode)
+    fd = _r12_open(path, inspect_symlink=link)
+    try:
+        if link:
+            if meta.st_nlink != 1:
+                raise S12ControlError(MATERIALIZATION_RED)
+            return dict(device=meta.st_dev, inode=meta.st_ino, birth=_r12_birth(fd),
+                        kind="symlink", uid=meta.st_uid, gid=meta.st_gid,
+                        mode="0777", content=os.fsencode(os.readlink(path)).hex(), attrs={})
+        value = _r12_snapshot(path, fd, None)
+        metadata = value["metadata"]
+        metadata.pop("links")  # directory nlink changes only through bound child moves
+        return dict(**metadata, birth=value["birth"], attrs=value["xattrs"],
+                    content=_sha256_descriptor(fd) if metadata["kind"] == "regular" else None)
+    finally:
+        os.close(fd)
+
+
+def _r13_location(root: Path) -> Path:
+    if root not in {APPLICATION_ROOT, CONTROL_ROOT} or ACTIVE_ATTEMPT is None:
+        raise S12ControlError(MATERIALIZATION_RED)
+    return STATE_ROOT/"materialization"/("application" if root == APPLICATION_ROOT else "control")
+
+
+def _r13_preflight_storage() -> None:
+    """Reject a predictable EXDEV before consuming the sole follow-up slot."""
+    parent=STATE_ROOT/"attempts"/FOLLOWUP_SLOT/"materialization"
+    while not _barrier_path_present(parent):
+        parent=parent.parent
+    metadata=parent.lstat()
+    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid!=0
+            or stat.S_IMODE(metadata.st_mode)&0o022
+            or any(root.lstat().st_dev!=metadata.st_dev for root in (APPLICATION_ROOT,CONTROL_ROOT))):
+        raise S12ControlError("S12_1_MATERIALIZATION_FILESYSTEM_RED")
+
+
+def _r13_load(root: Path) -> tuple[Path, dict]:
+    tx = _r13_location(root)
+    _validate_secure_directory_chain(tx, Path("/"))
+    value = _private_json(tx/"journal.json", MATERIALIZATION_RED, maximum=32*1024*1024)
+    if (set(value) - {"unsafe"} != {"schema","attempt_binding","root","phase",
+                "historical_continuity","entries","old_commit","target_commit","branch",
+                "parents","private_parents"}
+            or value.get("schema") != "TU1NZ_S12_1_MATERIALIZATION_V1"
+            or value.get("attempt_binding") != ACTIVE_ATTEMPT or value.get("root") != str(root)
+            or value.get("phase") not in {"PREPARING", "READY", "APPLYING", "APPLIED", "UNDOING", "UNDONE"}
+            or value.get("historical_continuity") is not False or "unsafe" in value
+            or not isinstance(value.get("entries"), list)):
+        raise S12ControlError(MATERIALIZATION_RED)
+    key = "application" if root == APPLICATION_ROOT else "control"
+    _,index,_ = _load_recovery_backup()
+    uid,gid,_ = _recorded_path_metadata(index[key], "root")
+    if (value["old_commit"] != index[key]["commit"]
+            or value["target_commit"] != ACTIVE_ATTEMPT["release"][key+"_commit"]
+            or value["branch"] != ("main" if key=="application" else "control-main")):
+        raise S12ControlError(MATERIALIZATION_RED)
+    names = []
+    for entry in value["entries"]:
+        if (not isinstance(entry,dict) or set(entry) != {"path_hex","git_mode","blob",
+                "before","before_record","after","after_record","policy","step"}
+                or entry["git_mode"] not in {None,"directory","100644","100755","120000"}
+                or not isinstance(entry["path_hex"],str)
+                or re.fullmatch(r"(?:[0-9a-f]{2})+",entry["path_hex"]) is None
+                or entry["step"] not in {"PREPARED","BOUND","RETIRE_INTENT","PUBLISH_INTENT",
+                                        "APPLIED","WITHDRAW_INTENT","RESTORE_INTENT","UNDONE"}
+                or entry["policy"] != dict(uid=uid,gid=gid,mode=_r13_mode(entry["git_mode"]))
+                or (entry["git_mode"] in {None,"directory"} and entry["blob"] is not None)
+                or (entry["git_mode"] not in {None,"directory"} and
+                    (not isinstance(entry["blob"],str) or re.fullmatch(r"[0-9a-f]{40}",entry["blob"]) is None))):
+            raise S12ControlError(MATERIALIZATION_RED)
+        name = bytes.fromhex(entry["path_hex"])
+        _validated_git_paths((name,), MATERIALIZATION_RED)
+        if name.split(b"/")[0] in {b".git", os.fsencode(RECOVERY_GIT_DIRECTORY)}:
+            raise S12ControlError(MATERIALIZATION_RED)
+        names.append(name)
+    if len(set(names)) != len(names):
+        raise S12ControlError(MATERIALIZATION_RED)
+    git = _repository_recovery_git_directory(root)
+    before,after = _r13_tree(root,git,value["old_commit"]),_r13_tree(root,git,value["target_commit"])
+    old_dirs = set().union(*(_path_ancestors(n) for n in before))
+    new_dirs = set().union(*(_path_ancestors(n) for n in after)) - old_dirs
+    expected = {n: after.get(n,(None,None)) for n in before.keys() | after.keys()
+                if before.get(n)!=after.get(n)}
+    expected.update({n:("directory",None) for n in new_dirs})
+    if {bytes.fromhex(e["path_hex"]):(e["git_mode"],e["blob"]) for e in value["entries"]} != expected:
+        raise S12ControlError(MATERIALIZATION_RED)
+    expected_parents = {b""}
+    for name in expected:
+        expected_parents.update(_path_ancestors(name) - new_dirs)
+    if (not isinstance(value["parents"],dict) or set(value["parents"])!={n.hex() for n in expected_parents}
+            or not isinstance(value["private_parents"],dict) or set(value["private_parents"])!={".","new","old"}):
+        raise S12ControlError(MATERIALIZATION_RED)
+    return tx, value
+
+
+def _r13_mode(mode: str | None) -> str:
+    return {"directory":"2770","120000":"0777","100755":"0770"}.get(mode,"0660")
+
+
+def _r13_save(tx: Path, value: dict) -> None:
+    _atomic_json(tx/"journal.json", value)
+
+
+def _r13_assert_parents(root: Path, tx: Path, value: dict) -> None:
+    for name, binding in value["parents"].items():
+        if _r13_snapshot(root/os.fsdecode(bytes.fromhex(name))) != binding:
+            raise S12ControlError(MATERIALIZATION_RED)
+    for name,binding in value["private_parents"].items():
+        if _r13_snapshot(tx/name) != binding:
+            raise S12ControlError(MATERIALIZATION_RED)
+    # A newly published directory is itself a bound parent. No same-content
+    # replacement of an ancestor may redirect a subsequent child move.
+    for entry in value["entries"]:
+        if entry["git_mode"]=="directory" and entry["after"] is not None:
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            current=_r13_snapshot(path)
+            if current is not None and current!=entry["after"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+
+
+def _r13_audit_materialized(roots: Sequence[Path]) -> None:
+    for root in roots:
+        if not _barrier_path_present(_r13_location(root)):
+            continue
+        tx,value=_r13_load(root)
+        if value["phase"] not in {"APPLIED","UNDONE"}:
+            raise S12ControlError(MATERIALIZATION_RED)
+        _r13_assert_parents(root,tx,value)
+        for i,entry in enumerate(value["entries"]):
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            if _r13_snapshot(path) != entry["after" if value["phase"]=="APPLIED" else "before"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+            if value["phase"]=="APPLIED" and (
+                    _r13_snapshot(tx/"old"/str(i))!=entry["before"]
+                    or _barrier_path_present(tx/"new"/str(i))):
+                raise S12ControlError(MATERIALIZATION_RED)
+    _r13_boundary("MATERIALIZATION_AUDITED")
+
+
+GIT_WRITER_RED = "S12_1_GIT_WRITER_CONTRACT_RED"
+
+# Executed by an isolated interpreter, not preexec_fn in a threaded controller.
+# The O_PATH descriptor is the prospectively bound metadata inode. Landlock
+# grants no worktree/backup/outside writes and is inherited by every new task.
+_GIT_WRITER_BOOTSTRAP = r'''
+import ctypes,json,os,signal,struct,sys
+c=ctypes.CDLL(None,use_errno=True)
+fd=int(sys.argv[1]); args=json.loads(sys.argv[2]); env=json.loads(sys.argv[3])
+if c.prctl(1,signal.SIGKILL,0,0,0)<0 or os.getppid()!=int(sys.argv[4]): os._exit(125)
+if os.uname().machine not in ('x86_64','aarch64') or c.syscall(444,0,0,1)<3: os._exit(125)
+rules=ctypes.create_string_buffer(struct.pack('=Q',0x7ff2))
+rs=c.syscall(444,ctypes.byref(rules),8,0)
+rule=ctypes.create_string_buffer(struct.pack('=Qi',0x71b2 if sys.argv[8]=='STAGE_WRITE' else 0x61b2,fd))
+if rs<0: os._exit(125)
+if sys.argv[8]!='READ_ONLY' and c.syscall(445,rs,1,ctypes.byref(rule),0)<0: os._exit(125)
+null_fd=int(sys.argv[5])
+null_rule=ctypes.create_string_buffer(struct.pack('=Qi',2,null_fd))
+if c.syscall(445,rs,1,ctypes.byref(null_rule),0)<0: os._exit(125)
+if c.prctl(38,1,0,0,0)<0 or c.syscall(446,rs,0)<0: os._exit(125)
+os.close(rs); os.close(fd); os.close(null_fd); os.close(int(sys.argv[6]))
+if c.ptrace(0,0,0,0)<0: os._exit(125)
+os.kill(os.getpid(),signal.SIGSTOP)
+git_fd=int(sys.argv[7]); os.set_inheritable(git_fd,False)
+os.execve(git_fd,args,env)
+'''
+
+
+def _r13_fid_events(data: bytes) -> list[tuple[int, int, tuple[bytes, ...], bytes]]:
+    """Decode only opaque identities, never retain unrelated names/content."""
+    events = []
+    offset = 0
+    while offset < len(data):
+        if len(data)-offset < 24:
+            raise S12ControlError(GIT_WRITER_RED)
+        size, version, reserved, header, mask, fd, tid = struct.unpack_from('=IBBHQii', data, offset)
+        if fd >= 0:
+            os.close(fd)
+        if (version != 3 or reserved or header != 24 or size < 24
+                or offset+size > len(data) or fd != -1 or tid <= 0
+                or mask & ~0x40000FCE or not mask & 0xFCE):
+            raise S12ControlError(GIT_WRITER_RED)
+        end, pos = offset+size, offset+24
+        parents, targets = [], []
+        while pos < end:
+            if end-pos < 20:
+                raise S12ControlError(GIT_WRITER_RED)
+            kind, pad, length = struct.unpack_from('=BBH', data, pos)
+            count, handle_type = struct.unpack_from('=Ii', data, pos+12)
+            if (kind not in (1,2,3) or pad or length < 20+count or pos+length > end
+                    or not 0 < count <= 128 or handle_type <= 0):
+                raise S12ControlError(GIT_WRITER_RED)
+            key = data[pos+4:pos+12] + struct.pack('=i',handle_type) + data[pos+20:pos+20+count]
+            if kind == 1:
+                targets.append(key)
+            else:
+                parents.append(key)
+            if kind == 2 and b'\0' not in data[pos+20+count:pos+length]:
+                raise S12ControlError(GIT_WRITER_RED)
+            pos += length
+        if pos != end or len(targets) > 1 or not (targets or parents):
+            raise S12ControlError(GIT_WRITER_RED)
+        events.append((tid, mask, tuple(parents), targets[0] if targets else b''))
+        offset = end
+    return events
+
+
+class _R13GitWriters:
+    """One finite, journaled writer epoch; no ancestry-only or root exemption.
+
+    Filesystem marks precede inventory and never need a recursive watch-add.
+    Ptrace stops fork/clone/exec/exit before admitting or retiring each task.
+    Queued events are drained before PID reuse can confer another task's grant.
+    """
+    def __init__(self, roots: Sequence[Path], *, validation_binding: dict | None = None):
+        self.roots = tuple(roots)
+        self.validation_only = validation_binding is not None
+        binding = validation_binding if self.validation_only else ACTIVE_ATTEMPT
+        self.directories = {r:_repository_recovery_git_directory(r) or r/'.git' for r in roots}
+        self.controller_tid = threading.get_native_id()
+        self.fd = None
+        self.failed = False
+        self.members: dict[bytes, Path] = {}
+        self.worktree_members: set[bytes] = set()
+        self.pending: list[tuple] = []
+        self.tasks: dict[int, dict] = {}
+        self.operation = None
+        self.libc = ctypes.CDLL(None, use_errno=True)
+        self.libc.ptrace.restype = ctypes.c_long
+        self.journal = STATE_ROOT/(FOLLOWUP_SLOT+'.validation.json' if self.validation_only
+                                   else 'git-writer-scope.json')
+        self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=binding,
+                          phase='QUIET', sequence=0, tasks=[], operation=None,history=[])
+        if self.validation_only:
+            self.value['purpose'] = 'PARENT_VALIDATION_READ_ONLY'
+        try:
+            if (sys.platform != 'linux' or os.geteuid() != 0 or binding is None
+                    or (self.validation_only and (ACTIVE_ATTEMPT is not None
+                        or self.roots != (APPLICATION_ROOT,CONTROL_ROOT)))
+                    or os.uname().machine not in {'x86_64','aarch64'}
+                    or len({p.stat().st_dev for p in self.directories.values()}) != 1):
+                raise S12ControlError(GIT_WRITER_RED)
+            # REPORT_TID + DFID_NAME_TARGET; filesystem (not inode/mount) marks
+            # observe new nested directories from their creation onward.
+            self.fd = self.libc.fanotify_init(0x1f03, os.O_RDONLY|os.O_CLOEXEC)
+            if self.fd < 0:
+                self.fd = None
+                raise S12ControlError(GIT_WRITER_RED)
+            first = next(iter(self.directories.values()))
+            if self.libc.fanotify_mark(self.fd, 0x101, ctypes.c_uint64(0x40000FCE),
+                                      -100, os.fsencode(first)) < 0:
+                raise S12ControlError(GIT_WRITER_RED)
+            # The filesystem stream already exists before enumerating ANY
+            # worktree/index name or invoking Git. It covers existing inodes,
+            # absent/new names and reverted writes during inventory itself.
+            for root in self.roots:
+                key = self.handle(root)
+                self.members[key] = root
+                self.worktree_members.add(key)
+            _r13_boundary('GIT_WRITER_INVENTORY')
+            for root in self.roots:
+                for base,dirs,files in os.walk(root,followlinks=False):
+                    if Path(base) == root:
+                        dirs[:] = [n for n in dirs if n not in ('.git',RECOVERY_GIT_DIRECTORY)]
+                    for p in (Path(base),*(Path(base)/n for n in dirs+files)):
+                        if p.lstat().st_dev != first.stat().st_dev:
+                            raise S12ControlError(GIT_WRITER_RED)
+                        key = self.handle(p)
+                        self.members[key] = root
+                        self.worktree_members.add(key)
+            for root,directory in self.directories.items():
+                for base,dirs,files in os.walk(directory, followlinks=False):
+                    for p in (Path(base), *(Path(base)/n for n in dirs+files)):
+                        if p.is_symlink() or p.stat().st_dev != first.stat().st_dev:
+                            raise S12ControlError(GIT_WRITER_RED)
+                        self.members[self.handle(p)] = root
+            self.check()
+            # Fixed Linux installation contract; discovering this path must
+            # not execute an as-yet unbound Git binary. Unsupported layouts
+            # fail closed. Git children receive this exact GIT_EXEC_PATH.
+            exec_path = Path('/usr/lib/git-core')
+            _validate_secure_directory_chain(exec_path,Path('/'))
+            self.image_paths = {'bootstrap':Path('/proc/self/exe'),
+                                'git':Path('/usr/bin/git'),'shell':Path('/bin/sh'),
+                                'git-core':exec_path/'git','upload-pack':exec_path/'git-upload-pack'}
+            self.images = {name:self.executable(path) for name,path in self.image_paths.items()}
+            self.value['images'] = self.images
+            if _barrier_path_present(self.journal):
+                old = _private_json(self.journal, GIT_WRITER_RED, maximum=4*1024*1024)
+                if (old.get('schema') != self.value['schema'] or old.get('attempt_binding') != binding
+                        or old.get('purpose') != self.value.get('purpose')
+                        or old.get('phase') != 'QUIET' or old.get('tasks') != []
+                        or old.get('images') != self.images or type(old.get('sequence')) is not int
+                        or not 0 <= old['sequence'] <= 1024 or not isinstance(old.get('history'),list)
+                        or len(old['history']) != old['sequence']
+                        or old.get('fingerprint') != self.fingerprint()):
+                    raise S12ControlError(GIT_WRITER_RED)
+                if self.validation_only and (
+                        old.get('observer_baseline') != _r13_observer_baseline(self.roots)
+                        or any(not isinstance(op,dict) or op.get('access_profile')!='READ_ONLY'
+                               or 'stdout' in op or not isinstance(op.get('task_history'),list)
+                               or any(not isinstance(task,dict) or task.get('exited') is not True
+                                      for task in op['task_history']) for op in old['history'])):
+                    raise S12ControlError(GIT_WRITER_RED)
+                self.value['sequence'] = old['sequence']
+                self.value['history'] = old.get('history',[])
+                if 'observer_baseline' in old:
+                    self.value['observer_baseline'] = old['observer_baseline']
+            elif self.validation_only or (self.roots == (APPLICATION_ROOT, CONTROL_ROOT)
+                  and not _barrier_journal_present()
+                  and not _barrier_path_present(ATTEMPT_MARKER)):
+                # Prospective, observed checkpoint, NOT historical provenance.
+                # Preserve it across read-only commands; never replace it with
+                # current metadata when recovering an observer-only namespace.
+                self.value['observer_baseline'] = _r13_observer_baseline(self.roots)
+            self.check()
+            self.checkpoint()
+        except BaseException:
+            self.close(aborted=True)
+            raise
+
+    def handle(self, path: Path, *, descriptor=False) -> bytes:
+        raw = ctypes.create_string_buffer(136)
+        struct.pack_into('=I',raw,0,128)
+        mount = ctypes.c_int()
+        fs = ctypes.create_string_buffer(256)
+        if (self.libc.name_to_handle_at(-100, os.fsencode(path), raw, ctypes.byref(mount),
+                                       0x400 if descriptor else 0) < 0
+                or self.libc.statfs(os.fsencode(path), fs) < 0):
+            raise S12ControlError(GIT_WRITER_RED)
+        count,kind = struct.unpack_from('=Ii',raw)
+        if not 0 < count <= 128 or kind <= 0:
+            raise S12ControlError(GIT_WRITER_RED)
+        # Linux x86_64/aarch64 statfs: seven native 64-bit fields before fsid.
+        return fs.raw[56:64] + struct.pack('=i',kind) + raw.raw[8:8+count]
+
+    def fingerprint(self):
+        paths = tuple(self.directories.values())
+        # Unlike the live quarantine-transition digest, interruption evidence
+        # must also bind root ctime: transient create/unlink at the root cannot
+        # disappear just because no descendant remains in the final tree.
+        roots = []
+        for path in paths:
+            meta = path.lstat()
+            roots.append([meta.st_dev,meta.st_ino,meta.st_mode,meta.st_uid,meta.st_gid,
+                          meta.st_nlink,meta.st_mtime_ns,meta.st_ctime_ns])
+        return dict(tree=_git_metadata_transition_fingerprint(paths),roots=roots)
+
+    def fail(self, reason=None):
+        self.failed = True
+        if reason is not None:
+            self.value.setdefault('failure_reason',reason)
+        self.value['phase'] = 'FAILED'
+        _atomic_json(self.journal,self.value)
+        for root in (() if self.validation_only else self.roots):
+            if _barrier_path_present(_r13_location(root)):
+                _r13_poison(_r13_location(root))
+        error = S12ControlError(GIT_WRITER_RED)
+        if 'failure_reason' in self.value:
+            error.add_note(self.value['failure_reason'])
+        raise error
+
+    def check(self):
+        if self.failed or self.fd is None:
+            raise S12ControlError(GIT_WRITER_RED)
+        try:
+            while True:
+                try:
+                    data = os.read(self.fd,65536)
+                except BlockingIOError:
+                    break
+                if not data:
+                    self.fail()
+                for tid,mask,parents,target in _r13_fid_events(data):
+                    # Capture authority at receipt, not when a future parent
+                    # event finally classifies this opaque object as in-scope.
+                    actor = 'controller' if tid == self.controller_tid else self.tasks.get(tid,{}).get('root')
+                    self.pending.append((actor,mask,parents,target))
+                if len(self.pending) > 262144:
+                    self.fail()
+            # A child event may precede its parent's CREATE in another task.
+            # Retain unclassified events for the epoch and compute closure.
+            changed = True
+            while changed:
+                changed = False
+                remaining = []
+                for actor,mask,parents,target in self.pending:
+                    roots = {self.members[k] for k in (*parents,target) if k in self.members}
+                    if not roots:
+                        remaining.append((actor,mask,parents,target))
+                        continue
+                    if len(roots) != 1:
+                        self.fail()
+                    root = roots.pop()
+                    worktree = any(k in getattr(self,'worktree_members',()) for k in (*parents,target))
+                    if actor != 'controller' and (worktree or actor != str(root)):
+                        self.fail('FOREIGN_WORKTREE_EVENT' if worktree else 'FOREIGN_METADATA_EVENT')
+                    if target and target not in self.members:
+                        # New identity has an observed parent association,
+                        # not a later equal-content/inode-owner inference.
+                        if not any(p in self.members for p in parents):
+                            self.fail()
+                        self.members[target] = root
+                        if worktree:
+                            self.worktree_members.add(target)
+                        changed = True
+                self.pending = remaining
+        except (OSError,ValueError,struct.error,S12ControlError):
+            self.fail()
+
+    def checkpoint(self):
+        self.check()
+        if any(actor not in (None,'controller') for actor,_,_,_ in self.pending):
+            self.fail()
+        if self.tasks:
+            self.fail()
+        fingerprint = self.fingerprint()
+        self.check()
+        self.value.update(phase='QUIET',tasks=[],operation=None,fingerprint=fingerprint)
+        _atomic_json(self.journal,self.value)
+        # Serialization/fsync is still inside the observed epoch. Do not
+        # discard events queued during that last I/O when close() retires it.
+        self.check()
+
+    def command(self, arguments):
+        argv = list(arguments)
+        env = dict(item.split('=',1) for item in _isolated_root_git_prefix(self.roots[0])[2:8])
+        env['GIT_EXEC_PATH'] = '/usr/lib/git-core'
+        for root,directory in self.directories.items():
+            prefix = _recovery_git_arguments(root,directory)
+            if argv[:len(prefix)] != prefix:
+                continue
+            suffix = argv[len(prefix):]
+            if not suffix:
+                self.fail()
+            return root, argv[8:], env
+        # Every remaining Git invocation also enters ptrace/Landlock. These
+        # finite auxiliary roles operate only on controller-owned fetch or
+        # immutable-stage namespaces, never widen a live-worktree grant.
+        if argv[:6] == _isolated_root_git_prefix(self.roots[0])[:6] and argv[6:7] == ['/usr/bin/git']:
+            suffix = argv[7:]
+            if (len(suffix)==7 and suffix[:3]==['config','--no-includes','--file']
+                    and suffix[4:]==['--null','--name-only','--list']):
+                return self.roots[0],argv[6:],env
+            self.fail()
+        if argv[:8] != _isolated_root_git_prefix(self.roots[0])[:8]:
+            # Unknown/wrapped Git is never silently run through subprocess.
+            if any(Path(item).name == 'git' for item in argv):
+                self.fail()
+            return None
+        for context in (FETCH_ROOT, FETCH_ROOT/'application.git', FETCH_ROOT/'control.git',
+                        *self.directories.values(), RELEASE_STAGING_ROOT/'application',
+                        RELEASE_STAGING_ROOT/'control', RELEASE_APPLICATION_ROOT, RELEASE_CONTROL_ROOT,
+                        *self.roots):
+            prefix = _isolated_root_git_prefix(context)
+            if argv[:len(prefix)] != prefix:
+                continue
+            suffix = argv[len(prefix):]
+            if suffix[:2] == ['init','--bare'] and context == FETCH_ROOT:
+                if len(suffix)!=3 or Path(suffix[2]) not in (FETCH_ROOT/'application.git',FETCH_ROOT/'control.git'):
+                    self.fail()
+                return FETCH_ROOT,argv[8:],env
+            if suffix[:3] == ['clone','--no-local','--no-checkout'] and context in self.directories.values():
+                root = next(r for r,d in self.directories.items() if d == context)
+                destination = RELEASE_STAGING_ROOT/('application' if root==APPLICATION_ROOT else 'control')
+                if suffix != ['clone','--no-local','--no-checkout',str(context),str(destination)]:
+                    self.fail()
+                return RELEASE_STAGING_ROOT,argv[8:],env
+            if suffix[:1] == [f'--git-dir={context}'] and context in (FETCH_ROOT/'application.git',FETCH_ROOT/'control.git'):
+                return FETCH_ROOT,argv[8:],env
+            if suffix[:2] == ['-C',str(context)] and context in (
+                    RELEASE_STAGING_ROOT/'application',RELEASE_STAGING_ROOT/'control',
+                    RELEASE_APPLICATION_ROOT,RELEASE_CONTROL_ROOT):
+                return RELEASE_STAGING_ROOT if context.is_relative_to(RELEASE_STAGING_ROOT) else self.roots[0],argv[8:],env
+        # Bundle helpers select a bare fetch directory with its application
+        # safe.directory context rather than the bare directory as context.
+        for root,key in ((APPLICATION_ROOT,'application'),(CONTROL_ROOT,'control')):
+            prefix = _recovery_git_arguments(root,FETCH_ROOT/(key+'.git'))
+            if argv[:len(prefix)] == prefix:
+                return FETCH_ROOT,argv[8:],env
+        self.fail()
+
+    def access_profile(self, root, argv):
+        args = argv[1:]
+        while args and (args[0] in ('-c','-C') or args[0].startswith(('--git-dir=','--work-tree='))):
+            args = args[2:] if args[0] in ('-c','-C') else args[1:]
+        if not args:
+            self.fail()
+        verb = args[0]
+        readonly = verb in {'status','rev-parse','merge-base','ls-tree','ls-files','cat-file',
+                           'for-each-ref','show-ref','config','diff','diff-index'}
+        readonly |= verb=='symbolic-ref' and ('--quiet' in args or '--short' in args)
+        readonly |= verb=='bundle' and args[1:2] in (['verify'],['list-heads'],['create'])
+        if not readonly and verb not in {'fetch','read-tree','update-ref','branch','symbolic-ref',
+                                        'bundle','init','clone','checkout','hash-object','pack-objects'}:
+            self.fail()
+        if verb in {'init','clone','checkout'} and root not in (FETCH_ROOT,RELEASE_STAGING_ROOT):
+            self.fail()
+        if readonly: return 'READ_ONLY'
+        # Git init probes symlink support in its new bare metadata directory;
+        # denying that probe silently persists core.symlinks=false. Permit it
+        # only for the finite staging initialization/checkout roles, not for a
+        # live repository's metadata writer.
+        return 'STAGE_WRITE' if root==RELEASE_STAGING_ROOT or verb=='init' else 'BOUND_WRITE'
+        return None
+
+    def ptrace(self, request, tid, data=0):
+        result = self.libc.ptrace(request,tid,ctypes.c_void_p(),ctypes.c_void_p(data))
+        if result < 0:
+            raise S12ControlError(GIT_WRITER_RED)
+        return result
+
+    @staticmethod
+    def executable(path):
+        before = path.stat()
+        digest = _sha256(path)
+        after = path.stat()
+        fields = ('st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns')
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022
+                or any(getattr(before,k) != getattr(after,k) for k in fields)):
+            raise S12ControlError(GIT_WRITER_RED)
+        return dict(metadata=[getattr(before,k) for k in fields],sha256=digest)
+
+    def bind(self, tid, root, parent):
+        self.check()  # No queued event may inherit this new PID's authority.
+        fields = Path(f'/proc/{tid}/stat').read_text().rsplit(')',1)[1].split()
+        if (tid in self.tasks or fields[0] not in {'t','T'} or len(self.tasks) >= 256
+                or len(self.operation['task_history']) >= 2048
+                or fields[2:4] != [str(self.operation['session'])]*2
+                or (parent is None and self.executable(Path(f'/proc/{tid}/exe')) != self.images['bootstrap'])):
+            self.fail()
+        record = dict(tid=tid,start=fields[19],root=str(root),parent=parent,exited=False)
+        self.tasks[tid] = record
+        self.operation['task_history'].append(record)
+        self.value['tasks'] = list(self.tasks.values())
+        _atomic_json(self.journal,self.value)
+
+    def run(self, selected, timeout, *, input_text=None, stdin=None, stdout=None, text=True):
+        # Bundle restore also calls this directly; a failed epoch must never
+        # gain a fresh subprocess merely by avoiding the ordinary _run router.
+        self.check()
+        root,argv,env = selected
+        if self.tasks or self.operation is not None or input_text is not None:
+            self.fail()
+        boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        if re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',boot_id) is None:
+            self.fail()
+        profile = self.access_profile(root,argv)
+        if self.validation_only and (profile!='READ_ONLY' or stdout is not None
+                                     or root not in self.roots):
+            self.fail()
+        directory = self.directories[root] if root in self.directories else root
+        if root not in self.directories:
+            if root not in (FETCH_ROOT,RELEASE_STAGING_ROOT):
+                self.fail()
+            _validate_secure_directory_chain(directory,Path('/'))
+            for base,dirs,files in os.walk(directory,followlinks=False):
+                for p in (Path(base),*(Path(base)/n for n in dirs+files)):
+                    self.members[self.handle(p)] = root
+            self.check()
+        directory_fd = null_fd = bootstrap_fd = git_fd = None
+        try:
+            # Execute the actual running interpreter through a held descriptor,
+            # never resolve sys.executable again at spawn. The live interpreter
+            # is text-busy; replacement of its pathname cannot replace this
+            # inode. Pin metadata/digest before intent and verify at ptrace stop.
+            bootstrap_fd = os.open('/proc/self/exe',os.O_RDONLY|os.O_CLOEXEC)
+            bootstrap_path = Path(f'/proc/self/fd/{bootstrap_fd}')
+            if self.executable(bootstrap_path) != self.images['bootstrap']:
+                self.fail()
+            git_fd = os.open(self.image_paths['git'],os.O_RDONLY|os.O_CLOEXEC)
+            git_path = Path(f'/proc/self/fd/{git_fd}')
+            if self.executable(git_path) != self.images['git']:
+                self.fail()
+            directory_fd = os.open(directory,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW)
+            null_fd = os.open('/dev/null',os.O_PATH|os.O_NOFOLLOW)
+            null = os.fstat(null_fd)
+            if (not stat.S_ISCHR(null.st_mode) or null.st_uid != 0 or null.st_gid != 0
+                    or null.st_rdev != os.makedev(1,3) or null.st_nlink != 1):
+                self.fail()
+            current_images = {name:self.executable(path) for name,path in self.image_paths.items()}
+            allowed_git,allowed_shell = self.images['git'],self.images['shell']
+            if current_images != self.images:
+                self.fail()
+            self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,boot_id=boot_id,
+                                  access_profile=profile,
+                                  isolation='new-private-session',
+                                  namespace=self.handle(directory).hex(),bootstrap_sha256=
+                                  hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[],
+                                  null_device=[null.st_dev,null.st_ino,null.st_rdev])
+            if stdout is not None:
+                output = os.fstat(stdout.fileno())
+                if (not stat.S_ISREG(output.st_mode) or output.st_uid!=0
+                        or output.st_nlink!=1 or stat.S_IMODE(output.st_mode)!=0o600):
+                    self.fail()
+                self.operation['stdout'] = [output.st_dev,output.st_ino,output.st_mode,output.st_uid]
+                output_handle = self.handle(Path(f'/proc/self/fd/{stdout.fileno()}'),descriptor=True)
+                if output_handle in self.worktree_members:
+                    self.fail()
+                self.members[output_handle] = root
+                self.operation['stdout_handle'] = output_handle.hex()
+                self.check()
+            if self.value['sequence'] >= 1024:
+                self.fail()
+            self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
+            _atomic_json(self.journal,self.value)  # Intent before spawning any writer.
+        except BaseException:
+            for descriptor in (git_fd,bootstrap_fd,null_fd,directory_fd):
+                if descriptor is not None: os.close(descriptor)
+            raise
+        process = None
+        pending = {}
+        buffers = {}
+        try:
+            _r13_boundary('GIT_WRITER_INTENT')
+            if self.executable(bootstrap_path) != self.images['bootstrap']:
+                self.fail()
+            process = subprocess.Popen([str(bootstrap_path),'-I','-S','-B','-c',_GIT_WRITER_BOOTSTRAP,
+                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd),str(bootstrap_fd),
+                str(git_fd),profile],stdin=stdin or subprocess.DEVNULL,
+                stdout=stdout or subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd,bootstrap_fd,git_fd),close_fds=True,
+                start_new_session=True,env={'HOME':'/','PATH':'/usr/bin:/bin'})
+            pending[process.pid] = None
+            self.operation['session'] = process.pid
+            buffers = {stream:bytearray() for stream in (process.stdout,process.stderr) if stream is not None}
+            for stream in buffers:
+                os.set_blocking(stream.fileno(),False)
+            deadline = time.monotonic()+timeout
+            initial = True
+            while pending:
+                if time.monotonic() >= deadline:
+                    self.fail()
+                progress = False
+                for tid in tuple(pending):
+                    event = os.waitid(os.P_PID,tid,os.WSTOPPED|os.WEXITED|os.WNOHANG|os.WNOWAIT|0x40000000)
+                    if event is None:
+                        continue
+                    progress = True
+                    # A stop does not retire the PID. Capture a kernel-stopped
+                    # newborn for cleanup BEFORE any fallible event check;
+                    # it receives no writer grant until bind() below. Otherwise
+                    # a failure at the parent's fork stop can strand a tracee
+                    # absent from pending. Exits still drain before PID release.
+                    if event.si_code in (os.CLD_EXITED,os.CLD_KILLED,os.CLD_DUMPED):
+                        self.check()
+                        _,status = os.waitpid(tid,os.WNOHANG|0x40000000)
+                    else:
+                        _,status = os.waitpid(tid,os.WNOHANG|0x40000000)
+                        if os.WIFSTOPPED(status) and status >> 16 in (1,2,3):
+                            child = ctypes.c_ulong()
+                            self.ptrace(0x4201,tid,ctypes.addressof(child))
+                            if child.value in pending or not child.value:
+                                self.fail()
+                            pending[child.value] = tid
+                            _r13_boundary('GIT_WRITER_FORK')
+                        self.check()
+                    if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+                        pending.pop(tid)
+                        if tid in self.tasks:
+                            self.tasks[tid]['exited'] = True
+                        self.tasks.pop(tid,None)
+                        if tid == process.pid:
+                            process.returncode = os.waitstatus_to_exitcode(status)
+                        if initial:
+                            self.fail()
+                        continue
+                    if not os.WIFSTOPPED(status):
+                        self.fail()
+                    kind,stop = status >> 16,os.WSTOPSIG(status)
+                    if tid not in self.tasks:
+                        self.bind(tid,root,pending[tid])
+                        # EXITKILL; fork/vfork/clone, exec and pre-exit stops.
+                        self.ptrace(0x4200,tid,0x0010005e)
+                        initial = False
+                        _r13_boundary('GIT_WRITER_BOUND')
+                    elif kind in (1,2,3):
+                        pass  # Newborn is already held in pending, not admitted.
+                    elif kind == 4:
+                        actual = self.executable(Path(f'/proc/{tid}/exe'))
+                        args = Path(f'/proc/{tid}/cmdline').read_bytes().rstrip(b'\0').split(b'\0')
+                        if actual not in (allowed_git,self.images['git-core']):
+                            # Git's local transport uses this one shell bridge;
+                            # never authorize a shell merely by its ancestry.
+                            sources = [a for a in argv if a.startswith(str(FETCH_ROOT)+'/') or a in
+                                       {str(d) for d in self.directories.values()}]
+                            expected = [b'/bin/sh',b'-c']
+                            scripts = {os.fsencode("git-upload-pack '"+p+"'") for p in sources
+                                       if not any(c in p for c in "'\n\r")}
+                            # prepare_shell_cmd supplies the same string as $0;
+                            # admit only that exact four-element argv, no "$@".
+                            upload_pack = (actual == self.images['upload-pack'] and len(args)==2
+                                and args[0]==b'git-upload-pack' and args[1] in {os.fsencode(p) for p in sources})
+                            shell_bridge = (actual == allowed_shell and args[:2] == expected and len(args)==4
+                                and args[2] in scripts and args[3] == args[2])
+                            if not (upload_pack or shell_bridge):
+                                self.fail()
+                        self.tasks[tid]['executable'] = actual
+                        _atomic_json(self.journal,self.value)
+                        _r13_boundary('GIT_WRITER_EXEC')
+                    elif kind not in (0,6):
+                        self.fail()
+                    self.ptrace(7,tid,0 if kind or stop in (signal.SIGSTOP,signal.SIGTRAP) else stop)
+                for stream,buffer in buffers.items():
+                    try:
+                        chunk = os.read(stream.fileno(),65536)
+                    except BlockingIOError:
+                        continue
+                    buffer.extend(chunk)
+                    if len(buffer) > 32*1024*1024:
+                        self.fail()
+                if not progress:
+                    select.select([self.fd,*[s.fileno() for s in buffers]],[],[],0.005)
+                self.check()
+            for stream,buffer in buffers.items():
+                while True:
+                    chunk = os.read(stream.fileno(),65536)
+                    if not chunk: break
+                    buffer.extend(chunk)
+            if stdout is not None:
+                output = os.fstat(stdout.fileno())
+                if ([output.st_dev,output.st_ino,output.st_mode,output.st_uid] != self.operation['stdout']
+                        or output.st_nlink!=1):
+                    self.fail()
+            self.value['history'].append(self.operation)
+            self.operation = None
+            self.checkpoint()
+            def result(stream):
+                if stream is None: return None
+                payload = bytes(buffers[stream])
+                return payload.decode('utf-8') if text else payload
+            return subprocess.CompletedProcess(argv,process.returncode,
+                result(process.stdout),result(process.stderr))
+        except BaseException:
+            self.value['phase'] = 'FAILED'
+            self.failed = True
+            # A failed disk/journal write must not skip live-writer cleanup.
+            # The last durable RUNNING intent still denies any resumed grant.
+            journal_error = None
+            try: _atomic_json(self.journal,self.value)
+            except BaseException as error: journal_error = error
+            if process is not None:
+                # Private session membership is a cleanup fence, NEVER writer
+                # authority. An outside process cannot join this session.
+                # An unreaped owned task proves the group ID is not recycled.
+                # Kill its entire group before reaping: another stopped parent
+                # may have a newborn whose fork notification is not yet read.
+                session_owned = False
+                for tid in pending:
+                    try:
+                        fields = Path(f'/proc/{tid}/stat').read_text().rsplit(')',1)[1].split()
+                        if fields[2:4] == [str(process.pid)]*2:
+                            session_owned = True
+                            break
+                    except (FileNotFoundError,ProcessLookupError): pass
+                if session_owned:
+                    try: os.killpg(process.pid,signal.SIGKILL)
+                    except ProcessLookupError: pass
+                # Only unreaped children/tracees still own these kernel PIDs.
+                # A completed leader's numeric PID is never a cleanup target.
+                for tid in pending:
+                    try: os.kill(tid,signal.SIGKILL)
+                    except ProcessLookupError: pass
+                # Never detach a writer or silently grant a retry.
+                for tid in pending:
+                    try:
+                        while True:
+                            _,status = os.waitpid(tid,0x40000000)
+                            if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+                                if tid == process.pid:
+                                    process.returncode = os.waitstatus_to_exitcode(status)
+                                break
+                            self.ptrace(7,tid,signal.SIGKILL)
+                    except (ChildProcessError,S12ControlError): pass
+                if session_owned:
+                    # Reap even an unadmitted tracee; waitpid's group filter
+                    # plus the private session excludes unrelated children.
+                    while True:
+                        try:
+                            tid,status = os.waitpid(-process.pid,0x40000000)
+                            if os.WIFSTOPPED(status): self.ptrace(7,tid,signal.SIGKILL)
+                        except ChildProcessError: break
+            if journal_error is not None:
+                raise journal_error
+            raise
+        finally:
+            os.close(directory_fd)
+            os.close(null_fd)
+            os.close(bootstrap_fd)
+            os.close(git_fd)
+            for stream in buffers: stream.close()
+
+    def close(self, *, aborted=False):
+        if self.fd is not None:
+            try:
+                if not aborted:
+                    self.checkpoint()
+            finally:
+                os.close(self.fd)
+                self.fd = None
+
+
+def _r13_git_writers(roots: Sequence[Path]) -> _R13GitWriters | None:
+    global GIT_WRITER_SCOPE
+    if ACTIVE_ATTEMPT is None:
+        return None
+    if GIT_WRITER_SCOPE is None:
+        GIT_WRITER_SCOPE = _R13GitWriters(roots)
+    elif GIT_WRITER_SCOPE.validation_only:
+        # Install the attempt stream before retiring parent validation. Never
+        # rebaseline executable identity or forget a reverted handoff event.
+        previous=GIT_WRITER_SCOPE
+        replacement=None
+        try:
+            replacement=_R13GitWriters(roots)
+            _r13_boundary('FOLLOWUP_VALIDATION_HANDOFF')
+            if (replacement.images!=previous.images
+                    or previous.value['observer_baseline']!=_r13_observer_baseline(previous.roots)):
+                previous.fail()
+            previous.close()
+            replacement.check()
+            GIT_WRITER_SCOPE=replacement
+        except BaseException:
+            if replacement is not None:replacement.close(aborted=True)
+            raise
+    elif set(GIT_WRITER_SCOPE.roots) != set(roots):
+        raise S12ControlError(GIT_WRITER_RED)
+    GIT_WRITER_SCOPE.check()
+    return GIT_WRITER_SCOPE
+
+
+def _r13_retire_git_writers():
+    global GIT_WRITER_SCOPE
+    if GIT_WRITER_SCOPE is not None:
+        GIT_WRITER_SCOPE.close()
+        GIT_WRITER_SCOPE = None
+
+
+def _r13_observer_baseline(roots: Sequence[Path]) -> dict:
+    fields = ('st_dev','st_ino','st_uid','st_gid','st_mode','st_nlink',
+              'st_size','st_mtime_ns','st_ctime_ns')
+    metadata=[path.lstat() for path in (DEPLOYMENT_LOCK_ROOT, *roots)]
+    return dict(tree=_git_metadata_transition_fingerprint(roots),
+                roots=[[getattr(value, field) for field in fields] for value in metadata])
+
+
+def _r13_begin_attempt_observation():
+    """Observe before preflight/index capture, including recovery prefixes."""
+    roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    writers = _r13_git_writers(roots)
+    if writers is None or MATERIALIZATION_GUARDS is None:
+        raise S12ControlError(GIT_WRITER_RED)
+    MATERIALIZATION_GUARDS.retain(_r13_initial_worktree_guards(roots, writers))
+
+
+class _R13GuardStack(ExitStack):
+    def __init__(self):
+        super().__init__()
+        self.checks: list[Callable] = []
+        self.paths: set[Path] = set()
+        self.failed = False
+
+    def retain(self, context):
+        if self.failed:
+            raise S12ControlError(MATERIALIZATION_RED)
+        self.assert_quiet()
+        check = self.enter_context(context)
+        self.checks.append(check)
+        return check
+
+    def assert_quiet(self):
+        if self.failed:
+            raise S12ControlError(MATERIALIZATION_RED)
+        for check in self.checks:
+            check()
+
+    def close(self):
+        try:
+            super().close()
+        except BaseException:
+            self.failed = True
+            raise
+        # Canonical rollback has a second serialized finalization phase. Only
+        # after a verified handoff may it start a fresh watch set; closed file
+        # descriptors and their callbacks must not masquerade as live guards.
+        self.checks.clear()
+        self.paths.clear()
+
+
+@contextmanager
+def _r13_guard_scope():
+    global MATERIALIZATION_GUARDS, GIT_WRITER_SCOPE
+    if MATERIALIZATION_GUARDS is not None:
+        yield MATERIALIZATION_GUARDS
+        return
+    with _R13GuardStack() as guards:
+        MATERIALIZATION_GUARDS = guards
+        try:
+            yield guards
+        finally:
+            if GIT_WRITER_SCOPE is not None:
+                GIT_WRITER_SCOPE.close(aborted=True)
+                GIT_WRITER_SCOPE = None
+            MATERIALIZATION_GUARDS = None
+
+
+@contextmanager
+def _r13_initial_worktree_guards(roots: Sequence[Path], writers: _R13GitWriters):
+    # Both existing worktrees must be watched before fetch preparation, backup
+    # or the first Git writer, not first baselined by each later materializer.
+    attrs = None
+    try:
+        paths = _r12_index_guard_paths(roots)
+        before = _r12_scope_snapshot(paths,{})
+        attrs = _R12AttributeGuard(tuple(paths),event_mask=0xFCE)
+        if _r12_scope_snapshot(paths,{}) != before:
+            writers.fail()
+        if MATERIALIZATION_GUARDS is not None:
+            MATERIALIZATION_GUARDS.paths.update(paths)
+        def check():
+            try: attrs.assert_quiet()
+            except S12ControlError: writers.fail()
+        check()
+        yield check
+        check()
+    except S12ControlError:
+        writers.fail()
+    finally:
+        if attrs is not None: attrs.close()
+
+
+@contextmanager
+def _r13_guards(root: Path, tx: Path, value: dict):
+    if MATERIALIZATION_GUARDS is None:
+        with _r13_guard_context(root, tx, value) as check:
+            yield check
+        return
+    check = MATERIALIZATION_GUARDS.retain(_r13_guard_context(root, tx, value))
+    try:
+        yield check
+        check()
+    except S12ControlError:
+        _r13_poison(tx)
+        raise
+
+
+def _r13_poison(tx: Path) -> None:
+    # A retained guard can outlive a legitimate rollback using another loaded
+    # journal instance. Preserve the latest durable phase/steps when poisoning.
+    value = _private_json(tx/"journal.json", MATERIALIZATION_RED, maximum=32*1024*1024)
+    value["unsafe"] = True
+    _r13_save(tx, value)
+
+
+@contextmanager
+def _r13_guard_context(root: Path, tx: Path, value: dict):
+    paths = _r12_index_guard_paths((root,)) | {tx, tx/"new", tx/"old"}
+    for i, entry in enumerate(value["entries"]):
+        path = root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+        paths.add(path)
+        paths.update(p for p in path.parents if p == root or root in p.parents)
+        paths.update((tx/"new"/str(i), tx/"old"/str(i)))
+    # The PID-attributed notification group rejects even reverted mutations by
+    # another root thread. The permission group fences opens; ptrace quiesces
+    # already-held descriptors. Neither payload equality nor uid proves origin.
+    before = _r12_scope_snapshot(paths, {})
+    if MATERIALIZATION_GUARDS is not None:
+        MATERIALIZATION_GUARDS.paths.update(paths)
+    existing = tuple(p for p in paths if p.exists() and not p.is_symlink())
+    open_guard = attrs = quiet = None
+    try:
+        open_guard = _WorktreeReleaseGuard((root,), existing)
+        attrs = _R12AttributeGuard(existing, event_mask=0xFCE)
+        quiet = _GuardedHandleQuiescence(existing, (root,))
+        quiet.acquire()
+        if _r12_scope_snapshot(paths, {}) != before:
+            raise S12ControlError(MATERIALIZATION_RED)
+        def check():
+            quiet.assert_quiesced()
+            open_guard._assert_fanotify_quiet()
+            attrs.assert_quiet()
+            _r13_assert_parents(root,tx,value)
+        check()
+        yield check
+        check()
+    except S12ControlError:
+        # A detected competing mutation is NOT a recoverable simulated crash.
+        # Keep the claim and barriers; never legitimize a reverted write later.
+        _r13_poison(tx)
+        raise
+    finally:
+        if quiet is not None:
+            quiet.close()
+        if open_guard is not None:
+            open_guard.close()
+        if attrs is not None:
+            attrs.close()
+
+
+def _r13_move(source: Path, target: Path, expected: dict, check: Callable) -> None:
+    check()
+    if _r13_snapshot(source) != expected or _barrier_path_present(target):
+        raise S12ControlError(MATERIALIZATION_RED)
+    if expected["kind"]=="directory" and any(source.iterdir()):
+        raise S12ControlError(MATERIALIZATION_RED)
+    source_parent = _r12_open(source.parent)
+    target_parent = _r12_open(target.parent)
+    try:
+        operation = ctypes.CDLL(None, use_errno=True).renameat2
+        operation.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        operation.restype = ctypes.c_int
+        if operation(source_parent, os.fsencode(source.name), target_parent, os.fsencode(target.name), 1):
+            raise S12ControlError(MATERIALIZATION_RED)  # RENAME_NOREPLACE; no clobber fallback
+        os.fsync(source_parent); os.fsync(target_parent)
+    finally:
+        os.close(source_parent); os.close(target_parent)
+    if _r13_snapshot(target) != expected or _barrier_path_present(source):
+        raise S12ControlError(MATERIALIZATION_RED)
+    check()
+
+
+def _r13_publish_records(root: Path, value: dict, *, undo: bool) -> None:
+    global MATERIALIZATION_RECORDS
+    journal = _barrier_json(BARRIER_MARKER)
+    loaded = _parse_worktree_barrier_payload(
+        journal["worktree_write_barrier"], (APPLICATION_ROOT, CONTROL_ROOT))
+    records = MATERIALIZATION_RECORDS if MATERIALIZATION_RECORDS is not None else loaded
+    for entry in value["entries"]:
+        path = root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+        record = entry["before_record"] if undo else entry.get("after_record")
+        if record is None:
+            records[root].pop(path, None)
+        else:
+            records[root][path] = record
+    journal["worktree_write_barrier"] = _worktree_barrier_payload(
+        (APPLICATION_ROOT, CONTROL_ROOT), records)
+    _atomic_barrier_json(BARRIER_MARKER, journal)
+
+
+def _r13_materialize(root: Path, git: Path, target: str, branch: str) -> None:
+    if MATERIALIZATION_RECORDS is None or _selected_branch_or_none(root, git) != branch:
+        raise S12ControlError(MATERIALIZATION_RED)
+    old, _ = _selected_identity(root, git)
+    if _run(_selected_git_arguments(root, git, "merge-base", "--is-ancestor", old, target), check=False).returncode:
+        raise S12ControlError(MATERIALIZATION_RED)
+    tx = _r13_location(root)
+    if _barrier_path_present(tx):
+        raise S12ControlError("S12_1_MATERIALIZATION_REPLAY_RED")
+    before, after = _r13_tree(root, git, old), _r13_tree(root, git, target)
+    initial_paths = _r12_index_guard_paths((root,))
+    initial_snapshot = _r12_scope_snapshot(initial_paths,
+        {root/os.fsdecode(name): binding for name,binding in before.items()})
+    changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+    new_dirs = set()
+    for name in after:
+        for ancestor in _path_ancestors(name):
+            path = root/os.fsdecode(ancestor)
+            if not _barrier_path_present(path):
+                new_dirs.add(ancestor)
+            elif not path.is_dir() or path.is_symlink():
+                raise S12ControlError(MATERIALIZATION_RED)  # finite contract: no directory/type swaps
+            elif path not in MATERIALIZATION_RECORDS[root]:
+                raise S12ControlError(MATERIALIZATION_RED)  # no adoption of unknown empty directories
+    names = sorted(new_dirs, key=lambda n:(n.count(b"/"),n)) + sorted(changed)
+    repo = _barrier_json(BARRIER_MARKER)["repositories"]["application" if root==APPLICATION_ROOT else "control"]
+    uid, gid, _ = _recorded_path_metadata(repo, "root")
+    entries = []
+    for name in names:
+        path = root/os.fsdecode(name)
+        mode, oid = ("directory", None) if name in new_dirs else after.get(name, (None,None))
+        current = _r13_snapshot(path)
+        if name not in before and current is not None:
+            raise S12ControlError(MATERIALIZATION_RED)
+        entries.append(dict(path_hex=name.hex(), git_mode=mode, blob=oid, before=current,
+            before_record=MATERIALIZATION_RECORDS[root].get(path), after=None, after_record=None,
+            policy=dict(uid=uid,gid=gid,mode=_r13_mode(mode)),
+            step="PREPARED"))
+    _ensure_private_directory_durable(tx, Path("/"))
+    if tx.stat().st_dev != root.stat().st_dev:
+        raise S12ControlError(MATERIALIZATION_RED)
+    for name in ("new", "old"):
+        _ensure_private_directory_durable(tx/name, Path("/"))
+        if os.listxattr(tx/name):
+            raise S12ControlError(MATERIALIZATION_RED)
+    parents = {root}
+    for name in names:
+        parents.update(root/os.fsdecode(n) for n in _path_ancestors(name) if n not in new_dirs)
+    value = dict(schema="TU1NZ_S12_1_MATERIALIZATION_V1", root=str(root), attempt_binding=ACTIVE_ATTEMPT,
+                 old_commit=old, target_commit=target, branch=branch, historical_continuity=False,
+                 phase="PREPARING", entries=entries,
+                 parents={(b"" if p==root else os.fsencode(p.relative_to(root))).hex():_r13_snapshot(p) for p in parents},
+                 private_parents={n:_r13_snapshot(tx/n) for n in (".","new","old")})
+    _r13_save(tx,value)  # policies + finite path set precede every allocation
+    with _r13_guards(root,tx,value) as allocation_check:
+        if _r12_scope_snapshot(initial_paths,
+                {root/os.fsdecode(name): binding for name,binding in before.items()}) != initial_snapshot:
+            raise S12ControlError(MATERIALIZATION_RED)
+        _r13_allocate_and_apply(root,git,tx,value,allocation_check)
+
+
+def _r13_allocate_and_apply(root: Path, git: Path, tx: Path, value: dict,
+                           allocation_check: Callable) -> None:
+    entries = value["entries"]
+    old, target = value["old_commit"], value["target_commit"]
+    for i, entry in enumerate(entries):
+        allocation_check()
+        if entry["git_mode"] is None:
+            continue
+        stage = tx/"new"/str(i)
+        mode = entry["git_mode"]
+        if mode == "directory":
+            stage.mkdir(mode=0o700)
+        else:
+            completed = _git_process(_selected_git_arguments(root,git,"cat-file","blob",entry["blob"]))
+            if completed.returncode or completed.stderr:
+                raise S12ControlError(MATERIALIZATION_RED)
+            blob = completed.stdout
+            if len(blob)>32*1024*1024 or hashlib.sha1(b"blob "+str(len(blob)).encode()+b"\0"+blob).hexdigest()!=entry["blob"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+            if mode == "120000":
+                link=os.fsdecode(blob)
+                destination=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+                if os.path.isabs(link) or not (destination.parent/link).resolve().is_relative_to(root):
+                    raise S12ControlError(MATERIALIZATION_RED)
+                stage.symlink_to(link)
+            else:
+                _write_private_backup_blob(stage,blob)
+        _r13_boundary("OBJECT_ALLOCATED")
+        # Existing quarantine contracts fence a symlink by its parents, not by
+        # chmod/chown of the link. Allocate it at the declared maintenance UID
+        # under the private parent; later release must not invent a new state.
+        os.chown(stage,entry["policy"]["uid"] if mode=="120000" else 0,
+                 entry["policy"]["gid"],follow_symlinks=False)
+        if mode != "120000":
+            if os.listxattr(stage):
+                raise S12ControlError(MATERIALIZATION_RED)
+            fd = _r12_open(stage)
+            try:
+                identity = _r12_stat(fd)
+            finally:
+                os.close(fd)
+            destination=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            record=dict(kind=identity["kind"],device=identity["device"],inode=identity["inode"],
+                        **entry["policy"],xattr_fingerprint=_r12_xattr_fingerprint(destination,identity,{}))
+            _install_worktree_barrier_owner_acl(stage,record)
+            os.chmod(stage,int(record["mode"],8)&~0o222)
+            entry["after_record"]=record
+            fd=_r12_open(stage)
+            try:os.fsync(fd)
+            finally:os.close(fd)
+        _r13_boundary("OBJECT_METADATA_SET")
+        entry["after"]=_r13_snapshot(stage)
+        _fsync_directory(stage.parent)
+        allocation_check()  # reject foreign creation/replacement before binding
+        entry["step"]="BOUND"
+        _r13_save(tx,value)  # identity + kernel birth time bound before publication
+        _r13_boundary("OBJECT_BOUND")
+    value["phase"]="READY";_r13_save(tx,value)
+    # Add marks on the newly allocated inodes before they enter the worktree.
+    # Keep the allocation guard continuously held across this watch handoff.
+    with _r13_guards(root,tx,value) as publication_check:
+        def check():
+            allocation_check()
+            publication_check()
+        value["phase"]="APPLYING";_r13_save(tx,value)
+        for i,entry in enumerate(entries):
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            if entry["before"] is not None:
+                entry["step"]="RETIRE_INTENT";_r13_save(tx,value);_r13_boundary("RETIRE_INTENT")
+                _r13_move(path,tx/"old"/str(i),entry["before"],check)
+                _r13_boundary("RETIRED")
+            if entry["after"] is not None:
+                entry["step"]="PUBLISH_INTENT";_r13_save(tx,value);_r13_boundary("PUBLISH_INTENT")
+                _r13_move(tx/"new"/str(i),path,entry["after"],check)
+                _r13_boundary("PUBLISHED")
+            entry["step"]="APPLIED";_r13_save(tx,value)
+        _r13_publish_records(root,value,undo=False)
+        _r13_boundary("RECORDS_PUBLISHED")
+        # Git updates only its already quarantined metadata. It never creates
+        # live worktree objects or propagates a default ACL in this contract.
+        _run(_selected_git_arguments(root,git,"read-tree",target))
+        _r13_boundary("INDEX_UPDATED")
+        _run(_selected_git_arguments(root,git,"update-ref","HEAD",target,old))
+        _run(_selected_git_arguments(root,git,"update-ref","ORIG_HEAD",old))
+        _r13_boundary("REF_UPDATED")
+        if _selected_identity(root,git)[0] != target:
+            raise S12ControlError(MATERIALIZATION_RED)
+        check();value["phase"]="APPLIED";_r13_save(tx,value)
+
+
+def _r13_materialize_undo(root: Path, git: Path) -> None:
+    tx = _r13_location(root)
+    if not _barrier_path_present(tx):
+        return
+    tx,value = _r13_load(root)
+    if value["phase"]=="UNDONE":
+        return
+    with _r13_guards(root,tx,value) as check:
+        value["phase"]="UNDOING";_r13_save(tx,value)
+        for i in reversed(range(len(value["entries"]))):
+            entry=value["entries"][i]
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            current=_r13_snapshot(path)
+            stage=_r13_snapshot(tx/"new"/str(i)) if entry["after"] is not None else None
+            retired=_r13_snapshot(tx/"old"/str(i))
+            if current==entry["before"]:
+                allowed={"PREPARED","BOUND","RETIRE_INTENT","RESTORE_INTENT","UNDONE"}
+                if entry["before"] is None:
+                    allowed|={"PUBLISH_INTENT","WITHDRAW_INTENT","APPLIED"}
+                if entry["step"] not in allowed or retired is not None or stage!=entry["after"]:
+                    raise S12ControlError(MATERIALIZATION_RED)
+            elif current==entry["after"] and entry["after"] is not None:
+                if (entry["step"] not in {"PUBLISH_INTENT","APPLIED","WITHDRAW_INTENT"}
+                        or stage is not None or retired!=entry["before"]):
+                    raise S12ControlError(MATERIALIZATION_RED)
+            elif current is None:
+                if (entry["step"] not in {"RETIRE_INTENT","PUBLISH_INTENT","APPLIED","WITHDRAW_INTENT","RESTORE_INTENT"}
+                        or stage!=entry["after"] or retired!=entry["before"]):
+                    raise S12ControlError(MATERIALIZATION_RED)
+            else:
+                raise S12ControlError(MATERIALIZATION_RED)
+            if entry["after"] is not None and current==entry["after"]:
+                entry["step"]="WITHDRAW_INTENT";_r13_save(tx,value);_r13_boundary("WITHDRAW_INTENT")
+                _r13_move(path,tx/"new"/str(i),entry["after"],check)
+                _r13_boundary("WITHDRAWN");current=None
+            if entry["before"] is not None and current is None:
+                entry["step"]="RESTORE_INTENT";_r13_save(tx,value);_r13_boundary("RESTORE_INTENT")
+                _r13_move(tx/"old"/str(i),path,entry["before"],check)
+                _r13_boundary("RESTORED");current=entry["before"]
+            if current!=entry["before"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+            entry["step"]="UNDONE";_r13_save(tx,value)
+        _run(_selected_git_arguments(root,git,"read-tree",value["old_commit"]))
+        _run(_selected_git_arguments(root,git,"update-ref","HEAD",value["old_commit"]))
+        _r13_publish_records(root,value,undo=True)
+        check();value["phase"]="UNDONE";_r13_save(tx,value)
+
+
+def _r13_recover_pending() -> None:
+    if ACTIVE_ATTEMPT is None:
+        return
+    existing=[root for root in (CONTROL_ROOT,APPLICATION_ROOT) if _barrier_path_present(_r13_location(root))]
+    loaded = {root:_r13_load(root) for root in existing}
+    if not any(value["phase"] not in {"APPLIED","UNDONE"} for _,value in loaded.values()):
+        return
+    _,_,attempt = _load_recovery_backup()
+    roots=(APPLICATION_ROOT,CONTROL_ROOT)
+    metadata=_repository_git_metadata_paths(roots)
+    # This prefix only closes pre-activation/interrupted rollback states.
+    # Canonical recovery's safety admission must precede its first move too.
+    if (not _repository_barriers_are_installed()
+            or _successful_result_matches_attempt(attempt)
+            or _rollback_unit_state() != ("inactive","dead")
+            or _competing_control_sync_count()
+            or _active_repository_git_count(roots)
+            or _active_recovery_git_handle_count(metadata)
+            or _active_tracked_worktree_write_handle_count(
+                _tracked_worktree_regular_paths(roots,allow_missing=True))):
+        for tx,value in loaded.values():
+            value["unsafe"]=True
+            _r13_save(tx,value)
+        raise S12ControlError(MATERIALIZATION_RED)
+    # Pending undo and canonical recovery share this epoch. No stop/rebaseline
+    # between the first undo write and the later serialized protection handoff.
+    transition = _GitMetadataTransitionGuard(tuple(metadata))
+    try:
+        writers = _r13_git_writers(roots)
+        transition.assert_unchanged()
+        if writers is None or MATERIALIZATION_GUARDS is None:
+            raise S12ControlError(GIT_WRITER_RED)
+        MATERIALIZATION_GUARDS.retain(_r13_initial_worktree_guards(roots,writers))
+    finally:
+        transition.close()
+    for root in existing:
+        git=_recovery_git_path(root)
+        _validate_root_git_contract(git)
+        _r13_materialize_undo(root,git)
+    _r13_boundary("PENDING_MATERIALIZATION_UNDONE")
+
+
+def _followup_authorization(path: Path, digest: str, *, recovering: bool) -> dict:
+    """An out-of-band, root-provisioned HUMAN grant; a freeze is not a grant."""
+    if os.geteuid() != 0 or path != PRIVATE_ROOT / "authorizations" / (FOLLOWUP_SLOT + ".json"):
+        raise S12ControlError(FOLLOWUP_RED)
+    _validate_secure_directory_chain(path.parent, Path("/"))
+    if path.lstat().st_gid != 0:
+        raise S12ControlError(FOLLOWUP_RED)
+    value = json.loads(_read_private_backup_blob(path, digest, FOLLOWUP_RED))
+    if not isinstance(value, dict) or set(value) != {
+        "schema", "slot", "human_authorization_sha256", "acknowledgment",
+        "authorized_at", "expires_at", "release", "parent_proof",
+    }:
+        raise S12ControlError(FOLLOWUP_RED)
+    release = value["release"]
+    parent = value["parent_proof"]
+    if (value["schema"] != "TU1NZ_S12_1_FOLLOWUP_AUTHORIZATION_V1"
+            or value["slot"] != FOLLOWUP_SLOT
+            or value["acknowledgment"] != "AUTHORIZE_ONE_SYNTHETIC_SANDBOX_DEPLOYMENT_AFTER_RECOVERY"
+            or not isinstance(value["human_authorization_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", value["human_authorization_sha256"]) is None
+            or value["human_authorization_sha256"] == "0" * 64
+            or type(value["authorized_at"]) is not int or type(value["expires_at"]) is not int
+            or not 0 < value["expires_at"] - value["authorized_at"] <= 86400
+            or (not recovering and not value["authorized_at"] <= time.time() < value["expires_at"])
+            or not isinstance(release, dict) or set(release) != {
+                "tag", "tag_object", "control_commit", "control_tree",
+                "application_commit", "application_tree", "controller_sha256",
+                "application_bundle_sha256", "control_bundle_sha256"}
+            or not isinstance(parent, dict) or set(parent) != {
+                "attempt", "index", "rollback", "progress", "recovery", "r12_original", "r12_ledger"}):
+        raise S12ControlError(FOLLOWUP_RED)
+    for field, size in {"tag_object":40,"control_commit":40,"control_tree":40,
+            "application_commit":40,"application_tree":40,"controller_sha256":64,
+            "application_bundle_sha256":64,"control_bundle_sha256":64}.items():
+        if not isinstance(release[field], str) or re.fullmatch(r"[0-9a-f]{" + str(size) + "}",release[field]) is None:
+            raise S12ControlError(FOLLOWUP_RED)
+    if (release["tag"] != FREEZE_TAG
+            or release["application_commit"] != APPLICATION_COMMIT
+            or release["application_tree"] != APPLICATION_TREE
+            or release["controller_sha256"] != _trusted_controller_digest()
+            or any(not isinstance(v,str) or re.fullmatch(r"[0-9a-f]{64}",v) is None for v in parent.values())
+            or any(parent[key] != value for key,value in FOLLOWUP_PARENT.items())):
+        raise S12ControlError(FOLLOWUP_RED)
+    if not recovering and (
+        release["application_bundle_sha256"] != os.environ.get(APPLICATION_BUNDLE_DIGEST_ENV)
+        or release["control_bundle_sha256"] != os.environ.get(CONTROL_BUNDLE_DIGEST_ENV)
+    ):
+        raise S12ControlError(FOLLOWUP_RED)
+    return value
+
+
+def _followup_validate_parent(binding: dict) -> None:
+    """Supervise validation without adopting or rewriting an attempt journal.
+
+    The fixed audit is bound to the explicit grant, not to the legacy attempt.
+    Its read-only lifetime records survive interruption; RUNNING/FAILED cannot
+    be re-admitted. This does not consume or renew the deployment permission.
+    """
+    global GIT_WRITER_SCOPE
+    if GIT_WRITER_SCOPE is not None or ACTIVE_ATTEMPT is not None:
+        raise S12ControlError(GIT_WRITER_RED)
+    _validate_secure_directory_chain(STATE_ROOT,Path('/'))
+    writers=_R13GitWriters((APPLICATION_ROOT,CONTROL_ROOT),validation_binding=binding)
+    GIT_WRITER_SCOPE=writers
+    try:
+        _r13_boundary('FOLLOWUP_VALIDATION_READY')
+        _followup_parent_closed(binding['parent_proof'])
+        read_only_preflight()
+        _r13_boundary('FOLLOWUP_VALIDATION_COMPLETE')
+        writers.check()
+        if writers.value['observer_baseline']!=_r13_observer_baseline(writers.roots):
+            writers.fail()
+        # Remain live through claim/namespace preparation and the overlapping
+        # attempt-scope handoff, or until the checked empty-closure retirement.
+    except BaseException:
+        writers.close(aborted=True)
+        GIT_WRITER_SCOPE=None
+        raise
+
+
+def _followup_parent_closed(proof: dict) -> None:
+    """No stale result alone can authorize a follow-up. Revalidate the chain."""
+    _validate_secure_directory_chain(STATE_ROOT, Path("/"))
+    backup,index,attempt = _load_recovery_backup()
+    paths = dict(attempt=ATTEMPT_MARKER,index=backup/"restore-index.json",
+        rollback=backup/"rollback-complete.json",progress=backup/"rollback-progress.json",
+        recovery=STATE_ROOT/"recovery-result.json",r12_original=STATE_ROOT/"repository-barrier.r12-original.json",
+        r12_ledger=STATE_ROOT/"repository-barrier.r12-bindings.json")
+    values = {key:json.loads(_read_private_backup_blob(path,proof[key],FOLLOWUP_RED)) for key,path in paths.items()}
+    if any(not isinstance(value,dict) for value in values.values()):
+        raise S12ControlError(FOLLOWUP_RED)
+    ledger=values["r12_ledger"]
+    if (values["rollback"].get("safe_code") != "S12_1_ROLLBACK_GREEN"
+            or values["rollback"].get("ok") is not True or values["rollback"].get("count") != 1
+            or values["recovery"].get("safe_code") not in {
+                "S12_1_INTERRUPTED_DEPLOYMENT_RECOVERED", "S12_1_RECOVERY_ALREADY_COMPLETE"}
+            or values["recovery"].get("ok") is not True or values["recovery"].get("rollback_count") != 1
+            or ledger.get("schema") != "TU1NZ_S12_1_R12_BINDINGS_V1"
+            or ledger.get("phase") != "SEALED" or ledger.get("historical_continuity") is not False
+            or ledger.get("contract_sha256") != R12_CONTRACT_SHA256
+            or ledger.get("original_journal_sha256") != proof["r12_original"]
+            or values["r12_original"].get("schema") != BARRIER_SCHEMA
+            or _successful_result_matches_attempt(attempt)
+            or any(_barrier_path_present(path) for path in (
+                BARRIER_MARKER,BARRIER_RELEASE_BACKUP,STATE_ROOT/"repository-barrier.r12-abort.json",
+                STATE_ROOT/"deployment-result.json"))):
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    progress=_load_rollback_progress(backup)
+    if progress is None or progress["phase"] != ROLLBACK_PHASE_REPOSITORIES_RESTORED:
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    if any(_barrier_path_present(_recovery_git_path(root)) or _is_recovery_guard(root/".git")
+           for root in (APPLICATION_ROOT,CONTROL_ROOT)):
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    if _rollback_unit_state() != ("inactive","dead"):
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    for key in ("application","control"):
+        record=index[key]
+        for suffix,field in ((".bundle","bundle_sha256"),(".tracked-path-hashes","tracked_path_hashes_sha256")):
+            _read_private_backup_blob(backup/(key+suffix),record[field],FOLLOWUP_RED)
+        if _reflog_tree_digest(backup/(key+".reflogs")) != record["reflog_snapshot_sha256"]:
+            raise S12ControlError(FOLLOWUP_RED)
+    roots=(APPLICATION_ROOT,CONTROL_ROOT)
+    _validate_release_repository_states(progress["repository_state"],
+        {root:root/".git" for root in roots},
+        {root:index[key] for root,key in zip(roots,("application","control"))})
+    for root,key in zip(roots,("application","control")):
+        _validate_repository_worktree_contract(root,index[key])
+    if (_competing_control_sync_count() or _active_repository_git_count(roots)
+            or _active_recovery_git_handle_count(tuple(root/".git" for root in roots))
+            or _active_tracked_worktree_write_handle_count(_tracked_worktree_regular_paths(roots))):
+        raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+
+
+@contextmanager
+def _followup_namespace(binding: dict):
+    """One fixed finite slot; no caller-supplied filesystem paths or counters."""
+    names=("STATE_ROOT","BACKUP_ROOT","ATTEMPT_MARKER","BARRIER_MARKER",
+           "BARRIER_RELEASE_BACKUP","BARRIER_RELEASE_COMPLETION","ACTIVE_ATTEMPT")
+    previous={name:globals()[name] for name in names}
+    if ACTIVE_ATTEMPT is not None:
+        raise S12ControlError(FOLLOWUP_RED)
+    state=STATE_ROOT/"attempts"/FOLLOWUP_SLOT
+    globals().update(STATE_ROOT=state,BACKUP_ROOT=BACKUP_ROOT/FOLLOWUP_SLOT,
+        ATTEMPT_MARKER=state/"deployment-attempted.json",BARRIER_MARKER=state/"repository-barrier.json",
+        BARRIER_RELEASE_BACKUP=state/"repository-barrier.release-backup.json",
+        BARRIER_RELEASE_COMPLETION=state/"repository-barrier.release-complete.json",ACTIVE_ATTEMPT=binding)
+    try:
+        yield
+    finally:
+        globals().update(previous)
+
+
+def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
+    with _exclusive_deployment_lock(), _r13_guard_scope():
+        authorization=_followup_authorization(path,digest,recovering=recovering)
+        binding=dict(slot=FOLLOWUP_SLOT,authorization_sha256=digest,
+                     parent_classification="INTERRUPTED_DEPLOYMENT_RECOVERED_R12_NONHISTORICAL_BINDINGS",
+                     release=authorization["release"],parent_proof=authorization["parent_proof"])
+        claim=STATE_ROOT/(FOLLOWUP_SLOT+".consumed.json")
+        closure=STATE_ROOT/(FOLLOWUP_SLOT+".closed-without-deployment.json")
+        receipt=dict(schema="TU1NZ_S12_1_FOLLOWUP_CONSUMED_V1",attempt_binding=binding)
+        if recovering:
+            _validate_secure_directory_chain(STATE_ROOT,Path("/"))
+            if _private_json(claim,FOLLOWUP_RED) != receipt:
+                raise S12ControlError(FOLLOWUP_RED)
+            namespace=STATE_ROOT/"attempts"/FOLLOWUP_SLOT
+            no_namespace=not _barrier_path_present(namespace)
+            no_backup=not _barrier_path_present(BACKUP_ROOT/FOLLOWUP_SLOT)
+            empty_namespace=False
+            observer_only=False
+            if not no_namespace:
+                _validate_secure_directory_chain(namespace,Path("/"))
+                metadata=namespace.lstat()
+                private=(metadata.st_gid==0 and stat.S_IMODE(metadata.st_mode)==0o700
+                         and not os.listxattr(namespace))
+                names={entry.name for entry in namespace.iterdir()}
+                empty_namespace=private and not names
+                observer_only=private and names=={'git-writer-scope.json'}
+            if no_backup and observer_only:
+                _followup_validate_parent(binding)
+                with _followup_namespace(binding), _r13_guard_scope():
+                    journal=STATE_ROOT/'git-writer-scope.json'
+                    original=_private_json(journal,FOLLOWUP_RED,maximum=4*1024*1024)
+                    roots=(APPLICATION_ROOT,CONTROL_ROOT)
+                    if (original.get('attempt_binding')!=binding
+                            or original.get('phase')!='QUIET'
+                            or original.get('tasks')!=[] or original.get('operation') is not None
+                            or not isinstance(original.get('history'),list)
+                            or any(not isinstance(op,dict) or op.get('access_profile')!='READ_ONLY'
+                                   or 'stdout' in op or not isinstance(op.get('task_history'),list)
+                                   or any(not isinstance(task,dict) or task.get('exited') is not True
+                                          for task in op['task_history'])
+                                   for op in original['history'])
+                            or original.get('observer_baseline')!=_r13_observer_baseline(roots)):
+                        raise S12ControlError(FOLLOWUP_RED)
+                    original_digest=_sha256(journal)
+                    # Resume only observation, never a command or activation.
+                    # The constructor checks image identities, Git ctimes,
+                    # sequence/history consistency and installs a fresh stream.
+                    writers=_r13_git_writers(roots)
+                    if (_sha256(journal)!=original_digest
+                            or original['observer_baseline']!=_r13_observer_baseline(roots)):
+                        writers.fail()
+                    writers.check()
+                    result=dict(ok=True,safe_code='S12_1_FOLLOWUP_OBSERVER_ONLY_CLOSED',
+                                deployment_count=0,rollback_count=0,attempt_binding=binding,
+                                observer_journal_sha256=original_digest,
+                                observation_continuity='NOT_ASSERTED_ACROSS_INTERRUPTION')
+                    parent_guard=_R12AttributeGuard((DEPLOYMENT_LOCK_ROOT,),event_mask=0xFCE)
+                    try:
+                        if _barrier_path_present(closure):
+                            if _private_json(closure,FOLLOWUP_RED)!=result:
+                                raise S12ControlError(FOLLOWUP_RED)
+                        else:
+                            _r13_boundary('FOLLOWUP_OBSERVER_CLOSURE_BEFORE_WRITE')
+                            _atomic_json(closure,result)
+                            _r13_boundary('FOLLOWUP_OBSERVER_CLOSURE_WRITTEN')
+                        if original['observer_baseline']!=_r13_observer_baseline(roots):
+                            writers.fail()
+                        writers.check()
+                        parent_guard.assert_quiet()
+                        _r13_retire_git_writers()
+                        parent_guard.assert_quiet()
+                        if (_sha256(journal)!=original_digest
+                                or {entry.name for entry in STATE_ROOT.iterdir()}!={'git-writer-scope.json'}):
+                            raise S12ControlError(FOLLOWUP_RED)
+                    finally:
+                        parent_guard.close()
+                    return result
+            if no_backup and (no_namespace or empty_namespace):
+                _followup_validate_parent(binding)
+                # Do not adopt or write into the possibly unbound mkdir result.
+                # The fixed consumed-slot parent owns this idempotent closure;
+                # an empty namespace is retained without an origin assertion.
+                result=dict(ok=True,safe_code="S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT",
+                            deployment_count=0,rollback_count=0,attempt_binding=binding,
+                            namespace_provenance="NOT_ASSERTED_RETAINED_IF_PRESENT")
+                if _barrier_path_present(closure):
+                    if _private_json(closure,FOLLOWUP_RED)!=result:
+                        raise S12ControlError(FOLLOWUP_RED)
+                    _r13_retire_git_writers()
+                    return result
+                _r13_boundary("FOLLOWUP_EARLY_CLOSURE_BEFORE_WRITE")
+                _atomic_json(closure,result)
+                _r13_boundary("FOLLOWUP_EARLY_CLOSURE_WRITTEN")
+                _r13_retire_git_writers()
+                return result
+            with _followup_namespace(binding), _r13_guard_scope() as guards:
+                # Recovery never invokes deploy, admission, or activation.
+                _r13_begin_attempt_observation()
+                _r13_recover_pending()
+                guards.assert_quiet()
+                result=_recover_locked()
+                result={**result,"attempt_binding":binding}
+                _atomic_json(STATE_ROOT/"recovery-result.json",result)
+                return result
+        if _barrier_path_present(claim):
+            raise S12ControlError("S12_1_FOLLOWUP_ALREADY_CONSUMED_RED")
+        if any(_barrier_path_present(p) for p in (
+            STATE_ROOT/"attempts"/FOLLOWUP_SLOT,BACKUP_ROOT/FOLLOWUP_SLOT,closure)):
+            raise S12ControlError(FOLLOWUP_RED)
+        _followup_validate_parent(binding)
+        _r13_preflight_storage()
+        # O_EXCL, file fsync, parent fsync: even a crash/partial claim consumes
+        # this one slot. No implicit retry and no deletion/reset operation.
+        _write_private_backup_blob(claim,json.dumps(receipt,sort_keys=True,separators=(",",":")).encode())
+        with _followup_namespace(binding), _r13_guard_scope():
+            return _deploy_locked()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "operation", choices=("verify-source", "simulate", "preflight", "deploy", "recover", "reconcile-metadata")
     )
     parser.add_argument("--metadata-contract", type=Path)
+    parser.add_argument("--authorization", type=Path)
+    parser.add_argument("--authorization-sha256")
     arguments = parser.parse_args(argv)
     try:
         if (arguments.operation == "reconcile-metadata") != (arguments.metadata_contract is not None):
             raise S12ControlError(R12_RED)
+        if (arguments.authorization is None) != (arguments.authorization_sha256 is None):
+            raise S12ControlError(FOLLOWUP_RED)
+        if arguments.authorization is not None and arguments.operation not in {"deploy","recover"}:
+            raise S12ControlError(FOLLOWUP_RED)
+        if arguments.operation == "deploy" and arguments.authorization is None:
+            raise S12ControlError("S12_1_FOLLOWUP_AUTHORIZATION_REQUIRED_RED")
         if arguments.operation in {"deploy", "recover", "reconcile-metadata"}:
             if os.geteuid() != 0:
                 raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
@@ -9856,11 +11696,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 immutable_release_allowed=ATTEMPT_MARKER.exists()
             )
         elif arguments.operation == "recover":
-            result = recover()
+            if arguments.authorization is not None:
+                result=followup(arguments.authorization,arguments.authorization_sha256,recovering=True)
+            elif _barrier_path_present(STATE_ROOT/(FOLLOWUP_SLOT+".consumed.json")):
+                raise S12ControlError("S12_1_FOLLOWUP_RECOVERY_TARGET_REQUIRED_RED")
+            else:
+                result = recover()
         elif arguments.operation == "reconcile-metadata":
             result = reconcile_metadata(arguments.metadata_contract)
         else:
-            result = deploy()
+            result = followup(arguments.authorization,arguments.authorization_sha256)
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         return 0
     except (S12ControlError, OSError, ValueError, json.JSONDecodeError) as error:
