@@ -57,7 +57,7 @@ STATIC_BINDINGS = {
     "rollback_contract": "EXACTLY_ONCE_BACKUP_FIRST_CONTROLLED_INACTIVE",
     "deployment_contract": "EXACTLY_ONE_NO_HOTFIX_NO_RETRY",
     "recovery_barrier_contract": "GIT_METADATA_SCOPED_TRAVERSAL_PRESERVING",
-    "recovery_fix_classification": "OWNER_ONLY_TRACKED_PATH_BARRIER_WITH_VERIFIED_PRIVATE_GROUP_READ_TRAVERSAL",
+    "recovery_fix_classification": "TRACKED_PATH_BARRIER_WITH_EXACT_RECORDED_UID_ACL_READ_TRAVERSAL",
     "runtime_python_sha256": RUNTIME_PYTHON_SHA256,
     "runtime_venv_sha256": RUNTIME_VENV_SHA256,
     "real_avs_enabled": "false",

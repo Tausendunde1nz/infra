@@ -7463,6 +7463,16 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         unknown = annotation + "unknown_key=true\n"
         self.assertFalse(freeze.verify_annotation(unknown, expected)["ok"])
 
+    def test_freeze_classifies_recorded_uid_acl_not_group_access(self) -> None:
+        classification = freeze.STATIC_BINDINGS[
+            "recovery_fix_classification"
+        ]
+        self.assertEqual(
+            classification,
+            "TRACKED_PATH_BARRIER_WITH_EXACT_RECORDED_UID_ACL_READ_TRAVERSAL",
+        )
+        self.assertNotIn("GROUP", classification)
+
     def test_freeze_cli_missing_tag_is_bounded(self) -> None:
         completed = subprocess.run(
             [
