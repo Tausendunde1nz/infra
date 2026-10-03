@@ -24,6 +24,18 @@ from tests.test_s12_1_r12_metadata_contract import fixture, private_json
 
 
 class WriterEnvelopeTests(unittest.TestCase):
+    def test_immutable_release_observation_overlaps_writer_and_acceptance(self):
+        import inspect
+        source=inspect.getsource(r._deploy_locked)
+        self.assertLess(source.index('release_observation = _GitMetadataTransitionGuard('),
+                        source.index('_remove_fetch_stage(index)'))
+        self.assertLess(source.index('RELEASE_TREE_PREVERIFY'),source.index('_verify_release_freeze()'))
+        self.assertLess(source.index('RELEASE_TREE_PREACTIVATION'),source.index('start = _run('))
+        self.assertGreater(source.index('RELEASE_TREE_FINAL_AUDIT'),
+                           source.index('read_only_preflight(immutable_release_allowed=True)'))
+        self.assertLess(source.index('release_observation.finalize_release()'),
+                        source.index('_atomic_json(STATE_ROOT / "deployment-result.json", result)'))
+
     def test_checkpoint_checks_events_queued_during_journal_serialization(self):
         guard=r._R13GitWriters.__new__(r._R13GitWriters)
         guard.tasks={};guard.pending=[];guard.value={};guard.journal=Path('/isolated/journal')
@@ -589,11 +601,15 @@ class IntegratedChainTests(unittest.TestCase):
                     safe_code='S12_1_SANDBOX_RUNTIME_ACCEPTANCE_GREEN',hard_gates_closed=True,runtime_active=False))
                 r._atomic_json(r.STATE_ROOT/'final-state.json',dict(
                     safe_code='S12_RUNTIME_CONTROLLED_INACTIVE',hard_gates_closed=True,runtime_active=False,callback='INACTIVE'))
+                self.runtime_active=self.leave_runtime_active
                 return subprocess.CompletedProcess(argv,0,'','')
+            if 'stop' in argv:
+                self.stops+=1;self.runtime_active=False
             if 'is-enabled' in argv:
                 output='enabled\n' if argv[-1]==r.S11_TIMER else 'static\n' if r.UNIT_PATH.exists() else 'not-found\n'
             elif '--property=LoadState,ActiveState,SubState' in argv:
-                output='LoadState=not-found\nActiveState=inactive\nSubState=dead\n'
+                output=('LoadState=loaded\nActiveState=active\nSubState=running\n' if self.runtime_active
+                        else 'LoadState=not-found\nActiveState=inactive\nSubState=dead\n')
             elif '-p' in argv:
                 name=argv[argv.index('-p')+1]
                 output={'ActiveState':'active','NRestarts':'0','SubState':'waiting','Result':'success',
@@ -609,6 +625,8 @@ class IntegratedChainTests(unittest.TestCase):
                    attack_at='OBJECT_BOUND', tamper=None, recovery_crash_at=None):
         with fixture(complete_backup=True) as f, ExitStack() as patches:
             self.real_run=r._run;self.starts=0;self.provider_failure=provider_failure
+            self.stops=0;self.runtime_active=False
+            self.leave_runtime_active=bool(attack and attack_at=='RELEASE_TREE_ACTIVATED')
             self.start_witness=f['base']/'isolated-start-count'
             patches.enter_context(mock.patch.object(r,'_run',side_effect=self.host_boundary))
             # The offline interpreter is synthetic. All copy/hash/ownership and
@@ -795,6 +813,24 @@ class IntegratedChainTests(unittest.TestCase):
                 with mock.patch.object(r,'_r13_boundary',side_effect=interfere):
                     with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash)
                 self.assertTrue(fired)
+                if attack_at.startswith('RELEASE_TREE_'):
+                    # A release-only observation failure must still permit
+                    # canonical stop/backup rollback, not poison Git recovery.
+                    result=r.followup(authorization,grant_hash,recovering=True)
+                    self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
+                    self.assertFalse(r.RELEASE_ROOT.exists())
+                    self.assertFalse(self.runtime_active)
+                    self.assertEqual(self.stops,1 if self.leave_runtime_active else 0)
+                    expected=1 if attack_at in {'RELEASE_TREE_ACTIVATED','RELEASE_TREE_FINAL_AUDIT'} else 0
+                    self.assertEqual(self.starts,expected)
+                    self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                    for key,root in [('application',f['app']),('control',f['control'])]:
+                        self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
+                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                    with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                        r.followup(authorization,grant_hash)
+                    self.assertEqual(self.starts,expected)
+                    return
                 for root in (f['app'],f['control']):
                     if attack_at in {'PREDEPLOY_PREFLIGHT','PREDEPLOY_BARRIER_CAPTURE'}:
                         self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
@@ -816,7 +852,7 @@ class IntegratedChainTests(unittest.TestCase):
                 result=r.followup(authorization,grant_hash)
                 self.assertTrue(result['ok']);self.assertEqual(result['deployment_count'],1)
                 self.assertEqual(result['rollback_count'],0)
-            expected_starts=0 if crash_at and not provider_failure else 1
+            expected_starts=0 if crash_at and not provider_failure and crash_at!='RELEASE_TREE_ACTIVATED' else 1
             self.assertEqual(self.starts,expected_starts)
             with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                 r.followup(authorization,grant_hash)
@@ -868,6 +904,36 @@ class IntegratedChainTests(unittest.TestCase):
                 'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); os.chmod(p,m^64); os.chmod(p,m)',
                 str(path),str(mode)],check=True)
         self.full_chain(attack=attack)
+
+    def test_immutable_release_reverted_bytes_through_activation_and_final_audit(self):
+        for boundary,name in (('RELEASE_TREE_PREVERIFY','application/kept'),
+                              ('RELEASE_TREE_PREACTIVATION','venv/bin/python'),
+                              ('RELEASE_TREE_ACTIVATED','application/created/new'),
+                              ('RELEASE_TREE_FINAL_AUDIT','control/kept')):
+            with self.subTest(boundary=boundary,path=name):
+                def attack(f):
+                    path=r.RELEASE_ROOT/name
+                    before=path.read_bytes();metadata=path.stat()
+                    subprocess.run([sys.executable,'-c',
+                        'import os,sys; p=sys.argv[1]; s=os.stat(p); '
+                        'b=open(p,"rb").read(); open(p,"wb").write(b"FOREIGN"); '
+                        'open(p,"wb").write(b); os.utime(p,ns=(s.st_atime_ns,s.st_mtime_ns))',
+                        str(path)],check=True)
+                    self.assertEqual(path.read_bytes(),before)
+                    self.assertEqual(path.stat().st_mtime_ns,metadata.st_mtime_ns)
+                self.full_chain(attack=attack,attack_at=boundary)
+
+    def test_immutable_release_transient_new_descendants_are_rejected(self):
+        def attack(f):
+            subprocess.run([sys.executable,'-c',
+                'import os,sys; p=sys.argv[1]; os.mkdir(p); '
+                'q=p+"/foreign"; open(q,"w").write("unbound"); os.unlink(q); os.rmdir(p)',
+                str(r.RELEASE_APPLICATION_ROOT/'transient-unbound')],check=True)
+        self.full_chain(attack=attack,attack_at='RELEASE_TREE_PREACTIVATION')
+
+    def test_immutable_release_interruption_cannot_resume_activation(self):
+        for boundary in ('RELEASE_TREE_PREACTIVATION','RELEASE_TREE_ACTIVATED'):
+            with self.subTest(boundary=boundary):self.full_chain(crash_at=boundary)
 
     def test_same_content_root_successor_after_phase_handoff_is_rejected(self):
         def replace(f):

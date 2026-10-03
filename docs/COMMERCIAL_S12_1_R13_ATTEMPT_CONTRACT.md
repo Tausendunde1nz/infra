@@ -10,6 +10,25 @@ the immutable R13 annotation generated and checked by the canonical freeze
 tool. The original materialization blocker remains historical evidence in
 `analysis/COMMERCIAL_S12_1_R13_OFFLINE_CHAIN_BLOCKER_2026-10-03.diagnose`.
 
+Exact-head CI 37150262668 passed (51 native integrated methods, 20 native
+R12 regressions, 1097 full-suite tests). Review 5402701445 nevertheless found
+P1 4174820240: repository finalization retired the writer stream before the
+published release was executed. The immutable release now receives the
+existing recursive mutation guard while that filesystem stream is still live.
+No writer, including root or the controller, is authorized to mutate this
+sealed tree; a newly created path is itself a violation, not a new grant.
+Observation spans freeze verification, activation, acceptance and the final
+inactive/public audit, ending at the ordered IN_IGNORED boundary before the
+success receipt. No release execution follows that boundary. A failed
+release-only observation does not poison Git execution or block safe stop and
+canonical backup rollback. Process loss still burns the attempt; recovery
+cannot resume activation or claim the lost watcher remained live.
+New native cases restore bytes and mtime before checking at each later phase,
+create/remove transient descendants, require safe stop when the service is
+active, and interrupt before/after activation with rollback and replay denial.
+These corrections require fresh complete CI and exact-SHA review; they do not
+authorize runtime activity or replace any earlier evidence.
+
 **Current source release status: pending final CI/review and Git closure.** Exact-head Code Review of
 `28d7fe240068c6e728d4a5566403eae44843d4c7` found one remaining P1
 (`4173769781`): the prior recursive Git watch was installed after the yielded body's

@@ -9216,6 +9216,7 @@ def _deploy_locked() -> dict[str, Any]:
     mutation_started = False
     release_repository_state: dict[str, Any] | None = None
     repository_sync_failure: BaseException | None = None
+    release_observation: _GitMetadataTransitionGuard | None = None
     try:
         worktree_barrier = _write_barrier_journal(
             path_records, parent_record
@@ -9279,6 +9280,17 @@ def _deploy_locked() -> dict[str, Any]:
                         control_sha,
                         control_tree,
                     )
+                    if ACTIVE_ATTEMPT is not None:
+                        # Install before the filesystem writer epoch retires.
+                        # This immutable subtree admits NO mutations (including
+                        # controller/root writes); ordinary runtime reads need
+                        # no writer grant. Creation of any new child is RED.
+                        release_observation = _GitMetadataTransitionGuard(
+                            (RELEASE_ROOT,), allow_root_lock_events=False
+                        )
+                        if GIT_WRITER_SCOPE is None:
+                            raise S12ControlError(GIT_WRITER_RED)
+                        GIT_WRITER_SCOPE.check()
                     _remove_fetch_stage(index)
                     _durable_unlink(_rollback_progress_path(backup))
                 except BaseException as error:
@@ -9296,6 +9308,9 @@ def _deploy_locked() -> dict[str, Any]:
         _sync_repository_filesystem(APPLICATION_ROOT)
         _sync_repository_filesystem(CONTROL_ROOT)
         _durable_unlink(BARRIER_MARKER)
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_PREVERIFY")
+            release_observation.assert_unchanged()
         _verify_release_freeze()
         _atomic_json(RUNTIME_CONTRACT, runtime_contract(control_sha, control_tree))
         os.chown(RUNTIME_CONTRACT, 0, 0)
@@ -9343,7 +9358,13 @@ def _deploy_locked() -> dict[str, Any]:
         ):
             _durable_unlink(path)
         evidence_not_before_ns = time.time_ns()
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_PREACTIVATION")
+            release_observation.assert_unchanged()
         start = _run(["systemctl", "start", UNIT_NAME], check=False, timeout=900)
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_ACTIVATED")
+            release_observation.assert_unchanged()
         if start.returncode != 0:
             raise S12ControlError("S12_1_RUNTIME_ACCEPTANCE_RED")
         if _systemctl_property(UNIT_NAME, "Result") != "success":
@@ -9377,6 +9398,13 @@ def _deploy_locked() -> dict[str, Any]:
         _run(["systemctl", "reload", "nginx.service"])
         _durable_unlink(RUNTIME_CONTRACT)
         read_only_preflight(immutable_release_allowed=True)
+        if release_observation is not None:
+            _r13_boundary("RELEASE_TREE_FINAL_AUDIT")
+            # The existing ordered IN_IGNORED shutdown checks queued history
+            # through the final inactive/public audit. No release execution
+            # follows this boundary. Process loss never resumes activation:
+            # the consumed attempt can only enter canonical recovery.
+            release_observation.finalize_release()
         result = {
             "ok": True,
             "safe_code": "S12_1_SANDBOX_RUNTIME_ACCEPTANCE_GREEN",
@@ -9395,6 +9423,11 @@ def _deploy_locked() -> dict[str, Any]:
         _atomic_json(STATE_ROOT / "deployment-result.json", result)
         return result
     except BaseException:
+        # Observation failure must NOT poison the global Git executor and
+        # thereby prevent systemctl stop or the verified backup rollback.
+        # Abort this immutable epoch before the authorized release removal.
+        if release_observation is not None:
+            release_observation.close()
         if repository_sync_failure is not None:
             pass
         elif mutation_started and backup is not None and index is not None:
@@ -9402,6 +9435,9 @@ def _deploy_locked() -> dict[str, Any]:
         elif _barrier_journal_present():
             _recover_repository_barrier_only()
         raise
+    finally:
+        if release_observation is not None:
+            release_observation.close()
 
 
 def deploy() -> dict[str, Any]:
