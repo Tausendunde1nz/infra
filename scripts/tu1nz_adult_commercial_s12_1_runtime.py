@@ -9475,8 +9475,11 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
             or _active_recovery_git_handle_count(metadata_paths)
             or _active_tracked_worktree_write_handle_count(tracked)):
         raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
-    guarded = set(paths) | set(roots)
-    for path in paths:
+    # Point-in-time scans are insufficient: a writer can open an unrelated
+    # tracked inode after them. Keep every tracked inode and ancestor watched
+    # and in the handle-quiescence scope until the transaction is committed.
+    guarded = set(paths) | set(tracked) | set(roots)
+    for path in tuple(guarded - set(roots)):
         root = next(root for root in roots if root in path.parents)
         guarded.update(parent for parent in path.parents if parent == root or root in parent.parents)
     guard = None

@@ -126,6 +126,10 @@ def fixture():
         (app/'created'/'new').write_bytes(b'new\n');os.chown(app/'created'/'new',0,1001);(app/'created'/'new').chmod(0o660)
         (control/'scripts').mkdir();os.chown(control/'scripts',1001,1001);(control/'scripts').chmod(0o2775)
         (control/'scripts'/'tool').write_bytes(b'tool\n');os.chown(control/'scripts'/'tool',0,1001);(control/'scripts'/'tool').chmod(0o440)
+        unrelated=control/'unlisted'/'nested';unrelated.mkdir(parents=True)
+        (unrelated/'readme').write_bytes(b'outside contract\n')
+        for path in (unrelated.parent,unrelated,unrelated/'readme'):
+            os.chown(path,0,1001);path.chmod(0o550 if path.is_dir() else 0o440)
         for root in (app,control):
             git(root,'add','.')
             os.chown(root,0,1001);root.chmod(0o2550)
@@ -274,6 +278,24 @@ class LinuxTests(unittest.TestCase):
             with mock.patch.object(r,'_atomic_barrier_json',side_effect=stop):
                 with self.assertRaises(Interrupted):r.reconcile_metadata(f['contract'])
             self.assertEqual(r.reconcile_metadata(f['contract'])['safe_code'],'S12_1_R12_METADATA_SEALED')
+
+    def test_late_writer_outside_254_contract_is_rejected(self):
+        with fixture() as f:
+            original=r._atomic_barrier_json;fired=False
+            def inject(path,payload):
+                nonlocal fired
+                original(path,payload)
+                if path.name.endswith('r12-bindings.json') and not fired:
+                    fired=True
+                    subprocess.run([sys.executable,'-c',
+                        'import sys;open(sys.argv[1],"wb").write(b"external writer")',
+                        str(f['control']/'unlisted'/'nested'/'readme')],check=True)
+            with mock.patch.object(r,'_atomic_barrier_json',side_effect=inject):
+                with self.assertRaisesRegex(r.S12ControlError,'WORKTREE_BARRIER_RED'):
+                    r.reconcile_metadata(f['contract'])
+            self.assertTrue(fired)
+            self.assertEqual(json.loads(r.BARRIER_MARKER.read_bytes())['schema'],r.BARRIER_SCHEMA)
+            self.assertEqual(json.loads((f['state']/'repository-barrier.r12-bindings.json').read_bytes())['phase'],'ABORTED')
 
 
 if __name__=='__main__':unittest.main()
