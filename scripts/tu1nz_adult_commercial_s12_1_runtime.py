@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r5"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r6"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -5489,7 +5489,7 @@ def _assert_repository_root_xattrs(
 
 
 def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
-    """Permit a V1 record upgrade only without unbound xattr principals."""
+    """Permit a V1 upgrade only for structurally valid POSIX ACL xattrs."""
 
     if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
         if sys.platform == "linux":
@@ -5526,17 +5526,44 @@ def _assert_legacy_path_xattrs_safe(path: Path, safe_code: str) -> None:
                     acl_header.size, len(value), acl_entry.size
                 )
             ]
+            named_entries = [
+                (tag, permissions, identifier)
+                for tag, permissions, identifier in entries
+                if tag in {0x02, 0x08}
+            ]
+            user_entries = [entry for entry in entries if entry[0] == 0x02]
+            group_entries = [entry for entry in entries if entry[0] == 0x08]
+            canonical_entries = (
+                [entry for entry in entries if entry[0] == 0x01]
+                + sorted(user_entries, key=lambda entry: entry[2])
+                + [entry for entry in entries if entry[0] == 0x04]
+                + sorted(group_entries, key=lambda entry: entry[2])
+                + [entry for entry in entries if entry[0] == 0x10]
+                + [entry for entry in entries if entry[0] == 0x20]
+            )
             if (
                 any(
-                    tag not in {0x01, 0x04, 0x10, 0x20}
+                    tag not in {0x01, 0x02, 0x04, 0x08, 0x10, 0x20}
                     or permissions & ~0o7
-                    or identifier != 0xFFFFFFFF
-                    for tag, permissions, identifier in entries
+                    for tag, permissions, _identifier in entries
                 )
                 or sum(tag == 0x01 for tag, *_rest in entries) != 1
                 or sum(tag == 0x04 for tag, *_rest in entries) != 1
                 or sum(tag == 0x20 for tag, *_rest in entries) != 1
-                or sum(tag == 0x10 for tag, *_rest in entries) > 1
+                or sum(tag == 0x10 for tag, *_rest in entries)
+                not in ({1} if named_entries else {0, 1})
+                or any(
+                    identifier != 0xFFFFFFFF
+                    for tag, _permissions, identifier in entries
+                    if tag in {0x01, 0x04, 0x10, 0x20}
+                )
+                or any(
+                    identifier == 0xFFFFFFFF
+                    for _tag, _permissions, identifier in named_entries
+                )
+                or len({(tag, identifier) for tag, _, identifier in named_entries})
+                != len(named_entries)
+                or entries != canonical_entries
             ):
                 raise OSError
         _stable_xattr_payload(

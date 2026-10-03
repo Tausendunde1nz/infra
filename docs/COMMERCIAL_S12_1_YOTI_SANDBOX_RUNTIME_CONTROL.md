@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r5` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r6` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -33,6 +33,14 @@ their canonical WorkingDirectory were consequently misclassified. The r4
 controller protects `.git` and `.git.s12-1-recovery` handles, while namespace
 locks preserve every previously available read/traverse class and remove only
 write authority. No service-name allowlist exists.
+
+The immutable r5 freeze is preserved as the first pristine-V1 direct-release
+controller. Its sole recovery invocation stopped before journal release with
+`S12_1_REPOSITORY_PARENT_RED`: the canonical shared repository parent contains
+intentional POSIX access/default ACLs with named runtime principals. The r6
+controller accepts only structurally complete POSIX ACLs, binds their exact
+bytes in the continuous release fingerprints and still rejects every unknown
+xattr, malformed ACL, duplicate principal or unmasked named entry.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
