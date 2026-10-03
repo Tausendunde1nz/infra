@@ -19,6 +19,7 @@ import os
 import pwd
 import re
 import select
+import signal
 import shutil
 import stat
 import struct
@@ -46,6 +47,7 @@ FOLLOWUP_PARENT = {
 ACTIVE_ATTEMPT: dict[str, Any] | None = None
 MATERIALIZATION_RECORDS: dict | None = None
 MATERIALIZATION_GUARDS: _R13GuardStack | None = None
+GIT_WRITER_SCOPE: _R13GitWriters | None = None
 MATERIALIZATION_RED = "S12_1_MATERIALIZATION_CONTRACT_RED"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
@@ -598,6 +600,14 @@ def _run(
     timeout: int = 120,
     input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if GIT_WRITER_SCOPE is not None:
+        GIT_WRITER_SCOPE.check()
+        selected = GIT_WRITER_SCOPE.command(arguments)
+        if selected is not None:
+            completed = GIT_WRITER_SCOPE.run(selected, timeout, input_text=input_text)
+            if check and completed.returncode:
+                raise S12ControlError("S12_1_CONTROL_COMMAND_RED")
+            return completed
     try:
         completed = subprocess.run(
             list(arguments),
@@ -7342,6 +7352,10 @@ def _serialized_repository_recovery_guarded(
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         transition_guard.assert_no_writer_events()
         transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
+        # Establish attributed, filesystem-wide coverage while the initial
+        # recursive quarantine guard still owns the mutation history.
+        writers = _r13_git_writers(selected_roots)
+        transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
         transition_guard.close()
         for git_directory in barriers.values():
             _validate_root_git_contract(git_directory)
@@ -7362,6 +7376,9 @@ def _serialized_repository_recovery_guarded(
                     # Authorized Git writes have finished. Watch the complete
                     # quarantined metadata tree before exposing it, including
                     # deep refs/objects not covered by worktree/root watches.
+                    if writers is None:
+                        raise S12ControlError(GIT_WRITER_RED)
+                    writers.check()
                     git_handoff_guard = _GitMetadataTransitionGuard(
                         tuple(barriers.values())
                     )
@@ -7531,6 +7548,8 @@ def _serialized_repository_recovery_guarded(
                         _restore_repository_git_metadata(
                             root, selected_records[root]
                         )
+                    if ACTIVE_ATTEMPT is not None and GIT_WRITER_SCOPE is not None:
+                        GIT_WRITER_SCOPE.directories = {r:r/'.git' for r in selected_roots}
                     if ACTIVE_ATTEMPT is not None:
                         _r13_boundary("RELEASE_ATTRIBUTES_RESTORED")
                     release_guard.accept_release_attributes()
@@ -7595,6 +7614,12 @@ def _serialized_repository_recovery_guarded(
                     release_guard = None
                     if release_attributes is not None:
                         release_attributes.assert_quiet()
+                    if ACTIVE_ATTEMPT is not None:
+                        # Attributed release guards still cover all existing
+                        # directories while the writer epoch drains and retires.
+                        _r13_retire_git_writers()
+                        if release_attributes is not None:
+                            release_attributes.assert_quiet()
                     if parent_locked:
                         _restore_repository_parent(parent_record)
                         parent_locked = False
@@ -7664,14 +7689,13 @@ def _seed_repository_from_bundle(
     for operation in ("verify", "unbundle"):
         try:
             with bundle.open("rb") as input_stream:
-                completed = subprocess.run(
-                    git_arguments("bundle", operation, "/dev/stdin"),
-                    check=False,
-                    stdin=input_stream,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=300,
-                )
+                arguments = git_arguments("bundle", operation, "/dev/stdin")
+                selected = GIT_WRITER_SCOPE.command(arguments) if GIT_WRITER_SCOPE is not None else None
+                if selected is not None:
+                    completed = GIT_WRITER_SCOPE.run(selected,300,stdin=input_stream)
+                else:
+                    completed = subprocess.run(arguments,check=False,stdin=input_stream,
+                        stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=300)
         except (OSError, subprocess.SubprocessError):
             raise S12ControlError("S12_1_BACKUP_BUNDLE_RED") from None
         if completed.returncode != 0:
@@ -10137,6 +10161,388 @@ def _r13_audit_materialized(roots: Sequence[Path]) -> None:
     _r13_boundary("MATERIALIZATION_AUDITED")
 
 
+GIT_WRITER_RED = "S12_1_GIT_WRITER_CONTRACT_RED"
+
+# Executed by an isolated interpreter, not preexec_fn in a threaded controller.
+# The O_PATH descriptor is the prospectively bound metadata inode. Landlock
+# grants no worktree/backup/outside writes and is inherited by every new task.
+_GIT_WRITER_BOOTSTRAP = r'''
+import ctypes,json,os,signal,struct,sys
+c=ctypes.CDLL(None,use_errno=True)
+fd=int(sys.argv[1]); args=json.loads(sys.argv[2]); env=json.loads(sys.argv[3])
+if os.uname().machine not in ('x86_64','aarch64') or c.syscall(444,0,0,1)<3: os._exit(125)
+rules=ctypes.create_string_buffer(struct.pack('=Q',0x7ff2))
+rs=c.syscall(444,ctypes.byref(rules),8,0)
+rule=ctypes.create_string_buffer(struct.pack('=Qi',0x61b2,fd))
+if rs<0 or c.syscall(445,rs,1,ctypes.byref(rule),0)<0: os._exit(125)
+if c.prctl(38,1,0,0,0)<0 or c.syscall(446,rs,0)<0: os._exit(125)
+os.close(rs); os.close(fd)
+if c.ptrace(0,0,0,0)<0: os._exit(125)
+os.kill(os.getpid(),signal.SIGSTOP)
+os.execve(args[0],args,env)
+'''
+
+
+def _r13_fid_events(data: bytes) -> list[tuple[int, int, tuple[bytes, ...], bytes]]:
+    """Decode only opaque identities, never retain unrelated names/content."""
+    events = []
+    offset = 0
+    while offset < len(data):
+        if len(data)-offset < 24:
+            raise S12ControlError(GIT_WRITER_RED)
+        size, version, reserved, header, mask, fd, tid = struct.unpack_from('=IBBHQii', data, offset)
+        if fd >= 0:
+            os.close(fd)
+        if (version != 3 or reserved or header != 24 or size < 24
+                or offset+size > len(data) or fd != -1 or tid <= 0
+                or mask & ~0x40000FCE or not mask & 0xFCE):
+            raise S12ControlError(GIT_WRITER_RED)
+        end, pos = offset+size, offset+24
+        parents, targets = [], []
+        while pos < end:
+            if end-pos < 20:
+                raise S12ControlError(GIT_WRITER_RED)
+            kind, pad, length = struct.unpack_from('=BBH', data, pos)
+            count, handle_type = struct.unpack_from('=Ii', data, pos+12)
+            if (kind not in (1,2,3) or pad or length < 20+count or pos+length > end
+                    or not 0 < count <= 128 or handle_type <= 0):
+                raise S12ControlError(GIT_WRITER_RED)
+            key = data[pos+4:pos+12] + struct.pack('=i',handle_type) + data[pos+20:pos+20+count]
+            if kind == 1:
+                targets.append(key)
+            else:
+                parents.append(key)
+            if kind == 2 and b'\0' not in data[pos+20+count:pos+length]:
+                raise S12ControlError(GIT_WRITER_RED)
+            pos += length
+        if pos != end or len(targets) > 1 or not (targets or parents):
+            raise S12ControlError(GIT_WRITER_RED)
+        events.append((tid, mask, tuple(parents), targets[0] if targets else b''))
+        offset = end
+    return events
+
+
+class _R13GitWriters:
+    """One finite, journaled writer epoch; no ancestry-only or root exemption.
+
+    Filesystem marks precede inventory and never need a recursive watch-add.
+    Ptrace stops fork/clone/exec/exit before admitting or retiring each task.
+    Queued events are drained before PID reuse can confer another task's grant.
+    """
+    def __init__(self, roots: Sequence[Path]):
+        self.roots = tuple(roots)
+        self.directories = {r:_repository_recovery_git_directory(r) or r/'.git' for r in roots}
+        self.controller_tid = threading.get_native_id()
+        self.fd = None
+        self.failed = False
+        self.members: dict[bytes, Path] = {}
+        self.pending: list[tuple] = []
+        self.tasks: dict[int, dict] = {}
+        self.operation = None
+        self.libc = ctypes.CDLL(None, use_errno=True)
+        self.libc.ptrace.restype = ctypes.c_long
+        self.journal = STATE_ROOT/'git-writer-scope.json'
+        self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=ACTIVE_ATTEMPT,
+                          phase='QUIET', sequence=0, tasks=[], operation=None)
+        try:
+            if (sys.platform != 'linux' or os.geteuid() != 0 or ACTIVE_ATTEMPT is None
+                    or os.uname().machine not in {'x86_64','aarch64'}
+                    or len({p.stat().st_dev for p in self.directories.values()}) != 1):
+                raise S12ControlError(GIT_WRITER_RED)
+            # REPORT_TID + DFID_NAME_TARGET; filesystem (not inode/mount) marks
+            # observe new nested directories from their creation onward.
+            self.fd = self.libc.fanotify_init(0x1f03, os.O_RDONLY|os.O_CLOEXEC)
+            if self.fd < 0:
+                self.fd = None
+                raise S12ControlError(GIT_WRITER_RED)
+            first = next(iter(self.directories.values()))
+            if self.libc.fanotify_mark(self.fd, 0x101, ctypes.c_uint64(0x40000FCE),
+                                      -100, os.fsencode(first)) < 0:
+                raise S12ControlError(GIT_WRITER_RED)
+            if _barrier_path_present(self.journal):
+                old = _private_json(self.journal, GIT_WRITER_RED, maximum=4*1024*1024)
+                if (old.get('schema') != self.value['schema'] or old.get('attempt_binding') != ACTIVE_ATTEMPT
+                        or old.get('phase') != 'QUIET' or old.get('tasks') != []
+                        or old.get('fingerprint') != self.fingerprint()):
+                    raise S12ControlError(GIT_WRITER_RED)
+                self.value['sequence'] = old['sequence']
+            for root,directory in self.directories.items():
+                for base,dirs,files in os.walk(directory, followlinks=False):
+                    for p in (Path(base), *(Path(base)/n for n in dirs+files)):
+                        if p.is_symlink() or p.stat().st_dev != first.stat().st_dev:
+                            raise S12ControlError(GIT_WRITER_RED)
+                        self.members[self.handle(p)] = root
+            self.check()
+            self.checkpoint()
+        except BaseException:
+            self.close(aborted=True)
+            raise
+
+    def handle(self, path: Path) -> bytes:
+        raw = ctypes.create_string_buffer(136)
+        struct.pack_into('=I',raw,0,128)
+        mount = ctypes.c_int()
+        fs = ctypes.create_string_buffer(256)
+        if (self.libc.name_to_handle_at(-100, os.fsencode(path), raw, ctypes.byref(mount), 0) < 0
+                or self.libc.statfs(os.fsencode(path), fs) < 0):
+            raise S12ControlError(GIT_WRITER_RED)
+        count,kind = struct.unpack_from('=Ii',raw)
+        if not 0 < count <= 128 or kind <= 0:
+            raise S12ControlError(GIT_WRITER_RED)
+        # Linux x86_64/aarch64 statfs: seven native 64-bit fields before fsid.
+        return fs.raw[56:64] + struct.pack('=i',kind) + raw.raw[8:8+count]
+
+    def fingerprint(self):
+        return _git_metadata_transition_fingerprint(tuple(self.directories.values()))
+
+    def fail(self):
+        self.failed = True
+        self.value['phase'] = 'FAILED'
+        _atomic_json(self.journal,self.value)
+        for root in self.roots:
+            if _barrier_path_present(_r13_location(root)):
+                _r13_poison(_r13_location(root))
+        raise S12ControlError(GIT_WRITER_RED)
+
+    def check(self):
+        if self.failed or self.fd is None:
+            raise S12ControlError(GIT_WRITER_RED)
+        try:
+            while True:
+                try:
+                    data = os.read(self.fd,65536)
+                except BlockingIOError:
+                    break
+                if not data:
+                    self.fail()
+                for tid,mask,parents,target in _r13_fid_events(data):
+                    # Capture authority at receipt, not when a future parent
+                    # event finally classifies this opaque object as in-scope.
+                    actor = 'controller' if tid == self.controller_tid else self.tasks.get(tid,{}).get('root')
+                    self.pending.append((actor,mask,parents,target))
+                if len(self.pending) > 262144:
+                    self.fail()
+            # A child event may precede its parent's CREATE in another task.
+            # Retain unclassified events for the epoch and compute closure.
+            changed = True
+            while changed:
+                changed = False
+                remaining = []
+                for actor,mask,parents,target in self.pending:
+                    roots = {self.members[k] for k in (*parents,target) if k in self.members}
+                    if not roots:
+                        remaining.append((actor,mask,parents,target))
+                        continue
+                    if len(roots) != 1:
+                        self.fail()
+                    root = roots.pop()
+                    if actor not in ('controller',str(root)):
+                        self.fail()
+                    if target and target not in self.members:
+                        # New identity has an observed parent association,
+                        # not a later equal-content/inode-owner inference.
+                        if not any(p in self.members for p in parents):
+                            self.fail()
+                        self.members[target] = root
+                        changed = True
+                self.pending = remaining
+        except (OSError,ValueError,struct.error,S12ControlError):
+            self.fail()
+
+    def checkpoint(self):
+        self.check()
+        if any(actor not in (None,'controller') for actor,_,_,_ in self.pending):
+            self.fail()
+        if self.tasks:
+            self.fail()
+        fingerprint = self.fingerprint()
+        self.check()
+        self.value.update(phase='QUIET',tasks=[],operation=None,fingerprint=fingerprint)
+        _atomic_json(self.journal,self.value)
+
+    def command(self, arguments):
+        argv = list(arguments)
+        for root,directory in self.directories.items():
+            prefix = _recovery_git_arguments(root,directory)
+            if argv[:len(prefix)] != prefix:
+                continue
+            suffix = argv[len(prefix):]
+            if not suffix:
+                self.fail()
+            if suffix[0] not in {'fetch','read-tree','update-ref','branch','symbolic-ref','bundle'}:
+                return None
+            env = dict(item.split('=',1) for item in prefix[2:8])
+            return root, argv[8:], env
+        return None
+
+    def ptrace(self, request, tid, data=0):
+        result = self.libc.ptrace(request,tid,ctypes.c_void_p(),ctypes.c_void_p(data))
+        if result < 0:
+            raise S12ControlError(GIT_WRITER_RED)
+        return result
+
+    @staticmethod
+    def executable(path):
+        meta = path.stat()
+        return dict(device=meta.st_dev,inode=meta.st_ino,sha256=_sha256(path))
+
+    def bind(self, tid, root, parent):
+        self.check()  # No queued event may inherit this new PID's authority.
+        fields = Path(f'/proc/{tid}/stat').read_text().rsplit(')',1)[1].split()
+        if tid in self.tasks or fields[0] not in {'t','T'}:
+            self.fail()
+        record = dict(tid=tid,start=fields[19],root=str(root),parent=parent)
+        self.tasks[tid] = record
+        self.value['tasks'] = list(self.tasks.values())
+        _atomic_json(self.journal,self.value)
+
+    def run(self, selected, timeout, *, input_text=None, stdin=None):
+        root,argv,env = selected
+        if self.tasks or self.operation is not None or input_text is not None:
+            self.fail()
+        directory = self.directories[root]
+        directory_fd = os.open(directory,os.O_PATH|os.O_DIRECTORY|os.O_NOFOLLOW)
+        allowed_git = self.executable(Path('/usr/bin/git'))
+        allowed_shell = self.executable(Path('/bin/sh'))
+        self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,
+                              namespace=self.handle(directory).hex(),bootstrap_sha256=
+                              hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest())
+        self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
+        _atomic_json(self.journal,self.value)  # Intent before spawning any writer.
+        process = None
+        buffers = {}
+        try:
+            process = subprocess.Popen([sys.executable,'-I','-S','-c',_GIT_WRITER_BOOTSTRAP,
+                str(directory_fd),json.dumps(argv),json.dumps(env)],stdin=stdin or subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,),close_fds=True)
+            buffers = {process.stdout:bytearray(),process.stderr:bytearray()}
+            for stream in buffers:
+                os.set_blocking(stream.fileno(),False)
+            deadline = time.monotonic()+timeout
+            pending = {process.pid:None}
+            initial = True
+            while pending:
+                if time.monotonic() >= deadline:
+                    self.fail()
+                progress = False
+                for tid in tuple(pending):
+                    event = os.waitid(os.P_PID,tid,os.WSTOPPED|os.WEXITED|os.WNOHANG|os.WNOWAIT|0x40000000)
+                    if event is None:
+                        continue
+                    progress = True
+                    # The task still owns its PID until this event is reaped.
+                    self.check()
+                    _,status = os.waitpid(tid,os.WNOHANG|0x40000000)
+                    if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+                        pending.pop(tid)
+                        self.tasks.pop(tid,None)
+                        if tid == process.pid:
+                            process.returncode = os.waitstatus_to_exitcode(status)
+                        if initial:
+                            self.fail()
+                        continue
+                    if not os.WIFSTOPPED(status):
+                        self.fail()
+                    kind,stop = status >> 16,os.WSTOPSIG(status)
+                    if tid not in self.tasks:
+                        self.bind(tid,root,pending[tid])
+                        # EXITKILL; fork/vfork/clone, exec and pre-exit stops.
+                        self.ptrace(0x4200,tid,0x0010005e)
+                        initial = False
+                        _r13_boundary('GIT_WRITER_BOUND')
+                    elif kind in (1,2,3):
+                        child = ctypes.c_ulong()
+                        self.ptrace(0x4201,tid,ctypes.addressof(child))
+                        if child.value in pending or not child.value:
+                            self.fail()
+                        pending[child.value] = tid
+                    elif kind == 4:
+                        actual = self.executable(Path(f'/proc/{tid}/exe'))
+                        args = Path(f'/proc/{tid}/cmdline').read_bytes().rstrip(b'\0').split(b'\0')
+                        if actual != allowed_git:
+                            # Git's local transport uses this one shell bridge;
+                            # never authorize a shell merely by its ancestry.
+                            sources = [a for a in argv if a.startswith(str(FETCH_ROOT)+'/')]
+                            expected = [b'/bin/sh',b'-c']
+                            scripts = {os.fsencode("git-upload-pack '"+p+"'") for p in sources
+                                       if not any(c in p for c in "'\n\r")}
+                            if (actual != allowed_shell or args[:2] != expected or len(args) != 3
+                                    or args[2] not in scripts):
+                                self.fail()
+                        _r13_boundary('GIT_WRITER_EXEC')
+                    elif kind not in (0,6):
+                        self.fail()
+                    self.ptrace(7,tid,0 if kind or stop in (signal.SIGSTOP,signal.SIGTRAP) else stop)
+                for stream,buffer in buffers.items():
+                    try:
+                        chunk = os.read(stream.fileno(),65536)
+                    except BlockingIOError:
+                        continue
+                    buffer.extend(chunk)
+                    if len(buffer) > 16*1024*1024:
+                        self.fail()
+                if not progress:
+                    select.select([self.fd,*[s.fileno() for s in buffers]],[],[],0.005)
+                self.check()
+            for stream,buffer in buffers.items():
+                while True:
+                    chunk = os.read(stream.fileno(),65536)
+                    if not chunk: break
+                    buffer.extend(chunk)
+            self.operation = None
+            self.checkpoint()
+            return subprocess.CompletedProcess(argv,process.returncode,
+                buffers[process.stdout].decode('utf-8'),buffers[process.stderr].decode('utf-8'))
+        except BaseException:
+            self.value['phase'] = 'FAILED'
+            self.failed = True
+            _atomic_json(self.journal,self.value)
+            if process is not None:
+                for tid in {*self.tasks,process.pid}:
+                    try: os.kill(tid,signal.SIGKILL)
+                    except ProcessLookupError: pass
+                # Never detach a writer or silently grant a retry.
+                for tid in {*self.tasks,process.pid}:
+                    try:
+                        while True:
+                            _,status = os.waitpid(tid,0x40000000)
+                            if os.WIFEXITED(status) or os.WIFSIGNALED(status): break
+                            self.ptrace(7,tid,signal.SIGKILL)
+                    except (ChildProcessError,S12ControlError): pass
+            raise
+        finally:
+            os.close(directory_fd)
+            for stream in buffers: stream.close()
+
+    def close(self, *, aborted=False):
+        if self.fd is not None:
+            try:
+                if not aborted:
+                    self.checkpoint()
+            finally:
+                os.close(self.fd)
+                self.fd = None
+
+
+def _r13_git_writers(roots: Sequence[Path]) -> _R13GitWriters | None:
+    global GIT_WRITER_SCOPE
+    if ACTIVE_ATTEMPT is None:
+        return None
+    if GIT_WRITER_SCOPE is None:
+        GIT_WRITER_SCOPE = _R13GitWriters(roots)
+    elif set(GIT_WRITER_SCOPE.roots) != set(roots):
+        raise S12ControlError(GIT_WRITER_RED)
+    GIT_WRITER_SCOPE.check()
+    return GIT_WRITER_SCOPE
+
+
+def _r13_retire_git_writers():
+    global GIT_WRITER_SCOPE
+    if GIT_WRITER_SCOPE is not None:
+        GIT_WRITER_SCOPE.close()
+        GIT_WRITER_SCOPE = None
+
+
 class _R13GuardStack(ExitStack):
     def __init__(self):
         super().__init__()
@@ -10172,7 +10578,7 @@ class _R13GuardStack(ExitStack):
 
 @contextmanager
 def _r13_guard_scope():
-    global MATERIALIZATION_GUARDS
+    global MATERIALIZATION_GUARDS, GIT_WRITER_SCOPE
     if MATERIALIZATION_GUARDS is not None:
         yield MATERIALIZATION_GUARDS
         return
@@ -10181,6 +10587,9 @@ def _r13_guard_scope():
         try:
             yield guards
         finally:
+            if GIT_WRITER_SCOPE is not None:
+                GIT_WRITER_SCOPE.close(aborted=True)
+                GIT_WRITER_SCOPE = None
             MATERIALIZATION_GUARDS = None
 
 
@@ -10513,6 +10922,14 @@ def _r13_recover_pending() -> None:
             value["unsafe"]=True
             _r13_save(tx,value)
         raise S12ControlError(MATERIALIZATION_RED)
+    # Pending undo and canonical recovery share this epoch. No stop/rebaseline
+    # between the first undo write and the later serialized protection handoff.
+    transition = _GitMetadataTransitionGuard(tuple(metadata))
+    try:
+        _r13_git_writers(roots)
+        transition.assert_unchanged()
+    finally:
+        transition.close()
     for root in existing:
         git=_recovery_git_path(root)
         _validate_root_git_contract(git)

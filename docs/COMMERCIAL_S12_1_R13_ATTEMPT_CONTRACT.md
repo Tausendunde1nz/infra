@@ -27,7 +27,35 @@ fingerprint after those writes is not sufficient provenance. Closing this
 interval requires a reviewed, prospective Git-writer/namespace contract that
 also covers child-process lifetime, newly created metadata and rollback, with
 unbroken transfer from the initial quarantine guard. No such new trust
-mechanism has been applied here. R12 remains canonical; runtime starts are 0.
+mechanism was present at that checkpoint. R12 remains canonical; runtime starts are 0.
+
+### Authorized writer continuation (candidate, not released)
+
+The candidate establishes a filesystem-wide FAN_REPORT_TID/DFID_NAME_TARGET
+stream while the initial quarantine guard is still live. Opaque file handles
+bind the initial namespace and observed parent/target creation transitions;
+unclassified events remain retained for graph closure, including events before
+a newly created parent's notification. Root and controller descendants receive
+no writer exemption. Overflow, unsupported kernel features and ambiguous object
+identity fail closed. Unrelated names/content are not retained.
+
+Each selected Git command is durably bound to the attempt/release, exact argv,
+metadata inode, executable identity and bootstrap digest before spawn. An
+isolated bootstrap applies Landlock ABI >=3 write confinement to that metadata
+inode (no worktree/backup writes) before its ptrace stop. Fork/clone/exec/exit
+stops bind each task's kernel identity and lifetime before continuation; only
+the fixed Git executable and exact local-upload-pack shell bridge can execute.
+EXITKILL closes live writers on controller death. Queue draining precedes PID
+retirement/admission. This is not an ancestry-only permission grant.
+
+RUNNING/FAILED journals never authorize resumed writers. QUIET checkpoints bind
+the protected metadata fingerprint including descendant ctime; resumption
+requires a fresh live guard and exact checkpoint agreement, not a claim that
+the old monitor survived. Pending undo shares the epoch with canonical recovery.
+Final release guards overlap epoch retirement. Landlock does not restrict all
+chmod/chown/xattr operations; attributed filesystem events and pinned executable
+identity remain required, not optional substitutes. This candidate still needs
+native Linux integration and same-SHA review before any source release.
 
 Continuation under expanded source-only authority: the candidate now allocates
 Git blobs in a same-filesystem, root-private per-attempt transaction directory.

@@ -13,12 +13,85 @@ import tempfile
 import time
 import copy
 import shutil
+import struct
 import unittest
 from unittest import mock
 from contextlib import ExitStack, contextmanager
 
 from scripts import tu1nz_adult_commercial_s12_1_runtime as r
 from tests.test_s12_1_r12_metadata_contract import fixture, private_json
+
+
+class WriterEnvelopeTests(unittest.TestCase):
+    @staticmethod
+    def event(*, tid=42, mask=0x104, kind=1, handle=b'abcd', name=b''):
+        info=struct.pack('=BBH',kind,0,20+len(handle)+len(name))+b'12345678'
+        info+=struct.pack('=Ii',len(handle),1)+handle+name
+        return struct.pack('=IBBHQii',24+len(info),3,0,24,mask,-1,tid)+info
+
+    def test_opaque_identity_without_names(self):
+        data=self.event()+self.event(kind=2,name=b'private-name\0',mask=0x100)
+        events=r._r13_fid_events(data)
+        self.assertEqual(len(events),2)
+        self.assertEqual(events[0][3],b'12345678'+struct.pack('=i',1)+b'abcd')
+        self.assertNotIn(b'private-name',repr(events).encode())
+
+    def test_overflow_unknown_pid_truncation_and_unknown_info_fail_closed(self):
+        for data in (b'x',self.event()[:-1],self.event(mask=0x4000),
+                     self.event(tid=0),self.event(kind=4),self.event(kind=2)):
+            with self.subTest(data=data[:24]),self.assertRaises(r.S12ControlError):
+                r._r13_fid_events(data)
+
+
+@unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,'native Linux writer supervision required')
+class AWriterTests(unittest.TestCase):
+    def setUp(self):
+        self.stack=ExitStack();self.addCleanup(self.stack.close)
+        self.base=Path(self.stack.enter_context(tempfile.TemporaryDirectory(dir='/root')))
+        self.root=self.base/'repo';self.root.mkdir()
+        self.state=self.base/'state';self.state.mkdir(mode=0o700)
+        subprocess.run(['git','init',str(self.root)],check=True,capture_output=True)
+        subprocess.run(['git','-C',str(self.root),'-c','user.name=Fixture',
+            '-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','fixture'],check=True,capture_output=True)
+        self.sha=subprocess.check_output(['git','-C',str(self.root),'rev-parse','HEAD'],text=True).strip()
+        for name,value in {'STATE_ROOT':self.state,'ACTIVE_ATTEMPT':{'isolated':'writer-test'},
+                           'APPLICATION_ROOT':self.root}.items():
+            self.stack.enter_context(mock.patch.object(r,name,value))
+        self.writer=r._R13GitWriters((self.root,))
+        self.addCleanup(lambda:self.writer.close(aborted=True))
+
+    def test_real_git_new_nested_metadata_and_foreign_reversion(self):
+        command=r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/new/deep/ref',self.sha)
+        result=self.writer.run(self.writer.command(command),30)
+        self.assertEqual(result.returncode,0,result.stderr)
+        path=self.root/'.git/refs/heads/new/deep/ref'
+        self.assertIn(self.writer.handle(path),self.writer.members)
+        mode=path.stat().st_mode&0o7777
+        subprocess.run([sys.executable,'-c','import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); os.chmod(p,m^64); os.chmod(p,m)',
+                        str(path),str(mode)],check=True)
+        with self.assertRaises(r.S12ControlError):self.writer.check()
+
+    def test_controller_descendant_is_not_a_git_writer(self):
+        path=self.root/'.git/HEAD'
+        def attack(name):
+            if name=='GIT_WRITER_BOUND':
+                subprocess.run([sys.executable,'-c','import os,sys; p=sys.argv[1]; m=os.stat(p).st_mode; os.chmod(p,m^64); os.chmod(p,m)',str(path)],check=True)
+        command=r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/new',self.sha)
+        with mock.patch.object(r,'_r13_boundary',side_effect=attack),self.assertRaises(r.S12ControlError):
+            self.writer.run(self.writer.command(command),30)
+        self.assertEqual(json.loads(self.writer.journal.read_text())['phase'],'FAILED')
+
+    def test_transient_nested_creation_cannot_escape_watch_inventory(self):
+        subprocess.run([sys.executable,'-c',
+            'from pathlib import Path; import sys; p=Path(sys.argv[1])/"unknown"; p.mkdir(); q=p/"deeper"; q.mkdir(); f=q/"ref"; f.write_text("x"); f.unlink(); q.rmdir(); p.rmdir()',
+            str(self.root/'.git/refs')],check=True)
+        with self.assertRaises(r.S12ControlError):self.writer.check()
+
+    def test_quiet_checkpoint_cannot_adopt_reverted_offline_change(self):
+        self.writer.close()
+        path=self.root/'.git/HEAD';mode=path.stat().st_mode
+        os.chmod(path,mode^64);os.chmod(path,mode)
+        with self.assertRaises(r.S12ControlError):r._R13GitWriters((self.root,))
 
 
 class GuardOwnerTests(unittest.TestCase):
