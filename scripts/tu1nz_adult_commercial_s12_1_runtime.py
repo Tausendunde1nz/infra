@@ -10322,12 +10322,13 @@ class _R13GitWriters:
             self.close(aborted=True)
             raise
 
-    def handle(self, path: Path) -> bytes:
+    def handle(self, path: Path, *, descriptor=False) -> bytes:
         raw = ctypes.create_string_buffer(136)
         struct.pack_into('=I',raw,0,128)
         mount = ctypes.c_int()
         fs = ctypes.create_string_buffer(256)
-        if (self.libc.name_to_handle_at(-100, os.fsencode(path), raw, ctypes.byref(mount), 0) < 0
+        if (self.libc.name_to_handle_at(-100, os.fsencode(path), raw, ctypes.byref(mount),
+                                       0x400 if descriptor else 0) < 0
                 or self.libc.statfs(os.fsencode(path), fs) < 0):
             raise S12ControlError(GIT_WRITER_RED)
         count,kind = struct.unpack_from('=Ii',raw)
@@ -10581,6 +10582,12 @@ class _R13GitWriters:
                         or output.st_nlink!=1 or stat.S_IMODE(output.st_mode)!=0o600):
                     self.fail()
                 self.operation['stdout'] = [output.st_dev,output.st_ino,output.st_mode,output.st_uid]
+                output_handle = self.handle(Path(f'/proc/self/fd/{stdout.fileno()}'),descriptor=True)
+                if output_handle in self.worktree_members:
+                    self.fail()
+                self.members[output_handle] = root
+                self.operation['stdout_handle'] = output_handle.hex()
+                self.check()
             if self.value['sequence'] >= 1024:
                 self.fail()
             self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
@@ -10697,6 +10704,11 @@ class _R13GitWriters:
                     chunk = os.read(stream.fileno(),65536)
                     if not chunk: break
                     buffer.extend(chunk)
+            if stdout is not None:
+                output = os.fstat(stdout.fileno())
+                if ([output.st_dev,output.st_ino,output.st_mode,output.st_uid] != self.operation['stdout']
+                        or output.st_nlink!=1):
+                    self.fail()
             self.value['history'].append(self.operation)
             self.operation = None
             self.checkpoint()
