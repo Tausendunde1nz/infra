@@ -2691,6 +2691,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             st_ino=20,
         )
         assert_xattrs = mock.Mock()
+        acl_guard = mock.Mock()
 
         with (
             mock.patch.object(runtime.os, "geteuid", return_value=0),
@@ -2717,6 +2718,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "_assert_worktree_path_xattrs",
                 assert_xattrs,
             ),
+            mock.patch.object(
+                runtime,
+                "_assert_post_chown_acl_preserves_access",
+                acl_guard,
+            ),
         ):
             runtime._refresh_worktree_barrier_for_release(
                 (root,), {root: {}}, records
@@ -2725,6 +2731,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertEqual(records[root][tracked], original_record)
         assert_xattrs.assert_called_once_with(tracked, original_record)
         live_group_guard.assert_called_once_with(1001, 1001)
+        acl_guard.assert_called_once_with(
+            tracked,
+            1001,
+            0o4,
+            0o4,
+            0o0,
+            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            reject_access_acl=True,
+        )
 
     def test_refresh_rejects_same_inode_mode_instead_of_rejournaling_it(
         self,
