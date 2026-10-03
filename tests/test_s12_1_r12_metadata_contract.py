@@ -104,12 +104,17 @@ def fixture(*, complete_backup=False):
             for key,value in dict(BARRIER_RELEASE_BACKUP=state/'repository-barrier.release-backup.json',
                     BARRIER_RELEASE_COMPLETION=state/'repository-barrier.release-complete.json',
                     RELEASE_ROOT=base/'private'/'release',RELEASE_STAGING_ROOT=base/'private'/'.release-staging',
+                    RELEASE_APPLICATION_ROOT=base/'private'/'release'/'application',
+                    RELEASE_CONTROL_ROOT=base/'private'/'release'/'control',
+                    RELEASE_VENV_ROOT=base/'private'/'release'/'venv',
+                    RELEASE_ENVIRONMENT=base/'private'/'release'/'runtime-environment.json',
                     FETCH_ROOT=repos/'.s12-1-fetch', UNIT_PATH=base/'unit',RUNTIME_CONTRACT=base/'runtime.json',
                     NGINX_SITE=base/'nginx',NGINX_ENABLED=base/'nginx-enabled',
                     SDK_ID=base/'sdk-id',PRIVATE_KEY=base/'key').items():
                 stack.enter_context(mock.patch.object(r,key,value))
             for path in (r.SDK_ID,r.PRIVATE_KEY):
                 path.write_bytes(b'synthetic-not-a-credential');path.chmod(0o600)
+            r.NGINX_SITE.write_bytes((ROOT/'nginx/current/wantmeseen.s10-1-final.conf').read_bytes())
         records={root:r._repository_path_metadata(root) for root in (app,control)}
         for root in records:
             records[root]['root_xattr_fingerprint']=r._repository_root_xattr_fingerprint(root)

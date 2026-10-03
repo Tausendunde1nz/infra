@@ -36,6 +36,9 @@ from typing import Any, Callable, Sequence
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r12"
+FOLLOWUP_SLOT = "r13-followup-1"
+FOLLOWUP_RED = "S12_1_FOLLOWUP_AUTHORIZATION_RED"
+ACTIVE_ATTEMPT: dict[str, Any] | None = None
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -1782,6 +1785,7 @@ def create_backup(
     }
     index = {
         "schema": BACKUP_SCHEMA,
+        **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "application": {
             **application_state,
@@ -8358,6 +8362,12 @@ def _seal_release_fetch_stage(
         or runtime_digest_bindings != [_trusted_controller_digest()]
     ):
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
+    if ACTIVE_ATTEMPT is not None:
+        release = ACTIVE_ATTEMPT["release"]
+        if (control_commit != release["control_commit"]
+                or _bare_root_git(control_fetch, "rev-parse", f"refs/tags/{FREEZE_TAG}") != release["tag_object"]
+                or _bare_root_git(control_fetch, "rev-parse", "refs/s12/control-main^{tree}") != release["control_tree"]):
+            raise S12ControlError(FOLLOWUP_RED)
 
 
 def _validated_git_paths(
@@ -8726,6 +8736,11 @@ def _load_recovery_backup() -> tuple[Path, dict[str, Any], dict[str, Any]]:
     index = _private_json(backup / "restore-index.json", "S12_1_RECOVERY_INDEX_RED")
     if index.get("schema") != BACKUP_SCHEMA:
         raise S12ControlError("S12_1_RECOVERY_INDEX_RED")
+    if ACTIVE_ATTEMPT is not None and (
+        attempt.get("attempt_binding") != ACTIVE_ATTEMPT
+        or index.get("attempt_binding") != ACTIVE_ATTEMPT
+    ):
+        raise S12ControlError("S12_1_FOLLOWUP_RECOVERY_BINDING_RED")
     return backup, index, attempt
 
 
@@ -9029,6 +9044,7 @@ def _deploy_locked() -> dict[str, Any]:
                     ATTEMPT_MARKER,
                     {
                         "attempt": 1,
+                        **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
                         "backup": str(backup),
                         "started_at": attempt_started_at,
                     },
@@ -9046,6 +9062,7 @@ def _deploy_locked() -> dict[str, Any]:
                         ATTEMPT_MARKER,
                         {
                             "attempt": 1,
+                            **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
                             "backup": str(backup),
                             "started_at": attempt_started_at,
                             "release_repository_state": release_repository_state,
@@ -9157,6 +9174,7 @@ def _deploy_locked() -> dict[str, Any]:
         result = {
             "ok": True,
             "safe_code": "S12_1_SANDBOX_RUNTIME_ACCEPTANCE_GREEN",
+            **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
             "backup": str(backup),
             "attempt_started_at": attempt_started_at,
             "deployment_count": 1,
@@ -9834,16 +9852,173 @@ def reconcile_metadata(contract_path: Path) -> dict:
     with _exclusive_deployment_lock():
         return _r12_reconcile_locked(contract_path)
 
+
+def _followup_authorization(path: Path, digest: str, *, recovering: bool) -> dict:
+    """An out-of-band, root-provisioned HUMAN grant; a freeze is not a grant."""
+    if os.geteuid() != 0 or path != PRIVATE_ROOT / "authorizations" / (FOLLOWUP_SLOT + ".json"):
+        raise S12ControlError(FOLLOWUP_RED)
+    _validate_secure_directory_chain(path.parent, Path("/"))
+    if path.lstat().st_gid != 0:
+        raise S12ControlError(FOLLOWUP_RED)
+    value = json.loads(_read_private_backup_blob(path, digest, FOLLOWUP_RED))
+    if not isinstance(value, dict) or set(value) != {
+        "schema", "slot", "human_authorization_sha256", "acknowledgment",
+        "authorized_at", "expires_at", "release", "parent_proof",
+    }:
+        raise S12ControlError(FOLLOWUP_RED)
+    release = value["release"]
+    parent = value["parent_proof"]
+    if (value["schema"] != "TU1NZ_S12_1_FOLLOWUP_AUTHORIZATION_V1"
+            or value["slot"] != FOLLOWUP_SLOT
+            or value["acknowledgment"] != "AUTHORIZE_ONE_SYNTHETIC_SANDBOX_DEPLOYMENT_AFTER_RECOVERY"
+            or not isinstance(value["human_authorization_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", value["human_authorization_sha256"]) is None
+            or value["human_authorization_sha256"] == "0" * 64
+            or type(value["authorized_at"]) is not int or type(value["expires_at"]) is not int
+            or not 0 < value["expires_at"] - value["authorized_at"] <= 86400
+            or (not recovering and not value["authorized_at"] <= time.time() < value["expires_at"])
+            or not isinstance(release, dict) or set(release) != {
+                "tag", "tag_object", "control_commit", "control_tree",
+                "application_commit", "application_tree", "controller_sha256",
+                "application_bundle_sha256", "control_bundle_sha256"}
+            or not isinstance(parent, dict) or set(parent) != {
+                "attempt", "index", "rollback", "progress", "recovery", "r12_original", "r12_ledger"}):
+        raise S12ControlError(FOLLOWUP_RED)
+    for field, size in {"tag_object":40,"control_commit":40,"control_tree":40,
+            "application_commit":40,"application_tree":40,"controller_sha256":64,
+            "application_bundle_sha256":64,"control_bundle_sha256":64}.items():
+        if not isinstance(release[field], str) or re.fullmatch(r"[0-9a-f]{" + str(size) + "}",release[field]) is None:
+            raise S12ControlError(FOLLOWUP_RED)
+    if (release["tag"] != FREEZE_TAG
+            or release["application_commit"] != APPLICATION_COMMIT
+            or release["application_tree"] != APPLICATION_TREE
+            or release["controller_sha256"] != _trusted_controller_digest()
+            or any(not isinstance(v,str) or re.fullmatch(r"[0-9a-f]{64}",v) is None for v in parent.values())):
+        raise S12ControlError(FOLLOWUP_RED)
+    if not recovering and (
+        release["application_bundle_sha256"] != os.environ.get(APPLICATION_BUNDLE_DIGEST_ENV)
+        or release["control_bundle_sha256"] != os.environ.get(CONTROL_BUNDLE_DIGEST_ENV)
+    ):
+        raise S12ControlError(FOLLOWUP_RED)
+    return value
+
+
+def _followup_parent_closed(proof: dict) -> None:
+    """No stale result alone can authorize a follow-up. Revalidate the chain."""
+    _validate_secure_directory_chain(STATE_ROOT, Path("/"))
+    backup,index,attempt = _load_recovery_backup()
+    paths = dict(attempt=ATTEMPT_MARKER,index=backup/"restore-index.json",
+        rollback=backup/"rollback-complete.json",progress=backup/"rollback-progress.json",
+        recovery=STATE_ROOT/"recovery-result.json",r12_original=STATE_ROOT/"repository-barrier.r12-original.json",
+        r12_ledger=STATE_ROOT/"repository-barrier.r12-bindings.json")
+    values = {key:json.loads(_read_private_backup_blob(path,proof[key],FOLLOWUP_RED)) for key,path in paths.items()}
+    ledger=values["r12_ledger"]
+    if (values["rollback"].get("safe_code") != "S12_1_ROLLBACK_GREEN"
+            or values["rollback"].get("ok") is not True or values["rollback"].get("count") != 1
+            or values["recovery"].get("safe_code") not in {
+                "S12_1_INTERRUPTED_DEPLOYMENT_RECOVERED", "S12_1_RECOVERY_ALREADY_COMPLETE"}
+            or values["recovery"].get("ok") is not True or values["recovery"].get("rollback_count") != 1
+            or ledger.get("schema") != "TU1NZ_S12_1_R12_BINDINGS_V1"
+            or ledger.get("phase") != "SEALED" or ledger.get("historical_continuity") is not False
+            or ledger.get("contract_sha256") != R12_CONTRACT_SHA256
+            or ledger.get("original_journal_sha256") != proof["r12_original"]
+            or values["r12_original"].get("schema") != BARRIER_SCHEMA
+            or _successful_result_matches_attempt(attempt)
+            or any(_barrier_path_present(path) for path in (
+                BARRIER_MARKER,BARRIER_RELEASE_BACKUP,STATE_ROOT/"repository-barrier.r12-abort.json"))):
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    progress=_load_rollback_progress(backup)
+    if progress is None or progress["phase"] != ROLLBACK_PHASE_REPOSITORIES_RESTORED:
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    if any(_barrier_path_present(_recovery_git_path(root)) or _is_recovery_guard(root/".git")
+           for root in (APPLICATION_ROOT,CONTROL_ROOT)):
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    if _rollback_unit_state() != ("inactive","dead"):
+        raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
+    for key in ("application","control"):
+        record=index[key]
+        for suffix,field in ((".bundle","bundle_sha256"),(".tracked-path-hashes","tracked_path_hashes_sha256")):
+            _read_private_backup_blob(backup/(key+suffix),record[field],FOLLOWUP_RED)
+        if _reflog_tree_digest(backup/(key+".reflogs")) != record["reflog_snapshot_sha256"]:
+            raise S12ControlError(FOLLOWUP_RED)
+    roots=(APPLICATION_ROOT,CONTROL_ROOT)
+    _validate_release_repository_states(progress["repository_state"],
+        {root:root/".git" for root in roots},
+        {root:index[key] for root,key in zip(roots,("application","control"))})
+    for root,key in zip(roots,("application","control")):
+        _validate_repository_worktree_contract(root,index[key])
+    if (_competing_control_sync_count() or _active_repository_git_count(roots)
+            or _active_recovery_git_handle_count(tuple(root/".git" for root in roots))
+            or _active_tracked_worktree_write_handle_count(_tracked_worktree_regular_paths(roots))):
+        raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+
+
+@contextmanager
+def _followup_namespace(binding: dict):
+    """One fixed finite slot; no caller-supplied filesystem paths or counters."""
+    names=("STATE_ROOT","BACKUP_ROOT","ATTEMPT_MARKER","BARRIER_MARKER",
+           "BARRIER_RELEASE_BACKUP","BARRIER_RELEASE_COMPLETION","ACTIVE_ATTEMPT")
+    previous={name:globals()[name] for name in names}
+    if ACTIVE_ATTEMPT is not None:
+        raise S12ControlError(FOLLOWUP_RED)
+    state=STATE_ROOT/"attempts"/FOLLOWUP_SLOT
+    globals().update(STATE_ROOT=state,BACKUP_ROOT=BACKUP_ROOT/FOLLOWUP_SLOT,
+        ATTEMPT_MARKER=state/"deployment-attempted.json",BARRIER_MARKER=state/"repository-barrier.json",
+        BARRIER_RELEASE_BACKUP=state/"repository-barrier.release-backup.json",
+        BARRIER_RELEASE_COMPLETION=state/"repository-barrier.release-complete.json",ACTIVE_ATTEMPT=binding)
+    try:
+        yield
+    finally:
+        globals().update(previous)
+
+
+def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
+    with _exclusive_deployment_lock():
+        authorization=_followup_authorization(path,digest,recovering=recovering)
+        binding=dict(slot=FOLLOWUP_SLOT,authorization_sha256=digest,
+                     release=authorization["release"],parent_proof=authorization["parent_proof"])
+        claim=STATE_ROOT/(FOLLOWUP_SLOT+".consumed.json")
+        receipt=dict(schema="TU1NZ_S12_1_FOLLOWUP_CONSUMED_V1",attempt_binding=binding)
+        if recovering:
+            _validate_secure_directory_chain(STATE_ROOT,Path("/"))
+            if _private_json(claim,FOLLOWUP_RED) != receipt:
+                raise S12ControlError(FOLLOWUP_RED)
+            with _followup_namespace(binding):
+                # Recovery never invokes deploy, admission, or activation.
+                result=_recover_locked()
+                return {**result,"attempt_binding":binding}
+        if _barrier_path_present(claim):
+            raise S12ControlError("S12_1_FOLLOWUP_ALREADY_CONSUMED_RED")
+        if any(_barrier_path_present(p) for p in (
+            STATE_ROOT/"attempts"/FOLLOWUP_SLOT,BACKUP_ROOT/FOLLOWUP_SLOT)):
+            raise S12ControlError(FOLLOWUP_RED)
+        _followup_parent_closed(authorization["parent_proof"])
+        read_only_preflight()
+        # O_EXCL, file fsync, parent fsync: even a crash/partial claim consumes
+        # this one slot. No implicit retry and no deletion/reset operation.
+        _write_private_backup_blob(claim,json.dumps(receipt,sort_keys=True,separators=(",",":")).encode())
+        with _followup_namespace(binding):
+            return _deploy_locked()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "operation", choices=("verify-source", "simulate", "preflight", "deploy", "recover", "reconcile-metadata")
     )
     parser.add_argument("--metadata-contract", type=Path)
+    parser.add_argument("--authorization", type=Path)
+    parser.add_argument("--authorization-sha256")
     arguments = parser.parse_args(argv)
     try:
         if (arguments.operation == "reconcile-metadata") != (arguments.metadata_contract is not None):
             raise S12ControlError(R12_RED)
+        if (arguments.authorization is None) != (arguments.authorization_sha256 is None):
+            raise S12ControlError(FOLLOWUP_RED)
+        if arguments.authorization is not None and arguments.operation not in {"deploy","recover"}:
+            raise S12ControlError(FOLLOWUP_RED)
+        if arguments.operation == "deploy" and arguments.authorization is None:
+            raise S12ControlError("S12_1_FOLLOWUP_AUTHORIZATION_REQUIRED_RED")
         if arguments.operation in {"deploy", "recover", "reconcile-metadata"}:
             if os.geteuid() != 0:
                 raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
@@ -9857,11 +10032,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 immutable_release_allowed=ATTEMPT_MARKER.exists()
             )
         elif arguments.operation == "recover":
-            result = recover()
+            if arguments.authorization is not None:
+                result=followup(arguments.authorization,arguments.authorization_sha256,recovering=True)
+            elif _barrier_path_present(STATE_ROOT/(FOLLOWUP_SLOT+".consumed.json")):
+                raise S12ControlError("S12_1_FOLLOWUP_RECOVERY_TARGET_REQUIRED_RED")
+            else:
+                result = recover()
         elif arguments.operation == "reconcile-metadata":
             result = reconcile_metadata(arguments.metadata_contract)
         else:
-            result = deploy()
+            result = followup(arguments.authorization,arguments.authorization_sha256)
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         return 0
     except (S12ControlError, OSError, ValueError, json.JSONDecodeError) as error:
