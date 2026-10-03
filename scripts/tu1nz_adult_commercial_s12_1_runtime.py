@@ -10501,8 +10501,10 @@ class _R13GitWriters:
                             expected = [b'/bin/sh',b'-c']
                             scripts = {os.fsencode("git-upload-pack '"+p+"'") for p in sources
                                        if not any(c in p for c in "'\n\r")}
-                            if (actual != allowed_shell or args[:2] != expected or len(args) != 3
-                                    or args[2] not in scripts):
+                            # prepare_shell_cmd supplies the same string as $0;
+                            # admit only that exact four-element argv, no "$@".
+                            if (actual != allowed_shell or args[:2] != expected or len(args) != 4
+                                    or args[2] not in scripts or args[3] != args[2]):
                                 self.fail()
                         self.tasks[tid]['executable'] = actual
                         _atomic_json(self.journal,self.value)
