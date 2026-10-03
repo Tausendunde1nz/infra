@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r9"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r10"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -2762,6 +2762,23 @@ def _worktree_barrier_mode(
     return restricted
 
 
+def _root_git_same_inode_transition_mode(
+    current_mode: int, recorded_mode: int
+) -> bool:
+    """Accept only an index-executable-stable mode re-sealable exactly."""
+
+    current_owner_executable = bool(current_mode & stat.S_IXUSR)
+    recorded_owner_executable = bool(recorded_mode & stat.S_IXUSR)
+    execute_classes_consistent = (
+        not current_mode & 0o011 or current_owner_executable
+    ) and (not recorded_mode & 0o011 or recorded_owner_executable)
+    return (
+        current_owner_executable == recorded_owner_executable
+        and execute_classes_consistent
+        and (current_mode == recorded_mode or not current_mode & 0o022)
+    )
+
+
 def _worktree_barrier_owner_acl(
     mode: int, uid: int, *, kind: str
 ) -> bytes | None:
@@ -2791,6 +2808,58 @@ def _worktree_barrier_owner_acl(
             entry.pack(0x20, other_access, 0xFFFFFFFF),
         )
     )
+
+
+def _chmod_mutated_worktree_barrier_owner_acl(
+    mode: int, uid: int, *, kind: str, current_mode: int
+) -> bytes | None:
+    """Return the exact generated ACL after a root-Git chmod transition."""
+
+    acl = _worktree_barrier_owner_acl(mode, uid, kind=kind)
+    if acl is None:
+        return None
+    header = struct.Struct("<I")
+    entry = struct.Struct("<HHI")
+    entries = []
+    for offset in range(header.size, len(acl), entry.size):
+        tag, permissions, identifier = entry.unpack_from(acl, offset)
+        if tag == 0x01:
+            permissions = (current_mode >> 6) & 0o7
+        elif tag == 0x10:
+            permissions = (current_mode >> 3) & 0o7
+        elif tag == 0x20:
+            permissions = current_mode & 0o7
+        entries.append(entry.pack(tag, permissions, identifier))
+    return header.pack(2) + b"".join(entries)
+
+
+def _worktree_chmod_mutated_owner_acl_transition(
+    path: Path, record: dict[str, Any], current_mode: int
+) -> bool:
+    """Prove a chmod-only mutation of the exact generated owner ACL."""
+
+    try:
+        expected = _chmod_mutated_worktree_barrier_owner_acl(
+            int(record["mode"], 8),
+            record["uid"],
+            kind=record["kind"],
+            current_mode=current_mode,
+        )
+        if expected is None or not hasattr(os, "getxattr"):
+            return False
+        actual = os.getxattr(
+            path,
+            "system.posix_acl_access",
+            follow_symlinks=False,
+        )
+        return actual == expected and (
+            _worktree_path_xattr_fingerprint(
+                path, barrier_acl=expected
+            )
+            == record["xattr_fingerprint"]
+        )
+    except (KeyError, OSError, TypeError, ValueError, S12ControlError):
+        return False
 
 
 def _assert_post_chown_acl_preserves_access(
@@ -3498,6 +3567,16 @@ def _lock_worktree_write_barrier(
                     # removed an old index path. Current paths are sealed in
                     # the second pass below.
                     continue
+                if (metadata.st_dev, metadata.st_ino) != (
+                    record["device"],
+                    record["inode"],
+                ):
+                    # Root Git may also have replaced a journaled path.  The
+                    # old inode cannot be re-sealed; defer the current inode
+                    # to the tracked-path pass below, which accepts only a
+                    # root-owned, single-link regular file or directory that
+                    # is already closed to group/other writers.
+                    continue
                 mode = int(record["mode"], 8)
                 base_restricted_mode = mode & ~0o222
                 generated_restricted_mode = _worktree_barrier_mode(
@@ -3565,18 +3644,21 @@ def _lock_worktree_write_barrier(
                     if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
                     else "invalid"
                 )
+                current_mode = stat.S_IMODE(metadata.st_mode)
                 root_transition = (
                     metadata.st_dev == record["device"]
                     and metadata.st_ino == record["inode"]
                     and metadata.st_uid == 0
                     and metadata.st_gid == record["gid"]
-                    and stat.S_IMODE(metadata.st_mode)
-                    in {
-                        mode,
-                        base_restricted_mode,
-                        generated_restricted_mode,
-                    }
-                    and not stat.S_IMODE(metadata.st_mode) & 0o022
+                    and _root_git_same_inode_transition_mode(
+                        current_mode, mode
+                    )
+                )
+                chmod_mutated_owner_acl_transition = (
+                    root_transition
+                    and _worktree_chmod_mutated_owner_acl_transition(
+                        path, record, current_mode
+                    )
                 )
                 if actual_kind != expected_kind or not (
                     original
@@ -3598,6 +3680,23 @@ def _lock_worktree_write_barrier(
                 if owner_acl_transition:
                     source_acl = None
                     restricted_mode = generated_restricted_mode
+                elif chmod_mutated_owner_acl_transition:
+                    source_acl = None
+                    restricted_mode = generated_restricted_mode
+                    _install_worktree_barrier_owner_acl(path, record)
+                    os.chmod(
+                        path,
+                        generated_restricted_mode,
+                        follow_symlinks=False,
+                    )
+                    _assert_worktree_barrier_owner_acl(
+                        path,
+                        record,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    _assert_worktree_path_xattrs(
+                        path, record, barrier_locked=True
+                    )
                 else:
                     _assert_worktree_path_xattrs(path, record)
                     source_acl = _assert_source_worktree_acl_access(
@@ -7148,6 +7247,16 @@ def _serialized_repository_recovery(
         for root, git_dir in barriers.items():
             _clear_stale_git_locks(root, git_dir)
         yield barriers
+        # Root Git may preserve a journaled inode while temporarily restoring
+        # its source write mode, or normalize its non-executable permission
+        # class while replacing the checked-out content.  Re-seal those exact
+        # root-owned transitions before accepting the post-body identity.  An
+        # unjournaled replacement must already reject group/other writes and
+        # is still rejected by the second pass in the barrier lock.
+        _lock_worktree_write_barrier(
+            selected_worktree_barrier,
+            allow_missing=allow_journaled_transition,
+        )
         tracked_paths = _tracked_worktree_regular_paths(selected_roots)
         _assert_worktree_write_barrier(
             selected_roots, selected_worktree_barrier
