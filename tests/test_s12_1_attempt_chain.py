@@ -260,6 +260,14 @@ class IntegratedChainTests(unittest.TestCase):
                 result=r.followup(authorization,grant_hash,recovering=True)
                 self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
                 self.assertFalse(r.RELEASE_ROOT.exists())
+                if crash_at in {'OBJECT_ALLOCATED','OBJECT_METADATA_SET'}:
+                    # The unbound private allocation is preserved, never
+                    # adopted, published, deleted or treated as historical.
+                    tx=f['state']/'attempts'/r.FOLLOWUP_SLOT/'materialization/application'
+                    self.assertTrue((tx/'new/0').is_dir())
+                    value=json.loads((tx/'journal.json').read_bytes())
+                    self.assertEqual(value['phase'],'UNDONE')
+                    self.assertIsNone(value['entries'][0]['after'])
             elif attack:
                 fired=False
                 def interfere(name):
@@ -306,7 +314,7 @@ class IntegratedChainTests(unittest.TestCase):
                 self.assertIn('system.posix_acl_default',os.listxattr(f['app']))
 
     def test_process_loss_at_each_materialization_boundary(self):
-        for boundary in ('OBJECT_BOUND','RETIRE_INTENT','RETIRED','PUBLISH_INTENT',
+        for boundary in ('OBJECT_ALLOCATED','OBJECT_METADATA_SET','OBJECT_BOUND','RETIRE_INTENT','RETIRED','PUBLISH_INTENT',
                          'PUBLISHED','RECORDS_PUBLISHED','INDEX_UPDATED','REF_UPDATED'):
             with self.subTest(boundary=boundary):
                 self.full_chain(crash_at=boundary)

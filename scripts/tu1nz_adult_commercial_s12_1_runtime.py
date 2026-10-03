@@ -10034,9 +10034,13 @@ def _r13_audit_materialized(roots: Sequence[Path]) -> None:
         if value["phase"] not in {"APPLIED","UNDONE"}:
             raise S12ControlError(MATERIALIZATION_RED)
         _r13_assert_parents(root,tx,value)
-        for entry in value["entries"]:
+        for i,entry in enumerate(value["entries"]):
             path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
             if _r13_snapshot(path) != entry["after" if value["phase"]=="APPLIED" else "before"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+            if value["phase"]=="APPLIED" and (
+                    _r13_snapshot(tx/"old"/str(i))!=entry["before"]
+                    or _barrier_path_present(tx/"new"/str(i))):
                 raise S12ControlError(MATERIALIZATION_RED)
 
 
@@ -10210,6 +10214,7 @@ def _r13_allocate_and_apply(root: Path, git: Path, tx: Path, value: dict,
                 stage.symlink_to(link)
             else:
                 _write_private_backup_blob(stage,blob)
+        _r13_boundary("OBJECT_ALLOCATED")
         # Existing quarantine contracts fence a symlink by its parents, not by
         # chmod/chown of the link. Allocate it at the declared maintenance UID
         # under the private parent; later release must not invent a new state.
@@ -10232,6 +10237,7 @@ def _r13_allocate_and_apply(root: Path, git: Path, tx: Path, value: dict,
             fd=_r12_open(stage)
             try:os.fsync(fd)
             finally:os.close(fd)
+        _r13_boundary("OBJECT_METADATA_SET")
         entry["after"]=_r13_snapshot(stage)
         _fsync_directory(stage.parent)
         allocation_check()  # reject foreign creation/replacement before binding
