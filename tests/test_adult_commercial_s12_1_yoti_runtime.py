@@ -571,7 +571,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertEqual(source.count("_verify_git_bundle("), 6)
+        self.assertEqual(source.count("_verify_git_bundle("), 7)
         self.assertIn('"bundle", "verify", "/dev/stdin"', source)
         self.assertIn('"bundle", "list-heads", "/dev/stdin"', source)
         self.assertIn('revisions = ["HEAD", "--all"]', source)

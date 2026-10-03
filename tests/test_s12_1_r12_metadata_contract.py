@@ -112,10 +112,14 @@ def fixture():
         private_json(r.ATTEMPT_MARKER,dict(attempt=1))
         index={}
         for key in ('application','control'):
-            index[key]={}
-            for suffix,field in (('.bundle','bundle_sha256'),('.tracked-path-hashes','tracked_path_hashes_sha256')):
-                blob=backup/(key+suffix);blob.write_bytes(b'authenticated isolated fixture\n');blob.chmod(0o600)
-                index[key][field]=hashlib.sha256(blob.read_bytes()).hexdigest()
+            root=app if key=='application' else control
+            commit=git(root,'rev-parse','HEAD').decode().strip()
+            index[key]=dict(commit=commit,tree=git(root,'rev-parse','HEAD^{tree}').decode().strip())
+            blob=backup/(key+'.bundle');git(root,'bundle','create',str(blob),'HEAD','refs/heads/main');blob.chmod(0o600)
+            index[key]['bundle_sha256']=hashlib.sha256(blob.read_bytes()).hexdigest()
+            blob=backup/(key+'.tracked-path-hashes')
+            blob.write_bytes(r._tracked_path_hash_payload(r._tracked_tree_paths(root,root/'.git',commit,r.R12_RED)));blob.chmod(0o600)
+            index[key]['tracked_path_hashes_sha256']=hashlib.sha256(blob.read_bytes()).hexdigest()
             logs=backup/(key+'.reflogs');logs.mkdir(mode=0o700)
             index[key]['reflog_snapshot_sha256']=r._reflog_tree_digest(logs)
         private_json(backup/'restore-index.json',index)
@@ -137,8 +141,11 @@ def fixture():
         missing.write_bytes(b'indexed then absent\n')
         git(control,'add','.')
         missing.unlink()
+        release_commits={}
         for root in (app,control):
             if root==app:git(root,'add','.')
+            git(root,'commit','-m','target')
+            release_commits['application' if root==app else 'control']=git(root,'rev-parse','HEAD').decode().strip()
             os.chown(root,0,1001);root.chmod(0o2550)
             (root/'.git').rename(root/r.RECOVERY_GIT_DIRECTORY)
             (root/r.RECOVERY_GIT_DIRECTORY).chmod(0o700)
@@ -168,7 +175,7 @@ def fixture():
                 try:guards.append(dict(repository=key,name=basename,metadata=r._r12_stat(fd)))
                 finally:os.close(fd)
         contract=dict(schema='TU1NZ_S12_1_R12_METADATA_CONTRACT_V1',roots=dict(application=str(app),control=str(control)),
-                      backup_name='fixture',entries=entries,guards=guards,
+                      backup_name='fixture',entries=entries,guards=guards,release_commits=release_commits,
                       protected_inputs={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (r.BARRIER_MARKER,r.ATTEMPT_MARKER,backup/'restore-index.json')})
         contract_path=base/'contract.json';private_json(contract_path,contract)
         stack.enter_context(mock.patch.object(r,'R12_CONTRACT_SHA256',hashlib.sha256(contract_path.read_bytes()).hexdigest()))
@@ -404,6 +411,35 @@ class LinuxTests(unittest.TestCase):
                 self.assertEqual(r._load_barrier_journal()[3],r.BARRIER_SCHEMA)
                 self.assertEqual(r.BARRIER_MARKER.read_bytes(),(f['state']/'repository-barrier.r12-original.json').read_bytes())
                 self.assertEqual(json.loads((f['state']/'repository-barrier.r12-bindings.json').read_bytes())['phase'],'ABORTED')
+
+    def test_quarantined_head_or_index_drift_is_rejected(self):
+        for drift in ('head','index-omission','index-blob','replacement-ref'):
+            with self.subTest(drift=drift),fixture() as f:
+                root=f['control'];gitdir=root/r.RECOVERY_GIT_DIRECTORY
+                args=('update-ref','HEAD','HEAD^') if drift=='head' else (
+                    ('update-index','--force-remove','unlisted/nested/readme') if drift=='index-omission' else
+                    ('replace','HEAD','HEAD^') if drift=='replacement-ref' else
+                    ('update-index','--add','--cacheinfo','100644',
+                     r._selected_git(root,gitdir,'rev-parse','HEAD:kept'),'unlisted/nested/readme'))
+                subprocess.run(r._selected_git_arguments(root,gitdir,*args),check=True,capture_output=True)
+                with self.assertRaises(r.S12ControlError):r.reconcile_metadata(f['contract'])
+                self.assertFalse((f['state']/'repository-barrier.r12-bindings.json').exists())
+
+    def test_guard_installation_race_rejects_write_and_reverted_write(self):
+        for reverted in (False,True):
+            with self.subTest(reverted=reverted),fixture() as f:
+                target=f['control']/'unlisted'/'nested'/'readme'
+                original=r._WorktreeReleaseGuard.__init__
+                def install(self,*args,**kwargs):
+                    subprocess.run([sys.executable,'-c',
+                        'from pathlib import Path;import sys;p=Path(sys.argv[1]);b=p.read_bytes();'
+                        'p.write_bytes(b"short lived writer");'
+                        'p.write_bytes(b) if sys.argv[2]=="True" else None',str(target),str(reverted)],check=True)
+                    original(self,*args,**kwargs)
+                with mock.patch.object(r._WorktreeReleaseGuard,'__init__',install):
+                    with self.assertRaisesRegex(r.S12ControlError,'R12_METADATA_RECONCILIATION_RED'):
+                        r.reconcile_metadata(f['contract'])
+                self.assertFalse((f['state']/'repository-barrier.r12-bindings.json').exists())
 
 
 if __name__=='__main__':unittest.main()

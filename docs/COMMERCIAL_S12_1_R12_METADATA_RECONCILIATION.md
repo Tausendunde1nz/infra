@@ -48,6 +48,11 @@ owners/modes, unsupported birth time and drift are rejected, never normalized aw
 
 1. Verify the exact protected inputs, associated backup blob/reflog digests, root
    barriers and unchanged Git guards. Reject actual Git/sync or retained writers.
+   Quarantined HEAD must equal the contract's release commit; canonical index
+   flags and every staged path/mode/blob must equal that commit's tree. Verify
+   the original backup bundle HEAD/tree and tracked-path digest against the
+   authenticated restore index. Recheck under the installed guards; an already
+   drifted index cannot define a smaller guarded scope.
 2. Pin all path components without symlink traversal. Keep the existing Git
    metadata watch, Worktree inotify/open-permission guard and retained-handle
    quiescence across **all index names and existing ancestors**, not only the 254
@@ -59,6 +64,11 @@ owners/modes, unsupported birth time and drift are rejected, never normalized aw
    chmod/chown/xattr events, including changes later reverted. Linux
    [file-handle fanotify events](https://man7.org/linux/man-pages/man2/fanotify_mark.2.html)
    and open-permission support are mandatory; there is no fallback.
+   A stable full-scope snapshot brackets guard installation, including object
+   identity/birth time, raw xattrs, content, missing names, symlink targets,
+   mtime and ctime. Present indexed contents must match the canonical blob.
+   A fast writer closing before handle enumeration, even after restoring its
+   original bytes, is rejected before any successor ledger is prepared.
 3. Preserve the original journal byte-for-byte as a root-only immutable-by-contract
    sidecar. Save the full `PREPARED` successor ledger durably before changing any
    affected path. Original records stay separate from new bindings.

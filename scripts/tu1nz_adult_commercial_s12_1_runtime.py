@@ -9249,8 +9249,8 @@ def _r12_attrs(fd: int) -> dict[str, str]:
     return values
 
 
-def _r12_open(path: Path) -> int:
-    # Pin each ancestor, reject symlinks at every component, including roots.
+def _r12_open(path: Path, *, inspect_symlink: bool = False) -> int:
+    # Pin each ancestor; never follow a symlink, including an inspected leaf.
     parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
         for part in path.parts[1:-1]:
@@ -9258,7 +9258,7 @@ def _r12_open(path: Path) -> int:
                               | os.O_CLOEXEC, dir_fd=parent)
             os.close(parent)
             parent = next_fd
-        return os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+        return os.open(path.name, (os.O_PATH if inspect_symlink else os.O_RDONLY) | os.O_NOFOLLOW | os.O_CLOEXEC
                        | os.O_NONBLOCK, dir_fd=parent)
     finally:
         os.close(parent)
@@ -9450,6 +9450,105 @@ def _r12_abort(contract: dict) -> None:
     _atomic_barrier_json(ledger_path, ledger)
 
 
+def _r12_validate_git(contract: dict, index: dict, backup: Path) -> dict:
+    """Bind HEAD/index to the approved release, not an observed index baseline."""
+    selected = {}
+    for key, root in (("application", APPLICATION_ROOT), ("control", CONTROL_ROOT)):
+        git_directory = _repository_recovery_git_directory(root)
+        commit = contract["release_commits"][key]
+        if _selected_git(root, git_directory, "for-each-ref", "--format=%(refname)", "refs/replace/"):
+            raise S12ControlError(R12_RED)
+        if _selected_git(root, git_directory, "rev-parse", "HEAD") != commit:
+            raise S12ControlError(R12_RED)
+        _validate_canonical_index(root, git_directory)
+        tree = _bounded_nul_command_records(_selected_git_arguments(
+            root, git_directory, "ls-tree", "-r", "-z", commit), R12_RED)
+        staged = _bounded_nul_command_records(_selected_git_arguments(
+            root, git_directory, "ls-files", "--stage", "-z", "--"), R12_RED)
+        expected = []
+        names = set()
+        for item in tree:
+            prefix, separator, name = item.partition(b"\t")
+            fields = prefix.split(b" ")
+            if (not separator or len(fields) != 3 or fields[0] not in {b"100644", b"100755", b"120000"}
+                    or fields[1] != b"blob" or re.fullmatch(rb"[0-9a-f]{40}", fields[2]) is None):
+                raise S12ControlError(R12_RED)
+            _validated_git_paths((name,), R12_RED)
+            if name in names:
+                raise S12ControlError(R12_RED)
+            names.add(name)
+            selected[root / os.fsdecode(name)] = (fields[0].decode(), fields[2].decode())
+            expected.append(fields[0] + b" " + fields[2] + b" 0\t" + name)
+        if sorted(expected) != sorted(staged):
+            raise S12ControlError(R12_RED)
+        record = index[key]
+        bundle = backup / (key + ".bundle")
+        _verify_git_bundle(root, bundle, git_directory)
+        if _git_bundle_heads(root, bundle, git_directory).get("HEAD") != record["commit"]:
+            raise S12ControlError(R12_RED)
+        if _selected_git(root, git_directory, "rev-parse", record["commit"] + "^{tree}") != record["tree"]:
+            raise S12ControlError(R12_RED)
+        original_paths = _tracked_path_hash_payload(_tracked_tree_paths(
+            root, git_directory, record["commit"], R12_RED))
+        if original_paths != _read_private_backup_blob(backup / (key + ".tracked-path-hashes"),
+                record["tracked_path_hashes_sha256"], R12_RED):
+            raise S12ControlError(R12_RED)
+    return selected
+
+
+def _r12_scope_snapshot(paths: set[Path], selected: dict) -> dict:
+    """Stable content/identity/metadata evidence across watch installation.
+
+    ctime is included so a write or metadata change restored before the second
+    snapshot is still a violation. Missing names and symlinks are explicit.
+    Present indexed contents must match canonical Git blobs, not current bytes
+    adopted as a new release baseline. This is not historical metadata proof.
+    """
+    fields = ("st_dev", "st_ino", "st_uid", "st_gid", "st_mode", "st_nlink",
+              "st_size", "st_mtime_ns", "st_ctime_ns")
+    result = {}
+    for path in sorted(paths | set(selected), key=os.fsencode):
+        try:
+            before = path.lstat()
+        except FileNotFoundError:
+            result[path] = None
+            continue
+        symlink = stat.S_ISLNK(before.st_mode)
+        fd = _r12_open(path, inspect_symlink=symlink)
+        try:
+            opened = os.fstat(fd)
+            identity = tuple(getattr(before, key) for key in fields)
+            if tuple(getattr(opened, key) for key in fields) != identity:
+                raise S12ControlError(R12_RED)
+            attrs = _stable_xattr_payload(path, before)
+            birth = _r12_birth(fd)
+            blob = None
+            if symlink:
+                link = os.fsencode(os.readlink(path))
+                blob = hashlib.sha1(b"blob " + str(len(link)).encode() + b"\0" + link).hexdigest()
+            elif stat.S_ISREG(before.st_mode):
+                if before.st_nlink != 1:
+                    raise S12ControlError(R12_RED)
+                digest = hashlib.sha1(b"blob " + str(before.st_size).encode() + b"\0")
+                while chunk := os.read(fd, 1024 * 1024):
+                    digest.update(chunk)
+                blob = digest.hexdigest()
+            elif not stat.S_ISDIR(before.st_mode):
+                raise S12ControlError(R12_RED)
+            if path in selected:
+                mode, expected_blob = selected[path]
+                if (blob != expected_blob or symlink != (mode == "120000")
+                        or (not symlink and bool(before.st_mode & 0o100) != (mode == "100755"))):
+                    raise S12ControlError(R12_RED)
+            if (tuple(getattr(os.fstat(fd), key) for key in fields) != identity
+                    or tuple(getattr(path.lstat(), key) for key in fields) != identity):
+                raise S12ControlError(R12_RED)
+            result[path] = (identity, birth, attrs, blob)
+        finally:
+            os.close(fd)
+    return result
+
+
 def _r12_index_guard_paths(roots: Sequence[Path]) -> set[Path]:
     """Guard every index name, including absent names and symlink parents.
 
@@ -9550,6 +9649,7 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
             os.close(fd)
     entries = sorted(contract["entries"], key=lambda e: (len(Path(e["path"]).parts), e["repository"], e["path"]))
     paths = [by_name[e["repository"]] / e["path"] for e in entries]
+    selected = _r12_validate_git(contract, index, backup)
     index_guarded = _r12_index_guard_paths(roots)
     tracked = _tracked_worktree_regular_paths(roots, allow_missing=True)
     metadata_paths = _repository_git_metadata_paths(roots)
@@ -9564,6 +9664,7 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
     for path in tuple(guarded - set(roots)):
         root = next(root for root in roots if root in path.parents)
         guarded.update(parent for parent in path.parents if parent == root or root in parent.parents)
+    installation_snapshot = _r12_scope_snapshot(guarded, selected)
     guard = None
     git_guard = None
     attrs_guard = None
@@ -9577,8 +9678,12 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
         attrs_guard = _R12AttributeGuard(tuple(guarded))
         quiescence = _GuardedHandleQuiescence(tuple(guarded), roots)
         quiescence.acquire()
+        if (_r12_validate_git(contract, index, backup) != selected
+                or _r12_scope_snapshot(guarded, selected) != installation_snapshot):
+            raise S12ControlError(R12_RED)
         if _r12_index_guard_paths(roots) != index_guarded:
             raise S12ControlError(R12_RED)
+        git_guard.assert_unchanged()
         if _active_tracked_worktree_write_handle_count(tracked):
             raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         for path in paths:
