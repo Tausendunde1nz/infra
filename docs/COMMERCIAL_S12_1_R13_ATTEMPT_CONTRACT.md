@@ -37,6 +37,13 @@ Before releasing the source worktrees the contract revalidates both published
 successors and retained predecessors, ensuring the declared reversal is still
 available. A successful source CI does not grant runtime authority.
 
+The interrupted-materialization recovery prefix repeats canonical admission
+before any object move: both Git barriers, no successful attempt result,
+inactive runtime, no control-sync/Git process or retained Git/worktree writer.
+A violation poisons the transaction and retains its guards; a later disappearance
+of the writer is not retroactive authority. Linux negatives include a real
+separate process holding the quarantined Git HEAD open for writing.
+
 ## Delta and trust boundary
 
 The historical `state/deployment-attempted.json` remains byte-for-byte intact.

@@ -10329,9 +10329,25 @@ def _r13_recover_pending() -> None:
     if ACTIVE_ATTEMPT is None:
         return
     existing=[root for root in (CONTROL_ROOT,APPLICATION_ROOT) if _barrier_path_present(_r13_location(root))]
-    if not any(_r13_load(root)[1]["phase"] not in {"APPLIED","UNDONE"} for root in existing):
+    loaded = {root:_r13_load(root) for root in existing}
+    if not any(value["phase"] not in {"APPLIED","UNDONE"} for _,value in loaded.values()):
         return
-    if not _repository_barriers_are_installed():
+    _,_,attempt = _load_recovery_backup()
+    roots=(APPLICATION_ROOT,CONTROL_ROOT)
+    metadata=_repository_git_metadata_paths(roots)
+    # This prefix only closes pre-activation/interrupted rollback states.
+    # Canonical recovery's safety admission must precede its first move too.
+    if (not _repository_barriers_are_installed()
+            or _successful_result_matches_attempt(attempt)
+            or _rollback_unit_state() != ("inactive","dead")
+            or _competing_control_sync_count()
+            or _active_repository_git_count(roots)
+            or _active_recovery_git_handle_count(metadata)
+            or _active_tracked_worktree_write_handle_count(
+                _tracked_worktree_regular_paths(roots,allow_missing=True))):
+        for tx,value in loaded.values():
+            value["unsafe"]=True
+            _r13_save(tx,value)
         raise S12ControlError(MATERIALIZATION_RED)
     for root in existing:
         git=_recovery_git_path(root)

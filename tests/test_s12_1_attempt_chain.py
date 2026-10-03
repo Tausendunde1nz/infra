@@ -249,9 +249,12 @@ class IntegratedChainTests(unittest.TestCase):
                 self.assertEqual(os.waitstatus_to_exitcode(status),73,crash_at)
                 self.starts=int(self.start_witness.read_text()) if self.start_witness.exists() else 0
                 if tamper:
-                    tamper(f)
-                    with self.assertRaises((r.S12ControlError,OSError)):
-                        r.followup(authorization,grant_hash,recovering=True)
+                    cleanup=tamper(f)
+                    try:
+                        with self.assertRaises((r.S12ControlError,OSError)):
+                            r.followup(authorization,grant_hash,recovering=True)
+                    finally:
+                        if cleanup:cleanup()
                     self.assertEqual(self.starts,0)
                     self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
@@ -365,6 +368,25 @@ class IntegratedChainTests(unittest.TestCase):
         for name,tamper in (('inode',inode),('acl',acl),('parent',parent),('policy',policy)):
             with self.subTest(tamper=name):
                 self.full_chain(crash_at='OBJECT_BOUND',tamper=tamper)
+
+    def test_pending_recovery_rejects_live_git_handle_before_any_move(self):
+        def hold(f):
+            head=f['app']/r.RECOVERY_GIT_DIRECTORY/'HEAD'
+            proc=subprocess.Popen([sys.executable,'-c',
+                'import sys,time; f=open(sys.argv[1],"r+b"); print("READY",flush=True); time.sleep(60)',
+                str(head)],stdout=subprocess.PIPE,text=True)
+            self.assertEqual(proc.stdout.readline().strip(),'READY')
+            def close():
+                proc.terminate();proc.wait(timeout=5);proc.stdout.close()
+            return close
+        self.full_chain(crash_at='OBJECT_BOUND',tamper=hold)
+
+    def test_pending_recovery_requires_inactive_runtime(self):
+        def active(f):
+            override=mock.patch.object(r,'_rollback_unit_state',return_value=('active','running'))
+            override.start()
+            return override.stop
+        self.full_chain(crash_at='OBJECT_BOUND',tamper=active)
 
     def test_full_success_chain_and_replay(self):
         self.full_chain(provider_failure=False)
