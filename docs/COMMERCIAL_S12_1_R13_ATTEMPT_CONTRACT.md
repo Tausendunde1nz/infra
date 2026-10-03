@@ -43,6 +43,10 @@ inactive runtime, no control-sync/Git process or retained Git/worktree writer.
 A violation poisons the transaction and retains its guards; a later disappearance
 of the writer is not retroactive authority. Linux negatives include a real
 separate process holding the quarantined Git HEAD open for writing.
+The fixed private staging namespace and both repositories must share a
+filesystem for atomic no-replace moves. Follow-up admission checks this before
+claim consumption; a real root-filesystem/tmpfs negative proves rejection
+without a claim or deployment. Cross-filesystem copy is not a fallback.
 
 ## Delta and trust boundary
 
@@ -143,6 +147,7 @@ backup or claims historical metadata continuity.
 ## Remaining runtime prerequisites
 
 Separate explicit runtime approval; immutable R13 artifact verification;
+same-filesystem private staging preflight;
 unchanged audited server admission; verified backup/abort paths; successful
 R12 metadata sealing retaining both barriers; separate canonical recovery
 releasing them; fresh protected grant and matching bundles; all public/S11,

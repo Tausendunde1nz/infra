@@ -9942,6 +9942,18 @@ def _r13_location(root: Path) -> Path:
     return STATE_ROOT/"materialization"/("application" if root == APPLICATION_ROOT else "control")
 
 
+def _r13_preflight_storage() -> None:
+    """Reject a predictable EXDEV before consuming the sole follow-up slot."""
+    parent=STATE_ROOT/"attempts"/FOLLOWUP_SLOT/"materialization"
+    while not _barrier_path_present(parent):
+        parent=parent.parent
+    metadata=parent.lstat()
+    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid!=0
+            or stat.S_IMODE(metadata.st_mode)&0o022
+            or any(root.lstat().st_dev!=metadata.st_dev for root in (APPLICATION_ROOT,CONTROL_ROOT))):
+        raise S12ControlError("S12_1_MATERIALIZATION_FILESYSTEM_RED")
+
+
 def _r13_load(root: Path) -> tuple[Path, dict]:
     tx = _r13_location(root)
     _validate_secure_directory_chain(tx, Path("/"))
@@ -10515,6 +10527,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
             raise S12ControlError(FOLLOWUP_RED)
         _followup_parent_closed(authorization["parent_proof"])
         read_only_preflight()
+        _r13_preflight_storage()
         # O_EXCL, file fsync, parent fsync: even a crash/partial claim consumes
         # this one slot. No implicit retry and no deletion/reset operation.
         _write_private_backup_blob(claim,json.dumps(receipt,sort_keys=True,separators=(",",":")).encode())

@@ -28,8 +28,10 @@ class AdmissionTests(unittest.TestCase):
         self.stack=ExitStack();self.addCleanup(self.stack.close)
         self.base=Path(self.stack.enter_context(tempfile.TemporaryDirectory(dir='/root')))
         self.state=self.base/'state';self.state.mkdir(mode=0o700)
+        for name in ('app','control'):(self.base/name).mkdir(mode=0o700)
         for key,value in dict(PRIVATE_ROOT=self.base,STATE_ROOT=self.state,
-                BACKUP_ROOT=self.base/'backups',DEPLOYMENT_LOCK_ROOT=self.base).items():
+                BACKUP_ROOT=self.base/'backups',DEPLOYMENT_LOCK_ROOT=self.base,
+                APPLICATION_ROOT=self.base/'app',CONTROL_ROOT=self.base/'control').items():
             self.stack.enter_context(mock.patch.object(r,key,value))
         self.stack.enter_context(mock.patch.object(r,'_trusted_controller_digest',return_value='c'*64))
         self.stack.enter_context(mock.patch.dict(os.environ,{
@@ -125,6 +127,18 @@ class AdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(r.S12ControlError,'PARENT_RED'):r.followup(self.path,digest)
             deploy.assert_not_called()
         self.assertFalse((self.state/(r.FOLLOWUP_SLOT+'.consumed.json')).exists())
+
+    def test_cross_filesystem_rejected_before_claim_consumption(self):
+        digest=self.write()
+        with tempfile.TemporaryDirectory(dir='/dev/shm') as temporary:
+            state=Path(temporary)
+            self.assertNotEqual(state.stat().st_dev,self.base.stat().st_dev)
+            with mock.patch.object(r,'STATE_ROOT',state),mock.patch.object(r,'_followup_parent_closed'), \
+                    mock.patch.object(r,'read_only_preflight'),mock.patch.object(r,'_deploy_locked') as deploy:
+                with self.assertRaisesRegex(r.S12ControlError,'MATERIALIZATION_FILESYSTEM_RED'):
+                    r.followup(self.path,digest)
+                deploy.assert_not_called()
+            self.assertEqual(list(state.iterdir()),[])
 
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,
