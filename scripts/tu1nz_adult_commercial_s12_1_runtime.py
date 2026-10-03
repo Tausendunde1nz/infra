@@ -9649,10 +9649,14 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
             os.close(fd)
     entries = sorted(contract["entries"], key=lambda e: (len(Path(e["path"]).parts), e["repository"], e["path"]))
     paths = [by_name[e["repository"]] / e["path"] for e in entries]
+    metadata_paths = _repository_git_metadata_paths(roots)
+    git_installation_snapshot = (
+        _git_metadata_transition_fingerprint(metadata_paths),
+        _r12_scope_snapshot(set(metadata_paths), {}),
+    )
     selected = _r12_validate_git(contract, index, backup)
     index_guarded = _r12_index_guard_paths(roots)
     tracked = _tracked_worktree_regular_paths(roots, allow_missing=True)
-    metadata_paths = _repository_git_metadata_paths(roots)
     if (_competing_control_sync_count() or _active_repository_git_count(roots)
             or _active_recovery_git_handle_count(metadata_paths)
             or _active_tracked_worktree_write_handle_count(tracked)):
@@ -9678,6 +9682,9 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
         attrs_guard = _R12AttributeGuard(tuple(guarded))
         quiescence = _GuardedHandleQuiescence(tuple(guarded), roots)
         quiescence.acquire()
+        if (_git_metadata_transition_fingerprint(metadata_paths),
+                _r12_scope_snapshot(set(metadata_paths), {})) != git_installation_snapshot:
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
         if (_r12_validate_git(contract, index, backup) != selected
                 or _r12_scope_snapshot(guarded, selected) != installation_snapshot):
             raise S12ControlError(R12_RED)

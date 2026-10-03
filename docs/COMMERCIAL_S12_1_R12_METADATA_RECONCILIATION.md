@@ -53,6 +53,9 @@ owners/modes, unsupported birth time and drift are rejected, never normalized aw
    the original backup bundle HEAD/tree and tracked-path digest against the
    authenticated restore index. Recheck under the installed guards; an already
    drifted index cannot define a smaller guarded scope.
+   A full Git metadata fingerprint (including nested ctimes and separately
+   bound root attributes) precedes these checks and is compared after guard
+   installation. A reverted HEAD/index write in that interval remains RED.
 2. Pin all path components without symlink traversal. Keep the existing Git
    metadata watch, Worktree inotify/open-permission guard and retained-handle
    quiescence across **all index names and existing ancestors**, not only the 254

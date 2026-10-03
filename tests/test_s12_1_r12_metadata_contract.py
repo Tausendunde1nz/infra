@@ -432,12 +432,29 @@ class LinuxTests(unittest.TestCase):
                 original=r._WorktreeReleaseGuard.__init__
                 def install(self,*args,**kwargs):
                     subprocess.run([sys.executable,'-c',
-                        'from pathlib import Path;import sys;p=Path(sys.argv[1]);b=p.read_bytes();'
+                        'from pathlib import Path;import os,sys;p=Path(sys.argv[1]);s=p.stat();b=p.read_bytes();'
                         'p.write_bytes(b"short lived writer");'
-                        'p.write_bytes(b) if sys.argv[2]=="True" else None',str(target),str(reverted)],check=True)
+                        'p.write_bytes(b) if sys.argv[2]=="True" else None;'
+                        'os.utime(p,ns=(s.st_atime_ns,s.st_mtime_ns))',str(target),str(reverted)],check=True)
                     original(self,*args,**kwargs)
                 with mock.patch.object(r._WorktreeReleaseGuard,'__init__',install):
                     with self.assertRaisesRegex(r.S12ControlError,'R12_METADATA_RECONCILIATION_RED'):
+                        r.reconcile_metadata(f['contract'])
+                self.assertFalse((f['state']/'repository-barrier.r12-bindings.json').exists())
+
+    def test_git_guard_installation_race_rejects_reverted_metadata_write(self):
+        for name in ('HEAD','index'):
+            with self.subTest(name=name),fixture() as f:
+                target=f['control']/r.RECOVERY_GIT_DIRECTORY/name
+                original=r._GitMetadataTransitionGuard.__init__
+                def install(self,*args,**kwargs):
+                    subprocess.run([sys.executable,'-c',
+                        'from pathlib import Path;import os,sys;p=Path(sys.argv[1]);s=p.stat();b=p.read_bytes();'
+                        'p.write_bytes(b"short lived Git writer");p.write_bytes(b);'
+                        'os.utime(p,ns=(s.st_atime_ns,s.st_mtime_ns))',str(target)],check=True)
+                    original(self,*args,**kwargs)
+                with mock.patch.object(r._GitMetadataTransitionGuard,'__init__',install):
+                    with self.assertRaisesRegex(r.S12ControlError,'GIT_ACTIVE_RED'):
                         r.reconcile_metadata(f['contract'])
                 self.assertFalse((f['state']/'repository-barrier.r12-bindings.json').exists())
 
