@@ -3450,6 +3450,11 @@ def _refresh_worktree_barrier_for_release(
                 if metadata.st_uid != 0 or mode & 0o022:
                     raise OSError
                 existing = root_records.get(path)
+                if ACTIVE_ATTEMPT is not None and (existing is None or
+                        (metadata.st_dev,metadata.st_ino) != (existing["device"],existing["inode"])):
+                    # Follow-up objects must have a prospective binding. The
+                    # legacy root-Git fallback is not authority for R13.
+                    raise S12ControlError(MATERIALIZATION_RED)
                 if existing is not None and (
                     metadata.st_dev,
                     metadata.st_ino,
@@ -7321,6 +7326,8 @@ def _serialized_repository_recovery(
             yield barriers
         finally:
             MATERIALIZATION_RECORDS = previous_materialization
+        if ACTIVE_ATTEMPT is not None:
+            _r13_audit_materialized(selected_roots)
         # Root Git may preserve a journaled inode while temporarily restoring
         # its source write mode, or normalize its non-executable permission
         # class while replacing the checked-out content.  Re-seal those exact
@@ -9089,6 +9096,8 @@ def _deploy_locked() -> dict[str, Any]:
                     control_sha, control_tree = _sync_repositories(
                         git_directories, fetch_directories
                     )
+                    if ACTIVE_ATTEMPT is not None:
+                        _r13_boundary("REPOSITORIES_MATERIALIZED")
                     release_repository_state = _release_repository_states(
                         git_directories, path_records
                     )
@@ -9938,7 +9947,8 @@ def _r13_load(root: Path) -> tuple[Path, dict]:
     _validate_secure_directory_chain(tx, Path("/"))
     value = _private_json(tx/"journal.json", MATERIALIZATION_RED, maximum=32*1024*1024)
     if (set(value) - {"unsafe"} != {"schema","attempt_binding","root","phase",
-                "historical_continuity","entries","old_commit","target_commit","branch"}
+                "historical_continuity","entries","old_commit","target_commit","branch",
+                "parents","private_parents"}
             or value.get("schema") != "TU1NZ_S12_1_MATERIALIZATION_V1"
             or value.get("attempt_binding") != ACTIVE_ATTEMPT or value.get("root") != str(root)
             or value.get("phase") not in {"PREPARING", "READY", "APPLYING", "APPLIED", "UNDOING", "UNDONE"}
@@ -9973,6 +9983,21 @@ def _r13_load(root: Path) -> tuple[Path, dict]:
         names.append(name)
     if len(set(names)) != len(names):
         raise S12ControlError(MATERIALIZATION_RED)
+    git = _repository_recovery_git_directory(root)
+    before,after = _r13_tree(root,git,value["old_commit"]),_r13_tree(root,git,value["target_commit"])
+    old_dirs = set().union(*(_path_ancestors(n) for n in before))
+    new_dirs = set().union(*(_path_ancestors(n) for n in after)) - old_dirs
+    expected = {n: after.get(n,(None,None)) for n in before.keys() | after.keys()
+                if before.get(n)!=after.get(n)}
+    expected.update({n:("directory",None) for n in new_dirs})
+    if {bytes.fromhex(e["path_hex"]):(e["git_mode"],e["blob"]) for e in value["entries"]} != expected:
+        raise S12ControlError(MATERIALIZATION_RED)
+    expected_parents = {b""}
+    for name in expected:
+        expected_parents.update(_path_ancestors(name) - new_dirs)
+    if (not isinstance(value["parents"],dict) or set(value["parents"])!={n.hex() for n in expected_parents}
+            or not isinstance(value["private_parents"],dict) or set(value["private_parents"])!={".","new","old"}):
+        raise S12ControlError(MATERIALIZATION_RED)
     return tx, value
 
 
@@ -9982,6 +10007,37 @@ def _r13_mode(mode: str | None) -> str:
 
 def _r13_save(tx: Path, value: dict) -> None:
     _atomic_json(tx/"journal.json", value)
+
+
+def _r13_assert_parents(root: Path, tx: Path, value: dict) -> None:
+    for name, binding in value["parents"].items():
+        if _r13_snapshot(root/os.fsdecode(bytes.fromhex(name))) != binding:
+            raise S12ControlError(MATERIALIZATION_RED)
+    for name,binding in value["private_parents"].items():
+        if _r13_snapshot(tx/name) != binding:
+            raise S12ControlError(MATERIALIZATION_RED)
+    # A newly published directory is itself a bound parent. No same-content
+    # replacement of an ancestor may redirect a subsequent child move.
+    for entry in value["entries"]:
+        if entry["git_mode"]=="directory" and entry["after"] is not None:
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            current=_r13_snapshot(path)
+            if current is not None and current!=entry["after"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+
+
+def _r13_audit_materialized(roots: Sequence[Path]) -> None:
+    for root in roots:
+        if not _barrier_path_present(_r13_location(root)):
+            continue
+        tx,value=_r13_load(root)
+        if value["phase"] not in {"APPLIED","UNDONE"}:
+            raise S12ControlError(MATERIALIZATION_RED)
+        _r13_assert_parents(root,tx,value)
+        for entry in value["entries"]:
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            if _r13_snapshot(path) != entry["after" if value["phase"]=="APPLIED" else "before"]:
+                raise S12ControlError(MATERIALIZATION_RED)
 
 
 @contextmanager
@@ -10009,6 +10065,7 @@ def _r13_guards(root: Path, tx: Path, value: dict):
             quiet.assert_quiesced()
             open_guard._assert_fanotify_quiet()
             attrs.assert_quiet()
+            _r13_assert_parents(root,tx,value)
         check()
         yield check
         check()
@@ -10089,6 +10146,8 @@ def _r13_materialize(root: Path, git: Path, target: str, branch: str) -> None:
                 new_dirs.add(ancestor)
             elif not path.is_dir() or path.is_symlink():
                 raise S12ControlError(MATERIALIZATION_RED)  # finite contract: no directory/type swaps
+            elif path not in MATERIALIZATION_RECORDS[root]:
+                raise S12ControlError(MATERIALIZATION_RED)  # no adoption of unknown empty directories
     names = sorted(new_dirs, key=lambda n:(n.count(b"/"),n)) + sorted(changed)
     repo = _barrier_json(BARRIER_MARKER)["repositories"]["application" if root==APPLICATION_ROOT else "control"]
     uid, gid, _ = _recorded_path_metadata(repo, "root")
@@ -10110,9 +10169,14 @@ def _r13_materialize(root: Path, git: Path, target: str, branch: str) -> None:
         _ensure_private_directory_durable(tx/name, Path("/"))
         if os.listxattr(tx/name):
             raise S12ControlError(MATERIALIZATION_RED)
+    parents = {root}
+    for name in names:
+        parents.update(root/os.fsdecode(n) for n in _path_ancestors(name) if n not in new_dirs)
     value = dict(schema="TU1NZ_S12_1_MATERIALIZATION_V1", root=str(root), attempt_binding=ACTIVE_ATTEMPT,
                  old_commit=old, target_commit=target, branch=branch, historical_continuity=False,
-                 phase="PREPARING", entries=entries)
+                 phase="PREPARING", entries=entries,
+                 parents={(b"" if p==root else os.fsencode(p.relative_to(root))).hex():_r13_snapshot(p) for p in parents},
+                 private_parents={n:_r13_snapshot(tx/n) for n in (".","new","old")})
     _r13_save(tx,value)  # policies + finite path set precede every allocation
     with _r13_guards(root,tx,value) as allocation_check:
         if _r12_scope_snapshot(initial_paths,

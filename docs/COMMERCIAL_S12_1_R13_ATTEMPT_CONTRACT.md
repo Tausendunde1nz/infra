@@ -4,9 +4,8 @@ Source-only change. No runtime approval is implied by this document, commit,
 PR, tag, or the isolated test receipts. R12's 254 nonhistorical metadata
 assignments and both live Git barriers remain outside this source task.
 
-**Status: DRAFT / NO-GO.** The complete native chain fails on newly materialized
-group-writable directories inherited from a default ACL, before activation.
-Admission implementation is not releasable. See
+**Status: DRAFT / release acceptance pending.** The original materialization
+blocker is recorded without rewriting its evidence in
 `analysis/COMMERCIAL_S12_1_R13_OFFLINE_CHAIN_BLOCKER_2026-10-03.diagnose`.
 No Same-SHA acceptance review, merge or R13 freeze has been performed.
 
@@ -20,8 +19,15 @@ from the protected repository record, files 0660 (executables 0770), directories
 2770, no inherited default ACL; objects enter the worktree already write-fenced.
 Continuously held permission, attributed mutation and retained-handle guards
 cover allocation, binding and publication. Git only reads blobs and updates its
-quarantined index/refs. This candidate is **not yet Linux-accepted**; interruption
-and negative materialization regressions and exact-SHA review remain required.
+quarantined index/refs. Parent inode/birth/metadata bindings prevent retargeting
+after process loss. The legacy root-only successor fallback is disabled for
+this attempt. Symlinks are bound at their prospectively declared maintenance
+UID; their fenced parents, not ineffective symlink mode bits, enforce exclusion.
+
+Native CI 37124398361 (2c9f051) passed the full suite, including complete success,
+activation failure/rollback, twelve actual process-loss seams and a foreign
+root mutation/reversion. Final parent/handoff binding negatives are additional
+release requirements. A successful source CI does not grant runtime authority.
 
 ## Delta and trust boundary
 

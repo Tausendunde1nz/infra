@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import copy
+import shutil
 import unittest
 from unittest import mock
 from contextlib import ExitStack
@@ -158,7 +159,8 @@ class IntegratedChainTests(unittest.TestCase):
         if argv[0]=='curl':return subprocess.CompletedProcess(argv,0,'308' if '.de/' in argv[-1] else '200','')
         return self.real_run(argv,**kwargs)
 
-    def full_chain(self, *, provider_failure=False, crash_at=None, attack=None):
+    def full_chain(self, *, provider_failure=False, crash_at=None, attack=None,
+                   attack_at='OBJECT_BOUND', tamper=None):
         with fixture(complete_backup=True) as f, ExitStack() as patches:
             self.real_run=r._run;self.starts=0;self.provider_failure=provider_failure
             self.start_witness=f['base']/'isolated-start-count'
@@ -246,6 +248,15 @@ class IntegratedChainTests(unittest.TestCase):
                 _,status=os.waitpid(pid,0)
                 self.assertEqual(os.waitstatus_to_exitcode(status),73,crash_at)
                 self.starts=int(self.start_witness.read_text()) if self.start_witness.exists() else 0
+                if tamper:
+                    tamper(f)
+                    with self.assertRaises((r.S12ControlError,OSError)):
+                        r.followup(authorization,grant_hash,recovering=True)
+                    self.assertEqual(self.starts,0)
+                    self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                    with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                        r.followup(authorization,grant_hash)
+                    return
                 result=r.followup(authorization,grant_hash,recovering=True)
                 self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
                 self.assertFalse(r.RELEASE_ROOT.exists())
@@ -253,7 +264,7 @@ class IntegratedChainTests(unittest.TestCase):
                 fired=False
                 def interfere(name):
                     nonlocal fired
-                    if name=='OBJECT_BOUND' and not fired:
+                    if name==attack_at and not fired:
                         fired=True
                         attack(f)
                 with mock.patch.object(r,'_r13_boundary',side_effect=interfere):
@@ -315,6 +326,37 @@ class IntegratedChainTests(unittest.TestCase):
                 'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); os.chmod(p,m^64); os.chmod(p,m)',
                 str(path),str(mode)],check=True)
         self.full_chain(attack=attack)
+
+    def test_same_content_root_successor_after_phase_handoff_is_rejected(self):
+        def replace(f):
+            path=f['app']/'kept'
+            saved=f['base']/'unbound-predecessor'
+            path.rename(saved)
+            shutil.copy2(saved,path)
+            os.chown(path,saved.stat().st_uid,saved.stat().st_gid)
+        self.full_chain(attack=replace,attack_at='REPOSITORIES_MATERIALIZED')
+
+    def test_interruption_cannot_adopt_unknown_inode_acl_or_parent(self):
+        def staged(f):
+            return f['state']/'attempts'/r.FOLLOWUP_SLOT/'materialization/application/new/0'
+        def inode(f):
+            path=staged(f);old=f['base']/'unbound-old-inode'
+            path.rename(old);path.mkdir()
+            shutil.copystat(old,path);os.chown(path,old.stat().st_uid,old.stat().st_gid)
+        def acl(f):
+            os.setxattr(staged(f),'system.posix_acl_default',os.getxattr(f['app'],'system.posix_acl_default'))
+        def parent(f):
+            root=f['app'];old=f['base']/'unbound-old-parent'
+            root.rename(old);root.mkdir()
+            for path in old.iterdir():path.rename(root/path.name)
+            shutil.copystat(old,root);os.chown(root,old.stat().st_uid,old.stat().st_gid)
+        def policy(f):
+            journal=staged(f).parent.parent/'journal.json'
+            value=json.loads(journal.read_bytes());value['entries'][0]['policy']['uid']=0
+            private_json(journal,value)
+        for name,tamper in (('inode',inode),('acl',acl),('parent',parent),('policy',policy)):
+            with self.subTest(tamper=name):
+                self.full_chain(crash_at='OBJECT_BOUND',tamper=tamper)
 
     def test_full_success_chain_and_replay(self):
         self.full_chain(provider_failure=False)
