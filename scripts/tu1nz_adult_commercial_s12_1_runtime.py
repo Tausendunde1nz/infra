@@ -10252,8 +10252,15 @@ class _R13GitWriters:
         self.libc = ctypes.CDLL(None, use_errno=True)
         self.libc.ptrace.restype = ctypes.c_long
         self.journal = STATE_ROOT/'git-writer-scope.json'
+        exec_path = Path(subprocess.check_output(['/usr/bin/git','--exec-path'],
+            env={'HOME':'/','PATH':'/usr/bin:/bin','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'},
+            text=True,timeout=10).strip())
+        _validate_secure_directory_chain(exec_path,Path('/'))
+        self.image_paths = {'git':Path('/usr/bin/git'),'shell':Path('/bin/sh'),
+                            'git-core':exec_path/'git','upload-pack':exec_path/'git-upload-pack'}
+        self.images = {name:self.executable(path) for name,path in self.image_paths.items()}
         self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=ACTIVE_ATTEMPT,
-                          phase='QUIET', sequence=0, tasks=[], operation=None,history=[])
+                          phase='QUIET', sequence=0, tasks=[], operation=None,history=[],images=self.images)
         try:
             if (sys.platform != 'linux' or os.geteuid() != 0 or ACTIVE_ATTEMPT is None
                     or os.uname().machine not in {'x86_64','aarch64'}
@@ -10273,6 +10280,9 @@ class _R13GitWriters:
                 old = _private_json(self.journal, GIT_WRITER_RED, maximum=4*1024*1024)
                 if (old.get('schema') != self.value['schema'] or old.get('attempt_binding') != ACTIVE_ATTEMPT
                         or old.get('phase') != 'QUIET' or old.get('tasks') != []
+                        or old.get('images') != self.images or type(old.get('sequence')) is not int
+                        or not 0 <= old['sequence'] <= 1024 or not isinstance(old.get('history'),list)
+                        or len(old['history']) != old['sequence']
                         or old.get('fingerprint') != self.fingerprint()):
                     raise S12ControlError(GIT_WRITER_RED)
                 self.value['sequence'] = old['sequence']
@@ -10403,8 +10413,14 @@ class _R13GitWriters:
 
     @staticmethod
     def executable(path):
-        meta = path.stat()
-        return dict(device=meta.st_dev,inode=meta.st_ino,sha256=_sha256(path))
+        before = path.stat()
+        digest = _sha256(path)
+        after = path.stat()
+        fields = ('st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns')
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022
+                or any(getattr(before,k) != getattr(after,k) for k in fields)):
+            raise S12ControlError(GIT_WRITER_RED)
+        return dict(metadata=[getattr(before,k) for k in fields],sha256=digest)
 
     def bind(self, tid, root, parent):
         self.check()  # No queued event may inherit this new PID's authority.
@@ -10430,8 +10446,11 @@ class _R13GitWriters:
                 or null.st_rdev != os.makedev(1,3) or null.st_nlink != 1):
             os.close(null_fd); os.close(directory_fd)
             self.fail()
-        allowed_git = self.executable(Path('/usr/bin/git'))
-        allowed_shell = self.executable(Path('/bin/sh'))
+        current_images = {name:self.executable(path) for name,path in self.image_paths.items()}
+        allowed_git,allowed_shell = self.images['git'],self.images['shell']
+        if current_images != self.images:
+            os.close(null_fd); os.close(directory_fd)
+            self.fail()
         self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,
                               namespace=self.handle(directory).hex(),bootstrap_sha256=
                               hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[],
@@ -10494,7 +10513,7 @@ class _R13GitWriters:
                     elif kind == 4:
                         actual = self.executable(Path(f'/proc/{tid}/exe'))
                         args = Path(f'/proc/{tid}/cmdline').read_bytes().rstrip(b'\0').split(b'\0')
-                        if actual != allowed_git:
+                        if actual not in (allowed_git,self.images['git-core']):
                             # Git's local transport uses this one shell bridge;
                             # never authorize a shell merely by its ancestry.
                             sources = [a for a in argv if a.startswith(str(FETCH_ROOT)+'/')]
@@ -10503,8 +10522,11 @@ class _R13GitWriters:
                                        if not any(c in p for c in "'\n\r")}
                             # prepare_shell_cmd supplies the same string as $0;
                             # admit only that exact four-element argv, no "$@".
-                            if (actual != allowed_shell or args[:2] != expected or len(args) != 4
-                                    or args[2] not in scripts or args[3] != args[2]):
+                            upload_pack = (actual == self.images['upload-pack'] and len(args)==2
+                                and args[0]==b'git-upload-pack' and args[1] in {os.fsencode(p) for p in sources})
+                            shell_bridge = (actual == allowed_shell and args[:2] == expected and len(args)==4
+                                and args[2] in scripts and args[3] == args[2])
+                            if not (upload_pack or shell_bridge):
                                 self.fail()
                         self.tasks[tid]['executable'] = actual
                         _atomic_json(self.journal,self.value)
