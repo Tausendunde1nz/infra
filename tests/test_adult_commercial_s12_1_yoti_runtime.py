@@ -2899,6 +2899,74 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         sys.platform == "linux" and os.geteuid() == 0,
         "Linux root required",
     )
+    def test_worktree_reseal_defers_replaced_inode_to_current_path_pass(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "control"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(root)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "S12 Test"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "s12@example.invalid"],
+                cwd=root,
+                check=True,
+            )
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            subprocess.run(
+                ["git", "add", "tracked"], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "reviewed"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+            records = runtime._capture_worktree_write_barrier(
+                (root,), {root: runtime._repository_path_metadata(root)}
+            )
+            with mock.patch.object(runtime, "_sync_repository_filesystem"):
+                runtime._lock_worktree_write_barrier(records)
+                replacement = root / ".replacement"
+                replacement.write_text("reviewed\n", encoding="ascii")
+                replacement.chmod(0o644)
+                os.replace(replacement, tracked)
+                runtime._lock_worktree_write_barrier(records)
+                runtime._assert_worktree_write_barrier((root,), records)
+                sealed = tracked.lstat()
+                self.assertNotEqual(
+                    (sealed.st_dev, sealed.st_ino),
+                    (
+                        records[root][tracked]["device"],
+                        records[root][tracked]["inode"],
+                    ),
+                )
+                self.assertEqual(
+                    (sealed.st_uid, stat.S_IMODE(sealed.st_mode)),
+                    (0, 0o644),
+                )
+                unsafe = root / ".unsafe-replacement"
+                unsafe.write_text("unsafe\n", encoding="ascii")
+                unsafe.chmod(0o664)
+                os.replace(unsafe, tracked)
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ):
+                    runtime._lock_worktree_write_barrier(records)
+
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
     def test_generated_owner_acl_transition_states_are_resumable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "control"

@@ -3560,6 +3560,16 @@ def _lock_worktree_write_barrier(
                     # removed an old index path. Current paths are sealed in
                     # the second pass below.
                     continue
+                if (metadata.st_dev, metadata.st_ino) != (
+                    record["device"],
+                    record["inode"],
+                ):
+                    # Root Git may also have replaced a journaled path.  The
+                    # old inode cannot be re-sealed; defer the current inode
+                    # to the tracked-path pass below, which accepts only a
+                    # root-owned, single-link regular file or directory that
+                    # is already closed to group/other writers.
+                    continue
                 mode = int(record["mode"], 8)
                 base_restricted_mode = mode & ~0o222
                 generated_restricted_mode = _worktree_barrier_mode(

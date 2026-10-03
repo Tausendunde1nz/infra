@@ -45,6 +45,9 @@ Required correction
   when Linux chmod changes the user-object, mask and other entries of the
   journal-derived generated owner ACL; then rebuild the exact generated ACL.
 - Immediately restore the exact journal-derived sealed mode/ACL.
+- Defer a journaled pathname whose device/inode changed to the current tracked
+  path pass; accept only a root-owned, single-link file or directory already
+  closed to group/other writers.
 - Re-run the worktree seal after the root Git body and before post-body identity
   and write-barrier acceptance.
 - Continue rejecting an unjournaled replacement that is writable by group or

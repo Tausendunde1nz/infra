@@ -113,8 +113,11 @@ executable class and exact bound xattr/ACL state. For owner-only paths it also
 recognizes only the byte-exact ACL transformation produced when Linux `chmod`
 updates the user-object, mask and other entries of the generated owner ACL,
 then reconstructs the exact journal-derived ACL. It immediately re-seals the
-inode and re-runs the seal after every root Git body before accepting identity
-or the post-body barrier. Unjournaled group/other-writable
+inode. A journaled pathname whose inode was replaced is deferred to the
+current tracked-path pass, which accepts only a root-owned, single-link file or
+directory already closed to group/other writes. The controller re-runs the
+seal after every root Git body before accepting identity or the post-body
+barrier. Unjournaled group/other-writable
 replacements, ACL/xattr drift, executable-class changes and ownership drift
 remain fail-closed.
 
