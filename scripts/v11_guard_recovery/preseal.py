@@ -43,24 +43,31 @@ class Recovery:
  def __init__(self,store,host,inject=lambda point:None):self.store=store;self.host=host;self.inject=inject;self.journal=Journal(store)
  def run(self,current_boot):
   if self.host.preseal_admitted() is not True:raise Refused('PRESEAL_PRODUCTION_ADMISSION_CLOSED')
-  if not re.fullmatch('[a-f0-9-]{36}',current_boot):raise Refused('RECOVERY_BOOT')
-  with self.journal.locked():
-   self.journal.inhibit()
-   state,rows,_=self.journal.read()
-   if len(rows)==2*len(STEPS):return 'ROLLED_BACK'
-   try:
+  # Fence closure is independent of journal parsing: corruption must not bypass
+  # the first safety action. An unconfirmed closure never returns a safe status.
+  try:
+   self.host.close_preseal_fence()
+   if self.host.preseal_fence_closed() is not True:raise Refused('FENCE_CLOSURE_UNCONFIRMED')
+   if not re.fullmatch('[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}',current_boot):raise Refused('RECOVERY_BOOT')
+   with self.journal.locked():
+    self.journal.inhibit()
+    state,rows,_=self.journal.read()
+    if len(rows)==2*len(STEPS):return 'ROLLED_BACK'
     for step in STEPS[len(rows)//2:]:
      _,rows,_=self.journal.read()
-     if len(rows)%2==0:self.journal.append(step,'INTENT')
+     if len(rows)%2==0:
+      self.inject('before_intent:'+step);self.journal.append(step,'INTENT');self.inject('after_intent:'+step)
      self.inject('before:'+step)
-     # Method names are fixed source, never read from a manifest or journal.
      proof=self.host.preseal_step(step,state['binding'],current_boot)
      if type(proof)!=dict or set(proof)!={'verified','sha256'} or proof['verified'] is not True or not re.fullmatch('[0-9a-f]{64}',proof['sha256']):raise Refused('PRESEAL_STEP_VERIFY')
      self.inject('after_action:'+step)
      self.journal.append(step,'VERIFIED',proof['sha256']);self.inject('after_commit:'+step)
     return 'ROLLED_BACK'
-   except Exception:
-    # Do not blindly remove the fence or reopen the legacy timer on an error.
-    self.store.stop('PRESEAL_SECURED_STOP')
-    self.host.preseal_secured_stop()
-    return 'PRESEAL_SECURED_STOP'
+  except Exception:
+   # A late failure closes and verifies the fence BEFORE recording STOP or
+   # touching the timer. Failure to prove closure propagates, never claims safe.
+   self.host.close_preseal_fence()
+   if self.host.preseal_fence_closed() is not True:raise Refused('FENCE_CLOSURE_UNCONFIRMED')
+   self.store.stop('PRESEAL_SECURED_STOP')
+   self.host.preseal_secured_stop()
+   return 'PRESEAL_SECURED_STOP'

@@ -184,6 +184,11 @@ class Host:
   return 'ROLLED_BACK_PRESEAL'
 
  def preseal_admitted(self):return PRESEAL_PRODUCTION_READY
+ def close_preseal_fence(self):
+  # Must be implemented by the independent persistent dispatcher, not inferred
+  # from a stopped timer or a journal flag. No production mutation is admitted.
+  raise Refused('INDEPENDENT_ROLLBACK_DISPATCHER_NOT_BOUND')
+ def preseal_fence_closed(self):return False
  def preseal_step(self,step,binding,boot):
   # A rollback dispatcher must outlive removal/disablement of these very units.
   # No production factory currently supplies such a verified lifetime binding.

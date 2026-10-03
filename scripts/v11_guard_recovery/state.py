@@ -40,7 +40,8 @@ def secure_open(path,directory=False,uid=0,mode=None):
  finally:os.close(fd)
 
 class Store:
- def __init__(self,path=ROOT,fixture=False):
+ def __init__(self,path=ROOT,fixture=False,inject=lambda point:None):
+  self.inject=inject
   self.path=Path(path);self.uid=os.geteuid() if fixture else 0;self.gid=os.getegid() if fixture else 0;self.depth=0
   if fixture:
    if os.geteuid()==0 or self.path.parent!=Path('/tmp') or not self.path.name.startswith('tu1nz-fence-test-'):raise Refused('FIXTURE')
@@ -76,8 +77,11 @@ class Store:
   tmp='.tmp-'+uuid.uuid4().hex;f=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o400,dir_fd=self.fd)
   try:
    os.fchmod(f,0o400)
-   with os.fdopen(f,'wb',closefd=False) as out:out.write(encode(value));out.flush();os.fsync(f)
-   os.link(tmp,name,src_dir_fd=self.fd,dst_dir_fd=self.fd,follow_symlinks=False);os.unlink(tmp,dir_fd=self.fd);os.fsync(self.fd)
+   with os.fdopen(f,'wb',closefd=False) as out:
+    out.write(encode(value));out.flush();self.inject('before_file_fsync:'+name);os.fsync(f);self.inject('after_file_fsync:'+name)
+   self.inject('before_publish:'+name)
+   os.link(tmp,name,src_dir_fd=self.fd,dst_dir_fd=self.fd,follow_symlinks=False);self.inject('after_link:'+name)
+   os.unlink(tmp,dir_fd=self.fd);self.inject('before_directory_fsync:'+name);os.fsync(self.fd);self.inject('after_directory_fsync:'+name)
   finally:
    os.close(f)
    try:os.unlink(tmp,dir_fd=self.fd)
