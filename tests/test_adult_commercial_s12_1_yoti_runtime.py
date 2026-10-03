@@ -3311,6 +3311,45 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "S12_1_RECOVERY_GIT_BARRIER_RED",
                 )
 
+    def test_transition_rejects_acl_other_fallback_with_weaker_group(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o6, 0xFFFFFFFF),
+                    (0x04, 0o0, 0xFFFFFFFF),
+                    (0x08, 0o0, 12345),
+                    (0x10, 0o0, 0xFFFFFFFF),
+                    (0x20, 0o4, 0xFFFFFFFF),
+                )
+            )
+            with (
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os, "getxattr", return_value=acl, create=True
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._assert_post_chown_acl_preserves_access(
+                    path,
+                    1001,
+                    0o4,
+                    0o0,
+                    0o4,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                )
+
     def test_transition_accepts_named_owner_acl_without_nss(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)

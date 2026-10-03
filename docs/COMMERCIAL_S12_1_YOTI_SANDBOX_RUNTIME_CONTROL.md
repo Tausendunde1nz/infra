@@ -61,8 +61,10 @@ controller preserves that access with an exact POSIX ACL entry for the
 recorded numeric UID. On ACL-free paths this is one generated temporary entry;
 an existing canonical ACL is preserved only when it already contains the
 named UID with sufficient effective read/execute access under a mask that is
-not widened. Group-object and named-group entries are never authorization
-proof. For an ACL-free path, both the retained-group and nonmember permission
+not widened. Without that named UID, every group-object, named-group and other
+class that could be selected must independently preserve the former owner's
+rights; group entries are never accepted as a substitute authorization proof.
+For an ACL-free path, both the retained-group and nonmember permission
 classes are treated as possible after handoff; if either lacks a prior owner
 read/traversal right, the exact named-UID ACL is mandatory. This avoids using
 the retained GID as a capability and has no dependency on complete NSS account

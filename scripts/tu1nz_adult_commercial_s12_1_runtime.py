@@ -2882,11 +2882,23 @@ def _assert_post_chown_acl_preserves_access(
         ]
         if len(named_users) > 1:
             raise OSError
-        effective_access = (
-            named_users[0] & target_mask if named_users else target_other
-        )
-        if required_access & ~effective_access:
-            raise OSError
+        if named_users:
+            if required_access & ~(named_users[0] & target_mask):
+                raise OSError
+        else:
+            possible_group_classes = [
+                permissions & target_mask
+                for tag, permissions, _identifier in entries
+                if tag in {0x04, 0x08}
+            ]
+            if any(
+                required_access & ~effective_access
+                for effective_access in (
+                    *possible_group_classes,
+                    target_other,
+                )
+            ):
+                raise OSError
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError(safe_code) from None
 
