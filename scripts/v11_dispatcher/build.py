@@ -15,7 +15,7 @@ def build(directory,binding):
  d=Path(directory);g=d.parent/'v11_guard_recovery'
  if not binding_valid(binding):raise ValueError('BINDING')
  prelude=(d/'entry.py').read_text()
- modules=[(n,(g/(n+'.py')).read_text()) for n in ('state','runtime','files')]+[(n,(d/(file+'.py')).read_text()) for n,file in [('core','core'),('adapter','adapter')]]
+ modules=[(n,(g/(n+'.py')).read_text()) for n in ('state','runtime','files')]+[(n,(d/(n+'.py')).read_text()) for n in ('core','adapter','units','systemd_adapter','recovery_route','watchdog')]
  boot="""
 m=checked_manifest(sys.argv[2],'dispatcher.py')
 """
@@ -33,16 +33,27 @@ try:
    s.journal()
   raise SystemExit(0)
  if s.read('binding.json')!=m['binding']:raise RuntimeError('MANIFEST_BINDING')
+ import watchdog,recovery_route
+ watcher=watchdog.RootHost(sys.argv[2],m['binding'])
+ try:
+  bound,current,boot,now,alive=watcher.observe();route=recovery_route.route(bound,current,boot,now,alive)
+  if route=='WAIT':raise SystemExit(0)
+  if route in ('SECURED_STOP','VERIFY_FORWARD_TERMINAL'):
+   if route=='VERIFY_FORWARD_TERMINAL' and watcher.forward_terminal(bound):raise SystemExit(0)
+   watcher.secured();raise SystemExit(1)
+ finally:watcher.close()
  outcome=core.Dispatcher(s,h).run(Path('/proc/sys/kernel/random/boot_id').read_text().strip())
  raise SystemExit(0 if outcome=='ROLLED_BACK' else 1)
 finally:s.close()
 """
  dispatcher=prelude+boot+embedded(modules)+body
- watchdog=prelude+"""
-m=checked_manifest(sys.argv[1],'watchdog.py')
-import subprocess
-r=subprocess.run(('/usr/bin/systemctl','start','--no-block','--','tu1nz-v11-dispatcher.service'),stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
-raise SystemExit(r.returncode)
+ watchdog=prelude+"m=checked_manifest(sys.argv[1],'watchdog.py')\n"+embedded(modules)+"""
+import watchdog
+h=watchdog.RootHost(sys.argv[1],m['binding'])
+try:
+ with h.store.locked('watchdog.lock'):outcome=watchdog.tick(h)
+ raise SystemExit(1 if outcome=='SECURED_STOP' else 0)
+finally:h.close()
 """
  # A closed installer entry is shipped until the publication/rollback adapter
  # passes independent process tests. It cannot accidentally activate artifacts.

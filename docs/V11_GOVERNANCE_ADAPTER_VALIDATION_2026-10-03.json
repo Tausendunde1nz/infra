@@ -1,0 +1,65 @@
+{
+  "activation_ready": false,
+  "application_checkout_absent": true,
+  "control": {
+    "head": "998b8c2321e5741b85a6e320930e24826d6a62d9",
+    "index_inode": 1459619,
+    "index_mode": "0600",
+    "index_sha256": "4da50648a6283b717cefe9c7e8a77fff1dee1fff0342c0087bfaa841b5509b83",
+    "tracked_clean": true,
+    "tree": "8384fc6f2a6d34fb5f4e9199735e0f66bac33213"
+  },
+  "docs_authority": "5576dbbd0c3fd15048dad66ddd93651bf493b23e7f4c9841d23afe56f3054c55",
+  "docs_index": "aa225794c849075a46bd84bad037fa02d7165547ca69bfcc4aa2137b8cec84ce",
+  "governance_preflight": "GOVERNANCE_V1_1_ACTIVE",
+  "governance_tests": 26,
+  "hardening42": {
+    "count": 42,
+    "passed": true
+  },
+  "historical701": {
+    "count": 701,
+    "passed": true
+  },
+  "implementation_complete": false,
+  "integration_1cf0d79": true,
+  "pr_tests": [
+    {
+      "commit": "05b127033d734aa4abce10b2e5b7d513b99ed5d2",
+      "file": "test_mychatbuddy_rc5_controlled_start.py",
+      "label": "pr68_69",
+      "passed": 35,
+      "sha256": "90d7ec0f0acef104d8b6252794295f661a0149634868d02a1ae0c358099638f5"
+    },
+    {
+      "commit": "05b127033d734aa4abce10b2e5b7d513b99ed5d2",
+      "file": "test_mychatbuddy_state_metadata_repair.py",
+      "label": "pr68_69",
+      "passed": 7,
+      "sha256": "10159baf262b43a92d95db59dae1f72c645127301661e0a3ce4e38b295a97c58"
+    },
+    {
+      "commit": "c13358d9adaf783f42feb5c627b6f12825f5805e",
+      "file": "test_mychatbuddy_state_metadata_repair.py",
+      "label": "pr72",
+      "passed": 10,
+      "sha256": "917df3320d778ddbaa5c5c7742bc4046bf803c36ed2b050f30844ed206783469"
+    }
+  ],
+  "private1125": {
+    "count": 1125,
+    "passed": true
+  },
+  "root_validation_ready": false,
+  "sources30": {
+    "count": 30,
+    "passed": true
+  },
+  "suite": {
+    "sha256": "e70ff9fc1eb326893915e54a6e4775b5e4bd2a45281e7dbce3e64b3a944d228a",
+    "targeted_tests": 2385,
+    "workflow_reported_tests": 585,
+    "workflow_skips": 2,
+    "workflow_steps": 108
+  }
+}

@@ -45,7 +45,7 @@ class Durable:
   self.check(self.fd,0o700,True)
  def name(self,n):
   self.identity()
-  if n not in ('lock','gate.json','binding.json','stop.json','release.json') and not re.fullmatch('step-[0-9]{6}.json',n):raise Refused('NAME')
+  if n not in ('lock','watchdog.lock','gate.json','watchdog.json','binding.json','stop.json','release.json') and not re.fullmatch('(step|watch)-[0-9]{6}.json',n):raise Refused('NAME')
  def read(self,n,mode=0o400):
   self.name(n);f=os.open(n,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=self.fd)
   try:
@@ -55,7 +55,7 @@ class Durable:
   finally:os.close(f)
  def put(self,n,value,replace=False):
   self.name(n)
-  if replace and n!='gate.json':raise Refused('IMMUTABLE')
+  if replace and n not in ('gate.json','watchdog.json'):raise Refused('IMMUTABLE')
   mode=0o600 if replace else 0o400;tmp='.publish-'+uuid.uuid4().hex
   f=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,mode,dir_fd=self.fd)
   try:
@@ -77,13 +77,15 @@ class Durable:
    try:os.unlink(tmp,dir_fd=self.fd)
    except FileNotFoundError:pass
  @contextlib.contextmanager
- def locked(self):
-  f=os.open('lock',os.O_RDONLY|os.O_NOFOLLOW,dir_fd=self.fd)
+ def locked(self,name='lock'):
+  if name not in ('lock','watchdog.lock'):raise Refused('LOCK_SCOPE')
+  f=os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=self.fd)
   try:self.check(f,0o600);fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB);yield
   finally:os.close(f)
  def initialize(self,binding):
   if not binding_valid(binding) or os.listdir(self.fd):raise Refused('INITIAL_STATE')
   f=os.open('lock',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd);os.fchmod(f,0o600);os.fsync(f);os.close(f);os.fsync(self.fd)
+  f=os.open('watchdog.lock',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd);os.fchmod(f,0o600);os.fsync(f);os.close(f);os.fsync(self.fd)
   self.put('gate.json',{'state':'CLOSED'},True);self.put('binding.json',binding)
  def journal(self):
   b=self.read('binding.json')
