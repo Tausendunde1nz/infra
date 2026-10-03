@@ -10494,7 +10494,7 @@ class _R13GitWriters:
             _r13_boundary('GIT_WRITER_INTENT')
             if self.executable(bootstrap_path) != self.images['bootstrap']:
                 self.fail()
-            process = subprocess.Popen([str(bootstrap_path),'-I','-S','-c',_GIT_WRITER_BOOTSTRAP,
+            process = subprocess.Popen([str(bootstrap_path),'-I','-S','-B','-c',_GIT_WRITER_BOOTSTRAP,
                 str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid()),str(null_fd),str(bootstrap_fd)],stdin=stdin or subprocess.DEVNULL,
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,null_fd,bootstrap_fd),close_fds=True,
                 start_new_session=True,env={'HOME':'/','PATH':'/usr/bin:/bin'})

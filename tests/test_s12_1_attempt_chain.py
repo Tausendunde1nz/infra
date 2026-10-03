@@ -609,8 +609,8 @@ class IntegratedChainTests(unittest.TestCase):
                 def interfere(name):
                     nonlocal fired
                     if name==attack_at and not fired:
-                        fired=True
                         attack(f)
+                        fired=True  # Setup failure must not masquerade as a rejected writer.
                 with mock.patch.object(r,'_r13_boundary',side_effect=interfere):
                     with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash)
                 self.assertTrue(fired)
@@ -727,7 +727,7 @@ class IntegratedChainTests(unittest.TestCase):
             for key in ('app','control'):
                 with self.subTest(boundary=boundary,repository=key):
                     def attack(f):
-                        path=f[key]/'.gitignore'
+                        path=f[key]/'kept'
                         mode=path.stat().st_mode&0o7777
                         subprocess.run([sys.executable,'-c',
                             'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); '
