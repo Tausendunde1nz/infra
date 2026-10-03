@@ -37,9 +37,10 @@ state before entering its restore body.
 
 Required correction
 
-- Accept only the same journaled inode, root owner, recorded group, matching
-  executable class and either the exact recorded mode or a mode already closed
-  to group/other writes.
+- Accept only the same journaled inode, root owner, recorded group and matching
+  Git index executable status (owner-execute); forbid group/other execute
+  without owner-execute, and require either the exact recorded mode or a mode
+  already closed to group/other writes.
 - Require the original bound xattr/ACL state before changing anything.
 - For an owner-only path, recognize only the byte-exact POSIX ACL produced
   when Linux chmod changes the user-object, mask and other entries of the

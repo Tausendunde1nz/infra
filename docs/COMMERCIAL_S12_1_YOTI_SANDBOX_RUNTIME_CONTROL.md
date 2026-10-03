@@ -108,8 +108,9 @@ with `S12_1_RECOVERY_WORKTREE_BARRIER_RED`. Root Git had legitimately replaced
 40 same journaled inodes retained either their exact source write mode or a
 non-executable Git-normalized mode. Both `.git` guards and both root-only
 recovery Git directories remained intact. The r10 controller accepts only this
-bounded same-inode/root-owner/recorded-group transition with the recorded
-executable class and exact bound xattr/ACL state. For owner-only paths it also
+bounded same-inode/root-owner/recorded-group transition with the recorded Git
+index executable status (owner-execute), no group/other execute without
+owner-execute, and exact bound xattr/ACL state. For owner-only paths it also
 recognizes only the byte-exact ACL transformation produced when Linux `chmod`
 updates the user-object, mask and other entries of the generated owner ACL,
 then reconstructs the exact journal-derived ACL. It immediately re-seals the

@@ -2765,10 +2765,17 @@ def _worktree_barrier_mode(
 def _root_git_same_inode_transition_mode(
     current_mode: int, recorded_mode: int
 ) -> bool:
-    """Accept only an executable-stable mode that can be re-sealed exactly."""
+    """Accept only an index-executable-stable mode re-sealable exactly."""
 
-    return (current_mode & 0o111) == (recorded_mode & 0o111) and (
-        current_mode == recorded_mode or not current_mode & 0o022
+    current_owner_executable = bool(current_mode & stat.S_IXUSR)
+    recorded_owner_executable = bool(recorded_mode & stat.S_IXUSR)
+    execute_classes_consistent = (
+        not current_mode & 0o011 or current_owner_executable
+    ) and (not recorded_mode & 0o011 or recorded_owner_executable)
+    return (
+        current_owner_executable == recorded_owner_executable
+        and execute_classes_consistent
+        and (current_mode == recorded_mode or not current_mode & 0o022)
     )
 
 
