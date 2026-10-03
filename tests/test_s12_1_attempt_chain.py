@@ -42,6 +42,21 @@ class WriterEnvelopeTests(unittest.TestCase):
             with self.subTest(data=data[:24]),self.assertRaises(r.S12ControlError):
                 r._r13_fid_events(data)
 
+    def test_child_event_before_parent_does_not_gain_retrospective_authority(self):
+        for actor in (99,42):
+            guard=r._R13GitWriters.__new__(r._R13GitWriters)
+            guard.fd=12345;guard.failed=False;guard.controller_tid=99;guard.tasks={}
+            guard.members={b'root':Path('/isolated')};guard.pending=[]
+            events=[(actor,0x104,(b'new-dir',),b'new-file'),
+                    (99,0x100,(b'root',),b'new-dir')]
+            with mock.patch.object(r.os,'read',side_effect=[b'events',BlockingIOError]), \
+                    mock.patch.object(r,'_r13_fid_events',return_value=events), \
+                    mock.patch.object(guard,'fail',side_effect=r.S12ControlError(r.GIT_WRITER_RED)):
+                if actor==99:
+                    guard.check();self.assertIn(b'new-file',guard.members)
+                else:
+                    with self.assertRaises(r.S12ControlError):guard.check()
+
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,'native Linux writer supervision required')
 class AWriterTests(unittest.TestCase):
@@ -55,10 +70,17 @@ class AWriterTests(unittest.TestCase):
             '-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','fixture'],check=True,capture_output=True)
         self.sha=subprocess.check_output(['git','-C',str(self.root),'rev-parse','HEAD'],text=True).strip()
         for name,value in {'STATE_ROOT':self.state,'ACTIVE_ATTEMPT':{'isolated':'writer-test'},
-                           'APPLICATION_ROOT':self.root}.items():
+                           'APPLICATION_ROOT':self.root,'CHATOPS_USER':'root'}.items():
             self.stack.enter_context(mock.patch.object(r,name,value))
         self.writer=r._R13GitWriters((self.root,))
         self.addCleanup(lambda:self.writer.close(aborted=True))
+
+    def test_00_real_symbolic_ref_transport(self):
+        command=r._recovery_git_arguments(self.root,self.root/'.git','symbolic-ref','--quiet','--short','HEAD')
+        result=self.writer.run(self.writer.command(command),30)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue(result.stdout.strip())
+        self.assertEqual(result.stderr,'')
 
     def test_real_git_new_nested_metadata_and_foreign_reversion(self):
         command=r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/new/deep/ref',self.sha)
@@ -92,6 +114,42 @@ class AWriterTests(unittest.TestCase):
         path=self.root/'.git/HEAD';mode=path.stat().st_mode
         os.chmod(path,mode^64);os.chmod(path,mode)
         with self.assertRaises(r.S12ControlError):r._R13GitWriters((self.root,))
+
+    def test_interrupted_running_epoch_is_not_a_quiet_resume(self):
+        self.writer.close()
+        pid=os.fork()
+        if pid==0:
+            writer=r._R13GitWriters((self.root,))
+            command=r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/never',self.sha)
+            with mock.patch.object(r,'_r13_boundary',side_effect=lambda name:os._exit(73)
+                                   if name=='GIT_WRITER_BOUND' else None):
+                writer.run(writer.command(command),30)
+            os._exit(74)
+        _,status=os.waitpid(pid,0)
+        self.assertEqual(os.waitstatus_to_exitcode(status),73)
+        self.assertFalse((self.root/'.git/refs/heads/never').exists())
+        value=json.loads(self.writer.journal.read_text())
+        self.assertEqual(value['phase'],'RUNNING')
+        self.assertEqual(len(value['tasks']),1)
+        with self.assertRaises(r.S12ControlError):r._R13GitWriters((self.root,))
+
+    def test_landlock_prevents_git_output_outside_bound_metadata(self):
+        # A real Git writer cannot create an output file in an ungranted path.
+        # This helper role is exercised directly, not added to command admission.
+        selected=self.writer.command(r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/new',self.sha))
+        root,args,env=selected
+        args=args[:-3]+['bundle','create',str(self.base/'outside.bundle'),'--all']
+        result=self.writer.run((root,args,env),30)
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((self.base/'outside.bundle').exists())
+
+    def test_unplanned_child_executable_never_runs(self):
+        selected=self.writer.command(r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/new',self.sha))
+        root,args,env=selected
+        forbidden=self.base/'must-not-exist'
+        args=args[:-3]+['-c','alias.unplanned=!touch '+str(forbidden),'unplanned']
+        with self.assertRaises(r.S12ControlError):self.writer.run((root,args,env),30)
+        self.assertFalse(forbidden.exists())
 
 
 class GuardOwnerTests(unittest.TestCase):

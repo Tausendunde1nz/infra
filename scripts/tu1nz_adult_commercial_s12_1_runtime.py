@@ -7262,6 +7262,10 @@ def _serialized_repository_recovery_guarded(
     completed = False
     git_handoff_guard: _GitMetadataTransitionGuard | None = None
     try:
+        # Check a quiet interrupted epoch before any lock chmod/chown can
+        # alter ctime. The new live stream then owns those declared transitions.
+        writers = _r13_git_writers(selected_roots)
+        transition_guard.assert_unchanged()
         if (
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
@@ -7354,7 +7358,9 @@ def _serialized_repository_recovery_guarded(
         transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
         # Establish attributed, filesystem-wide coverage while the initial
         # recursive quarantine guard still owns the mutation history.
-        writers = _r13_git_writers(selected_roots)
+        if writers is not None:
+            writers.directories = dict(barriers)
+            writers.check()
         transition_guard.assert_quarantined_unchanged(tuple(barriers.values()))
         transition_guard.close()
         for git_directory in barriers.values():
@@ -10170,6 +10176,7 @@ _GIT_WRITER_BOOTSTRAP = r'''
 import ctypes,json,os,signal,struct,sys
 c=ctypes.CDLL(None,use_errno=True)
 fd=int(sys.argv[1]); args=json.loads(sys.argv[2]); env=json.loads(sys.argv[3])
+if c.prctl(1,signal.SIGKILL,0,0,0)<0 or os.getppid()!=int(sys.argv[4]): os._exit(125)
 if os.uname().machine not in ('x86_64','aarch64') or c.syscall(444,0,0,1)<3: os._exit(125)
 rules=ctypes.create_string_buffer(struct.pack('=Q',0x7ff2))
 rs=c.syscall(444,ctypes.byref(rules),8,0)
@@ -10243,7 +10250,7 @@ class _R13GitWriters:
         self.libc.ptrace.restype = ctypes.c_long
         self.journal = STATE_ROOT/'git-writer-scope.json'
         self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=ACTIVE_ATTEMPT,
-                          phase='QUIET', sequence=0, tasks=[], operation=None)
+                          phase='QUIET', sequence=0, tasks=[], operation=None,history=[])
         try:
             if (sys.platform != 'linux' or os.geteuid() != 0 or ACTIVE_ATTEMPT is None
                     or os.uname().machine not in {'x86_64','aarch64'}
@@ -10266,6 +10273,7 @@ class _R13GitWriters:
                         or old.get('fingerprint') != self.fingerprint()):
                     raise S12ControlError(GIT_WRITER_RED)
                 self.value['sequence'] = old['sequence']
+                self.value['history'] = old.get('history',[])
             for root,directory in self.directories.items():
                 for base,dirs,files in os.walk(directory, followlinks=False):
                     for p in (Path(base), *(Path(base)/n for n in dirs+files)):
@@ -10293,7 +10301,16 @@ class _R13GitWriters:
         return fs.raw[56:64] + struct.pack('=i',kind) + raw.raw[8:8+count]
 
     def fingerprint(self):
-        return _git_metadata_transition_fingerprint(tuple(self.directories.values()))
+        paths = tuple(self.directories.values())
+        # Unlike the live quarantine-transition digest, interruption evidence
+        # must also bind root ctime: transient create/unlink at the root cannot
+        # disappear just because no descendant remains in the final tree.
+        roots = []
+        for path in paths:
+            meta = path.lstat()
+            roots.append([meta.st_dev,meta.st_ino,meta.st_mode,meta.st_uid,meta.st_gid,
+                          meta.st_nlink,meta.st_mtime_ns,meta.st_ctime_ns])
+        return dict(tree=_git_metadata_transition_fingerprint(paths),roots=roots)
 
     def fail(self):
         self.failed = True
@@ -10389,10 +10406,12 @@ class _R13GitWriters:
     def bind(self, tid, root, parent):
         self.check()  # No queued event may inherit this new PID's authority.
         fields = Path(f'/proc/{tid}/stat').read_text().rsplit(')',1)[1].split()
-        if tid in self.tasks or fields[0] not in {'t','T'}:
+        if (tid in self.tasks or fields[0] not in {'t','T'} or len(self.tasks) >= 256
+                or len(self.operation['task_history']) >= 2048):
             self.fail()
-        record = dict(tid=tid,start=fields[19],root=str(root),parent=parent)
+        record = dict(tid=tid,start=fields[19],root=str(root),parent=parent,exited=False)
         self.tasks[tid] = record
+        self.operation['task_history'].append(record)
         self.value['tasks'] = list(self.tasks.values())
         _atomic_json(self.journal,self.value)
 
@@ -10406,20 +10425,24 @@ class _R13GitWriters:
         allowed_shell = self.executable(Path('/bin/sh'))
         self.operation = dict(root=str(root),argv=argv,git=allowed_git,shell=allowed_shell,
                               namespace=self.handle(directory).hex(),bootstrap_sha256=
-                              hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest())
+                              hashlib.sha256(_GIT_WRITER_BOOTSTRAP.encode()).hexdigest(),task_history=[])
+        if self.value['sequence'] >= 1024:
+            self.fail()
         self.value.update(phase='RUNNING',sequence=self.value['sequence']+1,operation=self.operation,tasks=[])
         _atomic_json(self.journal,self.value)  # Intent before spawning any writer.
         process = None
+        pending = {}
         buffers = {}
         try:
             process = subprocess.Popen([sys.executable,'-I','-S','-c',_GIT_WRITER_BOOTSTRAP,
-                str(directory_fd),json.dumps(argv),json.dumps(env)],stdin=stdin or subprocess.DEVNULL,
-                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,),close_fds=True)
+                str(directory_fd),json.dumps(argv),json.dumps(env),str(os.getpid())],stdin=stdin or subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,pass_fds=(directory_fd,),close_fds=True,
+                env={'HOME':'/','PATH':'/usr/bin:/bin'})
+            pending[process.pid] = None
             buffers = {process.stdout:bytearray(),process.stderr:bytearray()}
             for stream in buffers:
                 os.set_blocking(stream.fileno(),False)
             deadline = time.monotonic()+timeout
-            pending = {process.pid:None}
             initial = True
             while pending:
                 if time.monotonic() >= deadline:
@@ -10435,6 +10458,8 @@ class _R13GitWriters:
                     _,status = os.waitpid(tid,os.WNOHANG|0x40000000)
                     if os.WIFEXITED(status) or os.WIFSIGNALED(status):
                         pending.pop(tid)
+                        if tid in self.tasks:
+                            self.tasks[tid]['exited'] = True
                         self.tasks.pop(tid,None)
                         if tid == process.pid:
                             process.returncode = os.waitstatus_to_exitcode(status)
@@ -10469,6 +10494,8 @@ class _R13GitWriters:
                             if (actual != allowed_shell or args[:2] != expected or len(args) != 3
                                     or args[2] not in scripts):
                                 self.fail()
+                        self.tasks[tid]['executable'] = actual
+                        _atomic_json(self.journal,self.value)
                         _r13_boundary('GIT_WRITER_EXEC')
                     elif kind not in (0,6):
                         self.fail()
@@ -10489,6 +10516,7 @@ class _R13GitWriters:
                     chunk = os.read(stream.fileno(),65536)
                     if not chunk: break
                     buffer.extend(chunk)
+            self.value['history'].append(self.operation)
             self.operation = None
             self.checkpoint()
             return subprocess.CompletedProcess(argv,process.returncode,
@@ -10498,11 +10526,13 @@ class _R13GitWriters:
             self.failed = True
             _atomic_json(self.journal,self.value)
             if process is not None:
-                for tid in {*self.tasks,process.pid}:
+                # Only unreaped children/tracees still own these kernel PIDs.
+                # A completed leader's numeric PID is never a cleanup target.
+                for tid in pending:
                     try: os.kill(tid,signal.SIGKILL)
                     except ProcessLookupError: pass
                 # Never detach a writer or silently grant a retry.
-                for tid in {*self.tasks,process.pid}:
+                for tid in pending:
                     try:
                         while True:
                             _,status = os.waitpid(tid,0x40000000)
