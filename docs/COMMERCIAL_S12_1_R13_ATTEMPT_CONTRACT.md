@@ -1,0 +1,112 @@
+# S12.1 R13 — one explicitly authorized follow-up attempt
+
+Source-only change. No runtime approval is implied by this document, commit,
+PR, tag, or the isolated test receipts. R12's 254 nonhistorical metadata
+assignments and both live Git barriers remain outside this source task.
+
+## Delta and trust boundary
+
+The historical `state/deployment-attempted.json` remains byte-for-byte intact.
+The original deploy entry point continues to reject that marker. R13 adds one
+finite slot, `r13-followup-1`, reached only through the controller CLI with
+`--authorization` and `--authorization-sha256`. There is no arbitrary attempt
+identifier, reset, implicit retry, or deploy resume operation. Manifest
+`second_deployment_allowed=false` continues to prohibit repeating an attempt;
+the separate follow-up admission contract is not a reset of attempt 1.
+
+The operator must provision a fresh, explicitly human-authorized receipt at
+`/etc/tu1nz/adult-commercial-s12-1-private/authorizations/r13-followup-1.json`,
+root:root 0600, single-link regular file under a root-controlled directory
+chain. The invocation pins its independently verified SHA-256. An existing
+credential, a changed tag, or an unchanged source SHA is not authorization.
+The controller validates protected provisioning, not a cryptographic human
+signature: the operator must verify the recorded human authorization before
+provisioning it. No usable receipt is generated or committed by this task.
+
+Receipt schema `TU1NZ_S12_1_FOLLOWUP_AUTHORIZATION_V1` has exactly these fields:
+
+- `slot`: `r13-followup-1`.
+- `human_authorization_sha256`: nonzero SHA-256 of the explicit runtime grant.
+- `acknowledgment`: `AUTHORIZE_ONE_SYNTHETIC_SANDBOX_DEPLOYMENT_AFTER_RECOVERY`.
+- `authorized_at`, `expires_at`: integer Unix seconds; at most 24 hours apart.
+  Admission must be within that interval. Safe recovery remains possible after
+  expiry; it never activates the runtime.
+- `release`: exact `tag`, `tag_object`, `control_commit`, `control_tree`,
+  `application_commit`, `application_tree`, `controller_sha256`,
+  `application_bundle_sha256`, `control_bundle_sha256`.
+- `parent_proof`: hashes of `attempt`, `index`, `rollback`, `progress`,
+  `recovery`, `r12_original`, `r12_ledger` at fixed controller-derived paths.
+
+The historical attempt/index/original-journal hashes are also pinned in source
+to the audited R12 inputs. The remaining proof hashes can only be supplied
+after actual R12 metadata sealing and successful canonical recovery.
+Admission revalidates backup payloads, real Git/reflog/worktree state,
+ownership/rights, writer absence, S12 inactivity and public/S11 prerequisites.
+A stale success receipt alone cannot admit a new attempt. Historical missing
+metadata evidence remains missing: the R12 ledger must explicitly declare
+`historical_continuity=false`. An ambiguous prior deployment result is RED.
+
+## Exactly once, association and interruption
+
+Under the existing exclusive repository-parent flock, the controller durably
+creates `state/r13-followup-1.consumed.json` with O_EXCL, file fsync and parent
+fsync **before** deployment. It contains the full attempt binding and parent
+classification. A complete or partial claim permanently consumes this slot;
+neither failure nor changing the grant/tag permits another activation.
+
+New state is confined to `state/attempts/r13-followup-1`; backups are confined
+to `backups/r13-followup-1`. The installed unit's state and write allowance use
+that exact namespace. Attempt marker, backup index, result and recovery result
+carry the release/authorization/parent binding; rollback data reside only in
+that attempt's bound backup. Shared unit/nginx/release staging is reused only
+after verified parent closure and under the exclusive controller lock.
+
+`recover` with the same protected grant targets only the new namespace and
+never calls deploy. Legacy recovery is rejected after the claim exists unless
+the new target is explicit. A crash immediately after claim consumption and
+before namespace/backup creation can close as
+`S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT` only after revalidating the parent.
+Unparseable claims, unbound leftovers, concurrent writers and unclear states
+remain fail-closed; they are not deleted or retroactively attributed.
+
+## Integrated offline acceptance
+
+`tests/test_s12_1_attempt_chain.py` runs as root on native Linux with real
+fanotify/handle guards. It uses isolated Git repositories, original journal,
+backup, R12 metadata reconciliation, canonical recovery, protected receipt,
+input bundles, new backup, repository synchronization and immutable staging.
+The intended success/failure scenarios assert at most one activation, exact
+historical-marker preservation, per-attempt evidence and blocked replay.
+
+Only external systemd/nginx/public-HTTP/provider boundaries are simulated.
+The isolated interpreter and release commits are fixture-specific: their
+real byte hashes, Git identities and immutable metadata are checked; dependency
+attestation and the production artifact verifier are substituted for those
+fixture identities. Production all-artifact freeze verification remains a
+separate mandatory release gate. Offline evidence is not provider acceptance.
+
+Admission negatives cover malformed authority, release/parent mismatch,
+expired/future/overlong grants, wrong digest/permissions, hardlinks, partial
+claims, unknown namespaces, parent rejection and interruption after claim.
+Existing R12 negative/interruption regressions remain mandatory and unchanged
+in safety meaning. The complete integrated gate must pass before review/merge.
+
+## Other proven continuation defects fixed
+
+Canonical recovery previously treated its own quarantined Git directory as
+foreign untracked content and restored only the controller's current freeze
+ref. Recovery now uses the existing quarantine-aware identity selector and
+the authenticated backup's bounded historical freeze ref. Arbitrary refs and
+foreign untracked changes remain rejected. Neither fix changes the original
+backup or claims historical metadata continuity.
+
+## Remaining runtime prerequisites
+
+Separate explicit runtime approval; immutable R13 artifact verification;
+unchanged audited server admission; verified backup/abort paths; successful
+R12 metadata sealing retaining both barriers; separate canonical recovery
+releasing them; fresh protected grant and matching bundles; all public/S11,
+repository, credential and writer gates GREEN. Then at most one synthetic
+Sandbox attempt, followed by controlled inactivity. Real identities, AVS,
+Adult media/uploads, external publishing, payments, beta and production remain
+closed. No runtime activity is authorized by the source-only release.

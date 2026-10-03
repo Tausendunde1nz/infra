@@ -98,8 +98,11 @@ class AdmissionTests(unittest.TestCase):
             r.STATE_ROOT.mkdir(parents=True,mode=0o700)
             return dict(ok=True,safe_code='S12_1_NO_PENDING_RECOVERY')
         with mock.patch.object(r,'_recover_locked',side_effect=recovered), \
+                mock.patch.object(r,'_followup_parent_closed'),mock.patch.object(r,'read_only_preflight'), \
                 mock.patch.object(r,'_deploy_locked') as deploy:
-            self.assertTrue(r.followup(self.path,digest,recovering=True)['ok']);deploy.assert_not_called()
+            result=r.followup(self.path,digest,recovering=True)
+            self.assertEqual(result['safe_code'],'S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT')
+            deploy.assert_not_called()
         self.assertEqual(claim.read_bytes(),original)
         self.assertEqual(r.STATE_ROOT,self.state)
 
@@ -157,6 +160,21 @@ class IntegratedChainTests(unittest.TestCase):
     def full_chain(self, *, provider_failure):
         with fixture(complete_backup=True) as f, ExitStack() as patches:
             self.real_run=r._run;self.starts=0;self.provider_failure=provider_failure
+            def trace(frame,event,arg):
+                if frame.f_code.co_name not in {'_lock_worktree_write_barrier','_deploy_locked'}:
+                    return None
+                if event=='exception' and isinstance(arg[1],(OSError,r.S12ControlError)):
+                    detail=dict(function=frame.f_code.co_name,line=frame.f_lineno,
+                        error=getattr(arg[1],'safe_code',type(arg[1]).__name__),starts=self.starts)
+                    if frame.f_code.co_name=='_lock_worktree_write_barrier':
+                        value=frame.f_locals
+                        if 'path' in value:detail['path']=str(value['path'].relative_to(f['base']))
+                        if 'metadata' in value:
+                            meta=value['metadata'];detail.update(uid=meta.st_uid,gid=meta.st_gid,mode=oct(meta.st_mode&0o7777))
+                        detail['record']=value.get('record')
+                    print('OFFLINE_DIAGNOSTIC '+json.dumps(detail,sort_keys=True),flush=True)
+                return trace
+            sys.settrace(trace);patches.callback(sys.settrace,None)
             patches.enter_context(mock.patch.object(r,'_run',side_effect=self.host_boundary))
             # The offline interpreter is synthetic. All copy/hash/ownership and
             # immutable-tree checks run on its real bytes; no provider executes.

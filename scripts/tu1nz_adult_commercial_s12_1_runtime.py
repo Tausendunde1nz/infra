@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r12"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r13"
 FOLLOWUP_SLOT = "r13-followup-1"
 FOLLOWUP_RED = "S12_1_FOLLOWUP_AUTHORIZATION_RED"
 FOLLOWUP_PARENT = {
@@ -190,6 +190,12 @@ def expected_manifest_contract() -> dict[str, Any]:
             "values_committed": False,
         },
         "decision": "SOURCE_GREEN_RUNTIME_DEPLOYMENT_REQUIRES_EXACT_FREEZE",
+        "followup_admission": {
+            "slot": FOLLOWUP_SLOT,
+            "authority": "PROTECTED_HUMAN_GRANT_AND_CLOSED_R12_RECOVERY",
+            "historical_marker_preserved": True,
+            "consumption": "DURABLE_BEFORE_DEPLOY_NO_RETRY",
+        },
         "environment": "SANDBOX",
         "final_posture": {
             "callback": "INACTIVE",
@@ -8846,6 +8852,7 @@ def _successful_result_matches_attempt(attempt: dict[str, Any]) -> bool:
         and result.get("deployment_count") == 1
         and result.get("backup") == attempt.get("backup")
         and result.get("attempt_started_at") == attempt.get("started_at")
+        and (ACTIVE_ATTEMPT is None or result.get("attempt_binding") == ACTIVE_ATTEMPT)
     )
 
 
@@ -9918,6 +9925,8 @@ def _followup_parent_closed(proof: dict) -> None:
         recovery=STATE_ROOT/"recovery-result.json",r12_original=STATE_ROOT/"repository-barrier.r12-original.json",
         r12_ledger=STATE_ROOT/"repository-barrier.r12-bindings.json")
     values = {key:json.loads(_read_private_backup_blob(path,proof[key],FOLLOWUP_RED)) for key,path in paths.items()}
+    if any(not isinstance(value,dict) for value in values.values()):
+        raise S12ControlError(FOLLOWUP_RED)
     ledger=values["r12_ledger"]
     if (values["rollback"].get("safe_code") != "S12_1_ROLLBACK_GREEN"
             or values["rollback"].get("ok") is not True or values["rollback"].get("count") != 1
@@ -9931,7 +9940,8 @@ def _followup_parent_closed(proof: dict) -> None:
             or values["r12_original"].get("schema") != BARRIER_SCHEMA
             or _successful_result_matches_attempt(attempt)
             or any(_barrier_path_present(path) for path in (
-                BARRIER_MARKER,BARRIER_RELEASE_BACKUP,STATE_ROOT/"repository-barrier.r12-abort.json"))):
+                BARRIER_MARKER,BARRIER_RELEASE_BACKUP,STATE_ROOT/"repository-barrier.r12-abort.json",
+                STATE_ROOT/"deployment-result.json"))):
         raise S12ControlError("S12_1_FOLLOWUP_PARENT_NOT_CLOSED_RED")
     progress=_load_rollback_progress(backup)
     if progress is None or progress["phase"] != ROLLBACK_PHASE_REPOSITORIES_RESTORED:
@@ -9982,6 +9992,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
     with _exclusive_deployment_lock():
         authorization=_followup_authorization(path,digest,recovering=recovering)
         binding=dict(slot=FOLLOWUP_SLOT,authorization_sha256=digest,
+                     parent_classification="INTERRUPTED_DEPLOYMENT_RECOVERED_R12_NONHISTORICAL_BINDINGS",
                      release=authorization["release"],parent_proof=authorization["parent_proof"])
         claim=STATE_ROOT/(FOLLOWUP_SLOT+".consumed.json")
         receipt=dict(schema="TU1NZ_S12_1_FOLLOWUP_CONSUMED_V1",attempt_binding=binding)
@@ -9989,6 +10000,17 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
             _validate_secure_directory_chain(STATE_ROOT,Path("/"))
             if _private_json(claim,FOLLOWUP_RED) != receipt:
                 raise S12ControlError(FOLLOWUP_RED)
+            no_namespace=not _barrier_path_present(STATE_ROOT/"attempts"/FOLLOWUP_SLOT)
+            no_backup=not _barrier_path_present(BACKUP_ROOT/FOLLOWUP_SLOT)
+            if no_namespace and no_backup:
+                _followup_parent_closed(authorization["parent_proof"])
+                read_only_preflight()
+                with _followup_namespace(binding):
+                    _ensure_private_directory_durable(STATE_ROOT,Path("/"))
+                    result=dict(ok=True,safe_code="S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT",
+                                deployment_count=0,rollback_count=0,attempt_binding=binding)
+                    _atomic_json(STATE_ROOT/"recovery-result.json",result)
+                    return result
             with _followup_namespace(binding):
                 # Recovery never invokes deploy, admission, or activation.
                 result=_recover_locked()
