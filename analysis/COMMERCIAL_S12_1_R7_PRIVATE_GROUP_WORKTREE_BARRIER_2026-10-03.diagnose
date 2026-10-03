@@ -30,6 +30,12 @@ recorded owner's private primary group with no other primary or explicit
 members. Thus `0600` and `0700` become temporary root-owned `0440` and `0550`;
 the original ownership and mode remain journaled for exact restoration.
 
+The same-inode release refresh compares against that computed temporary mode
+without replacing the journaled original mode. If private-group promotion is
+required, any POSIX access ACL is rejected before chmod: changing group bits
+would change the ACL mask and could otherwise activate an unrelated named
+principal whose permissions were previously masked out.
+
 Non-private groups, supplementary-only membership, other explicit or primary
 members, setuid, write permissions, owner/ACL/xattr drift, hardlinks and
 special files remain fail-closed. No runtime boundary, provider policy or hard

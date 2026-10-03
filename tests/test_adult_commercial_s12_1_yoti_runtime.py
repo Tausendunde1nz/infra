@@ -2238,6 +2238,174 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
 
             self.assertEqual(barrier[repository][tracked]["mode"], "0600")
 
+    def test_worktree_barrier_rejects_acl_before_private_group_promotion(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "control"
+            subprocess.run(
+                ["git", "init", "-b", "control-main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o600)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+            uid = os.getuid()
+            gid = os.getgid()
+            account = SimpleNamespace(
+                pw_uid=uid, pw_name="service", pw_gid=gid
+            )
+            group = SimpleNamespace(gr_gid=gid, gr_mem=[])
+
+            with (
+                mock.patch.object(
+                    runtime.pwd, "getpwuid", return_value=account
+                ),
+                mock.patch.object(
+                    runtime.pwd, "getpwall", return_value=[account]
+                ),
+                mock.patch.object(
+                    runtime.grp, "getgrgid", return_value=group
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid]
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_worktree_path_xattr_fingerprint",
+                    return_value="0" * 64,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "listxattr",
+                    return_value=["system.posix_acl_access"],
+                    create=True,
+                ),
+                mock.patch.object(
+                    runtime.os,
+                    "getxattr",
+                    return_value=b"present-but-rejected-before-parse",
+                    create=True,
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+    def test_refresh_preserves_original_private_group_barrier_mode(
+        self,
+    ) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "tracked.txt"
+        original_record = {
+            "kind": "regular",
+            "device": 10,
+            "inode": 20,
+            "uid": 1001,
+            "gid": 1001,
+            "mode": "0600",
+            "xattr_fingerprint": "0" * 64,
+        }
+        records = {root: {tracked: dict(original_record)}}
+        metadata = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o440,
+            st_nlink=1,
+            st_uid=0,
+            st_gid=1001,
+            st_dev=10,
+            st_ino=20,
+        )
+        assert_xattrs = mock.Mock()
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_recorded_path_metadata",
+                return_value=(1001, 1001, 0o700),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(tracked,),
+            ),
+            mock.patch.object(runtime.Path, "lstat", return_value=metadata),
+            mock.patch.object(
+                runtime, "_worktree_barrier_mode", return_value=0o440
+            ),
+            mock.patch.object(
+                runtime,
+                "_assert_worktree_path_xattrs",
+                assert_xattrs,
+            ),
+        ):
+            runtime._refresh_worktree_barrier_for_release(
+                (root,), {root: {}}, records
+            )
+
+        self.assertEqual(records[root][tracked], original_record)
+        assert_xattrs.assert_called_once_with(tracked, original_record)
+
+    def test_refresh_rejects_same_inode_mode_instead_of_rejournaling_it(
+        self,
+    ) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "tracked.txt"
+        original_record = {
+            "kind": "regular",
+            "device": 10,
+            "inode": 20,
+            "uid": 1001,
+            "gid": 1001,
+            "mode": "0600",
+            "xattr_fingerprint": "0" * 64,
+        }
+        records = {root: {tracked: dict(original_record)}}
+        unexpected = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o400,
+            st_nlink=1,
+            st_uid=0,
+            st_gid=1001,
+            st_dev=10,
+            st_ino=20,
+        )
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_recorded_path_metadata",
+                return_value=(1001, 1001, 0o700),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(tracked,),
+            ),
+            mock.patch.object(runtime.Path, "lstat", return_value=unexpected),
+            mock.patch.object(
+                runtime, "_worktree_barrier_mode", return_value=0o440
+            ),
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            ),
+        ):
+            runtime._refresh_worktree_barrier_for_release(
+                (root,), {root: {}}, records
+            )
+
+        self.assertEqual(records[root][tracked], original_record)
+
     def test_worktree_barrier_mode_preserves_nonowner_read_and_traversal(
         self,
     ) -> None:

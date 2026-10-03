@@ -60,9 +60,12 @@ would have removed the recorded owner's read or traversal access. The r8
 controller may copy only the owner's already read-only read/execute bits into
 the retained group class, and only after proving that group is the recorded
 owner's private primary group with no other primary or explicit members. It
-still removes every write bit, rejects setuid, non-private groups and all
-unrelated ownership, mode, ACL or xattr drift, and restores the exact original
-mode and ownership during teardown or rollback.
+still removes every write bit. A path requiring that promotion is rejected if
+it has a POSIX access ACL, because widening the ACL mask could activate a named
+principal. The controller also rejects setuid, non-private groups and all
+unrelated ownership, mode, ACL or xattr drift, preserves the original journal
+mode across same-inode release refresh, and restores the exact original mode
+and ownership during teardown or rollback.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
@@ -228,7 +231,10 @@ read/execute bits copied to the group class; write stays removed. Owner-only
 `0600`/`0700` therefore become temporary root-owned `0440`/`0550` barriers for
 the private owner group, while non-private groups, `0604`, setuid and any
 unsafe expansion remain RED. No recorded-owner access can disappear and no
-unrelated principal gains access through the barrier.
+unrelated principal gains access through the barrier. In particular, an
+extended POSIX access ACL makes private-group promotion fail closed rather
+than widening its mask, and same-inode refresh compares against the computed
+temporary barrier mode while retaining the journaled original mode.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining

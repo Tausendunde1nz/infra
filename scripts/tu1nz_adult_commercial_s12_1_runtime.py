@@ -2768,6 +2768,8 @@ def _assert_post_chown_acl_preserves_access(
     target_mask: int,
     target_other: int,
     safe_code: str,
+    *,
+    reject_access_acl: bool = False,
 ) -> None:
     """Reject an ACL that would reduce the former owner's post-chown access."""
 
@@ -2806,6 +2808,13 @@ def _assert_post_chown_acl_preserves_access(
             getattr(before, field) != getattr(after, field)
             for field in stable_fields
         ):
+            raise OSError
+        if reject_access_acl and value is not None:
+            # Promoting owner read/execute bits into the group class changes
+            # the POSIX ACL mask. Even a named entry that was previously
+            # masked to zero could otherwise gain access. The private-primary-
+            # group proof does not constrain those named principals, so this
+            # bounded transition accepts only a mode-only access contract.
             raise OSError
         if value is None:
             account = pwd.getpwuid(uid)
@@ -2949,6 +2958,9 @@ def _capture_worktree_write_barrier(
                     (restricted_mode & 0o050) >> 3,
                     restricted_mode & 0o005,
                     "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    reject_access_acl=(
+                        restricted_mode != (mode & ~0o222)
+                    ),
                 )
                 entries[path] = {
                     "kind": kind,
@@ -3017,12 +3029,15 @@ def _refresh_worktree_barrier_for_release(
                 if existing is not None and (
                     metadata.st_dev,
                     metadata.st_ino,
-                    mode,
-                ) == (
-                    existing["device"],
-                    existing["inode"],
-                    int(existing["mode"], 8) & ~0o222,
-                ):
+                ) == (existing["device"], existing["inode"]):
+                    original_mode = int(existing["mode"], 8)
+                    expected_locked_mode = _worktree_barrier_mode(
+                        original_mode,
+                        existing["uid"],
+                        existing["gid"],
+                    )
+                    if mode != expected_locked_mode:
+                        raise OSError
                     _assert_worktree_path_xattrs(path, existing)
                     continue
                 root_records[path] = {
@@ -3243,6 +3258,21 @@ def _lock_worktree_write_barrier(
                     raise OSError
                 if actual_kind == "regular":
                     _assert_no_security_capability(path)
+                promotion_rejects_acl = (
+                    restricted_mode != (mode & ~0o222)
+                )
+                if promotion_rejects_acl:
+                    # Check before chmod so an incompatible ACL is rejected
+                    # without first widening its mask on the live inode.
+                    _assert_post_chown_acl_preserves_access(
+                        path,
+                        record["uid"],
+                        (restricted_mode & 0o500) >> 6,
+                        (restricted_mode & 0o050) >> 3,
+                        restricted_mode & 0o005,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        reject_access_acl=True,
+                    )
                 if original:
                     os.chmod(path, restricted_mode, follow_symlinks=False)
                 _assert_post_chown_acl_preserves_access(
@@ -3252,6 +3282,7 @@ def _lock_worktree_write_barrier(
                     (restricted_mode & 0o050) >> 3,
                     restricted_mode & 0o005,
                     "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    reject_access_acl=promotion_rejects_acl,
                 )
                 if original or restricted:
                     os.chown(path, 0, record["gid"], follow_symlinks=False)
