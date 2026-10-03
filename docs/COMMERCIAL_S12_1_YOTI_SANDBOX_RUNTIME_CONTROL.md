@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r7` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r8` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -50,6 +50,19 @@ journal-transition owner set only for pristine V1 orphan release: recorded
 owner/group, root with the recorded group, or root/root. Exact repository-root
 metadata, regular-file single-link checks, Git/index identity, xattr checks and
 continuous writer guards remain mandatory.
+
+The immutable r7 freeze is preserved as the first controller to release that
+legacy orphan and reach the fresh Worktree write-barrier capture. Its sole
+deployment invocation stopped before backup, the durable attempt marker and
+repository sync with `S12_1_RECOVERY_WORKTREE_BARRIER_RED`: 30 tracked Control
+files intentionally use owner-only `0600`/`0700`, so a root ownership handoff
+would have removed the recorded owner's read or traversal access. The r8
+controller may copy only the owner's already read-only read/execute bits into
+the retained group class, and only after proving that group is the recorded
+owner's private primary group with no other primary or explicit members. It
+still removes every write bit, rejects setuid, non-private groups and all
+unrelated ownership, mode, ACL or xattr drift, and restores the exact original
+mode and ownership during teardown or rollback.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
@@ -198,7 +211,7 @@ to `chatops`, while unchanged ownership-sensitive inode metadata is untouched.
 Before rollback changes either repository, the controller compares every
 current ignored path and its ancestors with the authenticated hashed path sets
 from the pre-state backup. Any exact or ancestor/descendant collision fails
-closed while both repository barriers remain installed. The hash-only V7
+closed while both repository barriers remain installed. The hash-only V8
 backup extension neither retains nor emits repository path names or local
 content, and a later ignored writer can never be silently overwritten by the
 forced restore checkout.
@@ -207,10 +220,15 @@ Initial deployment still accepts only the recorded ownership posture.
 Before journaling or changing tracked Worktree ownership, the controller also
 resolves the exact Unix permission class the recorded owner will receive after
 the root ownership handoff (group for a member of the retained group,
-otherwise other) and rejects any entry whose owner read or execute/traversal
-access would disappear. This includes owner-only `0600`/`0700` and `0604`
-when the recorded owner belongs to the retained group. No service access can
-therefore be removed by the barrier.
+otherwise other). If existing group/other permission bits would remove owner
+read or execute/traversal access, the controller rejects the entry unless the
+retained group is proven to be the owner's private primary group with no other
+primary or explicit members. Only in that bounded case are the owner's
+read/execute bits copied to the group class; write stays removed. Owner-only
+`0600`/`0700` therefore become temporary root-owned `0440`/`0550` barriers for
+the private owner group, while non-private groups, `0604`, setuid and any
+unsafe expansion remain RED. No recorded-owner access can disappear and no
+unrelated principal gains access through the barrier.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining

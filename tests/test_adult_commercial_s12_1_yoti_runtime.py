@@ -2176,9 +2176,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             repository_record = runtime._repository_path_metadata(repository)
             before = tracked.lstat()
 
-            with self.assertRaisesRegex(
-                runtime.S12ControlError,
-                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            group = SimpleNamespace(gr_gid=os.getgid(), gr_mem=["other"])
+            with (
+                mock.patch.object(runtime.grp, "getgrgid", return_value=group),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
             ):
                 runtime._capture_worktree_write_barrier(
                     (repository,), {repository: repository_record}
@@ -2190,6 +2194,50 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (before.st_uid, before.st_gid, 0o600),
             )
 
+    def test_worktree_barrier_captures_owner_only_access_for_private_group(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "control"
+            subprocess.run(
+                ["git", "init", "-b", "control-main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            tracked.chmod(0o600)
+            subprocess.run(
+                ["git", "add", "tracked.txt"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+            uid = os.getuid()
+            gid = os.getgid()
+            account = SimpleNamespace(
+                pw_uid=uid, pw_name="service", pw_gid=gid
+            )
+            group = SimpleNamespace(gr_gid=gid, gr_mem=[])
+
+            with (
+                mock.patch.object(
+                    runtime.pwd, "getpwuid", return_value=account
+                ),
+                mock.patch.object(
+                    runtime.pwd, "getpwall", return_value=[account]
+                ),
+                mock.patch.object(
+                    runtime.grp, "getgrgid", return_value=group
+                ),
+                mock.patch.object(
+                    runtime.os, "getgrouplist", return_value=[gid]
+                ),
+            ):
+                barrier = runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+            self.assertEqual(barrier[repository][tracked]["mode"], "0600")
+
     def test_worktree_barrier_mode_preserves_nonowner_read_and_traversal(
         self,
     ) -> None:
@@ -2197,14 +2245,21 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         gid = os.getgid()
         self.assertEqual(runtime._worktree_barrier_mode(0o664, uid, gid), 0o444)
         self.assertEqual(runtime._worktree_barrier_mode(0o775, uid, gid), 0o555)
-        with self.assertRaisesRegex(
-            runtime.S12ControlError,
-            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        group = SimpleNamespace(gr_gid=gid, gr_mem=["other"])
+        with (
+            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
         ):
             runtime._worktree_barrier_mode(0o604, uid, gid)
-        with self.assertRaisesRegex(
-            runtime.S12ControlError,
-            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        with (
+            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
         ):
             runtime._worktree_barrier_mode(0o700, uid, gid)
         with self.assertRaisesRegex(
@@ -2230,6 +2285,46 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             self.assertEqual(
                 runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
             )
+
+    def test_worktree_barrier_mode_preserves_private_group_owner_access(
+        self,
+    ) -> None:
+        uid = 2000
+        gid = 2001
+        account = SimpleNamespace(pw_uid=uid, pw_name="service", pw_gid=gid)
+        group = SimpleNamespace(gr_gid=gid, gr_mem=[])
+        with (
+            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
+            mock.patch.object(runtime.pwd, "getpwall", return_value=[account]),
+            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
+            mock.patch.object(runtime.os, "getgrouplist", return_value=[gid]),
+        ):
+            self.assertEqual(
+                runtime._worktree_barrier_mode(0o600, uid, gid), 0o440
+            )
+            self.assertEqual(
+                runtime._worktree_barrier_mode(0o700, uid, gid), 0o550
+            )
+
+    def test_worktree_barrier_mode_rejects_shared_primary_group(self) -> None:
+        uid = 2000
+        gid = 2001
+        account = SimpleNamespace(pw_uid=uid, pw_name="service", pw_gid=gid)
+        other = SimpleNamespace(pw_uid=2002, pw_name="other", pw_gid=gid)
+        group = SimpleNamespace(gr_gid=gid, gr_mem=[])
+        with (
+            mock.patch.object(runtime.pwd, "getpwuid", return_value=account),
+            mock.patch.object(
+                runtime.pwd, "getpwall", return_value=[account, other]
+            ),
+            mock.patch.object(runtime.grp, "getgrgid", return_value=group),
+            mock.patch.object(runtime.os, "getgrouplist", return_value=[gid]),
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ),
+        ):
+            runtime._worktree_barrier_mode(0o600, uid, gid)
 
     def test_worktree_barrier_rejects_setuid_file_before_transition(
         self,

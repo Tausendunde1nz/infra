@@ -13,6 +13,7 @@ import argparse
 import ctypes
 import errno
 import fcntl
+import grp
 import hashlib
 import json
 import os
@@ -35,9 +36,9 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r7"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r8"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
-BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
+BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
 XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
@@ -2738,7 +2739,25 @@ def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
         else restricted & 0o005
     )
     if owner_access & ~effective_access:
-        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        try:
+            group = grp.getgrgid(gid)
+            primary_members = {
+                entry.pw_uid for entry in pwd.getpwall() if entry.pw_gid == gid
+            }
+            other_explicit_members = set(group.gr_mem) - {account.pw_name}
+        except (KeyError, OSError):
+            raise S12ControlError(
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+            ) from None
+        if (
+            not group_member
+            or account.pw_gid != gid
+            or group.gr_gid != gid
+            or primary_members != {uid}
+            or other_explicit_members
+        ):
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        restricted = (restricted & ~0o070) | (owner_access << 3)
     return restricted
 
 

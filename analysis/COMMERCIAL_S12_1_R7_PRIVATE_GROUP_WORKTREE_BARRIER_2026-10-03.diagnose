@@ -1,0 +1,36 @@
+# S12.1 R7 private-group Worktree barrier diagnosis — 2026-10-03
+
+## Observed release result
+
+The sole immutable R7 invocation authenticated successfully, released the
+pristine legacy repository barrier and passed the read-only predeploy gate. It
+then stopped fail-closed with `S12_1_RECOVERY_WORKTREE_BARRIER_RED` before a
+backup, durable deployment-attempt marker or repository sync. Canonical
+Application and Control remained clean at their predeploy commits.
+
+## Deterministic cause
+
+The exact R7 controller was executed read-only against the canonical paths.
+`_capture_worktree_write_barrier()` stopped at `_worktree_barrier_mode()`.
+Application had no rejected barrier entry. Control had exactly 30 rejected
+tracked regular files: 25 at `0600` and 5 at `0700`. All tracked entries and
+their tracked-path ancestors matched the recorded `chatops:chatops` owner; the
+rejection was exclusively loss of owner read/execute access after the planned
+root ownership handoff.
+
+The retained group is deterministically a private primary group: the recorded
+owner is its only primary member and there are no other explicit members.
+
+## Bounded correction
+
+R8 preserves the no-write barrier and exact rollback contract. When the
+existing group/other class is insufficient, it copies the owner's read/execute
+bits into the retained group class only after verifying that the group is the
+recorded owner's private primary group with no other primary or explicit
+members. Thus `0600` and `0700` become temporary root-owned `0440` and `0550`;
+the original ownership and mode remain journaled for exact restoration.
+
+Non-private groups, supplementary-only membership, other explicit or primary
+members, setuid, write permissions, owner/ACL/xattr drift, hardlinks and
+special files remain fail-closed. No runtime boundary, provider policy or hard
+gate changes.
