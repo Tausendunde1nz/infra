@@ -457,6 +457,18 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(path.stat().st_mode&0o7777,mode)
                 self.full_chain(attack=attack,attack_at=boundary)
 
+    def test_deep_git_reverted_writer_cannot_cross_release_handoff(self):
+        for boundary in ('RELEASE_BARRIERS_EXCHANGED','RELEASE_ATTRIBUTES_RESTORED'):
+            with self.subTest(boundary=boundary):
+                def attack(f):
+                    path=f['control']/'.git/refs/heads/control-main'
+                    mode=path.stat().st_mode&0o7777
+                    subprocess.run([sys.executable,'-c',
+                        'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); '
+                        'os.chmod(p,m^64); os.chmod(p,m)',str(path),str(mode)],check=True)
+                    self.assertEqual(path.stat().st_mode&0o7777,mode)
+                self.full_chain(attack=attack,attack_at=boundary)
+
     def test_interruption_cannot_adopt_unknown_inode_acl_or_parent(self):
         def staged(f):
             return f['state']/'attempts'/r.FOLLOWUP_SLOT/'materialization/application/new/0'

@@ -66,6 +66,14 @@ those phases. Neither a normal return nor snapshot equality ends supervision.
 Successful transfer retires only the in-memory watch callbacks, allowing the
 canonical second finalization phase to establish a fresh watch set. A failed
 transfer poisons the owner; no closed descriptor is treated as a live guard.
+The post-write handoff also watches the complete quarantined Git metadata
+tree recursively before its atomic exchange back to `.git`. Those inode
+watches and the pre-exchange fingerprint (including descendant ctime) survive
+the rename and drain behind the already-installed release guards. Deep refs
+are not first baselined after exposure. Native negatives change and restore a
+branch-ref mode from another root process both immediately after exchange and
+during the later metadata-release phase; both retain the Git barriers and
+reject recovery/replay without activation.
 
 ## Delta and trust boundary
 

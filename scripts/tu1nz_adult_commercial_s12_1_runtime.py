@@ -4921,10 +4921,15 @@ class _GitMetadataTransitionGuard:
         self.watches.clear()
         self.root_watches.clear()
 
-    def finalize_release(self) -> None:
+    def finalize_release(self, relocated_paths: Sequence[Path] | None = None) -> None:
         """Cross an ordered watch barrier while a journal backup remains."""
 
-        self.assert_unchanged()
+        if relocated_paths is None:
+            self.assert_unchanged()
+        else:
+            # Atomic exchange retains the watched directory inodes. Compare
+            # against the pre-exchange baseline, never baseline exposed paths.
+            self.assert_quarantined_unchanged(relocated_paths)
         self._synchronized_inotify_shutdown()
 
     def close(self) -> None:
@@ -7245,6 +7250,7 @@ def _serialized_repository_recovery_guarded(
     parent_locked = False
     transition_started = False
     completed = False
+    git_handoff_guard: _GitMetadataTransitionGuard | None = None
     try:
         if (
             _competing_control_sync_count() != 0
@@ -7353,6 +7359,13 @@ def _serialized_repository_recovery_guarded(
             try:
                 yield barriers
                 if ACTIVE_ATTEMPT is not None:
+                    # Authorized Git writes have finished. Watch the complete
+                    # quarantined metadata tree before exposing it, including
+                    # deep refs/objects not covered by worktree/root watches.
+                    git_handoff_guard = _GitMetadataTransitionGuard(
+                        tuple(barriers.values())
+                    )
+                    materialization_guards.callback(git_handoff_guard.close)
                     _r13_audit_materialized(selected_roots)
                 # Legacy Git may normalize a journaled inode's mode. R13 only
                 # accepts its prospectively bound objects; the guards above
@@ -7475,6 +7488,10 @@ def _serialized_repository_recovery_guarded(
                         tuple(release_paths), selected_roots
                     )
                     release_quiescence.acquire()
+                    if git_handoff_guard is not None:
+                        git_handoff_guard.finalize_release(tuple(
+                            root / ".git" for root in selected_roots
+                        ))
                     # Both watch sets overlap here. Drain/check the retained
                     # attributed history before any release metadata changes.
                     materialization_guards.close()
