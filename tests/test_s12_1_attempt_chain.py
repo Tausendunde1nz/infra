@@ -757,7 +757,7 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
                     for key,root in [('application',f['app']),('control',f['control'])]:
                         self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
-                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                        self.assertEqual(r._selected_identity(root,root/'.git'),(f['index'][key]['commit'],f['index'][key]['tree']))
                     return
                 if tamper:
                     cleanup=tamper(f)
@@ -812,7 +812,7 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(self.starts,0)
                     for key,root in [('application',f['app']),('control',f['control'])]:
                         self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
-                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                        self.assertEqual(r._selected_identity(root,root/'.git'),(f['index'][key]['commit'],f['index'][key]['tree']))
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
                     return
@@ -822,8 +822,13 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(list((f['state']/'attempts'/r.FOLLOWUP_SLOT).iterdir()),[])
                     self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
                     self.assertEqual(self.starts,0)
+                    roots=(f['app'],f['control'])
+                    before=r._git_metadata_transition_fingerprint(tuple(root/'.git' for root in roots))
                     for key,root in [('application',f['app']),('control',f['control'])]:
-                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                        # Plain git status refreshes the copied index. Test
+                        # inspection must not itself become an offline writer.
+                        self.assertEqual(r._selected_identity(root,root/'.git'),(f['index'][key]['commit'],f['index'][key]['tree']))
+                    self.assertEqual(r._git_metadata_transition_fingerprint(tuple(root/'.git' for root in roots)),before)
                     self.assertEqual(r.followup(authorization,grant_hash,recovering=True),result)
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
@@ -844,7 +849,7 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(self.starts,0)
                     for key,root in [('application',f['app']),('control',f['control'])]:
                         self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
-                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                        self.assertEqual(r._selected_identity(root,root/'.git'),(f['index'][key]['commit'],f['index'][key]['tree']))
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
                     return
@@ -881,7 +886,7 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
                     for key,root in [('application',f['app']),('control',f['control'])]:
                         self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
-                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                        self.assertEqual(r._selected_identity(root,root/'.git'),(f['index'][key]['commit'],f['index'][key]['tree']))
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
                     self.assertEqual(self.starts,expected)
@@ -921,13 +926,13 @@ class IntegratedChainTests(unittest.TestCase):
                 self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
             if provider_failure or crash_at:
                 for key,root in [('application',f['app']),('control',f['control'])]:
-                    self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                    self.assertEqual(r._selected_identity(root,root/'.git'),(f['index'][key]['commit'],f['index'][key]['tree']))
             else:
                 self.assertNotIn('system.posix_acl_default',os.listxattr(f['app']/'created'))
                 self.assertIn('system.posix_acl_default',os.listxattr(f['app']))
 
     def test_process_loss_at_each_materialization_boundary(self):
-        for boundary in ('FOLLOWUP_NAMESPACE_CREATED','OBJECT_ALLOCATED','OBJECT_METADATA_SET','OBJECT_BOUND','RETIRE_INTENT','RETIRED','PUBLISH_INTENT',
+        for boundary in ('OBJECT_ALLOCATED','OBJECT_METADATA_SET','OBJECT_BOUND','RETIRE_INTENT','RETIRED','PUBLISH_INTENT',
                          'PUBLISHED','RECORDS_PUBLISHED','INDEX_UPDATED','REF_UPDATED'):
             with self.subTest(boundary=boundary):
                 self.full_chain(crash_at=boundary)
@@ -1007,6 +1012,9 @@ class IntegratedChainTests(unittest.TestCase):
             os._exit(0)
         _,status=os.waitpid(pid,0)
         self.assertEqual(os.waitstatus_to_exitcode(status),0)
+
+    def test_04_empty_namespace_native_idempotence(self):
+        self.full_chain(crash_at='FOLLOWUP_NAMESPACE_CREATED')
 
     def test_process_loss_at_each_rollback_boundary(self):
         for boundary in ('WITHDRAW_INTENT','WITHDRAWN','RESTORE_INTENT','RESTORED'):
@@ -1212,7 +1220,7 @@ class IntegratedChainTests(unittest.TestCase):
             self.assertTrue(result['ok'])
             self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
             for key,root in [('application',f['app']),('control',f['control'])]:
-                self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                self.assertEqual(r._selected_identity(root,root/'.git'),(f['index'][key]['commit'],f['index'][key]['tree']))
                 self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
 
 

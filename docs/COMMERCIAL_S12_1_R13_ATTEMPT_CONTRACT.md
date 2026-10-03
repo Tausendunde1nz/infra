@@ -71,6 +71,14 @@ must also be rejected with the claim consumed and no activation. CI 37161553654
 stopped at the receipt-only unit fixture (which intentionally has no Git repos);
 its existing validation mock is moved to the new supervised-validation boundary.
 The full Linux chain still uses the actual validation and kernel mechanisms.
+CI 37161673600 passed the new executable-substitution, read-only capability,
+overlapping-handoff, observer closure and success/rollback tests. It then
+rejected the test's own plain `git status` index refresh between two empty
+closure checks. Post-state assertions now use the existing isolated Git reader
+(`GIT_OPTIONAL_LOCKS=0`); the empty-closure regression additionally compares
+complete Git metadata fingerprints around that inspection. It runs early as
+a separate case, not omitted from the materialization interruption matrix.
+No production metadata comparison or fail-closed requirement is relaxed.
 
 **Current source release status: pending final CI/review and Git closure.** Exact-head Code Review of
 `28d7fe240068c6e728d4a5566403eae44843d4c7` found one remaining P1
