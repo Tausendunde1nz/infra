@@ -78,6 +78,9 @@ recognize both bounded reverse-transition states—owner restored while the
 generated ACL remains, and owner restored after that ACL is removed but before
 the original mode is restored—and re-establish the root-owned barrier before
 any guard is released.
+New tracked inodes created by the completed root Git operation are checked for
+file capabilities, durably journaled with their exact source ACL/xattrs and
+then sealed through the same write barrier before release validation.
 The controller also
 rejects setuid and setgid regular files and all unrelated ownership, mode, ACL
 or xattr drift, preserves the original journal mode across same-inode release

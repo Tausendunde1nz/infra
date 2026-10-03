@@ -2907,6 +2907,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 return_value=(tracked,),
             ),
             mock.patch.object(runtime.Path, "lstat", return_value=metadata),
+            mock.patch.object(runtime, "_assert_no_security_capability"),
             mock.patch.object(
                 runtime, "_worktree_barrier_mode", return_value=0o440
             ),
@@ -2935,6 +2936,188 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         fingerprint.assert_not_called()
         self.assertEqual(records, {root: {}})
+
+    def test_refresh_rejects_new_security_capability_before_journal(
+        self,
+    ) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "new.txt"
+        records = {root: {}}
+        metadata = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o600,
+            st_nlink=1,
+            st_uid=0,
+            st_gid=1001,
+            st_dev=10,
+            st_ino=20,
+        )
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_recorded_path_metadata",
+                return_value=(1001, 1001, 0o700),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(tracked,),
+            ),
+            mock.patch.object(runtime.Path, "lstat", return_value=metadata),
+            mock.patch.object(
+                runtime,
+                "_assert_no_security_capability",
+                side_effect=OSError,
+            ) as capability_guard,
+            mock.patch.object(
+                runtime, "_worktree_path_xattr_fingerprint"
+            ) as fingerprint,
+            mock.patch.object(runtime, "_lock_worktree_write_barrier") as lock,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            ),
+        ):
+            runtime._refresh_worktree_barrier_for_release(
+                (root,), {root: {}}, records
+            )
+
+        capability_guard.assert_called_once_with(tracked)
+        fingerprint.assert_not_called()
+        lock.assert_not_called()
+        self.assertEqual(records, {root: {}})
+
+    def test_refresh_journals_then_seals_new_acl_path(self) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "new.txt"
+        records = {root: {}}
+        metadata = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o600,
+            st_nlink=1,
+            st_uid=0,
+            st_gid=1001,
+            st_dev=10,
+            st_ino=20,
+        )
+        events = []
+
+        def seal(selected_records, **_kwargs):
+            self.assertIn(tracked, selected_records[root])
+            events.append("seal")
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_recorded_path_metadata",
+                return_value=(1001, 1001, 0o700),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(tracked,),
+            ),
+            mock.patch.object(runtime.Path, "lstat", return_value=metadata),
+            mock.patch.object(runtime, "_assert_no_security_capability"),
+            mock.patch.object(runtime, "_worktree_barrier_mode"),
+            mock.patch.object(
+                runtime,
+                "_assert_source_worktree_acl_access",
+                return_value=b"compatible-acl",
+            ),
+            mock.patch.object(
+                runtime,
+                "_worktree_path_xattr_fingerprint",
+                return_value="a" * 64,
+            ),
+            mock.patch.object(
+                runtime,
+                "_lock_worktree_write_barrier",
+                side_effect=seal,
+            ),
+        ):
+            runtime._refresh_worktree_barrier_for_release(
+                (root,), {root: {}}, records
+            )
+
+        self.assertEqual(events, ["seal"])
+        self.assertEqual(records[root][tracked]["xattr_fingerprint"], "a" * 64)
+
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_refresh_seals_new_real_acl_path_before_return(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "control"
+            root.mkdir()
+            tracked = root / "new.txt"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            os.chown(tracked, 0, 1000)
+            acl = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", *entry)
+                for entry in (
+                    (0x01, 0o6, 0xFFFFFFFF),
+                    (0x02, 0o4, 1000),
+                    (0x04, 0o0, 0xFFFFFFFF),
+                    (0x10, 0o4, 0xFFFFFFFF),
+                    (0x20, 0o0, 0xFFFFFFFF),
+                )
+            )
+            os.setxattr(
+                tracked,
+                "system.posix_acl_access",
+                acl,
+                follow_symlinks=False,
+            )
+            source_mode = stat.S_IMODE(tracked.lstat().st_mode)
+            records = {root: {}}
+
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_recorded_path_metadata",
+                    return_value=(1000, 1000, 0o700),
+                ),
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._refresh_worktree_barrier_for_release(
+                    (root,), {root: {}}, records
+                )
+
+            record = records[root][tracked]
+            locked = tracked.lstat()
+            self.assertEqual(
+                (locked.st_uid, locked.st_gid),
+                (0, 1000),
+            )
+            self.assertEqual(
+                runtime._worktree_locked_acl_state(tracked, record),
+                ("preserved", source_mode & ~0o222),
+            )
+            runtime._restore_worktree_write_barrier(records)
+            restored = tracked.lstat()
+            self.assertEqual(
+                (
+                    restored.st_uid,
+                    restored.st_gid,
+                    stat.S_IMODE(restored.st_mode),
+                ),
+                (1000, 1000, source_mode),
+            )
+            self.assertEqual(
+                os.getxattr(
+                    tracked,
+                    "system.posix_acl_access",
+                    follow_symlinks=False,
+                ),
+                acl,
+            )
 
     def test_refresh_preserves_original_named_owner_acl_barrier_mode(
         self,
@@ -2972,6 +3155,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 return_value=(tracked,),
             ),
             mock.patch.object(runtime.Path, "lstat", return_value=metadata),
+            mock.patch.object(runtime, "_assert_no_security_capability"),
             mock.patch.object(
                 runtime, "_worktree_barrier_mode", return_value=0o440
             ),
@@ -2980,6 +3164,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 "_worktree_locked_acl_state",
                 return_value=("generated", 0o440),
             ),
+            mock.patch.object(runtime, "_lock_worktree_write_barrier"),
         ):
             runtime._refresh_worktree_barrier_for_release(
                 (root,), {root: {}}, records

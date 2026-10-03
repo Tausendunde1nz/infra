@@ -3286,6 +3286,7 @@ def _refresh_worktree_barrier_for_release(
                     kind = "directory"
                 elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
                     kind = "regular"
+                    _assert_no_security_capability(path)
                 else:
                     raise OSError
                 mode = stat.S_IMODE(metadata.st_mode)
@@ -3339,6 +3340,7 @@ def _refresh_worktree_barrier_for_release(
                 roots, records
             )
             _atomic_json(BARRIER_MARKER, journal)
+        _lock_worktree_write_barrier(records)
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError(
             "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
