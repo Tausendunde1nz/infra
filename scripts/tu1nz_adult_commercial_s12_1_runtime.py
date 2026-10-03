@@ -10486,7 +10486,7 @@ class _R13GitWriters:
         readonly |= verb=='symbolic-ref' and ('--quiet' in args or '--short' in args)
         readonly |= verb=='bundle' and args[1:2] in (['verify'],['list-heads'],['create'])
         if not readonly and verb not in {'fetch','read-tree','update-ref','branch','symbolic-ref',
-                                        'bundle','init','clone','checkout'}:
+                                        'bundle','init','clone','checkout','hash-object','pack-objects'}:
             self.fail()
         if verb in {'init','clone','checkout'} and root not in (FETCH_ROOT,RELEASE_STAGING_ROOT):
             self.fail()

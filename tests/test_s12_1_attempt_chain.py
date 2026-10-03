@@ -254,14 +254,14 @@ class AWriterTests(unittest.TestCase):
         selected=self.writer.command(r._recovery_git_arguments(self.root,self.root/'.git','update-ref','refs/heads/new',self.sha))
         root,args,env=selected
         forbidden=self.base/'must-not-exist'
-        args=args[:-3]+['-c','alias.unplanned=!touch '+str(forbidden),'unplanned']
+        args=args[:-3]+['-c','core.fsmonitor=touch '+str(forbidden),'status','--porcelain']
         with self.assertRaises(r.S12ControlError):self.writer.run((root,args,env),30)
         self.assertFalse(forbidden.exists())
 
     def test_failure_at_fork_stop_reaps_unadmitted_child(self):
         root,args,env=self.writer.command(r._recovery_git_arguments(
             self.root,self.root/'.git','update-ref','refs/heads/new',self.sha))
-        args=args[:-3]+['-c','alias.forktest=!true','forktest']
+        args=args[:-3]+['bundle','create','-','--all']
         fired=False
         def attack(name):
             nonlocal fired
