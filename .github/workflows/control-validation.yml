@@ -11,7 +11,9 @@ permissions:
 jobs:
   restore-contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Native ptrace/Landlock now covers every Git reader as well as writers.
+    # Keep all success/rollback/interruption cases; allow their full duration.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -63,6 +63,10 @@ R13 reseals the prospectively journaled, successor-updated path set without
 executing another Git command in a failed epoch. Neither failed attribution
 nor cleanup creates a new command grant; existing handoff negatives require
 both barriers to remain and reject recovery/replay.
+CI retains the complete native test matrix with a 60-minute job bound: tracing
+every Git reader increased the measured isolated success case from about
+23 to 55 seconds. No assertion, negative case or kernel mechanism is skipped
+to fit the former 30-minute bound.
 
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.
