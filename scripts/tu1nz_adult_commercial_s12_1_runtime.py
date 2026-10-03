@@ -35,9 +35,9 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r7"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r8"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
-BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V7"
+BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
 XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
@@ -2716,30 +2716,63 @@ def _tracked_worktree_barrier_paths(
     )
 
 
-def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
-    """Preserve the former owner's effective access class after chown."""
+def _worktree_barrier_mode(
+    mode: int, uid: int, gid: int, *, kind: str = "regular"
+) -> int:
+    """Return the root-owned barrier mode backed by a named-owner ACL."""
 
-    if mode & stat.S_ISUID:
+    if kind not in {"directory", "regular"}:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    if (mode & stat.S_ISUID) or (
+        kind == "regular" and mode & stat.S_ISGID
+    ):
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
     restricted = mode & ~0o222
     if uid == 0:
         return restricted
-    try:
-        account = pwd.getpwuid(uid)
-        group_member = gid in os.getgrouplist(account.pw_name, account.pw_gid)
-    except (KeyError, OSError):
-        raise S12ControlError(
-            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
-        ) from None
     owner_access = (restricted & 0o500) >> 6
-    effective_access = (
-        (restricted & 0o050) >> 3
-        if group_member
-        else restricted & 0o005
-    )
-    if owner_access & ~effective_access:
-        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    group_access = (restricted & 0o050) >> 3
+    other_access = restricted & 0o005
+    if (owner_access & ~group_access) or (owner_access & ~other_access):
+        # The group-class mode bits represent the ACL mask, not access granted
+        # to the owning group.  A single named-user ACL below carries the
+        # former owner's exact read/execute class without relying on NSS group
+        # enumeration or making a GID an authorization capability.
+        restricted = (restricted & ~0o070) | (
+            (owner_access | group_access) << 3
+        )
     return restricted
+
+
+def _worktree_barrier_owner_acl(
+    mode: int, uid: int, *, kind: str
+) -> bytes | None:
+    """Build the exact temporary POSIX ACL for a non-root former owner."""
+
+    restricted = mode & ~0o222
+    if uid == 0:
+        return None
+    owner_access = (restricted & 0o500) >> 6
+    group_access = (restricted & 0o050) >> 3
+    other_access = restricted & 0o005
+    if not (
+        (owner_access & ~group_access) or (owner_access & ~other_access)
+    ):
+        return None
+    if uid < 0 or uid >= 0xFFFFFFFF or kind not in {"regular", "directory"}:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    header = struct.Struct("<I")
+    entry = struct.Struct("<HHI")
+    return b"".join(
+        (
+            header.pack(2),
+            entry.pack(0x01, owner_access, 0xFFFFFFFF),
+            entry.pack(0x02, owner_access, uid),
+            entry.pack(0x04, group_access, 0xFFFFFFFF),
+            entry.pack(0x10, owner_access | group_access, 0xFFFFFFFF),
+            entry.pack(0x20, other_access, 0xFFFFFFFF),
+        )
+    )
 
 
 def _assert_post_chown_acl_preserves_access(
@@ -2749,6 +2782,9 @@ def _assert_post_chown_acl_preserves_access(
     target_mask: int,
     target_other: int,
     safe_code: str,
+    *,
+    reject_access_acl: bool = False,
+    allow_mode_group_access: bool = False,
 ) -> None:
     """Reject an ACL that would reduce the former owner's post-chown access."""
 
@@ -2788,11 +2824,13 @@ def _assert_post_chown_acl_preserves_access(
             for field in stable_fields
         ):
             raise OSError
+        if reject_access_acl and value is not None:
+            raise OSError
         if value is None:
-            account = pwd.getpwuid(uid)
-            groups = set(os.getgrouplist(account.pw_name, account.pw_gid))
+            # Worktree barriers require public or named-UID access. Repository
+            # namespace locks retain their reviewed group contract explicitly.
             effective_access = (
-                target_mask if before.st_gid in groups else target_other
+                target_mask if allow_mode_group_access else target_other
             )
             if required_access & ~effective_access:
                 raise OSError
@@ -2847,32 +2885,137 @@ def _assert_post_chown_acl_preserves_access(
         if len(named_users) > 1:
             raise OSError
         if named_users:
-            effective_access = named_users[0] & target_mask
+            if required_access & ~(named_users[0] & target_mask):
+                raise OSError
         else:
-            account = pwd.getpwuid(uid)
-            groups = set(os.getgrouplist(account.pw_name, account.pw_gid))
-            matching_group_permissions = [
-                permissions
-                for tag, permissions, identifier in entries
-                if (tag == 0x04 and before.st_gid in groups)
-                or (tag == 0x08 and identifier in groups)
+            possible_group_classes = [
+                permissions & target_mask
+                for tag, permissions, _identifier in entries
+                if tag in {0x04, 0x08}
             ]
-            if matching_group_permissions:
-                effective_access = 0
-                for permissions in matching_group_permissions:
-                    effective_access |= permissions
-                effective_access &= target_mask
-            else:
-                effective_access = target_other
-        if required_access & ~effective_access:
-            raise OSError
+            if any(
+                required_access & ~effective_access
+                for effective_access in (
+                    *possible_group_classes,
+                    target_other,
+                )
+            ):
+                raise OSError
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError(safe_code) from None
 
 
-def _worktree_path_xattr_fingerprint(path: Path) -> str:
+def _assert_no_posix_access_acl(path: Path, safe_code: str) -> None:
+    """Require a mode-only source contract before adding the bounded ACL."""
+
+    if not hasattr(os, "listxattr"):
+        if sys.platform == "linux":
+            raise S12ControlError(safe_code)
+        return
     try:
-        return _release_xattr_fingerprint((path,))
+        before = path.lstat()
+        names = sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        )
+        if "system.posix_acl_access" in names:
+            raise OSError
+        if names != sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        ):
+            raise OSError
+        after = path.lstat()
+        if any(
+            getattr(before, field) != getattr(after, field)
+            for field in (
+                "st_dev",
+                "st_ino",
+                "st_mode",
+                "st_nlink",
+                "st_ctime_ns",
+            )
+        ):
+            raise OSError
+    except OSError:
+        raise S12ControlError(safe_code) from None
+
+
+def _worktree_source_access_acl(path: Path, safe_code: str) -> bytes | None:
+    """Return a stable source ACL without treating its GID entries as proof."""
+
+    if not hasattr(os, "listxattr") or not hasattr(os, "getxattr"):
+        if sys.platform == "linux":
+            raise S12ControlError(safe_code)
+        return None
+    try:
+        before = path.lstat()
+        names = sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        )
+        value = (
+            os.getxattr(
+                path,
+                "system.posix_acl_access",
+                follow_symlinks=False,
+            )
+            if "system.posix_acl_access" in names
+            else None
+        )
+        if names != sorted(
+            os.listxattr(path, follow_symlinks=False), key=os.fsencode
+        ):
+            raise OSError
+        after = path.lstat()
+        if any(
+            getattr(before, field) != getattr(after, field)
+            for field in (
+                "st_dev",
+                "st_ino",
+                "st_mode",
+                "st_nlink",
+                "st_ctime_ns",
+            )
+        ):
+            raise OSError
+        return value
+    except OSError:
+        raise S12ControlError(safe_code) from None
+
+
+def _assert_source_worktree_acl_access(
+    path: Path,
+    mode: int,
+    uid: int,
+    safe_code: str,
+) -> bytes | None:
+    """Accept a source ACL only when its named UID survives a tighter mask."""
+
+    acl = _worktree_source_access_acl(path, safe_code)
+    if acl is None:
+        return None
+    restricted = mode & ~0o222
+    _assert_post_chown_acl_preserves_access(
+        path,
+        uid,
+        (restricted & 0o500) >> 6,
+        (restricted & 0o050) >> 3,
+        restricted & 0o005,
+        safe_code,
+    )
+    return acl
+
+
+def _worktree_path_xattr_fingerprint(
+    path: Path, *, barrier_acl: bytes | None = None
+) -> str:
+    try:
+        omitted = (
+            {path: {"system.posix_acl_access": barrier_acl}}
+            if barrier_acl is not None
+            else None
+        )
+        return _release_xattr_fingerprint(
+            (path,), expected_omitted_xattrs=omitted
+        )
     except S12ControlError:
         raise S12ControlError(
             "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
@@ -2880,15 +3023,178 @@ def _worktree_path_xattr_fingerprint(path: Path) -> str:
 
 
 def _assert_worktree_path_xattrs(
-    path: Path, record: dict[str, Any]
+    path: Path,
+    record: dict[str, Any],
+    *,
+    barrier_locked: bool = False,
 ) -> None:
     fingerprint = record.get("xattr_fingerprint")
-    if (
-        not isinstance(fingerprint, str)
-        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
-        or _worktree_path_xattr_fingerprint(path) != fingerprint
-    ):
+    if not isinstance(fingerprint, str) or re.fullmatch(
+        r"[0-9a-f]{64}", fingerprint
+    ) is None:
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    if not barrier_locked:
+        if _worktree_path_xattr_fingerprint(path) != fingerprint:
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        return
+    _worktree_locked_acl_state(path, record)
+
+
+def _worktree_locked_acl_state(
+    path: Path, record: dict[str, Any]
+) -> tuple[str, int]:
+    """Return the exact locked ACL class and mode for one journaled inode."""
+
+    fingerprint = record.get("xattr_fingerprint")
+    if not isinstance(fingerprint, str) or re.fullmatch(
+        r"[0-9a-f]{64}", fingerprint
+    ) is None:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    original_mode = int(record["mode"], 8)
+    base_mode = original_mode & ~0o222
+    generated_mode = _worktree_barrier_mode(
+        original_mode,
+        record["uid"],
+        record["gid"],
+        kind=record["kind"],
+    )
+    try:
+        if _worktree_path_xattr_fingerprint(path) == fingerprint:
+            acl = _assert_source_worktree_acl_access(
+                path,
+                original_mode,
+                record["uid"],
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            )
+            if acl is not None:
+                return "preserved", base_mode
+            if _worktree_barrier_owner_acl(
+                original_mode, record["uid"], kind=record["kind"]
+            ) is None:
+                return "none", base_mode
+        generated_acl = _worktree_barrier_owner_acl(
+            original_mode, record["uid"], kind=record["kind"]
+        )
+        if (
+            generated_acl is not None
+            and _worktree_path_xattr_fingerprint(
+                path, barrier_acl=generated_acl
+            )
+            == fingerprint
+        ):
+            _assert_worktree_barrier_owner_acl(
+                path,
+                record,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            )
+            return "generated", generated_mode
+    except (KeyError, TypeError, ValueError):
+        pass
+    raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+
+
+def _install_worktree_barrier_owner_acl(
+    path: Path, record: dict[str, Any]
+) -> None:
+    acl = _worktree_barrier_owner_acl(
+        int(record["mode"], 8), record["uid"], kind=record["kind"]
+    )
+    if acl is None:
+        return
+    if not hasattr(os, "setxattr"):
+        raise OSError
+    os.setxattr(
+        path,
+        "system.posix_acl_access",
+        acl,
+        follow_symlinks=False,
+    )
+
+
+def _remove_worktree_barrier_owner_acl(
+    path: Path, record: dict[str, Any]
+) -> None:
+    acl = _worktree_barrier_owner_acl(
+        int(record["mode"], 8), record["uid"], kind=record["kind"]
+    )
+    if acl is None:
+        return
+    if not hasattr(os, "removexattr"):
+        raise OSError
+    os.removexattr(
+        path,
+        "system.posix_acl_access",
+        follow_symlinks=False,
+    )
+
+
+def _assert_worktree_barrier_owner_acl(
+    path: Path, record: dict[str, Any], safe_code: str
+) -> None:
+    acl = _worktree_barrier_owner_acl(
+        int(record["mode"], 8), record["uid"], kind=record["kind"]
+    )
+    if acl is None:
+        _assert_no_posix_access_acl(path, safe_code)
+        return
+    if not hasattr(os, "getxattr"):
+        raise S12ControlError(safe_code)
+    try:
+        if (
+            os.getxattr(
+                path,
+                "system.posix_acl_access",
+                follow_symlinks=False,
+            )
+            != acl
+        ):
+            raise OSError
+    except OSError:
+        raise S12ControlError(safe_code) from None
+
+
+def _worktree_release_xattr_omissions(
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> dict[Path, dict[str, bytes]]:
+    """Return only exact generated ACLs that teardown intentionally removes."""
+
+    omissions: dict[Path, dict[str, bytes]] = {}
+    try:
+        for root_entries in records.values():
+            for path, record in root_entries.items():
+                try:
+                    metadata = path.lstat()
+                except FileNotFoundError:
+                    continue
+                try:
+                    acl_state, _locked_mode = _worktree_locked_acl_state(
+                        path, record
+                    )
+                except S12ControlError:
+                    if (
+                        metadata.st_uid != record["uid"]
+                        or metadata.st_gid != record["gid"]
+                    ):
+                        raise
+                    # A reverse transition may already have restored the
+                    # recorded owner and removed its temporary ACL.
+                    _assert_worktree_path_xattrs(path, record)
+                    continue
+                if acl_state != "generated":
+                    continue
+                acl = _worktree_barrier_owner_acl(
+                    int(record["mode"], 8),
+                    record["uid"],
+                    kind=record["kind"],
+                )
+                if acl is None:
+                    raise OSError
+                omissions[path] = {"system.posix_acl_access": acl}
+    except S12ControlError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return omissions
 
 
 def _capture_worktree_write_barrier(
@@ -2919,18 +3225,16 @@ def _capture_worktree_write_barrier(
                 ):
                     raise OSError
                 mode = stat.S_IMODE(metadata.st_mode)
-                restricted_mode = _worktree_barrier_mode(
-                    mode, metadata.st_uid, metadata.st_gid
+                _worktree_barrier_mode(
+                    mode, metadata.st_uid, metadata.st_gid, kind=kind
                 )
-                xattr_fingerprint = _worktree_path_xattr_fingerprint(path)
-                _assert_post_chown_acl_preserves_access(
+                _assert_source_worktree_acl_access(
                     path,
+                    mode,
                     metadata.st_uid,
-                    (restricted_mode & 0o500) >> 6,
-                    (restricted_mode & 0o050) >> 3,
-                    restricted_mode & 0o005,
                     "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
                 )
+                xattr_fingerprint = _worktree_path_xattr_fingerprint(path)
                 entries[path] = {
                     "kind": kind,
                     "device": metadata.st_dev,
@@ -2989,6 +3293,7 @@ def _refresh_worktree_barrier_for_release(
                     kind = "directory"
                 elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1:
                     kind = "regular"
+                    _assert_no_security_capability(path)
                 else:
                     raise OSError
                 mode = stat.S_IMODE(metadata.st_mode)
@@ -2998,14 +3303,28 @@ def _refresh_worktree_barrier_for_release(
                 if existing is not None and (
                     metadata.st_dev,
                     metadata.st_ino,
-                    mode,
-                ) == (
-                    existing["device"],
-                    existing["inode"],
-                    int(existing["mode"], 8) & ~0o222,
-                ):
-                    _assert_worktree_path_xattrs(path, existing)
+                ) == (existing["device"], existing["inode"]):
+                    original_mode = int(existing["mode"], 8)
+                    try:
+                        _state, expected_locked_mode = (
+                            _worktree_locked_acl_state(path, existing)
+                        )
+                    except S12ControlError:
+                        raise S12ControlError(
+                            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+                        ) from None
+                    if mode != expected_locked_mode:
+                        raise OSError
                     continue
+                _worktree_barrier_mode(
+                    mode, expected_uid, expected_gid, kind=kind
+                )
+                _assert_source_worktree_acl_access(
+                    path,
+                    mode,
+                    expected_uid,
+                    "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+                )
                 root_records[path] = {
                     "kind": kind,
                     "device": metadata.st_dev,
@@ -3028,6 +3347,7 @@ def _refresh_worktree_barrier_for_release(
                 roots, records
             )
             _atomic_json(BARRIER_MARKER, journal)
+        _lock_worktree_write_barrier(records)
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError(
             "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
@@ -3150,11 +3470,6 @@ def _lock_worktree_write_barrier(
     if os.geteuid() != 0:
         return
     try:
-        for root_entries in records.values():
-            for record in root_entries.values():
-                _worktree_barrier_mode(
-                    int(record["mode"], 8), record["uid"], record["gid"]
-                )
         for root, root_entries in records.items():
             for path, record in sorted(
                 root_entries.items(),
@@ -3167,10 +3482,13 @@ def _lock_worktree_write_barrier(
                     # removed an old index path. Current paths are sealed in
                     # the second pass below.
                     continue
-                _assert_worktree_path_xattrs(path, record)
                 mode = int(record["mode"], 8)
-                restricted_mode = _worktree_barrier_mode(
-                    mode, record["uid"], record["gid"]
+                base_restricted_mode = mode & ~0o222
+                generated_restricted_mode = _worktree_barrier_mode(
+                    mode,
+                    record["uid"],
+                    record["gid"],
+                    kind=record["kind"],
                 )
                 expected_kind = record["kind"]
                 original = (
@@ -3185,7 +3503,8 @@ def _lock_worktree_write_barrier(
                     and metadata.st_ino == record["inode"]
                     and metadata.st_uid == 0
                     and metadata.st_gid == record["gid"]
-                    and stat.S_IMODE(metadata.st_mode) == restricted_mode
+                    and stat.S_IMODE(metadata.st_mode)
+                    in {base_restricted_mode, generated_restricted_mode}
                 )
                 target_locked = (
                     metadata.st_dev == record["device"]
@@ -3200,8 +3519,29 @@ def _lock_worktree_write_barrier(
                     and metadata.st_ino == record["inode"]
                     and metadata.st_uid == record["uid"]
                     and metadata.st_gid == record["gid"]
-                    and stat.S_IMODE(metadata.st_mode) == restricted_mode
+                    and stat.S_IMODE(metadata.st_mode)
+                    in {base_restricted_mode, generated_restricted_mode}
                 )
+                owner_acl_transition = False
+                if (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == record["uid"]
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode)
+                    == generated_restricted_mode
+                ):
+                    try:
+                        transition_state, transition_mode = (
+                            _worktree_locked_acl_state(path, record)
+                        )
+                    except S12ControlError:
+                        pass
+                    else:
+                        owner_acl_transition = (
+                            transition_state == "generated"
+                            and transition_mode == generated_restricted_mode
+                        )
                 actual_kind = (
                     "directory"
                     if stat.S_ISDIR(metadata.st_mode)
@@ -3209,9 +3549,17 @@ def _lock_worktree_write_barrier(
                     if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
                     else "invalid"
                 )
-                resumed = (
-                    actual_kind in {"directory", "regular"}
+                root_transition = (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
                     and metadata.st_uid == 0
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode)
+                    in {
+                        mode,
+                        base_restricted_mode,
+                        generated_restricted_mode,
+                    }
                     and not stat.S_IMODE(metadata.st_mode) & 0o022
                 )
                 if actual_kind != expected_kind or not (
@@ -3219,27 +3567,65 @@ def _lock_worktree_write_barrier(
                     or locked
                     or target_locked
                     or restricted
-                    or resumed
+                    or root_transition
+                    or owner_acl_transition
                 ):
                     raise OSError
                 if actual_kind == "regular":
                     _assert_no_security_capability(path)
-                if original:
-                    os.chmod(path, restricted_mode, follow_symlinks=False)
-                _assert_post_chown_acl_preserves_access(
-                    path,
-                    record["uid"],
-                    (restricted_mode & 0o500) >> 6,
-                    (restricted_mode & 0o050) >> 3,
-                    restricted_mode & 0o005,
-                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-                )
-                if original or restricted:
+                if locked:
+                    _state, expected_locked_mode = (
+                        _worktree_locked_acl_state(path, record)
+                    )
+                    if stat.S_IMODE(metadata.st_mode) == expected_locked_mode:
+                        continue
+                if owner_acl_transition:
+                    source_acl = None
+                    restricted_mode = generated_restricted_mode
+                else:
+                    _assert_worktree_path_xattrs(path, record)
+                    source_acl = _assert_source_worktree_acl_access(
+                        path,
+                        mode,
+                        record["uid"],
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    restricted_mode = (
+                        base_restricted_mode
+                        if source_acl is not None
+                        else generated_restricted_mode
+                    )
+                    os.chmod(
+                        path, base_restricted_mode, follow_symlinks=False
+                    )
+                    if source_acl is None:
+                        _install_worktree_barrier_owner_acl(path, record)
+                        os.chmod(
+                            path,
+                            generated_restricted_mode,
+                            follow_symlinks=False,
+                        )
+                        _assert_worktree_barrier_owner_acl(
+                            path,
+                            record,
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        )
+                        _assert_worktree_path_xattrs(
+                            path, record, barrier_locked=True
+                        )
+                if metadata.st_uid != 0:
                     os.chown(path, 0, record["gid"], follow_symlinks=False)
-                    os.chmod(path, restricted_mode, follow_symlinks=False)
-                if target_locked:
-                    os.chmod(path, restricted_mode, follow_symlinks=False)
-                _assert_worktree_path_xattrs(path, record)
+                os.chmod(path, restricted_mode, follow_symlinks=False)
+                sealed = path.lstat()
+                if (
+                    sealed.st_uid != 0
+                    or sealed.st_gid != record["gid"]
+                    or stat.S_IMODE(sealed.st_mode) != restricted_mode
+                ):
+                    raise OSError
+                _assert_worktree_path_xattrs(
+                    path, record, barrier_locked=True
+                )
             # New target paths created by a previously interrupted root Git
             # checkout are absent from the durable pre-mutation record. They
             # are safe to resume only when root-owned and already closed to
@@ -3300,13 +3686,26 @@ def _assert_worktree_write_barrier(
                     metadata.st_dev,
                     metadata.st_ino,
                 ) == (record["device"], record["inode"]):
-                    _assert_worktree_path_xattrs(path, record)
                     expected_gid = record["gid"]
+                    try:
+                        _state, locked_mode = _worktree_locked_acl_state(
+                            path, record
+                        )
+                    except S12ControlError:
+                        raise S12ControlError(
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                        ) from None
+                    if stat.S_IMODE(metadata.st_mode) == locked_mode:
+                        expected_mode = locked_mode
+                    else:
+                        raise OSError
                 else:
                     expected_gid = metadata.st_gid
+                    expected_mode = stat.S_IMODE(metadata.st_mode)
                 if (
                     metadata.st_uid != 0
                     or metadata.st_gid != expected_gid
+                    or stat.S_IMODE(metadata.st_mode) != expected_mode
                     or stat.S_IMODE(metadata.st_mode) & 0o022
                     or (
                         stat.S_ISREG(metadata.st_mode)
@@ -3353,14 +3752,76 @@ def _restore_worktree_write_barrier(
                 )
                 if actual_kind != expected_kind:
                     raise OSError
-                _assert_worktree_path_xattrs(path, record)
-                os.chown(
-                    path,
+                original_mode = int(record["mode"], 8)
+                base_restricted_mode = original_mode & ~0o222
+                generated_restricted_mode = _worktree_barrier_mode(
+                    original_mode,
                     record["uid"],
                     record["gid"],
-                    follow_symlinks=False,
+                    kind=record["kind"],
                 )
-                os.chmod(path, int(record["mode"], 8), follow_symlinks=False)
+                if (
+                    metadata.st_uid not in {0, record["uid"]}
+                    or metadata.st_gid != record["gid"]
+                ):
+                    raise OSError
+                if (
+                    metadata.st_uid == record["uid"]
+                    and stat.S_IMODE(metadata.st_mode) == original_mode
+                ):
+                    try:
+                        _assert_worktree_path_xattrs(path, record)
+                    except S12ControlError:
+                        # An interrupted reverse transition may already have
+                        # restored ownership while the generated named-owner
+                        # ACL remains.  Its mask can equal an originally
+                        # read-only mode, so mode equality alone is not proof
+                        # that the source xattr contract is restored.
+                        pass
+                    else:
+                        continue
+                try:
+                    acl_state, expected_locked_mode = (
+                        _worktree_locked_acl_state(path, record)
+                    )
+                except S12ControlError:
+                    acl_state = "interrupted"
+                    expected_locked_mode = -1
+                if stat.S_IMODE(metadata.st_mode) == expected_locked_mode:
+                    pass
+                elif (
+                    metadata.st_uid == record["uid"]
+                    and stat.S_IMODE(metadata.st_mode)
+                    in {
+                        base_restricted_mode,
+                        generated_restricted_mode,
+                        *(
+                            {original_mode}
+                            if not original_mode & 0o022
+                            else set()
+                        ),
+                    }
+                ):
+                    _assert_worktree_path_xattrs(path, record)
+                    _assert_no_posix_access_acl(
+                        path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+                else:
+                    raise OSError
+                if metadata.st_uid == 0 and record["uid"] != 0:
+                    os.chown(
+                        path,
+                        record["uid"],
+                        record["gid"],
+                        follow_symlinks=False,
+                    )
+                if acl_state == "generated":
+                    _remove_worktree_barrier_owner_acl(path, record)
+                    _assert_worktree_path_xattrs(path, record)
+                    _assert_no_posix_access_acl(
+                        path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
+                os.chmod(path, original_mode, follow_symlinks=False)
                 _assert_worktree_path_xattrs(path, record)
         if repository_records is not None:
             if set(repository_records) != set(records):
@@ -3504,18 +3965,64 @@ def _reseal_released_worktree_contract(
                     metadata.st_dev,
                     metadata.st_ino,
                 ) == (record["device"], record["inode"])
+                generated_acl_transition = False
                 if same_recorded_inode:
-                    _assert_worktree_path_xattrs(path, record)
-                    released = (
-                        metadata.st_uid == record["uid"]
-                        and metadata.st_gid == record["gid"]
-                        and stat.S_IMODE(metadata.st_mode)
-                        == int(record["mode"], 8)
-                    )
                     expected_kind = record["kind"]
                     source_mode = int(record["mode"], 8)
                     target_uid = record["uid"]
                     target_gid = record["gid"]
+                    base_restricted_mode = source_mode & ~0o222
+                    generated_restricted_mode = _worktree_barrier_mode(
+                        source_mode,
+                        target_uid,
+                        target_gid,
+                        kind=expected_kind,
+                    )
+                    actual_mode = stat.S_IMODE(metadata.st_mode)
+                    try:
+                        acl_state, expected_locked_mode = (
+                            _worktree_locked_acl_state(path, record)
+                        )
+                    except S12ControlError:
+                        if metadata.st_uid != target_uid:
+                            raise
+                        _assert_worktree_path_xattrs(path, record)
+                    else:
+                        if acl_state == "generated":
+                            if actual_mode != expected_locked_mode:
+                                raise OSError
+                            generated_acl_transition = True
+                        else:
+                            _assert_worktree_path_xattrs(path, record)
+                    if generated_acl_transition:
+                        released = (
+                            metadata.st_uid in {0, target_uid}
+                            and metadata.st_gid == target_gid
+                        )
+                    else:
+                        allowed_modes = {
+                            source_mode,
+                            base_restricted_mode,
+                            generated_restricted_mode,
+                        }
+                        released = (
+                            metadata.st_uid == target_uid
+                            and metadata.st_gid == target_gid
+                            and actual_mode in allowed_modes
+                        ) or (
+                            metadata.st_uid == 0
+                            and metadata.st_gid == target_gid
+                            and actual_mode
+                            in {
+                                base_restricted_mode,
+                                generated_restricted_mode,
+                                *(
+                                    {source_mode}
+                                    if not source_mode & 0o022
+                                    else set()
+                                ),
+                            }
+                        )
                 else:
                     released = (
                         include_current
@@ -3540,14 +4047,83 @@ def _reseal_released_worktree_contract(
                 )
                 if not released or actual_kind != expected_kind:
                     raise OSError
+                if generated_acl_transition:
+                    _assert_worktree_barrier_owner_acl(
+                        path,
+                        record,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    if metadata.st_uid != 0:
+                        os.chown(
+                            path, 0, target_gid, follow_symlinks=False
+                        )
+                    os.chmod(
+                        path,
+                        generated_restricted_mode,
+                        follow_symlinks=False,
+                    )
+                    sealed = path.lstat()
+                    if (
+                        sealed.st_uid != 0
+                        or sealed.st_gid != target_gid
+                        or stat.S_IMODE(sealed.st_mode)
+                        != generated_restricted_mode
+                    ):
+                        raise OSError
+                    _assert_worktree_path_xattrs(
+                        path, record, barrier_locked=True
+                    )
+                    continue
                 restricted_mode = _worktree_barrier_mode(
-                    source_mode, target_uid, target_gid
+                    source_mode,
+                    target_uid,
+                    target_gid,
+                    kind=expected_kind,
                 )
-                os.chmod(path, restricted_mode, follow_symlinks=False)
+                source_acl = _assert_source_worktree_acl_access(
+                    path,
+                    source_mode,
+                    target_uid,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                )
+                os.chmod(
+                    path, source_mode & ~0o222, follow_symlinks=False
+                )
+                acl_record = {
+                    "kind": expected_kind,
+                    "uid": target_uid,
+                    "gid": target_gid,
+                    "mode": f"{source_mode:04o}",
+                }
+                if source_acl is None:
+                    _install_worktree_barrier_owner_acl(path, acl_record)
+                    os.chmod(
+                        path, restricted_mode, follow_symlinks=False
+                    )
+                    _assert_worktree_barrier_owner_acl(
+                        path,
+                        acl_record,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    if same_recorded_inode:
+                        _assert_worktree_path_xattrs(
+                            path, record, barrier_locked=True
+                        )
+                else:
+                    restricted_mode = source_mode & ~0o222
                 os.chown(path, 0, target_gid, follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
+                sealed = path.lstat()
+                if (
+                    sealed.st_uid != 0
+                    or sealed.st_gid != target_gid
+                    or stat.S_IMODE(sealed.st_mode) != restricted_mode
+                ):
+                    raise OSError
                 if same_recorded_inode:
-                    _assert_worktree_path_xattrs(path, record)
+                    _assert_worktree_path_xattrs(
+                        path, record, barrier_locked=True
+                    )
             _sync_repository_filesystem(root)
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED") from None
@@ -3661,6 +4237,7 @@ def _stable_xattr_payload(
     metadata: os.stat_result,
     *,
     normalize_posix_acl_mode: bool = False,
+    expected_omitted_xattrs: dict[str, bytes] | None = None,
 ) -> bytes:
     """Read one inode's extended attributes without accepting concurrent drift."""
 
@@ -3673,9 +4250,15 @@ def _stable_xattr_payload(
         os.listxattr(path, follow_symlinks=False), key=os.fsencode
     )
     payload = bytearray()
+    omitted = set()
     for name in names:
         encoded = os.fsencode(name)
         value = os.getxattr(path, name, follow_symlinks=False)
+        if expected_omitted_xattrs is not None and name in expected_omitted_xattrs:
+            if value != expected_omitted_xattrs[name]:
+                raise OSError
+            omitted.add(name)
+            continue
         if normalize_posix_acl_mode and name == "system.posix_acl_access":
             value = _normalize_posix_acl_mode_entries(value)
         payload.extend(len(encoded).to_bytes(8, "big"))
@@ -3684,6 +4267,9 @@ def _stable_xattr_payload(
         payload.extend(value)
     if names != sorted(
         os.listxattr(path, follow_symlinks=False), key=os.fsencode
+    ) or (
+        expected_omitted_xattrs is not None
+        and omitted != set(expected_omitted_xattrs)
     ):
         raise OSError
     after = path.lstat()
@@ -3705,7 +4291,11 @@ def _stable_xattr_payload(
     return bytes(payload)
 
 
-def _release_xattr_fingerprint(paths: Sequence[Path]) -> str:
+def _release_xattr_fingerprint(
+    paths: Sequence[Path],
+    *,
+    expected_omitted_xattrs: dict[Path, dict[str, bytes]] | None = None,
+) -> str:
     """Bind extended attributes for every existing release-guard path."""
 
     digest = hashlib.sha256()
@@ -3737,6 +4327,11 @@ def _release_xattr_fingerprint(paths: Sequence[Path]) -> str:
                     path,
                     metadata,
                     normalize_posix_acl_mode=True,
+                    expected_omitted_xattrs=(
+                        expected_omitted_xattrs.get(path)
+                        if expected_omitted_xattrs is not None
+                        else None
+                    ),
                 )
                 + b"\0"
             )
@@ -5901,6 +6496,7 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             (restricted_mode & 0o050) >> 3,
             restricted_mode & 0o005,
             "S12_1_REPOSITORY_PARENT_RED",
+            allow_mode_group_access=True,
         )
         os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
         os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
@@ -6209,6 +6805,7 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
             (restricted_mode & 0o050) >> 3,
             restricted_mode & 0o005,
             "S12_1_RECOVERY_GIT_BARRIER_RED",
+            allow_mode_group_access=True,
         )
         if original or restricted or legacy_locked:
             os.chown(root, 0, expected_gid)
@@ -6622,8 +7219,14 @@ def _serialized_repository_recovery(
                         selected_roots,
                         tuple(release_paths),
                     )
+                    release_xattr_omissions = (
+                        _worktree_release_xattr_omissions(
+                            selected_worktree_barrier
+                        )
+                    )
                     release_xattr_fingerprint = _release_xattr_fingerprint(
-                        tuple(release_paths)
+                        tuple(release_paths),
+                        expected_omitted_xattrs=release_xattr_omissions,
                     )
                     release_quiescence = _GuardedHandleQuiescence(
                         tuple(release_paths), selected_roots

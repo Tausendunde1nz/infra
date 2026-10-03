@@ -1,0 +1,56 @@
+# S12.1 R7 private-group Worktree barrier diagnosis — 2026-10-03
+
+## Observed release result
+
+The sole immutable R7 invocation authenticated successfully, released the
+pristine legacy repository barrier and passed the read-only predeploy gate. It
+then stopped fail-closed with `S12_1_RECOVERY_WORKTREE_BARRIER_RED` before a
+backup, durable deployment-attempt marker or repository sync. Canonical
+Application and Control remained clean at their predeploy commits.
+
+## Deterministic cause
+
+The exact R7 controller was executed read-only against the canonical paths.
+`_capture_worktree_write_barrier()` stopped at `_worktree_barrier_mode()`.
+Application had no rejected barrier entry. Control had exactly 30 rejected
+tracked regular files: 25 at `0600` and 5 at `0700`. All tracked entries and
+their tracked-path ancestors matched the recorded `chatops:chatops` owner; the
+rejection was exclusively loss of owner read/execute access after the planned
+root ownership handoff.
+
+The original R8 draft attempted to treat the retained primary group as a
+private authorization boundary. Final review correctly rejected that proof:
+NSS enumeration need not be complete, and a setgid executable elsewhere on the
+host could grant the numeric GID after a point-in-time process scan.
+
+## Bounded correction
+
+R8 preserves the no-write barrier and exact rollback contract without using a
+GID as an authorization capability. When existing public permissions do not
+preserve the former owner's read/execute class, it creates one exact temporary
+POSIX access-ACL entry for the recorded numeric UID. The group-object entry
+keeps its original read/execute permissions; the visible group-class bits are
+only the ACL mask. Thus `0600` and `0700` still appear as temporary root-owned
+`0440` and `0550`, but a shared group member or a process launched through an
+unrelated setgid executable receives no new access.
+
+Canonical Application paths already carry a versioned access ACL. The
+controller preserves such an ACL only when the recorded numeric UID has an
+explicit named-user entry whose effective read/execute permissions remain
+sufficient under the existing, write-stripped mask. Group entries are never
+used to prove owner access and the mask is never widened. ACL-free Control
+paths instead receive the byte-exact generated owner ACL after write removal
+but before the root ownership handoff. The ACL and its effective access are
+verified before `chown`; teardown restores the journaled owner before removing
+that generated ACL. The original normalized xattr fingerprint remains
+authoritative;
+only the exact generated temporary ACL may be omitted while its barrier is
+active. Teardown removes only a generated ACL and restores exact journaled
+UID, GID and mode. Same-inode refresh and failure-path reseal enforce the same
+ordering. The finite transition states on either side of both ownership
+changes are resumable; any foreign ACL or xattr drift remains RED.
+
+NSS account enumeration and live GID scans are therefore no longer security
+inputs. Setuid and setgid regular files, write permissions, owner/ACL/xattr
+drift, hardlinks and special files remain fail-closed. No runtime boundary,
+provider policy or hard gate changes.

@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r7` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r8` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -50,6 +50,44 @@ journal-transition owner set only for pristine V1 orphan release: recorded
 owner/group, root with the recorded group, or root/root. Exact repository-root
 metadata, regular-file single-link checks, Git/index identity, xattr checks and
 continuous writer guards remain mandatory.
+
+The immutable r7 freeze is preserved as the first controller to release that
+legacy orphan and reach the fresh Worktree write-barrier capture. Its sole
+deployment invocation stopped before backup, the durable attempt marker and
+repository sync with `S12_1_RECOVERY_WORKTREE_BARRIER_RED`: 30 tracked Control
+files intentionally use owner-only `0600`/`0700`, so a root ownership handoff
+would have removed the recorded owner's read or traversal access. The r8
+controller preserves that access with an exact POSIX ACL entry for the
+recorded numeric UID. On ACL-free paths this is one generated temporary entry;
+an existing canonical ACL is preserved only when it already contains the
+named UID with sufficient effective read/execute access under a mask that is
+not widened. Without that named UID, every group-object, named-group and other
+class that could be selected must independently preserve the former owner's
+rights; group entries are never accepted as a substitute authorization proof.
+For an ACL-free path, both the retained-group and nonmember permission
+classes are treated as possible after handoff; if either lacks a prior owner
+read/traversal right, the exact named-UID ACL is mandatory. This avoids using
+the retained GID as a capability and has no dependency on complete NSS account
+or group enumeration. Every write bit remains removed.
+The normalized source xattr fingerprint remains bound; during the barrier only
+the byte-exact generated owner ACL may be omitted from that fingerprint. A
+generated ACL is installed and verified before the root ownership handoff,
+then retained until the exact owner has been restored during teardown; a bound
+source ACL is retained throughout. The recovery lock and failure-path reseal
+recognize both bounded reverse-transition states—owner restored while the
+generated ACL remains, and owner restored after that ACL is removed but before
+the original mode is restored—and re-establish the root-owned barrier before
+any guard is released. A root-owned generated mode whose owner ACL is already
+absent is rejected as drift because teardown always restores the recorded owner
+before removing that ACL.
+New tracked inodes created by the completed root Git operation are checked for
+file capabilities, durably journaled with their exact source ACL/xattrs and
+then sealed through the same write barrier before release validation.
+The controller also
+rejects setuid and setgid regular files and all unrelated ownership, mode, ACL
+or xattr drift, preserves the original journal mode across same-inode release
+refresh, and restores the exact original mode and ownership during teardown or
+rollback.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
@@ -198,19 +236,37 @@ to `chatops`, while unchanged ownership-sensitive inode metadata is untouched.
 Before rollback changes either repository, the controller compares every
 current ignored path and its ancestors with the authenticated hashed path sets
 from the pre-state backup. Any exact or ancestor/descendant collision fails
-closed while both repository barriers remain installed. The hash-only V7
+closed while both repository barriers remain installed. The hash-only V8
 backup extension neither retains nor emits repository path names or local
 content, and a later ignored writer can never be silently overwritten by the
 forced restore checkout.
 
 Initial deployment still accepts only the recorded ownership posture.
-Before journaling or changing tracked Worktree ownership, the controller also
-resolves the exact Unix permission class the recorded owner will receive after
-the root ownership handoff (group for a member of the retained group,
-otherwise other) and rejects any entry whose owner read or execute/traversal
-access would disappear. This includes owner-only `0600`/`0700` and `0604`
-when the recorded owner belongs to the retained group. No service access can
-therefore be removed by the barrier.
+Before journaling or changing tracked Worktree ownership, the controller
+requires either an ACL-free mode contract or a canonical ACL containing an
+explicit named-user entry for the journaled UID. Existing ACL masks may only be
+tightened; group entries do not prove access. Where an ACL-free owner's read or
+traversal would otherwise disappear, the controller derives one byte-exact
+named-user POSIX ACL from the journaled UID and original read/execute class.
+Owner-only `0600`/`0700`
+therefore appear as temporary root-owned `0440`/`0550` barriers, but the owning
+group's ACL entry remains `---`; only the named former UID receives `r--` or
+`r-x`. A shared, externally enumerated or setgid-acquired GID cannot gain those
+permissions. The exact temporary ACL is excluded only from the already-bound
+xattr fingerprint and every differing ACL remains RED. Same-inode refresh
+compares against the computed temporary barrier mode and exact ACL while
+retaining the journaled original mode. Newly tracked root-owned paths remain
+closed to group/other write and are journaled without inventing a group-based
+authorization path.
+The generated ACL is installed and verified before ownership changes to root.
+The reverse transition changes ownership back first and removes the generated
+ACL only afterward. Exact recorded-owner/generated-ACL and
+recorded-owner/no-ACL intermediate states are accepted solely when their inode,
+mode and normalized xattr contract match the journal, making both transitions
+crash-resumable without an access gap. The release-wide xattr baseline omits
+only those byte-exact, journal-derived generated ACLs; final validation after
+their intentional removal must match that normalized baseline while preserving
+every source ACL and unrelated xattr.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining
