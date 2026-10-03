@@ -73,8 +73,8 @@ stale credentials before and after NSS membership changes. A
 process/thread disappearing or changing kernel start identity mid-scan
 invalidates the complete snapshot; PID/TID start times are bound during
 enumeration and checked before and after credential reads. Four fresh bounded
-attempts are allowed, then the transition is RED. The controller
-also rejects setuid, non-private groups and all
+attempts are allowed, then the transition is RED. The controller also rejects
+setuid and setgid regular files, non-private groups and all
 unrelated ownership, mode, ACL or xattr drift, preserves the original journal
 mode across same-inode release refresh, and restores the exact original mode
 and ownership during teardown or rollback.
@@ -241,12 +241,15 @@ retained group is proven to be the owner's private primary group with no other
 primary or explicit members. Only in that bounded case are the owner's
 read/execute bits copied to the group class; write stays removed. Owner-only
 `0600`/`0700` therefore become temporary root-owned `0440`/`0550` barriers for
-the private owner group, while non-private groups, `0604`, setuid and any
+the private owner group, while non-private groups, `0604`, setuid, setgid
+regular files and any
 unsafe expansion remain RED. No recorded-owner access can disappear and no
 unrelated principal gains access through the barrier. In particular, an
 extended POSIX access ACL makes private-group promotion fail closed rather
 than widening its mask, and same-inode refresh compares against the computed
-temporary barrier mode while retaining the journaled original mode. A stable
+temporary barrier mode while retaining the journaled original mode. Newly
+tracked paths are subjected to the same promotion-ACL and live-credential
+checks during refresh, before any ownership or write-barrier release. A stable
 `/proc/*/task/*/status` credential scan additionally proves that no unrelated
 live filesystem identity retains the promoted GID; unreadable, malformed or
 racing process state is RED. A disappearing or PID-reused task is never skipped

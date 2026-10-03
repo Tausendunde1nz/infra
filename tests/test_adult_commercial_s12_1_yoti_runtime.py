@@ -2600,6 +2600,73 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         chmod.assert_not_called()
         chown.assert_not_called()
 
+    def test_refresh_rejects_new_acl_before_worktree_release(self) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "new.txt"
+        records = {root: {}}
+        metadata = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o600,
+            st_nlink=1,
+            st_uid=0,
+            st_gid=1001,
+            st_dev=10,
+            st_ino=20,
+        )
+        acl_guard = mock.Mock(
+            side_effect=runtime.S12ControlError(
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
+            )
+        )
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_recorded_path_metadata",
+                return_value=(1001, 1001, 0o700),
+            ),
+            mock.patch.object(
+                runtime,
+                "_tracked_worktree_barrier_paths",
+                return_value=(tracked,),
+            ),
+            mock.patch.object(runtime.Path, "lstat", return_value=metadata),
+            mock.patch.object(
+                runtime, "_worktree_barrier_mode", return_value=0o440
+            ),
+            mock.patch.object(
+                runtime, "_assert_private_group_has_no_unrelated_process"
+            ) as live_group_guard,
+            mock.patch.object(
+                runtime,
+                "_assert_post_chown_acl_preserves_access",
+                acl_guard,
+            ),
+            mock.patch.object(
+                runtime, "_worktree_path_xattr_fingerprint"
+            ) as fingerprint,
+            self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            ),
+        ):
+            runtime._refresh_worktree_barrier_for_release(
+                (root,), {root: {}}, records
+            )
+
+        live_group_guard.assert_called_once_with(1001, 1001)
+        acl_guard.assert_called_once_with(
+            tracked,
+            1001,
+            0o4,
+            0o4,
+            0o0,
+            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+            reject_access_acl=True,
+        )
+        fingerprint.assert_not_called()
+        self.assertEqual(records, {root: {}})
+
     def test_refresh_preserves_original_private_group_barrier_mode(
         self,
     ) -> None:
@@ -2743,6 +2810,17 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
         ):
             runtime._worktree_barrier_mode(0o4755, uid, gid)
+        with self.assertRaisesRegex(
+            runtime.S12ControlError,
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+        ):
+            runtime._worktree_barrier_mode(0o2755, uid, gid)
+        self.assertEqual(
+            runtime._worktree_barrier_mode(
+                0o2755, uid, gid, kind="directory"
+            ),
+            0o2555,
+        )
 
         account = SimpleNamespace(pw_name="service", pw_gid=2001)
         with (
@@ -2815,6 +2893,32 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             tracked = repository / "tracked"
             tracked.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
             tracked.chmod(0o4755)
+            subprocess.run(
+                ["git", "add", "tracked"], cwd=repository, check=True
+            )
+            repository_record = runtime._repository_path_metadata(repository)
+
+            with self.assertRaisesRegex(
+                runtime.S12ControlError,
+                "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+            ):
+                runtime._capture_worktree_write_barrier(
+                    (repository,), {repository: repository_record}
+                )
+
+    def test_worktree_barrier_rejects_setgid_file_before_transition(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "application"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            tracked = repository / "tracked"
+            tracked.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+            tracked.chmod(0o2755)
             subprocess.run(
                 ["git", "add", "tracked"], cwd=repository, check=True
             )

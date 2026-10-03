@@ -45,12 +45,13 @@ non-root owner identity that does not hold the promoted GID, preventing access
 loss from stale pre-membership credentials. Unreadable, malformed or racing
 process state fails closed before chmod. A disappearing
 process or thread or PID reuse invalidates the start-time-bound scan and
-triggers at most four fresh scans; it is never silently skipped. The access-ACL
-rejection also runs
-before the first chmod of a failure-path reseal, including newly journaled Git
-paths.
+triggers at most four fresh scans; it is never silently skipped. Setgid regular
+files are rejected together with setuid so no executable can grant the retained
+group after the live scan. The access-ACL rejection also runs during refresh
+before ownership release and before the first chmod of a failure-path reseal,
+including newly journaled Git paths.
 
 Non-private groups, supplementary-only membership, other explicit or primary
-members, setuid, write permissions, owner/ACL/xattr drift, hardlinks and
-special files remain fail-closed. No runtime boundary, provider policy or hard
-gate changes.
+members, setuid, setgid regular files, write permissions, owner/ACL/xattr drift,
+hardlinks and special files remain fail-closed. No runtime boundary, provider
+policy or hard gate changes.

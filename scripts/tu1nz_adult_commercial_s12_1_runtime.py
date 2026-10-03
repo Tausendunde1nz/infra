@@ -2717,10 +2717,16 @@ def _tracked_worktree_barrier_paths(
     )
 
 
-def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
+def _worktree_barrier_mode(
+    mode: int, uid: int, gid: int, *, kind: str = "regular"
+) -> int:
     """Preserve the former owner's effective access class after chown."""
 
-    if mode & stat.S_ISUID:
+    if kind not in {"directory", "regular"}:
+        raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+    if (mode & stat.S_ISUID) or (
+        kind == "regular" and mode & stat.S_ISGID
+    ):
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
     restricted = mode & ~0o222
     if uid == 0:
@@ -3026,7 +3032,7 @@ def _capture_worktree_write_barrier(
                     raise OSError
                 mode = stat.S_IMODE(metadata.st_mode)
                 restricted_mode = _worktree_barrier_mode(
-                    mode, metadata.st_uid, metadata.st_gid
+                    mode, metadata.st_uid, metadata.st_gid, kind=kind
                 )
                 private_group = (metadata.st_uid, metadata.st_gid)
                 if (
@@ -3123,6 +3129,7 @@ def _refresh_worktree_barrier_for_release(
                         original_mode,
                         existing["uid"],
                         existing["gid"],
+                        kind=existing["kind"],
                     )
                     private_group = (existing["uid"], existing["gid"])
                     if (
@@ -3136,7 +3143,36 @@ def _refresh_worktree_barrier_for_release(
                     if mode != expected_locked_mode:
                         raise OSError
                     _assert_worktree_path_xattrs(path, existing)
+                    if expected_locked_mode != (original_mode & ~0o222):
+                        _assert_post_chown_acl_preserves_access(
+                            path,
+                            existing["uid"],
+                            (expected_locked_mode & 0o500) >> 6,
+                            (expected_locked_mode & 0o050) >> 3,
+                            expected_locked_mode & 0o005,
+                            "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+                            reject_access_acl=True,
+                        )
                     continue
+                expected_locked_mode = _worktree_barrier_mode(
+                    mode, expected_uid, expected_gid, kind=kind
+                )
+                private_group = (expected_uid, expected_gid)
+                if expected_locked_mode != (mode & ~0o222):
+                    if private_group not in verified_live_groups:
+                        _assert_private_group_has_no_unrelated_process(
+                            *private_group
+                        )
+                        verified_live_groups.add(private_group)
+                    _assert_post_chown_acl_preserves_access(
+                        path,
+                        expected_uid,
+                        (expected_locked_mode & 0o500) >> 6,
+                        (expected_locked_mode & 0o050) >> 3,
+                        expected_locked_mode & 0o005,
+                        "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+                        reject_access_acl=True,
+                    )
                 root_records[path] = {
                     "kind": kind,
                     "device": metadata.st_dev,
@@ -3286,7 +3322,10 @@ def _lock_worktree_write_barrier(
             for record in root_entries.values():
                 original_mode = int(record["mode"], 8)
                 restricted_mode = _worktree_barrier_mode(
-                    original_mode, record["uid"], record["gid"]
+                    original_mode,
+                    record["uid"],
+                    record["gid"],
+                    kind=record["kind"],
                 )
                 if restricted_mode != (original_mode & ~0o222):
                     promoted_private_groups.add(
@@ -3309,7 +3348,10 @@ def _lock_worktree_write_barrier(
                 _assert_worktree_path_xattrs(path, record)
                 mode = int(record["mode"], 8)
                 restricted_mode = _worktree_barrier_mode(
-                    mode, record["uid"], record["gid"]
+                    mode,
+                    record["uid"],
+                    record["gid"],
+                    kind=record["kind"],
                 )
                 expected_kind = record["kind"]
                 original = (
@@ -3697,7 +3739,10 @@ def _reseal_released_worktree_contract(
                 if not released or actual_kind != expected_kind:
                     raise OSError
                 restricted_mode = _worktree_barrier_mode(
-                    source_mode, target_uid, target_gid
+                    source_mode,
+                    target_uid,
+                    target_gid,
+                    kind=expected_kind,
                 )
                 private_group = (target_uid, target_gid)
                 promotion_rejects_acl = (
