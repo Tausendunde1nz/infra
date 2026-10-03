@@ -54,7 +54,7 @@ class IntegratedChainTests(unittest.TestCase):
             exports={}
             for key,root in [('application',f['app']),('control',f['control'])]:
                 bare=f['base']/(key+'.git')
-                self.real_run(['git','clone','--bare',str(root/r.RECOVERY_GIT_DIRECTORY),str(bare)])
+                self.real_run(['git','clone','--bare','--no-hardlinks',str(root/r.RECOVERY_GIT_DIRECTORY),str(bare)])
                 exports[key]=bare
             app_sha=release['application'];control_sha=release['control']
             app_tree=r._bare_root_git(exports['application'],'rev-parse',app_sha+'^{tree}')
