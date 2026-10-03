@@ -2372,6 +2372,35 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     2000, 2001, proc_root=proc_root
                 )
 
+    def test_private_group_promotion_rejects_stale_owner_credentials(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            proc_root = Path(directory) / "proc"
+            task = proc_root / "321" / "task" / "321"
+            task.mkdir(parents=True)
+            task.joinpath("status").write_text(
+                "Uid:\t2000\t2000\t2000\t2000\n"
+                "Gid:\t3000\t3000\t3000\t3000\n"
+                "Groups:\t3000\n",
+                encoding="ascii",
+            )
+
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_process_state_and_start_time",
+                    return_value=("S", 42),
+                ),
+                self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ),
+            ):
+                runtime._assert_private_group_has_no_unrelated_process(
+                    2000, 2001, proc_root=proc_root
+                )
+
     def test_private_group_scan_retries_disappearing_process_snapshot(
         self,
     ) -> None:

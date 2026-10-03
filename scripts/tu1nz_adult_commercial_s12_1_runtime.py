@@ -2812,6 +2812,8 @@ def _assert_private_group_has_no_unrelated_process(
                 holds_group = (
                     gid in fields["Gid"] or gid in fields["Groups"]
                 )
+                if filesystem_uid == uid and not holds_group:
+                    raise OSError
                 if holds_group and filesystem_uid not in {0, uid}:
                     raise OSError
             if _process_state_and_start_time(process)[1] != process_start:

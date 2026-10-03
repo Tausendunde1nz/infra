@@ -67,7 +67,9 @@ principal. This rejection is repeated before a release-failure reseal's first
 Immediately before capture and every promotion/reseal boundary, the controller
 also scans every live Linux thread credential and rejects a target GID retained
 by any non-root process whose filesystem UID is not the recorded owner. This
-covers stale supplementary credentials after NSS membership was removed. A
+also rejects any non-root owner thread that does not yet hold the promoted GID,
+so the handoff cannot remove its former owner-class access. These checks cover
+stale credentials before and after NSS membership changes. A
 process/thread disappearing or changing kernel start identity mid-scan
 invalidates the complete snapshot; PID/TID start times are bound during
 enumeration and checked before and after credential reads. Four fresh bounded

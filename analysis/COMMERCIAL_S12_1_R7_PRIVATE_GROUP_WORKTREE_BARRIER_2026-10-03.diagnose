@@ -40,8 +40,10 @@ NSS membership alone is insufficient because an already-running process can
 retain a removed group in its supplementary credentials. Before capture and
 each promotion/reseal boundary, R8 therefore reads stable credentials for
 every live Linux thread and rejects the target GID when it is held by a
-non-root filesystem identity other than the recorded owner. Unreadable,
-malformed or racing process state fails closed before chmod. A disappearing
+non-root filesystem identity other than the recorded owner. It also rejects a
+non-root owner identity that does not hold the promoted GID, preventing access
+loss from stale pre-membership credentials. Unreadable, malformed or racing
+process state fails closed before chmod. A disappearing
 process or thread or PID reuse invalidates the start-time-bound scan and
 triggers at most four fresh scans; it is never silently skipped. The access-ACL
 rejection also runs
