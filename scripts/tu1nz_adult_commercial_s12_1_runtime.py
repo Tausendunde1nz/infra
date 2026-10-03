@@ -2784,6 +2784,7 @@ def _assert_post_chown_acl_preserves_access(
     safe_code: str,
     *,
     reject_access_acl: bool = False,
+    allow_mode_group_access: bool = False,
 ) -> None:
     """Reject an ACL that would reduce the former owner's post-chown access."""
 
@@ -2826,10 +2827,11 @@ def _assert_post_chown_acl_preserves_access(
         if reject_access_acl and value is not None:
             raise OSError
         if value is None:
-            # A retained GID is never an authorization capability: NSS may be
-            # incomplete and a setgid executable can grant the numeric group
-            # after a point-in-time check.  Only public access is stable here.
-            effective_access = target_other
+            # Worktree barriers require public or named-UID access. Repository
+            # namespace locks retain their reviewed group contract explicitly.
+            effective_access = (
+                target_mask if allow_mode_group_access else target_other
+            )
             if required_access & ~effective_access:
                 raise OSError
             return
@@ -6494,6 +6496,7 @@ def _lock_repository_parent(record: dict[str, Any]) -> None:
             (restricted_mode & 0o050) >> 3,
             restricted_mode & 0o005,
             "S12_1_REPOSITORY_PARENT_RED",
+            allow_mode_group_access=True,
         )
         os.chown(DEPLOYMENT_LOCK_ROOT, 0, expected_gid)
         os.chmod(DEPLOYMENT_LOCK_ROOT, restricted_mode)
@@ -6802,6 +6805,7 @@ def _lock_repository_root(root: Path, record: dict[str, Any]) -> None:
             (restricted_mode & 0o050) >> 3,
             restricted_mode & 0o005,
             "S12_1_RECOVERY_GIT_BARRIER_RED",
+            allow_mode_group_access=True,
         )
         if original or restricted or legacy_locked:
             os.chown(root, 0, expected_gid)

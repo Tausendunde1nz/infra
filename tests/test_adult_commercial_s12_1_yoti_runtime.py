@@ -5927,6 +5927,67 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         ):
             runtime._metadata_barrier_mode(0o700)
 
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_acl_free_0750_namespace_locks_preserve_group_access(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            deployment_root = Path(directory) / "repositories"
+            deployment_root.mkdir(mode=0o750)
+            repository = deployment_root / "control"
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repository)],
+                check=True,
+                capture_output=True,
+            )
+            os.chown(deployment_root, 1000, 1000)
+            os.chmod(deployment_root, 0o750)
+            os.chown(repository, 1000, 1000)
+            os.chmod(repository, 0o750)
+
+            with mock.patch.object(
+                runtime, "DEPLOYMENT_LOCK_ROOT", deployment_root
+            ):
+                parent_record = runtime._repository_parent_metadata()
+                repository_record = runtime._repository_path_metadata(
+                    repository
+                )
+                repository_record["root_xattr_fingerprint"] = (
+                    runtime._repository_root_xattr_fingerprint(repository)
+                )
+                runtime._lock_repository_parent(parent_record)
+                runtime._lock_repository_root(repository, repository_record)
+
+                for path in (deployment_root, repository):
+                    metadata = path.lstat()
+                    self.assertEqual(
+                        (
+                            metadata.st_uid,
+                            metadata.st_gid,
+                            stat.S_IMODE(metadata.st_mode),
+                        ),
+                        (0, 1000, 0o550),
+                    )
+
+                runtime._restore_repository_path_metadata(
+                    repository, repository_record
+                )
+                runtime._restore_repository_parent(parent_record)
+
+            for path in (deployment_root, repository):
+                metadata = path.lstat()
+                self.assertEqual(
+                    (
+                        metadata.st_uid,
+                        metadata.st_gid,
+                        stat.S_IMODE(metadata.st_mode),
+                    ),
+                    (1000, 1000, 0o750),
+                )
+
     def test_parent_and_repository_root_reject_named_owner_acl_before_chown(
         self,
     ) -> None:
