@@ -3161,7 +3161,7 @@ def _worktree_release_xattr_omissions(
         for root_entries in records.values():
             for path, record in root_entries.items():
                 try:
-                    path.lstat()
+                    metadata = path.lstat()
                 except FileNotFoundError:
                     continue
                 try:
@@ -3169,8 +3169,13 @@ def _worktree_release_xattr_omissions(
                         path, record
                     )
                 except S12ControlError:
-                    # A newly journaled root-owned checkout path can already
-                    # carry its exact source xattrs without a temporary ACL.
+                    if (
+                        metadata.st_uid != record["uid"]
+                        or metadata.st_gid != record["gid"]
+                    ):
+                        raise
+                    # A reverse transition may already have restored the
+                    # recorded owner and removed its temporary ACL.
                     _assert_worktree_path_xattrs(path, record)
                     continue
                 if acl_state != "generated":
@@ -3680,24 +3685,16 @@ def _assert_worktree_write_barrier(
                     metadata.st_ino,
                 ) == (record["device"], record["inode"]):
                     expected_gid = record["gid"]
-                    original_mode = int(record["mode"], 8)
                     try:
                         _state, locked_mode = _worktree_locked_acl_state(
                             path, record
                         )
                     except S12ControlError:
-                        locked_mode = -1
+                        raise S12ControlError(
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                        ) from None
                     if stat.S_IMODE(metadata.st_mode) == locked_mode:
                         expected_mode = locked_mode
-                    elif (
-                        stat.S_IMODE(metadata.st_mode) == original_mode
-                        and not original_mode & 0o022
-                    ):
-                        _assert_worktree_path_xattrs(path, record)
-                        _assert_no_posix_access_acl(
-                            path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
-                        )
-                        expected_mode = original_mode
                     else:
                         raise OSError
                 else:
@@ -3985,6 +3982,8 @@ def _reseal_released_worktree_contract(
                             _worktree_locked_acl_state(path, record)
                         )
                     except S12ControlError:
+                        if metadata.st_uid != target_uid:
+                            raise
                         _assert_worktree_path_xattrs(path, record)
                     else:
                         if acl_state == "generated":
