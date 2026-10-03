@@ -55,6 +55,11 @@ complete post-yield audit. A reverted foreign-root mutation therefore cannot
 disappear between snapshots. Linux negatives exercise unchanged and new inodes
 at the cross-repository handoff and after the final snapshot audit. Poisoning
 retains the latest durable journal phase even when a guard outlives rollback.
+The watches remain alive during Git-barrier exchange and overlap the release
+permission/event guard before draining. PID-attributed mutation watches also
+cover the declared release metadata transitions and retained rollback objects;
+failed handoff re-seals and reinstalls both Git barriers. Native negatives
+include reverted mutations after barrier exchange and during metadata release.
 
 ## Delta and trust boundary
 
@@ -118,8 +123,15 @@ never calls deploy. Legacy recovery is rejected after the claim exists unless
 the new target is explicit. A crash immediately after claim consumption and
 before namespace/backup creation can close as
 `S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT` only after revalidating the parent.
-Unparseable claims, unbound leftovers, concurrent writers and unclear states
-remain fail-closed; they are not deleted or retroactively attributed.
+If interruption leaves an empty protected attempt namespace before any barrier
+or backup, recovery revalidates the unchanged closed parent and public state.
+It writes only the fixed consumed-slot parent receipt
+`state/r13-followup-1.closed-without-deployment.json`. The empty namespace is
+retained without an origin assertion, not adopted or written into. Closure is
+idempotent even across process loss before/after its atomic write; the slot
+stays consumed. Nonempty/unsafe leftovers or any backup exclude this early
+closure. Unparseable claims, concurrent writers and unclear states remain
+fail-closed; no leftover is deleted or retroactively attributed.
 
 ## Integrated offline acceptance
 

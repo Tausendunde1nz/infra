@@ -45,7 +45,7 @@ FOLLOWUP_PARENT = {
 }
 ACTIVE_ATTEMPT: dict[str, Any] | None = None
 MATERIALIZATION_RECORDS: dict | None = None
-MATERIALIZATION_GUARDS: ExitStack | None = None
+MATERIALIZATION_GUARDS: _R13GuardStack | None = None
 MATERIALIZATION_RED = "S12_1_MATERIALIZATION_CONTRACT_RED"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
@@ -7209,6 +7209,27 @@ def _serialized_repository_recovery(
     preserve_on_error: bool = False,
     allow_journaled_transition: bool = False,
 ):
+    # This owner outlives both the yielded body and its release cleanup. Only
+    # an already-installed release guard may take over its event history.
+    with _R13GuardStack() as guards:
+        with _serialized_repository_recovery_guarded(
+            roots, records, parent_record, worktree_barrier, preserve_on_error,
+            allow_journaled_transition, materialization_guards=guards,
+        ) as barriers:
+            yield barriers
+
+
+@contextmanager
+def _serialized_repository_recovery_guarded(
+    roots: Sequence[Path] | None = None,
+    records: dict[Path, dict[str, Any]] | None = None,
+    parent_record: dict[str, Any] | None = None,
+    worktree_barrier: dict[Path, dict[Path, dict[str, Any]]] | None = None,
+    preserve_on_error: bool = False,
+    allow_journaled_transition: bool = False,
+    *,
+    materialization_guards: _R13GuardStack,
+):
     selected_roots = tuple(roots or (APPLICATION_ROOT, CONTROL_ROOT))
     metadata_paths = _repository_git_metadata_paths(selected_roots)
     transition_guard = _GitMetadataTransitionGuard(
@@ -7326,7 +7347,7 @@ def _serialized_repository_recovery(
         # Retain both allocation and successor watches across repositories,
         # immutable staging and the complete post-yield audit. Snapshot equality
         # alone must not erase an intervening foreign writer's event history.
-        with ExitStack() as materialization_guards:
+        try:
             MATERIALIZATION_RECORDS = selected_worktree_barrier
             MATERIALIZATION_GUARDS = materialization_guards
             try:
@@ -7346,6 +7367,7 @@ def _serialized_repository_recovery(
                 )
                 if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
                     raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                materialization_guards.assert_quiet()
                 for root, git_directory in barriers.items():
                     _selected_identity(root, git_directory)
                 if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
@@ -7353,6 +7375,9 @@ def _serialized_repository_recovery(
             finally:
                 MATERIALIZATION_RECORDS = previous_materialization
                 MATERIALIZATION_GUARDS = previous_guards
+        except BaseException:
+            # Leave the watches installed through fail-closed cleanup too.
+            raise
         completed = True
     finally:
         transition_guard.close()
@@ -7381,7 +7406,10 @@ def _serialized_repository_recovery(
             if not cleanup_failed:
                 release_guard: _WorktreeReleaseGuard | None = None
                 release_quiescence: _GuardedHandleQuiescence | None = None
+                release_attributes = None
                 try:
+                    if ACTIVE_ATTEMPT is not None and completed:
+                        _r13_boundary("RELEASE_BARRIERS_EXCHANGED")
                     if completed:
                         _refresh_worktree_barrier_for_release(
                             selected_roots,
@@ -7409,6 +7437,10 @@ def _serialized_repository_recovery(
                     }
                     release_paths.update(selected_roots)
                     release_paths.update(
+                        p for p in materialization_guards.paths
+                        if p.exists() and not p.is_symlink()
+                    )
+                    release_paths.update(
                         _repository_git_metadata_directories(selected_roots)
                     )
                     git_release_fingerprint = ""
@@ -7426,6 +7458,10 @@ def _serialized_repository_recovery(
                         selected_roots,
                         tuple(release_paths),
                     )
+                    if ACTIVE_ATTEMPT is not None:
+                        release_attributes = _R12AttributeGuard(tuple(
+                            p for p in release_paths if p.exists() and not p.is_symlink()
+                        ), event_mask=0xFCE)
                     release_xattr_omissions = (
                         _worktree_release_xattr_omissions(
                             selected_worktree_barrier
@@ -7439,6 +7475,9 @@ def _serialized_repository_recovery(
                         tuple(release_paths), selected_roots
                     )
                     release_quiescence.acquire()
+                    # Both watch sets overlap here. Drain/check the retained
+                    # attributed history before any release metadata changes.
+                    materialization_guards.close()
                     _restore_worktree_write_barrier(
                         selected_worktree_barrier,
                         selected_records if completed else None,
@@ -7475,10 +7514,14 @@ def _serialized_repository_recovery(
                         _restore_repository_git_metadata(
                             root, selected_records[root]
                         )
+                    if ACTIVE_ATTEMPT is not None:
+                        _r13_boundary("RELEASE_ATTRIBUTES_RESTORED")
                     release_guard.accept_release_attributes()
 
                     def validate_final_release() -> None:
                         release_quiescence.assert_quiesced()
+                        if release_attributes is not None:
+                            release_attributes.assert_quiet()
                         if not completed:
                             return
                         _validate_released_worktree_contract(
@@ -7533,12 +7576,18 @@ def _serialized_repository_recovery(
                         validate_release_shutdown,
                     )
                     release_guard = None
+                    if release_attributes is not None:
+                        release_attributes.assert_quiet()
                     if parent_locked:
                         _restore_repository_parent(parent_record)
                         parent_locked = False
                 except S12ControlError:
                     cleanup_failed = True
                     try:
+                        if ACTIVE_ATTEMPT is not None:
+                            for root in selected_roots:
+                                if _barrier_path_present(_r13_location(root)):
+                                    _r13_poison(_r13_location(root))
                         if parent_locked:
                             _lock_repository_parent(parent_record)
                         for root in selected_roots:
@@ -7553,9 +7602,16 @@ def _serialized_repository_recovery(
                             _lock_repository_git_metadata(
                                 root, selected_records[root]
                             )
+                        if ACTIVE_ATTEMPT is not None:
+                            for root in selected_roots:
+                                _install_repository_recovery_barrier(
+                                    root, selected_records[root]
+                                )
                     except S12ControlError:
                         pass
                 finally:
+                    if release_attributes is not None:
+                        release_attributes.close()
                     if release_guard is not None:
                         release_guard.close()
                     if release_quiescence is not None:
@@ -9047,6 +9103,8 @@ def _deploy_locked() -> dict[str, Any]:
     if FETCH_ROOT.exists() or FETCH_ROOT.is_symlink():
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
     _ensure_private_directory_durable(STATE_ROOT, Path("/"))
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("FOLLOWUP_NAMESPACE_CREATED")
     path_records = {
         APPLICATION_ROOT: _repository_path_metadata(APPLICATION_ROOT),
         CONTROL_ROOT: _repository_path_metadata(CONTROL_ROOT),
@@ -10062,13 +10120,29 @@ def _r13_audit_materialized(roots: Sequence[Path]) -> None:
     _r13_boundary("MATERIALIZATION_AUDITED")
 
 
+class _R13GuardStack(ExitStack):
+    def __init__(self):
+        super().__init__()
+        self.checks: list[Callable] = []
+        self.paths: set[Path] = set()
+
+    def retain(self, context):
+        check = self.enter_context(context)
+        self.checks.append(check)
+        return check
+
+    def assert_quiet(self):
+        for check in self.checks:
+            check()
+
+
 @contextmanager
 def _r13_guards(root: Path, tx: Path, value: dict):
     if MATERIALIZATION_GUARDS is None:
         with _r13_guard_context(root, tx, value) as check:
             yield check
         return
-    check = MATERIALIZATION_GUARDS.enter_context(_r13_guard_context(root, tx, value))
+    check = MATERIALIZATION_GUARDS.retain(_r13_guard_context(root, tx, value))
     try:
         yield check
         check()
@@ -10097,6 +10171,8 @@ def _r13_guard_context(root: Path, tx: Path, value: dict):
     # another root thread. The permission group fences opens; ptrace quiesces
     # already-held descriptors. Neither payload equality nor uid proves origin.
     before = _r12_scope_snapshot(paths, {})
+    if MATERIALIZATION_GUARDS is not None:
+        MATERIALIZATION_GUARDS.paths.update(paths)
     existing = tuple(p for p in paths if p.exists() and not p.is_symlink())
     open_guard = attrs = quiet = None
     try:
@@ -10525,22 +10601,38 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
                      parent_classification="INTERRUPTED_DEPLOYMENT_RECOVERED_R12_NONHISTORICAL_BINDINGS",
                      release=authorization["release"],parent_proof=authorization["parent_proof"])
         claim=STATE_ROOT/(FOLLOWUP_SLOT+".consumed.json")
+        closure=STATE_ROOT/(FOLLOWUP_SLOT+".closed-without-deployment.json")
         receipt=dict(schema="TU1NZ_S12_1_FOLLOWUP_CONSUMED_V1",attempt_binding=binding)
         if recovering:
             _validate_secure_directory_chain(STATE_ROOT,Path("/"))
             if _private_json(claim,FOLLOWUP_RED) != receipt:
                 raise S12ControlError(FOLLOWUP_RED)
-            no_namespace=not _barrier_path_present(STATE_ROOT/"attempts"/FOLLOWUP_SLOT)
+            namespace=STATE_ROOT/"attempts"/FOLLOWUP_SLOT
+            no_namespace=not _barrier_path_present(namespace)
             no_backup=not _barrier_path_present(BACKUP_ROOT/FOLLOWUP_SLOT)
-            if no_namespace and no_backup:
+            empty_namespace=False
+            if not no_namespace:
+                _validate_secure_directory_chain(namespace,Path("/"))
+                metadata=namespace.lstat()
+                empty_namespace=(metadata.st_gid==0 and stat.S_IMODE(metadata.st_mode)==0o700
+                                 and not os.listxattr(namespace) and not any(namespace.iterdir()))
+            if no_backup and (no_namespace or empty_namespace):
                 _followup_parent_closed(authorization["parent_proof"])
                 read_only_preflight()
-                with _followup_namespace(binding):
-                    _ensure_private_directory_durable(STATE_ROOT,Path("/"))
-                    result=dict(ok=True,safe_code="S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT",
-                                deployment_count=0,rollback_count=0,attempt_binding=binding)
-                    _atomic_json(STATE_ROOT/"recovery-result.json",result)
+                # Do not adopt or write into the possibly unbound mkdir result.
+                # The fixed consumed-slot parent owns this idempotent closure;
+                # an empty namespace is retained without an origin assertion.
+                result=dict(ok=True,safe_code="S12_1_FOLLOWUP_CONSUMED_WITHOUT_DEPLOYMENT",
+                            deployment_count=0,rollback_count=0,attempt_binding=binding,
+                            namespace_provenance="NOT_ASSERTED_RETAINED_IF_PRESENT")
+                if _barrier_path_present(closure):
+                    if _private_json(closure,FOLLOWUP_RED)!=result:
+                        raise S12ControlError(FOLLOWUP_RED)
                     return result
+                _r13_boundary("FOLLOWUP_EARLY_CLOSURE_BEFORE_WRITE")
+                _atomic_json(closure,result)
+                _r13_boundary("FOLLOWUP_EARLY_CLOSURE_WRITTEN")
+                return result
             with _followup_namespace(binding):
                 # Recovery never invokes deploy, admission, or activation.
                 _r13_recover_pending()
@@ -10551,7 +10643,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
         if _barrier_path_present(claim):
             raise S12ControlError("S12_1_FOLLOWUP_ALREADY_CONSUMED_RED")
         if any(_barrier_path_present(p) for p in (
-            STATE_ROOT/"attempts"/FOLLOWUP_SLOT,BACKUP_ROOT/FOLLOWUP_SLOT)):
+            STATE_ROOT/"attempts"/FOLLOWUP_SLOT,BACKUP_ROOT/FOLLOWUP_SLOT,closure)):
             raise S12ControlError(FOLLOWUP_RED)
         _followup_parent_closed(authorization["parent_proof"])
         read_only_preflight()

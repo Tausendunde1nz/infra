@@ -140,6 +140,38 @@ class AdmissionTests(unittest.TestCase):
                 deploy.assert_not_called()
             self.assertEqual(list(state.iterdir()),[])
 
+    def test_empty_namespace_closure_survives_process_loss_without_adoption(self):
+        digest=self.write()
+        with mock.patch.object(r,'_followup_parent_closed'),mock.patch.object(r,'read_only_preflight'), \
+                mock.patch.object(r,'_deploy_locked',side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):r.followup(self.path,digest)
+            namespace=self.state/'attempts'/r.FOLLOWUP_SLOT
+            namespace.mkdir(parents=True,mode=0o700)
+            original=namespace.stat()
+            claim=self.state/(r.FOLLOWUP_SLOT+'.consumed.json');claim_bytes=claim.read_bytes()
+            for boundary in ('FOLLOWUP_EARLY_CLOSURE_BEFORE_WRITE','FOLLOWUP_EARLY_CLOSURE_WRITTEN'):
+                pid=os.fork()
+                if pid==0:
+                    def die(name):
+                        if name==boundary:os._exit(73)
+                    with mock.patch.object(r,'_r13_boundary',side_effect=die):
+                        r.followup(self.path,digest,recovering=True)
+                    os._exit(74)
+                _,status=os.waitpid(pid,0)
+                self.assertEqual(os.waitstatus_to_exitcode(status),73)
+            first=r.followup(self.path,digest,recovering=True)
+            self.assertEqual(first,r.followup(self.path,digest,recovering=True))
+            self.assertEqual(first['deployment_count'],0)
+            self.assertEqual(list(namespace.iterdir()),[])
+            for field in ('st_dev','st_ino','st_uid','st_gid','st_mode','st_mtime_ns','st_ctime_ns'):
+                self.assertEqual(getattr(namespace.stat(),field),getattr(original,field))
+            self.assertEqual(claim.read_bytes(),claim_bytes)
+            with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                r.followup(self.path,digest)
+            (namespace/'unknown').touch()
+            with self.assertRaises(r.S12ControlError):
+                r.followup(self.path,digest,recovering=True)
+
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,
                      'native Linux root + kernel guards required')
@@ -275,7 +307,20 @@ class IntegratedChainTests(unittest.TestCase):
                         r.followup(authorization,grant_hash)
                     return
                 result=r.followup(authorization,grant_hash,recovering=True)
-                self.assertTrue(result['ok']);self.assertEqual(result['rollback_count'],1)
+                self.assertTrue(result['ok'])
+                if crash_at=='FOLLOWUP_NAMESPACE_CREATED':
+                    self.assertEqual(result['rollback_count'],0)
+                    self.assertEqual(result['deployment_count'],0)
+                    self.assertEqual(list((f['state']/'attempts'/r.FOLLOWUP_SLOT).iterdir()),[])
+                    self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                    self.assertEqual(self.starts,0)
+                    for key,root in [('application',f['app']),('control',f['control'])]:
+                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
+                    self.assertEqual(r.followup(authorization,grant_hash,recovering=True),result)
+                    with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                        r.followup(authorization,grant_hash)
+                    return
+                self.assertEqual(result['rollback_count'],1)
                 self.assertFalse(r.RELEASE_ROOT.exists())
                 if crash_at in {'OBJECT_ALLOCATED','OBJECT_METADATA_SET'}:
                     # The unbound private allocation is preserved, never
@@ -295,6 +340,8 @@ class IntegratedChainTests(unittest.TestCase):
                 with mock.patch.object(r,'_r13_boundary',side_effect=interfere):
                     with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash)
                 self.assertTrue(fired)
+                for root in (f['app'],f['control']):
+                    self.assertTrue(r._is_recovery_guard(root/'.git'))
                 with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash,recovering=True)
                 self.assertEqual(self.starts,0)
                 self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
@@ -331,7 +378,7 @@ class IntegratedChainTests(unittest.TestCase):
                 self.assertIn('system.posix_acl_default',os.listxattr(f['app']))
 
     def test_process_loss_at_each_materialization_boundary(self):
-        for boundary in ('OBJECT_ALLOCATED','OBJECT_METADATA_SET','OBJECT_BOUND','RETIRE_INTENT','RETIRED','PUBLISH_INTENT',
+        for boundary in ('FOLLOWUP_NAMESPACE_CREATED','OBJECT_ALLOCATED','OBJECT_METADATA_SET','OBJECT_BOUND','RETIRE_INTENT','RETIRED','PUBLISH_INTENT',
                          'PUBLISHED','RECORDS_PUBLISHED','INDEX_UPDATED','REF_UPDATED'):
             with self.subTest(boundary=boundary):
                 self.full_chain(crash_at=boundary)
@@ -366,7 +413,9 @@ class IntegratedChainTests(unittest.TestCase):
         # event history after the local materialization contexts have returned.
         for boundary,name in (('REPOSITORIES_MATERIALIZED','.gitignore'),
                               ('REPOSITORIES_MATERIALIZED','created/new'),
-                              ('MATERIALIZATION_AUDITED','created/new')):
+                              ('MATERIALIZATION_AUDITED','created/new'),
+                              ('RELEASE_BARRIERS_EXCHANGED','created/new'),
+                              ('RELEASE_ATTRIBUTES_RESTORED','created/new')):
             with self.subTest(boundary=boundary,path=name):
                 def attack(f):
                     path=f['app']/name
