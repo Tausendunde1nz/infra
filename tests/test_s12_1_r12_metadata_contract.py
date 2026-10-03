@@ -345,5 +345,65 @@ class LinuxTests(unittest.TestCase):
                 r.reconcile_metadata(f['contract'])
             self.assertFalse((f['state']/'repository-barrier.r12-bindings.json').exists())
 
+    def test_late_failure_restores_loadable_original_journal(self):
+        for check in ('finalize','attributes'):
+            with self.subTest(check=check),fixture() as f:
+                original=f['original']
+                if check=='finalize':
+                    patch=mock.patch.object(r._WorktreeReleaseGuard,'finalize_release',
+                        side_effect=r.S12ControlError('injected late guard failure'))
+                else:
+                    quiet=r._R12AttributeGuard.assert_quiet
+                    def late(self):
+                        quiet(self)
+                        if json.loads(r.BARRIER_MARKER.read_bytes())['schema']==r.R12_BARRIER_SCHEMA:
+                            raise r.S12ControlError('injected late guard failure')
+                    patch=mock.patch.object(r._R12AttributeGuard,'assert_quiet',late)
+                with patch:
+                    with self.assertRaisesRegex(r.S12ControlError,'injected late'):
+                        r.reconcile_metadata(f['contract'])
+                self.assertEqual(r._load_barrier_journal()[3],r.BARRIER_SCHEMA)
+                self.assertEqual(json.loads(r.BARRIER_MARKER.read_bytes()),original)
+                self.assertEqual(r.BARRIER_MARKER.read_bytes(),(f['state']/'repository-barrier.r12-original.json').read_bytes())
+                self.assertEqual(json.loads((f['state']/'repository-barrier.r12-bindings.json').read_bytes())['phase'],'ABORTED')
+                with self.assertRaisesRegex(r.S12ControlError,'ABORTED_NO_RETRY'):
+                    r.reconcile_metadata(f['contract'])
+                for root in (f['app'],f['control']):
+                    self.assertEqual(stat.S_IMODE((root/'.git').stat().st_mode),0)
+
+    def test_interrupted_abort_only_completes_journal_finalization(self):
+        class Interrupted(BaseException):pass
+        for boundary in ('before-v3-restore','before-aborted-ledger'):
+            with self.subTest(boundary=boundary),fixture() as f,ExitStack() as stack:
+                stack.enter_context(mock.patch.object(r._WorktreeReleaseGuard,'finalize_release',
+                    side_effect=r.S12ControlError('injected late guard failure')))
+                if boundary=='before-v3-restore':
+                    original=r._atomic_copy
+                    def stop(source,destination,*args):
+                        if destination==r.BARRIER_MARKER:raise Interrupted
+                        return original(source,destination,*args)
+                    stack.enter_context(mock.patch.object(r,'_atomic_copy',side_effect=stop))
+                else:
+                    original=r._atomic_barrier_json
+                    def stop(path,payload):
+                        if path.name.endswith('r12-bindings.json') and payload['phase']=='ABORTED':raise Interrupted
+                        return original(path,payload)
+                    stack.enter_context(mock.patch.object(r,'_atomic_barrier_json',side_effect=stop))
+                with self.assertRaises(Interrupted):r.reconcile_metadata(f['contract'])
+                stack.close()
+                self.assertTrue((f['state']/'repository-barrier.r12-abort.json').is_file())
+                if boundary=='before-v3-restore':
+                    journal=json.loads(r.BARRIER_MARKER.read_bytes())
+                    ledger=f['state']/'repository-barrier.r12-bindings.json'
+                    self.assertEqual(journal['r12_metadata_reconciliation']['ledger_sha256'],hashlib.sha256(ledger.read_bytes()).hexdigest())
+                    with self.assertRaisesRegex(r.S12ControlError,'ABORT_FINALIZATION_REQUIRED'):
+                        r._load_barrier_journal()
+                with mock.patch.object(r,'_r12_plan',side_effect=AssertionError('must not retry assignment')):
+                    with self.assertRaisesRegex(r.S12ControlError,'ABORTED_NO_RETRY'):
+                        r.reconcile_metadata(f['contract'])
+                self.assertEqual(r._load_barrier_journal()[3],r.BARRIER_SCHEMA)
+                self.assertEqual(r.BARRIER_MARKER.read_bytes(),(f['state']/'repository-barrier.r12-original.json').read_bytes())
+                self.assertEqual(json.loads((f['state']/'repository-barrier.r12-bindings.json').read_bytes())['phase'],'ABORTED')
+
 
 if __name__=='__main__':unittest.main()

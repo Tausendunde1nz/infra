@@ -9392,7 +9392,9 @@ def _r12_load_contract(path: Path) -> dict:
     return value
 
 
-def _r12_validate_lineage(journal: dict) -> None:
+def _r12_validate_lineage(journal: dict, *, completing_abort: bool = False) -> None:
+    if not completing_abort and _barrier_path_present(STATE_ROOT / "repository-barrier.r12-abort.json"):
+        raise S12ControlError("S12_1_R12_ABORT_FINALIZATION_REQUIRED")
     lineage = journal.get("r12_metadata_reconciliation")
     if not isinstance(lineage, dict) or set(lineage) != {
         "contract_sha256", "original_journal_sha256", "ledger_sha256"
@@ -9408,6 +9410,44 @@ def _r12_validate_lineage(journal: dict) -> None:
             or ledger.get("original_journal_sha256") != lineage["original_journal_sha256"]
             or ledger.get("historical_continuity") is not False):
         raise S12ControlError(R12_RED)
+
+
+def _r12_abort(contract: dict) -> None:
+    """Durably terminate, not retry, a detected violation.
+
+    Keep the published V4/SEALED pair hash-consistent until V3 is restored.
+    The receipt blocks V4 consumption and any reconciliation retry across
+    interruption of this sequence. Only journal finalization may resume.
+    """
+    receipt_path = STATE_ROOT / "repository-barrier.r12-abort.json"
+    original_sha = contract["protected_inputs"]["repository-barrier.json"]
+    receipt = dict(schema="TU1NZ_S12_1_R12_ABORT_V1", contract_sha256=R12_CONTRACT_SHA256,
+                   original_journal_sha256=original_sha, historical_continuity=False)
+    original_path = STATE_ROOT / "repository-barrier.r12-original.json"
+    _read_private_backup_blob(original_path, original_sha, R12_RED)
+    if _barrier_path_present(receipt_path):
+        if _barrier_json(receipt_path) != receipt:
+            raise S12ControlError(R12_RED)
+    else:
+        _atomic_barrier_json(receipt_path, receipt)
+    if _sha256(BARRIER_MARKER) != original_sha:
+        journal = _barrier_json(BARRIER_MARKER)
+        if journal.get("schema") != R12_BARRIER_SCHEMA:
+            raise S12ControlError(R12_RED)
+        _r12_validate_lineage(journal, completing_abort=True)
+        if journal["r12_metadata_reconciliation"]["original_journal_sha256"] != original_sha:
+            raise S12ControlError(R12_RED)
+        _atomic_copy(original_path, BARRIER_MARKER, 0o600, 0, 0)
+        _read_private_backup_blob(BARRIER_MARKER, original_sha, R12_RED)
+    ledger_path = STATE_ROOT / "repository-barrier.r12-bindings.json"
+    ledger = _barrier_json(ledger_path)
+    if (ledger.get("schema") != "TU1NZ_S12_1_R12_BINDINGS_V1"
+            or ledger.get("contract_sha256") != R12_CONTRACT_SHA256
+            or ledger.get("original_journal_sha256") != original_sha
+            or ledger.get("phase") not in {"PREPARED", "SEALED", "ABORTED"}):
+        raise S12ControlError(R12_RED)
+    ledger["phase"] = "ABORTED"
+    _atomic_barrier_json(ledger_path, ledger)
 
 
 def _r12_index_guard_paths(roots: Sequence[Path]) -> set[Path]:
@@ -9470,6 +9510,9 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
     for name, path in (("deployment-attempted.json", ATTEMPT_MARKER),
                        ("restore-index.json", backup / "restore-index.json")):
         _read_private_backup_blob(path, contract["protected_inputs"][name], R12_RED)
+    if _barrier_path_present(STATE_ROOT / "repository-barrier.r12-abort.json"):
+        _r12_abort(contract)
+        raise S12ControlError("S12_1_R12_ABORTED_NO_RETRY")
     journal = _barrier_json(BARRIER_MARKER)
     if journal["schema"] == R12_BARRIER_SCHEMA:
         _r12_validate_lineage(journal)
@@ -9657,10 +9700,9 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
                     historical_continuity=False, recovery_started=False, git_guards_released=False)
     except Exception:
         # A detected violation is not an interruption-resume candidate. Poison
-        # the separate ledger; neither silently rebaseline nor retry it.
+        # it only AFTER restoring V3, so V4 never references a rewritten ledger.
         if ledger_path.exists() and "ledger" in locals():
-            ledger["phase"] = "ABORTED"
-            _atomic_barrier_json(ledger_path, ledger)
+            _r12_abort(contract)
         raise
     finally:
         for fd in descriptors:

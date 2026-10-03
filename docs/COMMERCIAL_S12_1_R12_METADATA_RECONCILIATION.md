@@ -74,7 +74,13 @@ owners/modes, unsupported birth time and drift are rejected, never normalized aw
 6. Persist the `SEALED` ledger, then atomically publish a V4 barrier journal binding
    its hash, the original-journal hash and the immutable contract hash. Original
    journal and bindings remain retained. V4 load/refresh preserves this lineage.
-   A detected failure marks the ledger `ABORTED`; no automatic second attempt.
+   A detected failure first durably records an abort receipt. If V4 was already
+   published, the original V3 journal is restored byte-for-byte **before** the
+   ledger becomes `ABORTED`. Thus no published V4 references a rewritten ledger.
+   The receipt blocks V4 consumption during interrupted finalization. A later
+   invocation may only finish restoring V3 and aborting the ledger, then returns
+   `S12_1_R12_ABORTED_NO_RETRY`; it cannot retry metadata assignment. No automatic
+   second attempt or guard release is allowed.
    A repeated call after V4 commit stops with
    `S12_1_R12_ALREADY_SEALED_RECOVERY_PREFLIGHT_REQUIRED`, not cached GREEN.
 
