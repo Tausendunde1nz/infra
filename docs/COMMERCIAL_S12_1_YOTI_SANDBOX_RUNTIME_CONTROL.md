@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r10` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r11` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -121,6 +121,23 @@ seal after every root Git body before accepting identity or the post-body
 barrier. Unjournaled group/other-writable
 replacements, ACL/xattr drift, executable-class changes and ownership drift
 remain fail-closed.
+
+The immutable r10 freeze is preserved. Its recovery did not release the guards;
+the read-only 2026-10-03 08:20:54 UTC evidence still has attempt=1, no rollback
+progress/completion, and only an older orphan-recovery result predating that
+attempt. A local deterministic reproduction proves a further cross-release
+contract defect: r10 rebuilds the r9 attempt's `managed_refs` using its own r10
+freeze name, producing `S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED` even if all
+repository identity, refs and reflogs are unchanged. This is a reproduced
+blocker, not a claim that the unpersisted r10 terminal exception was recovered.
+The r11 reader selects the one strictly validated S12 runtime-freeze reference
+from the authenticated durable snapshot. It still compares its exact target,
+every ref, commit/tree, branch, canonical index, path metadata and reflog digest;
+it does not rewrite the snapshot or disregard any drift. Application managed
+refs must remain empty. New state capture still binds the current controller.
+This correction alone neither authorizes a second deployment nor releases a
+server guard. The shared Control checkout remains NO-GO until canonical
+recovery and the complete post-recovery acceptance succeed.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It

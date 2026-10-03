@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r10"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r11"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -1435,7 +1435,20 @@ def _repository_backup_state(
 def _release_repository_states(
     git_directories: dict[Path, Path],
     path_records: dict[Path, dict[str, Any]],
+    *,
+    control_freeze_ref: str | None = None,
 ) -> dict[str, dict[str, Any]]:
+    selected_freeze_ref = (
+        f"refs/tags/{FREEZE_TAG}"
+        if control_freeze_ref is None
+        else control_freeze_ref
+    )
+    if not isinstance(selected_freeze_ref, str) or re.fullmatch(
+        r"refs/tags/s12-yoti-sandbox-runtime-freeze-r[1-9][0-9]{0,8}",
+        selected_freeze_ref,
+    ) is None:
+        raise S12ControlError("S12_1_RELEASE_REPOSITORY_STATE_RED")
+
     def state(
         root: Path,
         release_branch: str,
@@ -1483,7 +1496,7 @@ def _release_repository_states(
         "control": state(
             CONTROL_ROOT,
             "control-main",
-            (f"refs/tags/{FREEZE_TAG}",),
+            (selected_freeze_ref,),
         ),
     }
     if len(
@@ -1502,8 +1515,38 @@ def _validate_release_repository_states(
         isinstance(expected.get(key), dict) for key in expected
     ):
         raise S12ControlError("S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED")
+    # A later reviewed recovery controller must validate the exact reference
+    # selected by the durable snapshot's controller, not its own newer tag.
+    # All refs, ref targets, identity, index and reflogs remain compared.
+    managed_refs = expected["control"].get("managed_refs")
+    if (
+        expected["application"].get("managed_refs") != {}
+        or not isinstance(managed_refs, dict)
+        or len(managed_refs) != 1
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED")
+    control_freeze_ref, target = next(iter(managed_refs.items()))
+    if (
+        not isinstance(control_freeze_ref, str)
+        or re.fullmatch(
+            r"refs/tags/s12-yoti-sandbox-runtime-freeze-r[1-9][0-9]{0,8}",
+            control_freeze_ref,
+        ) is None
+        or (
+            target is not None
+            and (
+                not isinstance(target, str)
+                or re.fullmatch(r"[0-9a-f]{40}", target) is None
+            )
+        )
+    ):
+        raise S12ControlError("S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED")
     try:
-        current = _release_repository_states(git_directories, path_records)
+        current = _release_repository_states(
+            git_directories,
+            path_records,
+            control_freeze_ref=control_freeze_ref,
+        )
     except S12ControlError:
         raise S12ControlError(
             "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED"
