@@ -2367,8 +2367,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             events,
             [
                 ("chmod", 0o400),
-                ("chown", 0, 1001),
                 ("acl", 0o400),
+                ("chmod", 0o440),
+                ("chown", 0, 1001),
                 ("chmod", 0o440),
             ],
         )
@@ -2493,6 +2494,137 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 original_acl,
             )
 
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_generated_owner_acl_brackets_both_chown_transitions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "control"
+            root.mkdir()
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            os.chown(root, 1000, 1000)
+            os.chown(tracked, 1000, 1000)
+            tracked.chmod(0o600)
+            metadata = tracked.lstat()
+            record = {
+                "kind": "regular",
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+                "uid": 1000,
+                "gid": 1000,
+                "mode": "0600",
+                "xattr_fingerprint": (
+                    runtime._worktree_path_xattr_fingerprint(tracked)
+                ),
+            }
+            records = {root: {tracked: record}}
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+            self.assertEqual(
+                runtime._worktree_locked_acl_state(tracked, record),
+                ("generated", 0o440),
+            )
+
+            events = []
+            chown = os.chown
+            removexattr = os.removexattr
+
+            def ordered_chown(path, uid, gid, **kwargs):
+                events.append("chown")
+                chown(path, uid, gid, **kwargs)
+
+            def ordered_remove(path, name, **kwargs):
+                events.append("remove_acl")
+                removexattr(path, name, **kwargs)
+
+            with (
+                mock.patch.object(
+                    runtime.os, "chown", side_effect=ordered_chown
+                ),
+                mock.patch.object(
+                    runtime.os, "removexattr", side_effect=ordered_remove
+                ),
+            ):
+                runtime._restore_worktree_write_barrier(records)
+
+            self.assertEqual(events[:2], ["chown", "remove_acl"])
+            restored = tracked.lstat()
+            self.assertEqual(
+                (
+                    restored.st_uid,
+                    restored.st_gid,
+                    stat.S_IMODE(restored.st_mode),
+                ),
+                (1000, 1000, 0o600),
+            )
+            runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
+
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_generated_owner_acl_transition_states_are_resumable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "control"
+            root.mkdir()
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            os.chown(root, 1000, 1000)
+            os.chown(tracked, 1000, 1000)
+            tracked.chmod(0o440)
+            metadata = tracked.lstat()
+            record = {
+                "kind": "regular",
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+                "uid": 1000,
+                "gid": 1000,
+                "mode": "0440",
+                "xattr_fingerprint": (
+                    runtime._worktree_path_xattr_fingerprint(tracked)
+                ),
+            }
+            records = {root: {tracked: record}}
+            runtime._install_worktree_barrier_owner_acl(tracked, record)
+            tracked.chmod(0o440)
+
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+            self.assertEqual(tracked.lstat().st_uid, 0)
+            self.assertEqual(
+                runtime._worktree_locked_acl_state(tracked, record),
+                ("generated", 0o440),
+            )
+
+            os.chown(tracked, 1000, 1000)
+            runtime._restore_worktree_write_barrier(records)
+            restored = tracked.lstat()
+            self.assertEqual(
+                (
+                    restored.st_uid,
+                    restored.st_gid,
+                    stat.S_IMODE(restored.st_mode),
+                ),
+                (1000, 1000, 0o440),
+            )
+            runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
+
     def test_reseal_rejects_preexisting_acl_without_named_owner_access(
         self,
     ) -> None:
@@ -2560,6 +2692,84 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
         chmod.assert_not_called()
         chown.assert_not_called()
+
+    def test_reseal_installs_owner_acl_before_root_ownership(self) -> None:
+        root = Path("/synthetic/control")
+        tracked = root / "tracked.txt"
+        state = {"uid": 1001, "gid": 1001, "mode": 0o600}
+        record = {
+            "kind": "regular",
+            "device": 10,
+            "inode": 20,
+            "uid": 1001,
+            "gid": 1001,
+            "mode": "0600",
+            "xattr_fingerprint": "0" * 64,
+        }
+        events = []
+
+        def metadata():
+            return SimpleNamespace(
+                st_mode=stat.S_IFREG | state["mode"],
+                st_nlink=1,
+                st_uid=state["uid"],
+                st_gid=state["gid"],
+                st_dev=10,
+                st_ino=20,
+            )
+
+        def chmod(_path, mode, **_kwargs):
+            events.append(("chmod", mode))
+            state["mode"] = mode
+
+        def chown(_path, uid, gid, **_kwargs):
+            events.append(("chown", uid, gid))
+            state.update(uid=uid, gid=gid)
+
+        def install(_path, _record):
+            events.append(("acl", state["mode"]))
+
+        with (
+            mock.patch.object(runtime.os, "geteuid", return_value=0),
+            mock.patch.object(
+                runtime,
+                "_recorded_path_metadata",
+                return_value=(1001, 1001, 0o700),
+            ),
+            mock.patch.object(runtime.Path, "lstat", side_effect=metadata),
+            mock.patch.object(runtime, "_assert_worktree_path_xattrs"),
+            mock.patch.object(
+                runtime,
+                "_assert_source_worktree_acl_access",
+                return_value=None,
+            ),
+            mock.patch.object(runtime.os, "chmod", side_effect=chmod),
+            mock.patch.object(runtime.os, "chown", side_effect=chown),
+            mock.patch.object(
+                runtime,
+                "_install_worktree_barrier_owner_acl",
+                side_effect=install,
+            ),
+            mock.patch.object(runtime, "_assert_worktree_barrier_owner_acl"),
+            mock.patch.object(runtime, "_sync_repository_filesystem"),
+        ):
+            runtime._reseal_released_worktree_contract(
+                (root,),
+                {root: {}},
+                {root: {tracked: record}},
+                include_current=False,
+            )
+
+        self.assertEqual(
+            events,
+            [
+                ("chmod", 0o400),
+                ("acl", 0o400),
+                ("chmod", 0o440),
+                ("chown", 0, 1001),
+                ("chmod", 0o440),
+            ],
+        )
 
     def test_refresh_rejects_new_acl_without_named_owner_access(self) -> None:
         root = Path("/synthetic/control")

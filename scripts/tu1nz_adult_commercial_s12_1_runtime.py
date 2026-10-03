@@ -3460,6 +3460,26 @@ def _lock_worktree_write_barrier(
                     and stat.S_IMODE(metadata.st_mode)
                     == base_restricted_mode
                 )
+                owner_acl_transition = False
+                if (
+                    metadata.st_dev == record["device"]
+                    and metadata.st_ino == record["inode"]
+                    and metadata.st_uid == record["uid"]
+                    and metadata.st_gid == record["gid"]
+                    and stat.S_IMODE(metadata.st_mode)
+                    == generated_restricted_mode
+                ):
+                    try:
+                        transition_state, transition_mode = (
+                            _worktree_locked_acl_state(path, record)
+                        )
+                    except S12ControlError:
+                        pass
+                    else:
+                        owner_acl_transition = (
+                            transition_state == "generated"
+                            and transition_mode == generated_restricted_mode
+                        )
                 actual_kind = (
                     "directory"
                     if stat.S_ISDIR(metadata.st_mode)
@@ -3486,6 +3506,7 @@ def _lock_worktree_write_barrier(
                     or target_locked
                     or restricted
                     or root_transition
+                    or owner_acl_transition
                 ):
                     raise OSError
                 if actual_kind == "regular":
@@ -3506,29 +3527,42 @@ def _lock_worktree_write_barrier(
                     else:
                         if stat.S_IMODE(metadata.st_mode) == expected_locked_mode:
                             continue
-                _assert_worktree_path_xattrs(path, record)
-                source_acl = _assert_source_worktree_acl_access(
-                    path,
-                    mode,
-                    record["uid"],
-                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
-                )
-                restricted_mode = (
-                    base_restricted_mode
-                    if source_acl is not None
-                    else generated_restricted_mode
-                )
-                if original or restricted:
-                    os.chmod(
-                        path, base_restricted_mode, follow_symlinks=False
-                    )
-                    os.chown(path, 0, record["gid"], follow_symlinks=False)
+                if owner_acl_transition:
+                    source_acl = None
+                    restricted_mode = generated_restricted_mode
                 else:
+                    _assert_worktree_path_xattrs(path, record)
+                    source_acl = _assert_source_worktree_acl_access(
+                        path,
+                        mode,
+                        record["uid"],
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    restricted_mode = (
+                        base_restricted_mode
+                        if source_acl is not None
+                        else generated_restricted_mode
+                    )
                     os.chmod(
                         path, base_restricted_mode, follow_symlinks=False
                     )
-                if source_acl is None:
-                    _install_worktree_barrier_owner_acl(path, record)
+                    if source_acl is None:
+                        _install_worktree_barrier_owner_acl(path, record)
+                        os.chmod(
+                            path,
+                            generated_restricted_mode,
+                            follow_symlinks=False,
+                        )
+                        _assert_worktree_barrier_owner_acl(
+                            path,
+                            record,
+                            "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                        )
+                        _assert_worktree_path_xattrs(
+                            path, record, barrier_locked=True
+                        )
+                if metadata.st_uid != 0:
+                    os.chown(path, 0, record["gid"], follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
                 sealed = path.lstat()
                 if (
@@ -3682,8 +3716,26 @@ def _restore_worktree_write_barrier(
                     record["gid"],
                     kind=record["kind"],
                 )
-                if metadata.st_uid != 0 or metadata.st_gid != record["gid"]:
+                if (
+                    metadata.st_uid not in {0, record["uid"]}
+                    or metadata.st_gid != record["gid"]
+                ):
                     raise OSError
+                if (
+                    metadata.st_uid == record["uid"]
+                    and stat.S_IMODE(metadata.st_mode) == original_mode
+                ):
+                    try:
+                        _assert_worktree_path_xattrs(path, record)
+                    except S12ControlError:
+                        # An interrupted reverse transition may already have
+                        # restored ownership while the generated named-owner
+                        # ACL remains.  Its mask can equal an originally
+                        # read-only mode, so mode equality alone is not proof
+                        # that the source xattr contract is restored.
+                        pass
+                    else:
+                        continue
                 try:
                     acl_state, expected_locked_mode = (
                         _worktree_locked_acl_state(path, record)
@@ -3692,8 +3744,7 @@ def _restore_worktree_write_barrier(
                     acl_state = "interrupted"
                     expected_locked_mode = -1
                 if stat.S_IMODE(metadata.st_mode) == expected_locked_mode:
-                    if acl_state == "generated":
-                        _remove_worktree_barrier_owner_acl(path, record)
+                    pass
                 elif stat.S_IMODE(metadata.st_mode) in {
                     base_restricted_mode,
                     generated_restricted_mode,
@@ -3705,17 +3756,19 @@ def _restore_worktree_write_barrier(
                     )
                 else:
                     raise OSError
-                os.chmod(
-                    path,
-                    original_mode & ~0o222,
-                    follow_symlinks=False,
-                )
-                os.chown(
-                    path,
-                    record["uid"],
-                    record["gid"],
-                    follow_symlinks=False,
-                )
+                if metadata.st_uid == 0 and record["uid"] != 0:
+                    os.chown(
+                        path,
+                        record["uid"],
+                        record["gid"],
+                        follow_symlinks=False,
+                    )
+                if acl_state == "generated":
+                    _remove_worktree_barrier_owner_acl(path, record)
+                    _assert_worktree_path_xattrs(path, record)
+                    _assert_no_posix_access_acl(
+                        path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+                    )
                 os.chmod(path, original_mode, follow_symlinks=False)
                 _assert_worktree_path_xattrs(path, record)
         if repository_records is not None:
@@ -3911,7 +3964,6 @@ def _reseal_released_worktree_contract(
                 os.chmod(
                     path, source_mode & ~0o222, follow_symlinks=False
                 )
-                os.chown(path, 0, target_gid, follow_symlinks=False)
                 acl_record = {
                     "kind": expected_kind,
                     "uid": target_uid,
@@ -3920,8 +3972,21 @@ def _reseal_released_worktree_contract(
                 }
                 if source_acl is None:
                     _install_worktree_barrier_owner_acl(path, acl_record)
+                    os.chmod(
+                        path, restricted_mode, follow_symlinks=False
+                    )
+                    _assert_worktree_barrier_owner_acl(
+                        path,
+                        acl_record,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    if same_recorded_inode:
+                        _assert_worktree_path_xattrs(
+                            path, record, barrier_locked=True
+                        )
                 else:
                     restricted_mode = source_mode & ~0o222
+                os.chown(path, 0, target_gid, follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
                 sealed = path.lstat()
                 if (

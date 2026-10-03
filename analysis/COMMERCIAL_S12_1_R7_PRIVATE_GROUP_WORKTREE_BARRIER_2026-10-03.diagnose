@@ -40,12 +40,15 @@ explicit named-user entry whose effective read/execute permissions remain
 sufficient under the existing, write-stripped mask. Group entries are never
 used to prove owner access and the mask is never widened. ACL-free Control
 paths instead receive the byte-exact generated owner ACL after write removal
-and chown. The original normalized xattr fingerprint remains authoritative;
+but before the root ownership handoff. The ACL and its effective access are
+verified before `chown`; teardown restores the journaled owner before removing
+that generated ACL. The original normalized xattr fingerprint remains
+authoritative;
 only the exact generated temporary ACL may be omitted while its barrier is
-active. Teardown removes only a generated ACL and restores exact journaled UID,
-GID and mode. Same-inode refresh and failure-path reseal enforce the same
-contract. Interrupted states with the exact source fingerprint are safely
-resealed or restored; any foreign ACL or xattr drift remains RED.
+active. Teardown removes only a generated ACL and restores exact journaled
+UID, GID and mode. Same-inode refresh and failure-path reseal enforce the same
+ordering. The finite transition states on either side of both ownership
+changes are resumable; any foreign ACL or xattr drift remains RED.
 
 NSS account enumeration and live GID scans are therefore no longer security
 inputs. Setuid and setgid regular files, write permissions, owner/ACL/xattr

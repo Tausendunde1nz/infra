@@ -66,8 +66,9 @@ proof. This avoids using the retained GID as a capability and has no dependency
 on complete NSS account or group enumeration. Every write bit remains removed.
 The normalized source xattr fingerprint remains bound; during the barrier only
 the byte-exact generated owner ACL may be omitted from that fingerprint. A
-generated ACL is removed before exact ownership and mode restoration; a bound
-source ACL is retained. The controller also
+generated ACL is installed and verified before the root ownership handoff,
+then retained until the exact owner has been restored during teardown; a bound
+source ACL is retained throughout. The controller also
 rejects setuid and setgid regular files and all unrelated ownership, mode, ACL
 or xattr drift, preserves the original journal mode across same-inode release
 refresh, and restores the exact original mode and ownership during teardown or
@@ -242,6 +243,12 @@ compares against the computed temporary barrier mode and exact ACL while
 retaining the journaled original mode. Newly tracked root-owned paths remain
 closed to group/other write and are journaled without inventing a group-based
 authorization path.
+The generated ACL is installed and verified before ownership changes to root.
+The reverse transition changes ownership back first and removes the generated
+ACL only afterward. Exact recorded-owner/generated-ACL and
+recorded-owner/no-ACL intermediate states are accepted solely when their inode,
+mode and normalized xattr contract match the journal, making both transitions
+crash-resumable without an access gap.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining
