@@ -3952,18 +3952,62 @@ def _reseal_released_worktree_contract(
                     metadata.st_dev,
                     metadata.st_ino,
                 ) == (record["device"], record["inode"])
+                generated_acl_transition = False
                 if same_recorded_inode:
-                    _assert_worktree_path_xattrs(path, record)
-                    released = (
-                        metadata.st_uid == record["uid"]
-                        and metadata.st_gid == record["gid"]
-                        and stat.S_IMODE(metadata.st_mode)
-                        == int(record["mode"], 8)
-                    )
                     expected_kind = record["kind"]
                     source_mode = int(record["mode"], 8)
                     target_uid = record["uid"]
                     target_gid = record["gid"]
+                    base_restricted_mode = source_mode & ~0o222
+                    generated_restricted_mode = _worktree_barrier_mode(
+                        source_mode,
+                        target_uid,
+                        target_gid,
+                        kind=expected_kind,
+                    )
+                    actual_mode = stat.S_IMODE(metadata.st_mode)
+                    try:
+                        acl_state, expected_locked_mode = (
+                            _worktree_locked_acl_state(path, record)
+                        )
+                    except S12ControlError:
+                        _assert_worktree_path_xattrs(path, record)
+                    else:
+                        if acl_state == "generated":
+                            if actual_mode != expected_locked_mode:
+                                raise OSError
+                            generated_acl_transition = True
+                        else:
+                            _assert_worktree_path_xattrs(path, record)
+                    if generated_acl_transition:
+                        released = (
+                            metadata.st_uid in {0, target_uid}
+                            and metadata.st_gid == target_gid
+                        )
+                    else:
+                        allowed_modes = {
+                            source_mode,
+                            base_restricted_mode,
+                            generated_restricted_mode,
+                        }
+                        released = (
+                            metadata.st_uid == target_uid
+                            and metadata.st_gid == target_gid
+                            and actual_mode in allowed_modes
+                        ) or (
+                            metadata.st_uid == 0
+                            and metadata.st_gid == target_gid
+                            and actual_mode
+                            in {
+                                base_restricted_mode,
+                                generated_restricted_mode,
+                                *(
+                                    {source_mode}
+                                    if not source_mode & 0o022
+                                    else set()
+                                ),
+                            }
+                        )
                 else:
                     released = (
                         include_current
@@ -3988,6 +4032,33 @@ def _reseal_released_worktree_contract(
                 )
                 if not released or actual_kind != expected_kind:
                     raise OSError
+                if generated_acl_transition:
+                    _assert_worktree_barrier_owner_acl(
+                        path,
+                        record,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    if metadata.st_uid != 0:
+                        os.chown(
+                            path, 0, target_gid, follow_symlinks=False
+                        )
+                    os.chmod(
+                        path,
+                        generated_restricted_mode,
+                        follow_symlinks=False,
+                    )
+                    sealed = path.lstat()
+                    if (
+                        sealed.st_uid != 0
+                        or sealed.st_gid != target_gid
+                        or stat.S_IMODE(sealed.st_mode)
+                        != generated_restricted_mode
+                    ):
+                        raise OSError
+                    _assert_worktree_path_xattrs(
+                        path, record, barrier_locked=True
+                    )
+                    continue
                 restricted_mode = _worktree_barrier_mode(
                     source_mode,
                     target_uid,

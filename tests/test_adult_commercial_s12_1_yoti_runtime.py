@@ -2586,6 +2586,72 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (1000, 1000, 0o600),
             )
             runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
+
+            lock_context = (
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            )
+            reseal_context = (
+                mock.patch.object(
+                    runtime,
+                    "_recorded_path_metadata",
+                    return_value=(1000, 1000, 0o700),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            )
+
+            with lock_context[0], lock_context[1]:
+                runtime._lock_worktree_write_barrier(records)
+            os.chown(tracked, 1000, 1000)
+            with reseal_context[0], reseal_context[1]:
+                runtime._reseal_released_worktree_contract(
+                    (root,), {root: {}}, records, include_current=False
+                )
+            self.assertEqual(tracked.lstat().st_uid, 0)
+            self.assertEqual(
+                runtime._worktree_locked_acl_state(tracked, record),
+                ("generated", 0o440),
+            )
+            runtime._restore_worktree_write_barrier(records)
+
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+            os.chown(tracked, 1000, 1000)
+            runtime._remove_worktree_barrier_owner_acl(tracked, record)
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_recorded_path_metadata",
+                    return_value=(1000, 1000, 0o700),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._reseal_released_worktree_contract(
+                    (root,), {root: {}}, records, include_current=False
+                )
+            self.assertEqual(tracked.lstat().st_uid, 0)
+            self.assertEqual(
+                runtime._worktree_locked_acl_state(tracked, record),
+                ("generated", 0o440),
+            )
+            runtime._restore_worktree_write_barrier(records)
+            final = tracked.lstat()
+            self.assertEqual(
+                (final.st_uid, final.st_gid, stat.S_IMODE(final.st_mode)),
+                (1000, 1000, 0o600),
+            )
+            runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
             self.assertEqual(
                 runtime._release_xattr_fingerprint((tracked,)),
                 release_fingerprint,
