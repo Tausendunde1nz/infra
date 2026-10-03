@@ -161,17 +161,15 @@ class IntegratedChainTests(unittest.TestCase):
         with fixture(complete_backup=True) as f, ExitStack() as patches:
             self.real_run=r._run;self.starts=0;self.provider_failure=provider_failure
             def trace(frame,event,arg):
-                if frame.f_code.co_name not in {'_lock_worktree_write_barrier','_deploy_locked'}:
+                if not frame.f_code.co_name.startswith('_r13_'):
                     return None
-                if event=='exception' and isinstance(arg[1],(OSError,r.S12ControlError)):
+                if event=='exception' and isinstance(arg[1],r.S12ControlError):
                     detail=dict(function=frame.f_code.co_name,line=frame.f_lineno,
                         error=getattr(arg[1],'safe_code',type(arg[1]).__name__),starts=self.starts)
-                    if frame.f_code.co_name=='_lock_worktree_write_barrier':
+                    if frame.f_code.co_name=='_r13_materialize_undo':
                         value=frame.f_locals
                         if 'path' in value:detail['path']=str(value['path'].relative_to(f['base']))
-                        if 'metadata' in value:
-                            meta=value['metadata'];detail.update(uid=meta.st_uid,gid=meta.st_gid,mode=oct(meta.st_mode&0o7777))
-                        detail['record']=value.get('record')
+                        detail.update({key:value.get(key) for key in ('current','stage','retired','entry')})
                     print('OFFLINE_DIAGNOSTIC '+json.dumps(detail,sort_keys=True),flush=True)
                 return trace
             sys.settrace(trace);patches.callback(sys.settrace,None)
