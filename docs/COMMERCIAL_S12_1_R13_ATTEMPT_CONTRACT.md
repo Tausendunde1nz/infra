@@ -58,6 +58,11 @@ they cannot write the live worktrees. Native negatives cover inventory-time
 reversion and replaced Git pathname execution; the integrated suite exercises
 the real backup, binary readers, staging and rollback through this executor.
 No earlier CI or review is substituted for this candidate's complete gates.
+On failed release, Git barriers are reinstated before worktree resealing.
+R13 reseals the prospectively journaled, successor-updated path set without
+executing another Git command in a failed epoch. Neither failed attribution
+nor cleanup creates a new command grant; existing handoff negatives require
+both barriers to remain and reject recovery/replay.
 
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.

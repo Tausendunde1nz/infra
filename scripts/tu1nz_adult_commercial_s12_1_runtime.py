@@ -7645,12 +7645,6 @@ def _serialized_repository_recovery_guarded(
                             _lock_repository_parent(parent_record)
                         for root in selected_roots:
                             _lock_repository_root(root, selected_records[root])
-                        _reseal_released_worktree_contract(
-                            selected_roots,
-                            selected_records,
-                            selected_worktree_barrier,
-                            include_current=completed,
-                        )
                         for root in selected_roots:
                             _lock_repository_git_metadata(
                                 root, selected_records[root]
@@ -7660,6 +7654,18 @@ def _serialized_repository_recovery_guarded(
                                 _install_repository_recovery_barrier(
                                     root, selected_records[root]
                                 )
+                        # A failed writer epoch can never admit another Git
+                        # reader. R13 already prospectively bound every new
+                        # tracked path in selected_worktree_barrier; reseal
+                        # that closed set without a fresh index enumeration.
+                        # Reinstall Git barriers first so a failed worktree
+                        # reseal cannot leave released Git namespaces behind.
+                        _reseal_released_worktree_contract(
+                            selected_roots,
+                            selected_records,
+                            selected_worktree_barrier,
+                            include_current=completed and ACTIVE_ATTEMPT is None,
+                        )
                     except S12ControlError:
                         pass
                 finally:
