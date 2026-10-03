@@ -48,6 +48,44 @@ def freeze_fixture() -> dict[str, str]:
     return values
 
 
+@contextmanager
+def release_state_repositories(*, old_tag_present: bool = True):
+    """Real isolated repositories; no server or shared checkout access."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        application, control = root / "application", root / "control"
+        for repository, branch in ((application, "main"), (control, "control-main")):
+            def git(*arguments):
+                return subprocess.run(
+                    ["git", "-C", str(repository), *arguments],
+                    check=True, capture_output=True,
+                )
+
+            repository.mkdir()
+            git("init", "-b", branch)
+            git("config", "user.name", "S12 Test")
+            git("config", "user.email", "s12@example.invalid")
+            (repository / "tracked.txt").write_text("one\n", encoding="ascii")
+            git("add", "tracked.txt")
+            git("commit", "-m", "one")
+        if old_tag_present:
+            subprocess.run(
+                ["git", "-C", str(control), "tag", "-a",
+                 "s12-yoti-sandbox-runtime-freeze-r9", "-m", "immutable fixture"],
+                check=True, capture_output=True,
+            )
+        directories = {application: application / ".git", control: control / ".git"}
+        records = {
+            repository: runtime._repository_path_metadata(repository)
+            for repository in directories
+        }
+        with (
+            mock.patch.object(runtime, "APPLICATION_ROOT", application),
+            mock.patch.object(runtime, "CONTROL_ROOT", control),
+        ):
+            yield directories, records
+
+
 class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
     def test_pre_sync_nginx_baseline_is_reviewed_and_checkout_independent(self) -> None:
         self.assertEqual(
@@ -1946,6 +1984,97 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     runtime._validate_release_repository_states(
                         expected, git_directories, path_records
                     )
+
+    def test_release_state_uses_recorded_freeze_across_controller_versions(self) -> None:
+        for present in (True, False):
+            with self.subTest(old_tag_present=present), release_state_repositories(
+                old_tag_present=present
+            ) as (directories, records):
+                with mock.patch.object(
+                    runtime, "FREEZE_TAG", "s12-yoti-sandbox-runtime-freeze-r9"
+                ):
+                    expected = runtime._release_repository_states(directories, records)
+                saved = copy.deepcopy(expected)
+                self.assertNotEqual(runtime.FREEZE_TAG, "s12-yoti-sandbox-runtime-freeze-r9")
+                runtime._validate_release_repository_states(expected, directories, records)
+                self.assertEqual(expected, saved)
+                # A new capture still binds the current controller, not the old one.
+                fresh = runtime._release_repository_states(directories, records)
+                self.assertEqual(
+                    set(fresh["control"]["managed_refs"]), {f"refs/tags/{runtime.FREEZE_TAG}"}
+                )
+
+    def test_cross_freeze_validation_retains_real_drift_guards(self) -> None:
+        for drift in ("extra_ref", "tag_deleted", "reflog", "dirty", "index_flag"):
+            with self.subTest(drift=drift), release_state_repositories() as (directories, records):
+                with mock.patch.object(
+                    runtime, "FREEZE_TAG", "s12-yoti-sandbox-runtime-freeze-r9"
+                ):
+                    expected = runtime._release_repository_states(directories, records)
+                control = runtime.CONTROL_ROOT
+                commands = {
+                    "extra_ref": [("branch", "foreign")],
+                    "tag_deleted": [("tag", "-d", "s12-yoti-sandbox-runtime-freeze-r9")],
+                    "reflog": [("checkout", "--detach"), ("checkout", "control-main")],
+                    "index_flag": [("update-index", "--assume-unchanged", "tracked.txt")],
+                }
+                if drift == "dirty":
+                    (control / "tracked.txt").write_text("changed\n", encoding="ascii")
+                for arguments in commands.get(drift, []):
+                    subprocess.run(
+                        ["git", "-C", str(control), *arguments],
+                        check=True, capture_output=True,
+                    )
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED"
+                ):
+                    runtime._validate_release_repository_states(expected, directories, records)
+
+    def test_recorded_freeze_scope_rejects_malformed_or_foreign_refs(self) -> None:
+        valid_ref = "refs/tags/s12-yoti-sandbox-runtime-freeze-r9"
+        bad = (
+            {}, [], {"refs/heads/control-main": "a" * 40},
+            {"refs/tags/foreign": None}, {valid_ref: False},
+            {valid_ref: "not-an-object"}, {valid_ref: "a" * 64},
+            {valid_ref: None, "refs/tags/s12-yoti-sandbox-runtime-freeze-r10": None},
+            {"refs/tags/s12-yoti-sandbox-runtime-freeze-r0": None},
+            {"refs/tags/s12-yoti-sandbox-runtime-freeze-r9/../other": None},
+        )
+        for managed in bad:
+            with self.subTest(managed=managed), mock.patch.object(
+                runtime, "_release_repository_states"
+            ) as read_state:
+                expected = {"application": {"managed_refs": {}}, "control": {"managed_refs": managed}}
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError, "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED"
+                ):
+                    runtime._validate_release_repository_states(expected, {}, {})
+                read_state.assert_not_called()
+        with mock.patch.object(runtime, "_release_repository_states") as read_state:
+            with self.assertRaisesRegex(
+                runtime.S12ControlError, "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED"
+            ):
+                runtime._validate_release_repository_states(
+                    {"application": {"managed_refs": {valid_ref: None}},
+                     "control": {"managed_refs": {valid_ref: None}}}, {}, {}
+                )
+            read_state.assert_not_called()
+
+    def test_recorded_freeze_target_mismatch_is_not_normalized(self) -> None:
+        with release_state_repositories() as (directories, records):
+            with mock.patch.object(
+                runtime, "FREEZE_TAG", "s12-yoti-sandbox-runtime-freeze-r9"
+            ):
+                expected = runtime._release_repository_states(directories, records)
+            ref = "refs/tags/s12-yoti-sandbox-runtime-freeze-r9"
+            for target in (None, "a" * 40):
+                with self.subTest(target=target):
+                    wrong = copy.deepcopy(expected)
+                    wrong["control"]["managed_refs"][ref] = target
+                    with self.assertRaisesRegex(
+                        runtime.S12ControlError, "S12_1_REPOSITORY_POST_RELEASE_DRIFT_RED"
+                    ):
+                        runtime._validate_release_repository_states(wrong, directories, records)
 
     def test_bundle_stream_is_created_and_verified_without_backup_access(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

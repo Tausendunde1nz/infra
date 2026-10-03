@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r10"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r11"
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
