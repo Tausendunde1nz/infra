@@ -28,6 +28,9 @@ class WriterEnvelopeTests(unittest.TestCase):
         import inspect
         source=inspect.getsource(r._serialized_repository_recovery_guarded)
         self.assertLess(source.index('_r13_git_writers('),source.index('_tracked_worktree_regular_paths('))
+        source=inspect.getsource(r._deploy_locked)
+        self.assertLess(source.index('_r13_begin_attempt_observation('),source.index('read_only_preflight('))
+        self.assertLess(source.index('_r13_begin_attempt_observation('),source.index('_write_barrier_journal('))
 
     def test_no_unrouted_git_subprocess_helpers_remain(self):
         import ast
@@ -569,7 +572,7 @@ class IntegratedChainTests(unittest.TestCase):
         return self.real_run(argv,**kwargs)
 
     def full_chain(self, *, provider_failure=False, crash_at=None, attack=None,
-                   attack_at='OBJECT_BOUND', tamper=None):
+                   attack_at='OBJECT_BOUND', tamper=None, recovery_crash_at=None):
         with fixture(complete_backup=True) as f, ExitStack() as patches:
             self.real_run=r._run;self.starts=0;self.provider_failure=provider_failure
             self.start_witness=f['base']/'isolated-start-count'
@@ -690,6 +693,20 @@ class IntegratedChainTests(unittest.TestCase):
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
                     return
+                if recovery_crash_at:
+                    pid=os.fork()
+                    if pid==0:
+                        def interrupt_recovery(name):
+                            if name==recovery_crash_at:os._exit(73)
+                        try:
+                            with mock.patch.object(r,'_r13_boundary',side_effect=interrupt_recovery):
+                                r.followup(authorization,grant_hash,recovering=True)
+                        except BaseException:
+                            import traceback
+                            traceback.print_exc()
+                        os._exit(74)
+                    _,status=os.waitpid(pid,0)
+                    self.assertEqual(os.waitstatus_to_exitcode(status),73,recovery_crash_at)
                 result=r.followup(authorization,grant_hash,recovering=True)
                 self.assertTrue(result['ok'])
                 if crash_at=='FOLLOWUP_NAMESPACE_CREATED':
@@ -701,6 +718,26 @@ class IntegratedChainTests(unittest.TestCase):
                     for key,root in [('application',f['app']),('control',f['control'])]:
                         self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
                     self.assertEqual(r.followup(authorization,grant_hash,recovering=True),result)
+                    with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
+                        r.followup(authorization,grant_hash)
+                    return
+                if crash_at=='PREATTEMPT_BARRIER_JOURNALED':
+                    state=f['state']/'attempts'/r.FOLLOWUP_SLOT
+                    self.assertEqual(result['rollback_count'],0)
+                    self.assertEqual(result['safe_code'],'S12_1_ORPHAN_BARRIER_RECOVERED')
+                    self.assertFalse((state/'deployment-attempted.json').exists())
+                    self.assertFalse((state/'repository-barrier.json').exists())
+                    self.assertFalse((state/'repository-barrier.release-backup.json').exists())
+                    completion=state/'repository-barrier.release-complete.json'
+                    closed=completion.read_bytes()
+                    self.assertEqual(json.loads(closed)['attempt_binding'],result['attempt_binding'])
+                    self.assertEqual(r.followup(authorization,grant_hash,recovering=True),result)
+                    self.assertEqual(completion.read_bytes(),closed)
+                    self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
+                    self.assertEqual(self.starts,0)
+                    for key,root in [('application',f['app']),('control',f['control'])]:
+                        self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
+                        self.assertEqual(r._identity(root),(f['index'][key]['commit'],f['index'][key]['tree']))
                     with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CONSUMED'):
                         r.followup(authorization,grant_hash)
                     return
@@ -725,7 +762,10 @@ class IntegratedChainTests(unittest.TestCase):
                     with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash)
                 self.assertTrue(fired)
                 for root in (f['app'],f['control']):
-                    self.assertTrue(r._is_recovery_guard(root/'.git'))
+                    if attack_at in {'PREDEPLOY_PREFLIGHT','PREDEPLOY_BARRIER_CAPTURE'}:
+                        self.assertFalse((root/r.RECOVERY_GIT_DIRECTORY).exists())
+                    else:
+                        self.assertTrue(r._is_recovery_guard(root/'.git'))
                 with self.assertRaises(r.S12ControlError):r.followup(authorization,grant_hash,recovering=True)
                 self.assertEqual(self.starts,0)
                 self.assertEqual(r.ATTEMPT_MARKER.read_bytes(),historical)
@@ -767,6 +807,12 @@ class IntegratedChainTests(unittest.TestCase):
             with self.subTest(boundary=boundary):
                 self.full_chain(crash_at=boundary)
 
+    def test_pre_attempt_barrier_recovery_has_durable_idempotent_closure(self):
+        for boundary in (None,'PREATTEMPT_RELEASE_BACKED_UP','PREATTEMPT_RELEASE_UNLINKED',
+                         'PREATTEMPT_RELEASE_COMPLETED'):
+            with self.subTest(boundary=boundary):
+                self.full_chain(crash_at='PREATTEMPT_BARRIER_JOURNALED',recovery_crash_at=boundary)
+
     def test_process_loss_at_each_rollback_boundary(self):
         for boundary in ('WITHDRAW_INTENT','WITHDRAWN','RESTORE_INTENT','RESTORED'):
             with self.subTest(boundary=boundary):
@@ -805,7 +851,9 @@ class IntegratedChainTests(unittest.TestCase):
                               ('REPOSITORIES_MATERIALIZED','created/new'),
                               ('MATERIALIZATION_AUDITED','created/new'),
                               ('RELEASE_BARRIERS_EXCHANGED','created/new'),
-                              ('RELEASE_ATTRIBUTES_RESTORED','created/new')):
+                              ('RELEASE_ATTRIBUTES_RESTORED','created/new'),
+                              ('RELEASE_PARENT_RESTORED','created/new'),
+                              ('RELEASE_SHUTDOWN','created/new')):
             with self.subTest(boundary=boundary,path=name):
                 def attack(f):
                     path=f['app']/name
@@ -818,7 +866,8 @@ class IntegratedChainTests(unittest.TestCase):
 
     def test_deep_git_reverted_writer_cannot_cross_release_handoff(self):
         for boundary in ('REF_UPDATED','REPOSITORIES_MATERIALIZED',
-                         'RELEASE_BARRIERS_EXCHANGED','RELEASE_ATTRIBUTES_RESTORED'):
+                         'RELEASE_BARRIERS_EXCHANGED','RELEASE_ATTRIBUTES_RESTORED',
+                         'RELEASE_PARENT_RESTORED','RELEASE_SHUTDOWN'):
             with self.subTest(boundary=boundary):
                 def attack(f):
                     # REF_UPDATED first fires for Application. Both pre-release
@@ -836,7 +885,8 @@ class IntegratedChainTests(unittest.TestCase):
                 self.full_chain(attack=attack,attack_at=boundary)
 
     def test_existing_worktrees_are_watched_before_fetch_and_materialization(self):
-        for boundary in ('REPOSITORY_BODY_ENTERED','APPLICATION_FETCHED'):
+        for boundary in ('PREDEPLOY_PREFLIGHT','PREDEPLOY_BARRIER_CAPTURE',
+                         'REPOSITORY_BODY_ENTERED','APPLICATION_FETCHED'):
             for key in ('app','control'):
                 with self.subTest(boundary=boundary,repository=key):
                     def attack(f):

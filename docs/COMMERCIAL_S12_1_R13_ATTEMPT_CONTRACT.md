@@ -73,6 +73,24 @@ barriers. The former must retain the unchanged repositories and consumed slot;
 the latter must retain both barriers. Neither may adopt a RUNNING journal as
 a live supervisor, resume its command, or gain another activation.
 
+Full CI 37145327052 on `3a05944b2404a4571c71c5e96d4a28c48f7cc4a8`
+passed 48 native integrated methods, 20 native R12 regressions and 1094 full
+suite tests (77 expected non-root skips). Its exact-head review still found
+three P1 edges (4174534120/4174534126/4174534131); that GREEN therefore is not
+source-release acceptance. The attempt-level epoch now begins before its
+preflight and initial barrier/index capture, and before the pending-recovery
+prefix. Parent restoration is inside the overlapping release guards before
+ordered inotify shutdown; attributed events are checked afterward, with the
+filesystem stream retired only after this final metadata transition. Native
+reverted-write cases include both early preflight/capture boundaries and the
+parent-restored/shutdown boundaries, for worktrees and deep Git refs.
+Non-legacy pre-attempt barrier recovery uses the durable release-journal
+backup/unlink/completion protocol too. R13 completion binds the exact attempt;
+recovery after interruption of each closure step is idempotent and cannot
+reopen the consumed slot. Historical evidence and the legacy safety contract
+are unchanged. These new corrections again require complete CI and fresh
+exact-head review; no server or runtime action is authorized.
+
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.
 Root ownership, payload equality, arbitrary descendant trust, or rebasing a

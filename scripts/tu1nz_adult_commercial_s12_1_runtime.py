@@ -434,12 +434,14 @@ def _barrier_release_completion() -> dict[str, Any] | None:
         "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
     )
     if (
-        set(value) != {"schema", "completed_at", "journal_sha256"}
+        set(value) != ({"schema", "completed_at", "journal_sha256"}
+                       | ({"attempt_binding"} if ACTIVE_ATTEMPT is not None else set()))
         or value.get("schema") != BARRIER_RELEASE_COMPLETION_SCHEMA
         or not isinstance(value.get("completed_at"), str)
         or not value["completed_at"]
         or not isinstance(value.get("journal_sha256"), str)
         or re.fullmatch(r"[0-9a-f]{64}", value["journal_sha256"]) is None
+        or (ACTIVE_ATTEMPT is not None and value.get("attempt_binding") != ACTIVE_ATTEMPT)
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     return value
@@ -472,6 +474,7 @@ def _write_barrier_release_completion() -> None:
                 "+00:00", "Z"
             ),
             "journal_sha256": _sha256(BARRIER_RELEASE_BACKUP),
+            **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
         },
     )
     completion = _barrier_release_completion()
@@ -6395,6 +6398,8 @@ def _write_barrier_journal(
         records[root]["root_xattr_fingerprint"] = (
             _repository_root_xattr_fingerprint(root)
         )
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREDEPLOY_BARRIER_CAPTURE")
     worktree_barrier = _capture_worktree_write_barrier(roots, records)
     _atomic_barrier_json(
         BARRIER_MARKER,
@@ -6420,6 +6425,8 @@ def _write_barrier_journal(
     _assert_repository_parent_xattrs(parent_record)
     for root in roots:
         _assert_repository_root_xattrs(root, records[root])
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_BARRIER_JOURNALED")
     return worktree_barrier
 
 
@@ -7497,6 +7504,10 @@ def _serialized_repository_recovery_guarded(
                         )
                     if parent_locked:
                         _hard_lock_repository_parent(parent_record)
+                        if ACTIVE_ATTEMPT is not None:
+                            # The final namespace permission/attribute handoff
+                            # includes the parent, not just its repositories.
+                            release_paths.add(DEPLOYMENT_LOCK_ROOT)
                     release_guard = _WorktreeReleaseGuard(
                         selected_roots,
                         tuple(release_paths),
@@ -7616,7 +7627,27 @@ def _serialized_repository_recovery_guarded(
                                 raise S12ControlError(
                                     "S12_1_REPOSITORY_PARENT_RED"
                                 )
-                            _assert_hard_locked_repository_parent(parent_record)
+                            if ACTIVE_ATTEMPT is None:
+                                _assert_hard_locked_repository_parent(parent_record)
+                            elif _repository_parent_metadata() != parent_record:
+                                raise S12ControlError("S12_1_REPOSITORY_PARENT_RED")
+                        if release_attributes is not None:
+                            release_attributes.assert_quiet()
+                        if ACTIVE_ATTEMPT is not None:
+                            writers.check()
+                            _r13_boundary("RELEASE_SHUTDOWN")
+                            release_attributes.assert_quiet()
+                            writers.check()
+
+                    if ACTIVE_ATTEMPT is not None and parent_locked:
+                        # Restore while permission, attributed and filesystem
+                        # guards still overlap. IN_IGNORED shutdown follows
+                        # this last declared mutation, never precedes it.
+                        _restore_repository_parent(parent_record)
+                        _r13_boundary("RELEASE_PARENT_RESTORED")
+                        release_guard.accept_release_attributes()
+                        release_attributes.assert_quiet()
+                        writers.check()
 
                     release_guard.finalize_release(
                         validate_final_release,
@@ -7632,7 +7663,8 @@ def _serialized_repository_recovery_guarded(
                         if release_attributes is not None:
                             release_attributes.assert_quiet()
                     if parent_locked:
-                        _restore_repository_parent(parent_record)
+                        if ACTIVE_ATTEMPT is None:
+                            _restore_repository_parent(parent_record)
                         parent_locked = False
                 except S12ControlError:
                     cleanup_failed = True
@@ -9077,7 +9109,18 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
         )
     _sync_repository_filesystem(APPLICATION_ROOT)
     _sync_repository_filesystem(CONTROL_ROOT)
+    # Retain the pre-attempt journal until the bound release completion is
+    # durable. Normalization recovers interrupted unlink/completion steps.
+    _prepare_barrier_release_backup()
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_RELEASE_BACKED_UP")
     _durable_unlink(BARRIER_MARKER)
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_RELEASE_UNLINKED")
+    _write_barrier_release_completion()
+    if ACTIVE_ATTEMPT is not None:
+        _r13_boundary("PREATTEMPT_RELEASE_COMPLETED")
+    _durable_unlink(BARRIER_RELEASE_BACKUP)
     return {
         "ok": True,
         "safe_code": "S12_1_ORPHAN_BARRIER_RECOVERED",
@@ -9148,6 +9191,11 @@ def _deploy_locked() -> dict[str, Any]:
     ):
         _recover_repository_barrier_only()
         raise S12ControlError("S12_1_ORPHAN_BARRIER_RECOVERED")
+    if ACTIVE_ATTEMPT is not None:
+        _ensure_private_directory_durable(STATE_ROOT, Path("/"))
+        _r13_boundary("FOLLOWUP_NAMESPACE_CREATED")
+        _r13_begin_attempt_observation()
+        _r13_boundary("PREDEPLOY_PREFLIGHT")
     read_only_preflight()
     initial_active, initial_sub = _rollback_unit_state()
     if initial_active != "inactive" or initial_sub != "dead":
@@ -9157,8 +9205,6 @@ def _deploy_locked() -> dict[str, Any]:
     if FETCH_ROOT.exists() or FETCH_ROOT.is_symlink():
         raise S12ControlError("S12_1_FETCH_STAGE_RED")
     _ensure_private_directory_durable(STATE_ROOT, Path("/"))
-    if ACTIVE_ATTEMPT is not None:
-        _r13_boundary("FOLLOWUP_NAMESPACE_CREATED")
     path_records = {
         APPLICATION_ROOT: _repository_path_metadata(APPLICATION_ROOT),
         CONTROL_ROOT: _repository_path_metadata(CONTROL_ROOT),
@@ -10824,6 +10870,15 @@ def _r13_retire_git_writers():
         GIT_WRITER_SCOPE = None
 
 
+def _r13_begin_attempt_observation():
+    """Observe before preflight/index capture, including recovery prefixes."""
+    roots = (APPLICATION_ROOT, CONTROL_ROOT)
+    writers = _r13_git_writers(roots)
+    if writers is None or MATERIALIZATION_GUARDS is None:
+        raise S12ControlError(GIT_WRITER_RED)
+    MATERIALIZATION_GUARDS.retain(_r13_initial_worktree_guards(roots, writers))
+
+
 class _R13GuardStack(ExitStack):
     def __init__(self):
         super().__init__()
@@ -11413,6 +11468,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
                 return result
             with _followup_namespace(binding), _r13_guard_scope() as guards:
                 # Recovery never invokes deploy, admission, or activation.
+                _r13_begin_attempt_observation()
                 _r13_recover_pending()
                 guards.assert_quiet()
                 result=_recover_locked()
@@ -11430,7 +11486,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
         # O_EXCL, file fsync, parent fsync: even a crash/partial claim consumes
         # this one slot. No implicit retry and no deletion/reset operation.
         _write_private_backup_blob(claim,json.dumps(receipt,sort_keys=True,separators=(",",":")).encode())
-        with _followup_namespace(binding):
+        with _followup_namespace(binding), _r13_guard_scope():
             return _deploy_locked()
 
 

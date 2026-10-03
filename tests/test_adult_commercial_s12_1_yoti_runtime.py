@@ -1008,8 +1008,18 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             contract.index("release_guard.finalize_release("),
         )
         self.assertLess(
-            contract.index("release_guard.finalize_release("),
             contract.index("_restore_repository_parent(parent_record)"),
+            contract.index("release_guard.finalize_release("),
+        )
+        # R13 restores under the live attributed/filesystem/permission guards,
+        # before synchronized shutdown; the legacy hard-lock order is retained.
+        self.assertLess(
+            contract.index("release_guard.finalize_release("),
+            contract.rindex("_restore_repository_parent(parent_record)"),
+        )
+        self.assertLess(
+            contract.index("_restore_repository_parent(parent_record)"),
+            contract.index("_r13_retire_git_writers()"),
         )
         self.assertLess(
             contract.index("_restore_repository_parent(parent_record)"),
