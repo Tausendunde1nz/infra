@@ -62,7 +62,11 @@ the retained group class, and only after proving that group is the recorded
 owner's private primary group with no other primary or explicit members. It
 still removes every write bit. A path requiring that promotion is rejected if
 it has a POSIX access ACL, because widening the ACL mask could activate a named
-principal. The controller also rejects setuid, non-private groups and all
+principal. Immediately before capture and every promotion/reseal boundary, the
+controller also scans every live Linux thread credential and rejects a target
+GID retained by any non-root process whose filesystem UID is not the recorded
+owner. This covers stale supplementary credentials after NSS membership was
+removed. The controller also rejects setuid, non-private groups and all
 unrelated ownership, mode, ACL or xattr drift, preserves the original journal
 mode across same-inode release refresh, and restores the exact original mode
 and ownership during teardown or rollback.
@@ -234,7 +238,10 @@ unsafe expansion remain RED. No recorded-owner access can disappear and no
 unrelated principal gains access through the barrier. In particular, an
 extended POSIX access ACL makes private-group promotion fail closed rather
 than widening its mask, and same-inode refresh compares against the computed
-temporary barrier mode while retaining the journaled original mode.
+temporary barrier mode while retaining the journaled original mode. A stable
+`/proc/*/task/*/status` credential scan additionally proves that no unrelated
+live filesystem identity retains the promoted GID; unreadable, malformed or
+racing process state is RED.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining

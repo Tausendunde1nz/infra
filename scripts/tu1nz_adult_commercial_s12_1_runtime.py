@@ -2761,6 +2761,69 @@ def _worktree_barrier_mode(mode: int, uid: int, gid: int) -> int:
     return restricted
 
 
+def _assert_private_group_has_no_unrelated_process(
+    uid: int,
+    gid: int,
+    *,
+    proc_root: Path = Path("/proc"),
+) -> None:
+    """Reject a stale live credential that would gain promoted group access."""
+
+    if not proc_root.is_dir():
+        if sys.platform == "linux":
+            raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")
+        return
+    try:
+        processes = tuple(proc_root.iterdir())
+        for process in processes:
+            if not process.name.isdigit():
+                continue
+            try:
+                tasks = tuple((process / "task").iterdir())
+            except FileNotFoundError:
+                continue
+            for task in tasks:
+                if not task.name.isdigit():
+                    continue
+                try:
+                    before = _process_state_and_start_time(task)
+                    payload = (task / "status").read_text(encoding="ascii")
+                    after = _process_state_and_start_time(task)
+                except FileNotFoundError:
+                    continue
+                # Scheduler state may legitimately change between reads; PID
+                # identity is bound by the immutable kernel start time.
+                if before[1] != after[1]:
+                    raise OSError
+                fields: dict[str, tuple[int, ...]] = {}
+                for line in payload.splitlines():
+                    name, separator, value = line.partition(":")
+                    if (
+                        not separator
+                        or name not in {"Uid", "Gid", "Groups"}
+                    ):
+                        continue
+                    if name in fields:
+                        raise OSError
+                    fields[name] = tuple(int(item) for item in value.split())
+                if (
+                    set(fields) != {"Uid", "Gid", "Groups"}
+                    or len(fields["Uid"]) != 4
+                    or len(fields["Gid"]) != 4
+                ):
+                    raise OSError
+                filesystem_uid = fields["Uid"][3]
+                holds_group = (
+                    gid in fields["Gid"] or gid in fields["Groups"]
+                )
+                if holds_group and filesystem_uid not in {0, uid}:
+                    raise OSError
+    except (OSError, UnicodeError, ValueError):
+        raise S12ControlError(
+            "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
+        ) from None
+
+
 def _assert_post_chown_acl_preserves_access(
     path: Path,
     uid: int,
@@ -2926,6 +2989,7 @@ def _capture_worktree_write_barrier(
     """Capture the exact metadata needed to recover a tracked-path write barrier."""
 
     captured: dict[Path, dict[Path, dict[str, Any]]] = {}
+    verified_live_groups: set[tuple[int, int]] = set()
     try:
         for root in roots:
             expected_uid, expected_gid, _ = _recorded_path_metadata(
@@ -2950,6 +3014,15 @@ def _capture_worktree_write_barrier(
                 restricted_mode = _worktree_barrier_mode(
                     mode, metadata.st_uid, metadata.st_gid
                 )
+                private_group = (metadata.st_uid, metadata.st_gid)
+                if (
+                    restricted_mode != (mode & ~0o222)
+                    and private_group not in verified_live_groups
+                ):
+                    _assert_private_group_has_no_unrelated_process(
+                        *private_group
+                    )
+                    verified_live_groups.add(private_group)
                 xattr_fingerprint = _worktree_path_xattr_fingerprint(path)
                 _assert_post_chown_acl_preserves_access(
                     path,
@@ -3008,6 +3081,7 @@ def _refresh_worktree_barrier_for_release(
 
     if os.geteuid() != 0:
         return
+    verified_live_groups: set[tuple[int, int]] = set()
     try:
         for root in roots:
             expected_uid, expected_gid, _ = _recorded_path_metadata(
@@ -3036,6 +3110,15 @@ def _refresh_worktree_barrier_for_release(
                         existing["uid"],
                         existing["gid"],
                     )
+                    private_group = (existing["uid"], existing["gid"])
+                    if (
+                        expected_locked_mode != (original_mode & ~0o222)
+                        and private_group not in verified_live_groups
+                    ):
+                        _assert_private_group_has_no_unrelated_process(
+                            *private_group
+                        )
+                        verified_live_groups.add(private_group)
                     if mode != expected_locked_mode:
                         raise OSError
                     _assert_worktree_path_xattrs(path, existing)
@@ -3184,11 +3267,19 @@ def _lock_worktree_write_barrier(
     if os.geteuid() != 0:
         return
     try:
+        promoted_private_groups: set[tuple[int, int]] = set()
         for root_entries in records.values():
             for record in root_entries.values():
-                _worktree_barrier_mode(
-                    int(record["mode"], 8), record["uid"], record["gid"]
+                original_mode = int(record["mode"], 8)
+                restricted_mode = _worktree_barrier_mode(
+                    original_mode, record["uid"], record["gid"]
                 )
+                if restricted_mode != (original_mode & ~0o222):
+                    promoted_private_groups.add(
+                        (record["uid"], record["gid"])
+                    )
+        for uid, gid in sorted(promoted_private_groups):
+            _assert_private_group_has_no_unrelated_process(uid, gid)
         for root, root_entries in records.items():
             for path, record in sorted(
                 root_entries.items(),
@@ -3532,6 +3623,7 @@ def _reseal_released_worktree_contract(
 
     if os.geteuid() != 0:
         return
+    verified_live_groups: set[tuple[int, int]] = set()
     try:
         for root in roots:
             expected_uid, expected_gid, _ = _recorded_path_metadata(
@@ -3593,6 +3685,15 @@ def _reseal_released_worktree_contract(
                 restricted_mode = _worktree_barrier_mode(
                     source_mode, target_uid, target_gid
                 )
+                private_group = (target_uid, target_gid)
+                if (
+                    restricted_mode != (source_mode & ~0o222)
+                    and private_group not in verified_live_groups
+                ):
+                    _assert_private_group_has_no_unrelated_process(
+                        *private_group
+                    )
+                    verified_live_groups.add(private_group)
                 os.chmod(path, restricted_mode, follow_symlinks=False)
                 os.chown(path, 0, target_gid, follow_symlinks=False)
                 os.chmod(path, restricted_mode, follow_symlinks=False)

@@ -36,6 +36,13 @@ required, any POSIX access ACL is rejected before chmod: changing group bits
 would change the ACL mask and could otherwise activate an unrelated named
 principal whose permissions were previously masked out.
 
+NSS membership alone is insufficient because an already-running process can
+retain a removed group in its supplementary credentials. Before capture and
+each promotion/reseal boundary, R8 therefore reads stable credentials for
+every live Linux thread and rejects the target GID when it is held by a
+non-root filesystem identity other than the recorded owner. Unreadable,
+malformed or racing process state fails closed before chmod.
+
 Non-private groups, supplementary-only membership, other explicit or primary
 members, setuid, write permissions, owner/ACL/xattr drift, hardlinks and
 special files remain fail-closed. No runtime boundary, provider policy or hard
