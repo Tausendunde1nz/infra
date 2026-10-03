@@ -3790,11 +3790,19 @@ def _restore_worktree_write_barrier(
                     expected_locked_mode = -1
                 if stat.S_IMODE(metadata.st_mode) == expected_locked_mode:
                     pass
-                elif stat.S_IMODE(metadata.st_mode) in {
-                    base_restricted_mode,
-                    generated_restricted_mode,
-                    *({original_mode} if not original_mode & 0o022 else set()),
-                }:
+                elif (
+                    metadata.st_uid == record["uid"]
+                    and stat.S_IMODE(metadata.st_mode)
+                    in {
+                        base_restricted_mode,
+                        generated_restricted_mode,
+                        *(
+                            {original_mode}
+                            if not original_mode & 0o022
+                            else set()
+                        ),
+                    }
+                ):
                     _assert_worktree_path_xattrs(path, record)
                     _assert_no_posix_access_acl(
                         path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"

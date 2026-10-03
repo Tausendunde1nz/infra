@@ -2779,6 +2779,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
                 ):
                     runtime._lock_worktree_write_barrier(records)
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ):
+                    runtime._restore_worktree_write_barrier(records)
 
     def test_reseal_rejects_preexisting_acl_without_named_owner_access(
         self,
