@@ -109,9 +109,12 @@ with `S12_1_RECOVERY_WORKTREE_BARRIER_RED`. Root Git had legitimately replaced
 non-executable Git-normalized mode. Both `.git` guards and both root-only
 recovery Git directories remained intact. The r10 controller accepts only this
 bounded same-inode/root-owner/recorded-group transition with the recorded
-executable class and exact bound xattr/ACL state, immediately re-seals it from
-the journal, and re-runs the seal after every root Git body before accepting
-identity or the post-body barrier. Unjournaled group/other-writable
+executable class and exact bound xattr/ACL state. For owner-only paths it also
+recognizes only the byte-exact ACL transformation produced when Linux `chmod`
+updates the user-object, mask and other entries of the generated owner ACL,
+then reconstructs the exact journal-derived ACL. It immediately re-seals the
+inode and re-runs the seal after every root Git body before accepting identity
+or the post-body barrier. Unjournaled group/other-writable
 replacements, ACL/xattr drift, executable-class changes and ownership drift
 remain fail-closed.
 

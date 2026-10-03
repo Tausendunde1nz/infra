@@ -994,6 +994,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         accepted = (
             (0o660, 0o660),
             (0o640, 0o660),
+            (0o644, 0o600),
             (0o644, 0o664),
             (0o755, 0o755),
             (0o555, 0o755),
@@ -2758,6 +2759,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 ),
                 (1000, 1000, 0o600),
             )
+
             runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
 
             lock_context = (
@@ -2827,6 +2829,71 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._release_xattr_fingerprint((tracked,)),
                 release_fingerprint,
             )
+
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_generated_owner_acl_reseals_root_git_chmod_mutation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "control"
+            root.mkdir()
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            os.chown(root, 1000, 1000)
+            os.chown(tracked, 1000, 1000)
+            tracked.chmod(0o600)
+            metadata = tracked.lstat()
+            record = {
+                "kind": "regular",
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+                "uid": 1000,
+                "gid": 1000,
+                "mode": "0600",
+                "xattr_fingerprint": (
+                    runtime._worktree_path_xattr_fingerprint(tracked)
+                ),
+            }
+            records = {root: {tracked: record}}
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+                tracked.chmod(0o644)
+                self.assertTrue(
+                    runtime._worktree_chmod_mutated_owner_acl_transition(
+                        tracked, record, 0o644
+                    )
+                )
+                runtime._lock_worktree_write_barrier(records)
+            sealed = tracked.lstat()
+            self.assertEqual(
+                (sealed.st_uid, sealed.st_gid, stat.S_IMODE(sealed.st_mode)),
+                (0, 1000, 0o440),
+            )
+            self.assertEqual(
+                runtime._worktree_locked_acl_state(tracked, record),
+                ("generated", 0o440),
+            )
+            runtime._restore_worktree_write_barrier(records)
+            restored = tracked.lstat()
+            self.assertEqual(
+                (
+                    restored.st_uid,
+                    restored.st_gid,
+                    stat.S_IMODE(restored.st_mode),
+                ),
+                (1000, 1000, 0o600),
+            )
+            runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
 
     @unittest.skipUnless(
         sys.platform == "linux" and os.geteuid() == 0,

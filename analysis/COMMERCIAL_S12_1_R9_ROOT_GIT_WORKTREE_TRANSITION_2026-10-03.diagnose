@@ -41,6 +41,9 @@ Required correction
   executable class and either the exact recorded mode or a mode already closed
   to group/other writes.
 - Require the original bound xattr/ACL state before changing anything.
+- For an owner-only path, recognize only the byte-exact POSIX ACL produced
+  when Linux chmod changes the user-object, mask and other entries of the
+  journal-derived generated owner ACL; then rebuild the exact generated ACL.
 - Immediately restore the exact journal-derived sealed mode/ACL.
 - Re-run the worktree seal after the root Git body and before post-body identity
   and write-barrier acceptance.

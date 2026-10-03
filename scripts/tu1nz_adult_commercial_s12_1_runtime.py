@@ -2803,6 +2803,58 @@ def _worktree_barrier_owner_acl(
     )
 
 
+def _chmod_mutated_worktree_barrier_owner_acl(
+    mode: int, uid: int, *, kind: str, current_mode: int
+) -> bytes | None:
+    """Return the exact generated ACL after a root-Git chmod transition."""
+
+    acl = _worktree_barrier_owner_acl(mode, uid, kind=kind)
+    if acl is None:
+        return None
+    header = struct.Struct("<I")
+    entry = struct.Struct("<HHI")
+    entries = []
+    for offset in range(header.size, len(acl), entry.size):
+        tag, permissions, identifier = entry.unpack_from(acl, offset)
+        if tag == 0x01:
+            permissions = (current_mode >> 6) & 0o7
+        elif tag == 0x10:
+            permissions = (current_mode >> 3) & 0o7
+        elif tag == 0x20:
+            permissions = current_mode & 0o7
+        entries.append(entry.pack(tag, permissions, identifier))
+    return header.pack(2) + b"".join(entries)
+
+
+def _worktree_chmod_mutated_owner_acl_transition(
+    path: Path, record: dict[str, Any], current_mode: int
+) -> bool:
+    """Prove a chmod-only mutation of the exact generated owner ACL."""
+
+    try:
+        expected = _chmod_mutated_worktree_barrier_owner_acl(
+            int(record["mode"], 8),
+            record["uid"],
+            kind=record["kind"],
+            current_mode=current_mode,
+        )
+        if expected is None or not hasattr(os, "getxattr"):
+            return False
+        actual = os.getxattr(
+            path,
+            "system.posix_acl_access",
+            follow_symlinks=False,
+        )
+        return actual == expected and (
+            _worktree_path_xattr_fingerprint(
+                path, barrier_acl=expected
+            )
+            == record["xattr_fingerprint"]
+        )
+    except (KeyError, OSError, TypeError, ValueError, S12ControlError):
+        return False
+
+
 def _assert_post_chown_acl_preserves_access(
     path: Path,
     uid: int,
@@ -3585,6 +3637,12 @@ def _lock_worktree_write_barrier(
                         current_mode, mode
                     )
                 )
+                chmod_mutated_owner_acl_transition = (
+                    root_transition
+                    and _worktree_chmod_mutated_owner_acl_transition(
+                        path, record, current_mode
+                    )
+                )
                 if actual_kind != expected_kind or not (
                     original
                     or locked
@@ -3605,6 +3663,23 @@ def _lock_worktree_write_barrier(
                 if owner_acl_transition:
                     source_acl = None
                     restricted_mode = generated_restricted_mode
+                elif chmod_mutated_owner_acl_transition:
+                    source_acl = None
+                    restricted_mode = generated_restricted_mode
+                    _install_worktree_barrier_owner_acl(path, record)
+                    os.chmod(
+                        path,
+                        generated_restricted_mode,
+                        follow_symlinks=False,
+                    )
+                    _assert_worktree_barrier_owner_acl(
+                        path,
+                        record,
+                        "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                    )
+                    _assert_worktree_path_xattrs(
+                        path, record, barrier_locked=True
+                    )
                 else:
                     _assert_worktree_path_xattrs(path, record)
                     source_acl = _assert_source_worktree_acl_access(
