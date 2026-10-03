@@ -24,6 +24,16 @@ from tests.test_s12_1_r12_metadata_contract import fixture, private_json
 
 
 class WriterEnvelopeTests(unittest.TestCase):
+    def test_parent_validation_installs_supervisor_before_any_git(self):
+        import inspect
+        source=inspect.getsource(r._followup_validate_parent)
+        self.assertLess(source.index('GIT_WRITER_SCOPE=writers'),
+                        source.index('_followup_parent_closed('))
+        self.assertLess(source.index('validation_binding=binding'),source.index('read_only_preflight('))
+        source=inspect.getsource(r.followup)
+        self.assertNotIn('_followup_parent_closed(',source)
+        self.assertEqual(source.count('_followup_validate_parent(binding)'),3)
+
     def test_immutable_release_observation_overlaps_writer_and_acceptance(self):
         import inspect
         source=inspect.getsource(r._deploy_locked)
@@ -136,6 +146,15 @@ class AWriterTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertTrue(result.stdout.strip())
         self.assertEqual(result.stderr,'')
+
+    def test_validation_profile_cannot_admit_a_git_writer(self):
+        self.writer.validation_only=True
+        command=r._recovery_git_arguments(self.root,self.root/'.git',
+                                         'update-ref','refs/heads/not-authorized',self.sha)
+        with mock.patch.object(r.subprocess,'Popen') as spawn,self.assertRaises(r.S12ControlError):
+            self.writer.run(self.writer.command(command),30)
+        spawn.assert_not_called()
+        self.assertEqual(json.loads(self.writer.journal.read_text())['phase'],'FAILED')
 
     def test_worktree_reverted_write_during_initial_inventory_is_rejected(self):
         path=self.root/'existing';path.write_text('same contents');path.chmod(0o600)
@@ -702,6 +721,7 @@ class IntegratedChainTests(unittest.TestCase):
                 if pid==0:
                     def terminate(name):
                         if name=='GIT_WRITER_BOUND':
+                            if r.ACTIVE_ATTEMPT is None:return
                             profile=r.GIT_WRITER_SCOPE.operation['access_profile']
                             if crash_at=='GIT_READER_BOUND' and profile=='READ_ONLY':os._exit(73)
                             if crash_at=='GIT_WRITER_BOUND' and profile=='READ_ONLY':return
@@ -770,6 +790,14 @@ class IntegratedChainTests(unittest.TestCase):
                     self.assertEqual(result['deployment_count'],0)
                     self.assertEqual(result['observation_continuity'],'NOT_ASSERTED_ACROSS_INTERRUPTION')
                     self.assertEqual(observer_journal.read_bytes(),observer_before)
+                    validation=json.loads((f['state']/(r.FOLLOWUP_SLOT+'.validation.json')).read_bytes())
+                    self.assertEqual(validation['purpose'],'PARENT_VALIDATION_READ_ONLY')
+                    self.assertEqual(validation['phase'],'QUIET')
+                    self.assertGreater(len(validation['history']),0)
+                    for operation in validation['history']:
+                        self.assertEqual(operation['access_profile'],'READ_ONLY')
+                        self.assertNotIn('stdout',operation)
+                        self.assertTrue(all(task['exited'] for task in operation['task_history']))
                     closure=f['state']/(r.FOLLOWUP_SLOT+'.closed-without-deployment.json')
                     closed=closure.read_bytes()
                     self.assertEqual(r.followup(authorization,grant_hash,recovering=True),result)
@@ -920,6 +948,9 @@ class IntegratedChainTests(unittest.TestCase):
             path=f['app']/'kept';before=path.read_bytes();metadata=path.stat()
             path.write_bytes(b'foreign');path.write_bytes(before)
             os.utime(path,ns=(metadata.st_atime_ns,metadata.st_mtime_ns))
+        def validation_running(f):
+            path=f['state']/(r.FOLLOWUP_SLOT+'.validation.json')
+            value=json.loads(path.read_bytes());value['phase']='RUNNING';private_json(path,value)
         cases={
             'missing_baseline':lambda f:alter_journal(f,lambda value:value.pop('observer_baseline')),
             'wrong_binding':lambda f:alter_journal(f,lambda value:value.update(attempt_binding={})),
@@ -927,9 +958,50 @@ class IntegratedChainTests(unittest.TestCase):
             'failed':lambda f:alter_journal(f,lambda value:value.update(phase='FAILED')),
             'writer_history':lambda f:alter_journal(f,lambda value:value['history'][0].update(access_profile='BOUND_WRITE')),
             'reverted_worktree':reverted_worktree,
+            'validation_running':validation_running,
         }
         for name,tamper in cases.items():
             with self.subTest(case=name):self.full_chain(crash_at='PREDEPLOY_PREFLIGHT',tamper=tamper)
+
+    def test_03_parent_validation_replacement_git_is_never_executed(self):
+        # A private mount namespace confines the hostile /usr/bin/git mount
+        # to this child. Real ptrace/image checks must reject it before exec.
+        pid=os.fork()
+        if pid==0:
+            try:
+                import ctypes
+                self.assertEqual(ctypes.CDLL(None,use_errno=True).unshare(0x20000),0)
+                subprocess.run(['mount','--make-rprivate','/'],check=True)
+                def tamper(f):
+                    witness=f['base']/'unrestricted-git-executed'
+                    fake=f['base']/'replacement-git'
+                    fake.write_text('#!/bin/sh\necho escaped > '+str(witness)+'\nexit 1\n')
+                    fake.chmod(0o500)
+                    parent=r._followup_parent_closed
+                    observed=[]
+                    def validate(proof):
+                        self.assertIsNotNone(r.GIT_WRITER_SCOPE)
+                        self.assertTrue(r.GIT_WRITER_SCOPE.validation_only)
+                        self.assertEqual(r.GIT_WRITER_SCOPE.value['purpose'],'PARENT_VALIDATION_READ_ONLY')
+                        subprocess.run(['mount','--bind',str(fake),'/usr/bin/git'],check=True)
+                        observed.append(True)
+                        try:return parent(proof)
+                        finally:subprocess.run(['umount','/usr/bin/git'],check=True)
+                    patch=mock.patch.object(r,'_followup_parent_closed',side_effect=validate)
+                    patch.start()
+                    def cleanup():
+                        patch.stop()
+                        self.assertEqual(observed,[True])
+                        self.assertFalse(witness.exists())
+                    return cleanup
+                self.full_chain(crash_at='PREDEPLOY_PREFLIGHT',tamper=tamper)
+            except BaseException:
+                import traceback
+                traceback.print_exc()
+                os._exit(1)
+            os._exit(0)
+        _,status=os.waitpid(pid,0)
+        self.assertEqual(os.waitstatus_to_exitcode(status),0)
 
     def test_process_loss_at_each_rollback_boundary(self):
         for boundary in ('WITHDRAW_INTENT','WITHDRAWN','RESTORE_INTENT','RESTORED'):

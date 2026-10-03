@@ -47,6 +47,24 @@ closure write boundary, repeat closure idempotently and deny replay. With the
 prior complete native step already exceeding 51 minutes, the job bound is
 75 minutes for the additional cases; no test or protection is removed.
 
+CI 37157582599 on `e7bf71db23fac6adee82f0865982a03abd7566a3` passed
+57 integrated native tests (3430.294s), 20 native R12 tests and 1103 full-suite
+tests. Exact-head review 5403418674 found P1 4175358930: parent validation
+before observer-only closure could still start Git without the task supervisor.
+All three parent-validation entries (admission, empty closure and observer-only
+closure) now install the same descriptor-bound supervisor first. A separate
+fixed `r13-followup-1.validation.json` audit binds the explicit authorization,
+prospective worktree/parent baseline, executable images and complete read-only
+task lifetimes; it cannot grant metadata writes, staging writes or file stdout.
+It neither changes the original interruption journal nor admits another attempt.
+Reopening requires unchanged identities, baseline and QUIET completed readers;
+RUNNING/FAILED remains fail-closed without inventing observer continuity.
+The native negative case bind-mounts a replacement over `/usr/bin/git` inside
+an isolated private mount namespace during recovery validation: rejection must
+precede execution and the unrestricted-process witness must remain absent.
+Existing success, closure/interruption, reverted-write and replay tests remain
+mandatory. This delta requires fresh complete CI and exact-head review.
+
 **Current source release status: pending final CI/review and Git closure.** Exact-head Code Review of
 `28d7fe240068c6e728d4a5566403eae44843d4c7` found one remaining P1
 (`4173769781`): the prior recursive Git watch was installed after the yielded body's

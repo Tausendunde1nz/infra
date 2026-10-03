@@ -10330,8 +10330,10 @@ class _R13GitWriters:
     Ptrace stops fork/clone/exec/exit before admitting or retiring each task.
     Queued events are drained before PID reuse can confer another task's grant.
     """
-    def __init__(self, roots: Sequence[Path]):
+    def __init__(self, roots: Sequence[Path], *, validation_binding: dict | None = None):
         self.roots = tuple(roots)
+        self.validation_only = validation_binding is not None
+        binding = validation_binding if self.validation_only else ACTIVE_ATTEMPT
         self.directories = {r:_repository_recovery_git_directory(r) or r/'.git' for r in roots}
         self.controller_tid = threading.get_native_id()
         self.fd = None
@@ -10343,11 +10345,16 @@ class _R13GitWriters:
         self.operation = None
         self.libc = ctypes.CDLL(None, use_errno=True)
         self.libc.ptrace.restype = ctypes.c_long
-        self.journal = STATE_ROOT/'git-writer-scope.json'
-        self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=ACTIVE_ATTEMPT,
+        self.journal = STATE_ROOT/(FOLLOWUP_SLOT+'.validation.json' if self.validation_only
+                                   else 'git-writer-scope.json')
+        self.value = dict(schema='TU1NZ_S12_1_GIT_WRITER_V1', attempt_binding=binding,
                           phase='QUIET', sequence=0, tasks=[], operation=None,history=[])
+        if self.validation_only:
+            self.value['purpose'] = 'PARENT_VALIDATION_READ_ONLY'
         try:
-            if (sys.platform != 'linux' or os.geteuid() != 0 or ACTIVE_ATTEMPT is None
+            if (sys.platform != 'linux' or os.geteuid() != 0 or binding is None
+                    or (self.validation_only and (ACTIVE_ATTEMPT is not None
+                        or self.roots != (APPLICATION_ROOT,CONTROL_ROOT)))
                     or os.uname().machine not in {'x86_64','aarch64'}
                     or len({p.stat().st_dev for p in self.directories.values()}) != 1):
                 raise S12ControlError(GIT_WRITER_RED)
@@ -10398,18 +10405,26 @@ class _R13GitWriters:
             self.value['images'] = self.images
             if _barrier_path_present(self.journal):
                 old = _private_json(self.journal, GIT_WRITER_RED, maximum=4*1024*1024)
-                if (old.get('schema') != self.value['schema'] or old.get('attempt_binding') != ACTIVE_ATTEMPT
+                if (old.get('schema') != self.value['schema'] or old.get('attempt_binding') != binding
+                        or old.get('purpose') != self.value.get('purpose')
                         or old.get('phase') != 'QUIET' or old.get('tasks') != []
                         or old.get('images') != self.images or type(old.get('sequence')) is not int
                         or not 0 <= old['sequence'] <= 1024 or not isinstance(old.get('history'),list)
                         or len(old['history']) != old['sequence']
                         or old.get('fingerprint') != self.fingerprint()):
                     raise S12ControlError(GIT_WRITER_RED)
+                if self.validation_only and (
+                        old.get('observer_baseline') != _r13_observer_baseline(self.roots)
+                        or any(not isinstance(op,dict) or op.get('access_profile')!='READ_ONLY'
+                               or 'stdout' in op or not isinstance(op.get('task_history'),list)
+                               or any(not isinstance(task,dict) or task.get('exited') is not True
+                                      for task in op['task_history']) for op in old['history'])):
+                    raise S12ControlError(GIT_WRITER_RED)
                 self.value['sequence'] = old['sequence']
                 self.value['history'] = old.get('history',[])
                 if 'observer_baseline' in old:
                     self.value['observer_baseline'] = old['observer_baseline']
-            elif (self.roots == (APPLICATION_ROOT, CONTROL_ROOT)
+            elif self.validation_only or (self.roots == (APPLICATION_ROOT, CONTROL_ROOT)
                   and not _barrier_journal_present()
                   and not _barrier_path_present(ATTEMPT_MARKER)):
                 # Prospective, observed checkpoint, NOT historical provenance.
@@ -10455,7 +10470,7 @@ class _R13GitWriters:
             self.value.setdefault('failure_reason',reason)
         self.value['phase'] = 'FAILED'
         _atomic_json(self.journal,self.value)
-        for root in self.roots:
+        for root in (() if self.validation_only else self.roots):
             if _barrier_path_present(_r13_location(root)):
                 _r13_poison(_r13_location(root))
         error = S12ControlError(GIT_WRITER_RED)
@@ -10649,6 +10664,9 @@ class _R13GitWriters:
         if re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',boot_id) is None:
             self.fail()
         profile = self.access_profile(root,argv)
+        if self.validation_only and (profile!='READ_ONLY' or stdout is not None
+                                     or root not in self.roots):
+            self.fail()
         directory = self.directories[root] if root in self.directories else root
         if root not in self.directories:
             if root not in (FETCH_ROOT,RELEASE_STAGING_ROOT):
@@ -11411,6 +11429,33 @@ def _followup_authorization(path: Path, digest: str, *, recovering: bool) -> dic
     return value
 
 
+def _followup_validate_parent(binding: dict) -> None:
+    """Supervise validation without adopting or rewriting an attempt journal.
+
+    The fixed audit is bound to the explicit grant, not to the legacy attempt.
+    Its read-only lifetime records survive interruption; RUNNING/FAILED cannot
+    be re-admitted. This does not consume or renew the deployment permission.
+    """
+    global GIT_WRITER_SCOPE
+    if GIT_WRITER_SCOPE is not None or ACTIVE_ATTEMPT is not None:
+        raise S12ControlError(GIT_WRITER_RED)
+    _validate_secure_directory_chain(STATE_ROOT,Path('/'))
+    writers=_R13GitWriters((APPLICATION_ROOT,CONTROL_ROOT),validation_binding=binding)
+    GIT_WRITER_SCOPE=writers
+    try:
+        _r13_boundary('FOLLOWUP_VALIDATION_READY')
+        _followup_parent_closed(binding['parent_proof'])
+        read_only_preflight()
+        _r13_boundary('FOLLOWUP_VALIDATION_COMPLETE')
+        writers.check()
+        if writers.value['observer_baseline']!=_r13_observer_baseline(writers.roots):
+            writers.fail()
+        _r13_retire_git_writers()
+    finally:
+        writers.close(aborted=True)
+        GIT_WRITER_SCOPE=None
+
+
 def _followup_parent_closed(proof: dict) -> None:
     """No stale result alone can authorize a follow-up. Revalidate the chain."""
     _validate_secure_directory_chain(STATE_ROOT, Path("/"))
@@ -11510,8 +11555,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
                 empty_namespace=private and not names
                 observer_only=private and names=={'git-writer-scope.json'}
             if no_backup and observer_only:
-                _followup_parent_closed(authorization['parent_proof'])
-                read_only_preflight()
+                _followup_validate_parent(binding)
                 with _followup_namespace(binding), _r13_guard_scope():
                     journal=STATE_ROOT/'git-writer-scope.json'
                     original=_private_json(journal,FOLLOWUP_RED,maximum=4*1024*1024)
@@ -11562,8 +11606,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
                         parent_guard.close()
                     return result
             if no_backup and (no_namespace or empty_namespace):
-                _followup_parent_closed(authorization["parent_proof"])
-                read_only_preflight()
+                _followup_validate_parent(binding)
                 # Do not adopt or write into the possibly unbound mkdir result.
                 # The fixed consumed-slot parent owns this idempotent closure;
                 # an empty namespace is retained without an origin assertion.
@@ -11592,8 +11635,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
         if any(_barrier_path_present(p) for p in (
             STATE_ROOT/"attempts"/FOLLOWUP_SLOT,BACKUP_ROOT/FOLLOWUP_SLOT,closure)):
             raise S12ControlError(FOLLOWUP_RED)
-        _followup_parent_closed(authorization["parent_proof"])
-        read_only_preflight()
+        _followup_validate_parent(binding)
         _r13_preflight_storage()
         # O_EXCL, file fsync, parent fsync: even a crash/partial claim consumes
         # this one slot. No implicit retry and no deletion/reset operation.
