@@ -77,7 +77,9 @@ source ACL is retained throughout. The recovery lock and failure-path reseal
 recognize both bounded reverse-transition states—owner restored while the
 generated ACL remains, and owner restored after that ACL is removed but before
 the original mode is restored—and re-establish the root-owned barrier before
-any guard is released.
+any guard is released. A root-owned generated mode whose owner ACL is already
+absent is rejected as drift because teardown always restores the recorded owner
+before removing that ACL.
 New tracked inodes created by the completed root Git operation are checked for
 file capabilities, durably journaled with their exact source ACL/xattrs and
 then sealed through the same write barrier before release validation.

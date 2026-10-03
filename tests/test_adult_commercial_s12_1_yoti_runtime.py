@@ -2730,6 +2730,56 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             )
             runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
 
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_root_owned_generated_mode_without_owner_acl_is_rejected(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "control"
+            root.mkdir()
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            os.chown(root, 1000, 1000)
+            os.chown(tracked, 1000, 1000)
+            tracked.chmod(0o600)
+            metadata = tracked.lstat()
+            record = {
+                "kind": "regular",
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+                "uid": 1000,
+                "gid": 1000,
+                "mode": "0600",
+                "xattr_fingerprint": (
+                    runtime._worktree_path_xattr_fingerprint(tracked)
+                ),
+            }
+            records = {root: {tracked: record}}
+
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+                runtime._remove_worktree_barrier_owner_acl(tracked, record)
+                self.assertEqual(tracked.lstat().st_uid, 0)
+                self.assertEqual(
+                    stat.S_IMODE(tracked.lstat().st_mode), 0o440
+                )
+                runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
+                with self.assertRaisesRegex(
+                    runtime.S12ControlError,
+                    "S12_1_RECOVERY_WORKTREE_BARRIER_RED",
+                ):
+                    runtime._lock_worktree_write_barrier(records)
+
     def test_reseal_rejects_preexisting_acl_without_named_owner_access(
         self,
     ) -> None:

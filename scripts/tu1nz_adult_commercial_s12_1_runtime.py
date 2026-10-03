@@ -3567,21 +3567,11 @@ def _lock_worktree_write_barrier(
                 if actual_kind == "regular":
                     _assert_no_security_capability(path)
                 if locked:
-                    try:
-                        _state, expected_locked_mode = (
-                            _worktree_locked_acl_state(path, record)
-                        )
-                    except S12ControlError:
-                        # removexattr(2) may leave the former ACL-mask bits in
-                        # st_mode if a release was interrupted.  Accept only
-                        # the exact original non-ACL xattrs, then reseal.
-                        _assert_worktree_path_xattrs(path, record)
-                        _assert_no_posix_access_acl(
-                            path, "S12_1_RECOVERY_WORKTREE_BARRIER_RED"
-                        )
-                    else:
-                        if stat.S_IMODE(metadata.st_mode) == expected_locked_mode:
-                            continue
+                    _state, expected_locked_mode = (
+                        _worktree_locked_acl_state(path, record)
+                    )
+                    if stat.S_IMODE(metadata.st_mode) == expected_locked_mode:
+                        continue
                 if owner_acl_transition:
                     source_acl = None
                     restricted_mode = generated_restricted_mode
