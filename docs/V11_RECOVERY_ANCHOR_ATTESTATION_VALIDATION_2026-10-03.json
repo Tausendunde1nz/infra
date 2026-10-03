@@ -1,0 +1,94 @@
+{
+  "blockers": [
+    "GUARD_COMPLETION_REQUIRES_IRREVERSIBLE_SEAL_BEFORE_PHASE1",
+    "GUARD_PHASE_OWNERSHIP_AND_FULL_PHASE1_ROLLBACK_CONFLICT",
+    "PRODUCTION_INNER_TRANSACTION_NOT_BOUND",
+    "CROSS_BOOT_ATTESTATION_REVALIDATION_NOT_BOUND",
+    "OUTER_TIMEOUT_INDEPENDENT_CLEANUP_PROOF_MISSING"
+  ],
+  "control": {
+    "ahead": 11,
+    "changed_paths": 6,
+    "commit": "2281b2b397c017bc370ba108eab3dc00c989eaa5",
+    "governance": "GOVERNANCE_V1_1_ACTIVE",
+    "merged_prs": [
+      74,
+      75
+    ],
+    "previous": "998b8c2321e5741b85a6e320930e24826d6a62d9",
+    "remote_branch": "main",
+    "tree": "3d52fe0898238e1132d8947a7e171d8086982170"
+  },
+  "date_utc": "2026-10-03",
+  "historical_integration": "1cf0d797ab025fb08466b92aed156ca5d7d63035",
+  "infra_parent": "8fcd4aaacd6c497ff50e4964733c9e0350e3a781",
+  "live_mutations": false,
+  "merge_performed": false,
+  "offline_status": "TESTED_PARTIAL_INTEGRATION",
+  "pr_created": false,
+  "preservation": [
+    {
+      "count": 42,
+      "passed": true,
+      "set": "hardening42"
+    },
+    {
+      "count": 701,
+      "passed": true,
+      "set": "historical701"
+    },
+    {
+      "count": 1125,
+      "passed": true,
+      "set": "private1125"
+    },
+    {
+      "count": 30,
+      "passed": true,
+      "set": "sources30"
+    },
+    {
+      "count": 17,
+      "old_worktree_and_backup_byte_identical": true,
+      "set": "original_anchor17"
+    }
+  ],
+  "privileged_audit": {
+    "bundled_launcher_complete": false,
+    "executed": false,
+    "prepared_only": true,
+    "protected_metadata_and_historical_mechanism_still_unresolved": true
+  },
+  "production_activation_ready": false,
+  "production_control": {
+    "classification": "UNRESOLVED_PRODUCTION_DRIFT",
+    "mechanism": "UNATTRIBUTED",
+    "original_evidence": "/tmp/tu1nz-v11-authority-y6qov3d6/blocked-summary.json",
+    "private_evidence": "/opt/tu1nz_repos/network-hardening-private-2026-09-22/v11-offline-20261003T073605Z/blocked-summary.json",
+    "repair_permitted": false,
+    "root_process_visibility": "INCOMPLETE",
+    "sha256": "a189312a65d8e9816ebc8bbbf6ed296af8222c102e05d8929783118854bd8d13",
+    "unit_file_references": 10,
+    "visible_process_references": 0
+  },
+  "root_validation_ready": false,
+  "schema": 1,
+  "status": "LIVE_NO_GO",
+  "tests": {
+    "all_executed_checks_passed": true,
+    "anchor_cases": 127,
+    "control_current_cases": 60,
+    "control_runner": "RUNPY_DIRECT_FUNCTIONS_WITH_EXACT_PARAMETRIZE_ADAPTER",
+    "control_skips": 0,
+    "full_suite_sha256": "d64ab2ad00c965f5c11d2ea7765692f9f5668a68fffca3a4f73a83383c63a272",
+    "governance_cases": 26,
+    "governance_log_sha256": "417d2aa2b9591151f840c067476aec8b4763b154774e8dc693d61eaf74bf6dcb",
+    "original_anchor_cases": 78,
+    "skip_reason": "TWO_APPLICATION_CHECKOUTS_OBJECTIVELY_ABSENT",
+    "targeted_cases": 2512,
+    "targeted_groups": 16,
+    "workflow_reported_cases": 585,
+    "workflow_skips": 2,
+    "workflow_steps": 108
+  }
+}

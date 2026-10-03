@@ -1,11 +1,11 @@
 """Exact authorized supersession. A descendant alone never grants admission."""
 import re
-HEAD='998b8c2321e5741b85a6e320930e24826d6a62d9'
-TREE='8384fc6f2a6d34fb5f4e9199735e0f66bac33213'
-PREVIOUS='c13358d9adaf783f42feb5c627b6f12825f5805e'
-AHEAD=3
+HEAD='2281b2b397c017bc370ba108eab3dc00c989eaa5'
+TREE='3d52fe0898238e1132d8947a7e171d8086982170'
+PREVIOUS='998b8c2321e5741b85a6e320930e24826d6a62d9'
+AHEAD=11
 FORBIDDEN_RESTORE={PREVIOUS,'b78bb2a753aa815d47a99969668d64960573050b'}
-PATHS=frozenset(('AGENTS.md', 'governance/SUPERSEDED.json', 'governance/preflight.py', 'governance/test_preflight.py'))
+PATHS=frozenset(('managed/bin/tu1nz-mychatbuddy-rc5-controlled-start','managed/bin/tu1nz-mychatbuddy-state-metadata-repair','managed/tests/test_mychatbuddy_rc5_controlled_start.py','managed/tests/test_mychatbuddy_state_metadata_repair.py','plans/business/MYCHATBUDDY_RC5_CONTROLLED_START_V2.md','plans/business/MYCHATBUDDY_RC5_STATE_METADATA_REPAIR_V1.md'))
 class Refused(ValueError):pass
 
 def admit(observation,transition):
