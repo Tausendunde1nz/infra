@@ -248,7 +248,10 @@ The reverse transition changes ownership back first and removes the generated
 ACL only afterward. Exact recorded-owner/generated-ACL and
 recorded-owner/no-ACL intermediate states are accepted solely when their inode,
 mode and normalized xattr contract match the journal, making both transitions
-crash-resumable without an access gap.
+crash-resumable without an access gap. The release-wide xattr baseline omits
+only those byte-exact, journal-derived generated ACLs; final validation after
+their intentional removal must match that normalized baseline while preserving
+every source ACL and unrelated xattr.
 Journal-backed rollback and crash recovery additionally recognize the finite
 intermediate postures created by the controller itself: recorded ownership
 with traversal-preserving restricted mode, root-owned checkout roots retaining

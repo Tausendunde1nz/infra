@@ -922,6 +922,9 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertGreaterEqual(
             contract.count("_release_xattr_fingerprint("), 2
         )
+        self.assertIn(
+            "expected_omitted_xattrs=release_xattr_omissions", contract
+        )
         self.assertIn("release_paths.update(selected_roots)", contract)
         self.assertIn("_hard_lock_repository_parent(parent_record)", contract)
         self.assertNotIn("_active_guarded_owner_handle_count(", contract)
@@ -2533,6 +2536,22 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 runtime._worktree_locked_acl_state(tracked, record),
                 ("generated", 0o440),
             )
+            omissions = runtime._worktree_release_xattr_omissions(records)
+            self.assertEqual(
+                omissions,
+                {
+                    tracked: {
+                        "system.posix_acl_access": (
+                            runtime._worktree_barrier_owner_acl(
+                                0o600, 1000, kind="regular"
+                            )
+                        )
+                    }
+                },
+            )
+            release_fingerprint = runtime._release_xattr_fingerprint(
+                (tracked,), expected_omitted_xattrs=omissions
+            )
 
             events = []
             chown = os.chown
@@ -2567,6 +2586,10 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                 (1000, 1000, 0o600),
             )
             runtime._assert_no_posix_access_acl(tracked, "S12_TEST_RED")
+            self.assertEqual(
+                runtime._release_xattr_fingerprint((tracked,)),
+                release_fingerprint,
+            )
 
     @unittest.skipUnless(
         sys.platform == "linux" and os.geteuid() == 0,

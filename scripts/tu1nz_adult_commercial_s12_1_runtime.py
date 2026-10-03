@@ -3137,6 +3137,45 @@ def _assert_worktree_barrier_owner_acl(
         raise S12ControlError(safe_code) from None
 
 
+def _worktree_release_xattr_omissions(
+    records: dict[Path, dict[Path, dict[str, Any]]],
+) -> dict[Path, dict[str, bytes]]:
+    """Return only exact generated ACLs that teardown intentionally removes."""
+
+    omissions: dict[Path, dict[str, bytes]] = {}
+    try:
+        for root_entries in records.values():
+            for path, record in root_entries.items():
+                try:
+                    path.lstat()
+                except FileNotFoundError:
+                    continue
+                try:
+                    acl_state, _locked_mode = _worktree_locked_acl_state(
+                        path, record
+                    )
+                except S12ControlError:
+                    # A newly journaled root-owned checkout path can already
+                    # carry its exact source xattrs without a temporary ACL.
+                    _assert_worktree_path_xattrs(path, record)
+                    continue
+                if acl_state != "generated":
+                    continue
+                acl = _worktree_barrier_owner_acl(
+                    int(record["mode"], 8),
+                    record["uid"],
+                    kind=record["kind"],
+                )
+                if acl is None:
+                    raise OSError
+                omissions[path] = {"system.posix_acl_access": acl}
+    except S12ControlError:
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    except (KeyError, OSError, TypeError, ValueError):
+        raise S12ControlError("S12_1_RECOVERY_GIT_BARRIER_RED") from None
+    return omissions
+
+
 def _capture_worktree_write_barrier(
     roots: Sequence[Path],
     repository_records: dict[Path, dict[str, Any]],
@@ -7092,8 +7131,14 @@ def _serialized_repository_recovery(
                         selected_roots,
                         tuple(release_paths),
                     )
+                    release_xattr_omissions = (
+                        _worktree_release_xattr_omissions(
+                            selected_worktree_barrier
+                        )
+                    )
                     release_xattr_fingerprint = _release_xattr_fingerprint(
-                        tuple(release_paths)
+                        tuple(release_paths),
+                        expected_omitted_xattrs=release_xattr_omissions,
                     )
                     release_quiescence = _GuardedHandleQuiescence(
                         tuple(release_paths), selected_roots
