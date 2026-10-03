@@ -44,6 +44,8 @@ FOLLOWUP_PARENT = {
     "r12_original": "8e2bb8ec334584d2a87e7b1d5b0f01fcf9463ed37281510fa56a9e49d89250ae",
 }
 ACTIVE_ATTEMPT: dict[str, Any] | None = None
+MATERIALIZATION_RECORDS: dict | None = None
+MATERIALIZATION_RED = "S12_1_MATERIALIZATION_CONTRACT_RED"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -7312,7 +7314,13 @@ def _serialized_repository_recovery(
             _validate_root_git_contract(git_directory)
         for root, git_dir in barriers.items():
             _clear_stale_git_locks(root, git_dir)
-        yield barriers
+        global MATERIALIZATION_RECORDS
+        previous_materialization = MATERIALIZATION_RECORDS
+        MATERIALIZATION_RECORDS = selected_worktree_barrier
+        try:
+            yield barriers
+        finally:
+            MATERIALIZATION_RECORDS = previous_materialization
         # Root Git may preserve a journaled inode while temporarily restoring
         # its source write mode, or normalize its non-executable permission
         # class while replacing the checked-out content.  Re-seal those exact
@@ -7656,14 +7664,22 @@ def _restore_repository(
     ):
         raise S12ControlError("S12_1_BACKUP_REPOSITORY_STATE_RED")
     _seed_repository_from_bundle(root, git_arguments, bundle, record)
-    _run(git_arguments("checkout", "--force", "--detach", commit))
-    _run(git_arguments(*clean_arguments))
+    if ACTIVE_ATTEMPT is not None:
+        _r13_materialize_undo(root, git_directory)
+        _run(git_arguments("read-tree", commit))
+        _run(git_arguments("update-ref", "--no-deref", "HEAD", commit))
+    else:
+        _run(git_arguments("checkout", "--force", "--detach", commit))
+        _run(git_arguments(*clean_arguments))
     _run(git_arguments("branch", "-f", release_branch, release_branch_tip))
     if branch is not None:
         if branch != release_branch:
             _run(git_arguments("branch", "-f", branch, commit))
-        _run(git_arguments("checkout", "--force", branch))
-        _run(git_arguments(*clean_arguments))
+        if ACTIVE_ATTEMPT is not None:
+            _run(git_arguments("symbolic-ref", "HEAD", "refs/heads/"+branch))
+        else:
+            _run(git_arguments("checkout", "--force", branch))
+            _run(git_arguments(*clean_arguments))
     for reference, target in sorted(managed_refs.items()):
         if target is None:
             _run(git_arguments("update-ref", "-d", reference))
@@ -8508,12 +8524,15 @@ def _sync_repositories(
         ),
         timeout=300,
     )
-    _run(_selected_git_arguments(APPLICATION_ROOT, application_git, "checkout", "main"))
-    _run(
+    if ACTIVE_ATTEMPT is not None:
+        _r13_materialize(APPLICATION_ROOT, application_git, APPLICATION_COMMIT, "main")
+    else:
+        _run(_selected_git_arguments(APPLICATION_ROOT, application_git, "checkout", "main"))
+        _run(
         _selected_git_arguments(
             APPLICATION_ROOT, application_git, "merge", "--ff-only", APPLICATION_COMMIT
         )
-    )
+        )
     _run(
         _selected_git_arguments(
             CONTROL_ROOT,
@@ -8543,12 +8562,15 @@ def _sync_repositories(
     target_control = _selected_git(
         CONTROL_ROOT, control_git, "rev-parse", f"{FREEZE_TAG}^{{commit}}"
     )
-    _run(_selected_git_arguments(CONTROL_ROOT, control_git, "checkout", "control-main"))
-    _run(
+    if ACTIVE_ATTEMPT is not None:
+        _r13_materialize(CONTROL_ROOT, control_git, target_control, "control-main")
+    else:
+        _run(_selected_git_arguments(CONTROL_ROOT, control_git, "checkout", "control-main"))
+        _run(
         _selected_git_arguments(
             CONTROL_ROOT, control_git, "merge", "--ff-only", target_control
         )
-    )
+        )
     if _selected_identity(APPLICATION_ROOT, application_git) != (
         APPLICATION_COMMIT,
         APPLICATION_TREE,
@@ -9366,8 +9388,9 @@ class _R12AttributeGuard:
     Inotify alone cannot distinguish our fchmod from a competing owner's
     chmod. Attribute events from ANY other TID (including root) are RED.
     """
-    def __init__(self, paths: Sequence[Path]):
+    def __init__(self, paths: Sequence[Path], *, event_mask: int = 4):
         self.fd = None
+        self.event_mask = event_mask
         library = ctypes.CDLL(None, use_errno=True)
         init = library.fanotify_init
         init.argtypes = [ctypes.c_uint, ctypes.c_uint]
@@ -9382,7 +9405,7 @@ class _R12AttributeGuard:
         mark.restype = ctypes.c_int
         try:
             for path in sorted(set(paths), key=os.fsencode):
-                mask = 4 | (0x48000000 if path.is_dir() else 0)
+                mask = event_mask | (0x48000000 if path.is_dir() else 0)
                 if mark(descriptor, 1, mask, -100, os.fsencode(path)) != 0:
                     raise S12ControlError(R12_RED)
             self.assert_quiet()
@@ -9403,7 +9426,7 @@ class _R12AttributeGuard:
                     os.close(fd)
                 if size < 24 or offset + size > len(data) or metadata_size != 24 or version != 3:
                     raise S12ControlError(R12_RED)
-                if mask & ~(4 | 0x40000000) or pid != threading.get_native_id():
+                if mask & ~(self.event_mask | 0x40000000) or pid != threading.get_native_id():
                     raise S12ControlError(R12_RED)
                 offset += size
 
@@ -9865,6 +9888,358 @@ def reconcile_metadata(contract_path: Path) -> dict:
         return _r12_reconcile_locked(contract_path)
 
 
+def _r13_boundary(name: str) -> None:
+    """Fault-injection boundary; production never retries activation."""
+
+
+def _r13_tree(root: Path, git: Path, revision: str) -> dict[bytes, tuple[str, str]]:
+    entries = {}
+    for raw in _bounded_nul_command_records(_selected_git_arguments(
+            root, git, "ls-tree", "-r", "-z", revision), MATERIALIZATION_RED):
+        header, name = raw.split(b"\t", 1)
+        mode, kind, oid = header.decode("ascii").split()
+        _validated_git_paths((name,), MATERIALIZATION_RED)
+        if mode not in {"100644", "100755", "120000"} or kind != "blob" or name in entries:
+            raise S12ControlError(MATERIALIZATION_RED)
+        entries[name] = (mode, oid)
+    return entries
+
+
+def _r13_snapshot(path: Path) -> dict | None:
+    if not _barrier_path_present(path):
+        return None
+    meta = path.lstat()
+    link = stat.S_ISLNK(meta.st_mode)
+    fd = _r12_open(path, inspect_symlink=link)
+    try:
+        if link:
+            if meta.st_nlink != 1:
+                raise S12ControlError(MATERIALIZATION_RED)
+            return dict(device=meta.st_dev, inode=meta.st_ino, birth=_r12_birth(fd),
+                        kind="symlink", uid=meta.st_uid, gid=meta.st_gid,
+                        mode="0777", content=os.fsencode(os.readlink(path)).hex(), attrs={})
+        value = _r12_snapshot(path, fd, None)
+        metadata = value["metadata"]
+        metadata.pop("links")  # directory nlink changes only through bound child moves
+        return dict(**metadata, birth=value["birth"], attrs=value["xattrs"],
+                    content=_sha256_descriptor(fd) if metadata["kind"] == "regular" else None)
+    finally:
+        os.close(fd)
+
+
+def _r13_location(root: Path) -> Path:
+    if root not in {APPLICATION_ROOT, CONTROL_ROOT} or ACTIVE_ATTEMPT is None:
+        raise S12ControlError(MATERIALIZATION_RED)
+    return STATE_ROOT/"materialization"/("application" if root == APPLICATION_ROOT else "control")
+
+
+def _r13_load(root: Path) -> tuple[Path, dict]:
+    tx = _r13_location(root)
+    _validate_secure_directory_chain(tx, Path("/"))
+    value = _private_json(tx/"journal.json", MATERIALIZATION_RED, maximum=32*1024*1024)
+    if (value.get("schema") != "TU1NZ_S12_1_MATERIALIZATION_V1"
+            or value.get("attempt_binding") != ACTIVE_ATTEMPT or value.get("root") != str(root)
+            or value.get("phase") not in {"PREPARING", "READY", "APPLYING", "APPLIED", "UNDOING", "UNDONE"}
+            or value.get("historical_continuity") is not False or value.get("unsafe") is True
+            or not isinstance(value.get("entries"), list)):
+        raise S12ControlError(MATERIALIZATION_RED)
+    names = []
+    for entry in value["entries"]:
+        name = bytes.fromhex(entry["path_hex"])
+        _validated_git_paths((name,), MATERIALIZATION_RED)
+        if name.split(b"/")[0] in {b".git", os.fsencode(RECOVERY_GIT_DIRECTORY)}:
+            raise S12ControlError(MATERIALIZATION_RED)
+        names.append(name)
+    if len(set(names)) != len(names):
+        raise S12ControlError(MATERIALIZATION_RED)
+    return tx, value
+
+
+def _r13_save(tx: Path, value: dict) -> None:
+    _atomic_json(tx/"journal.json", value)
+
+
+@contextmanager
+def _r13_guards(root: Path, tx: Path, value: dict):
+    paths = _r12_index_guard_paths((root,)) | {tx, tx/"new", tx/"old"}
+    for i, entry in enumerate(value["entries"]):
+        path = root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+        paths.add(path)
+        paths.update(p for p in path.parents if p == root or root in p.parents)
+        paths.update((tx/"new"/str(i), tx/"old"/str(i)))
+    # The PID-attributed notification group rejects even reverted mutations by
+    # another root thread. The permission group fences opens; ptrace quiesces
+    # already-held descriptors. Neither payload equality nor uid proves origin.
+    before = _r12_scope_snapshot(paths, {})
+    existing = tuple(p for p in paths if p.exists() and not p.is_symlink())
+    open_guard = attrs = quiet = None
+    try:
+        open_guard = _WorktreeReleaseGuard((root,), existing)
+        attrs = _R12AttributeGuard(existing, event_mask=0xFCE)
+        quiet = _GuardedHandleQuiescence(existing, (root,))
+        quiet.acquire()
+        if _r12_scope_snapshot(paths, {}) != before:
+            raise S12ControlError(MATERIALIZATION_RED)
+        def check():
+            quiet.assert_quiesced()
+            open_guard._assert_fanotify_quiet()
+            attrs.assert_quiet()
+        check()
+        yield check
+        check()
+    except S12ControlError:
+        # A detected competing mutation is NOT a recoverable simulated crash.
+        # Keep the claim and barriers; never legitimize a reverted write later.
+        value["unsafe"]=True
+        _r13_save(tx,value)
+        raise
+    finally:
+        if quiet is not None:
+            quiet.close()
+        if open_guard is not None:
+            open_guard.close()
+        if attrs is not None:
+            attrs.close()
+
+
+def _r13_move(source: Path, target: Path, expected: dict, check: Callable) -> None:
+    check()
+    if _r13_snapshot(source) != expected or _barrier_path_present(target):
+        raise S12ControlError(MATERIALIZATION_RED)
+    if expected["kind"]=="directory" and any(source.iterdir()):
+        raise S12ControlError(MATERIALIZATION_RED)
+    source_parent = _r12_open(source.parent)
+    target_parent = _r12_open(target.parent)
+    try:
+        operation = ctypes.CDLL(None, use_errno=True).renameat2
+        operation.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        operation.restype = ctypes.c_int
+        if operation(source_parent, os.fsencode(source.name), target_parent, os.fsencode(target.name), 1):
+            raise S12ControlError(MATERIALIZATION_RED)  # RENAME_NOREPLACE; no clobber fallback
+        os.fsync(source_parent); os.fsync(target_parent)
+    finally:
+        os.close(source_parent); os.close(target_parent)
+    if _r13_snapshot(target) != expected or _barrier_path_present(source):
+        raise S12ControlError(MATERIALIZATION_RED)
+    check()
+
+
+def _r13_publish_records(root: Path, value: dict, *, undo: bool) -> None:
+    global MATERIALIZATION_RECORDS
+    journal = _barrier_json(BARRIER_MARKER)
+    loaded = _parse_worktree_barrier_payload(
+        journal["worktree_write_barrier"], (APPLICATION_ROOT, CONTROL_ROOT))
+    records = MATERIALIZATION_RECORDS if MATERIALIZATION_RECORDS is not None else loaded
+    for entry in value["entries"]:
+        path = root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+        record = entry["before_record"] if undo else entry.get("after_record")
+        if record is None:
+            records[root].pop(path, None)
+        else:
+            records[root][path] = record
+    journal["worktree_write_barrier"] = _worktree_barrier_payload(
+        (APPLICATION_ROOT, CONTROL_ROOT), records)
+    _atomic_barrier_json(BARRIER_MARKER, journal)
+
+
+def _r13_materialize(root: Path, git: Path, target: str, branch: str) -> None:
+    if MATERIALIZATION_RECORDS is None or _selected_branch_or_none(root, git) != branch:
+        raise S12ControlError(MATERIALIZATION_RED)
+    old, _ = _selected_identity(root, git)
+    if _run(_selected_git_arguments(root, git, "merge-base", "--is-ancestor", old, target), check=False).returncode:
+        raise S12ControlError(MATERIALIZATION_RED)
+    tx = _r13_location(root)
+    if _barrier_path_present(tx):
+        raise S12ControlError("S12_1_MATERIALIZATION_REPLAY_RED")
+    before, after = _r13_tree(root, git, old), _r13_tree(root, git, target)
+    initial_paths = _r12_index_guard_paths((root,))
+    initial_snapshot = _r12_scope_snapshot(initial_paths,
+        {root/os.fsdecode(name): binding for name,binding in before.items()})
+    changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+    new_dirs = set()
+    for name in after:
+        for ancestor in _path_ancestors(name):
+            path = root/os.fsdecode(ancestor)
+            if not _barrier_path_present(path):
+                new_dirs.add(ancestor)
+            elif not path.is_dir() or path.is_symlink():
+                raise S12ControlError(MATERIALIZATION_RED)  # finite contract: no directory/type swaps
+    names = sorted(new_dirs, key=lambda n:(n.count(b"/"),n)) + sorted(changed)
+    repo = _barrier_json(BARRIER_MARKER)["repositories"]["application" if root==APPLICATION_ROOT else "control"]
+    uid, gid, _ = _recorded_path_metadata(repo, "root")
+    entries = []
+    for name in names:
+        path = root/os.fsdecode(name)
+        mode, oid = ("directory", None) if name in new_dirs else after.get(name, (None,None))
+        current = _r13_snapshot(path)
+        if name not in before and current is not None:
+            raise S12ControlError(MATERIALIZATION_RED)
+        entries.append(dict(path_hex=name.hex(), git_mode=mode, blob=oid, before=current,
+            before_record=MATERIALIZATION_RECORDS[root].get(path), after=None, after_record=None,
+            policy=dict(uid=uid,gid=gid,mode="2770" if mode=="directory" else "0770" if mode=="100755" else "0660"),
+            step="PREPARED"))
+    _ensure_private_directory_durable(tx, Path("/"))
+    if tx.stat().st_dev != root.stat().st_dev:
+        raise S12ControlError(MATERIALIZATION_RED)
+    for name in ("new", "old"):
+        _ensure_private_directory_durable(tx/name, Path("/"))
+        if os.listxattr(tx/name):
+            raise S12ControlError(MATERIALIZATION_RED)
+    value = dict(schema="TU1NZ_S12_1_MATERIALIZATION_V1", root=str(root), attempt_binding=ACTIVE_ATTEMPT,
+                 old_commit=old, target_commit=target, branch=branch, historical_continuity=False,
+                 phase="PREPARING", entries=entries)
+    _r13_save(tx,value)  # policies + finite path set precede every allocation
+    with _r13_guards(root,tx,value) as allocation_check:
+        if _r12_scope_snapshot(initial_paths,
+                {root/os.fsdecode(name): binding for name,binding in before.items()}) != initial_snapshot:
+            raise S12ControlError(MATERIALIZATION_RED)
+        _r13_allocate_and_apply(root,git,tx,value,allocation_check)
+
+
+def _r13_allocate_and_apply(root: Path, git: Path, tx: Path, value: dict,
+                           allocation_check: Callable) -> None:
+    entries = value["entries"]
+    old, target = value["old_commit"], value["target_commit"]
+    for i, entry in enumerate(entries):
+        allocation_check()
+        if entry["git_mode"] is None:
+            continue
+        stage = tx/"new"/str(i)
+        mode = entry["git_mode"]
+        if mode == "directory":
+            stage.mkdir(mode=0o700)
+        else:
+            blob = subprocess.run(_selected_git_arguments(root,git,"cat-file","blob",entry["blob"]),
+                check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120).stdout
+            if len(blob)>32*1024*1024 or hashlib.sha1(b"blob "+str(len(blob)).encode()+b"\0"+blob).hexdigest()!=entry["blob"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+            if mode == "120000":
+                link=os.fsdecode(blob)
+                destination=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+                if os.path.isabs(link) or not (destination.parent/link).resolve().is_relative_to(root):
+                    raise S12ControlError(MATERIALIZATION_RED)
+                stage.symlink_to(link)
+            else:
+                _write_private_backup_blob(stage,blob)
+        os.chown(stage,0,entry["policy"]["gid"],follow_symlinks=False)
+        if mode != "120000":
+            if os.listxattr(stage):
+                raise S12ControlError(MATERIALIZATION_RED)
+            fd = _r12_open(stage)
+            try:
+                identity = _r12_stat(fd)
+            finally:
+                os.close(fd)
+            destination=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            record=dict(kind=identity["kind"],device=identity["device"],inode=identity["inode"],
+                        **entry["policy"],xattr_fingerprint=_r12_xattr_fingerprint(destination,identity,{}))
+            _install_worktree_barrier_owner_acl(stage,record)
+            os.chmod(stage,int(record["mode"],8)&~0o222)
+            entry["after_record"]=record
+            fd=_r12_open(stage)
+            try:os.fsync(fd)
+            finally:os.close(fd)
+        entry["after"]=_r13_snapshot(stage)
+        _fsync_directory(stage.parent)
+        allocation_check()  # reject foreign creation/replacement before binding
+        entry["step"]="BOUND"
+        _r13_save(tx,value)  # identity + kernel birth time bound before publication
+        _r13_boundary("OBJECT_BOUND")
+    value["phase"]="READY";_r13_save(tx,value)
+    # Add marks on the newly allocated inodes before they enter the worktree.
+    # Keep the allocation guard continuously held across this watch handoff.
+    with _r13_guards(root,tx,value) as publication_check:
+        def check():
+            allocation_check()
+            publication_check()
+        value["phase"]="APPLYING";_r13_save(tx,value)
+        for i,entry in enumerate(entries):
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            if entry["before"] is not None:
+                entry["step"]="RETIRE_INTENT";_r13_save(tx,value);_r13_boundary("RETIRE_INTENT")
+                _r13_move(path,tx/"old"/str(i),entry["before"],check)
+                _r13_boundary("RETIRED")
+            if entry["after"] is not None:
+                entry["step"]="PUBLISH_INTENT";_r13_save(tx,value);_r13_boundary("PUBLISH_INTENT")
+                _r13_move(tx/"new"/str(i),path,entry["after"],check)
+                _r13_boundary("PUBLISHED")
+            entry["step"]="APPLIED";_r13_save(tx,value)
+        _r13_publish_records(root,value,undo=False)
+        _r13_boundary("RECORDS_PUBLISHED")
+        # Git updates only its already quarantined metadata. It never creates
+        # live worktree objects or propagates a default ACL in this contract.
+        _run(_selected_git_arguments(root,git,"read-tree",target))
+        _r13_boundary("INDEX_UPDATED")
+        _run(_selected_git_arguments(root,git,"update-ref","HEAD",target,old))
+        _run(_selected_git_arguments(root,git,"update-ref","ORIG_HEAD",old))
+        _r13_boundary("REF_UPDATED")
+        if _selected_identity(root,git)[0] != target:
+            raise S12ControlError(MATERIALIZATION_RED)
+        check();value["phase"]="APPLIED";_r13_save(tx,value)
+
+
+def _r13_materialize_undo(root: Path, git: Path) -> None:
+    tx = _r13_location(root)
+    if not _barrier_path_present(tx):
+        return
+    tx,value = _r13_load(root)
+    if value["phase"]=="UNDONE":
+        return
+    with _r13_guards(root,tx,value) as check:
+        value["phase"]="UNDOING";_r13_save(tx,value)
+        for i in reversed(range(len(value["entries"]))):
+            entry=value["entries"][i]
+            path=root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
+            current=_r13_snapshot(path)
+            stage=_r13_snapshot(tx/"new"/str(i)) if entry["after"] is not None else None
+            retired=_r13_snapshot(tx/"old"/str(i))
+            if current==entry["before"]:
+                allowed={"PREPARED","BOUND","RETIRE_INTENT","RESTORE_INTENT","UNDONE"}
+                if entry["before"] is None:
+                    allowed|={"PUBLISH_INTENT","WITHDRAW_INTENT","APPLIED"}
+                if entry["step"] not in allowed or retired is not None or stage!=entry["after"]:
+                    raise S12ControlError(MATERIALIZATION_RED)
+            elif current==entry["after"] and entry["after"] is not None:
+                if (entry["step"] not in {"PUBLISH_INTENT","APPLIED","WITHDRAW_INTENT"}
+                        or stage is not None or retired!=entry["before"]):
+                    raise S12ControlError(MATERIALIZATION_RED)
+            elif current is None:
+                if (entry["step"] not in {"RETIRE_INTENT","PUBLISH_INTENT","APPLIED","WITHDRAW_INTENT","RESTORE_INTENT"}
+                        or stage!=entry["after"] or retired!=entry["before"]):
+                    raise S12ControlError(MATERIALIZATION_RED)
+            else:
+                raise S12ControlError(MATERIALIZATION_RED)
+            if entry["after"] is not None and current==entry["after"]:
+                entry["step"]="WITHDRAW_INTENT";_r13_save(tx,value);_r13_boundary("WITHDRAW_INTENT")
+                _r13_move(path,tx/"new"/str(i),entry["after"],check)
+                _r13_boundary("WITHDRAWN");current=None
+            if entry["before"] is not None and current is None:
+                entry["step"]="RESTORE_INTENT";_r13_save(tx,value);_r13_boundary("RESTORE_INTENT")
+                _r13_move(tx/"old"/str(i),path,entry["before"],check)
+                _r13_boundary("RESTORED");current=entry["before"]
+            if current!=entry["before"]:
+                raise S12ControlError(MATERIALIZATION_RED)
+            entry["step"]="UNDONE";_r13_save(tx,value)
+        _run(_selected_git_arguments(root,git,"read-tree",value["old_commit"]))
+        _run(_selected_git_arguments(root,git,"update-ref","HEAD",value["old_commit"]))
+        _r13_publish_records(root,value,undo=True)
+        check();value["phase"]="UNDONE";_r13_save(tx,value)
+
+
+def _r13_recover_pending() -> None:
+    if ACTIVE_ATTEMPT is None:
+        return
+    existing=[root for root in (CONTROL_ROOT,APPLICATION_ROOT) if _barrier_path_present(_r13_location(root))]
+    if not any(_r13_load(root)[1]["phase"] not in {"APPLIED","UNDONE"} for root in existing):
+        return
+    if not _repository_barriers_are_installed():
+        raise S12ControlError(MATERIALIZATION_RED)
+    for root in existing:
+        git=_recovery_git_path(root)
+        _validate_root_git_contract(git)
+        _r13_materialize_undo(root,git)
+
+
 def _followup_authorization(path: Path, digest: str, *, recovering: bool) -> dict:
     """An out-of-band, root-provisioned HUMAN grant; a freeze is not a grant."""
     if os.geteuid() != 0 or path != PRIVATE_ROOT / "authorizations" / (FOLLOWUP_SLOT + ".json"):
@@ -10013,6 +10388,7 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
                     return result
             with _followup_namespace(binding):
                 # Recovery never invokes deploy, admission, or activation.
+                _r13_recover_pending()
                 result=_recover_locked()
                 result={**result,"attempt_binding":binding}
                 _atomic_json(STATE_ROOT/"recovery-result.json",result)

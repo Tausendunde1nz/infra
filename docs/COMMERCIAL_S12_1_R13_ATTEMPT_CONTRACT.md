@@ -10,6 +10,19 @@ Admission implementation is not releasable. See
 `analysis/COMMERCIAL_S12_1_R13_OFFLINE_CHAIN_BLOCKER_2026-10-03.diagnose`.
 No Same-SHA acceptance review, merge or R13 freeze has been performed.
 
+Continuation under expanded source-only authority: the candidate now allocates
+Git blobs in a same-filesystem, root-private per-attempt transaction directory.
+Finite path/policy intent precedes allocation; device/inode/kernel-birth and
+metadata/content bindings precede publication. Publication uses durable move
+intents and `renameat2(RENAME_NOREPLACE)`. Existing objects are retained for
+reversal, not recreated from content. New maintenance policy is owner/group
+from the protected repository record, files 0660 (executables 0770), directories
+2770, no inherited default ACL; objects enter the worktree already write-fenced.
+Continuously held permission, attributed mutation and retained-handle guards
+cover allocation, binding and publication. Git only reads blobs and updates its
+quarantined index/refs. This candidate is **not yet Linux-accepted**; interruption
+and negative materialization regressions and exact-SHA review remain required.
+
 ## Delta and trust boundary
 
 The historical `state/deployment-attempted.json` remains byte-for-byte intact.
