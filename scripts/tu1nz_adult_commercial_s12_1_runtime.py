@@ -27,7 +27,7 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -45,6 +45,7 @@ FOLLOWUP_PARENT = {
 }
 ACTIVE_ATTEMPT: dict[str, Any] | None = None
 MATERIALIZATION_RECORDS: dict | None = None
+MATERIALIZATION_GUARDS: ExitStack | None = None
 MATERIALIZATION_RED = "S12_1_MATERIALIZATION_CONTRACT_RED"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
@@ -7319,35 +7320,39 @@ def _serialized_repository_recovery(
             _validate_root_git_contract(git_directory)
         for root, git_dir in barriers.items():
             _clear_stale_git_locks(root, git_dir)
-        global MATERIALIZATION_RECORDS
+        global MATERIALIZATION_RECORDS, MATERIALIZATION_GUARDS
         previous_materialization = MATERIALIZATION_RECORDS
-        MATERIALIZATION_RECORDS = selected_worktree_barrier
-        try:
-            yield barriers
-        finally:
-            MATERIALIZATION_RECORDS = previous_materialization
-        if ACTIVE_ATTEMPT is not None:
-            _r13_audit_materialized(selected_roots)
-        # Root Git may preserve a journaled inode while temporarily restoring
-        # its source write mode, or normalize its non-executable permission
-        # class while replacing the checked-out content.  Re-seal those exact
-        # root-owned transitions before accepting the post-body identity.  An
-        # unjournaled replacement must already reject group/other writes and
-        # is still rejected by the second pass in the barrier lock.
-        _lock_worktree_write_barrier(
-            selected_worktree_barrier,
-            allow_missing=allow_journaled_transition,
-        )
-        tracked_paths = _tracked_worktree_regular_paths(selected_roots)
-        _assert_worktree_write_barrier(
-            selected_roots, selected_worktree_barrier
-        )
-        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
-            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
-        for root, git_directory in barriers.items():
-            _selected_identity(root, git_directory)
-        if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
-            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        previous_guards = MATERIALIZATION_GUARDS
+        # Retain both allocation and successor watches across repositories,
+        # immutable staging and the complete post-yield audit. Snapshot equality
+        # alone must not erase an intervening foreign writer's event history.
+        with ExitStack() as materialization_guards:
+            MATERIALIZATION_RECORDS = selected_worktree_barrier
+            MATERIALIZATION_GUARDS = materialization_guards
+            try:
+                yield barriers
+                if ACTIVE_ATTEMPT is not None:
+                    _r13_audit_materialized(selected_roots)
+                # Legacy Git may normalize a journaled inode's mode. R13 only
+                # accepts its prospectively bound objects; the guards above
+                # remain live throughout the final identity checks.
+                _lock_worktree_write_barrier(
+                    selected_worktree_barrier,
+                    allow_missing=allow_journaled_transition,
+                )
+                tracked_paths = _tracked_worktree_regular_paths(selected_roots)
+                _assert_worktree_write_barrier(
+                    selected_roots, selected_worktree_barrier
+                )
+                if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+                for root, git_directory in barriers.items():
+                    _selected_identity(root, git_directory)
+                if _active_tracked_worktree_write_handle_count(tracked_paths) != 0:
+                    raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+            finally:
+                MATERIALIZATION_RECORDS = previous_materialization
+                MATERIALIZATION_GUARDS = previous_guards
         completed = True
     finally:
         transition_guard.close()
@@ -10054,10 +10059,34 @@ def _r13_audit_materialized(roots: Sequence[Path]) -> None:
                     _r13_snapshot(tx/"old"/str(i))!=entry["before"]
                     or _barrier_path_present(tx/"new"/str(i))):
                 raise S12ControlError(MATERIALIZATION_RED)
+    _r13_boundary("MATERIALIZATION_AUDITED")
 
 
 @contextmanager
 def _r13_guards(root: Path, tx: Path, value: dict):
+    if MATERIALIZATION_GUARDS is None:
+        with _r13_guard_context(root, tx, value) as check:
+            yield check
+        return
+    check = MATERIALIZATION_GUARDS.enter_context(_r13_guard_context(root, tx, value))
+    try:
+        yield check
+        check()
+    except S12ControlError:
+        _r13_poison(tx)
+        raise
+
+
+def _r13_poison(tx: Path) -> None:
+    # A retained guard can outlive a legitimate rollback using another loaded
+    # journal instance. Preserve the latest durable phase/steps when poisoning.
+    value = _private_json(tx/"journal.json", MATERIALIZATION_RED, maximum=32*1024*1024)
+    value["unsafe"] = True
+    _r13_save(tx, value)
+
+
+@contextmanager
+def _r13_guard_context(root: Path, tx: Path, value: dict):
     paths = _r12_index_guard_paths((root,)) | {tx, tx/"new", tx/"old"}
     for i, entry in enumerate(value["entries"]):
         path = root/os.fsdecode(bytes.fromhex(entry["path_hex"]))
@@ -10088,8 +10117,7 @@ def _r13_guards(root: Path, tx: Path, value: dict):
     except S12ControlError:
         # A detected competing mutation is NOT a recoverable simulated crash.
         # Keep the claim and barriers; never legitimize a reverted write later.
-        value["unsafe"]=True
-        _r13_save(tx,value)
+        _r13_poison(tx)
         raise
     finally:
         if quiet is not None:

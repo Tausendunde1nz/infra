@@ -48,6 +48,14 @@ filesystem for atomic no-replace moves. Follow-up admission checks this before
 claim consumption; a real root-filesystem/tmpfs negative proves rejection
 without a claim or deployment. Cross-filesystem copy is not a fallback.
 
+Same-SHA review identified a P1 watch-lifetime gap after each materializer
+returned. Allocation and successor guards now remain owned by the enclosing
+serialized operation through both repositories, immutable staging and the
+complete post-yield audit. A reverted foreign-root mutation therefore cannot
+disappear between snapshots. Linux negatives exercise unchanged and new inodes
+at the cross-repository handoff and after the final snapshot audit. Poisoning
+retains the latest durable journal phase even when a guard outlives rollback.
+
 ## Delta and trust boundary
 
 The historical `state/deployment-attempted.json` remains byte-for-byte intact.

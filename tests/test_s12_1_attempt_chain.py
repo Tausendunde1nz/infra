@@ -361,6 +361,22 @@ class IntegratedChainTests(unittest.TestCase):
             os.chown(path,saved.stat().st_uid,saved.stat().st_gid)
         self.full_chain(attack=replace,attack_at='REPOSITORIES_MATERIALIZED')
 
+    def test_reverted_root_mutation_stays_visible_through_final_audit(self):
+        # Both unchanged inodes and newly published successors must retain
+        # event history after the local materialization contexts have returned.
+        for boundary,name in (('REPOSITORIES_MATERIALIZED','.gitignore'),
+                              ('REPOSITORIES_MATERIALIZED','created/new'),
+                              ('MATERIALIZATION_AUDITED','created/new')):
+            with self.subTest(boundary=boundary,path=name):
+                def attack(f):
+                    path=f['app']/name
+                    mode=path.stat().st_mode&0o7777
+                    subprocess.run([sys.executable,'-c',
+                        'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); '
+                        'os.chmod(p,m^64); os.chmod(p,m)',str(path),str(mode)],check=True)
+                    self.assertEqual(path.stat().st_mode&0o7777,mode)
+                self.full_chain(attack=attack,attack_at=boundary)
+
     def test_interruption_cannot_adopt_unknown_inode_acl_or_parent(self):
         def staged(f):
             return f['state']/'attempts'/r.FOLLOWUP_SLOT/'materialization/application/new/0'
