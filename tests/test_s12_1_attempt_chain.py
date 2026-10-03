@@ -24,6 +24,11 @@ from tests.test_s12_1_r12_metadata_contract import fixture, private_json
 
 
 class WriterEnvelopeTests(unittest.TestCase):
+    def test_serialized_scope_precedes_first_git_index_enumeration(self):
+        import inspect
+        source=inspect.getsource(r._serialized_repository_recovery_guarded)
+        self.assertLess(source.index('_r13_git_writers('),source.index('_tracked_worktree_regular_paths('))
+
     def test_no_unrouted_git_subprocess_helpers_remain(self):
         import ast
         tree=ast.parse(Path(r.__file__).read_text())

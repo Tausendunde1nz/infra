@@ -7247,10 +7247,6 @@ def _serialized_repository_recovery_guarded(
     transition_guard = _GitMetadataTransitionGuard(
         tuple(path for path in metadata_paths if not _is_recovery_guard(path))
     )
-    tracked_paths = _tracked_worktree_regular_paths(
-        selected_roots,
-        allow_missing=allow_journaled_transition,
-    )
     selected_records: dict[Path, dict[str, Any]] = records or {}
     selected_worktree_barrier = worktree_barrier
     barriers: dict[Path, Path] = {}
@@ -7265,6 +7261,10 @@ def _serialized_repository_recovery_guarded(
         transition_guard.assert_unchanged()
         if writers is not None:
             materialization_guards.retain(_r13_initial_worktree_guards(selected_roots, writers))
+        tracked_paths = _tracked_worktree_regular_paths(
+            selected_roots,
+            allow_missing=allow_journaled_transition,
+        )
         if (
             _competing_control_sync_count() != 0
             or _active_repository_git_count(selected_roots) != 0
