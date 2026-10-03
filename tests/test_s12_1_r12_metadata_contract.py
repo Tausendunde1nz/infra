@@ -74,7 +74,7 @@ def private_json(path,value):
 
 
 @contextmanager
-def fixture():
+def fixture(*, complete_backup=False):
     # /root is private; /tmp would correctly fail the private-chain contract.
     with tempfile.TemporaryDirectory(prefix='s12-r12-',dir='/root') as name, ExitStack() as stack:
         base=Path(name)
@@ -86,7 +86,7 @@ def fixture():
             return subprocess.run(['git','-c',f'safe.directory={root}','-C',str(root),*args],check=True,capture_output=True).stdout
         for root in (app,control):
             root.mkdir()
-            git(root,'init','-b','main')
+            git(root,'init','-b','control-main' if complete_backup and root==control else 'main')
             git(root,'config','user.name','R12 Fixture')
             git(root,'config','user.email','fixture@example.invalid')
             (root/'kept').write_bytes(b'original\n')
@@ -100,6 +100,16 @@ def fixture():
                               ATTEMPT_MARKER=state/'deployment-attempted.json',
                               BARRIER_MARKER=state/'repository-barrier.json',CHATOPS_USER='root').items():
             stack.enter_context(mock.patch.object(r,key,value))
+        if complete_backup:
+            for key,value in dict(BARRIER_RELEASE_BACKUP=state/'repository-barrier.release-backup.json',
+                    BARRIER_RELEASE_COMPLETION=state/'repository-barrier.release-complete.json',
+                    RELEASE_ROOT=base/'private'/'release',RELEASE_STAGING_ROOT=base/'private'/'.release-staging',
+                    FETCH_ROOT=repos/'.s12-1-fetch', UNIT_PATH=base/'unit',RUNTIME_CONTRACT=base/'runtime.json',
+                    NGINX_SITE=base/'nginx',NGINX_ENABLED=base/'nginx-enabled',
+                    SDK_ID=base/'sdk-id',PRIVATE_KEY=base/'key').items():
+                stack.enter_context(mock.patch.object(r,key,value))
+            for path in (r.SDK_ID,r.PRIVATE_KEY):
+                path.write_bytes(b'synthetic-not-a-credential');path.chmod(0o600)
         records={root:r._repository_path_metadata(root) for root in (app,control)}
         for root in records:
             records[root]['root_xattr_fingerprint']=r._repository_root_xattr_fingerprint(root)
@@ -111,7 +121,9 @@ def fixture():
         private_json(r.BARRIER_MARKER,journal)
         private_json(r.ATTEMPT_MARKER,dict(attempt=1))
         index={}
-        for key in ('application','control'):
+        if complete_backup:
+            backup,index=r.create_backup(path_records=records,parent_record=parent)
+        for key in (() if complete_backup else ('application','control')):
             root=app if key=='application' else control
             commit=git(root,'rev-parse','HEAD').decode().strip()
             index[key]=dict(commit=commit,tree=git(root,'rev-parse','HEAD^{tree}').decode().strip())
@@ -140,7 +152,7 @@ def fixture():
         missing=control/'index-missing'/'nested'/'file';missing.parent.mkdir(parents=True)
         missing.write_bytes(b'indexed then absent\n')
         git(control,'add','.')
-        missing.unlink()
+        if not complete_backup:missing.unlink()
         release_commits={}
         for root in (app,control):
             if root==app:git(root,'add','.')
@@ -175,11 +187,17 @@ def fixture():
                 try:guards.append(dict(repository=key,name=basename,metadata=r._r12_stat(fd)))
                 finally:os.close(fd)
         contract=dict(schema='TU1NZ_S12_1_R12_METADATA_CONTRACT_V1',roots=dict(application=str(app),control=str(control)),
-                      backup_name='fixture',entries=entries,guards=guards,release_commits=release_commits,
+                      backup_name=backup.name,entries=entries,guards=guards,release_commits=release_commits,
                       protected_inputs={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (r.BARRIER_MARKER,r.ATTEMPT_MARKER,backup/'restore-index.json')})
+        if complete_backup:
+            private_json(r.ATTEMPT_MARKER,dict(attempt=1,backup=str(backup),started_at='fixture',
+                release_repository_state=r._release_repository_states(
+                    {root:root/r.RECOVERY_GIT_DIRECTORY for root in (app,control)},records)))
+            contract['protected_inputs'][r.ATTEMPT_MARKER.name]=hashlib.sha256(r.ATTEMPT_MARKER.read_bytes()).hexdigest()
         contract_path=base/'contract.json';private_json(contract_path,contract)
         stack.enter_context(mock.patch.object(r,'R12_CONTRACT_SHA256',hashlib.sha256(contract_path.read_bytes()).hexdigest()))
-        yield dict(contract=contract_path,app=app,control=control,state=state,entries=entries,original=journal,base=base)
+        yield dict(contract=contract_path,app=app,control=control,state=state,entries=entries,original=journal,base=base,
+                   backup=backup,index=index)
 
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,'isolated Linux root + SYS_ADMIN/SYS_PTRACE required')
