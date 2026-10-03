@@ -153,7 +153,7 @@ class AWriterTests(unittest.TestCase):
 
     def test_real_git_pack_threads_have_bound_lifetimes(self):
         files=[]
-        for i in range(80):
+        for i in range(256):
             path=self.base/f'blob-{i}'
             path.write_bytes((b'common content '+str(i).encode()+b'\n')*4000)
             files.append(str(path))
@@ -164,7 +164,7 @@ class AWriterTests(unittest.TestCase):
         self.assertEqual(objects.returncode,0,objects.stderr)
         with tempfile.TemporaryFile() as source:
             source.write(objects.stdout.encode());source.seek(0)
-            packed=self.writer.run((root,prefix+['pack-objects','--threads=2','--window=20',
+            packed=self.writer.run((root,prefix+['pack-objects','--threads=4','--window=10',
                 str(self.root/'.git/objects/pack/bound')],env),30,stdin=source)
         self.assertEqual(packed.returncode,0,packed.stderr)
         history=json.loads(self.writer.journal.read_text())['history'][-1]['task_history']
