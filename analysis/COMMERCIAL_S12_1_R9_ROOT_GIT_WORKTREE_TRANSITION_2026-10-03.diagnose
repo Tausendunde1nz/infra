@@ -1,0 +1,57 @@
+TU1NZ / WANT ME SEEN
+S12.1 R9 ROOT-GIT WORKTREE TRANSITION DIAGNOSIS
+Date: 2026-10-03 Europe/Berlin
+
+Classification: SOURCE_CONTRACT_GAP
+Mutation during diagnosis: none
+R9 deployment retries: none
+R9 recovery retries after diagnosis: none
+
+Observed durable state
+
+- The only R9 deployment attempt and the only reviewed R9 recovery both
+  stopped fail-closed with S12_1_RECOVERY_WORKTREE_BARRIER_RED.
+- The deployment attempt marker is present with attempt=1 and a bound release
+  repository state. The pre-deployment backup is present.
+- Both canonical repositories retain the root-owned .git guard and the
+  root-only .git.s12-1-recovery directory.
+- Application journal: 669 records; 393 remained sealed, 238 journaled inodes
+  were replaced by root Git, and 38 same journaled inodes retained their exact
+  root-Git source write mode instead of the sealed mode.
+- Control journal: 210 records; 207 old index paths are absent after the
+  checked-out transition, one inode was replaced, and two same journaled
+  inodes were left in a root-Git normalized/source mode instead of the sealed
+  mode.
+- The current Git index enumerations were readable through the quarantined
+  recovery Git directories. No repository guard was released.
+
+Root cause
+
+The write barrier correctly accepted root-owned replacement inodes only when
+they already rejected group/other writes. It did not re-seal same journaled
+inodes after a successful root Git body when Git had restored the source mode
+or normalized its non-executable permission class. The context asserted the
+post-body barrier before re-running the sealing transition, so the first R9
+attempt stopped and the canonical recovery encountered the same resumable
+state before entering its restore body.
+
+Required correction
+
+- Accept only the same journaled inode, root owner, recorded group, matching
+  executable class and either the exact recorded mode or a mode already closed
+  to group/other writes.
+- Require the original bound xattr/ACL state before changing anything.
+- Immediately restore the exact journal-derived sealed mode/ACL.
+- Re-run the worktree seal after the root Git body and before post-body identity
+  and write-barrier acceptance.
+- Continue rejecting an unjournaled replacement that is writable by group or
+  other, an executable-class change, an ownership/group mismatch, an xattr/ACL
+  mismatch, a changed inode presented as journaled, or any non-regular/
+  non-directory tracked object.
+
+Safety outcome
+
+The R9 freeze remains immutable evidence and is not retried. The server stays
+guarded until a later reviewed controller performs the canonical recovery.
+Adult media, real AVS/identity, payments, publishing, controlled beta and
+production remain closed.

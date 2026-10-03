@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r9"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r10"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
@@ -2762,6 +2762,16 @@ def _worktree_barrier_mode(
     return restricted
 
 
+def _root_git_same_inode_transition_mode(
+    current_mode: int, recorded_mode: int
+) -> bool:
+    """Accept only an executable-stable mode that can be re-sealed exactly."""
+
+    return (current_mode & 0o111) == (recorded_mode & 0o111) and (
+        current_mode == recorded_mode or not current_mode & 0o022
+    )
+
+
 def _worktree_barrier_owner_acl(
     mode: int, uid: int, *, kind: str
 ) -> bytes | None:
@@ -3565,18 +3575,15 @@ def _lock_worktree_write_barrier(
                     if stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
                     else "invalid"
                 )
+                current_mode = stat.S_IMODE(metadata.st_mode)
                 root_transition = (
                     metadata.st_dev == record["device"]
                     and metadata.st_ino == record["inode"]
                     and metadata.st_uid == 0
                     and metadata.st_gid == record["gid"]
-                    and stat.S_IMODE(metadata.st_mode)
-                    in {
-                        mode,
-                        base_restricted_mode,
-                        generated_restricted_mode,
-                    }
-                    and not stat.S_IMODE(metadata.st_mode) & 0o022
+                    and _root_git_same_inode_transition_mode(
+                        current_mode, mode
+                    )
                 )
                 if actual_kind != expected_kind or not (
                     original
@@ -7148,6 +7155,16 @@ def _serialized_repository_recovery(
         for root, git_dir in barriers.items():
             _clear_stale_git_locks(root, git_dir)
         yield barriers
+        # Root Git may preserve a journaled inode while temporarily restoring
+        # its source write mode, or normalize its non-executable permission
+        # class while replacing the checked-out content.  Re-seal those exact
+        # root-owned transitions before accepting the post-body identity.  An
+        # unjournaled replacement must already reject group/other writes and
+        # is still rejected by the second pass in the barrier lock.
+        _lock_worktree_write_barrier(
+            selected_worktree_barrier,
+            allow_missing=allow_journaled_transition,
+        )
         tracked_paths = _tracked_worktree_regular_paths(selected_roots)
         _assert_worktree_write_barrier(
             selected_roots, selected_worktree_barrier

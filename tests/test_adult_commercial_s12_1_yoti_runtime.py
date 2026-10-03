@@ -909,6 +909,18 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("_selected_identity(root, git_directory)", contract)
         self.assertIn("_lock_worktree_write_barrier(", contract)
         self.assertGreaterEqual(
+            contract.count("_lock_worktree_write_barrier("), 2
+        )
+        post_body_lock = contract.index(
+            "_lock_worktree_write_barrier(", contract.index("yield barriers")
+        )
+        self.assertLess(
+            post_body_lock,
+            contract.index(
+                "_assert_worktree_write_barrier(", post_body_lock
+            ),
+        )
+        self.assertGreaterEqual(
             contract.count("_assert_worktree_write_barrier("),
             3,
         )
@@ -977,6 +989,35 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         holders_contract = source[holders_start:holders_end]
         self.assertNotIn("_current_process_ancestry()", holders_contract)
         self.assertIn("process.name == controller_pid", holders_contract)
+
+    def test_root_git_same_inode_transition_mode_is_bounded(self) -> None:
+        accepted = (
+            (0o660, 0o660),
+            (0o640, 0o660),
+            (0o644, 0o664),
+            (0o755, 0o755),
+            (0o555, 0o755),
+        )
+        rejected = (
+            (0o662, 0o660),
+            (0o650, 0o640),
+            (0o755, 0o644),
+            (0o644, 0o755),
+        )
+        for current, recorded in accepted:
+            with self.subTest(current=current, recorded=recorded):
+                self.assertTrue(
+                    runtime._root_git_same_inode_transition_mode(
+                        current, recorded
+                    )
+                )
+        for current, recorded in rejected:
+            with self.subTest(current=current, recorded=recorded):
+                self.assertFalse(
+                    runtime._root_git_same_inode_transition_mode(
+                        current, recorded
+                    )
+                )
 
     def test_release_acquisition_uses_only_digest_bound_offline_bundles(self) -> None:
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
@@ -2536,6 +2577,24 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                         ),
                         ("preserved", 0o440),
                     )
+                    # Root Git can retain this inode while restoring its
+                    # source write mode.  The exact journaled ACL and mode are
+                    # sufficient to re-seal it before identity acceptance.
+                    tracked.chmod(0o660)
+                    self.assertEqual(
+                        (
+                            tracked.lstat().st_uid,
+                            stat.S_IMODE(tracked.stat().st_mode),
+                        ),
+                        (0, 0o660),
+                    )
+                    runtime._lock_worktree_write_barrier(records)
+                    self.assertEqual(
+                        runtime._worktree_locked_acl_state(
+                            tracked, records[repository][tracked]
+                        ),
+                        ("preserved", 0o440),
+                    )
                     runtime._restore_worktree_write_barrier(records)
             restored = tracked.lstat()
             self.assertEqual(
@@ -2553,6 +2612,62 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
                     follow_symlinks=False,
                 ),
                 original_acl,
+            )
+
+    @unittest.skipUnless(
+        sys.platform == "linux" and os.geteuid() == 0,
+        "Linux root required",
+    )
+    def test_worktree_barrier_reseals_root_git_normalized_same_inode_mode(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "control"
+            root.mkdir()
+            tracked = root / "tracked"
+            tracked.write_text("reviewed\n", encoding="ascii")
+            os.chown(root, 1000, 1000)
+            os.chown(tracked, 1000, 1000)
+            tracked.chmod(0o664)
+            metadata = tracked.lstat()
+            record = {
+                "kind": "regular",
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+                "uid": 1000,
+                "gid": 1000,
+                "mode": "0664",
+                "xattr_fingerprint": (
+                    runtime._worktree_path_xattr_fingerprint(tracked)
+                ),
+            }
+            records = {root: {tracked: record}}
+            with (
+                mock.patch.object(
+                    runtime,
+                    "_tracked_worktree_barrier_paths",
+                    return_value=(tracked,),
+                ),
+                mock.patch.object(runtime, "_sync_repository_filesystem"),
+            ):
+                runtime._lock_worktree_write_barrier(records)
+                tracked.chmod(0o644)
+                self.assertEqual(tracked.lstat().st_uid, 0)
+                runtime._lock_worktree_write_barrier(records)
+            sealed = tracked.lstat()
+            self.assertEqual(
+                (sealed.st_uid, sealed.st_gid, stat.S_IMODE(sealed.st_mode)),
+                (0, 1000, 0o444),
+            )
+            runtime._restore_worktree_write_barrier(records)
+            restored = tracked.lstat()
+            self.assertEqual(
+                (
+                    restored.st_uid,
+                    restored.st_gid,
+                    stat.S_IMODE(restored.st_mode),
+                ),
+                (1000, 1000, 0o664),
             )
 
     @unittest.skipUnless(
@@ -7973,13 +8088,13 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         unknown = annotation + "unknown_key=true\n"
         self.assertFalse(freeze.verify_annotation(unknown, expected)["ok"])
 
-    def test_freeze_classifies_recorded_uid_acl_not_group_access(self) -> None:
+    def test_freeze_classifies_journaled_root_git_reseal(self) -> None:
         classification = freeze.STATIC_BINDINGS[
             "recovery_fix_classification"
         ]
         self.assertEqual(
             classification,
-            "TRACKED_PATH_BARRIER_WITH_EXACT_RECORDED_UID_ACL_READ_TRAVERSAL",
+            "JOURNALED_ROOT_GIT_SAME_INODE_RESEAL_BEFORE_ACCEPTANCE",
         )
         self.assertNotIn("GROUP", classification)
 

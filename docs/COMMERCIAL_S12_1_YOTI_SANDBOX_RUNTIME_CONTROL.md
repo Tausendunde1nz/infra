@@ -3,7 +3,7 @@
 ## Release and activation boundary
 
 S12.1 is a bounded, one-attempt runtime acceptance release.  The immutable
-annotated tag `s12-yoti-sandbox-runtime-freeze-r9` binds the exact Application
+annotated tag `s12-yoti-sandbox-runtime-freeze-r10` binds the exact Application
 merge commit and tree, the exact Control merge commit and tree, every runtime
 artifact, the hard-gate values and the exactly-once rollback contract.  The
 older `s12-yoti-sandbox-source-freeze-r1` remains immutable and is not an
@@ -99,6 +99,21 @@ journal a 1 MiB ceiling, retains the 128 KiB ceiling for every other private
 JSON artifact, and rejects an oversized barrier payload before publishing it
 atomically. Journal parsing, exact schema validation, ownership, mode and
 single-link checks remain unchanged.
+
+The immutable r9 freeze is preserved as the first controller to pass the
+complete journal-size boundary and reach canonical repository synchronization.
+Its sole deployment attempt and sole reviewed recovery remained fail-closed
+with `S12_1_RECOVERY_WORKTREE_BARRIER_RED`. Root Git had legitimately replaced
+238 journaled Application inodes and removed 207 obsolete Control paths, while
+40 same journaled inodes retained either their exact source write mode or a
+non-executable Git-normalized mode. Both `.git` guards and both root-only
+recovery Git directories remained intact. The r10 controller accepts only this
+bounded same-inode/root-owner/recorded-group transition with the recorded
+executable class and exact bound xattr/ACL state, immediately re-seals it from
+the journal, and re-runs the seal after every root Git body before accepting
+identity or the post-body barrier. Unjournaled group/other-writable
+replacements, ACL/xattr drift, executable-class changes and ownership drift
+remain fail-closed.
 
 The deployment controller refuses floating refs, dirty repositories, an
 unannotated tag, a second deployment marker or a release/hash mismatch.  It
