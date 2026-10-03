@@ -2205,6 +2205,24 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             ],
         )
 
+        asymmetric_acl = runtime._worktree_barrier_owner_acl(
+            0o604, 2000, kind="regular"
+        )
+        self.assertIsNotNone(asymmetric_acl)
+        self.assertEqual(
+            [
+                struct.Struct("<HHI").unpack_from(asymmetric_acl, offset)
+                for offset in range(4, len(asymmetric_acl), 8)
+            ],
+            [
+                (0x01, 0o4, 0xFFFFFFFF),
+                (0x02, 0o4, 2000),
+                (0x04, 0o0, 0xFFFFFFFF),
+                (0x10, 0o4, 0xFFFFFFFF),
+                (0x20, 0o4, 0xFFFFFFFF),
+            ],
+        )
+
     def test_worktree_barrier_rejects_preexisting_acl_before_transition(
         self,
     ) -> None:
@@ -3029,7 +3047,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         gid = 2001
         self.assertEqual(runtime._worktree_barrier_mode(0o664, uid, gid), 0o444)
         self.assertEqual(runtime._worktree_barrier_mode(0o775, uid, gid), 0o555)
-        self.assertEqual(runtime._worktree_barrier_mode(0o604, uid, gid), 0o404)
+        self.assertEqual(runtime._worktree_barrier_mode(0o604, uid, gid), 0o444)
         self.assertEqual(runtime._worktree_barrier_mode(0o700, uid, gid), 0o550)
         with self.assertRaisesRegex(
             runtime.S12ControlError,
@@ -3049,7 +3067,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o404
+            runtime._worktree_barrier_mode(0o604, 2000, 2001), 0o444
         )
 
     def test_worktree_barrier_mode_preserves_named_owner_acl_access(

@@ -2733,7 +2733,7 @@ def _worktree_barrier_mode(
     owner_access = (restricted & 0o500) >> 6
     group_access = (restricted & 0o050) >> 3
     other_access = restricted & 0o005
-    if owner_access & ~other_access:
+    if (owner_access & ~group_access) or (owner_access & ~other_access):
         # The group-class mode bits represent the ACL mask, not access granted
         # to the owning group.  A single named-user ACL below carries the
         # former owner's exact read/execute class without relying on NSS group
@@ -2755,7 +2755,9 @@ def _worktree_barrier_owner_acl(
     owner_access = (restricted & 0o500) >> 6
     group_access = (restricted & 0o050) >> 3
     other_access = restricted & 0o005
-    if not (owner_access & ~other_access):
+    if not (
+        (owner_access & ~group_access) or (owner_access & ~other_access)
+    ):
         return None
     if uid < 0 or uid >= 0xFFFFFFFF or kind not in {"regular", "directory"}:
         raise S12ControlError("S12_1_RECOVERY_WORKTREE_BARRIER_RED")

@@ -62,8 +62,11 @@ recorded numeric UID. On ACL-free paths this is one generated temporary entry;
 an existing canonical ACL is preserved only when it already contains the
 named UID with sufficient effective read/execute access under a mask that is
 not widened. Group-object and named-group entries are never authorization
-proof. This avoids using the retained GID as a capability and has no dependency
-on complete NSS account or group enumeration. Every write bit remains removed.
+proof. For an ACL-free path, both the retained-group and nonmember permission
+classes are treated as possible after handoff; if either lacks a prior owner
+read/traversal right, the exact named-UID ACL is mandatory. This avoids using
+the retained GID as a capability and has no dependency on complete NSS account
+or group enumeration. Every write bit remains removed.
 The normalized source xattr fingerprint remains bound; during the barrier only
 the byte-exact generated owner ACL may be omitted from that fingerprint. A
 generated ACL is installed and verified before the root ownership handoff,
