@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r8"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r9"
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
@@ -41,7 +41,7 @@ CONTROL_ARTIFACTS = {
     "control_tests_sha256": "tests/test_adult_commercial_s12_1_yoti_runtime.py",
     "control_doc_sha256": "docs/COMMERCIAL_S12_1_YOTI_SANDBOX_RUNTIME_CONTROL.md",
     "control_recovery_doc_sha256": "docs/COMMERCIAL_S12_1_R4_GIT_METADATA_RECOVERY_BARRIER.md",
-    "control_recovery_diagnosis_sha256": "analysis/COMMERCIAL_S12_1_R7_PRIVATE_GROUP_WORKTREE_BARRIER_2026-10-03.diagnose",
+    "control_recovery_diagnosis_sha256": "analysis/COMMERCIAL_S12_1_R8_JOURNAL_SIZE_BARRIER_2026-10-03.diagnose",
 }
 
 STATIC_BINDINGS = {

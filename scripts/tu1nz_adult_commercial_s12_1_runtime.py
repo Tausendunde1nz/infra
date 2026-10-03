@@ -35,13 +35,14 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r8"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r9"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
 XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 BARRIER_RELEASE_COMPLETION_SCHEMA = "TU1NZ_S12_1_BARRIER_RELEASE_COMPLETE_V1"
+BARRIER_JOURNAL_MAX_BYTES = 1024 * 1024
 TRACKED_PATH_HASH_SCHEMA = b"TU1NZ_S12_1_TRACKED_PATH_HASHES_V1\0"
 ROLLBACK_PROGRESS_SCHEMA = "TU1NZ_S12_1_ROLLBACK_PROGRESS_V1"
 ROLLBACK_PHASE_STARTED = "RESTORE_STARTED"
@@ -393,7 +394,7 @@ def _assert_barrier_release_file(path: Path, *, links: int) -> os.stat_result:
             or metadata.st_gid != expected_gid
             or stat.S_IMODE(metadata.st_mode) != 0o600
             or metadata.st_nlink != links
-            or not 1 <= metadata.st_size <= 131072
+            or not 1 <= metadata.st_size <= BARRIER_JOURNAL_MAX_BYTES
         ):
             raise OSError
         return metadata
@@ -420,6 +421,23 @@ def _barrier_release_completion() -> dict[str, Any] | None:
     ):
         raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
     return value
+
+
+def _barrier_json(path: Path) -> dict[str, Any]:
+    return _private_json(
+        path,
+        "S12_1_REPOSITORY_BARRIER_JOURNAL_RED",
+        maximum=BARRIER_JOURNAL_MAX_BYTES,
+    )
+
+
+def _atomic_barrier_json(path: Path, payload: dict[str, Any]) -> None:
+    encoded = (
+        json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("ascii")
+    if not 1 <= len(encoded) <= BARRIER_JOURNAL_MAX_BYTES:
+        raise S12ControlError("S12_1_REPOSITORY_BARRIER_JOURNAL_RED")
+    _atomic_json(path, payload)
 
 
 def _write_barrier_release_completion() -> None:
@@ -3340,13 +3358,11 @@ def _refresh_worktree_barrier_for_release(
             tuple(roots) == (APPLICATION_ROOT, CONTROL_ROOT)
             and (BARRIER_MARKER.exists() or BARRIER_MARKER.is_symlink())
         ):
-            journal = _private_json(
-                BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
-            )
+            journal = _barrier_json(BARRIER_MARKER)
             journal["worktree_write_barrier"] = _worktree_barrier_payload(
                 roots, records
             )
-            _atomic_json(BARRIER_MARKER, journal)
+            _atomic_barrier_json(BARRIER_MARKER, journal)
         _lock_worktree_write_barrier(records)
     except (KeyError, OSError, TypeError, ValueError):
         raise S12ControlError(
@@ -6200,7 +6216,7 @@ def _write_barrier_journal(
             _repository_root_xattr_fingerprint(root)
         )
     worktree_barrier = _capture_worktree_write_barrier(roots, records)
-    _atomic_json(
+    _atomic_barrier_json(
         BARRIER_MARKER,
         {
             "schema": BARRIER_SCHEMA,
@@ -6233,9 +6249,7 @@ def _load_barrier_journal() -> tuple[
     dict[Path, dict[Path, dict[str, Any]]] | None,
     str,
 ]:
-    journal = _private_json(
-        BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
-    )
+    journal = _barrier_json(BARRIER_MARKER)
     repositories = journal.get("repositories")
     parent_record = journal.get("repository_parent")
     if (
@@ -6401,9 +6415,7 @@ def _ensure_barrier_journal(
             journal_changed = True
         if not journal_changed:
             return worktree_barrier
-        journal = _private_json(
-            BARRIER_MARKER, "S12_1_REPOSITORY_BARRIER_JOURNAL_RED"
-        )
+        journal = _barrier_json(BARRIER_MARKER)
         journal["schema"] = BARRIER_SCHEMA
         journal["repositories"] = {
             "application": _barrier_repository_record(
@@ -6417,7 +6429,7 @@ def _ensure_barrier_journal(
         journal["worktree_write_barrier"] = _worktree_barrier_payload(
             (APPLICATION_ROOT, CONTROL_ROOT), worktree_barrier
         )
-        _atomic_json(BARRIER_MARKER, journal)
+        _atomic_barrier_json(BARRIER_MARKER, journal)
         _assert_repository_parent_xattrs(parent_record)
         for root in (APPLICATION_ROOT, CONTROL_ROOT):
             _assert_repository_root_xattrs(root, records[root])
@@ -8490,7 +8502,9 @@ def _fresh_evidence(path: Path, earliest_mtime_ns: int) -> dict[str, Any]:
         raise S12ControlError("S12_1_FRESH_EVIDENCE_RED") from None
 
 
-def _private_json(path: Path, safe_code: str) -> dict[str, Any]:
+def _private_json(
+    path: Path, safe_code: str, *, maximum: int = 131072
+) -> dict[str, Any]:
     try:
         metadata = path.lstat()
         if (
@@ -8500,7 +8514,7 @@ def _private_json(path: Path, safe_code: str) -> dict[str, Any]:
             or metadata.st_gid != 0
             or stat.S_IMODE(metadata.st_mode) != 0o600
             or metadata.st_nlink != 1
-            or not 1 <= metadata.st_size <= 131072
+            or not 1 <= metadata.st_size <= maximum
         ):
             raise ValueError
         value = json.loads(path.read_text(encoding="ascii"))
