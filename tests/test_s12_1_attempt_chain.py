@@ -24,6 +24,20 @@ from tests.test_s12_1_r12_metadata_contract import fixture, private_json
 
 
 class WriterEnvelopeTests(unittest.TestCase):
+    def test_checkpoint_checks_events_queued_during_journal_serialization(self):
+        guard=r._R13GitWriters.__new__(r._R13GitWriters)
+        guard.tasks={};guard.pending=[];guard.value={};guard.journal=Path('/isolated/journal')
+        pending=False
+        def check():
+            if pending:raise r.S12ControlError(r.GIT_WRITER_RED)
+        def write(*_):
+            nonlocal pending
+            pending=True
+        with mock.patch.object(guard,'check',side_effect=check), \
+                mock.patch.object(guard,'fingerprint',return_value={}), \
+                mock.patch.object(r,'_atomic_json',side_effect=write):
+            with self.assertRaises(r.S12ControlError):guard.checkpoint()
+
     def test_serialized_scope_precedes_first_git_index_enumeration(self):
         import inspect
         source=inspect.getsource(r._serialized_repository_recovery_guarded)
@@ -244,6 +258,26 @@ class AWriterTests(unittest.TestCase):
         path=self.root/'.git/HEAD';mode=path.stat().st_mode
         os.chmod(path,mode^64);os.chmod(path,mode)
         with self.assertRaises(r.S12ControlError):r._R13GitWriters((self.root,))
+
+    def test_final_journal_write_cannot_discard_reverted_foreign_event(self):
+        write=r._atomic_json
+        fired=False
+        def serialize(path,value):
+            nonlocal fired
+            write(path,value)
+            if path==self.writer.journal and value['phase']=='QUIET' and not fired:
+                target=self.root/'.git/HEAD'
+                mode=target.stat().st_mode&0o7777
+                subprocess.run([sys.executable,'-c',
+                    'import os,sys; p=sys.argv[1]; m=int(sys.argv[2]); os.chmod(p,m^64); os.chmod(p,m)',
+                    str(target),str(mode)],check=True)
+                self.assertEqual(target.stat().st_mode&0o7777,mode)
+                fired=True
+        with mock.patch.object(r,'_atomic_json',side_effect=serialize):
+            with self.assertRaises(r.S12ControlError):self.writer.close()
+        self.assertTrue(fired)
+        self.assertIsNone(self.writer.fd)
+        self.assertEqual(json.loads(self.writer.journal.read_text())['phase'],'FAILED')
 
     def test_interrupted_running_epoch_is_not_a_quiet_resume(self):
         self.writer.close()

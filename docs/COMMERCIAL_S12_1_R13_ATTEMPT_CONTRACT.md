@@ -90,6 +90,13 @@ recovery after interruption of each closure step is idempotent and cannot
 reopen the consumed slot. Historical evidence and the legacy safety contract
 are unchanged. These new corrections again require complete CI and fresh
 exact-head review; no server or runtime action is authorized.
+Reviewing that terminal path also exposed a final checkpoint gap: events
+queued during QUIET journal serialization/fsync were not drained before fd
+closure. A deterministic regression fails on `ddb145b` (no error raised).
+Checkpoint now rechecks the live stream after its durable write. The native
+variant performs an actual foreign-TID reverted Git-ref attribute change
+during this I/O and requires FAILED, not QUIET, with the descriptor closed.
+CI 37148571177 was explicitly cancelled as superseded; it is not GREEN evidence.
 
 The existing attributed guard trusts only the controller TID; real Git writes
 run in subprocesses and may create further processes/metadata directories.

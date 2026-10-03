@@ -10476,6 +10476,9 @@ class _R13GitWriters:
         self.check()
         self.value.update(phase='QUIET',tasks=[],operation=None,fingerprint=fingerprint)
         _atomic_json(self.journal,self.value)
+        # Serialization/fsync is still inside the observed epoch. Do not
+        # discard events queued during that last I/O when close() retires it.
+        self.check()
 
     def command(self, arguments):
         argv = list(arguments)
