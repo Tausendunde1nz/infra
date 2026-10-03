@@ -4,6 +4,12 @@ Source-only change. No runtime approval is implied by this document, commit,
 PR, tag, or the isolated test receipts. R12's 254 nonhistorical metadata
 assignments and both live Git barriers remain outside this source task.
 
+**Status: DRAFT / NO-GO.** The complete native chain fails on newly materialized
+group-writable directories inherited from a default ACL, before activation.
+Admission implementation is not releasable. See
+`analysis/COMMERCIAL_S12_1_R13_OFFLINE_CHAIN_BLOCKER_2026-10-03.diagnose`.
+No Same-SHA acceptance review, merge or R13 freeze has been performed.
+
 ## Delta and trust boundary
 
 The historical `state/deployment-attempted.json` remains byte-for-byte intact.
