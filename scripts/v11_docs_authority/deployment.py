@@ -2,8 +2,8 @@
 import os,subprocess
 from manifest import Refused
 TARGET='/opt/tu1nz_repos/control-deployment-v11-candidate'
-COMMIT='05b127033d734aa4abce10b2e5b7d513b99ed5d2'
-TREE='5459b09c4f986ac947dff1466b490a61238cb676'
+COMMIT='c13358d9adaf783f42feb5c627b6f12825f5805e'
+TREE='371d099af59b965b6722712bfc820a91ebbb2e04'
 ORIGIN='git@github.com:Tausendunde1nz/control.git'
 PREFIX=('/usr/sbin/runuser','-u','chatops','--','/usr/bin/env','-i','HOME=/home/chatops','PATH=/usr/bin:/bin','GIT_OPTIONAL_LOCKS=0','GIT_CONFIG_NOSYSTEM=1','GIT_CONFIG_GLOBAL=/dev/null')
 GIT=('/usr/bin/git','-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-c','safe.directory='+TARGET)

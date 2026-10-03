@@ -33,17 +33,18 @@
     "/opt/tu1nz_repos/control/scripts/encrypted_drive_backup"
   ],
   "production_activation_ready": false,
-  "production_basis": "05b127033d734aa4abce10b2e5b7d513b99ed5d2",
-  "production_tree": "5459b09c4f986ac947dff1466b490a61238cb676",
+  "production_basis": "c13358d9adaf783f42feb5c627b6f12825f5805e",
+  "production_tree": "371d099af59b965b6722712bfc820a91ebbb2e04",
   "provenance": {
     "freeze_policy": "FREEZE_IMMEDIATELY_BEFORE_ACTIVATION",
     "historical_predecessors": [
       "b78bb2a753aa815d47a99969668d64960573050b",
       "21e822f8cadecf5eb186693d1ceac2d5d0bf6969",
-      "e60aa2f515c89f94bce1dbd6496d358cdfb85300"
+      "e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+      "05b127033d734aa4abce10b2e5b7d513b99ed5d2"
     ],
-    "merge_pr": 69,
-    "prior_commit": "e60aa2f515c89f94bce1dbd6496d358cdfb85300",
+    "merge_pr": 72,
+    "prior_commit": "05b127033d734aa4abce10b2e5b7d513b99ed5d2",
     "prior_commit_restore_forbidden": true
   },
   "schema": 1,

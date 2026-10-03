@@ -14,13 +14,15 @@ def rename_no_replace(source,target):
   error=ctypes.get_errno();raise OSError(error,os.strerror(error))
 
 class Files:
+ targets=TARGETS
+ directories=DIRECTORIES
  def __init__(self,prefix='/',fixture=False,save=None):
   self.prefix=Path(prefix);self.fixture=fixture;self.uid=os.geteuid() if fixture else 0;self.save=save;self.receipts={};self.created=[]
   if fixture:
    if os.geteuid()==0 or self.prefix.parent!=Path('/tmp') or not self.prefix.name.startswith('tu1nz-fence-files-'):raise Refused('FIXTURE_SCOPE')
   elif self.prefix!=Path('/') or os.geteuid()!=0:raise Refused('ROOT_ONLY')
  def path(self,n):
-  if n not in TARGETS and n not in DIRECTORIES:raise Refused('FIXED_PATH')
+  if n not in self.targets and n not in self.directories:raise Refused('FIXED_PATH')
   return self.prefix/n.lstrip('/')
  def chain(self,p):
   try:rel=p.relative_to(self.prefix)
@@ -43,7 +45,7 @@ class Files:
   if sig(s)!=sig(z) or sig(s)!=sig(p.lstat()) or len(b)>4_000_000:raise Refused('READ_RACE')
   return {'uid':s.st_uid,'gid':s.st_gid,'mode':stat.S_IMODE(s.st_mode),'dev':s.st_dev,'inode':s.st_ino,'atime_ns':s.st_atime_ns,'mtime_ns':s.st_mtime_ns,'ctime_ns':s.st_ctime_ns,'sha256':hashlib.sha256(b).hexdigest(),'bytes':base64.b64encode(b).decode(),'acls':{}}
  def snapshot(self,targets,dirs):
-  if set(targets)!=set(TARGETS) or dirs!=DIRECTORIES:raise Refused('SNAPSHOT_SCOPE')
+  if set(targets)!=set(self.targets) or dirs!=self.directories:raise Refused('SNAPSHOT_SCOPE')
   return {n:self.snapshot_one(n) for n in targets}
  def matches(self,snapshot,pins):
   return set(snapshot)==set(pins) and all(snapshot[n]==pins[n] for n in pins)
@@ -53,7 +55,7 @@ class Files:
   if self.save is None:raise Refused('DURABLE_RECEIPT_REQUIRED')
   self.save({'receipts':self.receipts,'created_directories':self.created})
  def create_declared_directories(self,dirs):
-  if dirs!=DIRECTORIES:raise Refused('DIRECTORY_SCOPE')
+  if dirs!=self.directories:raise Refused('DIRECTORY_SCOPE')
   for n,(uid,gid,mode) in sorted(dirs.items(),key=lambda x:len(x[0])):
    p=self.path(n);self.chain(p.parent)
    if p.exists():
@@ -65,24 +67,24 @@ class Files:
     try:
      os.chown(tmp,self.uid,os.getegid() if self.fixture else gid);os.chmod(tmp,mode)
      fd=os.open(tmp,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW);os.fsync(fd);identity=os.fstat(fd);os.close(fd)
-     self.created[-1].update(status='PUBLISH_READY',inode=identity.st_ino,dev=identity.st_dev,uid=identity.st_uid,gid=identity.st_gid,mode=mode);self.persist()
+     self.created[-1].update(status='PUBLISH_READY',temporary=str(tmp),inode=identity.st_ino,dev=identity.st_dev,uid=identity.st_uid,gid=identity.st_gid,mode=mode);self.persist()
      rename_no_replace(tmp,p);fd=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY);os.fsync(fd);os.close(fd)
      self.created[-1].update(status='CREATED');self.persist()
     finally:
      if tmp.exists():tmp.rmdir()
  def install_exact(self,n,candidate,originals):
-  if n not in TARGETS or hashlib.sha256(candidate['bytes']).hexdigest()!=candidate['sha256']:raise Refused('PAYLOAD')
+  if n not in self.targets or hashlib.sha256(candidate['bytes']).hexdigest()!=candidate['sha256']:raise Refused('PAYLOAD')
   p=self.path(n);self.chain(p.parent);before=self.snapshot_one(n)
   expected=self.receipts.get(n,{}).get('after',originals[n])
   if before!=expected:raise Refused('FOREIGN_WRITER')
-  self.receipts[n]={'before':originals[n],'candidate_sha256':candidate['sha256'],'candidate_mode':candidate['mode'],'candidate_gid':os.getegid() if self.fixture else candidate['gid'],'status':'INTENT'};self.persist()
+  self.receipts[n]={'before':originals[n],'candidate_sha256':candidate['sha256'],'candidate_mode':candidate['mode'],'candidate_gid':os.getegid() if self.fixture else candidate['gid'],'status':'INTENT','preimage':before};self.persist()
   tmp=p.parent/('.v11-'+uuid.uuid4().hex);fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
   try:
    with os.fdopen(fd,'wb') as f:
     os.fchown(f.fileno(),self.uid,os.getegid() if self.fixture else candidate['gid']);os.fchmod(f.fileno(),candidate['mode']);f.write(candidate['bytes']);f.flush();os.fsync(f.fileno())
    if self.snapshot_one(n)!=before:raise Refused('PRE_REPLACE_DRIFT')
    staged=tmp.lstat()
-   self.receipts[n].update(status='PUBLISH_READY',staged={'dev':staged.st_dev,'inode':staged.st_ino,'uid':staged.st_uid,'gid':staged.st_gid,'mode':stat.S_IMODE(staged.st_mode),'size':staged.st_size,'mtime_ns':staged.st_mtime_ns,'sha256':candidate['sha256']})
+   self.receipts[n].update(status='PUBLISH_READY',temporary=str(tmp),staged={'dev':staged.st_dev,'inode':staged.st_ino,'uid':staged.st_uid,'gid':staged.st_gid,'mode':stat.S_IMODE(staged.st_mode),'size':staged.st_size,'mtime_ns':staged.st_mtime_ns,'sha256':candidate['sha256']})
    self.persist()  # Bind the exact inode BEFORE atomic publication.
    os.replace(tmp,p);d=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY);os.fsync(d);os.close(d)
   finally:
@@ -91,12 +93,39 @@ class Files:
  def verify_exact(self,n,c):
   r=self.snapshot_one(n)
   if r.get('sha256')!=c['sha256'] or r['uid']!=self.uid or r['mode']!=c['mode'] or r['gid']!=(os.getegid() if self.fixture else c['gid']):raise Refused('POSTIMAGE')
+ def cleanup_staged(self,n,receipt,directory=False):
+  temporary=receipt.get('temporary')
+  if temporary is None:return
+  p=Path(temporary);target=self.path(n)
+  if p.parent!=target.parent or not p.name.startswith('.v11-'):raise Refused('STAGING_PATH')
+  try:s=p.lstat()
+  except FileNotFoundError:return
+  self.chain(p.parent)
+  proof=receipt if directory else receipt.get('staged',{})
+  if any(getattr(s,'st_'+key)!=proof.get(key) for key in ('dev','inode') if key!='inode'):raise Refused('STAGING_IDENTITY')
+  if (s.st_ino,s.st_uid,s.st_gid,stat.S_IMODE(s.st_mode))!=(proof.get('inode'),proof.get('uid'),proof.get('gid'),proof.get('mode')) or os.listxattr(p,follow_symlinks=False):raise Refused('STAGING_IDENTITY')
+  if directory:
+   if not stat.S_ISDIR(s.st_mode):raise Refused('STAGING_TYPE')
+   p.rmdir()
+  else:
+   if not stat.S_ISREG(s.st_mode) or s.st_nlink!=1:raise Refused('STAGING_TYPE')
+   fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NOATIME)
+   try:
+    if hashlib.sha256(os.read(fd,4000001)).hexdigest()!=proof.get('sha256'):raise Refused('STAGING_HASH')
+   finally:os.close(fd)
+   p.unlink()
+  fd=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW);os.fsync(fd);os.close(fd)
  def restore_owned_changes(self,originals,only=None,cleanup=True):
-  if only is not None and not set(only)<=set(TARGETS):raise Refused('RESTORE_SCOPE')
+  if only is not None and not set(only)<=set(self.targets):raise Refused('RESTORE_SCOPE')
   for n,receipt in reversed(list(self.receipts.items())):
    if only is not None and n not in only:continue
    current=self.snapshot_one(n)
+   self.cleanup_staged(n,receipt)
    if current==originals[n]:continue
+   if receipt.get('status') in ('INTENT','PUBLISH_READY') and current==receipt.get('preimage'):
+    # An interrupted restore has not published its replacement. Its exact
+    # previously verified postimage remains owned; no content-only adoption.
+    receipt.update(status='VERIFIED',after=current);self.persist()
    if receipt.get('status')=='RESTORE_TIMES_PENDING':
     old=receipt['after'];wanted=receipt['restore_times']
     stable=('dev','inode','uid','gid','mode','sha256','bytes','acls')
@@ -128,7 +157,7 @@ class Files:
     fd=os.open(self.path(n),os.O_RDONLY|os.O_NOFOLLOW);os.fsync(fd);os.close(fd)
    self.receipts[n].update(status='RESTORED',restored=self.snapshot_one(n));self.persist()
   for r in reversed(self.created) if cleanup else ():
-   p=self.path(r['path'])
+   p=self.path(r['path']);self.cleanup_staged(r['path'],r,directory=True)
    if not p.exists():continue
    st=p.lstat()
    if r.get('status') not in ('CREATED','PUBLISH_READY') or p.is_symlink() or not stat.S_ISDIR(st.st_mode):raise Refused('DIRECTORY_OWNERSHIP_UNPROVEN')
