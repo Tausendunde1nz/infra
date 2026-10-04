@@ -74,8 +74,8 @@ def simulate() -> dict[str, object]:
     if "CONTROL_ROOT/scripts" in access or "git -C" in access:
         raise ContractError("runtime access still requires repository source")
     if (
-        "require_clean_commit" not in observe
-        or '"$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE"' not in observe
+        "require_runtime_application" not in observe
+        or 'require_clean_commit "$APPLICATION_ROOT" "$commit" "$tree"' not in source_controller
     ):
         raise ContractError("natural controller lost Application checkout integrity")
     if any(token in observe for token in ("CONTROL_ROOT", "target_control_commit", "require_local_freeze")):

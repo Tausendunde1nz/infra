@@ -115,7 +115,7 @@ require_backup_path() {
 git_chatops() {
   local repository="$1"
   shift
-  runuser -u chatops -- git -C "$repository" "$@"
+  runuser -u chatops -- env GIT_OPTIONAL_LOCKS=0 git -C "$repository" "$@"
 }
 
 remote_ref() {
@@ -124,12 +124,49 @@ remote_ref() {
 
 require_clean_commit() {
   local repository="$1" expected_commit="$2" expected_tree="$3" code="$4"
-  [ "$(git_chatops "$repository" rev-parse HEAD)" = "$expected_commit" ] \
+  local actual_commit actual_tree actual_status
+  actual_commit="$(git_chatops "$repository" rev-parse HEAD)" \
+    || { fail "S11_2_${code}_COMMIT_READ_RED"; return 2; }
+  [ "$actual_commit" = "$expected_commit" ] \
     || { fail "S11_2_${code}_COMMIT_DRIFT"; return 2; }
-  [ "$(git_chatops "$repository" rev-parse 'HEAD^{tree}')" = "$expected_tree" ] \
+  actual_tree="$(git_chatops "$repository" rev-parse 'HEAD^{tree}')" \
+    || { fail "S11_2_${code}_TREE_READ_RED"; return 2; }
+  [ "$actual_tree" = "$expected_tree" ] \
     || { fail "S11_2_${code}_TREE_DRIFT"; return 2; }
-  [ -z "$(git_chatops "$repository" status --porcelain)" ] \
+  actual_status="$(git_chatops "$repository" status --porcelain)" \
+    || { fail "S11_2_${code}_WORKTREE_READ_RED"; return 2; }
+  [ -z "$actual_status" ] \
     || { fail "S11_2_${code}_WORKTREE_DIRTY"; return 2; }
+}
+
+# Prospective release pairs, never values inferred from the live checkout.
+# Legacy deployment/Canary constants above deliberately remain unchanged.
+runtime_application_identity() {
+  /usr/bin/python3 - "$RUNTIME_ACCESS_MANIFEST" <<'PY'
+import json, stat, sys
+from pathlib import Path
+p = Path(sys.argv[1]); m = p.lstat()
+if not stat.S_ISREG(m.st_mode) or (m.st_uid, m.st_gid, stat.S_IMODE(m.st_mode), m.st_nlink) != (0, 0, 0o644, 1):
+    raise SystemExit(2)
+v = json.loads(p.read_bytes())
+pair = (v.get("application_commit"), v.get("application_tree"))
+old = ("db87896697d56b24f192fc1cd0324b6fe46d734b", "b915a04e19eef8a244c300b16577a44cea89e2ab")
+new = ("93555d8a141caf8ace33522f9340d30bfc47d2bb", "1e8a644115127818f394b6f9d24f31826e04ecba")
+if not ((pair == old and v.get("schema") == "TU1NZ_S11_2_RUNTIME_ACCESS_V1" and
+         v.get("freeze_tag") == "s11-2-r15-18-2-activation-relative-timer-freeze-r1") or
+        (pair == new and v.get("schema") == "TU1NZ_S11_2_RUNTIME_ACCESS_V2" and
+         v.get("freeze_tag") == "s12-yoti-sandbox-runtime-freeze-r14")):
+    raise SystemExit(2)
+print(*pair)
+PY
+}
+
+require_runtime_application() {
+  local identity commit tree
+  identity="$(runtime_application_identity)" \
+    || { fail "S11_2_RELEASE_BINDING_RED"; return 2; }
+  read -r commit tree <<< "$identity"
+  require_clean_commit "$APPLICATION_ROOT" "$commit" "$tree" TARGET_APPLICATION
 }
 
 target_control_commit() {
@@ -302,6 +339,10 @@ PY
 }
 
 verify_runtime_access_contract() {
+  local identity
+  identity="$(runtime_application_identity)" \
+    || { fail "S11_2_RELEASE_BINDING_RED"; return 2; }
+  S11_RUNTIME_APPLICATION_IDENTITY="$identity" \
   S11_RUNTIME_MANIFEST="$RUNTIME_ACCESS_MANIFEST" \
   S11_RUNTIME_PYTHON="$APPLICATION_RUNTIME_PYTHON" \
   S11_INSTALLED_CONTROLLER="$INSTALLED_CONTROLLER" \
@@ -326,23 +367,26 @@ if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
 if (metadata.st_uid, metadata.st_gid, stat.S_IMODE(metadata.st_mode)) != (0, 0, 0o644):
     raise SystemExit(2)
 payload = json.loads(manifest_path.read_text(encoding="ascii"))
-if payload.get("schema") != "TU1NZ_S11_2_RUNTIME_ACCESS_V1":
+if payload.get("schema") not in {"TU1NZ_S11_2_RUNTIME_ACCESS_V1", "TU1NZ_S11_2_RUNTIME_ACCESS_V2"}:
     raise SystemExit(2)
-if payload.get("freeze_tag") != os.environ["S11_RUNTIME_FREEZE_TAG"]:
+expected_tag = (os.environ["S11_RUNTIME_FREEZE_TAG"] if payload["schema"].endswith("V1")
+                else "s12-yoti-sandbox-runtime-freeze-r14")
+if payload.get("freeze_tag") != expected_tag:
     raise SystemExit(2)
 if payload.get("source_access_identity") != "chatops":
     raise SystemExit(2)
 if payload.get("runtime_access_identity") != "root:root+chatops":
     raise SystemExit(2)
-if payload.get("application_commit") != "db87896697d56b24f192fc1cd0324b6fe46d734b":
+expected_commit, expected_tree = os.environ["S11_RUNTIME_APPLICATION_IDENTITY"].split()
+if payload.get("application_commit") != expected_commit:
     raise SystemExit(2)
-if payload.get("application_tree") != "b915a04e19eef8a244c300b16577a44cea89e2ab":
+if payload.get("application_tree") != expected_tree:
     raise SystemExit(2)
 runtime_python = Path(os.environ["S11_RUNTIME_PYTHON"])
 if payload.get("runtime_interpreter") != str(runtime_python) or not os.access(runtime_python, os.X_OK):
     raise SystemExit(2)
 if subprocess.run(
-    [str(runtime_python), "-c", "import psycopg"],
+    [str(runtime_python), "-B", "-c", "import psycopg"],
     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     check=False,
 ).returncode != 0:
@@ -2463,8 +2507,7 @@ observe() {
   require_root
   acquire_lock
   current_state="$(release_state)"
-  if ! require_clean_commit \
-      "$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE" TARGET_APPLICATION \
+  if ! require_runtime_application \
     || ! verify_runtime_access_contract >/dev/null; then
     if [[ "$current_state" == S11_CANARY\|* ]]; then
       database_transition CANARY_RED S11_2_RUNTIME_INTEGRITY_RED

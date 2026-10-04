@@ -302,10 +302,9 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
             observe.index("verify_runtime_access_contract"),
         )
         self.assertIn("database_transition CANARY_RED S11_2_RUNTIME_INTEGRITY_RED", observe)
-        self.assertIn(
-            '"$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE"',
-            observe,
-        )
+        self.assertIn("require_runtime_application", observe)
+        binding = source[source.index("require_runtime_application() {"):source.index("target_control_commit() {")]
+        self.assertIn('require_clean_commit "$APPLICATION_ROOT" "$commit" "$tree"', binding)
         self.assertNotIn("require_local_freeze", observe)
         self.assertNotIn("CONTROL_ROOT", observe)
 
@@ -1000,10 +999,9 @@ class CommercialS112CanaryBootstrapTests(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         observe = source[source.index("observe() {"):source.index("rollback() {")]
         self.assertIn("verify_runtime_access_contract", observe)
-        self.assertIn(
-            '"$APPLICATION_ROOT" "$TARGET_APPLICATION_COMMIT" "$TARGET_APPLICATION_TREE"',
-            observe,
-        )
+        self.assertIn("require_runtime_application", observe)
+        binding = source[source.index("require_runtime_application() {"):source.index("target_control_commit() {")]
+        self.assertIn('require_clean_commit "$APPLICATION_ROOT" "$commit" "$tree"', binding)
         for forbidden in (
             "CONTROL_ROOT",
             "target_control_commit",

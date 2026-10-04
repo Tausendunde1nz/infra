@@ -36,7 +36,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r13"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r14"
 FOLLOWUP_SLOT = "r13-followup-1"
 FOLLOWUP_RED = "S12_1_FOLLOWUP_AUTHORIZATION_RED"
 FOLLOWUP_PARENT = {
@@ -48,9 +48,29 @@ ACTIVE_ATTEMPT: dict[str, Any] | None = None
 MATERIALIZATION_RECORDS: dict | None = None
 MATERIALIZATION_GUARDS: _R13GuardStack | None = None
 GIT_WRITER_SCOPE: _R13GitWriters | None = None
+S11_SERVICE = "tu1nz-adult-public-s11-canary-controller.service"
+S11_LOCK = Path("/run/tu1nz-adult-public-s11-2-control.lock")
+S11_LOCK_FD: int | None = None
+S11_LEGACY_APPLICATION = ("db87896697d56b24f192fc1cd0324b6fe46d734b", "b915a04e19eef8a244c300b16577a44cea89e2ab")
+S11_LEGACY_TAG = "s11-2-r15-18-2-activation-relative-timer-freeze-r1"
+S11_LEGACY_ACCESS_SHA256 = "d4d0e8cab0b9afef52d1e4dcf845c8a383e2baa4cb0c46ef92bec0ab34e97d58"
+S11_CONTROLLER = Path("/usr/local/bin/tu1nz_adult_public_s11_2_control.sh")
+S11_ACCESS = Path("/etc/tu1nz/adult-commercial-s11-2-runtime-access.json")
+S11_ARTIFACTS = {
+    "controller": (S11_CONTROLLER, 0o755, "c6ed8735666a4c1e37e505b6aec6283b24e98fe87d91d87d2c2bb7689949d61c"),
+    "gate": (Path("/usr/local/bin/tu1nz_adult_public_s11_2_gate.py"), 0o755, "8f506bc3b081c5a92c7982eddcb0850920926d34a4f14bffd70892c8b6ff99e6"),
+    "orchestration": (Path("/usr/local/bin/tu1nz_adult_public_s11_2_orchestration.py"), 0o755, "3a026117bf0c516163401ef55f8197cd4cd79d51dacea69c63d5752e8a11942c"),
+    "controller_unit": (Path("/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.service"), 0o644, "b613ab16ae16bdae2175569428ca005b398e5844dc6d98167882230f5ef08b9f"),
+    "controller_timer": (Path("/etc/systemd/system/tu1nz-adult-public-s11-canary-controller.timer"), 0o644, "e17777cf765a9ced4d45b0c6f022fead319ac159cede4a19e5f42acb6a996f08"),
+    "retired_s8_health_timer": (Path("/etc/systemd/system/tu1nz-adult-public-s8-health.timer"), 0o644, "42f1d9ce275a84406ddc9501fa5431c65be0f01e65f4cc59d72d39a8ae700005"),
+    "experience_contract": (Path("/etc/tu1nz/adult-commercial-s11-interactive-experience.json"), 0o644, "faf4fe20887f7b9d7b31d8f35518db1dea2faa861c84acd791f9f0a739db425d"),
+    "experience_copy": (Path("/etc/tu1nz/adult-commercial-s11-interactive-copy.json"), 0o644, "bd842016355f7efd7dfdceedbe89e6e7ea0c7ada09dfe5587b37ad4e42abc972"),
+    "landing_copy": (Path("/etc/tu1nz/adult-commercial-s10-wms-copy.json"), 0o644, "86b07436a51fded974286f5a2fbbd60b93b5ae175fc9106c63136f5462da53b2"),
+}
 MATERIALIZATION_RED = "S12_1_MATERIALIZATION_CONTRACT_RED"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
 BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V8"
+COMPATIBLE_BACKUP_SCHEMA = "TU1NZ_S12_1_RUNTIME_BACKUP_V9"
 BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
 R12_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V4"
 R12_CONTRACT_SHA256 = "97794cddc84a5d9a0ddd6600236aee5f8c8c79013089ef9b20fb01060ca8e00f"
@@ -1047,6 +1067,252 @@ def _competing_control_sync_count() -> int:
     return sum(pattern.search(line) is not None for line in processes.splitlines())
 
 
+def _s11_artifact(path: Path, mode: int) -> str:
+    """Fail closed on unreadable, aliased or writable installed release bytes."""
+    try:
+        before = path.lstat()
+        if (not stat.S_ISREG(before.st_mode)
+                or (before.st_uid, before.st_gid, stat.S_IMODE(before.st_mode), before.st_nlink)
+                != (0, 0, mode, 1)
+                or any("acl" in name.lower() for name in os.listxattr(path))):
+            raise ValueError
+        digest = _sha256(path)
+        after = path.lstat()
+        if (before.st_dev, before.st_ino, before.st_ctime_ns, before.st_mtime_ns) != (
+                after.st_dev, after.st_ino, after.st_ctime_ns, after.st_mtime_ns):
+            raise ValueError
+        return digest
+    except (OSError, ValueError):
+        raise S12ControlError("S12_1_S11_ARTIFACT_READ_RED") from None
+
+
+def _s11_release_binding(*, target: bool = False) -> dict[str, Any]:
+    pair = (APPLICATION_COMMIT, APPLICATION_TREE) if target else S11_LEGACY_APPLICATION
+    try:
+        identity = (_root_git(APPLICATION_ROOT, "rev-parse", "HEAD"),
+                    _root_git(APPLICATION_ROOT, "rev-parse", "HEAD^{tree}"))
+        dirty = _root_git(APPLICATION_ROOT, "status", "--porcelain")
+    except (S12ControlError, OSError):
+        raise S12ControlError("S12_1_S11_APPLICATION_READ_RED") from None
+    if identity != pair or dirty:
+        raise S12ControlError("S12_1_S11_APPLICATION_DRIFT_RED")
+    access_digest = _s11_artifact(S11_ACCESS, 0o644)
+    try:
+        access = json.loads(S11_ACCESS.read_bytes())
+    except (OSError, ValueError):
+        raise S12ControlError("S12_1_S11_RELEASE_BINDING_RED") from None
+    expected = {
+        "schema": "TU1NZ_S11_2_RUNTIME_ACCESS_V2" if target else "TU1NZ_S11_2_RUNTIME_ACCESS_V1",
+        "freeze_tag": FREEZE_TAG if target else S11_LEGACY_TAG,
+        "application_commit": pair[0], "application_tree": pair[1],
+        "source_access_identity": "chatops", "runtime_access_identity": "root:root+chatops",
+        "runtime_interpreter": str(APPLICATION_ROOT / ".venv/bin/python"),
+    }
+    if not isinstance(access, dict) or any(access.get(k) != v for k, v in expected.items()):
+        raise S12ControlError("S12_1_S11_RELEASE_BINDING_RED")
+    artifact_bindings = {}
+    for name, (path, mode, historical_digest) in S11_ARTIFACTS.items():
+        digest = (_sha256(RELEASE_CONTROL_ROOT / "scripts" / S11_CONTROLLER.name)
+                  if target and name == "controller" else historical_digest)
+        if _s11_artifact(path, mode) != digest:
+            raise S12ControlError("S12_1_S11_ARTIFACT_DRIFT_RED")
+        if name in {"experience_contract", "experience_copy", "landing_copy"}:
+            continue
+        artifact_bindings[name] = dict(path=str(path), owner=0, group=0,
+                                      mode=f"0{mode:o}", sha256=digest)
+    if access.get("artifacts") != artifact_bindings:
+        raise S12ControlError("S12_1_S11_RELEASE_BINDING_RED")
+    if target:
+        control_pair = _root_identity(RELEASE_CONTROL_ROOT)
+        if (access.get("control_commit"), access.get("control_tree")) != control_pair:
+            raise S12ControlError("S12_1_S11_RELEASE_BINDING_RED")
+    elif access_digest != S11_LEGACY_ACCESS_SHA256:
+        raise S12ControlError("S12_1_S11_RELEASE_BINDING_RED")
+    # Loaded unit state must match the pinned on-disk unit. A manually started
+    # or substituted service cannot satisfy the natural-invocation contract.
+    if (_systemctl_property(S11_SERVICE, "FragmentPath") != str(S11_ARTIFACTS["controller_unit"][0])
+            or _systemctl_property(S11_SERVICE, "DropInPaths")
+            or _systemctl_property(S11_SERVICE, "NeedDaemonReload") != "no"
+            or _systemctl_property(S11_SERVICE, "RefuseManualStart") != "yes"
+            or _systemctl_property(S11_SERVICE, "TriggeredBy").split() != [S11_TIMER]):
+        raise S12ControlError("S12_1_S11_LOADED_UNIT_RED")
+    if (_systemctl_property(S11_TIMER, "FragmentPath") != str(S11_ARTIFACTS["controller_timer"][0])
+            or _systemctl_property(S11_TIMER, "DropInPaths")
+            or _systemctl_property(S11_TIMER, "NeedDaemonReload") != "no"):
+        raise S12ControlError("S12_1_S11_LOADED_TIMER_RED")
+    # Legacy git status may refresh index stat data. HEAD and installed
+    # artifacts are release transitions; index cache ctime is not one.
+    observed_paths = [APPLICATION_ROOT / ".git/HEAD", S11_ACCESS,
+                      *(p for p, _, _ in S11_ARTIFACTS.values())]
+    # HEAD can remain symbolic while main changes and later rolls back.
+    # Ref/reflog restoration, not the unchanged symbolic text, sets that epoch.
+    for relative in ("refs/heads/main", "packed-refs", "logs/HEAD", "logs/refs/heads/main"):
+        candidate = APPLICATION_ROOT / ".git" / relative
+        if candidate.exists() or candidate.is_symlink():
+            observed_paths.append(candidate)
+    try:
+        changed_at_ns = max(p.lstat().st_ctime_ns for p in observed_paths)
+    except OSError:
+        raise S12ControlError("S12_1_S11_APPLICATION_READ_RED") from None
+    return {"application_commit": pair[0], "application_tree": pair[1],
+            "runtime_access_sha256": access_digest, "changed_at_ns": changed_at_ns}
+
+
+def _s11_acquire_transition() -> None:
+    global S11_LOCK_FD
+    if S11_LOCK_FD is not None:
+        return
+    fd = None
+    try:
+        fd = os.open(S11_LOCK, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        m = os.fstat(fd); p = S11_LOCK.lstat()
+        if (not stat.S_ISREG(m.st_mode) or (m.st_uid, m.st_gid, stat.S_IMODE(m.st_mode), m.st_nlink)
+                != (0, 0, 0o600, 1) or (m.st_dev, m.st_ino) != (p.st_dev, p.st_ino)):
+            raise OSError
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        if fd is not None:
+            os.close(fd)
+        raise S12ControlError("S12_1_S11_TRANSITION_LOCK_RED") from None
+    S11_LOCK_FD = fd
+
+
+def _s11_release_transition() -> None:
+    global S11_LOCK_FD
+    if S11_LOCK_FD is not None:
+        os.close(S11_LOCK_FD)
+        S11_LOCK_FD = None
+
+
+def _s11_epoch() -> dict[str, Any]:
+    return {"boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+            "after_us": time.monotonic_ns() // 1000,
+            "previous_invocation": _systemctl_property(S11_SERVICE, "InvocationID")}
+
+
+def _s11_usec(value: str) -> int:
+    # Same normalization as the canonical S11 systemd_timespan_usec helper.
+    if re.fullmatch(r"[0-9]+", value):
+        result = int(value)
+    else:
+        response = _run(["env", "LC_ALL=C", "systemd-analyze", "timespan", value], check=False)
+        lines = response.stdout.splitlines()
+        fields = lines[1].split() if len(lines) >= 2 else []
+        if response.returncode or len(fields) != 2 or re.fullmatch(r"[0-9]+", fields[1]) is None:
+            raise S12ControlError("S12_1_S11_CLOCK_VALUE_RED")
+        result = int(fields[1])
+    if not 0 <= result < 18446744073709551615:
+        raise S12ControlError("S12_1_S11_CLOCK_VALUE_RED")
+    return result
+
+
+def _s11_completed_invocation(epoch: dict[str, Any], binding: dict[str, Any]) -> dict[str, Any] | None:
+    if Path("/proc/sys/kernel/random/boot_id").read_text().strip() != epoch["boot"]:
+        raise S12ControlError("S12_1_S11_BOOT_CHANGED_RED")
+    invocation = _systemctl_property(S11_SERVICE, "InvocationID")
+    if re.fullmatch(r"[0-9a-f]{32}", invocation) is None or invocation == epoch["previous_invocation"]:
+        return None
+    start = _s11_usec(_systemctl_property(S11_SERVICE, "ExecMainStartTimestampMonotonic"))
+    end = _s11_usec(_systemctl_property(S11_SERVICE, "ExecMainExitTimestampMonotonic"))
+    trigger = _s11_usec(_systemctl_property(S11_TIMER, "LastTriggerUSecMonotonic"))
+    if not (epoch["after_us"] < trigger <= start <= end <= time.monotonic_ns() // 1000):
+        return None
+    # Reuse S11's first-PID-1-job association, not merely a nearby timer time.
+    since = int(time.time() - (time.monotonic_ns() // 1000 - trigger) / 1_000_000) - 2
+    jobs = _run(["journalctl", "--no-pager", "--output=json", "--boot=" + epoch["boot"],
+                 "--since=@" + str(since), "_PID=1", "UNIT=" + S11_SERVICE,
+                 "JOB_TYPE=start", "MESSAGE_ID=7d4958e842da4a758f6c1cdc7b36dcc5"], timeout=30)
+    candidates = []
+    try:
+        for line in jobs.stdout.splitlines():
+            job = json.loads(line)
+            if (job.get("_PID") != "1" or job.get("UNIT") != S11_SERVICE or job.get("JOB_TYPE") != "start"
+                    or job.get("MESSAGE_ID") != "7d4958e842da4a758f6c1cdc7b36dcc5"):
+                raise ValueError
+            stamp = int(job.get("__MONOTONIC_TIMESTAMP", "0"))
+            if stamp >= trigger:
+                candidates.append((stamp, job.get("INVOCATION_ID", "")))
+        if not candidates or min(candidates)[1] != invocation:
+            return None
+    except (ValueError, TypeError):
+        raise S12ControlError("S12_1_S11_INVOCATION_EVIDENCE_RED") from None
+    if (_systemctl_property(S11_SERVICE, "ActiveState") != "inactive"
+            or _systemctl_property(S11_SERVICE, "Result") != "success"
+            or _systemctl_property(S11_SERVICE, "ExecMainStatus") != "0"):
+        return None
+    logs = _run(["journalctl", "--no-pager", "--output=json", "--boot=" + epoch["boot"],
+                 "_SYSTEMD_UNIT=" + S11_SERVICE, "_SYSTEMD_INVOCATION_ID=" + invocation], timeout=30)
+    successful = False
+    try:
+        for line in logs.stdout.splitlines():
+            record = json.loads(line)
+            if record.get("_SYSTEMD_INVOCATION_ID") != invocation:
+                raise ValueError
+            try:
+                payload = json.loads(record.get("MESSAGE", ""))
+            except (ValueError, TypeError):
+                continue
+            if isinstance(payload, dict) and "ok" in payload:
+                successful = payload["ok"] is True
+        if not successful:
+            return None
+    except (ValueError, TypeError):
+        raise S12ControlError("S12_1_S11_INVOCATION_EVIDENCE_RED") from None
+    if _systemctl_property(S11_SERVICE, "InvocationID") != invocation:
+        return None
+    return {**binding, **epoch, "invocation": invocation, "start_us": int(start), "end_us": int(end)}
+
+
+def _s11_wait_natural(*, target: bool) -> dict[str, Any]:
+    # Boundary is captured AFTER installation/restoration, never before it.
+    binding = _s11_release_binding(target=target)
+    epoch = _s11_epoch()
+    _s11_release_transition()
+    deadline = time.monotonic() + 660
+    while time.monotonic() < deadline:
+        if _s11_release_binding(target=target) != binding:
+            raise S12ControlError("S12_1_S11_RELEASE_CHANGED_RED")
+        proof = _s11_completed_invocation(epoch, binding)
+        if proof is not None:
+            if _s11_release_binding(target=target) != binding:
+                raise S12ControlError("S12_1_S11_RELEASE_CHANGED_RED")
+            return proof
+        time.sleep(2)
+    raise S12ControlError("S12_1_S11_FRESH_NATURAL_RUN_REQUIRED")
+
+
+def _install_s11_compatibility(backup: Path, index: dict[str, Any]) -> None:
+    _s11_require_backup(backup, index)
+    if S11_LOCK_FD is None or index.get("s11_release_contract") != "S11_S12_R14":
+        raise S12ControlError("S12_1_S11_TRANSITION_LOCK_RED")
+    source = RELEASE_CONTROL_ROOT / "scripts" / S11_CONTROLLER.name
+    original = backup / "s11-access.before"
+    if _sha256(original) != index["files"]["s11_access"]["sha256"]:
+        raise S12ControlError("S12_1_S11_BACKUP_RED")
+    access = json.loads(original.read_bytes())
+    control_commit, control_tree = _root_identity(RELEASE_CONTROL_ROOT)
+    access.update(schema="TU1NZ_S11_2_RUNTIME_ACCESS_V2", freeze_tag=FREEZE_TAG,
+                  application_commit=APPLICATION_COMMIT, application_tree=APPLICATION_TREE,
+                  control_commit=control_commit, control_tree=control_tree)
+    access["artifacts"]["controller"]["sha256"] = _sha256(source)
+    _install_file(source, S11_CONTROLLER, 0o755)
+    _atomic_json(S11_ACCESS, access, mode=0o644)
+    _s11_release_binding(target=True)
+
+
+def _s11_require_backup(backup: Path, index: dict[str, Any]) -> None:
+    if index.get("schema") != COMPATIBLE_BACKUP_SCHEMA or index.get("s11_release_contract") != "S11_S12_R14":
+        raise S12ControlError("S12_1_S11_BACKUP_RED")
+    for key, filename, mode, digest in (
+        ("s11_controller", "s11-controller.before", "0755", S11_ARTIFACTS["controller"][2]),
+        ("s11_access", "s11-access.before", "0644", S11_LEGACY_ACCESS_SHA256),
+    ):
+        record = index.get("files", {}).get(key)
+        if (record != dict(present=True, mode=mode, uid=0, gid=0, sha256=digest)
+                or _sha256(backup / filename) != digest):
+            raise S12ControlError("S12_1_S11_BACKUP_RED")
+
+
 def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str, Any]:
     if _competing_control_sync_count() != 0:
         raise S12ControlError("WAITING_OPERATOR_CONFLICTING_CONTROL_SYNC")
@@ -1100,6 +1366,15 @@ def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str,
         != "0"
     ):
         raise S12ControlError("S12_1_S11_CONTROLLER_RED")
+    s11_binding = _s11_release_binding(target=immutable_release_allowed)
+    # Success predating the latest bound release/object transition is stale,
+    # including a restored old SHA whose historical success once was GREEN.
+    epoch = _s11_epoch()
+    epoch["previous_invocation"] = ""
+    epoch["after_us"] = max(0, epoch["after_us"] - (
+        time.time_ns() - s11_binding["changed_at_ns"]) // 1000)
+    if _s11_completed_invocation(epoch, s11_binding) is None:
+        raise S12ControlError("S12_1_S11_STALE_SUCCESS_RED")
     if (
         not NGINX_SITE.is_file()
         or NGINX_SITE.is_symlink()
@@ -1119,7 +1394,7 @@ def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str,
     return {
         "ok": True,
         "safe_code": "S12_1_PREDEPLOY_GREEN",
-        "s11": "UNCHANGED_GREEN",
+        "s11": "RELEASE_BOUND_GREEN",
         "public_wms": "GREEN",
         "hard_gates_closed": True,
     }
@@ -1590,6 +1865,8 @@ def _validate_backup_snapshot(
     index: dict[str, Any],
     git_directories: dict[Path, Path] | None = None,
 ) -> None:
+    if index.get("schema") == COMPATIBLE_BACKUP_SCHEMA:
+        _s11_require_backup(backup, index)
     roots = (APPLICATION_ROOT, CONTROL_ROOT)
     if (
         _competing_control_sync_count() != 0
@@ -1807,8 +2084,14 @@ def create_backup(
             STATE_ROOT / "deployment-result.json", backup / "deployment-result.before"
         ),
     }
+    # The historical V8 recovery inputs are not retroactively extended.
+    # Only this release's new backups bind the additional installed artifacts.
+    if FREEZE_TAG == "s12-yoti-sandbox-runtime-freeze-r14":
+        files["s11_controller"] = _copy_if_present(S11_CONTROLLER, backup / "s11-controller.before")
+        files["s11_access"] = _copy_if_present(S11_ACCESS, backup / "s11-access.before")
     index = {
-        "schema": BACKUP_SCHEMA,
+        "schema": COMPATIBLE_BACKUP_SCHEMA if "s11_controller" in files else BACKUP_SCHEMA,
+        **({"s11_release_contract": "S11_S12_R14"} if "s11_controller" in files else {}),
         **({"attempt_binding": ACTIVE_ATTEMPT} if ACTIVE_ATTEMPT is not None else {}),
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "application": {
@@ -7885,6 +8168,18 @@ def _restore_public_nginx_backup(backup: Path, index: dict[str, Any]) -> None:
 
 
 def _restore_non_repository_backup(backup: Path, index: dict[str, Any]) -> None:
+    if index.get("schema") == COMPATIBLE_BACKUP_SCHEMA or "s11_release_contract" in index:
+        _s11_require_backup(backup, index)
+        if S11_LOCK_FD is None:
+            raise S12ControlError("S12_1_S11_TRANSITION_LOCK_RED")
+        for key, filename, destination in (
+            ("s11_controller", "s11-controller.before", S11_CONTROLLER),
+            ("s11_access", "s11-access.before", S11_ACCESS),
+        ):
+            record = index["files"][key]
+            if not record.get("present") or _sha256(backup / filename) != record.get("sha256"):
+                raise S12ControlError("S12_1_S11_BACKUP_RED")
+            _restore_file(record, backup / filename, destination)
     _restore_file(index["files"]["unit"], backup / "unit.before", UNIT_PATH)
     _restore_file(
         index["files"]["runtime_contract"],
@@ -8921,8 +9216,14 @@ def _load_recovery_backup() -> tuple[Path, dict[str, Any], dict[str, Any]]:
     ):
         raise S12ControlError("S12_1_RECOVERY_BACKUP_RED")
     index = _private_json(backup / "restore-index.json", "S12_1_RECOVERY_INDEX_RED")
-    if index.get("schema") != BACKUP_SCHEMA:
+    if index.get("schema") not in {BACKUP_SCHEMA, COMPATIBLE_BACKUP_SCHEMA}:
         raise S12ControlError("S12_1_RECOVERY_INDEX_RED")
+    if index.get("schema") == COMPATIBLE_BACKUP_SCHEMA:
+        _s11_require_backup(backup, index)
+    elif "s11_release_contract" in index or (
+        ACTIVE_ATTEMPT is not None and ACTIVE_ATTEMPT.get("release", {}).get("tag") == FREEZE_TAG
+    ):
+        raise S12ControlError("S12_1_S11_BACKUP_RED")
     if ACTIVE_ATTEMPT is not None and (
         attempt.get("attempt_binding") != ACTIVE_ATTEMPT
         or index.get("attempt_binding") != ACTIVE_ATTEMPT
@@ -9129,6 +9430,19 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
 
 
 def _recover_locked() -> dict[str, Any]:
+    try:
+        result = _recover_repository_locked()
+        if S11_LOCK_FD is not None:
+            backup, index, _ = _load_recovery_backup()
+            if index.get("s11_release_contract") == "S11_S12_R14":
+                proof = _s11_wait_natural(target=False)
+                _atomic_json(backup / "s11-rollback-health.json", proof)
+        return result
+    finally:
+        _s11_release_transition()
+
+
+def _recover_repository_locked() -> dict[str, Any]:
     if os.geteuid() != 0:
         raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
     _normalize_barrier_release_backup()
@@ -9151,6 +9465,8 @@ def _recover_locked() -> dict[str, Any]:
         _atomic_json(STATE_ROOT / "recovery-result.json", result)
         return result
     backup, index, attempt = _load_recovery_backup()
+    if index.get("s11_release_contract") == "S11_S12_R14":
+        _s11_acquire_transition()
     if _successful_result_matches_attempt(attempt):
         raise S12ControlError("S12_1_RECOVERY_AFTER_SUCCESS_FORBIDDEN_RED")
     completed = backup / "rollback-complete.json"
@@ -9218,6 +9534,7 @@ def _deploy_locked() -> dict[str, Any]:
     repository_sync_failure: BaseException | None = None
     release_observation: _GitMetadataTransitionGuard | None = None
     try:
+        _s11_acquire_transition()
         worktree_barrier = _write_barrier_journal(
             path_records, parent_record
         )
@@ -9312,6 +9629,8 @@ def _deploy_locked() -> dict[str, Any]:
             _r13_boundary("RELEASE_TREE_PREVERIFY")
             release_observation.assert_unchanged()
         _verify_release_freeze()
+        _install_s11_compatibility(backup, index)
+        installed_s11_proof = _s11_wait_natural(target=True)
         _atomic_json(RUNTIME_CONTRACT, runtime_contract(control_sha, control_tree))
         os.chown(RUNTIME_CONTRACT, 0, 0)
         _install_file(
@@ -9397,6 +9716,7 @@ def _deploy_locked() -> dict[str, Any]:
         _run(["nginx", "-t"])
         _run(["systemctl", "reload", "nginx.service"])
         _durable_unlink(RUNTIME_CONTRACT)
+        completed_s11_proof = _s11_wait_natural(target=True)
         read_only_preflight(immutable_release_allowed=True)
         if release_observation is not None:
             _r13_boundary("RELEASE_TREE_FINAL_AUDIT")
@@ -9415,7 +9735,9 @@ def _deploy_locked() -> dict[str, Any]:
             "rollback_count": 0,
             "runtime": "CONTROLLED_INACTIVE",
             "callback": "INACTIVE",
-            "s11": "UNCHANGED_GREEN",
+            "s11": "RELEASE_BOUND_GREEN",
+            "s11_installed_release_proof": installed_s11_proof,
+            "s11_completion_proof": completed_s11_proof,
             "public_wms": "GREEN",
             "runtime_environment_sha256": release_environment["venv_sha256"],
             "hard_gates_closed": True,
@@ -9429,13 +9751,19 @@ def _deploy_locked() -> dict[str, Any]:
         if release_observation is not None:
             release_observation.close()
         if repository_sync_failure is not None:
-            pass
+            if backup is not None and index is not None:
+                proof = _s11_wait_natural(target=False)
+                _atomic_json(backup / "s11-rollback-health.json", proof)
         elif mutation_started and backup is not None and index is not None:
+            _s11_acquire_transition()
             rollback_once(backup, index, release_repository_state)
+            rollback_s11_proof = _s11_wait_natural(target=False)
+            _atomic_json(backup / "s11-rollback-health.json", rollback_s11_proof)
         elif _barrier_journal_present():
             _recover_repository_barrier_only()
         raise
     finally:
+        _s11_release_transition()
         if release_observation is not None:
             release_observation.close()
 

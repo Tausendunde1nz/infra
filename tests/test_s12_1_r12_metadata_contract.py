@@ -96,7 +96,8 @@ def fixture(*, complete_backup=False):
                 interpreter.write_bytes(b'#!/bin/sh\n# OFFLINE fixture, never provider execution\nexit 1\n')
                 interpreter.chmod(0o755)
             if complete_backup and root==control:
-                for relative in ('systemd/'+r.UNIT_NAME,'nginx/current/wantmeseen.s12-1-acceptance.conf'):
+                for relative in ('systemd/'+r.UNIT_NAME,'nginx/current/wantmeseen.s12-1-acceptance.conf',
+                                 'scripts/tu1nz_adult_public_s11_2_control.sh'):
                     target=root/relative;target.parent.mkdir(parents=True,exist_ok=True)
                     target.write_bytes((ROOT/relative).read_bytes())
             git(root,'add','.');git(root,'commit','-m','before')

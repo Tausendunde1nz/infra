@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r13"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r14"
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
@@ -31,6 +31,10 @@ APPLICATION_ARTIFACTS = {
 }
 
 CONTROL_ARTIFACTS = {
+    "s11_compatible_controller_sha256": "scripts/tu1nz_adult_public_s11_2_control.sh",
+    "s11_s12_compatibility_tests_sha256": "tests/test_s11_s12_release_compatibility.py",
+    "s11_historical_contract_tests_sha256": "tests/s11_historical_release.py",
+    "s11_s12_compatibility_doc_sha256": "docs/COMMERCIAL_S12_1_R14_S11_RELEASE_COMPATIBILITY.md",
     "control_manifest_sha256": "manifests/adult-publishing-commercial-s12-1-yoti-sandbox-runtime.json",
     "control_runtime_sha256": "scripts/tu1nz_adult_commercial_s12_1_runtime.py",
     "control_freeze_sha256": "scripts/tu1nz_adult_commercial_s12_1_freeze.py",
@@ -51,6 +55,9 @@ CONTROL_ARTIFACTS = {
 }
 
 STATIC_BINDINGS = {
+    "s11_rollback_application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
+    "s11_rollback_application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
+    "s11_completion_contract": "FRESH_NATURAL_INVOCATION_INSTALLED_RELEASE_BOUND",
     "contract_version": CONTRACT_VERSION,
     "provider": "YOTI",
     "environment": "SANDBOX",
@@ -267,6 +274,7 @@ def expected_bindings(
     app_tree = str(_git(application_repo, "rev-parse", f"{app_commit}^{{tree}}" )).strip()
     if (app_commit, app_tree) != (APPLICATION_COMMIT, APPLICATION_TREE):
         raise FreezeError("S12_1_APPLICATION_BINDING_RED")
+    validate_s11_application_compatibility(application_repo)
     ctrl_commit = str(_git(control_repo, "rev-parse", f"{control_commit}^{{commit}}" )).strip()
     ctrl_tree = str(_git(control_repo, "rev-parse", f"{ctrl_commit}^{{tree}}" )).strip()
     manifest_payload = bytes(
@@ -297,6 +305,25 @@ def expected_bindings(
     if tuple(values) != REQUIRED_KEYS:
         raise FreezeError("S12_1_FREEZE_BINDING_SSOT_RED")
     return values
+
+
+def validate_s11_application_compatibility(application_repo: Path) -> None:
+    """Pin rollback provenance and prove unchanged non-S12 runtime sources."""
+    old = STATIC_BINDINGS["s11_rollback_application_commit"]
+    tree = str(_git(application_repo, "rev-parse", old + "^{tree}")).strip()
+    if tree != STATIC_BINDINGS["s11_rollback_application_tree"]:
+        raise FreezeError("S12_1_S11_ROLLBACK_APPLICATION_RED")
+    _git(application_repo, "merge-base", "--is-ancestor", old, APPLICATION_COMMIT)
+    changes = str(_git(application_repo, "diff", "--no-renames", "--name-status",
+                       old, APPLICATION_COMMIT, "--", "src/")).splitlines()
+    expected = {
+        "M\tsrc/tu1nz_providers/avs_yoti.py",
+        "M\tsrc/tu1nz_providers/avs_yoti_sandbox.py",
+        *("A\tsrc/tu1nz_s12/" + name for name in
+          ("__init__.py", "avs.py", "runtime.py", "simulator.py", "workflow.py")),
+    }
+    if len(changes) != len(expected) or set(changes) != expected:
+        raise FreezeError("S12_1_S11_APPLICATION_COMPATIBILITY_RED")
 
 
 def render_annotation(bindings: Mapping[str, str]) -> str:

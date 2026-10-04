@@ -613,6 +613,13 @@ class AdmissionTests(unittest.TestCase):
                      'native Linux root + kernel guards required')
 class IntegratedChainTests(unittest.TestCase):
     def host_boundary(self, argv, **kwargs):
+        if argv[0]=='journalctl':
+            if '_PID=1' in argv:
+                return subprocess.CompletedProcess(argv,0,json.dumps(dict(_PID='1',UNIT=r.S11_SERVICE,
+                    JOB_TYPE='start',MESSAGE_ID='7d4958e842da4a758f6c1cdc7b36dcc5',
+                    __MONOTONIC_TIMESTAMP=str(self.s11_tick+25),INVOCATION_ID='2'*32)),'')
+            return subprocess.CompletedProcess(argv,0,json.dumps(dict(
+                _SYSTEMD_INVOCATION_ID='2'*32,MESSAGE='{"ok":true}')),'')
         if argv[0]=='systemctl':
             if 'start' in argv:
                 self.starts += 1
@@ -636,9 +643,18 @@ class IntegratedChainTests(unittest.TestCase):
                         else 'LoadState=not-found\nActiveState=inactive\nSubState=dead\n')
             elif '-p' in argv:
                 name=argv[argv.index('-p')+1]
-                output={'ActiveState':'active','NRestarts':'0','SubState':'waiting','Result':'success',
+                import time
+                s11=argv[2]==r.S11_SERVICE
+                output={'ActiveState':'inactive' if s11 else 'active','NRestarts':'0','SubState':'waiting','Result':'success',
                         'ExecMainStatus':'0','FragmentPath':str(r.UNIT_PATH),
+                        'InvocationID':'2'*32,'NeedDaemonReload':'no','RefuseManualStart':'yes',
+                        'TriggeredBy':r.S11_TIMER,
+                        'LastTriggerUSecMonotonic':str(getattr(self,'s11_tick',0)+20),
+                        'ExecMainStartTimestampMonotonic':str(getattr(self,'s11_tick',0)+30),
+                        'ExecMainExitTimestampMonotonic':str(getattr(self,'s11_tick',0)+40),
                         'NextElapseUSecRealtime':'2099-01-01 00:00:00 UTC'}.get(name,'')
+                if s11 and name=='FragmentPath':output=str(r.S11_ARTIFACTS['controller_unit'][0])
+                if argv[2]==r.S11_TIMER and name=='FragmentPath':output=str(r.S11_ARTIFACTS['controller_timer'][0])
             else:output=''
             return subprocess.CompletedProcess(argv,0,output,'')
         if argv[0]=='nginx':return subprocess.CompletedProcess(argv,0,'','')
@@ -695,6 +711,17 @@ class IntegratedChainTests(unittest.TestCase):
             historical=r.ATTEMPT_MARKER.read_bytes()
             self.assertTrue(r.reconcile_metadata(f['contract'])['ok'])
             self.assertTrue(r.recover()['ok'])
+            from tests.test_s11_s12_release_compatibility import installed_fixture
+            patches.enter_context(installed_fixture(f['base'], f['app']))
+            # PID-1 is the same explicit offline boundary as systemctl above;
+            # real Git, artifact, permission and protection checks still run.
+            def pid1_epoch():
+                import time
+                self.s11_tick=time.monotonic_ns()//1000
+                time.sleep(0.001)
+                return dict(boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                            after_us=self.s11_tick,previous_invocation='1'*32)
+            patches.enter_context(mock.patch.object(r,'_s11_epoch',side_effect=pid1_epoch))
             proof={key:hashlib.sha256(path.read_bytes()).hexdigest() for key,path in dict(
                 attempt=r.ATTEMPT_MARKER,index=f['backup']/'restore-index.json',
                 rollback=f['backup']/'rollback-complete.json',progress=f['backup']/'rollback-progress.json',

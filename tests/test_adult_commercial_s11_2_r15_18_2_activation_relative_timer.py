@@ -111,9 +111,10 @@ class R15182ActivationRelativeTimerTests(unittest.TestCase):
             "controller_timer_sha256": TIMER,
         }.items():
             with self.subTest(key=key):
+                from tests.s11_historical_release import artifact_bytes
                 self.assertEqual(
                     contract["artifact_bindings"][key],
-                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                    hashlib.sha256(artifact_bytes(path)).hexdigest(),
                 )
 
 

@@ -194,8 +194,9 @@ class R15164TechnicalProfileSerializationTests(unittest.TestCase):
         }
         for key, path in expected.items():
             with self.subTest(binding=key):
+                from tests.s11_historical_release import artifact_bytes
                 self.assertEqual(
-                    bindings[key], hashlib.sha256(path.read_bytes()).hexdigest()
+                    bindings[key], hashlib.sha256(artifact_bytes(path)).hexdigest()
                 )
 
     def test_full_r15_17_source_simulator_is_green_and_source_only(self):
