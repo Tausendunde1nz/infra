@@ -1,0 +1,67 @@
+S12.1 R13 source-only — integrated continuation safety gate RED
+Date: 2026-10-03 UTC
+
+Audited source: 9ffeba0 (draft PR #215, Tausendunde1nz/infra).
+Native Ubuntu 24.04 CI: 37123226699.
+Evidence: https://github.com/Tausendunde1nz/infra/actions/runs/37123226699
+No server access, server mutation, metadata application, recovery or deployment
+was performed by this source task. No runtime authorization was generated.
+
+Verified delta:
+- Real isolated R12 metadata -> canonical recovery is GREEN.
+- Previous native CI 37122928511 passed the complete source suite and the
+  integrated transition through real backup/Git synchronization and a forced
+  failure inside the protected synchronization body.
+- Final extended native gate: six protected-admission test methods plus real
+  R12->recovery passed; two full deployment-chain scenarios failed.
+- Both failing scenarios recorded zero systemctl activation starts.
+- No guard was weakened, skipped or mocked to make the failing chain GREEN.
+
+Exact blocking condition:
+At the end of _serialized_repository_recovery, after successful root Git
+materialization and immutable release staging, _lock_worktree_write_barrier
+observes the fixture's repos/app/created directory:
+  uid=0, gid=1001, mode=2770, durable barrier record absent.
+The directory inherited the retained default POSIX ACL from the repository.
+Its group-write bit violates the required sealed new-object state. The
+tracked-path second pass raises S12_1_RECOVERY_WORKTREE_BARRIER_RED.
+The exception handler then invokes canonical rollback; its admission encounters
+the same unjournaled, group-writable object and fails with the same safe code.
+Therefore neither successful deployment nor its required rollback path has
+been proved jointly satisfiable. The earlier in-body failure test did not
+exercise this post-materialization boundary.
+
+Production relevance established OFFLINE, not asserted from a new live audit:
+Application backup commit db87896697d56b24f192fc1cd0324b6fe46d734b does not
+contain src/tu1nz_s12. Authorized target
+93555d8a141caf8ace33522f9340d30bfc47d2bb introduces that directory and five
+files (__init__.py, avs.py, runtime.py, simulator.py, workflow.py).
+The protected prior evidence and R12 policy retain predecessor/default ACLs;
+R12's finite 254-object contract does not authorize later inodes created by
+a new checkout. The isolated reproduction is not a claim about the current
+UID/mode/inode of any server path.
+
+Classification:
+NEW_MATERIAL_RISK / PROSPECTIVE_GIT_MATERIALIZATION_CONTRACT_REQUIRED.
+Observed code: S12_1_RECOVERY_WORKTREE_BARRIER_RED.
+Stop: S12_1_FOLLOWUP_OFFLINE_CHAIN_RED (source-task status, not an invented
+runtime-controller return value).
+
+Smallest additional design/authorization needed:
+A reviewed prospective ACL-safe materialization/successor contract for new and
+replaced target objects, including default-ACL propagation. It must prove
+writer exclusion while objects are created, bind object identity/creator and
+target metadata before any release, journal finite transitions durably, and
+make interrupted checkout + rollback verifiable. Preserve the R12 finite
+historical-gap contract and legacy evidence unchanged. Do not infer creator
+or provenance from content equality, root ownership or current mode alone.
+
+Not acceptable: after-the-fact chmod/chown, accepting group-writable unbound
+objects, deleting old markers, adding a new unreviewed R12 path list at runtime,
+or changing tests to hide the inherited ACL. No such action was taken.
+
+Release posture:
+PR #215 remains DRAFT; canonical control-main remains R12 d03b90ff3816a5afb08253f6bf1d767d96c2cb9f.
+No acceptance Codex review, merge, post-merge CI or immutable R13 freeze.
+Runtime prerequisites remain unmet; both live Git guards are retained per the
+last protected server evidence, not newly reverified in this source-only task.

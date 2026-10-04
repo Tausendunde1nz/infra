@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r12"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r13"
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
@@ -45,6 +45,8 @@ CONTROL_ARTIFACTS = {
     "control_r12_metadata_contract_sha256": "manifests/s12-1-r12-metadata-contract.json",
     "control_r12_metadata_tests_sha256": "tests/test_s12_1_r12_metadata_contract.py",
     "control_r12_metadata_doc_sha256": "docs/COMMERCIAL_S12_1_R12_METADATA_RECONCILIATION.md",
+    "control_followup_tests_sha256": "tests/test_s12_1_attempt_chain.py",
+    "control_followup_doc_sha256": "docs/COMMERCIAL_S12_1_R13_ATTEMPT_CONTRACT.md",
     "control_validation_workflow_sha256": ".github/workflows/control-validation.yml",
 }
 
@@ -60,6 +62,7 @@ STATIC_BINDINGS = {
     "credential_contract": "SYSTEMD_LOAD_CREDENTIAL_FIXED_REFERENCES",
     "rollback_contract": "EXACTLY_ONCE_BACKUP_FIRST_CONTROLLED_INACTIVE",
     "deployment_contract": "EXACTLY_ONE_NO_HOTFIX_NO_RETRY",
+    "followup_contract": "R13_FIXED_SLOT_PROTECTED_HUMAN_GRANT_CLOSED_R12_RECOVERY",
     "recovery_barrier_contract": "GIT_METADATA_SCOPED_TRAVERSAL_PRESERVING",
     "recovery_fix_classification": "EXPLICIT_NONHISTORICAL_METADATA_SUCCESSOR_BINDINGS",
     "runtime_python_sha256": RUNTIME_PYTHON_SHA256,
@@ -119,6 +122,12 @@ def expected_manifest_contract() -> dict[str, object]:
             "values_committed": False,
         },
         "decision": "SOURCE_GREEN_RUNTIME_DEPLOYMENT_REQUIRES_EXACT_FREEZE",
+        "followup_admission": {
+            "slot": "r13-followup-1",
+            "authority": "PROTECTED_HUMAN_GRANT_AND_CLOSED_R12_RECOVERY",
+            "historical_marker_preserved": True,
+            "consumption": "DURABLE_BEFORE_DEPLOY_NO_RETRY",
+        },
         "environment": "SANDBOX",
         "final_posture": {
             "callback": "INACTIVE",

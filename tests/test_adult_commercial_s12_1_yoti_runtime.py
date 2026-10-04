@@ -307,11 +307,11 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("ExecStartPost=", unit)
         self.assertIn("tu1nz_s12.runtime safe-stop", unit)
         self.assertIn(
-            "/etc/tu1nz/adult-commercial-s12-1-private/state/final-state.json",
+            "/etc/tu1nz/adult-commercial-s12-1-private/state/attempts/r13-followup-1/final-state.json",
             unit,
         )
         self.assertIn(
-            "ReadWritePaths=/etc/tu1nz/adult-commercial-s12-1-private/state",
+            "ReadWritePaths=/etc/tu1nz/adult-commercial-s12-1-private/state/attempts/r13-followup-1",
             unit,
         )
         self.assertIn(
@@ -986,9 +986,15 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         self.assertIn("_PTRACE_SEIZE", source)
         self.assertIn("_PTRACE_INTERRUPT", source)
         self.assertIn("_PTRACE_DETACH", source)
-        self.assertNotIn("PTRACE_O_EXITKILL", source)
+        # Foreign retained-handle owners remain temporarily quiesced without
+        # stop signals or death-on-controller-exit. The separately authorized
+        # Git bootstrap now self-stops and is intentionally EXITKILL-bound.
+        foreign_quiescence = source.split("class _GuardedHandleQuiescence:", 1)[1].split("\nclass ", 1)[0]
+        self.assertNotIn("PTRACE_O_EXITKILL", foreign_quiescence)
+        self.assertNotIn("0x0010005e", foreign_quiescence)
         self.assertNotIn("pidfd_send_signal", source)
-        self.assertNotIn("SIGSTOP", source)
+        self.assertNotIn("SIGSTOP", foreign_quiescence)
+        self.assertIn("os.kill(os.getpid(),signal.SIGSTOP)", source)
         self.assertLess(
             contract.index("_WorktreeReleaseGuard("),
             contract.index("_GuardedHandleQuiescence("),
@@ -1002,8 +1008,18 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
             contract.index("release_guard.finalize_release("),
         )
         self.assertLess(
-            contract.index("release_guard.finalize_release("),
             contract.index("_restore_repository_parent(parent_record)"),
+            contract.index("release_guard.finalize_release("),
+        )
+        # R13 restores under the live attributed/filesystem/permission guards,
+        # before synchronized shutdown; the legacy hard-lock order is retained.
+        self.assertLess(
+            contract.index("release_guard.finalize_release("),
+            contract.rindex("_restore_repository_parent(parent_record)"),
+        )
+        self.assertLess(
+            contract.index("_restore_repository_parent(parent_record)"),
+            contract.index("_r13_retire_git_writers()"),
         )
         self.assertLess(
             contract.index("_restore_repository_parent(parent_record)"),
