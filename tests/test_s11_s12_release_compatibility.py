@@ -210,6 +210,14 @@ class InstalledContractTests(GitDiagnosticTests):
             shell += "require_runtime_application\nverify_runtime_access_contract\n"
             completed = subprocess.run(["bash", "-c", shell], capture_output=True, text=True)
             self.assertEqual(completed.returncode, 0, completed.stderr)
+            valid_access = r.S11_ACCESS.read_bytes()
+            stale_access = json.loads(valid_access)
+            stale_access["freeze_tag"] = "s12-yoti-sandbox-runtime-freeze-r14"
+            r.S11_ACCESS.write_text(json.dumps(stale_access))
+            stale = subprocess.run(["bash", "-c", shell], capture_output=True, text=True)
+            self.assertNotEqual(stale.returncode, 0)
+            self.assertIn("S11_2_RELEASE_BINDING_RED", stale.stderr)
+            r.S11_ACCESS.write_bytes(valid_access)
             # Byte-identical rollback and a restored real old commit cannot use
             # the target pair or its successful invocation as authorization.
             for key, filename, path in (("s11_controller", "s11-controller.before", r.S11_CONTROLLER),

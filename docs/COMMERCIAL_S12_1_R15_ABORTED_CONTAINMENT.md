@@ -64,3 +64,6 @@ events, durable intent/syscall/claim/receipt interruptions and repeated closure.
 No disabled guard is accepted as security evidence. Existing R12, integrated
 attempt-chain and S11/S12 gates remain mandatory, followed by Same-SHA review,
 merge/post-merge CI and a new immutable freeze. Live permission remains separate.
+The target S11 manifest/controller binding advances together to the exact R15
+freeze (not a wildcard or an additional accepted live version). The integrated
+real-S11 check rejects a stale R14 manifest; the legacy rollback pair is unchanged.

@@ -155,7 +155,7 @@ new = ("93555d8a141caf8ace33522f9340d30bfc47d2bb", "1e8a644115127818f394b6f9d24f
 if not ((pair == old and v.get("schema") == "TU1NZ_S11_2_RUNTIME_ACCESS_V1" and
          v.get("freeze_tag") == "s11-2-r15-18-2-activation-relative-timer-freeze-r1") or
         (pair == new and v.get("schema") == "TU1NZ_S11_2_RUNTIME_ACCESS_V2" and
-         v.get("freeze_tag") == "s12-yoti-sandbox-runtime-freeze-r14")):
+         v.get("freeze_tag") == "s12-yoti-sandbox-runtime-freeze-r15")):
     raise SystemExit(2)
 print(*pair)
 PY
@@ -370,7 +370,7 @@ payload = json.loads(manifest_path.read_text(encoding="ascii"))
 if payload.get("schema") not in {"TU1NZ_S11_2_RUNTIME_ACCESS_V1", "TU1NZ_S11_2_RUNTIME_ACCESS_V2"}:
     raise SystemExit(2)
 expected_tag = (os.environ["S11_RUNTIME_FREEZE_TAG"] if payload["schema"].endswith("V1")
-                else "s12-yoti-sandbox-runtime-freeze-r14")
+                else "s12-yoti-sandbox-runtime-freeze-r15")
 if payload.get("freeze_tag") != expected_tag:
     raise SystemExit(2)
 if payload.get("source_access_identity") != "chatops":
