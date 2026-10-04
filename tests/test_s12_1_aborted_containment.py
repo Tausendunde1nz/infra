@@ -51,6 +51,24 @@ class ProvenanceTests(unittest.TestCase):
             with self.assertRaisesRegex(r.S12ControlError,'NO_RUNTIME_AUTHORITY'):
                 r.followup(Path('never-read'),'unused')
 
+    def test_followup_rechecks_containment_after_acquiring_real_lock(self):
+        for recovering in (False,True):
+            with self.subTest(recovering=recovering),tempfile.TemporaryDirectory() as name:
+                root=Path(name);state=root/'state';state.mkdir()
+                acquire=r._exclusive_deployment_lock
+                @contextmanager
+                def raced_lock():
+                    with acquire():
+                        (state/'repository-barrier.r15-containment.json').write_bytes(b'durable competing claim')
+                        yield
+                with mock.patch.object(r,'STATE_ROOT',state),mock.patch.object(r,'DEPLOYMENT_LOCK_ROOT',root),\
+                     mock.patch.object(r,'_exclusive_deployment_lock',raced_lock),\
+                     mock.patch.object(r,'_followup_authorization',side_effect=AssertionError('must reject first')) as authorization:
+                    with self.assertRaisesRegex(r.S12ControlError,'NO_RUNTIME_AUTHORITY'):
+                        r.followup(Path('never-read'),'unused',recovering=recovering)
+                    authorization.assert_not_called()
+                self.assertEqual([p.name for p in state.iterdir()],['repository-barrier.r15-containment.json'])
+
 
 @contextmanager
 def aborted_fixture(full=False):
@@ -134,7 +152,7 @@ class NativeTests(unittest.TestCase):
 
     def test_interruption_claim_intent_syscall_and_closing_never_replays(self):
         class Interrupted(BaseException):pass
-        for seam in ('claim','intent','syscall','closed'):
+        for seam in ('claim','intent','syscall','closed','after_receipt','cleanup_ack'):
             with self.subTest(seam=seam),aborted_fixture() as f:
                 save=r._write_private_backup_blob;atomic=r._atomic_barrier_json;setacl=os.setxattr
                 fired=False
@@ -145,9 +163,13 @@ class NativeTests(unittest.TestCase):
                     value=save(path,payload)
                     if seam=='claim' and path.name=='repository-barrier.r15-containment.json':
                         fired=True;raise Interrupted()
+                    if seam=='after_receipt' and path.name=='repository-barrier.r15-contained.json':
+                        fired=True;raise Interrupted()
                     return value
                 def progress(path,payload):
                     nonlocal fired
+                    if seam=='cleanup_ack' and path.name=='repository-barrier.r15-containment-progress.json' and payload['phase']=='CLOSED_CONTAINED':
+                        fired=True;raise Interrupted()
                     atomic(path,payload)
                     if seam=='intent' and path.name=='repository-barrier.r15-containment-progress.json' and payload['intent'] is not None:
                         fired=True;raise Interrupted()
@@ -196,9 +218,37 @@ class NativeTests(unittest.TestCase):
                 with self.assertRaisesRegex(r.S12ControlError,'SYNTHETIC_CLEANUP_RED') as caught:
                     r.contain_aborted_metadata(f['contract'])
             self.assertEqual(caught.exception.metadata_errors[-1]['channel'],'cleanup')
-            self.assertFalse((f['state']/'repository-barrier.r15-contained.json').exists())
+            receipt=json.loads((f['state']/'repository-barrier.r15-contained.json').read_bytes())
+            self.assertEqual(receipt['phase'],'CONTAINED_PENDING_CLEANUP')
+            progress=json.loads((f['state']/'repository-barrier.r15-containment-progress.json').read_bytes())
+            self.assertEqual(progress['phase'],'CONTAINED_PENDING_CLEANUP')
             with self.assertRaisesRegex(r.S12ControlError,'INCOMPLETE_NO_RETRY'):r.contain_aborted_metadata(f['contract'])
             self.preserved(f)
+
+    def test_receipt_publication_is_fenced_against_reverted_root_mutation(self):
+        for boundary in ('before','after'):
+            with self.subTest(boundary=boundary),aborted_fixture() as f:
+                save=r._write_private_backup_blob;fired=False
+                def mutate():
+                    nonlocal fired
+                    fired=True
+                    subprocess.run([sys.executable,'-c',
+                        'import os,sys;p=sys.argv[1];m=os.stat(p).st_mode&4095;os.chmod(p,384);os.chmod(p,m)',
+                        str(f['app']/'kept')],check=True)
+                def publish(path,payload):
+                    if path.name!='repository-barrier.r15-contained.json':return save(path,payload)
+                    if boundary=='before':mutate()
+                    result=save(path,payload)
+                    if boundary=='after':mutate()
+                    return result
+                with mock.patch.object(r,'_write_private_backup_blob',side_effect=publish):
+                    with self.assertRaises(r.S12ControlError):r.contain_aborted_metadata(f['contract'])
+                self.assertTrue(fired)
+                self.assertEqual(json.loads((f['state']/'repository-barrier.r15-containment-progress.json').read_bytes())['phase'],
+                                 'CONTAINED_PENDING_CLEANUP')
+                with self.assertRaisesRegex(r.S12ControlError,'INCOMPLETE_NO_RETRY'):
+                    r.contain_aborted_metadata(f['contract'])
+                self.preserved(f)
 
     def test_terminal_repeat_rejects_drift_instead_of_returning_cached_green(self):
         with aborted_fixture() as f:

@@ -10614,10 +10614,16 @@ def contain_aborted_metadata(contract_path: Path) -> dict:
         if _barrier_path_present(claim):
             plan=_private_json(claim,ABORTED_CONTAINMENT_RED,maximum=BARRIER_JOURNAL_MAX_BYTES)
             if plan.get("binding")!=binding:raise S12ControlError(ABORTED_CONTAINMENT_RED)
-            if not _barrier_path_present(closed):
+            if (not _barrier_path_present(closed) or not _barrier_path_present(progress)
+                    or _barrier_path_present(STATE_ROOT/"repository-barrier.r15-containment-failed.json")):
                 raise S12ControlError("S12_1_ABORTED_CONTAINMENT_INCOMPLETE_NO_RETRY")
             receipt=_private_json(closed,ABORTED_CONTAINMENT_RED)
-            if (receipt.get("plan_sha256")!=_sha256(claim) or receipt.get("phase")!="CLOSED_CONTAINED"
+            completion=_private_json(progress,ABORTED_CONTAINMENT_RED)
+            if completion.get("phase")!="CLOSED_CONTAINED":
+                raise S12ControlError("S12_1_ABORTED_CONTAINMENT_INCOMPLETE_NO_RETRY")
+            if (receipt.get("plan_sha256")!=_sha256(claim) or receipt.get("phase")!="CONTAINED_PENDING_CLEANUP"
+                    or completion.get("plan_sha256")!=receipt["plan_sha256"]
+                    or completion.get("receipt_sha256")!=_sha256(closed)
                     or receipt.get("scope_digest")!=_r15_scope_digest(guarded,selected)):
                 raise S12ControlError(ABORTED_CONTAINMENT_RED)
             for entry,path,b in zip(entries,paths,ledger["bindings"]):
@@ -10700,9 +10706,23 @@ def contain_aborted_metadata(contract_path: Path) -> dict:
             _r15_aborted_inputs(contract)
             guard.assert_no_events();attrs.assert_quiet();git_guard.assert_unchanged();quiet.assert_quiesced()
             final_scope=_r15_scope_digest(guarded,selected)
-            guard.finalize_release(git_guard.assert_unchanged,quiet.assert_quiesced);attrs.assert_quiet()
             value["phase"]="CONTAINED_PENDING_CLEANUP"
             _atomic_barrier_json(progress,value)
+            # The state attestation is durable while ALL mutation fences are
+            # still active. It is not a successful closure without the later
+            # cleanup acknowledgement; a crash never infers guard teardown.
+            receipt=dict(schema="TU1NZ_ABORTED_CONTAINED_V1",phase="CONTAINED_PENDING_CLEANUP",plan_sha256=plan_hash,
+                         scope_digest=final_scope,historical_phase="ABORTED",metadata_rolled_back=False,
+                         state_evidence="FENCED_RECEIPT_PUBLICATION",git_guards_released=False,
+                         recovery_allowed=False,deployment_allowed=False)
+            errors.phase="FENCED_RECEIPT_PUBLICATION"
+            receipt_hash=_write_private_backup_blob(closed,json.dumps(receipt,sort_keys=True).encode())
+            # Detect even reverted changes during receipt I/O before accepting
+            # the ordered observation shutdown. No cached success on failure.
+            guard.assert_no_events();attrs.assert_quiet();git_guard.assert_unchanged();quiet.assert_quiesced()
+            if final_scope!=_r15_scope_digest(guarded,selected):raise S12ControlError(ABORTED_CONTAINMENT_RED)
+            errors.phase="FENCED_SHUTDOWN"
+            guard.finalize_release(git_guard.assert_unchanged,quiet.assert_quiesced);attrs.assert_quiet()
         except BaseException as primary:
             errors.record("primary",primary)
             if _barrier_path_present(claim):
@@ -10715,15 +10735,17 @@ def contain_aborted_metadata(contract_path: Path) -> dict:
         finally:
             errors.cleanup([(f"DESCRIPTOR_{i}",lambda fd=fd:os.close(fd)) for i,fd in enumerate(descriptors)]+
                 [(name,resource.close) for name,resource in (("WORKTREE",guard),("ATTRIBUTES",attrs),("GIT",git_guard),("HANDLES",quiet)) if resource is not None])
-        # No success before all cleanup succeeded; a missing receipt blocks
-        # every repeated invocation, even if all target bits already match.
-        _r15_aborted_inputs(contract)
-        if final_scope!=_r15_scope_digest(guarded,selected):raise S12ControlError(ABORTED_CONTAINMENT_RED)
-        receipt=dict(schema="TU1NZ_ABORTED_CONTAINED_V1",phase="CLOSED_CONTAINED",plan_sha256=plan_hash,
-                     scope_digest=final_scope,historical_phase="ABORTED",metadata_rolled_back=False,
-                     git_guards_released=False,recovery_allowed=False,deployment_allowed=False)
-        _write_private_backup_blob(closed,json.dumps(receipt,sort_keys=True).encode())
-        return dict(ok=True,safe_code="S12_1_ABORTED_CONTAINED_NO_RUNTIME_GO",**receipt)
+        # This acknowledges resource cleanup only, NOT a new unfenced state
+        # attestation. A missing acknowledgement is INCOMPLETE_NO_RETRY. Every
+        # later caller must revalidate the fenced snapshot against actual state.
+        value.update(phase="CLOSED_CONTAINED",receipt_sha256=receipt_hash)
+        errors.phase="CLEANUP_ACKNOWLEDGEMENT"
+        try:
+            _atomic_barrier_json(progress,value)
+        except BaseException as primary:
+            errors.record("primary",primary)
+            raise
+        return {**receipt,"ok":True,"safe_code":"S12_1_ABORTED_CONTAINED_NO_RUNTIME_GO","phase":"CLOSED_CONTAINED"}
 
 
 def _r13_boundary(name: str) -> None:
@@ -12180,6 +12202,9 @@ def _followup_namespace(binding: dict):
 def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
     _reject_aborted_containment()
     with _exclusive_deployment_lock(), _r13_guard_scope():
+        # The pre-lock rejection is only an early exit. Containment may have
+        # claimed its terminal transaction before we acquired this same lock.
+        _reject_aborted_containment()
         authorization=_followup_authorization(path,digest,recovering=recovering)
         binding=dict(slot=FOLLOWUP_SLOT,authorization_sha256=digest,
                      parent_classification="INTERRUPTED_DEPLOYMENT_RECOVERED_R12_NONHISTORICAL_BINDINGS",

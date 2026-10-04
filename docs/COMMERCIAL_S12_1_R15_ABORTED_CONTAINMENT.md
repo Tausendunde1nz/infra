@@ -29,21 +29,28 @@ Existing metadata/default-ACL transitions are used, not ad-hoc chmod/chown.
 
 Before the first compensating syscall, an O_EXCL/fsynced immutable containment
 plan binds the exact historical inputs and every allowed transition. Every
-actual syscall has a durable progress intent. A successful result requires exact
-final states, unchanged historical inputs and Git guards, watch finalization and
-successful cleanup. Only then is a separate `CLOSED_CONTAINED` receipt published.
-It explicitly says `metadata_rolled_back=false`, historical phase `ABORTED`, and
-no recovery/deployment authority. V3 is retained; no V4/SEALED journal is published.
+actual syscall has a durable progress intent. The final state receipt is published
+with **all mutation fences still active**, then checked for intervening/reverted
+events before ordered watch shutdown. This attests the protected publication
+point, not an unfenced scan after cleanup. Its `CONTAINED_PENDING_CLEANUP` phase
+alone is never success. Only successful cleanup permits the separate progress
+acknowledgement `CLOSED_CONTAINED`, bound to that immutable receipt's hash; this
+acknowledges cleanup, not a new state observation. Missing acknowledgement or any
+failure receipt prevents repeated calls from accepting closure. Both records are
+required. They explicitly deny rollback and recovery/deployment authority and
+retain historical `ABORTED`. V3 is retained; no V4/SEALED journal is published.
 
 An interrupted or failed closure is **not automatically resumable**. The claim
 remains consumed even if the failure happened before any compensating syscall.
-Repeated calls with no final receipt perform only validation and return
+Repeated calls without the fenced receipt and cleanup acknowledgement perform only validation and return
 `INCOMPLETE_NO_RETRY`: they never grant a new observation epoch, replay an intent,
 or infer uninterrupted writer exclusion. A separately reviewed disposition would
 be necessary. This is the deliberately smallest fail-closed interruption policy.
 After success a repeat revalidates the same protected target and scope fingerprint
 and returns zero mutations, never cached runtime GREEN. Any drift remains RED.
-Reconciliation, recovery and deployment explicitly reject a containment claim.
+Reconciliation, recovery and deployment explicitly reject a containment claim;
+follow-up admission rechecks under the shared exclusive lock, before authorization
+or slot consumption (also for early recovery-closure branches).
 
 ## Failure provenance
 
