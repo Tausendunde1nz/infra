@@ -1253,7 +1253,16 @@ def _s11_completed_invocation(epoch: dict[str, Any], binding: dict[str, Any]) ->
             except (ValueError, TypeError):
                 continue
             if isinstance(payload, dict) and "ok" in payload:
-                successful = payload["ok"] is True
+                # A terminal, safely disabled Canary has ok=false in S11's
+                # promotion evaluator. Its pinned observer exits successfully
+                # only after current integrity AND hard gates passed. This is
+                # runtime health, not a Canary promotion or a fresh RED transition.
+                terminal = payload.get("promotion_state")
+                successful = payload["ok"] is True or (
+                    payload["ok"] is False and payload.get("release_state") == "S11_DISABLED"
+                    and terminal in {"CANARY_RED", "CANARY_INSUFFICIENT_REAL_VOLUME"}
+                    and payload.get("decision") == terminal and payload.get("reason") == "CANARY_TERMINAL"
+                    and "transition" in payload and payload["transition"] is None)
         if not successful:
             return None
     except (ValueError, TypeError):

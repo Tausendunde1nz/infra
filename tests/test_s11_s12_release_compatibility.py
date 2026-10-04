@@ -248,6 +248,38 @@ class InstalledContractTests(GitDiagnosticTests):
             with self.assertRaisesRegex(r.S12ControlError, "CLOCK_VALUE"):
                 r._s11_usec(value)
 
+    def test_terminal_canary_runtime_health_is_not_promotion_readiness(self):
+        from tests.test_adult_commercial_s11_2_canary_bootstrap import MODULE, fixture
+        binding = r._s11_release_binding()
+        epoch = r._s11_epoch(); epoch.update(after_us=20, previous_invocation="1" * 32)
+        job = json.dumps(dict(_PID="1", UNIT=r.S11_SERVICE, JOB_TYPE="start",
+            MESSAGE_ID="7d4958e842da4a758f6c1cdc7b36dcc5", __MONOTONIC_TIMESTAMP="26", INVOCATION_ID="2"*32))
+        for terminal in ("CANARY_RED", "CANARY_INSUFFICIENT_REAL_VOLUME"):
+            payload = MODULE.evaluate(fixture(release_state="S11_DISABLED", promotion_state=terminal))
+            self.assertFalse(payload["ok"])
+            # Execute the pinned observer's real control flow with isolated
+            # gate input: hard RED must never reach successful completion.
+            for hard in (True, False):
+                shell = "set -Eeuo pipefail\n" + function("fail") + function("observe")
+                shell += '\nrequire_root() { :; }; acquire_lock() { :; }; require_runtime_application() { :; }; verify_runtime_access_contract() { :; };\n'
+                shell += 'release_state() { printf "%s\\n" "S11_DISABLED|' + terminal + '"; };\n'
+                shell += 'require_hard_gates() { ' + (':' if hard else 'return 2') + '; };\n'
+                shell += 'gate_json() { printf "%s\\n" ' + shlex.quote(json.dumps(payload)) + '; };\n'
+                shell += 'gate_field() { python3 -c \'import json,sys;print(json.load(sys.stdin)[sys.argv[1]])\' "$1"; };\nobserve\n'
+                result = subprocess.run(["bash", "-c", shell], capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, hard, result.stderr)
+            record = json.dumps(dict(_SYSTEMD_INVOCATION_ID="2"*32, MESSAGE=json.dumps(payload)))
+            with mock.patch.object(r, "_run", side_effect=lambda argv, **kwargs:
+                    subprocess.CompletedProcess(argv, 0, job if "_PID=1" in argv else record, "")):
+                self.assertIsNotNone(r._s11_completed_invocation(epoch, binding))
+                with mock.patch.dict(self.properties, {"ExecMainStatus": "2"}):
+                    self.assertIsNone(r._s11_completed_invocation(epoch, binding))
+                for field, value in (("transition", "CANARY_RED"), ("reason", "HARD_GATE_RED"),
+                                     ("decision", "other"), ("release_state", "S11_CANARY")):
+                    bad = dict(payload, **{field: value})
+                    record = json.dumps(dict(_SYSTEMD_INVOCATION_ID="2"*32, MESSAGE=json.dumps(bad)))
+                    self.assertIsNone(r._s11_completed_invocation(epoch, binding))
+
     def test_lock_and_interrupted_copy_restore(self):
         r._s11_acquire_transition()
         original = r.S11_CONTROLLER.read_bytes()

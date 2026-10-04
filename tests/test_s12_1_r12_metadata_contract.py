@@ -96,8 +96,7 @@ def fixture(*, complete_backup=False):
                 interpreter.write_bytes(b'#!/bin/sh\n# OFFLINE fixture, never provider execution\nexit 1\n')
                 interpreter.chmod(0o755)
             if complete_backup and root==control:
-                for relative in ('systemd/'+r.UNIT_NAME,'nginx/current/wantmeseen.s12-1-acceptance.conf',
-                                 'scripts/tu1nz_adult_public_s11_2_control.sh'):
+                for relative in ('systemd/'+r.UNIT_NAME,'nginx/current/wantmeseen.s12-1-acceptance.conf'):
                     target=root/relative;target.parent.mkdir(parents=True,exist_ok=True)
                     target.write_bytes((ROOT/relative).read_bytes())
             git(root,'add','.');git(root,'commit','-m','before')
@@ -161,6 +160,11 @@ def fixture(*, complete_backup=False):
         (app/'created').mkdir();os.chown(app/'created',0,1001);(app/'created').chmod(0o2770)
         (app/'created'/'new').write_bytes(b'new\n');os.chown(app/'created'/'new',0,1001);(app/'created'/'new').chmod(0o660)
         (control/'scripts').mkdir();os.chown(control/'scripts',1001,1001);(control/'scripts').chmod(0o2775)
+        if complete_backup:
+            # Target-only artifact: scripts/ must remain an unjournalized R12
+            # path in this fixture, not silently become a historical directory.
+            script=control/'scripts'/'tu1nz_adult_public_s11_2_control.sh'
+            script.write_bytes((ROOT/'scripts'/script.name).read_bytes())
         (control/'scripts'/'tool').write_bytes(b'tool\n');os.chown(control/'scripts'/'tool',0,1001);(control/'scripts'/'tool').chmod(0o440)
         unrelated=control/'unlisted'/'nested';unrelated.mkdir(parents=True)
         (unrelated/'readme').write_bytes(b'outside contract\n')

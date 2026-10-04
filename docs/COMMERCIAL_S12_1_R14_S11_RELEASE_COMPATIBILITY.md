@@ -50,6 +50,13 @@ Rollback restores the original controller/manifest and Application pair,
 then requires its own new natural S11 proof. Repository rollback evidence is
 distinct from current S11 health evidence; recovery never reactivates S12.
 
+Runtime health is not promotion readiness: the unchanged S11 gate reports
+`ok=false` for an already terminal, disabled Canary. Accept that exact terminal
+envelope only alongside the successful new pinned observer invocation, which
+independently checks current integrity and hard gates before exiting zero.
+A fresh RED transition, failed hard gate, malformed envelope or stale run is
+not accepted. No Canary state is changed by this distinction.
+
 The fixed `r13-followup-1` slot and protected explicit human authorization are
 unchanged. R14 neither consumes nor resets that slot in source work. The new
 freeze changes release provenance only; it does not itself authorize runtime.
