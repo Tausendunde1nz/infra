@@ -350,7 +350,8 @@ set -e
         }
         for key, path in expected.items():
             with self.subTest(binding=key):
-                self.assertEqual(bindings[key], hashlib.sha256(path.read_bytes()).hexdigest())
+                from tests.s11_historical_release import artifact_bytes
+                self.assertEqual(bindings[key], hashlib.sha256(artifact_bytes(path)).hexdigest())
 
 
 if __name__ == "__main__":

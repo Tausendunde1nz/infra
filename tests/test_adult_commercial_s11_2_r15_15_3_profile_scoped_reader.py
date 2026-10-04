@@ -101,7 +101,8 @@ class ProfileScopedTechnicalReaderTests(unittest.TestCase):
         self.assertEqual(set(bindings), set(expected))
         for name, path in expected.items():
             with self.subTest(name=name):
-                self.assertEqual(bindings[name], hashlib.sha256(path.read_bytes()).hexdigest())
+                from tests.s11_historical_release import artifact_bytes
+                self.assertEqual(bindings[name], hashlib.sha256(artifact_bytes(path)).hexdigest())
 
     def test_application_contract_fixture_and_control_selection_are_in_parity(self):
         fixture = json.loads(CONTRACT.read_text(encoding="ascii"))

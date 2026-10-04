@@ -33,7 +33,8 @@ class R1512CompatibilityTests(unittest.TestCase):
         }
         for key, path in control_artifacts.items():
             with self.subTest(binding=key):
-                self.assertEqual(bindings[key], hashlib.sha256(path.read_bytes()).hexdigest())
+                from tests.s11_historical_release import artifact_bytes
+                self.assertEqual(bindings[key], hashlib.sha256(artifact_bytes(path)).hexdigest())
         self.assertEqual(
             bindings["application_community_health_contract_sha256"],
             "c4c3605233ed33c1c7e3d2004f412fc28cf476081999914e48a221a00d9a65dc",
