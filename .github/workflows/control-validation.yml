@@ -19,6 +19,8 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - name: R15 aborted containment (native Linux; isolated; guards unchanged)
+        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s12_1_aborted_containment
       - name: S11/S12 release compatibility (native Linux; offline)
         run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s11_s12_release_compatibility
       - name: Integrated S12 attempt chain (native Linux; offline)

@@ -28,6 +28,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,7 +37,7 @@ from typing import Any, Callable, Sequence
 
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r14"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r15"
 FOLLOWUP_SLOT = "r13-followup-1"
 FOLLOWUP_RED = "S12_1_FOLLOWUP_AUTHORIZATION_RED"
 FOLLOWUP_PARENT = {
@@ -75,6 +76,9 @@ BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V3"
 R12_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V4"
 R12_CONTRACT_SHA256 = "97794cddc84a5d9a0ddd6600236aee5f8c8c79013089ef9b20fb01060ca8e00f"
 R12_RED = "S12_1_R12_METADATA_RECONCILIATION_RED"
+ABORTED_CONTAINMENT_RED = "S12_1_ABORTED_CONTAINMENT_RED"
+ABORTED_BINDINGS_SHA256 = "68f815b7fccc483f9c74aa9535b23fffb865ed1a71fddfd30e708590d1393dbd"
+ABORTED_RECEIPT_SHA256 = "ca5945059fb8cebc4c3ab91d803354d7eef3dae4c27f1af6edab10499dd28ca5"
 XATTR_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V2"
 LEGACY_BARRIER_SCHEMA = "TU1NZ_S12_1_REPOSITORY_BARRIER_V1"
 BARRIER_RELEASE_COMPLETION_SCHEMA = "TU1NZ_S12_1_BARRIER_RELEASE_COMPLETE_V1"
@@ -2098,7 +2102,7 @@ def create_backup(
     }
     # The historical V8 recovery inputs are not retroactively extended.
     # Only this release's new backups bind the additional installed artifacts.
-    if FREEZE_TAG == "s12-yoti-sandbox-runtime-freeze-r14":
+    if FREEZE_TAG in {"s12-yoti-sandbox-runtime-freeze-r14", "s12-yoti-sandbox-runtime-freeze-r15"}:
         files["s11_controller"] = _copy_if_present(S11_CONTROLLER, backup / "s11-controller.before")
         files["s11_access"] = _copy_if_present(S11_ACCESS, backup / "s11-access.before")
     index = {
@@ -9442,6 +9446,7 @@ def _recover_repository_barrier_only() -> dict[str, Any]:
 
 
 def _recover_locked() -> dict[str, Any]:
+    _reject_aborted_containment()
     try:
         result = _recover_repository_locked()
         if S11_LOCK_FD is not None:
@@ -9503,6 +9508,7 @@ def recover() -> dict[str, Any]:
 
 
 def _deploy_locked() -> dict[str, Any]:
+    _reject_aborted_containment()
     if os.geteuid() != 0:
         raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
     if STATE_ROOT.exists() and (
@@ -10189,6 +10195,68 @@ def _r12_index_guard_paths(roots: Sequence[Path]) -> set[Path]:
     return guarded
 
 
+class _MetadataErrors:
+    """Preserve separate failures without letting evidence I/O skip cleanup.
+
+    Files are append-only by unique O_EXCL names. No messages/locals/argv,
+    inferred historical PIDs, or claims that a readable handle was a writer.
+    The original exception remains the raised exception, not a cleanup error.
+    """
+
+    def __init__(self, operation: str):
+        self.operation = operation
+        self.phase = "ADMISSION"
+        self.primary = None
+        self.events = []
+        self.guard = None
+
+    def record(self, channel: str, error: BaseException) -> None:
+        if channel == "primary" and self.primary is None:
+            self.primary = error
+        try:
+            event = dict(channel=channel, phase=self.phase, error_type=type(error).__name__,
+                safe_code=getattr(error, "safe_code", None), errno=getattr(error, "errno", None),
+                frames=[dict(function=f.name, line=f.lineno) for f in traceback.extract_tb(error.__traceback__)],
+                observer_pid=os.getpid(), observed_at=datetime.now(timezone.utc).isoformat(),
+                processes={}, threads={}, handle_access="NOT_A_WRITE_OR_HISTORICAL_CAUSALITY_CLAIM")
+            if self.guard is not None:
+                event["processes"] = {str(pid): dict(start_ticks=v[0]) for pid,v in self.guard.processes.items()}
+                event["threads"] = {str(tid): dict(pid=v[0], start_ticks=v[1], detach_signal=v[2])
+                                    for tid,v in self.guard.threads.items()}
+            try:
+                event["boot_id"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+            except OSError:
+                event["boot_id"] = None
+            self.events.append(event)
+            payload = dict(schema="TU1NZ_METADATA_ERROR_V1", operation=self.operation, event=event)
+            _write_private_backup_blob(STATE_ROOT / ("metadata-error-" + os.urandom(16).hex() + ".json"),
+                                       json.dumps(payload, sort_keys=True).encode())
+        except BaseException as logging_error:
+            self.events.append(dict(channel="logging", phase=self.phase,
+                                    error_type=type(logging_error).__name__))
+        # Structured stdout remains useful when evidence storage itself failed.
+        try:
+            error.metadata_errors = list(self.events)
+            if self.primary is not None:
+                self.primary.metadata_errors = list(self.events)
+        except BaseException:
+            pass
+
+    def cleanup(self, actions) -> None:
+        first = None
+        for name, action in actions:
+            self.phase = "CLEANUP_" + name
+            try:
+                action()
+            except BaseException as error:
+                self.record("cleanup", error)
+                if first is None:
+                    first = error
+        if self.primary is None and first is not None:
+            first.metadata_errors = list(self.events)
+            raise first
+
+
 def _r12_reconcile_locked(contract_path: Path) -> dict:
     """Explicit future maintenance entrypoint: seals only; NEVER runs recovery.
 
@@ -10276,13 +10344,16 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
     attrs_guard = None
     quiescence = None
     descriptors = []
+    errors = _MetadataErrors("R12_RECONCILE")
     try:
+        errors.phase = "GUARD_INSTALLATION"
         git_guard = _GitMetadataTransitionGuard(tuple(
             path for path in metadata_paths if not _is_recovery_guard(path)),
             allow_root_lock_events=False)
         guard = _WorktreeReleaseGuard(roots, tuple(guarded))
         attrs_guard = _R12AttributeGuard(tuple(guarded))
         quiescence = _GuardedHandleQuiescence(tuple(guarded), roots)
+        errors.guard = quiescence
         quiescence.acquire()
         if (_git_metadata_transition_fingerprint(metadata_paths),
                 _r12_scope_snapshot(set(metadata_paths), {})) != git_installation_snapshot:
@@ -10338,6 +10409,7 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
             _atomic_barrier_json(ledger_path, ledger)
         # Bind the ledger to the exact admission contract again on resume.
         for entry, path, fd, binding in zip(entries, paths, descriptors, ledger["bindings"]):
+            errors.phase = "BINDING_VALIDATION:" + str(path)
             if binding["path"] != str(path) or binding["historical_record"] != entry["historical_record"]:
                 raise S12ControlError(R12_RED)
             initial = binding["states"][0]
@@ -10369,11 +10441,16 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
                 if step == len(states) - 1:
                     break
                 binding["intent"] = step + 1
+                errors.phase = "INTENT_PERSIST:" + str(path) + ":" + str(step + 1)
                 _atomic_barrier_json(ledger_path, ledger)
+                errors.phase = "HANDLE_ASSERT:" + str(path) + ":" + str(step + 1)
                 quiescence.assert_quiesced()
+                errors.phase = "ATTRIBUTE_GUARD:" + str(path) + ":" + str(step + 1)
                 attrs_guard.assert_quiet()
+                errors.phase = "OPEN_GUARD:" + str(path) + ":" + str(step + 1)
                 guard.accept_release_attributes()
                 operation = states[step + 1]["operation"]
+                errors.phase = "SYSCALL:" + str(path) + ":" + operation
                 if operation == "chown":
                     os.fchown(fd, 0, entry["target"]["gid"])
                 elif operation == "remove_default_acl":
@@ -10385,14 +10462,17 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
                 else:
                     raise S12ControlError(R12_RED)
                 os.fsync(fd)
+                errors.phase = "POST_SYSCALL_GUARDS:" + str(path)
                 guard.accept_release_attributes()
                 attrs_guard.assert_quiet()
                 after = _r12_snapshot(path, fd, entry["content_sha256"])
                 if after != {k:v for k,v in states[step + 1].items() if k != "operation"}:
                     raise S12ControlError(R12_RED)
                 binding.update(step=step + 1, intent=None)
+                errors.phase = "COMPLETION_PERSIST:" + str(path)
                 _atomic_barrier_json(ledger_path, ledger)
             worktree[by_name[entry["repository"]]][path] = binding["successor"]
+        errors.phase = "FINAL_VALIDATION"
         for entry, path, fd, binding in zip(entries, paths, descriptors, ledger["bindings"]):
             if _r12_snapshot(path, fd, entry["content_sha256"]) != {k:v for k,v in binding["states"][-1].items() if k != "operation"}:
                 raise S12ControlError(R12_RED)
@@ -10412,28 +10492,238 @@ def _r12_reconcile_locked(contract_path: Path) -> dict:
         attrs_guard.assert_quiet()
         return dict(ok=True, safe_code="S12_1_R12_METADATA_SEALED", bound_paths=len(entries),
                     historical_continuity=False, recovery_started=False, git_guards_released=False)
-    except Exception:
+    except BaseException as primary:
+        errors.record("primary", primary)
         # A detected violation is not an interruption-resume candidate. Poison
         # it only AFTER restoring V3, so V4 never references a rewritten ledger.
-        if ledger_path.exists() and "ledger" in locals():
-            _r12_abort(contract)
+        if isinstance(primary, Exception) and ledger_path.exists() and "ledger" in locals():
+            errors.phase = "ABORT_FINALIZATION"
+            try:
+                _r12_abort(contract)
+            except BaseException as abort_error:
+                errors.record("abort", abort_error)
         raise
     finally:
-        for fd in descriptors:
-            os.close(fd)
-        if guard is not None:
-            guard.close()
-        if attrs_guard is not None:
-            attrs_guard.close()
-        if git_guard is not None:
-            git_guard.close()
-        if quiescence is not None:
-            quiescence.close()
+        errors.cleanup([(f"DESCRIPTOR_{i}", lambda fd=fd: os.close(fd)) for i,fd in enumerate(descriptors)] +
+            [(name, resource.close) for name,resource in (("WORKTREE",guard),("ATTRIBUTES",attrs_guard),
+                ("GIT",git_guard),("HANDLES",quiescence)) if resource is not None])
 
 
 def reconcile_metadata(contract_path: Path) -> dict:
     with _exclusive_deployment_lock():
+        _reject_aborted_containment()
         return _r12_reconcile_locked(contract_path)
+
+
+def _reject_aborted_containment() -> None:
+    if _barrier_path_present(STATE_ROOT / "repository-barrier.r15-containment.json"):
+        raise S12ControlError("S12_1_ABORTED_CONTAINMENT_NO_RUNTIME_AUTHORITY")
+
+
+def _r15_aborted_inputs(contract: dict) -> tuple[dict, list[dict], dict]:
+    """Authenticate the historical failure, never rewrite or reclassify it."""
+    roots = {"application": APPLICATION_ROOT, "control": CONTROL_ROOT}
+    if contract["roots"] != {k:str(v) for k,v in roots.items()}:
+        raise S12ControlError(ABORTED_CONTAINMENT_RED)
+    backup = BACKUP_ROOT / contract["backup_name"]
+    for private in (STATE_ROOT, backup):
+        _validate_secure_directory_chain(private, Path("/"))
+    for name,digest in contract["protected_inputs"].items():
+        _read_private_backup_blob(backup/name if name == "restore-index.json" else STATE_ROOT/name,
+                                  digest, ABORTED_CONTAINMENT_RED)
+    _read_private_backup_blob(STATE_ROOT/"repository-barrier.r12-original.json",
+        contract["protected_inputs"]["repository-barrier.json"], ABORTED_CONTAINMENT_RED)
+    receipt = json.loads(_read_private_backup_blob(STATE_ROOT/"repository-barrier.r12-abort.json",
+                                                  ABORTED_RECEIPT_SHA256, ABORTED_CONTAINMENT_RED))
+    ledger = json.loads(_read_private_backup_blob(STATE_ROOT/"repository-barrier.r12-bindings.json",
+                                                 ABORTED_BINDINGS_SHA256, ABORTED_CONTAINMENT_RED))
+    if (receipt != dict(schema="TU1NZ_S12_1_R12_ABORT_V1", contract_sha256=R12_CONTRACT_SHA256,
+            original_journal_sha256=contract["protected_inputs"]["repository-barrier.json"], historical_continuity=False)
+            or ledger.get("schema") != "TU1NZ_S12_1_R12_BINDINGS_V1" or ledger.get("phase") != "ABORTED"
+            or ledger.get("contract_sha256") != R12_CONTRACT_SHA256
+            or ledger.get("original_journal_sha256") != receipt["original_journal_sha256"]
+            or ledger.get("historical_continuity") is not False):
+        raise S12ControlError(ABORTED_CONTAINMENT_RED)
+    records,parent,_,schema = _load_barrier_journal()
+    if schema != BARRIER_SCHEMA:
+        raise S12ControlError(ABORTED_CONTAINMENT_RED)
+    _assert_repository_parent_xattrs(parent)
+    for root in roots.values():
+        meta=root.lstat()
+        if root.is_symlink() or meta.st_uid != 0 or stat.S_IMODE(meta.st_mode)&0o022:
+            raise S12ControlError(ABORTED_CONTAINMENT_RED)
+        _assert_repository_root_xattrs(root,records[root])
+    for entry in contract["guards"]:
+        fd=_r12_open(roots[entry["repository"]]/entry["name"])
+        try:
+            if _r12_stat(fd)!=entry["metadata"]:raise S12ControlError(ABORTED_CONTAINMENT_RED)
+        finally:os.close(fd)
+    entries=sorted(contract["entries"],key=lambda e:(len(Path(e["path"]).parts),e["repository"],e["path"]))
+    if len(ledger.get("bindings",[]))!=len(entries):raise S12ControlError(ABORTED_CONTAINMENT_RED)
+    for entry,binding in zip(entries,ledger["bindings"]):
+        initial=binding["states"][0]
+        if (binding["path"]!=str(roots[entry["repository"]]/entry["path"])
+                or binding["historical_record"]!=entry["historical_record"]
+                or binding["provenance"]!=entry["provenance"]
+                or initial["metadata"]!=entry["admission"] or initial["xattrs"]!=entry["admission_xattrs"]
+                or binding["states"]!=_r12_plan(entry,initial)):
+            raise S12ControlError(ABORTED_CONTAINMENT_RED)
+        step,intent=binding["step"],binding["intent"]
+        if (type(step) is not int or not 0<=step<len(binding["states"])
+                or (intent is not None and (type(intent) is not int or intent!=step+1 or intent>=len(binding["states"])) )):
+            raise S12ControlError(ABORTED_CONTAINMENT_RED)
+    index=_private_json(backup/"restore-index.json",ABORTED_CONTAINMENT_RED)
+    selected=_r12_validate_git(contract,index,backup)
+    for key in roots:
+        record=index[key]
+        for suffix,field in ((".bundle","bundle_sha256"),(".tracked-path-hashes","tracked_path_hashes_sha256")):
+            _read_private_backup_blob(backup/(key+suffix),record[field],ABORTED_CONTAINMENT_RED)
+        if _reflog_tree_digest(backup/(key+".reflogs"))!=record["reflog_snapshot_sha256"]:
+            raise S12ControlError(ABORTED_CONTAINMENT_RED)
+    return ledger,entries,selected
+
+
+def _r15_scope_digest(paths: set[Path], selected: dict) -> str:
+    snapshot=_r12_scope_snapshot(paths,selected)
+    serial={str(p):None if v is None else [list(v[0]),v[1],v[2].hex(),v[3]] for p,v in snapshot.items()}
+    return hashlib.sha256(json.dumps(serial,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+
+
+def contain_aborted_metadata(contract_path: Path) -> dict:
+    """One separate monotone containment; NEVER resume R12 or release guards.
+
+    A crash consumes this containment invocation. Repeated calls are read-only:
+    CLOSED is revalidated, otherwise INCOMPLETE/FAILED remains fail-closed.
+    Unknown writer history across an interrupted epoch is NOT reconstructed.
+    """
+    with _exclusive_deployment_lock():
+        if os.geteuid()!=0 or sys.platform!="linux":raise S12ControlError(ABORTED_CONTAINMENT_RED)
+        contract=_r12_load_contract(contract_path)
+        ledger,entries,selected=_r15_aborted_inputs(contract)
+        roots=(APPLICATION_ROOT,CONTROL_ROOT)
+        paths=[Path(b["path"]) for b in ledger["bindings"]]
+        guarded=_r12_index_guard_paths(roots)|set(paths)
+        for path in tuple(guarded-set(roots)):
+            root=next(r for r in roots if r in path.parents)
+            guarded.update(p for p in path.parents if p==root or root in p.parents)
+        claim=STATE_ROOT/"repository-barrier.r15-containment.json"
+        progress=STATE_ROOT/"repository-barrier.r15-containment-progress.json"
+        closed=STATE_ROOT/"repository-barrier.r15-contained.json"
+        binding=dict(r12_contract=R12_CONTRACT_SHA256,aborted_ledger=ABORTED_BINDINGS_SHA256,
+                     abort_receipt=ABORTED_RECEIPT_SHA256)
+        if _barrier_path_present(claim):
+            plan=_private_json(claim,ABORTED_CONTAINMENT_RED,maximum=BARRIER_JOURNAL_MAX_BYTES)
+            if plan.get("binding")!=binding:raise S12ControlError(ABORTED_CONTAINMENT_RED)
+            if not _barrier_path_present(closed):
+                raise S12ControlError("S12_1_ABORTED_CONTAINMENT_INCOMPLETE_NO_RETRY")
+            receipt=_private_json(closed,ABORTED_CONTAINMENT_RED)
+            if (receipt.get("plan_sha256")!=_sha256(claim) or receipt.get("phase")!="CLOSED_CONTAINED"
+                    or receipt.get("scope_digest")!=_r15_scope_digest(guarded,selected)):
+                raise S12ControlError(ABORTED_CONTAINMENT_RED)
+            for entry,path,b in zip(entries,paths,ledger["bindings"]):
+                fd=_r12_open(path)
+                try:
+                    if _r12_snapshot(path,fd,entry["content_sha256"])!={k:v for k,v in b["states"][-1].items() if k!="operation"}:
+                        raise S12ControlError(ABORTED_CONTAINMENT_RED)
+                finally:os.close(fd)
+            return dict(ok=True,safe_code="S12_1_ABORTED_CONTAINED_REVALIDATED_NO_RUNTIME_GO",
+                        historical_phase="ABORTED",target_mutations=0,recovery_allowed=False)
+        if any(_barrier_path_present(p) for p in (progress,closed)):
+            raise S12ControlError(ABORTED_CONTAINMENT_RED)
+        metadata_paths=_repository_git_metadata_paths(roots)
+        git_before=(_git_metadata_transition_fingerprint(metadata_paths),_r12_scope_snapshot(set(metadata_paths),{}))
+        before=_r15_scope_digest(guarded,selected)
+        tracked=_tracked_worktree_regular_paths(roots,allow_missing=True)
+        if (_competing_control_sync_count() or _active_repository_git_count(roots)
+                or _active_recovery_git_handle_count(metadata_paths) or _active_tracked_worktree_write_handle_count(tracked)):
+            raise S12ControlError("S12_1_RECOVERY_GIT_ACTIVE_RED")
+        errors=_MetadataErrors("R15_ABORTED_CONTAINMENT")
+        guard=attrs=git_guard=quiet=None
+        descriptors=[]
+        plan=dict(schema="TU1NZ_ABORTED_CONTAINMENT_V1",binding=binding,entries=[],
+                  historical_phase="ABORTED",goal="ROOT_OWNED_WRITE_DENIED_NO_RUNTIME_AUTHORITY")
+        try:
+            errors.phase="GUARD_INSTALLATION"
+            git_guard=_GitMetadataTransitionGuard(tuple(p for p in metadata_paths if not _is_recovery_guard(p)),allow_root_lock_events=False)
+            guard=_WorktreeReleaseGuard(roots,tuple(guarded))
+            attrs=_R12AttributeGuard(tuple(guarded))
+            quiet=_GuardedHandleQuiescence(tuple(guarded),roots);errors.guard=quiet
+            quiet.acquire()
+            if (git_before!=(_git_metadata_transition_fingerprint(metadata_paths),_r12_scope_snapshot(set(metadata_paths),{}))
+                    or before!=_r15_scope_digest(guarded,selected) or _r12_index_guard_paths(roots)-guarded):
+                raise S12ControlError(ABORTED_CONTAINMENT_RED)
+            _r15_aborted_inputs(contract)
+            for entry,path,b in zip(entries,paths,ledger["bindings"]):
+                fd=_r12_open(path);descriptors.append(fd)
+                current=_r12_snapshot(path,fd,entry["content_sha256"])
+                allowed=[b["step"]]+([] if b["intent"] is None else [b["intent"]])
+                matches=[s for s in allowed if current=={k:v for k,v in b["states"][s].items() if k!="operation"}]
+                if not matches:raise S12ControlError(ABORTED_CONTAINMENT_RED)
+                plan["entries"].append(dict(path=str(path),start=max(matches),states=b["states"][max(matches):]))
+            # One immutable claim precedes any compensating syscall. It also
+            # fences a crash during guard cleanup or evidence-storage failure.
+            errors.phase="PLAN_PERSIST"
+            plan_hash=_write_private_backup_blob(claim,json.dumps(plan,sort_keys=True).encode())
+            value=dict(schema="TU1NZ_ABORTED_CONTAINMENT_PROGRESS_V1",phase="CONTAINING",plan_sha256=plan_hash,
+                       completed=0,intent=None,target_mutations=0)
+            _atomic_barrier_json(progress,value)
+            for i,(entry,path,fd,item) in enumerate(zip(entries,paths,descriptors,plan["entries"])):
+                states=item["states"]
+                for step in range(1,len(states)):
+                    previous={k:v for k,v in states[step-1].items() if k!="operation"}
+                    target={k:v for k,v in states[step].items() if k!="operation"}
+                    if _r12_snapshot(path,fd,entry["content_sha256"])!=previous:
+                        raise S12ControlError(ABORTED_CONTAINMENT_RED)
+                    if target==previous:continue  # Never replay indistinguishable no-op intents.
+                    value["intent"]=dict(entry=i,step=step)
+                    errors.phase=f"INTENT_PERSIST:{i}:{step}"
+                    _atomic_barrier_json(progress,value)
+                    errors.phase=f"HANDLE_ASSERT:{i}:{step}"
+                    quiet.assert_quiesced();attrs.assert_quiet();guard.accept_release_attributes();git_guard.assert_unchanged()
+                    operation=states[step]["operation"];errors.phase=f"SYSCALL:{i}:{operation}"
+                    if operation=="chown":os.fchown(fd,0,entry["target"]["gid"])
+                    elif operation=="remove_default_acl":os.removexattr(fd,"system.posix_acl_default")
+                    elif operation=="set_access_acl":os.setxattr(fd,"system.posix_acl_access",bytes.fromhex(target["xattrs"]["system.posix_acl_access"]))
+                    elif operation=="chmod":os.fchmod(fd,int(target["metadata"]["mode"],8))
+                    else:raise S12ControlError(ABORTED_CONTAINMENT_RED)
+                    os.fsync(fd);errors.phase=f"POST_SYSCALL:{i}:{step}"
+                    guard.accept_release_attributes();attrs.assert_quiet()
+                    if _r12_snapshot(path,fd,entry["content_sha256"])!=target:raise S12ControlError(ABORTED_CONTAINMENT_RED)
+                    value["target_mutations"]+=1;value["intent"]=None
+                    _atomic_barrier_json(progress,value)
+                value["completed"]=i+1
+                _atomic_barrier_json(progress,value)
+            errors.phase="FINAL_VALIDATION"
+            for entry,path,fd,b in zip(entries,paths,descriptors,ledger["bindings"]):
+                if _r12_snapshot(path,fd,entry["content_sha256"])!={k:v for k,v in b["states"][-1].items() if k!="operation"}:
+                    raise S12ControlError(ABORTED_CONTAINMENT_RED)
+            _r15_aborted_inputs(contract)
+            guard.assert_no_events();attrs.assert_quiet();git_guard.assert_unchanged();quiet.assert_quiesced()
+            final_scope=_r15_scope_digest(guarded,selected)
+            guard.finalize_release(git_guard.assert_unchanged,quiet.assert_quiesced);attrs.assert_quiet()
+            value["phase"]="CONTAINED_PENDING_CLEANUP"
+            _atomic_barrier_json(progress,value)
+        except BaseException as primary:
+            errors.record("primary",primary)
+            if _barrier_path_present(claim):
+                errors.phase="ABORT_CONTAINMENT"
+                try:
+                    _write_private_backup_blob(STATE_ROOT/"repository-barrier.r15-containment-failed.json",
+                        json.dumps(dict(phase="FAILED",plan_sha256=_sha256(claim),historical_phase="ABORTED"),sort_keys=True).encode())
+                except BaseException as abort_error:errors.record("abort",abort_error)
+            raise
+        finally:
+            errors.cleanup([(f"DESCRIPTOR_{i}",lambda fd=fd:os.close(fd)) for i,fd in enumerate(descriptors)]+
+                [(name,resource.close) for name,resource in (("WORKTREE",guard),("ATTRIBUTES",attrs),("GIT",git_guard),("HANDLES",quiet)) if resource is not None])
+        # No success before all cleanup succeeded; a missing receipt blocks
+        # every repeated invocation, even if all target bits already match.
+        _r15_aborted_inputs(contract)
+        if final_scope!=_r15_scope_digest(guarded,selected):raise S12ControlError(ABORTED_CONTAINMENT_RED)
+        receipt=dict(schema="TU1NZ_ABORTED_CONTAINED_V1",phase="CLOSED_CONTAINED",plan_sha256=plan_hash,
+                     scope_digest=final_scope,historical_phase="ABORTED",metadata_rolled_back=False,
+                     git_guards_released=False,recovery_allowed=False,deployment_allowed=False)
+        _write_private_backup_blob(closed,json.dumps(receipt,sort_keys=True).encode())
+        return dict(ok=True,safe_code="S12_1_ABORTED_CONTAINED_NO_RUNTIME_GO",**receipt)
 
 
 def _r13_boundary(name: str) -> None:
@@ -11888,6 +12178,7 @@ def _followup_namespace(binding: dict):
 
 
 def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
+    _reject_aborted_containment()
     with _exclusive_deployment_lock(), _r13_guard_scope():
         authorization=_followup_authorization(path,digest,recovering=recovering)
         binding=dict(slot=FOLLOWUP_SLOT,authorization_sha256=digest,
@@ -12008,14 +12299,14 @@ def followup(path: Path, digest: str, *, recovering: bool = False) -> dict:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "operation", choices=("verify-source", "simulate", "preflight", "deploy", "recover", "reconcile-metadata")
+        "operation", choices=("verify-source", "simulate", "preflight", "deploy", "recover", "reconcile-metadata", "contain-aborted")
     )
     parser.add_argument("--metadata-contract", type=Path)
     parser.add_argument("--authorization", type=Path)
     parser.add_argument("--authorization-sha256")
     arguments = parser.parse_args(argv)
     try:
-        if (arguments.operation == "reconcile-metadata") != (arguments.metadata_contract is not None):
+        if (arguments.operation in {"reconcile-metadata", "contain-aborted"}) != (arguments.metadata_contract is not None):
             raise S12ControlError(R12_RED)
         if (arguments.authorization is None) != (arguments.authorization_sha256 is None):
             raise S12ControlError(FOLLOWUP_RED)
@@ -12023,7 +12314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise S12ControlError(FOLLOWUP_RED)
         if arguments.operation == "deploy" and arguments.authorization is None:
             raise S12ControlError("S12_1_FOLLOWUP_AUTHORIZATION_REQUIRED_RED")
-        if arguments.operation in {"deploy", "recover", "reconcile-metadata"}:
+        if arguments.operation in {"deploy", "recover", "reconcile-metadata", "contain-aborted"}:
             if os.geteuid() != 0:
                 raise S12ControlError("S12_1_ROOT_REQUIRED_RED")
             _trusted_controller_digest()
@@ -12044,14 +12335,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = recover()
         elif arguments.operation == "reconcile-metadata":
             result = reconcile_metadata(arguments.metadata_contract)
+        elif arguments.operation == "contain-aborted":
+            result = contain_aborted_metadata(arguments.metadata_contract)
         else:
             result = followup(arguments.authorization,arguments.authorization_sha256)
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         return 0
     except (S12ControlError, OSError, ValueError, json.JSONDecodeError) as error:
+        if (arguments.operation in {"reconcile-metadata", "contain-aborted"}
+                and os.geteuid() == 0 and not hasattr(error, "metadata_errors")):
+            provenance = _MetadataErrors(arguments.operation)
+            provenance.record("primary", error)
         print(
             json.dumps(
-                {"ok": False, "safe_code": getattr(error, "safe_code", "S12_1_CONTROL_RED")},
+                {"ok": False, "safe_code": getattr(error, "safe_code", "S12_1_CONTROL_RED"),
+                 **({"metadata_errors": error.metadata_errors} if hasattr(error, "metadata_errors") else {})},
                 sort_keys=True,
                 separators=(",", ":"),
             )

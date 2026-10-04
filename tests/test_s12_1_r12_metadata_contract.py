@@ -74,7 +74,7 @@ def private_json(path,value):
 
 
 @contextmanager
-def fixture(*, complete_backup=False):
+def fixture(*, complete_backup=False, mixed_254=False):
     # /root is private; /tmp would correctly fail the private-chain contract.
     with tempfile.TemporaryDirectory(prefix='s12-r12-',dir='/root') as name, ExitStack() as stack:
         base=Path(name)
@@ -159,6 +159,12 @@ def fixture(*, complete_backup=False):
         (app/'kept').write_bytes(b'target\n');os.chown(app/'kept',0,1001);(app/'kept').chmod(0o660)
         (app/'created').mkdir();os.chown(app/'created',0,1001);(app/'created').chmod(0o2770)
         (app/'created'/'new').write_bytes(b'new\n');os.chown(app/'created'/'new',0,1001);(app/'created'/'new').chmod(0o660)
+        extra=[]
+        if mixed_254:
+            for i in range(250):
+                path=app/'created'/f'extra-{i:04d}'
+                path.write_bytes(b'isolated synthetic content\n');os.chown(path,0,1001);path.chmod(0o660)
+                extra.append(('application',app,path))
         (control/'scripts').mkdir();os.chown(control/'scripts',1001,1001);(control/'scripts').chmod(0o2775)
         if complete_backup:
             # Target-only artifact: scripts/ must remain an unjournalized R12
@@ -191,6 +197,7 @@ def fixture(*, complete_backup=False):
             (root/'.git').chmod(0)
         selected=[('application',app,app/'kept'),('application',app,app/'created'),
                   ('application',app,app/'created'/'new'),('control',control,control/'scripts')]
+        selected.extend(extra)
         entries=[]
         for key,root,path in selected:
             fd=r._r12_open(path)

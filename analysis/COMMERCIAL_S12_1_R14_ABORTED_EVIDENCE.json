@@ -1,0 +1,23 @@
+{
+  "schema": "TU1NZ_R14_ABORTED_SOURCE_EVIDENCE_V1",
+  "diagnostic_sha256": "f34f20daf4a848a5d6edea0872b049c21654e94a92bf9a3ccb97d75bc1d307f1",
+  "observed_at": "2026-10-04T08:58:58.680007+00:00",
+  "source_commit": "fb421de6939389c2cf55f0fbe2f23413ac40feb0",
+  "aborted_ledger_sha256": "68f815b7fccc483f9c74aa9535b23fffb865ed1a71fddfd30e708590d1393dbd",
+  "abort_receipt_sha256": "ca5945059fb8cebc4c3ab91d803354d7eef3dae4c27f1af6edab10499dd28ca5",
+  "original_journal_sha256": "8e2bb8ec334584d2a87e7b1d5b0f01fcf9463ed37281510fa56a9e49d89250ae",
+  "recorded_completed": 235,
+  "recorded_pending": 1,
+  "recorded_unstarted": 18,
+  "current_locked_target": 236,
+  "content_verified": 254,
+  "pending_path": "application/src/tu1nz_s12/__init__.py",
+  "pending_acknowledged_step": 2,
+  "pending_intent_step": 3,
+  "pending_pre_and_post_metadata_equal": true,
+  "historical_primary_error": "UNKNOWN",
+  "historical_cleanup_error": "UNKNOWN",
+  "historical_causal_pid": "UNKNOWN",
+  "historical_continuity": false,
+  "runtime_authorized": false
+}
