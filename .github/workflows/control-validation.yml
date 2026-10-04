@@ -23,6 +23,8 @@ jobs:
         run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s12_1_aborted_containment
       - name: S11/S12 release compatibility (native Linux; offline)
         run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s11_s12_release_compatibility
+      - name: R12 native Linux metadata and kernel-guard regressions (no mocks)
+        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v tests.test_s12_1_r12_metadata_contract
       - name: Integrated S12 attempt chain (native Linux; offline)
         # Fail early on RED; GREEN still requires every native case, unchanged.
         run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s12_1_attempt_chain
@@ -1025,5 +1027,3 @@ jobs:
           result = unittest.TextTestRunner(verbosity=2).run(selected)
           raise SystemExit(0 if result.wasSuccessful() else 1)
           PY
-      - name: R12 native Linux metadata and kernel-guard regressions (no mocks)
-        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v tests.test_s12_1_r12_metadata_contract

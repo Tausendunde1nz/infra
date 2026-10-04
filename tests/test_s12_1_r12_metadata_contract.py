@@ -432,8 +432,9 @@ class LinuxTests(unittest.TestCase):
         class Interrupted(BaseException):pass
         for boundary in ('before-v3-restore','before-aborted-ledger'):
             with self.subTest(boundary=boundary),fixture() as f,ExitStack() as stack:
+                primary=r.S12ControlError('injected late guard failure')
                 stack.enter_context(mock.patch.object(r._WorktreeReleaseGuard,'finalize_release',
-                    side_effect=r.S12ControlError('injected late guard failure')))
+                    side_effect=primary))
                 if boundary=='before-v3-restore':
                     original=r._atomic_copy
                     def stop(source,destination,*args):
@@ -446,7 +447,15 @@ class LinuxTests(unittest.TestCase):
                         if path.name.endswith('r12-bindings.json') and payload['phase']=='ABORTED':raise Interrupted
                         return original(path,payload)
                     stack.enter_context(mock.patch.object(r,'_atomic_barrier_json',side_effect=stop))
-                with self.assertRaises(Interrupted):r.reconcile_metadata(f['contract'])
+                with self.assertRaises(r.S12ControlError) as caught:r.reconcile_metadata(f['contract'])
+                self.assertIs(caught.exception,primary)
+                events=primary.metadata_errors
+                self.assertEqual([e['channel'] for e in events],['primary','abort'])
+                self.assertEqual(events[0]['error_type'],'S12ControlError')
+                self.assertEqual(events[1]['error_type'],'Interrupted')
+                self.assertEqual(events[1]['phase'],'ABORT_FINALIZATION')
+                persisted=[json.loads(p.read_bytes())['event'] for p in f['state'].glob('metadata-error-*.json')]
+                self.assertCountEqual(persisted,events)
                 stack.close()
                 self.assertTrue((f['state']/'repository-barrier.r12-abort.json').is_file())
                 if boundary=='before-v3-restore':
