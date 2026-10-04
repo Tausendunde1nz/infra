@@ -10592,8 +10592,8 @@ def _r15_scope_digest(paths: set[Path], selected: dict) -> str:
 def contain_aborted_metadata(contract_path: Path) -> dict:
     """One separate monotone containment; NEVER resume R12 or release guards.
 
-    A crash consumes this containment invocation. Repeated calls are read-only:
-    CLOSED is revalidated, otherwise INCOMPLETE/FAILED remains fail-closed.
+    A crash consumes this containment invocation. Repeated calls cannot issue
+    a new acceptance: completed, incomplete and failed all remain fail-closed.
     Unknown writer history across an interrupted epoch is NOT reconstructed.
     """
     with _exclusive_deployment_lock():
@@ -10623,17 +10623,13 @@ def contain_aborted_metadata(contract_path: Path) -> dict:
                 raise S12ControlError("S12_1_ABORTED_CONTAINMENT_INCOMPLETE_NO_RETRY")
             if (receipt.get("plan_sha256")!=_sha256(claim) or receipt.get("phase")!="CONTAINED_PENDING_CLEANUP"
                     or completion.get("plan_sha256")!=receipt["plan_sha256"]
-                    or completion.get("receipt_sha256")!=_sha256(closed)
-                    or receipt.get("scope_digest")!=_r15_scope_digest(guarded,selected)):
+                    or completion.get("receipt_sha256")!=_sha256(closed)):
                 raise S12ControlError(ABORTED_CONTAINMENT_RED)
-            for entry,path,b in zip(entries,paths,ledger["bindings"]):
-                fd=_r12_open(path)
-                try:
-                    if _r12_snapshot(path,fd,entry["content_sha256"])!={k:v for k,v in b["states"][-1].items() if k!="operation"}:
-                        raise S12ControlError(ABORTED_CONTAINMENT_RED)
-                finally:os.close(fd)
-            return dict(ok=True,safe_code="S12_1_ABORTED_CONTAINED_REVALIDATED_NO_RUNTIME_GO",
-                        historical_phase="ABORTED",target_mutations=0,recovery_allowed=False)
+            # The receipt is historical evidence, not a current-state gate.
+            # Do not offer an unfenced repeat-validation success. Even an
+            # unchanged completed target cannot reuse this one-shot operation
+            # as fresh acceptance or authority for any further mutation.
+            raise S12ControlError("S12_1_ABORTED_CONTAINMENT_ALREADY_CLOSED_NO_REVALIDATION")
         if any(_barrier_path_present(p) for p in (progress,closed)):
             raise S12ControlError(ABORTED_CONTAINMENT_RED)
         metadata_paths=_repository_git_metadata_paths(roots)
@@ -10737,7 +10733,7 @@ def contain_aborted_metadata(contract_path: Path) -> dict:
                 [(name,resource.close) for name,resource in (("WORKTREE",guard),("ATTRIBUTES",attrs),("GIT",git_guard),("HANDLES",quiet)) if resource is not None])
         # This acknowledges resource cleanup only, NOT a new unfenced state
         # attestation. A missing acknowledgement is INCOMPLETE_NO_RETRY. Every
-        # later caller must revalidate the fenced snapshot against actual state.
+        # later caller is rejected without asserting current-state acceptance.
         value.update(phase="CLOSED_CONTAINED",receipt_sha256=receipt_hash)
         errors.phase="CLEANUP_ACKNOWLEDGEMENT"
         try:

@@ -46,8 +46,12 @@ Repeated calls without the fenced receipt and cleanup acknowledgement perform on
 `INCOMPLETE_NO_RETRY`: they never grant a new observation epoch, replay an intent,
 or infer uninterrupted writer exclusion. A separately reviewed disposition would
 be necessary. This is the deliberately smallest fail-closed interruption policy.
-After success a repeat revalidates the same protected target and scope fingerprint
-and returns zero mutations, never cached runtime GREEN. Any drift remains RED.
+After success a repeat is also rejected: `ALREADY_CLOSED_NO_REVALIDATION`.
+It authenticates the historical receipt/cleanup binding but never offers an
+unfenced current-state check or cached GREEN, even for an unchanged target.
+There is no repeated acceptance authority and no target/journal rewrite.
+The first operation's fenced state proof remains historical; any later live
+acceptance needs its own separately authorized protected read-only assessment.
 Reconciliation, recovery and deployment explicitly reject a containment claim;
 follow-up admission rechecks under the shared exclusive lock, before authorization
 or slot consumption (also for early recovery-closure branches).

@@ -131,7 +131,8 @@ class NativeTests(unittest.TestCase):
             self.assertFalse(result['metadata_rolled_back']);self.assertFalse(result['deployment_allowed'])
             self.assert_contained(f);self.preserved(f)
             stable={Path(b['path']):Path(b['path']).stat().st_ctime_ns for b in ledger['bindings']}
-            self.assertEqual(r.contain_aborted_metadata(f['contract'])['target_mutations'],0)
+            with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CLOSED_NO_REVALIDATION'):
+                r.contain_aborted_metadata(f['contract'])
             self.assertEqual(stable,{p:p.stat().st_ctime_ns for p in stable})
             self.preserved(f)
 
@@ -256,6 +257,30 @@ class NativeTests(unittest.TestCase):
             p=f['app']/'kept';p.chmod(0o640)
             with self.assertRaises(r.S12ControlError):r.contain_aborted_metadata(f['contract'])
             self.preserved(f)
+
+    def test_completed_repeat_never_accepts_concurrently_changed_state(self):
+        for reverted in (False,True):
+            with self.subTest(reverted=reverted),aborted_fixture() as f:
+                r.contain_aborted_metadata(f['contract'])
+                records={p:p.read_bytes() for p in f['state'].glob('repository-barrier.r15-*.json')}
+                read=r._private_json;fired=False
+                def race(path,*args,**kwargs):
+                    nonlocal fired
+                    value=read(path,*args,**kwargs)
+                    if path.name=='repository-barrier.r15-containment-progress.json' and not fired:
+                        fired=True
+                        subprocess.run([sys.executable,'-c',
+                            'import os,sys;p=sys.argv[1];m=os.stat(p).st_mode&4095;os.chmod(p,384);'
+                            'os.chmod(p,m) if sys.argv[2]=="yes" else None',
+                            str(f['app']/'kept'),'yes' if reverted else 'no'],check=True)
+                    return value
+                with mock.patch.object(r,'_private_json',side_effect=race),\
+                     mock.patch.object(r,'_r15_scope_digest',side_effect=AssertionError('no unfenced acceptance scan')):
+                    with self.assertRaisesRegex(r.S12ControlError,'ALREADY_CLOSED_NO_REVALIDATION'):
+                        r.contain_aborted_metadata(f['contract'])
+                self.assertTrue(fired)
+                self.assertEqual(records,{p:p.read_bytes() for p in records})
+                self.preserved(f)
 
 
 if __name__=='__main__':unittest.main()
