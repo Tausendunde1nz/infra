@@ -74,7 +74,7 @@ def private_json(path,value):
 
 
 @contextmanager
-def fixture(*, complete_backup=False):
+def fixture(*, complete_backup=False, mixed_254=False):
     # /root is private; /tmp would correctly fail the private-chain contract.
     with tempfile.TemporaryDirectory(prefix='s12-r12-',dir='/root') as name, ExitStack() as stack:
         base=Path(name)
@@ -159,6 +159,12 @@ def fixture(*, complete_backup=False):
         (app/'kept').write_bytes(b'target\n');os.chown(app/'kept',0,1001);(app/'kept').chmod(0o660)
         (app/'created').mkdir();os.chown(app/'created',0,1001);(app/'created').chmod(0o2770)
         (app/'created'/'new').write_bytes(b'new\n');os.chown(app/'created'/'new',0,1001);(app/'created'/'new').chmod(0o660)
+        extra=[]
+        if mixed_254:
+            for i in range(250):
+                path=app/'created'/f'extra-{i:04d}'
+                path.write_bytes(b'isolated synthetic content\n');os.chown(path,0,1001);path.chmod(0o660)
+                extra.append(('application',app,path))
         (control/'scripts').mkdir();os.chown(control/'scripts',1001,1001);(control/'scripts').chmod(0o2775)
         if complete_backup:
             # Target-only artifact: scripts/ must remain an unjournalized R12
@@ -191,6 +197,7 @@ def fixture(*, complete_backup=False):
             (root/'.git').chmod(0)
         selected=[('application',app,app/'kept'),('application',app,app/'created'),
                   ('application',app,app/'created'/'new'),('control',control,control/'scripts')]
+        selected.extend(extra)
         entries=[]
         for key,root,path in selected:
             fd=r._r12_open(path)
@@ -425,8 +432,9 @@ class LinuxTests(unittest.TestCase):
         class Interrupted(BaseException):pass
         for boundary in ('before-v3-restore','before-aborted-ledger'):
             with self.subTest(boundary=boundary),fixture() as f,ExitStack() as stack:
+                primary=r.S12ControlError('injected late guard failure')
                 stack.enter_context(mock.patch.object(r._WorktreeReleaseGuard,'finalize_release',
-                    side_effect=r.S12ControlError('injected late guard failure')))
+                    side_effect=primary))
                 if boundary=='before-v3-restore':
                     original=r._atomic_copy
                     def stop(source,destination,*args):
@@ -439,7 +447,15 @@ class LinuxTests(unittest.TestCase):
                         if path.name.endswith('r12-bindings.json') and payload['phase']=='ABORTED':raise Interrupted
                         return original(path,payload)
                     stack.enter_context(mock.patch.object(r,'_atomic_barrier_json',side_effect=stop))
-                with self.assertRaises(Interrupted):r.reconcile_metadata(f['contract'])
+                with self.assertRaises(r.S12ControlError) as caught:r.reconcile_metadata(f['contract'])
+                self.assertIs(caught.exception,primary)
+                events=primary.metadata_errors
+                self.assertEqual([e['channel'] for e in events],['primary','abort'])
+                self.assertEqual(events[0]['error_type'],'S12ControlError')
+                self.assertEqual(events[1]['error_type'],'Interrupted')
+                self.assertEqual(events[1]['phase'],'ABORT_FINALIZATION')
+                persisted=[json.loads(p.read_bytes())['event'] for p in f['state'].glob('metadata-error-*.json')]
+                self.assertCountEqual(persisted,events)
                 stack.close()
                 self.assertTrue((f['state']/'repository-barrier.r12-abort.json').is_file())
                 if boundary=='before-v3-restore':

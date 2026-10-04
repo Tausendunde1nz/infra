@@ -1,4 +1,6 @@
 *
+!tests/test_s12_1_aborted_containment.py
+!analysis/COMMERCIAL_S12_1_R14_ABORTED_EVIDENCE.json
 !.gitignore
 !README.md
 !docs/

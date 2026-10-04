@@ -895,7 +895,7 @@ class CommercialS121YotiRuntimeControlTests(unittest.TestCase):
         source = (ROOT / "scripts/tu1nz_adult_commercial_s12_1_runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('arguments.operation in {"deploy", "recover", "reconcile-metadata"}', source[-4000:])
+        self.assertIn('arguments.operation in {"deploy", "recover", "reconcile-metadata", "contain-aborted"}', source[-4000:])
         self.assertIn(
             "runtime_digest_bindings != [_trusted_controller_digest()]", source
         )

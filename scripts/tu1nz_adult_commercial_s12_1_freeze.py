@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
-FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r14"
+FREEZE_TAG = "s12-yoti-sandbox-runtime-freeze-r15"
 APPLICATION_COMMIT = "93555d8a141caf8ace33522f9340d30bfc47d2bb"
 APPLICATION_TREE = "1e8a644115127818f394b6f9d24f31826e04ecba"
 CONTRACT_VERSION = "tu1nz-s12-yoti-sandbox-runtime-v1"
@@ -31,6 +31,9 @@ APPLICATION_ARTIFACTS = {
 }
 
 CONTROL_ARTIFACTS = {
+    "aborted_containment_tests_sha256": "tests/test_s12_1_aborted_containment.py",
+    "aborted_containment_doc_sha256": "docs/COMMERCIAL_S12_1_R15_ABORTED_CONTAINMENT.md",
+    "aborted_containment_evidence_sha256": "analysis/COMMERCIAL_S12_1_R14_ABORTED_EVIDENCE.json",
     "s11_compatible_controller_sha256": "scripts/tu1nz_adult_public_s11_2_control.sh",
     "s11_s12_compatibility_tests_sha256": "tests/test_s11_s12_release_compatibility.py",
     "s11_historical_contract_tests_sha256": "tests/s11_historical_release.py",
@@ -55,6 +58,9 @@ CONTROL_ARTIFACTS = {
 }
 
 STATIC_BINDINGS = {
+    "aborted_containment_contract": "SINGLE_SEPARATE_MONOTONE_CONTAINMENT_NO_RUNTIME_AUTHORITY",
+    "historical_aborted_bindings_sha256": "68f815b7fccc483f9c74aa9535b23fffb865ed1a71fddfd30e708590d1393dbd",
+    "historical_abort_receipt_sha256": "ca5945059fb8cebc4c3ab91d803354d7eef3dae4c27f1af6edab10499dd28ca5",
     "s11_rollback_application_commit": "db87896697d56b24f192fc1cd0324b6fe46d734b",
     "s11_rollback_application_tree": "b915a04e19eef8a244c300b16577a44cea89e2ab",
     "s11_completion_contract": "FRESH_NATURAL_INVOCATION_INSTALLED_RELEASE_BOUND",
