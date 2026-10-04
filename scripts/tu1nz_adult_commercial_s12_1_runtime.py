@@ -1089,9 +1089,12 @@ def _s11_artifact(path: Path, mode: int) -> str:
 def _s11_release_binding(*, target: bool = False) -> dict[str, Any]:
     pair = (APPLICATION_COMMIT, APPLICATION_TREE) if target else S11_LEGACY_APPLICATION
     try:
-        identity = (_root_git(APPLICATION_ROOT, "rev-parse", "HEAD"),
-                    _root_git(APPLICATION_ROOT, "rev-parse", "HEAD^{tree}"))
-        dirty = _root_git(APPLICATION_ROOT, "status", "--porcelain")
+        # Existing shared repositories use the explicit, supervised Git-dir
+        # reader. The immutable-stage -C reader is not an authorized live-root
+        # command in the R13 writer epoch; do not widen that writer contract.
+        identity = (_selected_git(APPLICATION_ROOT, APPLICATION_ROOT / ".git", "rev-parse", "HEAD"),
+                    _selected_git(APPLICATION_ROOT, APPLICATION_ROOT / ".git", "rev-parse", "HEAD^{tree}"))
+        dirty = _selected_git(APPLICATION_ROOT, APPLICATION_ROOT / ".git", "status", "--porcelain")
     except (S12ControlError, OSError):
         raise S12ControlError("S12_1_S11_APPLICATION_READ_RED") from None
     if identity != pair or dirty:
