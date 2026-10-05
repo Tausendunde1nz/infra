@@ -27,6 +27,10 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(args[0][:5], ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/bin/psql"])
         self.assertIn("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY", options["input"])
         self.assertTrue(options["input"].strip().endswith("ROLLBACK;"))
+        # The canonical migration defines the owner as UUID, not text. The
+        # native PostgreSQL chain executes this exact query for null/non-null
+        # owners; no later successful poll substitutes for first admission.
+        self.assertIn("convert_to(lease_owner_id::text,'UTF8')", options["input"])
         self.assertNotRegex(options["input"], r"\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|GRANT)\b")
         self.assertEqual(result["s11"]["promotion_state"], "CANARY_RED")
         c.lease_admission(result["leases"][0])

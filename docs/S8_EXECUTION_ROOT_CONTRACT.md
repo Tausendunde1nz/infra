@@ -244,3 +244,11 @@ S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
 R15 containment and every product hard gate remain NO-GO. No live steps are
 executable or authorized until the full source contract and a separate live
 approval exist; failed attempts must retain consuming evidence and stop.
+
+The production provisioning integration exposed a read-only SQL type error:
+the canonical owner is UUID. The adapter now hashes its explicit text form;
+no SELECT-only, admission or ownership predicate changes. Native full-chain
+verification remains mandatory. The deterministic self-contained installer
+offers only `preflight` and `execute`, never grant generation or resume. A
+preflight result is not reusable admission. Preparation requires absent
+coordinator/dependency units; cleanup errors survive a later successful close.

@@ -8,12 +8,11 @@ import hashlib
 import json
 
 import tu1nz_s8_execution_contract as c
-from tu1nz_s8_frozen_entry import MODULES
+from tu1nz_s8_frozen_entry import INSTALLER_MODULES
 from tu1nz_s8_runtime_interfaces import CONFIG_NAMES
 from tu1nz_s8_execution_observer import BASE_UNIT_SHA256, HISTORY_HASHES
 
-SOURCE_NAMES = (*MODULES, "tu1nz_s8_execution", "tu1nz_s8_new_stock", "tu1nz_s8_execution_units",
-                "tu1nz_s8_frozen_entry", "tu1nz_s8_execution_release", "tu1nz_s8_provision")
+SOURCE_NAMES = INSTALLER_MODULES
 
 
 def decode_tag(raw: bytes, *, tag_object: str):

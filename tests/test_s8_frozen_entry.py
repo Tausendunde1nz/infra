@@ -37,6 +37,20 @@ class FrozenEntryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "COMMAND_RED"):
                 entry.systemd_command("import base64,zlib;" + value, "execute")
 
+    def test_installer_is_self_contained_and_has_no_resume_or_grant_generation(self):
+        root = Path(__file__).resolve().parents[1]/"scripts"
+        sources = {name: (root/(name+".py")).read_bytes() for name in entry.INSTALLER_MODULES}
+        expected = {name: hashlib.sha256(value).hexdigest() for name, value in sources.items()}
+        program = entry.build_installer(sources, expected)
+        result = subprocess.run([sys.executable, "-I", "-B", "-S", "-c", program, "--help"],
+                                cwd="/", capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("{preflight,execute}", result.stdout)
+        self.assertNotIn("--resume", result.stdout)
+        self.assertNotIn("--generate-grant", result.stdout)
+        changed = dict(sources); changed["tu1nz_s8_provision"] += b"\n"
+        with self.assertRaisesRegex(ValueError, "SOURCE_BINDING_RED"): entry.build_installer(changed, expected)
+
     @unittest.skipUnless(sys.platform == "linux" and os.geteuid() == 0 and
                          os.environ.get("container") == "docker", "disposable PID 1 only")
     def test_pid1_loaded_entry_ignores_mutable_control_path(self):

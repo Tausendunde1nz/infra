@@ -85,8 +85,8 @@ def abort_owned(boundary):
     return "OWNED_COORDINATOR_STOPPED_RUNTIME_INACTIVE_NO_RETRY"
 
 
-def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_sources):
-    """Only callable from an authenticated source bundle, with operator grant.
+def prepare_inputs(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_sources):
+    """Authenticated read-only preflight; return no reusable attempt ticket.
 
     Every argument is independently bound before the first mkdir. There is no
     injectable path, incident, unit, UID, shell command or observation adapter.
@@ -108,7 +108,9 @@ def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_source
                    application=release["application"], sources=release["sources"])
     c.grant_check(grant, binding, datetime.now(timezone.utc))
     baseline = observer.failed_precondition()
-    c.require(properties(COORDINATOR)["ActiveState"] == "inactive", "COORDINATOR_ALREADY_EXISTS")
+    for unit in (COORDINATOR, "tu1nz-s8-one-shot-dependency-r1.service"):
+        c.require(observer.command(["/usr/bin/systemctl", "show", unit, "--value", "--property=LoadState"]).strip()
+                  == "not-found", "COORDINATOR_ALREADY_EXISTS")
     account = pwd.getpwnam("chatops")
     c.require(account.pw_uid > 0 and account.pw_gid > 0, "RUNTIME_ACCOUNT_RED")
     configs = configuration_inputs({name: observer.file_bytes(Path("/etc/tu1nz")/name,
@@ -122,6 +124,16 @@ def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_source
     base_unit = observer.file_bytes(observer.BASE_UNIT, expected=observer.BASE_UNIT_SHA256)
     values = dict(configs, **{"capsule.squashfs": image_bytes, "freeze.json": freeze_bytes, "grant.json": grant_bytes,
         "baseline.json": c.canonical(baseline), "historical-unit.txt": base_unit, "resolv.conf": resolver})
+    return dict(binding=binding, grant=grant, baseline=baseline, values=values,
+                uid=account.pw_uid, gid=account.pw_gid)
+
+
+def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_sources):
+    # Always repeats authentication and observations. No preflight output can
+    # be supplied here to skip checks or mint/reuse an attempt permission.
+    prepared = prepare_inputs(tag_bytes=tag_bytes, tag_object=tag_object, grant_bytes=grant_bytes,
+                              image_bytes=image_bytes, control_sources=control_sources)
+    binding, grant, baseline, values = (prepared[name] for name in ("binding", "grant", "baseline", "values"))
     root = observer.ROOT
     dropin = Path(str(observer.BASE_UNIT)+".d")
     # Re-observe immediately before consuming a new name. The later CAS, not
@@ -131,14 +143,17 @@ def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_source
               "PREFLIGHT_DRIFT")
     c.grant_check(grant, binding, datetime.now(timezone.utc))
     candidate = overlay = boundary = None
+    cleanup_errors = []
+    phase = "CREATE_EXECUTION_STOCK"
     try:
         candidate = NewStock(root, plan(values), state_directory=True)
         for name, payload in values.items(): candidate.put(name, payload)
+        phase = "SEAL_EXECUTION_STOCK"
         proof = candidate.seal()
         config = dict(schema="TU1NZ_S8_FROZEN_INVOCATION_V1", root_identity=list(proof["root_identity"]),
             state_identity=list(proof["state_identity"]), files=plan(values), coordinator=COORDINATOR,
             dispatcher=c.process_identity(os.getpid()), binding=binding, grant=grant, baseline=baseline,
-            runtime_uid=account.pw_uid, runtime_gid=account.pw_gid)
+            runtime_uid=prepared["uid"], runtime_gid=prepared["gid"])
         # CONFIG's dynamic object identities are newly established by watched
         # creation, never inherited from any historical path or old receipt.
         entry = ("CONFIG = "+repr(config)+"\n").encode()+control_sources["tu1nz_s8_execution"]
@@ -146,11 +161,13 @@ def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_source
         expected = {name: hashlib.sha256(payload).hexdigest() for name, payload in {**modules, "entry": entry}.items()}
         program = build(modules, entry, expected)
         overlay_bytes = runtime_dropin(frozen_program=program).encode()
+        phase = "CREATE_UNIT_INTERLOCK"
         overlay = NewStock(dropin, plan({"00-atomic-admission.conf": overlay_bytes}))
         overlay.put("00-atomic-admission.conf", overlay_bytes)
         overlay.seal()
         # Only immutable complete files are handed to PID 1. No historical
         # base-unit edit, index action, marker removal, retry or reset exists.
+        phase = "PID1_RELOAD_AND_RECHECK"
         observer.command(["/usr/bin/systemctl", "daemon-reload"])
         before = observer.failed_precondition(installed=True)
         c.require(before["history"] == baseline["history"] and before["health"]["public"] == baseline["health"]["public"]
@@ -158,10 +175,12 @@ def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_source
                   and before["s8"]["Restart"] == "no" and before["s8"]["RefuseManualStart"] == "yes",
                   "INSTALLED_ADMISSION_CONTRACT_RED")
         c.grant_check(grant, binding, datetime.now(timezone.utc))
+        phase = "DISPATCH_ONCE"
         boundary = DispatchBoundary(root/"state", COORDINATOR, c.digest(config))
         job = boundary.issue_once(lambda: subprocess.Popen(transient_command(program),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}))
         c.require(job.wait(timeout=10) == 0, "DISPATCH_OUTCOME_UNKNOWN_NO_RETRY")
+        phase = "WAIT_FRESH_ACCEPTANCE"
         deadline = time.monotonic()+240
         while time.monotonic() < deadline:
             state = properties(COORDINATOR)
@@ -170,8 +189,8 @@ def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_source
                 accepted = json.loads(observer.file_bytes(root/"state/runtime/accepted.json"))
                 c.require(accepted["retry_allowed"] is False and accepted["s11_s12_acceptance"] is False,
                           "FINAL_RECEIPT_RED")
-                errors = cleanup(boundary, overlay, candidate)
-                c.require(not errors, "PROVISION_CLEANUP_RED")
+                cleanup_errors.extend(cleanup(boundary, overlay, candidate))
+                c.require(not cleanup_errors, "PROVISION_CLEANUP_RED")
                 return dict(status="S8_SINGLE_ADMISSION_ACCEPTED", acceptance=accepted,
                             freeze_sha256=binding["freeze_sha256"], tag_object=tag_object,
                             recovery=False, deployment=False, unlock=False)
@@ -179,8 +198,10 @@ def provision(*, tag_bytes, tag_object, grant_bytes, image_bytes, control_source
             time.sleep(1)
         c.require(False, "COORDINATOR_OUTCOME_UNKNOWN_NO_RETRY")
     except BaseException as error:
-        primary = failure(error)
+        primary = dict(failure(error), phase=phase)
         try: abort = dict(result=abort_owned(boundary))
         except BaseException as secondary: abort = dict(error=failure(secondary))
-        errors = cleanup(boundary, overlay, candidate)
-        raise ProvisionAborted(primary, abort, errors) from None
+        # Preserve the original cleanup failure even if a second best-effort
+        # close is harmless/succeeds. Abort/cleanup never replace provenance.
+        cleanup_errors.extend(cleanup(boundary, overlay, candidate))
+        raise ProvisionAborted(primary, abort, cleanup_errors) from None

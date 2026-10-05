@@ -267,5 +267,6 @@ if __name__ == "__main__":
         # Fresh fixture journal only, never a server journal. All credentials,
         # identities and SQL rows were created synthetically by this file.
         print(cmd(["journalctl", "--no-pager", "-u", COORDINATOR, "-u", c.UNIT, "-n", "35"]).stdout)
+        if isinstance(error, provision.ProvisionAborted): print(json.dumps(error.evidence, sort_keys=True))
         raise
     finally: cleanup()

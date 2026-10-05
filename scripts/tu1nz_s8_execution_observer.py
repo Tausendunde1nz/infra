@@ -109,7 +109,7 @@ SELECT json_build_object(
  'read_only',current_setting('transaction_read_only'), 'observed_at',CURRENT_TIMESTAMP,
  'leases',(SELECT coalesce(json_agg(json_build_object(
    'release',release_id,'owner',CASE WHEN lease_owner_id IS NULL THEN NULL
-     ELSE encode(sha256(convert_to(lease_owner_id,'UTF8')),'hex') END,
+     ELSE encode(sha256(convert_to(lease_owner_id::text,'UTF8')),'hex') END,
    'expires',lease_expires_at,'revision',revision,'last_poll',last_successful_poll_at,
    'updated',updated_at,'code',last_event_path_code)),'[]'::json) FROM commercial_s10_2d_bot_polling_state),
  's11',(SELECT json_build_object('enabled',enabled,'release_state',release_state,'promotion_state',promotion_state,
