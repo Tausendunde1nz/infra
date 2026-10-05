@@ -20,6 +20,7 @@ import tu1nz_s8_sealed_root as sealed
 from tu1nz_s8_admission_channel import AdmissionChannel, request_once, properties
 from tu1nz_s8_protected_journal import ProtectedJournal
 from tu1nz_s8_journal_fence import APPEND, add_inode_protection
+from tu1nz_s8_dispatch_boundary import receive_once
 
 
 def sql(query):
@@ -68,9 +69,8 @@ def main():
     config = json.loads((root / "fixture.json").read_bytes())
     c.require(config["live_authority"] is False, "ISOLATED_NATIVE_CONTAINER_REQUIRED")
     if mode == "coordinate":
-        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-        add_inode_protection(fd, APPEND)
-        os.close(fd)
+        receive_once(root, coordinator=config["coordinator"], owner=config["dispatcher"],
+                     binding_sha256=c.digest(config))
         journal = ProtectedJournal(root / "journal")
         channel = AdmissionChannel(root / "channel.sock", c.UNIT)
         now = lambda: datetime.now(timezone.utc)

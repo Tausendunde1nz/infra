@@ -21,6 +21,7 @@ MODULES = (
     "tu1nz_s8_protected_journal",
     "tu1nz_s8_admission_channel",
     "tu1nz_s8_sealed_root",
+    "tu1nz_s8_dispatch_boundary",
 )
 
 

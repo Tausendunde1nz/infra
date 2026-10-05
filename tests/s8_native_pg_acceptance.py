@@ -17,6 +17,8 @@ sys.path.insert(0, "/source/scripts")
 import tu1nz_s8_execution_contract as c
 from tu1nz_s8_execution_units import render
 import tu1nz_s8_frozen_entry as frozen_entry
+from tu1nz_s8_dispatch_boundary import DispatchBoundary
+from tu1nz_s8_journal_fence import APPEND, add_inode_protection
 
 
 def command(*args, check=True, timeout=60):
@@ -64,9 +66,11 @@ def main():
     expected = {name: hashlib.sha256(source).hexdigest()
                 for name, source in {**module_sources, "entry": main_source}.items()}
     frozen_program = frozen_entry.build(module_sources, main_source, expected)
-    (root / "fixture.json").write_text(json.dumps(dict(
+    fixture = dict(
         coordinator=coordinator, dispatch=dispatch, image_sha256=image_sha,
-        application=metadata["application"], sources=metadata["sources"], live_authority=False)))
+        application=metadata["application"], sources=metadata["sources"], live_authority=False,
+        dispatcher=c.process_identity(os.getpid()))
+    (root / "fixture.json").write_text(json.dumps(fixture))
     (root / "isolation").write_bytes(b"TU1NZ_ISOLATED_NO_PROVIDER\n")
     (root / "dsn").write_text(runtime_dsn)
     (root / "token").write_text("123456789:" + "x" * 35)
@@ -88,11 +92,20 @@ def main():
                 stream.write(value)
             unit_paths.append(path)
         command("systemctl", "daemon-reload")
-        outcome = command("systemctl", "start", coordinator, check=False, timeout=100)
-        if outcome.returncode != 0:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try: add_inode_protection(fd, APPEND)
+        finally: os.close(fd)
+        boundary = DispatchBoundary(root, coordinator, c.digest(fixture))
+        try:
+            job = boundary.issue_once(lambda: subprocess.Popen(["systemctl", "start", coordinator],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            outcome = job.wait(timeout=100)
+        finally:
+            boundary.close()
+        if outcome != 0:
             # Synthetic fixture only. Never attach arbitrary real journal data.
             print(command("journalctl", "--no-pager", "-u", coordinator, "-u", c.UNIT, "-n", "45").stdout)
-        c.require(outcome.returncode == 0, "NATIVE_SEALED_SQL_CHAIN_RED")
+        c.require(outcome == 0, "NATIVE_SEALED_SQL_CHAIN_RED")
         accepted = json.loads((root / "journal/accepted.json").read_bytes())
         c.require(accepted["live_authority"] is False and accepted["provider_calls"] == 0,
                   "NATIVE_ISOLATION_RED")
@@ -115,8 +128,15 @@ def main():
         c.require(command("systemctl", "start", coordinator, check=False).returncode != 0,
                   "NATIVE_DURABLE_REPLAY_RED")
         replay_journal = command("journalctl", "--no-pager", "-u", coordinator, "-n", "30").stdout
-        c.require("S8_EXECUTION_JOURNAL_ALREADY_PROTECTED" in replay_journal,
+        c.require("S8_EXECUTION_DISPATCH_NO_LIVE_HANDOFF" in replay_journal,
                   "NATIVE_REPLAY_NOT_DURABLE_RED")
+        try:
+            duplicate = DispatchBoundary(root, coordinator, c.digest(fixture))
+        except c.ContractError as error:
+            c.require(str(error) == "S8_EXECUTION_ALREADY_CONSUMED_NO_RETRY", "NATIVE_REPLAY_CODE_RED")
+        else:
+            duplicate.close()
+            c.require(False, "NATIVE_DISPATCH_REPLAY_RED")
         c.require(stable_sql == command("/usr/bin/psql", "-X", "-qAt", admin, "--command",
             "SELECT row_to_json(s)::text FROM commercial_s10_2d_bot_polling_state s").stdout,
             "NATIVE_REPLAY_DATABASE_DRIFT")
@@ -131,8 +151,10 @@ def main():
         for path in unit_paths:
             path.unlink()
         command("systemctl", "daemon-reload")
-        journal = root / "journal"
-        objects = list(journal.iterdir()) + [journal] if journal.exists() else []
+        objects = []
+        for name in ("journal", "dispatch"):
+            journal = root / name
+            if journal.exists(): objects.extend([*journal.iterdir(), journal])
         for path in [*objects, root]:
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
             try:

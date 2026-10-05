@@ -172,6 +172,15 @@ PYTHONPATH module, pass. The integrated native fixture now uses this same
 renderer; its new complete CI result is still required. The final installer,
 dispatch consumption before the PID-1 start request, reviewed role manifest
 and actual observer adapter remain construction gates.
+
+The next dispatch boundary consumes a fresh protected directory and sealed
+intent **before** the PID-1 start request. Only the original live dispatcher
+can hand a sealed response once to the actual coordinator MainPID/invocation.
+An unknown start result, process loss or repeated dispatcher cannot recreate
+that channel. The native integrated fixture now exercises this boundary before
+its existing condition/execution/SQL protocol; four additional native cases
+cover interrupted pre-start, lost acknowledgement, replay and a foreign root
+peer. Their native CI evidence is pending. There is still no live CLI/grant.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
 R15 containment and every product hard gate remain NO-GO. No live steps are
 executable or authorized until the full source contract and a separate live
