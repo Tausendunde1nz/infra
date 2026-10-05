@@ -54,7 +54,7 @@ RemainAfterExit=yes
 TimeoutStartSec=240
 TimeoutStopSec=30
 ExecStart={command('coordinate')}
-ReadWritePaths={root} /run/systemd/system /etc/systemd/system
+ReadWritePaths={root}
 {common}"""
     runtime_text = f"""[Unit]
 Description=TU1NZ S8 immutable atomic admission (no ordinary startup)
@@ -84,7 +84,7 @@ CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_CHROOT CAP_SETUID CAP_SETGID CAP_DAC
 # + would also bypass the filesystem sandbox and is deliberately forbidden.
 ExecCondition=!{command('condition')}
 ExecStart=!{command('execute')}
-ReadWritePaths={root} /run/tu1nz-s8-execution-r1
+ReadWritePaths={root}
 InaccessiblePaths=-/opt/tu1nz_repos/adult-publishing-core -/opt/tu1nz_repos/control
 LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.token
 LoadCredential=s8_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn

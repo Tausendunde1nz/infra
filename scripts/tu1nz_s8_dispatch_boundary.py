@@ -31,6 +31,7 @@ class DispatchBoundary:
         self.journal = ProtectedJournal(parent / "dispatch")
         self.server = None
         self.used = False
+        self.receipt = None
         self.intent = dict(coordinator=coordinator, owner=self.owner, binding_sha256=binding_sha256)
         try:
             # The directory itself is already a consuming object. This sealed
@@ -66,6 +67,10 @@ class DispatchBoundary:
                 receipt = dict(intent_sha256=digest(self.intent), coordinator=identity,
                                invocation=value["invocation"], binding_sha256=value["binding_sha256"])
                 self.journal.once("dispatch-handoff.json", receipt)
+                # The original caller may stop only this exact owned PID-1
+                # invocation on an uncertain result. No receipt => no such
+                # authority; the coordinator cannot pass its live handoff.
+                self.receipt = receipt
                 require(bind_peer(connection, unit=self.coordinator, phase="coordinate",
                                   invocation=value["invocation"]) == identity, "DISPATCH_PEER_DRIFT")
                 descriptor = sealed_message(canonical(receipt))

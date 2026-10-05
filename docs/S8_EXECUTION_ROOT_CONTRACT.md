@@ -1,5 +1,43 @@
 # S8 isolated execution root — construction checkpoint
 
+## Current delta (supersedes older construction checkpoints below)
+
+Private CI `37357353325` is GREEN at Application
+`febeddf3c8046587dd5043548ff93c3bd9619449` and Control
+`98f7fe542eefcfb8b25f70f9296dd62f85888567`: 43 native components, 23 S11/S12
+checks, and both PostgreSQL 17/18 sealed initial-claim/poll/replay chains.
+The append-only inode already rejects chmod/access-ACL/default-ACL mutation;
+the test now proves those syscall denials rather than inventing a watcher event.
+
+The next, **not yet accepted**, candidate adds the production provisioning,
+observer and PID-1 coordinator functions. A single original process snapshots
+the authenticated inputs, creates new fenced immutable stock and a new
+immutable S8 drop-in, then consumes dispatch before one transient coordinator
+request. No resume/adoption API, historical edits or ordinary-claim rollback
+exists. Ambiguous starts remain consuming. Only a proven owned coordinator
+invocation may be stopped on abort; primary/abort/cleanup errors stay separate.
+
+The release envelope separates unchanged historical Git/journal bindings from
+the new image/Application pair. It requires source-closure provenance and a
+separate time-bound human grant. A tag alone is not permission. The readonly
+observer preserves separate S9/S10/S11 RED and never imports the locked checkout.
+Configuration and an explicit validated OS DNS snapshot use independent
+readonly RAM interfaces; Docker's build resolver is not a runtime dependency.
+The permit mount and sealed import paths are unaffected. Initial component
+tests (including actual Linux/PID-1 tests) are GREEN; the new complete
+provisioning/unknown-start/replay fixture remains a mandatory CI gate.
+
+That fixture substitutes only synthetic incident/history identities, its
+disposable database address, public HTTP responses and the existing empty
+provider/unrelated-store harness. No lease CAS, permission, journal, systemd or
+kernel protection predicate is replaced. It must not be reported as live
+acceptance or as exercising real Telegram/provider interactions.
+
+Still required: native full candidate CI, authenticated launch packaging,
+retained private-image provenance, coordinated final Same-SHA reviews/merges,
+post-merge CI and a new immutable freeze. **No source completion or live plan
+approval is claimed yet.** All live actions remain NO-GO.
+
 SOURCE ONLY, INCOMPLETE. No live adapter, source acceptance, merge or freeze is
 claimed by these prototypes. Historical R12/ABORTED roots remain untouched.
 
