@@ -41,9 +41,12 @@ def main():
                       "--database-dsn","/unused-dsn","--runtime-release-id","s10-2d-r3-5"]
                 s.enter_capsule(mounted,uid=65534,gid=65534,image_sha256=sha,argv=argv,
                                 environment={"INVOCATION_ID":"1"*32,"LANG":"C.UTF-8"})
-            except BaseException:
-                import traceback
-                traceback.print_exc()
+            except BaseException as error:
+                # Imports and tempfile cleanup may be inaccessible after a
+                # failing chroot/drop. Preserve the primary safe error first;
+                # never unwind the parent's temporary-directory context here.
+                os.write(2,(json.dumps(dict(stage="launch",error_type=type(error).__name__,
+                                           errno=getattr(error,"errno",None),uid=os.geteuid()))+"\n").encode())
                 os._exit(99)
         _,status=os.waitpid(child,0)
         lines=output.read_text().splitlines()

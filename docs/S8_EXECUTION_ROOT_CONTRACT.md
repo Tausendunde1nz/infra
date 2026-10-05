@@ -65,7 +65,11 @@ adapter and its crash boundaries remain an integration gate.
   proof belongs in private Application CI. No host emulation/kernel alteration.
 - A full sealed-image negative probe now exercises the real unprivileged
   Application entrypoint with no credentials/network/database interfaces. The
-  empty permit must reject before any claim; this new probe still needs CI.
+  empty permit must reject before any claim. Its first native CI reached all
+  eleven component tests GREEN but rejected the full capsule at the launch
+  boundary; no acceptance was claimed. The new image root must explicitly have
+  mode 0755 (not inherit a private unpacking-directory mode). Child error
+  reporting must not import modules or run parent cleanup after a failed drop.
 - Private Application source/images must never be uploaded to public Control.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.
