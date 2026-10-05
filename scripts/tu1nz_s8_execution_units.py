@@ -14,13 +14,19 @@ CONTROLLER = Path("/etc/tu1nz/s8-atomic-admission-r1/control/tu1nz_s8_execution.
 
 
 def render(controller=CONTROLLER, *, runtime=UNIT, coordinator=COORDINATOR,
-           runtime_user="chatops", runtime_group="chatops"):
+           runtime_user="chatops", runtime_group="chatops", frozen_program=None):
     require(re.fullmatch(r"/[A-Za-z0-9_./-]+",str(controller)), "CONTROLLER_PATH_RED")
     for name in (runtime,coordinator):
         require(re.fullmatch(r"tu1nz-[a-z0-9-]+\.service",name), "UNIT_NAME_RED")
     for identity in (runtime_user,runtime_group):
         require(re.fullmatch(r"[a-z][a-z0-9-]*",identity) and identity != "root", "IDENTITY_RED")
-    command = f"/usr/bin/python3 -I -B {controller}"
+    if frozen_program is None:
+        # Existing construction fixtures only. Final provisioning must supply
+        # the provenance-checked PID-1-loaded program, never this disk path.
+        command = lambda phase: f"/usr/bin/python3 -I -B {controller} {phase}"
+    else:
+        from tu1nz_s8_frozen_entry import systemd_command
+        command = lambda phase: systemd_command(frozen_program, phase)
     common = """Restart=no
 UMask=0077
 NoNewPrivileges=yes
@@ -47,7 +53,7 @@ Group=root
 RemainAfterExit=yes
 TimeoutStartSec=240
 TimeoutStopSec=30
-ExecStart={command} coordinate
+ExecStart={command('coordinate')}
 ReadWritePaths={root} /run/systemd/system /etc/systemd/system
 {common}"""
     runtime_text = f"""[Unit]
@@ -69,8 +75,8 @@ CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_CHROOT CAP_SETUID CAP_SETGID CAP_DAC
 # ! keeps the filesystem sandbox and per-user credential ownership, while
 # the narrow launcher starts privileged and must drop to this exact identity.
 # + would also bypass the filesystem sandbox and is deliberately forbidden.
-ExecCondition=!{command} condition
-ExecStart=!{command} execute
+ExecCondition=!{command('condition')}
+ExecStart=!{command('execute')}
 ReadWritePaths={root} /run/tu1nz-s8-execution-r1
 InaccessiblePaths=-/opt/tu1nz_repos/adult-publishing-core -/opt/tu1nz_repos/control
 LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.token

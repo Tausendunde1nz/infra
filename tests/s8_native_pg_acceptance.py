@@ -16,6 +16,7 @@ import tempfile
 sys.path.insert(0, "/source/scripts")
 import tu1nz_s8_execution_contract as c
 from tu1nz_s8_execution_units import render
+import tu1nz_s8_frozen_entry as frozen_entry
 
 
 def command(*args, check=True, timeout=60):
@@ -55,10 +56,14 @@ def main():
     dispatch = root.name.replace("_", "-") + "-dispatch.service"
     c.require(not (Path("/run/systemd/system") / c.UNIT).exists()
               and not (Path("/etc/systemd/system") / c.UNIT).exists(), "NATIVE_UNIT_ALREADY_PRESENT")
-    wrapper = root / "fixture.py"
-    wrapper.write_text("import runpy,sys\n"
-        f"sys.argv=['/source/tests/s8_native_pg_coordinator.py',{str(root)!r},sys.argv[1]]\n"
-        "runpy.run_path('/source/tests/s8_native_pg_coordinator.py',run_name='__main__')\n")
+    module_sources = {name: (Path("/source/scripts") / (name + ".py")).read_bytes()
+                      for name in frozen_entry.MODULES}
+    main_source = ("import sys\n" +
+        f"sys.argv=['<native-coordinator>',{str(root)!r},sys.argv[1]]\n").encode() + \
+        Path("/source/tests/s8_native_pg_coordinator.py").read_bytes()
+    expected = {name: hashlib.sha256(source).hexdigest()
+                for name, source in {**module_sources, "entry": main_source}.items()}
+    frozen_program = frozen_entry.build(module_sources, main_source, expected)
     (root / "fixture.json").write_text(json.dumps(dict(
         coordinator=coordinator, dispatch=dispatch, image_sha256=image_sha,
         application=metadata["application"], sources=metadata["sources"], live_authority=False)))
@@ -67,8 +72,8 @@ def main():
     (root / "token").write_text("123456789:" + "x" * 35)
     for name in ("dsn", "token"):
         (root / name).chmod(0o600)
-    units = render(wrapper, runtime=c.UNIT, coordinator=coordinator,
-                   runtime_user="nobody", runtime_group="nogroup")
+    units = render(runtime=c.UNIT, coordinator=coordinator,
+                   runtime_user="nobody", runtime_group="nogroup", frozen_program=frozen_program)
     try:
         for name, value in units.items():
             c.require("_" not in name, "NATIVE_UNIT_NAME_RED")

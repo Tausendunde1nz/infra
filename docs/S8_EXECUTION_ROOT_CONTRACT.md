@@ -158,6 +158,20 @@ synthetic units, reproduced locally. The revised disposable-container replay
 case clears volatile counters and requires the exact durable marker rejection,
 unchanged protected records and unchanged SQL state. It does not add a live
 reset API or treat a generic failed start as replay evidence.
+Private CI 37353300488 is fully GREEN at App
+`f126fcca6584da2ec488b92080b523a3184a457b` / Control
+`4ef37ebd6ce7d7c286af45015baed6fd2d479412`: 31 native components, 23 actual
+S11/S12/role regressions, and real initial admission, subsequent polling and
+durable replay rejection in the sealed root on PostgreSQL 17 and 18. The
+provider transport remains a no-network stub; this is not live recovery.
+
+The candidate bootstrap renderer embeds the exact digest-bound Control modules
+in PID 1's loaded Python `-I -B -S -c` command. It does not import a mutable
+Control checkout. Three local checks, including real PID 1 with a malicious
+PYTHONPATH module, pass. The integrated native fixture now uses this same
+renderer; its new complete CI result is still required. The final installer,
+dispatch consumption before the PID-1 start request, reviewed role manifest
+and actual observer adapter remain construction gates.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
 R15 containment and every product hard gate remain NO-GO. No live steps are
 executable or authorized until the full source contract and a separate live

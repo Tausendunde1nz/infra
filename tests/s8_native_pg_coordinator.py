@@ -13,7 +13,8 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-sys.path.insert(0, "/source/scripts")
+# All Control modules were loaded from the same frozen PID-1 command. No
+# source-checkout import fallback is used by this native integrated fixture.
 import tu1nz_s8_execution_contract as c
 import tu1nz_s8_sealed_root as sealed
 from tu1nz_s8_admission_channel import AdmissionChannel, request_once, properties
