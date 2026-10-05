@@ -15,7 +15,7 @@ import tempfile
 
 sys.path.insert(0, "/source/scripts")
 import tu1nz_s8_execution_contract as c
-from tu1nz_s8_execution_units import render
+from tu1nz_s8_execution_units import render, runtime_dropin
 import tu1nz_s8_frozen_entry as frozen_entry
 from tu1nz_s8_dispatch_boundary import DispatchBoundary
 from tu1nz_s8_journal_fence import APPEND, add_inode_protection
@@ -52,6 +52,7 @@ def main():
     c.require(result.returncode == 0, "NATIVE_SCHEMA_RED")
     runtime_dsn = "postgresql://tu1nz_adult_commercial_s3_runtime@/tu1nz_s8_exec_native?host=/run/postgresql"
     unit_paths = []
+    unit_directories = []
     temporary = tempfile.TemporaryDirectory(prefix="tu1nz-s8-full-native-", dir="/etc")
     root = Path(temporary.name)
     coordinator = root.name.replace("_", "-") + "-coordinator.service"
@@ -78,7 +79,22 @@ def main():
         (root / name).chmod(0o600)
     units = render(runtime=c.UNIT, coordinator=coordinator,
                    runtime_user="nobody", runtime_group="nogroup", frozen_program=frozen_program)
+    # Preserve the actual historical S8 unit bytes. The real loaded drop-in,
+    # not a replacement test unit, must remove historical execution fallback
+    # and retain compatible hardening. The required landing dependency is an
+    # explicitly synthetic no-op unit in this isolated PID 1 only.
+    base = Path("/source/systemd") / c.UNIT
+    c.require(hashlib.sha256(base.read_bytes()).hexdigest() ==
+              "fcad30a40a51ac9d45472cbe3e5eb607ccf117f820fe7f9a5d581f455aa63665", "NATIVE_HISTORICAL_UNIT_RED")
+    units[c.UNIT] = runtime_dropin(runtime=c.UNIT, coordinator=coordinator,
+        runtime_user="nobody", runtime_group="nogroup", frozen_program=frozen_program)
     try:
+        original = Path("/run/systemd/system") / c.UNIT
+        original.write_bytes(base.read_bytes()); unit_paths.append(original)
+        landing = Path("/run/systemd/system/tu1nz-adult-public-s8-landing.service")
+        with landing.open("x") as stream:
+            stream.write("[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/true\n")
+        unit_paths.append(landing)
         for name, value in units.items():
             c.require("_" not in name, "NATIVE_UNIT_NAME_RED")
             value = "\n".join(line for line in value.splitlines() if not line.startswith(
@@ -87,11 +103,18 @@ def main():
             if name == c.UNIT:
                 value += ("LoadCredential=s8_database_dsn:" + str(root / "dsn") + "\n" +
                           "LoadCredential=s8_telegram_token:" + str(root / "token") + "\n")
-            path = Path("/run/systemd/system") / name
+            if name == c.UNIT:
+                directory = Path("/run/systemd/system") / (name + ".d")
+                directory.mkdir(mode=0o700); unit_directories.append(directory)
+                path = directory / "90-s8-atomic.conf"
+            else:
+                path = Path("/run/systemd/system") / name
             with path.open("x") as stream:
                 stream.write(value)
             unit_paths.append(path)
         command("systemctl", "daemon-reload")
+        c.require(command("systemctl", "show", c.UNIT, "--value", "--property=PrivateDevices").stdout.strip() == "no",
+                  "NATIVE_DEVICE_INTERFACE_RED")
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
         try: add_inode_protection(fd, APPEND)
         finally: os.close(fd)
@@ -147,9 +170,10 @@ def main():
             initial_admission=True, subsequent_polling=True, durable_replay_rejected=True,
             provider_calls=0, live_authority=False, production_entrypoint=False), sort_keys=True))
     finally:
-        command("systemctl", "stop", c.UNIT, coordinator, check=False)
-        for path in unit_paths:
+        command("systemctl", "stop", c.UNIT, coordinator, "tu1nz-adult-public-s8-landing.service", check=False)
+        for path in reversed(unit_paths):
             path.unlink()
+        for directory in unit_directories: directory.rmdir()
         command("systemctl", "daemon-reload")
         objects = []
         for name in ("journal", "dispatch"):

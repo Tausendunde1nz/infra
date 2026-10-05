@@ -71,6 +71,13 @@ TimeoutStartSec=90
 TimeoutStopSec=30
 KillMode=control-group
 PrivateMounts=yes
+# The historical PrivateDevices=yes hides loop-control. Only the privileged
+# frozen launcher gets these loop interfaces; the chrooted poller retains only
+# /dev/null and has zero capabilities/no inherited loop descriptors.
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=/dev/loop-control rw
+DeviceAllow=block-loop rw
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_CHROOT CAP_SETUID CAP_SETGID CAP_DAC_READ_SEARCH CAP_CHOWN
 # ! keeps the filesystem sandbox and per-user credential ownership, while
 # the narrow launcher starts privileged and must drop to this exact identity.
@@ -115,6 +122,7 @@ ReadOnlyPaths=
 InaccessiblePaths=
 SupplementaryGroups=
 AmbientCapabilities=
+DeviceAllow=
 RootDirectory=
 RootImage=
 WorkingDirectory=/

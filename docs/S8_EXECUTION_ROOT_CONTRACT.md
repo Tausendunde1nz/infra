@@ -181,6 +181,27 @@ that channel. The native integrated fixture now exercises this boundary before
 its existing condition/execution/SQL protocol; four additional native cases
 cover interrupted pre-start, lost acknowledgement, replay and a foreign root
 peer. Their native CI evidence is pending. There is still no live CLI/grant.
+
+CI 37354719304 is GREEN at App `40aef25e5007e2f7cd8a94cba4766733d772d302` /
+Control `c4b705e425c55cf2307b38bc9555a99aecddf5d3`: all 38 native component
+cases and both real PostgreSQL chains pass with the frozen PID-1 command and
+pre-start durable dispatch boundary.
+
+The provisioning candidate now watches the parent before creating a new stock
+name, durably records the exact content/mode/ACL plan, fences file creation and
+seals each inode only after closing its sole writer. Interrupted/preexisting
+paths cannot be adopted. Its optional append-only state child does not make
+sealed execution files writable. Parent rename-and-restore is locally detected;
+the complete five-case native stock suite is pending.
+
+The integrated fixture is also tightened to load the unchanged historical S8
+unit (SHA-256 `fcad30a40a51ac9d45472cbe3e5eb607ccf117f820fe7f9a5d581f455aa63665`)
+with the actual candidate drop-in. That base has `PrivateDevices=yes`, which
+hides required loop interfaces. The candidate explicitly permits only loop
+devices to the privileged launcher under closed device policy. The final
+non-root capsule still has zero capabilities, no loop descriptors and only the
+validated null-device interface. All other compatible historical hardening is
+retained; native full-image proof over this exact base is required before GO.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
 R15 containment and every product hard gate remain NO-GO. No live steps are
 executable or authorized until the full source contract and a separate live
