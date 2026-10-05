@@ -105,6 +105,7 @@ HARD_GATE_KEYS = frozenset(
     }
 )
 APPLICATION_ROOT = Path("/opt/tu1nz_repos/adult-publishing-core")
+S8_EXECUTION_ROOT = Path("/etc/tu1nz/s8-atomic-admission-r1")
 CONTROL_ROOT = Path("/opt/tu1nz_repos/control")
 DEPLOYMENT_LOCK_ROOT = CONTROL_ROOT.parent
 PRIVATE_ROOT = Path("/etc/tu1nz/adult-commercial-s12-1-private")
@@ -590,6 +591,7 @@ def _durable_symlink(target: str, path: Path) -> None:
 
 @contextmanager
 def _exclusive_deployment_lock():
+    _reject_isolated_s8_authority()
     descriptor: int | None = None
     try:
         descriptor = os.open(
@@ -614,6 +616,7 @@ def _exclusive_deployment_lock():
         os.close(descriptor)
         raise S12ControlError("S12_1_DEPLOYMENT_ALREADY_RUNNING_RED") from None
     try:
+        _reject_isolated_s8_authority()
         yield
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
@@ -1330,6 +1333,7 @@ def _s11_require_backup(backup: Path, index: dict[str, Any]) -> None:
 
 
 def read_only_preflight(*, immutable_release_allowed: bool = False) -> dict[str, Any]:
+    _reject_isolated_s8_authority()
     if _competing_control_sync_count() != 0:
         raise S12ControlError("WAITING_OPERATOR_CONFLICTING_CONTROL_SYNC")
     if any(
@@ -10515,7 +10519,16 @@ def reconcile_metadata(contract_path: Path) -> dict:
         return _r12_reconcile_locked(contract_path)
 
 
+def _reject_isolated_s8_authority() -> None:
+    # Presence includes incomplete provisioning and dangling links. An S8
+    # receipt never authorizes historical Git access, metadata work, recovery,
+    # deployment or reuse of an earlier S11/S12 success. No file is changed.
+    if _barrier_path_present(S8_EXECUTION_ROOT):
+        raise S12ControlError("S12_1_ISOLATED_S8_NO_RECOVERY_OR_DEPLOYMENT_AUTHORITY")
+
+
 def _reject_aborted_containment() -> None:
+    _reject_isolated_s8_authority()
     if _barrier_path_present(STATE_ROOT / "repository-barrier.r15-containment.json"):
         raise S12ControlError("S12_1_ABORTED_CONTAINMENT_NO_RUNTIME_AUTHORITY")
 
@@ -12364,7 +12377,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     except (S12ControlError, OSError, ValueError, json.JSONDecodeError) as error:
         if (arguments.operation in {"reconcile-metadata", "contain-aborted"}
-                and os.geteuid() == 0 and not hasattr(error, "metadata_errors")):
+                and os.geteuid() == 0 and not hasattr(error, "metadata_errors")
+                and getattr(error, "safe_code", "") != "S12_1_ISOLATED_S8_NO_RECOVERY_OR_DEPLOYMENT_AUTHORITY"):
             provenance = _MetadataErrors(arguments.operation)
             provenance.record("primary", error)
         print(

@@ -296,7 +296,9 @@ def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: i
             while remaining:
                 count=os.write(output,remaining)
                 require(count>0,"CREDENTIAL_COPY_RED");remaining=remaining[count:]
-            os.fchown(output,uid,gid);os.fchmod(output,0o600);os.fsync(output)
+            # Set final mode while still the creator/owner. Afterwards the
+            # deliberately absent CAP_FOWNER must not be needed or added.
+            os.fchmod(output,0o600);os.fchown(output,uid,gid);os.fsync(output)
         finally:
             os.close(output)
     fresh,_=credential_metadata(source,uid=uid,gid=gid,directory=True,layout=layout)

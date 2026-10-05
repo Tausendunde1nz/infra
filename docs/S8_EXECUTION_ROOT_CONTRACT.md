@@ -132,6 +132,18 @@ adapter and its crash boundaries remain an integration gate.
   drop-in and directory reject root file writes/deletion/chmod and a later
   bypass drop-in. This is not proof of the still-missing fenced provisioner;
   setting an immutable flag after an unprotected write would be insufficient.
+- Native integration reached the credential handoff but caught chmod after
+  chown without CAP_FOWNER. The prescribed transition now sets mode before
+  ownership; capabilities remain unchanged. The real unit fixture proves that
+  ordering with CAP_FOWNER absent. No input credential metadata is changed.
+- Canonical S11/S12 source now rejects a separate S8 execution root (including
+  incomplete provisioning) before promotion/recovery/deployment/containment.
+  Historical application identities remain unchanged. Neither an S8 receipt
+  nor an old GREEN can satisfy these other release roles. The metadata-error
+  path must not write historical evidence for this pre-admission rejection.
+  The actual legacy S11/S12 compatibility suite plus the three new role-boundary
+  cases pass natively: 23/23. The isolated fixture needs an executable scratch
+  filesystem, not the container's noexec /tmp; no host mount policy was changed.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,

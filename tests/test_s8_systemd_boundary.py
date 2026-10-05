@@ -57,6 +57,17 @@ elif mode=="execute":
  assert os.stat("/proc/self/ns/mnt").st_ino!=config["observer_namespace"]
  assert credential.is_file(), ("credential_missing", str(credential), list(credential.parent.iterdir()))
  assert credential.stat().st_uid in (0,account.pw_uid)
+ status=dict(line.split(':',1) for line in Path('/proc/self/status').read_text().splitlines() if ':' in line)
+ assert int(status['CapEff'].strip(),16)&(1<<3)==0
+ copy=root/'private-copy-metadata-probe'
+ fd=os.open(copy,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+ try:
+  os.write(fd,b'SYNTHETIC_ONLY')
+  os.fchmod(fd,0o600);os.fchown(fd,account.pw_uid,account.pw_gid);os.fsync(fd)
+  st=os.fstat(fd)
+  assert (st.st_uid,st.st_gid,st.st_mode & 0o7777,st.st_nlink)==(account.pw_uid,account.pw_gid,0o600,1)
+ finally:os.close(fd)
+ copy.unlink()
  print(json.dumps({"event":"S8_NATIVE_CREDENTIAL_METADATA",
   "directory":[credential.parent.stat().st_uid,credential.parent.stat().st_gid,
     oct(credential.parent.stat().st_mode & 0o7777)],
