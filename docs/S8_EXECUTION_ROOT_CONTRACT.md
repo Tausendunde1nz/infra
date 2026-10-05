@@ -86,6 +86,15 @@ adapter and its crash boundaries remain an integration gate.
   permission bypass or weakened alternative was used. Kernel administration
   capable of removing inode protections is not an authorized writer operation.
 - Private Application source/images must never be uploaded to public Control.
+- Private CI 37341237050 is GREEN at Application
+  `60b6516c691566775f50ef2b0905757367749b07`, Control
+  `e4127209c8449afb2ae4975722e558ea9f5ae66f`: all 18 native component cases,
+  PostgreSQL 17/18 suites and the full sealed-root negative probe passed.
+  This establishes x86-64 support for the permission fence, not support on the
+  live server or completed recovery. The next protected-journal adapter binds
+  creation, fsync, writable-descriptor closure and immutable handoff under that
+  fence. Its parent must already be append-protected; even an interrupted empty
+  child directory permanently consumes the one-shot name. No adoption/reset.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
