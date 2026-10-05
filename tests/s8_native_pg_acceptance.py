@@ -99,9 +99,22 @@ def main():
         # Deliberate loss of PID-1's volatile counters ONLY in this disposable
         # fixture. Production exposes no reset operation. Durable consumption
         # must still prevent a second helper, permit or initial SQL dispatch.
-        command("systemctl", "reset-failed", coordinator, c.UNIT)
+        # An inactive unreferenced unit is normally garbage-collected; targeted
+        # ResetFailed then returns "not loaded". Clear volatile failed counters
+        # in this freshly created, network-isolated disposable PID 1 only.
+        # No production controller exposes this operation. The next assertion
+        # requires the durable marker error, not merely any start rejection.
+        command("systemctl", "reset-failed")
+        stable_sql = command("/usr/bin/psql", "-X", "-qAt", admin, "--command",
+            "SELECT row_to_json(s)::text FROM commercial_s10_2d_bot_polling_state s").stdout
         c.require(command("systemctl", "start", coordinator, check=False).returncode != 0,
                   "NATIVE_DURABLE_REPLAY_RED")
+        replay_journal = command("journalctl", "--no-pager", "-u", coordinator, "-n", "30").stdout
+        c.require("S8_EXECUTION_JOURNAL_ALREADY_PROTECTED" in replay_journal,
+                  "NATIVE_REPLAY_NOT_DURABLE_RED")
+        c.require(stable_sql == command("/usr/bin/psql", "-X", "-qAt", admin, "--command",
+            "SELECT row_to_json(s)::text FROM commercial_s10_2d_bot_polling_state s").stdout,
+            "NATIVE_REPLAY_DATABASE_DRIFT")
         c.require(before == {p.name: p.read_bytes() for p in (root / "journal").iterdir()},
                   "NATIVE_REPLAY_JOURNAL_DRIFT")
         print(json.dumps(dict(component="S8_NATIVE_PID1_SEALED_APP_POSTGRES",

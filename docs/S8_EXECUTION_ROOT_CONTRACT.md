@@ -152,6 +152,12 @@ the exported root has no `/dev/null`; an isolated Linux namespace reproduces
 Git's exact O_RDWR failure with that device absent. The candidate exposes only
 the descriptor-pinned Linux character device 1:3, metadata read-only, with a
 sealed empty mountpoint. No host `/dev` tree or `mknod` permission is added.
+CI 37352350907 reaches actual initial admission and subsequent PostgreSQL polls.
+Its remaining failure is the test-only targeted reset of already unloaded
+synthetic units, reproduced locally. The revised disposable-container replay
+case clears volatile counters and requires the exact durable marker rejection,
+unchanged protected records and unchanged SQL state. It does not add a live
+reset API or treat a generic failed start as replay evidence.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
 R15 containment and every product hard gate remain NO-GO. No live steps are
 executable or authorized until the full source contract and a separate live
