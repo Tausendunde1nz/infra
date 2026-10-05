@@ -6,12 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv git systemd ca-certificates && apt-get clean
 COPY application /application
 COPY control /control
-ARG APPLICATION_COMMIT
-ARG APPLICATION_TREE
 RUN python3 -m venv /runtime && \
     /runtime/bin/python -I -B -m pip install --no-cache-dir --require-hashes \
-      -r /application/requirements-m2.lock -r /application/requirements-s5.lock && \
-    /runtime/bin/python -I -B /control/tu1nz_s8_capsule_finalize.py \
-      "$APPLICATION_COMMIT" "$APPLICATION_TREE"
+      -r /application/requirements-m2.lock -r /application/requirements-s5.lock
+# Finalize in a separate network-free docker run, where real container identity
+# exists. BuildKit RUN is not a docker-run container; never forge /.dockerenv.
 WORKDIR /application
 ENTRYPOINT ["/usr/bin/python3", "-I", "-B", "-S", "/control/tu1nz_s8_capsule_bootstrap.py"]
