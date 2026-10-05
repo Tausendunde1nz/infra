@@ -71,8 +71,9 @@ def command(*args, check=True):
 @unittest.skipUnless(sys.platform=="linux" and os.geteuid()==0 and
                     os.environ.get("container")=="docker", "disposable systemd container only")
 class SystemdBoundaryTests(unittest.TestCase):
+    temporary_base = "/run"
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(prefix="tu1nz-s8-test-",dir="/run")
+        self.temp=tempfile.TemporaryDirectory(prefix="tu1nz-s8-test-",dir=self.temporary_base)
         self.root=Path(self.temp.name)
         suffix=self.root.name.replace("_","-")
         self.runtime=suffix+"-runtime.service";self.coordinator=suffix+"-coordinator.service"

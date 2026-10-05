@@ -52,6 +52,11 @@ class NewJournalFence:
     """
     def __init__(self,root:Path):
         require(os.geteuid()==0,"PRIVILEGED_JOURNAL_GUARD_REQUIRED")
+        libc=ctypes.CDLL(None,use_errno=True)
+        # Deny same-UID descriptor/memory inspection unless the caller holds
+        # privileged ptrace authority (part of the explicit kernel TCB).
+        require(libc.prctl(4,0,0,0,0)==0 and libc.prctl(3,0,0,0,0)==0,
+                "PROCESS_HANDLE_PROTECTION_RED")
         protected(root,directory=True,mode=0o700)
         self.root=root
         self.directory=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)

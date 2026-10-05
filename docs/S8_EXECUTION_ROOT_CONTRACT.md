@@ -95,6 +95,14 @@ adapter and its crash boundaries remain an integration gate.
   creation, fsync, writable-descriptor closure and immutable handoff under that
   fence. Its parent must already be append-protected; even an interrupted empty
   child directory permanently consumes the one-shot name. No adoption/reset.
+- Private CI 37342786816 is GREEN for that protected-journal integration at
+  Application `713cdf2d2b3685ed680039dd8a6369a6e29dee2b` / Control
+  `814847948b866c7a53406b4503675e8850605266`. Five new native cases cover sealed
+  handoff, missing parent protection, lost write acknowledgement, SIGKILL and
+  empty-directory replay. The next channel ties its single coordinator writer
+  to actual PID-1 ControlPID/MainPID roles and stable process identities; helper
+  processes receive sealed responses and never obtain journal write authority.
+  This new PID-1/channel combination still requires its own native evidence.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
