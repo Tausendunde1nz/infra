@@ -28,6 +28,20 @@ class RuntimeInterfaceTests(unittest.TestCase):
                   b"# synthetic\nnameserver ::1\nnameserver 192.0.2.53\noptions timeout:2 attempts:2\n")
         for value in values: self.assertEqual(resolver_input(value), value)
 
+    def test_resolved_root_search_domain_is_preserved_without_relaxing_labels(self):
+        for directive in (b"search .", b"domain .", b"search . example.invalid."):
+            value = b"nameserver 127.0.0.53\noptions edns0 trust-ad\n" + directive + b"\n"
+            with self.subTest(directive=directive):
+                self.assertEqual(resolver_input(value), value)
+        for domain in (b"..", b"...", b".invalid", b"example..invalid", b"example.invalid..",
+                       b"-invalid", b"invalid-", b"a" * 64 + b".invalid"):
+            with self.subTest(domain=domain), self.assertRaises(ContractError):
+                resolver_input(b"nameserver 127.0.0.53\nsearch " + domain + b"\n")
+        for suffix in (b"search .\ndomain .\n", b"search .\nsearch .\n",
+                       b"domain . example.invalid\n", b"search .\noptions debug\n"):
+            with self.subTest(suffix=suffix), self.assertRaises(ContractError):
+                resolver_input(b"nameserver 127.0.0.53\n" + suffix)
+
     def test_unknown_or_ambiguous_dns_rejected(self):
         for value in (b"", b"nameserver 0.0.0.0\n", b"nameserver 224.0.0.1\n", b"nameserver localhost\n",
                       b"nameserver ::1\noptions debug\n", b"nameserver ::1\noptions timeout:20\n",
@@ -67,7 +81,7 @@ class NativeConfigurationTests(unittest.TestCase):
         mounted = sealed.MountedImage(fd, root).attach()
         values = {name: b'{"synthetic":true}\n' for name in CONFIG_NAMES}
         expected = {name: hashlib.sha256(payload).hexdigest() for name, payload in values.items()}
-        resolver = b"nameserver 127.0.0.53\noptions edns0 trust-ad\n"
+        resolver = b"nameserver 127.0.0.53\noptions edns0 trust-ad\nsearch .\n"
         try:
             mount_configuration(mounted, values, expected, resolver)
             self.assertEqual((root / "etc/resolv.conf").read_bytes(), resolver)

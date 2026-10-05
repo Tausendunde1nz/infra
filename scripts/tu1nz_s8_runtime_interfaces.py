@@ -60,8 +60,13 @@ def resolver_input(payload: bytes):
             require(not search and 1 < len(fields) <= (2 if fields[0] == "domain" else 7), "DNS_INPUT_RED")
             search = True
             for domain in fields[1:]:
+                # systemd-resolved uses '.' for the root/no-search domain.
+                # Only that exact token is special; empty interior labels and
+                # repeated terminal separators must still fail closed.
+                if domain == ".":
+                    continue
                 require(len(domain) <= 253 and all(re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
-                        for label in domain.rstrip(".").split(".")), "DNS_INPUT_RED")
+                        for label in domain.removesuffix(".").split(".")), "DNS_INPUT_RED")
         elif fields[0] == "options":
             require(not option_seen and 1 < len(fields) <= 9, "DNS_INPUT_RED")
             option_seen = True

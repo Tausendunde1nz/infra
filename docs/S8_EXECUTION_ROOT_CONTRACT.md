@@ -2,6 +2,14 @@
 
 ## Current delta (supersedes older construction checkpoints below)
 
+PR218 review found that the supported systemd-resolved `search .` snapshot
+failed DNS admission. The parser now recognizes only the exact root token as
+the no-search domain, preserves the original bytes and still validates every
+other label/option/cardinality. Repeated terminal dots are rejected rather than
+silently stripped. Portable positive/negative regressions reproduce the former
+failure; the native read-only mount case now uses `search .` and retains every
+writer/permit-isolation assertion. Fresh paired native CI/review is required.
+
 Private CI `37362020354` localized the production-chain fixture failure to its
 non-secret isolation sentinel: `umask(077)` made it root-only before the real
 runtime UID drop. Both isolated fixture builders now prescribe `0644` for that
