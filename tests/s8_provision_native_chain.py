@@ -66,6 +66,10 @@ def setup(image):
     c.require(not FIXTURE.exists() and not observer.ROOT.exists(), "NATIVE_FRESH_HOST_REQUIRED")
     FIXTURE.mkdir(mode=0o700)
     (FIXTURE/"isolation").write_bytes(b"TU1NZ_ISOLATED_NO_PROVIDER\n")
+    # Public test sentinel, not a credential. umask(077) otherwise leaves it
+    # unreadable after the real launcher's UID drop. Only this file is 0644;
+    # the parent stays 0700 and the capsule receives a read-only file bind.
+    (FIXTURE/"isolation").chmod(0o644)
     cmd(["useradd", "--system", "--no-create-home", "--user-group", "chatops"])
     metadata = json.loads(cmd(["unsquashfs", "-cat", str(image), "control/capsule.json"]).stdout)
     migration = cmd(["unsquashfs", "-cat", str(image),

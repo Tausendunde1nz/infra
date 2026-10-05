@@ -73,6 +73,7 @@ def main():
         dispatcher=c.process_identity(os.getpid()))
     (root / "fixture.json").write_text(json.dumps(fixture))
     (root / "isolation").write_bytes(b"TU1NZ_ISOLATED_NO_PROVIDER\n")
+    (root / "isolation").chmod(0o644)  # Non-secret read-only capsule sentinel.
     (root / "dsn").write_text(runtime_dsn)
     (root / "token").write_text("123456789:" + "x" * 35)
     for name in ("dsn", "token"):

@@ -2,6 +2,14 @@
 
 ## Current delta (supersedes older construction checkpoints below)
 
+Private CI `37362020354` localized the production-chain fixture failure to its
+non-secret isolation sentinel: `umask(077)` made it root-only before the real
+runtime UID drop. Both isolated fixture builders now prescribe `0644` for that
+single file; its private parent and all credential permissions are unchanged.
+The private Application probe checks exact sentinel metadata/content and denies
+write access as the actual unprivileged runtime. No production permission or
+admission predicate changes. Full native acceptance of this delta is pending.
+
 Private CI `37357353325` is GREEN at Application
 `febeddf3c8046587dd5043548ff93c3bd9619449` and Control
 `98f7fe542eefcfb8b25f70f9296dd62f85888567`: 43 native components, 23 S11/S12
