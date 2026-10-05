@@ -1,10 +1,12 @@
 """Native new-object provenance, immutable handoff and interruption refusal."""
 import array
+import errno
 import fcntl
 import hashlib
 import os
 from pathlib import Path
 import sys
+import struct
 import tempfile
 import unittest
 
@@ -64,13 +66,24 @@ class NewStockTests(unittest.TestCase):
         finally: stock.close()
         with self.assertRaisesRegex(ContractError, "NO_ADOPTION"): NewStock(self.root, self.plan)
 
-    def test_acl_event_is_latched_before_any_seal(self):
+    def test_append_protection_denies_metadata_change_before_any_seal(self):
         stock = NewStock(self.root, self.plan)
         try:
-            os.setxattr(self.root, "user.synthetic", b"foreign")
-            os.removexattr(self.root, "user.synthetic")
-            with self.assertRaises(ContractError): stock.put("component", self.content)
-            with self.assertRaisesRegex(ContractError, "NO_AUTHORITY"): stock.seal()
+            # FS_APPEND_FL blocks the mutation itself. A denied syscall is not
+            # evidence of a metadata event; do not invent one for the watcher.
+            acl = struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *entry) for entry in (
+                (1, 7, 0xffffffff), (2, 4, 65534), (4, 0, 0xffffffff),
+                (16, 4, 0xffffffff), (32, 0, 0xffffffff)))
+            for mutate in (lambda: os.setxattr(self.root, "user.synthetic", b"foreign"),
+                           lambda: os.setxattr(self.root, "system.posix_acl_access", acl),
+                           lambda: os.setxattr(self.root, "system.posix_acl_default", acl),
+                           lambda: os.chmod(self.root, 0o770)):
+                with self.assertRaises(OSError) as error: mutate()
+                self.assertEqual(error.exception.errno, errno.EPERM)
+            self.assertEqual(os.listxattr(self.root), [])
+            self.assertEqual(self.root.stat().st_mode & 0o7777, 0o700)
+            stock.put("component", self.content)
+            self.assertIs(stock.seal()["live_authority"], False)
         finally: stock.close()
 
     def test_interrupted_new_stock_is_never_adopted(self):
