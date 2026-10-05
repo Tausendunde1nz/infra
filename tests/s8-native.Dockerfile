@@ -4,4 +4,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip git acl squashfs-tools systemd systemd-sysv \
     dbus util-linux procps ca-certificates && apt-get clean
 STOPSIGNAL SIGRTMIN+3
-CMD ["/sbin/init"]
+COPY tests/s8_native_init.py /s8_native_init.py
+CMD ["/usr/bin/python3", "-I", "-B", "/s8_native_init.py"]

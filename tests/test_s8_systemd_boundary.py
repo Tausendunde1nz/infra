@@ -19,7 +19,7 @@ from tu1nz_s8_execution_units import render
 
 
 FIXTURE = r'''
-import json,os,subprocess,sys,time
+import json,os,pwd,subprocess,sys,time
 from pathlib import Path
 root=Path(__file__).parent
 config=json.loads((root/"config.json").read_text())
@@ -49,6 +49,16 @@ elif mode=="condition":
  once("activation.json")
 elif mode=="execute":
  once("executed.json")
+ account=pwd.getpwnam("nobody")
+ credential=Path(os.environ["CREDENTIALS_DIRECTORY"])/"offline_probe"
+ # The ! prefix must preserve both the namespace and configured credential
+ # ownership. Reading as root alone is not an acceptance proof.
+ assert os.geteuid()==0
+ assert os.stat("/proc/self/ns/mnt").st_ino!=config["observer_namespace"]
+ assert credential.is_file(), ("credential_missing", str(credential), list(credential.parent.iterdir()))
+ assert credential.stat().st_uid in (0,account.pw_uid)
+ os.setgroups([]);os.setgid(account.pw_gid);os.setuid(account.pw_uid)
+ assert credential.read_bytes()==b"OFFLINE_ONLY"
  os.execv("/usr/bin/sleep",["sleep","120"])
 else:raise SystemExit(2)
 '''
@@ -68,7 +78,10 @@ class SystemdBoundaryTests(unittest.TestCase):
         self.runtime=suffix+"-runtime.service";self.coordinator=suffix+"-coordinator.service"
         self.dispatch=suffix+"-dispatch.service"
         fixture=self.root/"fixture.py";fixture.write_text(FIXTURE)
-        self.units=render(fixture,runtime=self.runtime,coordinator=self.coordinator)
+        self.units=render(fixture,runtime=self.runtime,coordinator=self.coordinator,
+                          runtime_user="nobody",runtime_group="nogroup")
+        credential=self.root/"offline-credential"
+        credential.write_bytes(b"OFFLINE_ONLY");credential.chmod(0o600)
         for name,content in self.units.items():
             # Fixtures have no real credentials or historical directories.
             # Keep rate limits, Restart, BindsTo, RefuseManualStart, type and
@@ -76,6 +89,8 @@ class SystemdBoundaryTests(unittest.TestCase):
             content="\n".join(line for line in content.splitlines() if not
                               line.startswith(("LoadCredential=","ReadWritePaths=","InaccessiblePaths=")))
             content+="\nReadWritePaths="+str(self.root)+"\n"
+            if name==self.runtime:
+                content+="LoadCredential=offline_probe:"+str(credential)+"\n"
             (Path("/run/systemd/system")/name).write_text(content)
         command("systemctl","daemon-reload")
 
@@ -87,7 +102,8 @@ class SystemdBoundaryTests(unittest.TestCase):
         self.temp.cleanup()
 
     def start(self,mode):
-        (self.root/"config.json").write_text(json.dumps(dict(mode=mode,runtime=self.runtime,dispatch=self.dispatch)))
+        (self.root/"config.json").write_text(json.dumps(dict(mode=mode,runtime=self.runtime,dispatch=self.dispatch,
+            observer_namespace=os.stat("/proc/self/ns/mnt").st_ino)))
         return subprocess.Popen(["systemctl","start",self.coordinator],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
     def until(self,predicate):
@@ -106,6 +122,9 @@ class SystemdBoundaryTests(unittest.TestCase):
         self.assertEqual(self.prop(self.runtime,"ActiveState"),"active")
         self.assertEqual(self.prop(self.coordinator,"SubState"),"exited")
         self.assertEqual(self.prop(self.runtime,"NRestarts"),"0")
+        import pwd
+        pid=int(self.prop(self.runtime,"MainPID"))
+        self.assertEqual(Path("/proc",str(pid)).stat().st_uid,pwd.getpwnam("nobody").pw_uid)
         before={p.name:p.read_bytes() for p in self.root.glob("*.json")}
         self.assertNotEqual(command("systemctl","restart",self.runtime,check=False).returncode,0)
         self.assertNotEqual(command("systemctl","restart",self.coordinator,check=False).returncode,0)

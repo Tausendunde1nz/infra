@@ -25,6 +25,9 @@ class SealedRootError(RuntimeError):
     pass
 
 
+_PRIVATE_NAMESPACE = None
+
+
 def require(ok, code):
     if not ok:
         raise SealedRootError("S8_EXECUTION_" + code)
@@ -39,10 +42,22 @@ def run(argv, *, pass_fds=()):
 
 def private_namespace():
     """Only for the dedicated launcher/isolated test child, never its caller."""
+    global _PRIVATE_NAMESPACE
+    before = os.stat("/proc/self/ns/mnt")
     libc = ctypes.CDLL(None, use_errno=True)
     require(libc.unshare(0x00020000) == 0, "PRIVATE_MOUNT_NAMESPACE_REQUIRED")
     run(["/usr/bin/mount", "--make-rprivate", "/"])
-    require(os.stat("/proc/self/ns/mnt").st_ino != os.stat("/proc/1/ns/mnt").st_ino,
+    after = os.stat("/proc/self/ns/mnt")
+    require((before.st_dev,before.st_ino) != (after.st_dev,after.st_ino),
+            "PRIVATE_MOUNT_NAMESPACE_REQUIRED")
+    # Do not add CAP_SYS_PTRACE merely to read PID 1's namespace. The observed
+    # successful unshare transition proves ownership of this new namespace.
+    _PRIVATE_NAMESPACE = (os.getpid(),after.st_dev,after.st_ino)
+
+
+def require_private_namespace():
+    current = os.stat("/proc/self/ns/mnt")
+    require(_PRIVATE_NAMESPACE == (os.getpid(),current.st_dev,current.st_ino),
             "PRIVATE_MOUNT_NAMESPACE_REQUIRED")
 
 
@@ -93,8 +108,7 @@ class MountedImage:
         require(os.geteuid() == 0, "PRIVILEGED_MOUNT_REQUIRED")
         seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
         require(fcntl.fcntl(self.fd, fcntl.F_GET_SEALS) == seals, "IMAGE_SEAL_RED")
-        require(os.stat("/proc/self/ns/mnt").st_ino != os.stat("/proc/1/ns/mnt").st_ino,
-                "PRIVATE_MOUNT_NAMESPACE_REQUIRED")
+        require_private_namespace()
         m = self.destination.lstat()
         require(stat.S_ISDIR(m.st_mode) and m.st_uid == 0 and not m.st_mode & 0o022
                 and not any(self.destination.iterdir()), "MOUNTPOINT_RED")
@@ -153,8 +167,7 @@ class MountedImage:
 
 def bind_readonly(source: Path, destination: Path):
     """Private-namespace bind, never a writable host-directory exposure."""
-    require(os.stat("/proc/self/ns/mnt").st_ino != os.stat("/proc/1/ns/mnt").st_ino,
-            "PRIVATE_MOUNT_NAMESPACE_REQUIRED")
+    require_private_namespace()
     require(not source.is_symlink() and not destination.is_symlink(), "BIND_OBJECT_RED")
     require(source.is_dir()==destination.is_dir(), "BIND_OBJECT_RED")
     run(["/usr/bin/mount","--bind",str(source),str(destination)])

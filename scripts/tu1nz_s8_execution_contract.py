@@ -24,8 +24,8 @@ LEASE_REVISION = 277132
 FAILED_INVOCATION = "faa9196594964c7999390b250111a4ed"
 HISTORICAL_APPLICATION = ("93555d8a141caf8ace33522f9340d30bfc47d2bb", "1e8a644115127818f394b6f9d24f31826e04ecba")
 HISTORICAL_CONTROL = ("b44a3a7e6162a2cc01ef0eb0da564bec68090adc", "477e63c6818d42473a9e4400b83faedead7524bc")
-# Prospective candidate only until coordinated merges and exact-head freezes.
-EXECUTION_APPLICATION = ("38cff3404844a546593eaa6cabf3b3a283f236ba", "6f0656d08330e6662a2643c536a22ed84fdd5dc7")
+# The new execution pair must come from a fully verified coordinated freeze.
+# No moving or historical Application candidate is a built-in execution grant.
 LAST_POLL = "2026-10-04T08:49:01.753806+00:00"
 LAST_UPDATE = "2026-10-04T08:51:02.165718+00:00"
 MAX_GRANT_SECONDS = 86400

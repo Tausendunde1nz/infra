@@ -13,14 +13,15 @@ COORDINATOR = "tu1nz-s8-execution-coordinator-r1.service"
 CONTROLLER = Path("/etc/tu1nz/s8-atomic-admission-r1/control/tu1nz_s8_execution.py")
 
 
-def render(controller=CONTROLLER, *, runtime=UNIT, coordinator=COORDINATOR):
+def render(controller=CONTROLLER, *, runtime=UNIT, coordinator=COORDINATOR,
+           runtime_user="chatops", runtime_group="chatops"):
     require(re.fullmatch(r"/[A-Za-z0-9_./-]+",str(controller)), "CONTROLLER_PATH_RED")
     for name in (runtime,coordinator):
         require(re.fullmatch(r"tu1nz-[a-z0-9-]+\.service",name), "UNIT_NAME_RED")
+    for identity in (runtime_user,runtime_group):
+        require(re.fullmatch(r"[a-z][a-z0-9-]*",identity) and identity != "root", "IDENTITY_RED")
     command = f"/usr/bin/python3 -I -B {controller}"
-    common = """User=root
-Group=root
-Restart=no
+    common = """Restart=no
 UMask=0077
 NoNewPrivileges=yes
 ProtectHome=yes
@@ -41,6 +42,8 @@ StartLimitIntervalSec=infinity
 StartLimitBurst=1
 [Service]
 Type=oneshot
+User=root
+Group=root
 RemainAfterExit=yes
 TimeoutStartSec=240
 TimeoutStopSec=30
@@ -56,13 +59,18 @@ StartLimitIntervalSec=infinity
 StartLimitBurst=1
 [Service]
 Type=simple
+User={runtime_user}
+Group={runtime_group}
 TimeoutStartSec=90
 TimeoutStopSec=30
 KillMode=control-group
 PrivateMounts=yes
 CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_CHROOT CAP_SETUID CAP_SETGID CAP_DAC_READ_SEARCH CAP_CHOWN
-ExecCondition={command} condition
-ExecStart={command} execute
+# ! keeps the filesystem sandbox and per-user credential ownership, while
+# the narrow launcher starts privileged and must drop to this exact identity.
+# + would also bypass the filesystem sandbox and is deliberately forbidden.
+ExecCondition=!{command} condition
+ExecStart=!{command} execute
 ReadWritePaths={root} /run/tu1nz-s8-execution-r1
 InaccessiblePaths=-/opt/tu1nz_repos/adult-publishing-core -/opt/tu1nz_repos/control
 LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.token

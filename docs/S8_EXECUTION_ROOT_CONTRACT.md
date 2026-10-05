@@ -47,6 +47,14 @@ adapter and its crash boundaries remain an integration gate.
   unchanged mounted bytes despite replacement of the original image: GREEN.
 - Actual PID 1: successful dependency lifetime, coordinator kill, condition kill
   before journaling, repeated starts and manager re-exec: three cases GREEN.
+  The success case now also proves readable synthetic systemd credentials after
+  the privileged launcher drops to the configured non-root identity. `!` keeps
+  the filesystem sandbox; `+` is not permitted. The disposable container needs
+  its own shared `/run` tmpfs for systemd's credential-mount propagation; this
+  never changes the host's `/run` or its private parent mount.
+- Namespace ownership is proved by the successful unshare transition and the
+  current process/namespace identity. Reading PID 1's namespace is unnecessary;
+  no `CAP_SYS_PTRACE` was added to make that observation possible.
 - Native durable journal/protocol predicates: seven cases GREEN.
 - Application exact-directory Git reader: 16 focused and 1,123 portable tests
   GREEN; new revision still requires CI and a new exact-head review.
@@ -55,6 +63,9 @@ adapter and its crash boundaries remain an integration gate.
   reviews, merges, post-merge CI and new freeze remain mandatory.
 - Local Docker has no amd64 execution support. Complete amd64 image/integration
   proof belongs in private Application CI. No host emulation/kernel alteration.
+- A full sealed-image negative probe now exercises the real unprivileged
+  Application entrypoint with no credentials/network/database interfaces. The
+  empty permit must reject before any claim; this new probe still needs CI.
 - Private Application source/images must never be uploaded to public Control.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.

@@ -58,6 +58,12 @@ def bootstrap():
     os.environ["PATH"]="/usr/bin:/bin"
     os.environ["PYTHONDONTWRITEBYTECODE"]="1"
     from tu1nz_public_s8.runtime import entrypoint
+    # Component evidence only. It does not assert admission, polling, S11
+    # health, release acceptance or permission to repeat this invocation.
+    print(json.dumps(dict(event="S8_EXECUTION_ROOT_ATTESTED",image_sha256=expected,
+                          application=metadata["application"],pid=os.getpid(),
+                          invocation=os.environ.get("INVOCATION_ID"),
+                          admission_accepted=False),sort_keys=True),flush=True)
     raise SystemExit(entrypoint())
 
 
