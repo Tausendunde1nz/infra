@@ -167,6 +167,13 @@ def main():
         sealed.bind_readonly(root / "isolation", destination / "run/s8-isolated-proof")
         sealed.private_permit(mounted, value)
         account = pwd.getpwnam("nobody")
+        # Synthetic credentials only: expose metadata, never their values.
+        credential_root = Path(os.environ["CREDENTIALS_DIRECTORY"])
+        print(json.dumps(dict(event="S8_NATIVE_CREDENTIAL_METADATA", expected=[account.pw_uid, account.pw_gid],
+            objects=[dict(kind="directory" if p.is_dir() else "file", uid=p.stat().st_uid,
+                gid=p.stat().st_gid, mode=oct(p.stat().st_mode & 0o7777), nlink=p.stat().st_nlink,
+                acl=subprocess.check_output(["getfacl", "-cpn", str(p)], text=True))
+                for p in [credential_root, *sorted(credential_root.iterdir())]])), flush=True)
         sealed.private_credentials(mounted, Path(os.environ["CREDENTIALS_DIRECTORY"]),
                                    uid=account.pw_uid, gid=account.pw_gid)
         argv = ["/usr/bin/python3", "-I", "-B", "-S",

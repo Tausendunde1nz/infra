@@ -57,6 +57,13 @@ elif mode=="execute":
  assert os.stat("/proc/self/ns/mnt").st_ino!=config["observer_namespace"]
  assert credential.is_file(), ("credential_missing", str(credential), list(credential.parent.iterdir()))
  assert credential.stat().st_uid in (0,account.pw_uid)
+ print(json.dumps({"event":"S8_NATIVE_CREDENTIAL_METADATA",
+  "directory":[credential.parent.stat().st_uid,credential.parent.stat().st_gid,
+    oct(credential.parent.stat().st_mode & 0o7777)],
+  "file":[credential.stat().st_uid,credential.stat().st_gid,
+    oct(credential.stat().st_mode & 0o7777),credential.stat().st_nlink],
+  "directory_acl":subprocess.check_output(["getfacl","-cpn",str(credential.parent)],text=True),
+  "file_acl":subprocess.check_output(["getfacl","-cpn",str(credential)],text=True)}),flush=True)
  os.setgroups([]);os.setgid(account.pw_gid);os.setuid(account.pw_uid)
  assert credential.read_bytes()==b"OFFLINE_ONLY"
  os.execv("/usr/bin/sleep",["sleep","120"])
