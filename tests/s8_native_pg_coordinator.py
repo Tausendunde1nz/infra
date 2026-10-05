@@ -162,7 +162,7 @@ def main():
         destination.mkdir(mode=0o700)
         mounted = sealed.MountedImage(image, destination).attach()
         sealed.bind_readonly(Path("/proc"), destination / "proc")
-        for interface in ("/run/dbus/system_bus_socket", "/run/systemd/private", "/run/postgresql"):
+        for interface in ("/run/dbus/system_bus_socket", "/run/systemd/private", "/run/systemd/system", "/run/postgresql"):
             sealed.bind_readonly(Path(interface), destination / interface.lstrip("/"))
         sealed.bind_readonly(root / "isolation", destination / "run/s8-isolated-proof")
         sealed.private_permit(mounted, value)
