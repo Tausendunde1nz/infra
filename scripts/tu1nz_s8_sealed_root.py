@@ -218,10 +218,38 @@ def private_permit(mounted: MountedImage, payload: bytes):
             "PERMIT_READONLY_RED")
 
 
+def credential_metadata(path: Path, *, uid: int, gid: int, directory=False, layout=None):
+    """Only the two natively established PID-1 credential layouts, exact ACLs.
+
+    ACL-capable systemd uses root ownership plus a read-only named-user ACL;
+    without that support it uses private uid ownership. Root ownership alone
+    is not sufficient. No extra/default ACL, write grant or mixed layout.
+    """
+    m=path.lstat()
+    require((stat.S_ISDIR(m.st_mode) if directory else stat.S_ISREG(m.st_mode))
+            and not path.is_symlink() and (directory or m.st_nlink==1),"CREDENTIAL_METADATA_RED")
+    access="r-x" if directory else "r--"
+    acl=run(["/usr/bin/getfacl","-cpn","--",str(path)]).strip().splitlines()
+    attributes=set(os.listxattr(path,follow_symlinks=False))
+    if (m.st_uid,m.st_gid,stat.S_IMODE(m.st_mode))==(uid,gid,0o500 if directory else 0o400):
+        observed="private-uid"
+        expected=["user::"+access,"group::---","other::---"]
+        require(not attributes,"CREDENTIAL_ACL_RED")
+    elif (m.st_uid,m.st_gid,stat.S_IMODE(m.st_mode))==(0,0,0o550 if directory else 0o440):
+        observed="root-named-user-acl"
+        expected=["user::"+access,f"user:{uid}:"+access,"group::---","mask::"+access,"other::---"]
+        require(attributes=={"system.posix_acl_access"},"CREDENTIAL_ACL_RED")
+    else:
+        require(False,"CREDENTIAL_METADATA_RED")
+    require(acl==expected and layout in (None,observed),"CREDENTIAL_ACL_RED")
+    return m,observed
+
+
 def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: int):
     """Copy only PID-1's fixed credentials into a private readonly RAM mount.
 
-    systemd 255 presents uid-owned 0400 credentials. The existing Application
+    systemd 255 presents either private uid-owned 0400 credentials or root-owned
+    0440 files with an exact read-only named-user ACL. The existing Application
     contract accepts a uid-owned 0600 private file. This is a newly constructed
     private object with prescribed metadata, never chmod/chown of the original
     credential or an expansion of the Application's secret reader policy.
@@ -235,10 +263,11 @@ def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: i
             "CREDENTIAL_INTERFACE_RED")
     libc=ctypes.CDLL(None,use_errno=True)
     require(libc.prctl(3,0,0,0,0)==0,"PROCESS_HANDLE_PROTECTION_RED")
-    before=source.lstat()
-    require(stat.S_ISDIR(before.st_mode) and before.st_uid==uid and before.st_gid==gid
-            and stat.S_IMODE(before.st_mode)==0o500 and not source.is_symlink(),
-            "CREDENTIAL_METADATA_RED")
+    before,layout=credential_metadata(source,uid=uid,gid=gid,directory=True)
+    properties=run(["/usr/bin/findmnt","--noheadings","--raw","--output","FSTYPE,OPTIONS",
+                    "--mountpoint",str(source)]).split()
+    require(len(properties)==2 and properties[0] in {"tmpfs","ramfs"}
+            and "ro" in properties[1].split(","),"CREDENTIAL_SOURCE_READONLY_RED")
     destination=mounted.destination/str(expected).lstrip("/")
     target=destination.lstat()
     require(stat.S_ISDIR(target.st_mode) and target.st_uid==0 and not target.st_mode&0o022
@@ -249,9 +278,8 @@ def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: i
          "s8-private-credentials",str(destination)])
     for name,limit in names.items():
         origin=source/name
-        m=origin.lstat()
-        require(stat.S_ISREG(m.st_mode) and (m.st_uid,m.st_gid,stat.S_IMODE(m.st_mode),m.st_nlink)
-                ==(uid,gid,0o400,1) and 0<m.st_size<=limit,"CREDENTIAL_METADATA_RED")
+        m,_=credential_metadata(origin,uid=uid,gid=gid,layout=layout)
+        require(0<m.st_size<=limit,"CREDENTIAL_METADATA_RED")
         fd=os.open(origin,os.O_RDONLY|os.O_NOFOLLOW)
         try:
             mark=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mode,st.st_uid,st.st_gid,st.st_mtime_ns,st.st_ctime_ns)
@@ -259,6 +287,7 @@ def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: i
             payload=os.read(fd,limit+1)
             require(len(payload)==m.st_size and mark(os.fstat(fd))==mark(m)==mark(origin.lstat()),
                     "CREDENTIAL_INPUT_DRIFT")
+            credential_metadata(origin,uid=uid,gid=gid,layout=layout)
         finally:
             os.close(fd)
         output=os.open(destination/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
@@ -270,7 +299,8 @@ def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: i
             os.fchown(output,uid,gid);os.fchmod(output,0o600);os.fsync(output)
         finally:
             os.close(output)
-    require((source.stat().st_dev,source.stat().st_ino)==(before.st_dev,before.st_ino),"CREDENTIAL_INPUT_DRIFT")
+    fresh,_=credential_metadata(source,uid=uid,gid=gid,directory=True,layout=layout)
+    require(mark(fresh)==mark(before),"CREDENTIAL_INPUT_DRIFT")
     run(["/usr/bin/mount","-o","remount,ro,nosuid,nodev,noexec",str(destination)])
     properties=run(["/usr/bin/findmnt","--noheadings","--raw","--output","FSTYPE,OPTIONS",
                     "--mountpoint",str(destination)])

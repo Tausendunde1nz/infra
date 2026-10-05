@@ -77,3 +77,43 @@ LoadCredential=s8_telegram_token:/etc/tu1nz/adult-commercial-s10-2b-telegram.tok
 LoadCredential=s8_database_dsn:/etc/tu1nz/adult-commercial-s7-database.dsn
 {common}"""
     return {coordinator:coordinator_text,runtime:runtime_text}
+
+
+def runtime_dropin(controller=CONTROLLER, **options):
+    """Persistent overlay, not replacement of the historical base unit.
+
+    Provisioning must create and protect a previously absent drop-in directory
+    before daemon-reload. A legacy base-unit restoration must never restore
+    ordinary claim, automatic restart, extra commands or environment hooks.
+    This renderer is not itself a provisioner or a grant.
+    """
+    runtime=options.get("runtime",UNIT)
+    text=render(controller,**options)[runtime]
+    reset="""[Service]
+ExecStart=
+ExecStartPre=
+ExecStartPost=
+ExecCondition=
+ExecStop=
+ExecStopPost=
+Environment=
+EnvironmentFile=
+PassEnvironment=
+UnsetEnvironment=
+LoadCredential=
+LoadCredentialEncrypted=
+SetCredential=
+SetCredentialEncrypted=
+ReadWritePaths=
+ReadOnlyPaths=
+InaccessiblePaths=
+SupplementaryGroups=
+AmbientCapabilities=
+RootDirectory=
+RootImage=
+WorkingDirectory=/
+DynamicUser=no
+"""
+    # The later explicit Type/User/Group/capability and sandbox assignments
+    # come from exactly the same full unit used by the native admission proof.
+    return reset+text

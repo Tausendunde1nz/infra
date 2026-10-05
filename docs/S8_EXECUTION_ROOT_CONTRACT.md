@@ -121,6 +121,17 @@ adapter and its crash boundaries remain an integration gate.
   polling trigger. Only external Telegram transport and unrelated notification
   storage are stubs. The same strict loader and SQL path must pass on PostgreSQL
   17 and 18. This is not yet a production-entrypoint/live-adapter acceptance.
+- Integrated private CI 37347441485 identified the second real systemd
+  credential layout: root 0550/0440 with precisely one read-only named-user
+  ACL. Both observed layouts now have exact metadata/ACL checks; extra readers,
+  writes, default ACLs, mixed ownership and hardlinks fail closed. Five native
+  synthetic regressions pass. The source mount must itself be read-only RAM;
+  no arbitrary root-owned file becomes trusted input.
+- A native persistent unit-overlay component rejects ordinary startup and
+  automatic restart even after a legacy base-unit replacement. Its immutable
+  drop-in and directory reject root file writes/deletion/chmod and a later
+  bypass drop-in. This is not proof of the still-missing fenced provisioner;
+  setting an immutable flag after an unprotected write would be insufficient.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
