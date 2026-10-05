@@ -33,6 +33,8 @@ class KernelImageTests(unittest.TestCase):
             root = Path(directory)
             tree = root/"tree"; tree.mkdir()
             (tree/"code.py").write_text("frozen\n")
+            (tree/"dev").mkdir()
+            (tree/"dev/null").touch(mode=0o644)
             # A deliberately inherited ACL must not enter the execution image.
             subprocess.run(["setfacl","-m","d:u:65534:rwx",str(tree)],check=True)
             image = root/"image.squashfs"
@@ -64,6 +66,17 @@ class KernelImageTests(unittest.TestCase):
                 image.write_bytes(b"foreign backing path replacement")
                 self.assertEqual((mountpoint/"code.py").read_text(),"frozen\n")
                 mounted._check_loop()
+                s.bind_null_device(mounted)
+                null_fd = os.open(mountpoint/"dev/null", os.O_RDWR)
+                try:
+                    self.assertEqual(os.write(null_fd, b"synthetic"), 9)
+                    self.assertEqual(os.read(null_fd, 1), b"")
+                finally:
+                    os.close(null_fd)
+                with self.assertRaises(OSError): os.chmod(mountpoint/"dev/null", 0o777)
+                # A second bind cannot adopt the previously exposed device.
+                with self.assertRaises(s.SealedRootError): s.bind_null_device(mounted)
+                s.run(["/usr/bin/umount", str(mountpoint/"dev/null")])
             finally:
                 mounted.close()
                 os.close(fd)

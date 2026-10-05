@@ -146,6 +146,12 @@ adapter and its crash boundaries remain an integration gate.
   filesystem, not the container's noexec /tmp; no host mount policy was changed.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.
+
+The actual native PID-1 check now passes. The next full-tree read failed because
+the exported root has no `/dev/null`; an isolated Linux namespace reproduces
+Git's exact O_RDWR failure with that device absent. The candidate exposes only
+the descriptor-pinned Linux character device 1:3, metadata read-only, with a
+sealed empty mountpoint. No host `/dev` tree or `mknod` permission is added.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
 R15 containment and every product hard gate remain NO-GO. No live steps are
 executable or authorized until the full source contract and a separate live

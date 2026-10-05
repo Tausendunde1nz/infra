@@ -161,6 +161,7 @@ def main():
         destination = root / "capsule"
         destination.mkdir(mode=0o700)
         mounted = sealed.MountedImage(image, destination).attach()
+        sealed.bind_null_device(mounted)
         sealed.bind_readonly(Path("/proc"), destination / "proc")
         for interface in ("/run/dbus/system_bus_socket", "/run/systemd/private", "/run/systemd/system", "/run/postgresql"):
             sealed.bind_readonly(Path(interface), destination / interface.lstrip("/"))

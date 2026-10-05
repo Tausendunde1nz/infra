@@ -177,6 +177,42 @@ def bind_readonly(source: Path, destination: Path):
     run(["/usr/bin/mount","-o","remount,bind,ro,nodev,nosuid,noexec",str(destination)])
 
 
+def bind_null_device(mounted: MountedImage):
+    """Expose only Linux's null device, not the host /dev tree.
+
+    Git opens /dev/null O_RDWR even for an index-independent read. A read-only
+    device mount still permits that kernel operation; nodev would disable it.
+    Pin the verified character object with O_PATH across the bind, and keep
+    metadata read-only. No mknod or writable filesystem interface is allowed.
+    """
+    require_private_namespace()
+    require(mounted.mounted, "NULL_MOUNT_REQUIRED")
+    target = mounted.destination / "dev/null"
+    metadata = target.lstat()
+    require(stat.S_ISREG(metadata.st_mode) and metadata.st_size == 0
+            and metadata.st_uid == 0 and metadata.st_gid == 0
+            and metadata.st_mode & 0o7777 == 0o644 and metadata.st_nlink == 1
+            and metadata.st_dev == mounted.destination.stat().st_dev,
+            "NULL_MOUNTPOINT_RED")
+    fd = os.open("/dev/null", os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        device = os.fstat(fd)
+        require(stat.S_ISCHR(device.st_mode) and device.st_rdev == os.makedev(1, 3)
+                and device.st_uid == 0 and device.st_gid == 0
+                and device.st_mode & 0o7777 == 0o666, "NULL_DEVICE_RED")
+        run(["/usr/bin/mount", "--bind", f"/proc/self/fd/{fd}", str(target)], pass_fds=(fd,))
+        run(["/usr/bin/mount", "-o", "remount,bind,ro,nosuid,noexec", str(target)])
+        bound = target.stat()
+        require((bound.st_dev, bound.st_ino, bound.st_rdev) ==
+                (device.st_dev, device.st_ino, device.st_rdev), "NULL_DEVICE_DRIFT")
+        options = set(run(["/usr/bin/findmnt", "--noheadings", "--raw", "--output", "OPTIONS",
+                           "--mountpoint", str(target)]).split(","))
+        require({"ro", "nosuid", "noexec"} <= options and "nodev" not in options,
+                "NULL_MOUNT_OPTIONS_RED")
+    finally:
+        os.close(fd)
+
+
 def private_permit(mounted: MountedImage, payload: bytes):
     """Single private readonly permit, no mutable shared publication file.
 
