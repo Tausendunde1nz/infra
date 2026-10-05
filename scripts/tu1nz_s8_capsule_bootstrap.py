@@ -6,6 +6,7 @@ working directory or historical checkout is part of the import path. The full
 userland, interpreter, ELF loader/libraries and dependencies belong to the image.
 """
 import hashlib
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ def fail():
     raise SystemExit("S8_EXECUTION_CAPSULE_BOUNDARY_RED")
 
 
-def bootstrap():
+def attest():
     if not (sys.platform=="linux" and sys.flags.isolated and sys.flags.no_site
             and sys.flags.dont_write_bytecode and os.geteuid()!=0
             and os.getcwd()=="/application"):
@@ -26,6 +27,18 @@ def bootstrap():
     if any(int(fields[name].strip(),16) for name in ("CapInh","CapPrm","CapEff","CapAmb")):
         fail()
     if fields.get("NoNewPrivs","").strip()!="1":fail()
+    # exec resets dumpability. Yama closes the same-UID attach window before
+    # this first instruction; then non-dumpability protects descriptor/memory
+    # access throughout the application lifetime. Neither mechanism permits an
+    # existing tracer. Missing kernel support is RED, never a relaxed fallback.
+    try:
+        if int(Path("/proc/sys/kernel/yama/ptrace_scope").read_text().strip()) not in {1,2,3}:fail()
+        if fields.get("TracerPid","").strip()!="0":fail()
+        libc=ctypes.CDLL(None,use_errno=True)
+        if libc.prctl(4,0,0,0,0)!=0 or libc.prctl(3,0,0,0,0)!=0:fail()
+        fresh=dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
+        if fresh.get("TracerPid","").strip()!="0":fail()
+    except (OSError,ValueError):fail()
     # A mount path alone is not proof: the retained descriptor must still be
     # the completely sealed image bound by the external one-shot invocation.
     import fcntl
@@ -57,13 +70,18 @@ def bootstrap():
     os.environ.pop("PYTHONPATH",None);os.environ.pop("PYTHONHOME",None)
     os.environ["PATH"]="/usr/bin:/bin"
     os.environ["PYTHONDONTWRITEBYTECODE"]="1"
-    from tu1nz_public_s8.runtime import entrypoint
     # Component evidence only. It does not assert admission, polling, S11
     # health, release acceptance or permission to repeat this invocation.
     print(json.dumps(dict(event="S8_EXECUTION_ROOT_ATTESTED",image_sha256=expected,
                           application=metadata["application"],pid=os.getpid(),
                           invocation=os.environ.get("INVOCATION_ID"),
                           admission_accepted=False),sort_keys=True),flush=True)
+    return metadata
+
+
+def bootstrap():
+    attest()
+    from tu1nz_public_s8.runtime import entrypoint
     raise SystemExit(entrypoint())
 
 

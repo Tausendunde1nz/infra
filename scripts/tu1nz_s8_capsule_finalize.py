@@ -32,10 +32,11 @@ def main():
         raise SystemExit("S8_CAPSULE_DEPENDENCIES_RED")
     # Define empty interface mountpoints before sealing. The launcher may only
     # bind the fixed read-only credential/configuration/OS interfaces here.
-    for directory in ("/run/dbus","/run/postgresql","/run/credentials/tu1nz-adult-public-s8-telegram.service",
+    for directory in ("/run/dbus","/run/systemd","/run/postgresql","/run/credentials/tu1nz-adult-public-s8-telegram.service",
                       "/etc/tu1nz/s8-atomic-admission-r1","/proc","/dev","/tmp"):
         Path(directory).mkdir(parents=True,exist_ok=True)
-    for file in ("/run/dbus/system_bus_socket","/etc/tu1nz/s8-atomic-admission-r1/permit.json",
+    for file in ("/run/dbus/system_bus_socket","/run/systemd/private","/run/s8-isolated-proof",
+                 "/etc/tu1nz/s8-atomic-admission-r1/permit.json",
                  "/etc/tu1nz/adult-commercial-s8-public-telegram.json",
                  "/etc/tu1nz/adult-commercial-s10-2d-community.json"):
         with open(file,"xb") as stream:stream.write(b"")

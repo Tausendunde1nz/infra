@@ -12,6 +12,7 @@ from __future__ import annotations
 import ctypes
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -45,6 +46,8 @@ def private_namespace():
     global _PRIVATE_NAMESPACE
     before = os.stat("/proc/self/ns/mnt")
     libc = ctypes.CDLL(None, use_errno=True)
+    require(libc.prctl(4,0,0,0,0)==0 and libc.prctl(3,0,0,0,0)==0,
+            "PROCESS_HANDLE_PROTECTION_RED")
     require(libc.unshare(0x00020000) == 0, "PRIVATE_MOUNT_NAMESPACE_REQUIRED")
     run(["/usr/bin/mount", "--make-rprivate", "/"])
     after = os.stat("/proc/self/ns/mnt")
@@ -174,6 +177,107 @@ def bind_readonly(source: Path, destination: Path):
     run(["/usr/bin/mount","-o","remount,bind,ro,nodev,nosuid,noexec",str(destination)])
 
 
+def private_permit(mounted: MountedImage, payload: bytes):
+    """Single private readonly permit, no mutable shared publication file.
+
+    The coordinator already consumed its durable execution record before this
+    payload was returned. This namespace is private and the process is not
+    dumpable; creating a permit here does not create another execution ticket.
+    The App's existing nlink=1/root metadata checks remain unchanged.
+    """
+    require_private_namespace()
+    require(os.geteuid()==0 and mounted.mounted and type(payload) is bytes
+            and 0 < len(payload) <= 16384, "PERMIT_BOUNDARY_RED")
+    libc=ctypes.CDLL(None,use_errno=True)
+    require(libc.prctl(3,0,0,0,0)==0,"PROCESS_HANDLE_PROTECTION_RED")
+    value=json.loads(payload)
+    require(type(value) is dict and json.dumps(value,sort_keys=True,separators=(",",":")).encode()==payload,
+            "PERMIT_FORMAT_RED")
+    destination=mounted.destination/"etc/tu1nz/s8-atomic-admission-r1"
+    m=destination.lstat()
+    require(stat.S_ISDIR(m.st_mode) and m.st_uid==0 and not m.st_mode&0o022
+            and m.st_dev==mounted.destination.stat().st_dev,"PERMIT_MOUNTPOINT_RED")
+    run(["/usr/bin/mount","-t","tmpfs","-o","rw,size=64k,mode=0755,nosuid,nodev,noexec",
+         "s8-private-permit",str(destination)])
+    fd=os.open(destination/"permit.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o644)
+    try:
+        os.fchmod(fd,0o644)
+        remaining=payload
+        while remaining:
+            count=os.write(fd,remaining)
+            require(count>0,"PERMIT_WRITE_RED");remaining=remaining[count:]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    # Remount only after the sole writable descriptor is closed. No handle,
+    # shared path or writable mount escapes into the unprivileged poller.
+    run(["/usr/bin/mount","-o","remount,ro,nosuid,nodev,noexec",str(destination)])
+    properties=run(["/usr/bin/findmnt","--noheadings","--raw","--output","FSTYPE,OPTIONS",
+                    "--mountpoint",str(destination)])
+    require(properties.startswith("tmpfs ") and "ro" in properties.split()[1].split(","),
+            "PERMIT_READONLY_RED")
+
+
+def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: int):
+    """Copy only PID-1's fixed credentials into a private readonly RAM mount.
+
+    systemd 255 presents uid-owned 0400 credentials. The existing Application
+    contract accepts a uid-owned 0600 private file. This is a newly constructed
+    private object with prescribed metadata, never chmod/chown of the original
+    credential or an expansion of the Application's secret reader policy.
+    No secret hash, bytes, path contents or token-bearing error is emitted.
+    """
+    require_private_namespace()
+    unit="tu1nz-adult-public-s8-telegram.service"
+    expected=Path("/run/credentials")/unit
+    require(os.geteuid()==0 and mounted.mounted and uid>0 and gid>0
+            and source==expected and os.environ.get("CREDENTIALS_DIRECTORY")==str(source),
+            "CREDENTIAL_INTERFACE_RED")
+    libc=ctypes.CDLL(None,use_errno=True)
+    require(libc.prctl(3,0,0,0,0)==0,"PROCESS_HANDLE_PROTECTION_RED")
+    before=source.lstat()
+    require(stat.S_ISDIR(before.st_mode) and before.st_uid==uid and before.st_gid==gid
+            and stat.S_IMODE(before.st_mode)==0o500 and not source.is_symlink(),
+            "CREDENTIAL_METADATA_RED")
+    destination=mounted.destination/str(expected).lstrip("/")
+    target=destination.lstat()
+    require(stat.S_ISDIR(target.st_mode) and target.st_uid==0 and not target.st_mode&0o022
+            and target.st_dev==mounted.destination.stat().st_dev,"CREDENTIAL_MOUNTPOINT_RED")
+    names={"s8_telegram_token":256,"s8_database_dsn":4096}
+    require(set(os.listdir(source))==set(names),"CREDENTIAL_SET_RED")
+    run(["/usr/bin/mount","-t","tmpfs","-o","rw,size=64k,mode=0755,nosuid,nodev,noexec",
+         "s8-private-credentials",str(destination)])
+    for name,limit in names.items():
+        origin=source/name
+        m=origin.lstat()
+        require(stat.S_ISREG(m.st_mode) and (m.st_uid,m.st_gid,stat.S_IMODE(m.st_mode),m.st_nlink)
+                ==(uid,gid,0o400,1) and 0<m.st_size<=limit,"CREDENTIAL_METADATA_RED")
+        fd=os.open(origin,os.O_RDONLY|os.O_NOFOLLOW)
+        try:
+            mark=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mode,st.st_uid,st.st_gid,st.st_mtime_ns,st.st_ctime_ns)
+            require(mark(os.fstat(fd))==mark(m),"CREDENTIAL_INPUT_DRIFT")
+            payload=os.read(fd,limit+1)
+            require(len(payload)==m.st_size and mark(os.fstat(fd))==mark(m)==mark(origin.lstat()),
+                    "CREDENTIAL_INPUT_DRIFT")
+        finally:
+            os.close(fd)
+        output=os.open(destination/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        try:
+            remaining=payload
+            while remaining:
+                count=os.write(output,remaining)
+                require(count>0,"CREDENTIAL_COPY_RED");remaining=remaining[count:]
+            os.fchown(output,uid,gid);os.fchmod(output,0o600);os.fsync(output)
+        finally:
+            os.close(output)
+    require((source.stat().st_dev,source.stat().st_ino)==(before.st_dev,before.st_ino),"CREDENTIAL_INPUT_DRIFT")
+    run(["/usr/bin/mount","-o","remount,ro,nosuid,nodev,noexec",str(destination)])
+    properties=run(["/usr/bin/findmnt","--noheadings","--raw","--output","FSTYPE,OPTIONS",
+                    "--mountpoint",str(destination)])
+    require(properties.startswith("tmpfs ") and "ro" in properties.split()[1].split(","),
+            "CREDENTIAL_READONLY_RED")
+
+
 def enter_capsule(mounted: MountedImage, *, uid: int, gid: int, image_sha256: str,
                   argv: list[str], environment: dict[str,str]):
     """Final irreversible exec boundary, only AFTER durable execution consume.
@@ -189,6 +293,19 @@ def enter_capsule(mounted: MountedImage, *, uid: int, gid: int, image_sha256: st
             "EXEC_ARGUMENTS_RED")
     require("--recovery-admission" in argv and "--configure-only" not in argv
             and "--health-only" not in argv and "--diagnostic-mode" not in argv,"EXEC_ARGUMENTS_RED")
+    _drop_exec(mounted,uid=uid,gid=gid,image_sha256=image_sha256,argv=argv,environment=environment)
+
+
+def _drop_exec(mounted, *, uid, gid, image_sha256, argv, environment):
+    """Internal common privilege boundary, not a CLI or permission source.
+
+    Production is reached only through enter_capsule's fixed argv checks. The
+    isolated native harness uses this same boundary to test real permission/
+    SQL code with provider-only stubs; it cannot mint a production permit.
+    """
+    require_private_namespace()
+    require(mounted.mounted and os.geteuid()==0 and uid>0 and gid>0,"IDENTITY_RED")
+    mounted._check_loop()
     # FD is sealed and intentionally retained for independent process attestation.
     os.set_inheritable(mounted.fd,True)
     env={key:environment[key] for key in ("INVOCATION_ID","CREDENTIALS_DIRECTORY","LANG") if key in environment}

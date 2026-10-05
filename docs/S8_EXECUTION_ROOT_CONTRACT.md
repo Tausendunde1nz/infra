@@ -103,6 +103,24 @@ adapter and its crash boundaries remain an integration gate.
   to actual PID-1 ControlPID/MainPID roles and stable process identities; helper
   processes receive sealed responses and never obtain journal write authority.
   This new PID-1/channel combination still requires its own native evidence.
+- Private CI 37344071969 is GREEN at Application
+  `b7f5e02206db86a14ede3fb8820498a99663716d` / Control
+  `bd2a88c00dc11d3b486a0712a6fd09748cebd943`, including actual PID-1 peer roles
+  with durable journal consumption and foreign-lease rejection. No App claim
+  was inferred from that synthetic channel-only result.
+- A real isolated systemd-255 credential probe returned directory 0500 and
+  file 0400, both owned by the configured runtime uid/gid. This differs from
+  the existing strict App reader's accepted private-file 0600 contract. The
+  candidate constructs a private readonly RAM copy with prescribed 0600
+  ownership; it never changes the source credentials or relaxes that reader.
+  The private permit similarly has a single root-owned nlink=1 readonly RAM
+  instance, preserving the App permit contract instead of accepting arbitrary
+  memfd/host-path replacements. Both mounts are confined to the owned namespace.
+- The next native fixture connects these interfaces to the real App permission
+  loader, full tree check, runtime admission branch and original PostgreSQL
+  polling trigger. Only external Telegram transport and unrelated notification
+  storage are stubs. The same strict loader and SQL path must pass on PostgreSQL
+  17 and 18. This is not yet a production-entrypoint/live-adapter acceptance.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.
 S9/S10/S11 RED is not cleared by this work. Recovery, deployment, unlock,
