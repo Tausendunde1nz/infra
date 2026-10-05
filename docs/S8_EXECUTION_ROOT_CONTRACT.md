@@ -70,6 +70,21 @@ adapter and its crash boundaries remain an integration gate.
   boundary; no acceptance was claimed. The new image root must explicitly have
   mode 0755 (not inherit a private unpacking-directory mode). Child error
   reporting must not import modules or run parent cleanup after a failed drop.
+- Private CI 37338680062 is GREEN: the explicit root mode also passes the full
+  sealed-image/unprivileged-entrypoint negative probe. This remains distinct
+  from a successful initial claim or complete recovery.
+- A real existing failed systemd unit can enter the candidate one-shot path
+  without `reset-failed`; the additional local native regression is GREEN.
+- Persistent-journal protection is still a construction gate. Native evidence
+  proves that immutable flags do not revoke retained writable descriptors.
+  Consequently a fresh, empty, append-only directory and an exact-thread open
+  permission fence must precede record creation; no adoption of existing files
+  or ancestry/root exemption is allowed. All unexpected metadata events are
+  fatal, including chmod-and-restore. The new guard is not yet integrated.
+  Docker's local 6.12.76-linuxkit rejects the required fanotify permission mark
+  with EINVAL; the exact x86-64 native CI must decide support. No kernel change,
+  permission bypass or weakened alternative was used. Kernel administration
+  capable of removing inode protections is not an authorized writer operation.
 - Private Application source/images must never be uploaded to public Control.
 
 R15 pause compatibility remains OPEN. Historical causation remains UNKNOWN.

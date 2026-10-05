@@ -141,6 +141,28 @@ class SystemdBoundaryTests(unittest.TestCase):
         self.assertEqual(self.prop(self.runtime,"NRestarts"),"0")
         self.assertNotEqual(command("systemctl","start",self.coordinator,check=False).returncode,0)
 
+    def test_existing_failed_unit_is_not_rearmed_or_confused_with_a_fresh_unit(self):
+        path=Path("/run/systemd/system")/self.runtime
+        replacement=path.read_text()
+        # A real previous start is still in PID 1's rate-limit accounting.
+        # No reset-failed/manager restart/deletion of journal evidence here.
+        path.write_text("[Unit]\nStartLimitIntervalSec=15min\nStartLimitBurst=3\n"
+                        "[Service]\nType=simple\nExecStart=/usr/bin/false\nRestart=no\n")
+        command("systemctl","daemon-reload")
+        command("systemctl","start",self.runtime,check=False)
+        self.until(lambda:self.prop(self.runtime,"ActiveState")=="failed")
+        previous=self.prop(self.runtime,"InvocationID")
+        path.write_text(replacement)
+        command("systemctl","daemon-reload")
+        job=self.start("success")
+        self.assertEqual(job.wait(timeout=20),0)
+        self.until(lambda:self.prop(self.runtime,"ActiveState")=="active")
+        self.assertNotEqual(self.prop(self.runtime,"InvocationID"),previous)
+        self.assertEqual(self.prop(self.runtime,"NRestarts"),"0")
+        before={p.name:p.read_bytes() for p in self.root.glob("*.json")}
+        self.assertNotEqual(command("systemctl","restart",self.coordinator,check=False).returncode,0)
+        self.assertEqual(before,{p.name:p.read_bytes() for p in self.root.glob("*.json")})
+
     def test_condition_interruption_before_journal_still_cannot_start_again(self):
         job=self.start("before-condition-kill")
         self.until(lambda:(self.root/"condition-ready").exists())
