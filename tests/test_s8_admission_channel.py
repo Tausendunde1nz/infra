@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0,"/source/scripts")
 from tu1nz_s8_admission_channel import AdmissionChannel,request_once
 from tu1nz_s8_execution_contract import *
+from tu1nz_s8_anchor import host
 from tu1nz_s8_protected_journal import ProtectedJournal
 from tu1nz_s8_journal_fence import APPEND,add_inode_protection
 root=Path(__file__).parent
@@ -35,7 +36,8 @@ if mode=="coordinate":
  channel=AdmissionChannel(root/"channel.sock",config["runtime"])
  started=clock()
  binding=dict(freeze_sha256="a"*64,image_sha256="b"*64)
- grant=dict(schema="TU1NZ_S8_EXECUTION_GRANT_V1",slot=SLOT,incident_invocation=FAILED_INVOCATION,
+ grant=dict(schema="TU1NZ_S8_EXECUTION_GRANT_V2",slot=SLOT,incident_invocation=FAILED_INVOCATION,
+  host=host(require_host_namespace=False),provisioner=process_identity(os.getpid()),
   freeze_sha256="a"*64,image_sha256="b"*64,human_authorization_sha256="c"*64,
   issued_at=started.isoformat(),expires_at=(started+timedelta(minutes=2)).isoformat())
  journal.once("operation.json",dict(grant_sha256=digest(grant),binding_sha256=digest(binding)))

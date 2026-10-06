@@ -18,7 +18,7 @@ import stat
 
 SLOT = "s8-same-release-20261004-1"
 UNIT = "tu1nz-adult-public-s8-telegram.service"
-FREEZE_TAG = "s8-isolated-atomic-recovery-freeze-r1"
+FREEZE_TAG = "s8-isolated-atomic-recovery-freeze-r2"
 LEASE_RELEASE = "s10-2d-r3-5"
 LEASE_REVISION = 277132
 FAILED_INVOCATION = "faa9196594964c7999390b250111a4ed"
@@ -33,6 +33,23 @@ MAX_GRANT_SECONDS = 86400
 
 class ContractError(RuntimeError):
     pass
+
+
+def failure_record(error):
+    value = str(error)
+    return dict(type=type(error).__name__, code=value if re.fullmatch(r"S8_[A-Z0-9_]{1,160}", value) else "UNKNOWN")
+
+
+def close_preserving(primary, *objects):
+    """Release all resources without replacing the original failure."""
+    errors = list(getattr(primary, "_s8_cleanup_errors", []))
+    for item in objects:
+        if item is not None:
+            try: item.close()
+            except BaseException as secondary:
+                errors.append(failure_record(secondary))
+                errors.extend(getattr(secondary, "_s8_cleanup_errors", []))
+    primary._s8_cleanup_errors = errors
 
 
 def require(value, code):
@@ -65,9 +82,20 @@ def utc(value):
 def grant_check(grant, binding, now):
     require(type(grant) is dict and set(grant) == {
         "schema","slot","incident_invocation","freeze_sha256","image_sha256",
-        "human_authorization_sha256","issued_at","expires_at"}, "GRANT_RED")
-    require(grant["schema"] == "TU1NZ_S8_EXECUTION_GRANT_V1" and grant["slot"] == SLOT
+        "human_authorization_sha256","issued_at","expires_at","host","provisioner"}, "GRANT_RED")
+    require(grant["schema"] == "TU1NZ_S8_EXECUTION_GRANT_V2" and grant["slot"] == SLOT
             and grant["incident_invocation"] == FAILED_INVOCATION, "GRANT_RED")
+    require(type(grant["host"]) is dict and set(grant["host"]) == {
+        "machine_sha256", "boot_id", "root_identity", "mount_sha256", "namespace_identity"}, "GRANT_HOST_RED")
+    for name in ("machine_sha256", "mount_sha256"):
+        require(hex_value(grant["host"][name], 64), "GRANT_HOST_RED")
+    process = grant["provisioner"]
+    require(type(process) is dict and set(process) == {"pid", "start_ticks", "uid", "boot_id"}
+            and type(process["pid"]) is int and process["pid"] > 1
+            and type(process["start_ticks"]) is int and process["start_ticks"] > 0
+            and process["uid"] == 0 and process["boot_id"] == grant["host"]["boot_id"]
+            and type(process["boot_id"]) is str
+            and re.fullmatch(r"[0-9a-f-]{36}", process["boot_id"]) is not None, "GRANT_PROCESS_RED")
     for name in ("freeze_sha256","image_sha256","human_authorization_sha256"):
         require(hex_value(grant[name],64), "GRANT_RED")
     require(grant["freeze_sha256"] == binding["freeze_sha256"]
@@ -132,9 +160,10 @@ def fingerprint(m):
 
 class Journal:
     """O_EXCL + fsync before authority. Partial objects remain consuming."""
-    def __init__(self, root: Path, *, uid=0):
-        self.root, self.uid = root, uid
-        first = protected(root,directory=True,mode=0o700,uid=uid)
+    def __init__(self, root: Path, *, uid=0, directory_mode=0o700):
+        require(directory_mode in (0o700, 0o755), "JOURNAL_DIRECTORY_MODE_RED")
+        self.root, self.uid, self.directory_mode = root, uid, directory_mode
+        first = protected(root,directory=True,mode=directory_mode,uid=uid)
         self.fd = os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:
             require(fingerprint(first) == fingerprint(os.fstat(self.fd)), "JOURNAL_DRIFT")
@@ -144,7 +173,7 @@ class Journal:
         self.identity = first.st_dev, first.st_ino
 
     def check(self):
-        m = protected(self.root,directory=True,mode=0o700,uid=self.uid)
+        m = protected(self.root,directory=True,mode=self.directory_mode,uid=self.uid)
         require((m.st_dev,m.st_ino) == self.identity, "JOURNAL_DRIFT")
 
     @contextmanager

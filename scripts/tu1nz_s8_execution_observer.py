@@ -15,6 +15,7 @@ import stat
 import subprocess
 
 import tu1nz_s8_execution_contract as c
+from tu1nz_s8_path_policy import PathChain, dropin_snapshot
 
 ROOT = Path("/etc/tu1nz/s8-atomic-admission-r1")
 HISTORY = Path("/etc/tu1nz/adult-commercial-s12-1-private/state")
@@ -52,11 +53,16 @@ def command(argv, *, input=None, timeout=15):
 
 def file_bytes(path, *, expected=None, limit=4*1024*1024):
     """Snapshot a protected regular inode; no adoption or metadata changes."""
-    c.require(path.is_absolute() and path.resolve(strict=True) == path, "INPUT_PATH_RED")
-    for parent in path.parents: c.protected(parent, directory=True)
+    with PathChain(path.parent, leaf=path.name) as chain:
+        result = _file_bytes(path, chain.fd, expected=expected, limit=limit)
+        chain.check()
+        return result
+
+
+def _file_bytes(path, parent_fd, *, expected, limit):
     before = c.protected(path)
     c.require(0 < before.st_size <= limit, "INPUT_SIZE_RED")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
     try:
         c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)), "INPUT_DRIFT")
         payload = bytearray()
@@ -90,15 +96,17 @@ def history():
     repositories = {}
     for text, expected in HISTORICAL_ROOTS.items():
         root = Path(text)
-        guard = c.protected(root/".git", directory=True, mode=0)
-        real_git = root/".git.s12-1-recovery"
-        c.protected(real_git, directory=True, mode=0o700)
-        args = ["/usr/bin/git", "--no-optional-locks", "-c", "safe.directory="+text,
-                "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                "--git-dir="+str(real_git), "--work-tree="+text]
-        pair = tuple(command([*args, "rev-parse", ref]).strip() for ref in ("HEAD", "HEAD^{tree}"))
-        c.require(pair == expected, "HISTORICAL_RELEASE_RED")
-        repositories[text] = dict(commit=pair[0], tree=pair[1], guard=list(c.fingerprint(guard)))
+        with PathChain(root) as chain:
+            guard = c.protected(root/".git", directory=True, mode=0)
+            real_git = root/".git.s12-1-recovery"
+            c.protected(real_git, directory=True, mode=0o700)
+            args = ["/usr/bin/git", "--no-optional-locks", "-c", "safe.directory="+text,
+                    "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+                    "--git-dir="+str(real_git), "--work-tree="+text]
+            pair = tuple(command([*args, "rev-parse", ref]).strip() for ref in ("HEAD", "HEAD^{tree}"))
+            c.require(pair == expected, "HISTORICAL_RELEASE_RED")
+            chain.check()
+            repositories[text] = dict(commit=pair[0], tree=pair[1], guard=list(c.fingerprint(guard)))
     return dict(hashes=result, repositories=repositories, absent_markers=list(ABSENT_MARKERS))
 
 
@@ -192,9 +200,11 @@ def failed_precondition(*, installed=False):
               and state["FragmentPath"] == str(BASE_UNIT), "INCIDENT_STATE_CHANGED")
     c.require(not recognized_pollers(), "COMPETING_POLLER")
     if not installed:
-        c.require(state["DropInPaths"] == "" and not os.path.lexists(str(BASE_UNIT)+".d")
-                  and not os.path.lexists(ROOT), "PREEXISTING_EXECUTION_STOCK")
+        c.require(state["DropInPaths"] == "" and not os.path.lexists(ROOT), "PREEXISTING_EXECUTION_STOCK")
+        dropin = dropin_snapshot(Path(str(BASE_UNIT)+".d"))
+    else:
+        dropin = None
     data = database()
     c.lease_admission(data["leases"][0])
-    return dict(history=history(), health=public_health(), s8=state, database=data,
+    return dict(history=history(), health=public_health(), s8=state, database=data, dropin=dropin,
                 observed_at=datetime.now(timezone.utc).isoformat())

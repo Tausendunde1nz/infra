@@ -76,7 +76,9 @@ def main():
         now = lambda: datetime.now(timezone.utc)
         started = now()
         binding = dict(freeze_sha256="a" * 64, image_sha256=config["image_sha256"])
-        grant = dict(schema="TU1NZ_S8_EXECUTION_GRANT_V1", slot=c.SLOT,
+        from tu1nz_s8_anchor import host
+        grant = dict(schema="TU1NZ_S8_EXECUTION_GRANT_V2", slot=c.SLOT,
+            host=host(require_host_namespace=False), provisioner=c.process_identity(os.getpid()),
             incident_invocation=c.FAILED_INVOCATION, freeze_sha256=binding["freeze_sha256"],
             image_sha256=binding["image_sha256"], human_authorization_sha256="c" * 64,
             issued_at=started.isoformat(), expires_at=(started + timedelta(minutes=3)).isoformat())

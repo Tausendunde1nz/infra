@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from tu1nz_s8_execution_contract import Journal, fingerprint, protected, require
+from tu1nz_s8_execution_contract import Journal, close_preserving, fingerprint, protected, require
 from tu1nz_s8_journal_fence import (
     APPEND, IMMUTABLE, NewJournalFence, add_inode_protection, inode_flags,
 )
@@ -44,9 +44,9 @@ class ProtectedJournal:
             self.fence = NewJournalFence(root)
             self.journal = Journal(root)
             self.check()
-        except BaseException:
+        except BaseException as error:
             self.failed = True
-            self.close()
+            close_preserving(error, self)
             raise
         finally:
             if directory is not None:

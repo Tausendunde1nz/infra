@@ -16,6 +16,7 @@ import sys
 import time
 
 import tu1nz_s8_execution_contract as c
+import tu1nz_s8_anchor as anchor
 import tu1nz_s8_sealed_root as sealed
 import tu1nz_s8_execution_observer as observer
 from tu1nz_s8_admission_channel import AdmissionChannel, properties, request_once
@@ -29,9 +30,12 @@ def stock(config):
     """No caller-supplied path choices or adoption of a previously made stock."""
     c.require(type(config) is dict and set(config) == {
         "schema", "root_identity", "state_identity", "files", "coordinator", "dispatcher",
-        "binding", "grant", "baseline", "runtime_uid", "runtime_gid"}
+        "binding", "grant", "baseline", "runtime_uid", "runtime_gid", "anchor"}
         and config["schema"] == "TU1NZ_S8_FROZEN_INVOCATION_V1", "INVOCATION_CONFIGURATION_RED")
     c.require(config["coordinator"] == "tu1nz-s8-execution-coordinator-r1.service", "COORDINATOR_BINDING_RED")
+    c.require(anchor.validate(config["anchor"], binding=config["binding"], grant=config["grant"],
+              dispatcher=config["dispatcher"]) == {k: v for k, v in config.items() if k != "anchor"},
+              "ANCHOR_EXECUTION_OBJECTS_RED")
     root = observer.ROOT
     for path, expected, flags in ((root, config["root_identity"], APPEND|IMMUTABLE),
                                   (root/"state", config["state_identity"], APPEND)):
@@ -154,6 +158,7 @@ def coordinate(config):
         permit = None
 
         def condition(invocation, _peer):
+            stock(config)
             c.consume_condition(journal, invocation=invocation, coordinator=coordinator, clock=now,
                 observe_lease=lambda: environment_unchanged(config)[0]["leases"][0],
                 binding=config["binding"], grant=config["grant"])

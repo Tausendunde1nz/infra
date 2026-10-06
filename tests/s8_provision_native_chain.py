@@ -24,6 +24,8 @@ import tu1nz_s8_execution_contract as c
 import tu1nz_s8_execution_observer as observer
 import tu1nz_s8_execution_release as release
 import tu1nz_s8_provision as provision
+import tu1nz_s8_anchor as anchor
+from tu1nz_s8_path_policy import ACCESS, DEFAULT, CONFIG_ACCESS, REPOSITORY_ACCESS, REPOSITORY_DEFAULT, acl_bytes
 from tu1nz_s8_execution_units import COORDINATOR
 from tu1nz_s8_runtime_interfaces import CONFIG_NAMES
 
@@ -129,6 +131,19 @@ def setup(image):
     cmd(["systemctl", "start", c.UNIT], check=False)
     until(lambda: observer.service(c.UNIT)["ActiveState"] == "failed")
     invocation = observer.service(c.UNIT)["InvocationID"]
+    # Exact observed parent profiles and existing empty drop-in. These are
+    # synthetic objects made before the production preflight, never predicates
+    # replaced with success booleans. No live metadata is changed by this test.
+    os.chown(config_root, 0, 1001)
+    os.setxattr(config_root, ACCESS, acl_bytes(CONFIG_ACCESS))
+    os.chmod(config_root, 0o750)
+    repository_parent = Path("/opt/tu1nz_repos")
+    os.chown(repository_parent, 0, 1001)
+    os.setxattr(repository_parent, ACCESS, acl_bytes(REPOSITORY_ACCESS))
+    os.setxattr(repository_parent, DEFAULT, acl_bytes(REPOSITORY_DEFAULT))
+    os.chmod(repository_parent, 0o2550)
+    dropin = Path(str(observer.BASE_UNIT)+".d")
+    dropin.mkdir(mode=0o755); dropin.chmod(0o755)
     return metadata, pairs, hashes, configs, invocation
 
 
@@ -196,7 +211,8 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
         hashes=hashes, git_barriers="RETAINED", aborted="RETAINED_NO_CONTINUATION")
     tag_bytes, tag_object = tag(value)
     instant = datetime.now(timezone.utc)
-    grant = c.canonical(dict(schema="TU1NZ_S8_EXECUTION_GRANT_V1", slot=c.SLOT, incident_invocation=incident,
+    grant = c.canonical(dict(schema="TU1NZ_S8_EXECUTION_GRANT_V2", slot=c.SLOT, incident_invocation=incident,
+        host=anchor.host(), provisioner=c.process_identity(os.getpid()),
         freeze_sha256=hashlib.sha256(c.canonical(value)).hexdigest(), image_sha256=value["image"]["sha256"],
         human_authorization_sha256=hashlib.sha256(b"ISOLATED_SYNTHETIC_NOT_HUMAN_AUTHORITY").hexdigest(),
         issued_at=instant.isoformat(), expires_at=(instant+timedelta(minutes=8)).isoformat()))
@@ -217,6 +233,7 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
         provision.subprocess.Popen = unknown
     try:
         result = provision.provision(tag_bytes=tag_bytes, tag_object=tag_object, grant_bytes=grant,
+            expected_grant_sha256=hashlib.sha256(grant).hexdigest(),
             image_bytes=image.read_bytes(), control_sources=sources)
         c.require(mode == "success" and result["status"] == "S8_SINGLE_ADMISSION_ACCEPTED", "NATIVE_PROVISION_RED")
         c.require(result["acceptance"]["initial_admission"]["claimed_revision"] == 277133
@@ -254,7 +271,7 @@ def cleanup():
     cmd(["systemctl", "stop", COORDINATOR, c.UNIT, *observer.PUBLIC_UNITS], check=False)
     # Only fresh fixture objects in this disposable test container. Production
     # APIs have no flag-removal, unlink, rollback-to-normal or retry operation.
-    for root in (observer.ROOT, Path(str(observer.BASE_UNIT)+".d")):
+    for root in (observer.ROOT, Path(str(observer.BASE_UNIT)+".d"), anchor.ROOT):
         if not root.exists(): continue
         for path in sorted([*root.rglob("*"), root], key=lambda p: len(p.parts), reverse=True):
             if not path.is_file() and not path.is_dir(): continue

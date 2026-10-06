@@ -366,3 +366,11 @@
 !analysis/COMMERCIAL_S12_1_REVIEW_ATOMIC_ATTEMPT_AND_UNKNOWN_SESSION_2026-09-28.diagnose
 !analysis/COMMERCIAL_S12_1_REVIEW_SESSION_IDENTITY_2026-09-28.diagnose
 !analysis/COMMERCIAL_S12_1_REVIEW_CRASH_DURABILITY_2026-09-28.diagnose
+!scripts/tu1nz_s8_anchor.py
+!scripts/tu1nz_s8_anchor_bootstrap.py
+!scripts/tu1nz_s8_path_policy.py
+!scripts/tu1nz_s8_existing_dropin.py
+!tests/test_s8_anchor.py
+!tests/test_s8_path_policy.py
+!tests/s8_parent_rebind_counterexample.py
+!tests/s8_anchor_native.sh

@@ -50,14 +50,16 @@ class NewJournalFence:
     A kernel administrator capable of removing those protections is outside the
     file-writer threat model; no such reset is part of this protocol.
     """
-    def __init__(self,root:Path):
+    def __init__(self,root:Path, *, directory_mode=0o700):
         require(os.geteuid()==0,"PRIVILEGED_JOURNAL_GUARD_REQUIRED")
+        require(directory_mode in (0o700, 0o755), "JOURNAL_DIRECTORY_MODE_RED")
+        self.directory_mode = directory_mode
         libc=ctypes.CDLL(None,use_errno=True)
         # Deny same-UID descriptor/memory inspection unless the caller holds
         # privileged ptrace authority (part of the explicit kernel TCB).
         require(libc.prctl(4,0,0,0,0)==0 and libc.prctl(3,0,0,0,0)==0,
                 "PROCESS_HANDLE_PROTECTION_RED")
-        protected(root,directory=True,mode=0o700)
+        protected(root,directory=True,mode=directory_mode)
         self.root=root
         self.directory=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         self.identity=(os.fstat(self.directory).st_dev,os.fstat(self.directory).st_ino)
@@ -130,7 +132,7 @@ class NewJournalFence:
                 "JOURNAL_GUARD_LOST")
         probe=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:
-            m=protected(self.root,directory=True,mode=0o700)
+            m=protected(self.root,directory=True,mode=self.directory_mode)
             require((m.st_dev,m.st_ino)==self.identity==
                     (os.fstat(probe).st_dev,os.fstat(probe).st_ino)
                     and inode_flags(probe)&APPEND,"JOURNAL_IDENTITY_RED")

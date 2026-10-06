@@ -16,9 +16,14 @@ INVOCATION="1"*32
 
 
 def binding():return dict(freeze_sha256="a"*64,image_sha256="b"*64)
-def grant():return dict(schema="TU1NZ_S8_EXECUTION_GRANT_V1",slot=c.SLOT,
+def grant():return dict(schema="TU1NZ_S8_EXECUTION_GRANT_V2",slot=c.SLOT,
                        incident_invocation=c.FAILED_INVOCATION,freeze_sha256="a"*64,
                        image_sha256="b"*64,human_authorization_sha256="c"*64,
+                       host=dict(machine_sha256="d"*64, mount_sha256="e"*64,
+                                 boot_id="11111111-1111-1111-1111-111111111111",
+                                 root_identity=[1,2],namespace_identity=[3,4]),
+                       provisioner=dict(pid=123,start_ticks=456,uid=0,
+                                        boot_id="11111111-1111-1111-1111-111111111111"),
                        issued_at=NOW.isoformat(),expires_at=(NOW+timedelta(hours=1)).isoformat())
 def lease():return dict(release=c.LEASE_RELEASE,owner=None,expires=None,revision=c.LEASE_REVISION,
                        last_poll=c.LAST_POLL,updated=c.LAST_UPDATE,code="BOT_POLLER_NOT_RUNNING")
