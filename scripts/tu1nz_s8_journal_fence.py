@@ -16,7 +16,7 @@ import select
 import struct
 import threading
 
-from tu1nz_s8_execution_contract import protected, require
+from tu1nz_s8_execution_contract import ContractError, close_preserving, failure_record, protected, require
 
 
 EVENT=struct.Struct("=IBBHQii")
@@ -93,8 +93,9 @@ class NewJournalFence:
             self.thread.start()
             require(not any(root.iterdir()),"NEW_EMPTY_JOURNAL_REQUIRED")
             self.check()
-        except BaseException:
-            self.close();raise
+        except BaseException as error:
+            close_preserving(error, self)
+            raise
 
     def _serve(self):
         try:
@@ -146,10 +147,23 @@ class NewJournalFence:
         # No successful-close receipt here: the canonical caller must first
         # prove every record sealed and all writable descriptors closed.
         self.stop.set()
-        if self.thread is not None:
-            self.thread.join(timeout=2)
-            require(not self.thread.is_alive(),"JOURNAL_GUARD_CLEANUP_RED")
+        errors = []
+        try:
+            if self.thread is not None:
+                self.thread.join(timeout=2)
+                require(not self.thread.is_alive(),"JOURNAL_GUARD_CLEANUP_RED")
+        except BaseException as error:
+            self.failure = True
+            errors.append(failure_record(error))
         for name in ("fd","events","directory"):
             descriptor=getattr(self,name,None)
             if descriptor is not None and descriptor>=0:
-                os.close(descriptor);setattr(self,name,None)
+                setattr(self,name,None)
+                try: os.close(descriptor)
+                except BaseException as error:
+                    self.failure = True
+                    errors.append(failure_record(error))
+        if errors:
+            error = ContractError("S8_EXECUTION_JOURNAL_GUARD_CLEANUP_RED")
+            error._s8_cleanup_errors = errors
+            raise error

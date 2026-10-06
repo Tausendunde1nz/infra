@@ -37,7 +37,9 @@ def cleanup(*objects):
     for item in objects:
         if item is not None:
             try: item.close()
-            except BaseException as error: errors.append(failure(error))
+            except BaseException as error:
+                errors.append(failure(error))
+                errors.extend(getattr(error, "_s8_cleanup_errors", []))
     return errors
 
 

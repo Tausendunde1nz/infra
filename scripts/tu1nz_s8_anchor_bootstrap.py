@@ -60,7 +60,4 @@ class Anchor:
         return dict(self.proof)
 
     def close(self):
-        try:
-            if self.journal is not None: self.journal.close(); self.journal = None
-        finally:
-            if self.stock is not None: self.stock.close(); self.stock = None
+        c.close_members(self, "journal", "stock")

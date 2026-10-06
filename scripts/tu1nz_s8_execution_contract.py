@@ -52,6 +52,17 @@ def close_preserving(primary, *objects):
     primary._s8_cleanup_errors = errors
 
 
+def close_members(owner, *names):
+    """Attempt every owned resource exactly once, retaining all failures."""
+    failure = ContractError("S8_EXECUTION_RESOURCE_CLEANUP_RED")
+    for name in names:
+        item = getattr(owner, name, None)
+        setattr(owner, name, None)
+        close_preserving(failure, item)
+    if getattr(failure, "_s8_cleanup_errors", []):
+        raise failure
+
+
 def require(value, code):
     if not value:
         raise ContractError("S8_EXECUTION_" + code)

@@ -45,7 +45,7 @@ def no_nonowner_write(entries):
             require(not effective & 2, "PARENT_EFFECTIVE_WRITE_RED")
 
 
-def parent_metadata(path, *, creation=False):
+def _parent_metadata(path, *, creation=False):
     """No metadata is normalized; unknown xattrs/defaults remain RED."""
     path = Path(path)
     require(path.is_absolute(), "PARENT_PATH_RED")
@@ -64,6 +64,27 @@ def parent_metadata(path, *, creation=False):
         require(os.getxattr(path, name, follow_symlinks=False) == value, "PARENT_ACL_PROFILE_RED")
     no_nonowner_write(access)
     return m
+
+
+def parent_metadata(path, *, creation=False):
+    """Validate both DAC/ACL metadata and the observed inode's flag policy.
+
+    EXTENTS/INDEX describe storage, APPEND/IMMUTABLE restrict operations. No
+    encryption, verity, inherited special policy or unknown flag is adopted.
+    This reads existing ancestors; it never changes their protections.
+    """
+    from tu1nz_s8_journal_fence import inode_flags
+    path = Path(path)
+    before = _parent_metadata(path, creation=creation)
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        require(identity(before) == identity(os.fstat(fd)), "PARENT_IDENTITY_RED")
+        require(not inode_flags(fd) & ~(0x80000 | 0x1000 | 0x20 | 0x10), "PARENT_FLAGS_RED")
+        require(identity(before) == identity(os.fstat(fd)) ==
+                identity(_parent_metadata(path, creation=creation)), "PARENT_IDENTITY_RED")
+        return before
+    finally:
+        os.close(fd)
 
 
 def identity(m):

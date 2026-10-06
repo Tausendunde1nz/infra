@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from tu1nz_s8_execution_contract import Journal, close_preserving, fingerprint, protected, require
+from tu1nz_s8_execution_contract import Journal, close_members, close_preserving, fingerprint, protected, require
 from tu1nz_s8_journal_fence import (
     APPEND, IMMUTABLE, NewJournalFence, add_inode_protection, inode_flags,
 )
@@ -117,14 +117,5 @@ class ProtectedJournal:
     def close(self):
         # Cleanup must release permission requests even after an I/O failure.
         # Never remove flags, delete objects, emit GREEN or retry a write here.
-        try:
-            if self.fence is not None:
-                self.fence.close()
-                self.fence = None
-        finally:
-            try:
-                if self.journal is not None:
-                    self.journal.close()
-                    self.journal = None
-            finally:
-                self.closed = True
+        self.closed = True
+        close_members(self, "fence", "journal")

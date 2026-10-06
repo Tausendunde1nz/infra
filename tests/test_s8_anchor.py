@@ -16,7 +16,7 @@ from pathlib import Path
 import shutil
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
@@ -35,6 +35,59 @@ def grant():
 
 
 class AnchorPortableTests(unittest.TestCase):
+    def test_all_resource_cleanup_failures_survive_and_do_not_retry(self):
+        from tu1nz_s8_new_stock import NewStock
+        from tu1nz_s8_protected_journal import ProtectedJournal
+        for kind, names in ((NewStock, ("fence", "journal", "witness")),
+                            (ProtectedJournal, ("fence", "journal")),
+                            (bootstrap.Anchor, ("journal", "stock"))):
+            instance = object.__new__(kind)
+            resources = [Mock() for _ in names]
+            for name, resource in zip(names, resources):
+                resource.close.side_effect = OSError("redacted")
+                setattr(instance, name, resource)
+            with self.assertRaises(c.ContractError) as result: instance.close()
+            self.assertEqual(result.exception._s8_cleanup_errors,
+                             [dict(type="OSError", code="UNKNOWN")]*len(names))
+            instance.close()
+            for resource in resources: resource.close.assert_called_once()
+
+    def test_guard_cleanup_failure_still_releases_other_descriptors(self):
+        import tu1nz_s8_journal_fence as f
+        guard = object.__new__(f.NewJournalFence)
+        guard.stop = Mock(); guard.thread = Mock(); guard.thread.is_alive.return_value = True
+        guard.fd, guard.events, guard.directory, guard.failure = 101, 102, 103, False
+        closed = []
+        def close(fd):
+            closed.append(fd)
+            if fd == 101: raise OSError("private descriptor detail")
+        with patch.object(f.os, "close", side_effect=close):
+            with self.assertRaises(c.ContractError) as result: guard.close()
+        self.assertEqual(closed, [101, 102, 103])
+        self.assertEqual(len(result.exception._s8_cleanup_errors), 2)
+        self.assertTrue(guard.failure)
+        self.assertTrue(all(getattr(guard, name) is None for name in ("fd", "events", "directory")))
+
+    def test_coordinator_retains_primary_abort_and_multiple_cleanup_failures(self):
+        import tu1nz_s8_execution as execution
+        journal, channel = Mock(), Mock()
+        journal.once.side_effect = [None, c.ContractError("S8_EXECUTION_SYNTHETIC_ABORT")]
+        journal.close.side_effect = OSError("private")
+        channel.close.side_effect = c.ContractError("S8_EXECUTION_SYNTHETIC_CLOSE")
+        primary = c.ContractError("S8_EXECUTION_SYNTHETIC_PRIMARY")
+        with patch.object(execution, "stock", return_value=Path("/unused")), \
+             patch.object(execution, "receive_once"), \
+             patch.object(execution, "ProtectedJournal", return_value=journal), \
+             patch.object(execution, "AdmissionChannel", return_value=channel), \
+             patch.object(execution.observer, "failed_precondition", side_effect=primary):
+            with self.assertRaises(c.ContractError) as result:
+                execution.coordinate(dict(coordinator="synthetic",dispatcher={},grant={},binding={}))
+        self.assertIs(result.exception, primary)
+        self.assertEqual(primary._s8_abort_errors,
+            [dict(type="ContractError", code="S8_EXECUTION_SYNTHETIC_ABORT")])
+        self.assertEqual(len(primary._s8_cleanup_errors), 2)
+        channel.close.assert_called_once(); journal.close.assert_called_once()
+
     def test_cleanup_failure_does_not_replace_primary(self):
         class Broken:
             def close(self): raise OSError("private details must not escape")

@@ -182,16 +182,20 @@ def coordinate(config):
         print(c.canonical(dict(event="S8_SINGLE_ADMISSION_ACCEPTED", freeze_sha256=config["binding"]["freeze_sha256"],
                                invocation=channel.invocation, s11_s12_acceptance=False)).decode(), flush=True)
     except BaseException as error:
-        primary = type(error).__name__
+        primary = error
         # Recording failure is secondary; it cannot prevent channel cleanup or
         # the failed coordinator exit, which stops its BindsTo runtime.
-        try: journal.once("failed.json", dict(primary_type=primary, retry_allowed=False))
-        except BaseException: pass
+        try: journal.once("failed.json", dict(primary=c.failure_record(primary), retry_allowed=False))
+        except BaseException as secondary:
+            primary._s8_abort_errors = [c.failure_record(secondary)]
         raise
     finally:
-        try:
-            if channel is not None: channel.close()
-        finally: journal.close()
+        if primary is not None:
+            c.close_preserving(primary, channel, journal)
+        else:
+            closed = c.ContractError("S8_EXECUTION_COORDINATOR_CLEANUP_RED")
+            c.close_preserving(closed, channel, journal)
+            if closed._s8_cleanup_errors: raise closed
 
 
 def execute(config, value):
@@ -246,5 +250,7 @@ if __name__ == "__main__":
         # No traceback/argv, credentials or provider messages in public logs.
         code = str(error)
         print(json.dumps(dict(event="S8_EXECUTION_ABORTED_NO_RETRY", error_type=type(error).__name__,
-            code=code if re.fullmatch(r"S8_[A-Z0-9_]{1,160}", code) else "UNKNOWN")), flush=True)
+            code=code if re.fullmatch(r"S8_[A-Z0-9_]{1,160}", code) else "UNKNOWN",
+            abort_errors=getattr(error,"_s8_abort_errors",[]),
+            cleanup_errors=getattr(error,"_s8_cleanup_errors",[]))), flush=True)
         raise SystemExit(2)

@@ -69,7 +69,11 @@ trusted. Exact-thread fanotify fencing precedes regular writes; immutable
 records and append/immutable directory protections survive the writing
 process. Kernel/PID 1, privileged ptrace, mount/block-device administration
 and flag-clearing powers remain the explicit OS trust base, not a blanket
-UID-0 exemption. Moving the ancestor of historical/configuration stock cannot
+UID-0 exemption. This includes authorization to make PID 1 or a privileged
+helper execute those powers; a process with CapEff=0 but such administrative
+API access is not merely a direct filesystem writer. Capability-free syscall
+tests do not prove protection against systemd administration. Moving the
+ancestor of historical/configuration stock cannot
 remove the independent global slot. Capable host administration, full-memory
 VM rewind or malicious raw filesystem rollback are NOT claimed to be defeated.
 
@@ -92,6 +96,18 @@ The original capability-free ancestor-rebinding counterexample is retained
 byte-for-byte as `tests/s8_parent_rebind_counterexample.py` (SHA256
 `47d64d4c9af09ba30f1a01b4e329522bb8334915505686dc3834497ef15b29a9`).
 It proves namespace loss, not a complete original S8 admission bypass.
+
+Every existing ancestor also requires a readable, exact inode-flag policy:
+only EXTENTS/INDEX storage-format bits and restrictive APPEND/IMMUTABLE bits
+are accepted alongside the exact DAC/ACL/xattr predicate. Unknown flags deny;
+no flag is removed or normalized. Existing live-parent flags have not yet been
+collected and remain a separate read-only host prerequisite. Native NODUMP
+negative cases cover both a strict parent and an exact ACL-profile parent.
+
+Cleanup attempts every owned resource even after an earlier close/join error;
+all redacted failures survive independently of the primary/abort failure.
+Coordinator failure recording cannot mask the original error or suppress
+channel/journal cleanup. Such failures never publish successful authority.
 
 ## Historical R1 construction record (not current status)
 

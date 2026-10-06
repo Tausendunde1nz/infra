@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
 import tu1nz_s8_execution_contract as c
@@ -51,6 +52,31 @@ class PathPolicyTests(unittest.TestCase):
                 entries = list(policy.REPOSITORY_ACCESS); entries[index] = (16,7,entry[2])
                 with self.assertRaisesRegex(c.ContractError,"EFFECTIVE_WRITE_RED"):
                     policy.no_nonowner_write(entries)
+
+    def test_unknown_inode_flags_rejected_on_strict_and_acl_parent(self):
+        # NODUMP is real persistent inode metadata, not an xattr. It must not
+        # become silently accepted merely because DAC/ACL traversal is safe.
+        for profile in (False, True):
+            if profile:
+                os.chown(self.root, 0, 1001)
+                os.setxattr(self.root, policy.ACCESS, policy.acl_bytes(policy.CONFIG_ACCESS))
+                os.chmod(self.root, 0o750)
+            profiles = {self.root: (0o750, policy.CONFIG_ACCESS, None)} if profile else {}
+            with patch.dict(policy.PROFILES, profiles):
+                policy.parent_metadata(self.root)
+                fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    value = array.array("L", [0]); fcntl.ioctl(fd, 0x80086601, value, True)
+                    original = value[0]
+                    value[0] |= 0x40; fcntl.ioctl(fd, 0x40086602, value)
+                    with self.assertRaisesRegex(c.ContractError, "PARENT_FLAGS_RED"):
+                        policy.parent_metadata(self.root)
+                    with self.assertRaisesRegex(c.ContractError, "PARENT_FLAGS_RED"):
+                        policy.PathChain(self.root)
+                finally:
+                    fcntl.ioctl(fd, 0x40086602, array.array("L", [original]))
+                    os.close(fd)
+                policy.parent_metadata(self.root)
 
     def test_ancestor_exchange_and_restore_is_an_event_not_clean_snapshot(self):
         child = self.root/"child"; child.mkdir()

@@ -16,7 +16,7 @@ import re
 import stat
 import struct
 
-from tu1nz_s8_execution_contract import Journal, canonical, close_preserving, fingerprint, hex_value, protected, require
+from tu1nz_s8_execution_contract import Journal, canonical, close_members, close_preserving, fingerprint, hex_value, protected, require
 from tu1nz_s8_journal_fence import APPEND, IMMUTABLE, NewJournalFence, add_inode_protection, inode_flags
 from tu1nz_s8_path_policy import PathChain, parent_metadata
 
@@ -200,11 +200,5 @@ class NewStock:
             self.failed = True; close_preserving(error, self); raise
 
     def close(self):
-        try:
-            if self.fence is not None: self.fence.close(); self.fence = None
-        finally:
-            try:
-                if self.journal is not None: self.journal.close(); self.journal = None
-            finally:
-                if self.witness is not None: self.witness.close(); self.witness = None
-                self.closed = True
+        self.closed = True
+        close_members(self, "fence", "journal", "witness")
