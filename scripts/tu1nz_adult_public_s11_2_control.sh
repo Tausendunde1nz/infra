@@ -4,6 +4,7 @@ umask 077
 
 readonly APPLICATION_ROOT="/opt/tu1nz_repos/adult-publishing-core"
 readonly CONTROL_ROOT="/opt/tu1nz_repos/control"
+readonly S8_EXECUTION_ROOT="/etc/tu1nz/s8-atomic-admission-r1"
 readonly DATABASE="tu1nz_adult_commercial_s3"
 readonly DATABASE_DSN="/etc/tu1nz/adult-commercial-s7-database.dsn"
 readonly AGGREGATE_STATE="/var/lib/tu1nz-adult-public-s9/landing-aggregates.json"
@@ -83,6 +84,25 @@ fail() {
 
 require_root() {
   [ "$(id -u)" -eq 0 ] || fail "S11_2_ROOT_REQUIRED"
+}
+
+require_no_isolated_s8_authority() {
+  # Separate execution roles: isolated S8 health is not S11 promotion,
+  # historical checkout integrity or permission to restore the old S8 unit.
+  # A partial root also blocks. This check neither reads old success evidence
+  # nor changes service/SQL/controller state; new compatibility needs its own
+  # explicit contract. Root can distinguish absent from unreadable entries.
+  [ "$(id -u)" -eq 0 ] || fail "S11_2_ROOT_REQUIRED"
+  /usr/bin/python3 -I -B -S - "$S8_EXECUTION_ROOT" <<'PY_S8_ROLE'
+import os,sys
+try:
+    os.lstat(sys.argv[1])
+except FileNotFoundError:
+    sys.exit(0)
+except OSError:
+    sys.exit(2)
+sys.exit(2)
+PY_S8_ROLE
 }
 
 acquire_lock() {
@@ -2608,6 +2628,15 @@ usage() {
   printf '       %s rollback BACKUP_PATH TARGET_CONTROL\n' "$0" >&2
   return 2
 }
+
+# No old S11 operation may reinterpret the new S8 stock as its historical
+# application or reuse a preceding success. Read-only hard-gate diagnostics
+# remain available and make no overall health assertion.
+case "${1:-}" in
+  preflight|deploy|resume|observe|verify|rollback)
+    require_no_isolated_s8_authority || fail "S11_2_ISOLATED_S8_NOT_S11_ACCEPTANCE"
+    ;;
+esac
 
 case "${1:-}" in
   access-preflight)

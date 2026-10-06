@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""Fixed-incident, one-shot S8 admission primitives. No implicit live authority.
+
+Pure predicates plus a protected append-only journal. The reviewed adapter must
+perform the real observations; caller-provided booleans are not live evidence.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import stat
+
+SLOT = "s8-same-release-20261004-1"
+UNIT = "tu1nz-adult-public-s8-telegram.service"
+FREEZE_TAG = "s8-isolated-atomic-recovery-freeze-r1"
+LEASE_RELEASE = "s10-2d-r3-5"
+LEASE_REVISION = 277132
+FAILED_INVOCATION = "faa9196594964c7999390b250111a4ed"
+HISTORICAL_APPLICATION = ("93555d8a141caf8ace33522f9340d30bfc47d2bb", "1e8a644115127818f394b6f9d24f31826e04ecba")
+HISTORICAL_CONTROL = ("b44a3a7e6162a2cc01ef0eb0da564bec68090adc", "477e63c6818d42473a9e4400b83faedead7524bc")
+# The new execution pair must come from a fully verified coordinated freeze.
+# No moving or historical Application candidate is a built-in execution grant.
+LAST_POLL = "2026-10-04T08:49:01.753806+00:00"
+LAST_UPDATE = "2026-10-04T08:51:02.165718+00:00"
+MAX_GRANT_SECONDS = 86400
+
+
+class ContractError(RuntimeError):
+    pass
+
+
+def require(value, code):
+    if not value:
+        raise ContractError("S8_EXECUTION_" + code)
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def digest(value):
+    return hashlib.sha256(canonical(value)).hexdigest()
+
+
+def hex_value(value, size):
+    return type(value) is str and re.fullmatch(r"[0-9a-f]{"+str(size)+"}", value) is not None and value != "0"*size
+
+
+def utc(value):
+    require(type(value) is str, "TIMESTAMP_RED")
+    try:
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        require(instant.utcoffset() is not None and instant.utcoffset().total_seconds() == 0, "TIMESTAMP_RED")
+        return instant
+    except (ValueError, TypeError, AttributeError):
+        raise ContractError("S8_EXECUTION_TIMESTAMP_RED") from None
+
+
+def grant_check(grant, binding, now):
+    require(type(grant) is dict and set(grant) == {
+        "schema","slot","incident_invocation","freeze_sha256","image_sha256",
+        "human_authorization_sha256","issued_at","expires_at"}, "GRANT_RED")
+    require(grant["schema"] == "TU1NZ_S8_EXECUTION_GRANT_V1" and grant["slot"] == SLOT
+            and grant["incident_invocation"] == FAILED_INVOCATION, "GRANT_RED")
+    for name in ("freeze_sha256","image_sha256","human_authorization_sha256"):
+        require(hex_value(grant[name],64), "GRANT_RED")
+    require(grant["freeze_sha256"] == binding["freeze_sha256"]
+            and grant["image_sha256"] == binding["image_sha256"], "GRANT_BINDING_RED")
+    issued, expires = utc(grant["issued_at"]), utc(grant["expires_at"])
+    require(0 < (expires-issued).total_seconds() <= MAX_GRANT_SECONDS
+            and issued <= now < expires, "GRANT_TIME_RED")
+
+
+def lease_admission(row):
+    require(row == dict(release=LEASE_RELEASE,owner=None,expires=None,revision=LEASE_REVISION,
+                        last_poll=LAST_POLL,updated=LAST_UPDATE,code="BOT_POLLER_NOT_RUNNING"),
+            "LEASE_CHANGED_NO_CLAIM")
+
+
+def initial_receipt(receipt, permit, invocation):
+    require(type(receipt) is dict and set(receipt) == {
+        "event","slot","permit_sha256","invocation","expected_revision","claimed_revision","owner_sha256"},
+        "INITIAL_RECEIPT_RED")
+    require(receipt["event"] == "S8_ATOMIC_ADMISSION_ACCEPTED" and receipt["slot"] == SLOT
+            and receipt["permit_sha256"] == hashlib.sha256(permit).hexdigest()
+            and receipt["invocation"] == invocation
+            and type(receipt["expected_revision"]) is int and receipt["expected_revision"] == LEASE_REVISION
+            and type(receipt["claimed_revision"]) is int and receipt["claimed_revision"] == LEASE_REVISION+1
+            and hex_value(receipt["owner_sha256"],64), "INITIAL_RECEIPT_RED")
+
+
+def poll_acceptance(observation, receipt, *, invocation, after, previous=None):
+    """Secondary proof only; cannot replace the separate initial receipt."""
+    s = observation
+    require(s["invocation"] == invocation and s["pid"] > 0 and s["start_ticks"] > 0
+            and s["poller_count"] == 1 and s["restarts"] == 0 and s["active"] == "active"
+            and s["sub"] == "running" and s["execution_root_verified"] is True, "RUNTIME_IDENTITY_RED")
+    lease = s["lease"]
+    now, poll = utc(s["observed_at"]), utc(lease["last_poll"])
+    require(lease["release"] == LEASE_RELEASE and lease["owner"] == receipt["owner_sha256"]
+            and lease["revision"] > receipt["claimed_revision"] and utc(lease["expires"]) > now
+            and after <= poll <= now and (now-poll).total_seconds() < 90
+            and lease["code"] in {"BOT_EVENT_PATH_GREEN","BOT_UPDATE_NOT_RECEIVED"}, "POLL_RED")
+    if previous is None:
+        return False
+    require(all(s[key] == previous[key] for key in ("pid","start_ticks","invocation"))
+            and lease["owner"] == previous["lease"]["owner"]
+            and lease["revision"] >= previous["lease"]["revision"], "PROCESS_OR_OWNER_CHANGED")
+    return poll > utc(previous["lease"]["last_poll"])
+
+
+def protected(path, *, directory=False, mode=None, uid=0):
+    m = path.lstat()
+    require((stat.S_ISDIR(m.st_mode) if directory else stat.S_ISREG(m.st_mode))
+            and m.st_uid == uid and m.st_gid == (0 if uid == 0 else os.getgid())
+            and not m.st_mode & 0o022 and (directory or m.st_nlink == 1), "METADATA_RED")
+    require(not os.listxattr(path, follow_symlinks=False), "ACL_OR_XATTR_RED")
+    if mode is not None:
+        require(stat.S_IMODE(m.st_mode) == mode, "MODE_RED")
+    return m
+
+
+def fingerprint(m):
+    return (m.st_dev,m.st_ino,m.st_size,m.st_mtime_ns,m.st_ctime_ns,m.st_mode,m.st_uid,m.st_gid)
+
+
+class Journal:
+    """O_EXCL + fsync before authority. Partial objects remain consuming."""
+    def __init__(self, root: Path, *, uid=0):
+        self.root, self.uid = root, uid
+        first = protected(root,directory=True,mode=0o700,uid=uid)
+        self.fd = os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:
+            require(fingerprint(first) == fingerprint(os.fstat(self.fd)), "JOURNAL_DRIFT")
+        except BaseException:
+            os.close(self.fd)
+            raise
+        self.identity = first.st_dev, first.st_ino
+
+    def check(self):
+        m = protected(self.root,directory=True,mode=0o700,uid=self.uid)
+        require((m.st_dev,m.st_ino) == self.identity, "JOURNAL_DRIFT")
+
+    @contextmanager
+    def locked(self):
+        self.check()
+        try:
+            fcntl.flock(self.fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ContractError("S8_EXECUTION_CONCURRENT_OPERATION") from None
+        try:
+            yield self
+        finally:
+            fcntl.flock(self.fd,fcntl.LOCK_UN)
+
+    def once(self, name, value):
+        require(re.fullmatch(r"[a-z-]+\.json",name), "JOURNAL_NAME_RED")
+        self.check()
+        try:
+            fd = os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd)
+        except FileExistsError:
+            raise ContractError("S8_EXECUTION_ALREADY_CONSUMED_NO_RETRY") from None
+        try:
+            data = canonical(value)
+            require(0 < len(data) <= 1048576, "JOURNAL_SIZE_RED")
+            while data:
+                count = os.write(fd,data)
+                require(count > 0,"JOURNAL_WRITE_RED"); data = data[count:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.fsync(self.fd)
+        self.check()
+        return self.read(name)
+
+    def read(self,name):
+        require(re.fullmatch(r"[a-z-]+\.json",name), "JOURNAL_NAME_RED")
+        self.check()
+        first = protected(self.root/name,mode=0o600,uid=self.uid)
+        require(0 < first.st_size <= 1048576,"JOURNAL_SIZE_RED")
+        fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=self.fd)
+        try:
+            require(fingerprint(first)==fingerprint(os.fstat(fd)), "JOURNAL_DRIFT")
+            data = bytearray()
+            while len(data) < first.st_size:
+                part = os.read(fd,first.st_size-len(data))
+                require(bool(part),"JOURNAL_SHORT_READ"); data.extend(part)
+            require(fingerprint(first)==fingerprint(os.fstat(fd))==fingerprint((self.root/name).lstat()),
+                    "JOURNAL_DRIFT")
+            self.check()
+            value = json.loads(data)
+            require(canonical(value)==bytes(data),"JOURNAL_FORMAT_RED")
+            return value
+        finally:
+            os.close(fd)
+
+    def close(self):
+        os.close(self.fd)
+
+
+def process_identity(pid):
+    base = Path("/proc")/str(pid)
+    before = (base/"stat").read_text().rpartition(")")[2].split()
+    owner = base.stat().st_uid
+    after = (base/"stat").read_text().rpartition(")")[2].split()
+    require(before[19] == after[19] and after[0] not in {"Z","X","T","t"}, "COORDINATOR_IDENTITY_RED")
+    return dict(pid=pid,start_ticks=int(after[19]),uid=owner,
+                boot_id=Path("/proc/sys/kernel/random/boot_id").read_text().strip())
+
+
+def consume_condition(journal, *, invocation, coordinator, clock, observe_lease, binding, grant):
+    # The slot is spent BEFORE any other checks, even if all later work fails.
+    journal.once("activation.json",dict(slot=SLOT,invocation=invocation))
+    require(hex_value(invocation,32) and invocation != FAILED_INVOCATION,"INVOCATION_RED")
+    require(process_identity(coordinator["pid"]) == coordinator and coordinator["uid"] == 0,
+            "COORDINATOR_GONE")
+    grant_check(grant,binding,clock())
+    lease_admission(observe_lease())
+    grant_check(grant,binding,clock())
+    require(process_identity(coordinator["pid"]) == coordinator,"COORDINATOR_GONE")
+    return True
+
+
+def consume_execution(journal, *, invocation, clock, binding, grant):
+    """Separate durable boundary immediately before exec, never a retry ticket."""
+    journal.once("execution.json",dict(slot=SLOT,invocation=invocation))
+    activation=journal.read("activation.json")
+    require(activation==dict(slot=SLOT,invocation=invocation),"ACTIVATION_BINDING_RED")
+    grant_check(grant,binding,clock())
+
+
+def permit_value(journal, *, invocation, application, source_hashes, binding, grant):
+    """No I/O or authority creation; adapter must publish once under its fence."""
+    require(type(application) is dict and set(application)=={"commit","tree"}
+            and all(hex_value(value,40) for value in application.values()),"APPLICATION_BINDING_RED")
+    require(set(source_hashes)=={"runtime.py","polling.py","recovery_admission.py"}
+            and all(hex_value(value,64) for value in source_hashes.values()),"SOURCE_BINDING_RED")
+    activation=journal.read("activation.json")
+    require(activation==dict(slot=SLOT,invocation=invocation),"ACTIVATION_BINDING_RED")
+    operation=journal.read("operation.json")
+    require(operation["grant_sha256"]==digest(grant) and operation["binding_sha256"]==digest(binding),
+            "OPERATION_BINDING_RED")
+    return dict(schema="TU1NZ_S8_ATOMIC_PERMIT_V1",slot=SLOT,expected_revision=LEASE_REVISION,
+                release_id=LEASE_RELEASE,invocation=invocation,
+                application_commit=application["commit"],application_tree=application["tree"],
+                freeze_sha256=binding["freeze_sha256"],human_authorization_sha256=grant["human_authorization_sha256"],
+                operation_sha256=digest(operation),activation_sha256=digest(activation),
+                issued_at=grant["issued_at"],expires_at=grant["expires_at"],sources=source_hashes)
