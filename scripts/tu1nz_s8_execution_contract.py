@@ -52,8 +52,37 @@ class ContractError(RuntimeError):
 
 
 def failure_record(error):
-    value = str(error)
+    try: value = str(error)
+    except BaseException: value = ""
     return dict(type=type(error).__name__, code=value if re.fullmatch(r"S8_[A-Z0-9_]{1,160}", value) else "UNKNOWN")
+
+
+def close_descriptors(primary, *descriptors):
+    """Attempt each transferred owned FD once; no ambiguous-close retry.
+
+    The caller relinquishes these descriptors. Preserve a supplied primary;
+    otherwise cleanup-only failure is RED. Redaction must not skip later FDs.
+    """
+    failure = primary if primary is not None else ContractError("S8_EXECUTION_DESCRIPTOR_CLEANUP_RED")
+    errors = list(getattr(failure, "_s8_cleanup_errors", []))
+    for fd in dict.fromkeys(descriptors):
+        if fd is not None and fd >= 0:
+            try: os.close(fd)
+            except BaseException as error: errors.append(failure_record(error))
+    failure._s8_cleanup_errors = errors
+    if primary is None and errors: raise failure
+
+
+@contextmanager
+def descriptor_scope(*descriptors):
+    """Scoped ownership with primary-preserving, independently attempted closes."""
+    try:
+        yield
+    except BaseException as error:
+        close_descriptors(error, *descriptors)
+        raise
+    else:
+        close_descriptors(None, *descriptors)
 
 
 def close_preserving(primary, *objects):
@@ -77,6 +106,20 @@ def close_members(owner, *names):
         close_preserving(failure, item)
     if getattr(failure, "_s8_cleanup_errors", []):
         raise failure
+
+
+@contextmanager
+def resource_scope(*objects):
+    """One ownership lifetime; cleanup cannot replace its body's failure."""
+    try:
+        yield
+    except BaseException as error:
+        close_preserving(error, *objects)
+        raise
+    else:
+        failure = ContractError("S8_EXECUTION_RESOURCE_CLEANUP_RED")
+        close_preserving(failure, *objects)
+        if failure._s8_cleanup_errors: raise failure
 
 
 def require(value, code):
@@ -241,12 +284,14 @@ class Journal:
         self.fd = os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
         try:
             require(fingerprint(first) == fingerprint(os.fstat(self.fd)), "JOURNAL_DRIFT")
-        except BaseException:
-            os.close(self.fd)
+        except BaseException as error:
+            fd, self.fd = self.fd, None
+            close_descriptors(error, fd)
             raise
         self.identity = first.st_dev, first.st_ino
 
     def check(self):
+        require(self.fd is not None, "JOURNAL_NO_AUTHORITY")
         m = protected(self.root,directory=True,mode=self.directory_mode,uid=self.uid)
         require((m.st_dev,m.st_ino) == self.identity, "JOURNAL_DRIFT")
 
@@ -259,8 +304,17 @@ class Journal:
             raise ContractError("S8_EXECUTION_CONCURRENT_OPERATION") from None
         try:
             yield self
-        finally:
-            fcntl.flock(self.fd,fcntl.LOCK_UN)
+        except BaseException as error:
+            try: fcntl.flock(self.fd,fcntl.LOCK_UN)
+            except BaseException as cleanup:
+                error._s8_cleanup_errors = [*getattr(error, "_s8_cleanup_errors", []), failure_record(cleanup)]
+            raise
+        else:
+            try: fcntl.flock(self.fd,fcntl.LOCK_UN)
+            except BaseException as cleanup:
+                error = ContractError("S8_EXECUTION_JOURNAL_UNLOCK_RED")
+                error._s8_cleanup_errors = [failure_record(cleanup)]
+                raise error from None
 
     def once(self, name, value):
         require(re.fullmatch(r"[a-z-]+\.json",name), "JOURNAL_NAME_RED")
@@ -269,15 +323,13 @@ class Journal:
             fd = os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd)
         except FileExistsError:
             raise ContractError("S8_EXECUTION_ALREADY_CONSUMED_NO_RETRY") from None
-        try:
+        with descriptor_scope(fd):
             data = canonical(value)
             require(0 < len(data) <= 1048576, "JOURNAL_SIZE_RED")
             while data:
                 count = os.write(fd,data)
                 require(count > 0,"JOURNAL_WRITE_RED"); data = data[count:]
             os.fsync(fd)
-        finally:
-            os.close(fd)
         os.fsync(self.fd)
         self.check()
         return self.read(name)
@@ -288,7 +340,7 @@ class Journal:
         first = protected(self.root/name,mode=0o600,uid=self.uid)
         require(0 < first.st_size <= 1048576,"JOURNAL_SIZE_RED")
         fd = os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=self.fd)
-        try:
+        with descriptor_scope(fd):
             require(fingerprint(first)==fingerprint(os.fstat(fd)), "JOURNAL_DRIFT")
             data = bytearray()
             while len(data) < first.st_size:
@@ -300,11 +352,10 @@ class Journal:
             value = json.loads(data)
             require(canonical(value)==bytes(data),"JOURNAL_FORMAT_RED")
             return value
-        finally:
-            os.close(fd)
 
     def close(self):
-        os.close(self.fd)
+        fd, self.fd = self.fd, None
+        close_descriptors(None, fd)
 
 
 def process_identity(pid):

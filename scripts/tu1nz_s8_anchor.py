@@ -31,13 +31,12 @@ def host(*, require_host_namespace=True):
         path = Path("/etc/machine-id")
         before = c.protected(path)
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-        try:
+        with c.descriptor_scope(fd):
             c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)), "ANCHOR_HOST_DRIFT")
             raw = os.read(fd, 34)
             c.require(re.fullmatch(b"[0-9a-f]{32}\n?", raw) is not None
                       and c.fingerprint(before) == c.fingerprint(os.fstat(fd)) == c.fingerprint(path.lstat()),
                       "ANCHOR_HOST_RED")
-        finally: os.close(fd)
     boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
     c.require(re.fullmatch(r"[0-9a-f-]{36}", boot) is not None, "ANCHOR_BOOT_RED")
     # Refuse a private/surrogate mount namespace. Mount administration, PID 1
@@ -84,7 +83,7 @@ def absent():
 def checked_file(path, expected):
     before = c.protected(path, mode=0o600)
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    try:
+    with c.descriptor_scope(fd):
         c.require(0 < before.st_size <= 1048576 and c.fingerprint(before) == c.fingerprint(os.fstat(fd)),
                   "ANCHOR_RECORD_RED")
         flags = inode_flags(fd)
@@ -98,7 +97,6 @@ def checked_file(path, expected):
         value = json.loads(data)
         c.require(c.canonical(value) == bytes(data), "ANCHOR_RECORD_FORMAT_RED")
         return value
-    finally: os.close(fd)
 
 
 def validate(proof, *, binding, grant, dispatcher):
@@ -116,12 +114,11 @@ def validate(proof, *, binding, grant, dispatcher):
         for path, expected, required in paths:
             meta = c.protected(path, directory=True, mode=0o700)
             fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            try:
+            with c.descriptor_scope(fd):
                 flags = inode_flags(fd)
                 c.require([meta.st_dev, meta.st_ino] == expected == [os.fstat(fd).st_dev, os.fstat(fd).st_ino]
                           and flags & required == required and not flags & ~ALLOWED_FLAGS,
                           "ANCHOR_OBJECT_BINDING_RED")
-            finally: os.close(fd)
         c.require(set(os.listdir(ROOT)) == {"anchor.json", "stock-plan.json", "state"}
                   and set(os.listdir(ROOT/"state")) == {c.SLOT}
                   and set(os.listdir(ROOT/"state"/c.SLOT)) == {"intent.json", "objects.json"},

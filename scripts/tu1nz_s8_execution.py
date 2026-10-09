@@ -42,10 +42,9 @@ def stock(config):
         meta = c.protected(path, directory=True, mode=0o700)
         c.require([meta.st_dev, meta.st_ino] == expected, "STOCK_IDENTITY_RED")
         fd = os.open(path, os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        try:
+        with c.descriptor_scope(fd):
             c.require((os.fstat(fd).st_dev, os.fstat(fd).st_ino) == (meta.st_dev, meta.st_ino)
                       and inode_flags(fd) & flags == flags, "STOCK_PROTECTION_RED")
-        finally: os.close(fd)
     required = {"capsule.squashfs", "freeze.json", "grant.json", "baseline.json", "historical-unit.txt",
                 "resolv.conf", *CONFIG_NAMES}
     c.require(set(config["files"]) == required and set(os.listdir(root)) == required|{"stock-plan.json", "state"},
@@ -55,8 +54,7 @@ def stock(config):
         spec = config["files"][name]
         c.require(meta.st_size == spec["size"], "STOCK_INPUT_RED")
         fd = os.open(root/name, os.O_RDONLY|os.O_NOFOLLOW)
-        try: c.require(inode_flags(fd) & IMMUTABLE, "STOCK_PROTECTION_RED")
-        finally: os.close(fd)
+        with c.descriptor_scope(fd): c.require(inode_flags(fd) & IMMUTABLE, "STOCK_PROTECTION_RED")
         # The image is hashed while copying to its sealed backing descriptor.
         # Every smaller command/permission input is authenticated here too.
         if name != "capsule.squashfs": observer.file_bytes(root/name, expected=spec["sha256"])

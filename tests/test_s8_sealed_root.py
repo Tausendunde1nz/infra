@@ -7,8 +7,51 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 from scripts import tu1nz_s8_sealed_root as s
+
+
+class MountedCleanupTests(unittest.TestCase):
+    """Pure fault injection: no mount, device, host or blocked namespace probe."""
+    def mounted(self):
+        mounted = object.__new__(s.MountedImage)
+        mounted.loop_fd, mounted.attached, mounted.mounted = 701, True, True
+        mounted.original_device = 1
+        mounted.destination = SimpleNamespace(stat=lambda: SimpleNamespace(st_dev=2))
+        return mounted
+
+    def test_identity_failure_keeps_primary_no_foreign_unmount_or_close_retry(self):
+        mounted = self.mounted()
+        primary = s.SealedRootError("S8_EXECUTION_LOOP_IDENTITY_RED")
+        primary._s8_abort_error = dict(code="S8_EXECUTION_ABORT_RED")
+        with patch.object(mounted, "_check_loop", side_effect=primary), \
+                patch.object(s, "run") as run, \
+                patch.object(s.os, "close", side_effect=OSError("private")) as close:
+            with self.assertRaises(s.SealedRootError) as result: mounted.close()
+            mounted.close()
+        self.assertIs(result.exception, primary)
+        self.assertIsNone(mounted.loop_fd)
+        self.assertTrue(mounted.mounted)
+        self.assertEqual(primary._s8_abort_error["code"], "S8_EXECUTION_ABORT_RED")
+        self.assertEqual(primary._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")])
+        close.assert_called_once_with(701)
+        run.assert_not_called()
+
+    def test_unmount_failure_remains_primary_and_owned_fd_is_released(self):
+        mounted = self.mounted()
+        primary = s.SealedRootError("S8_EXECUTION_MOUNT_COMMAND_RED")
+        with patch.object(mounted, "_check_loop"), \
+                patch.object(s.os, "fstat", return_value=SimpleNamespace(st_rdev=2)), \
+                patch.object(s, "run", side_effect=primary) as run, \
+                patch.object(s.os, "close", side_effect=OSError("private")) as close:
+            with self.assertRaises(s.SealedRootError) as result: mounted.close()
+            mounted.close()
+        self.assertIs(result.exception, primary)
+        self.assertTrue(mounted.mounted)
+        run.assert_called_once()
+        close.assert_called_once_with(701)
 
 
 @unittest.skipUnless(sys.platform == "linux" and os.geteuid() == 0, "isolated Linux root required")

@@ -1,10 +1,12 @@
 """Native exact ACL/mask/default policy and existing-object handoff tests."""
 import array
 import fcntl
+import hashlib
 import os
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +17,9 @@ from tu1nz_s8_existing_dropin import ExistingDropinStock
 from tu1nz_s8_protected_journal import ProtectedJournal
 from tu1nz_s8_journal_fence import APPEND, add_inode_protection
 from tu1nz_s8_new_stock import ParentCreationWitness
+from tu1nz_s8_dispatch_boundary import DispatchBoundary
+from tu1nz_s8_admission_channel import AdmissionChannel
+import tu1nz_s8_journal_fence as fence_module
 
 
 class PathCleanupTests(unittest.TestCase):
@@ -24,6 +29,129 @@ class PathCleanupTests(unittest.TestCase):
         witness.events, witness.descriptors = 101, [102, 103]
         witness.failed = False
         return witness
+
+    def test_metadata_rejection_survives_close_failure(self):
+        metadata = SimpleNamespace(st_dev=1, st_ino=2, st_mode=0o40700, st_uid=0, st_gid=0)
+        with patch.object(policy, "_parent_metadata", return_value=metadata), \
+                patch.object(policy.os, "open", return_value=201), \
+                patch.object(policy.os, "fstat", return_value=metadata), \
+                patch("tu1nz_s8_journal_fence.inode_flags", return_value=0x40), \
+                patch.object(policy.os, "close", side_effect=OSError("private")) as close:
+            with self.assertRaisesRegex(c.ContractError, "PARENT_FLAGS_RED") as result:
+                policy.parent_metadata(Path("/synthetic"))
+        self.assertEqual(result.exception._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")])
+        close.assert_called_once_with(201)
+
+    def test_descriptor_scope_aggregates_even_when_error_redaction_fails(self):
+        class Unprintable(OSError):
+            def __str__(self): raise RuntimeError("private logging failure")
+        primary = c.ContractError("S8_EXECUTION_PRIMARY_RED")
+        primary._s8_abort_error = dict(code="S8_EXECUTION_ABORT_RED")
+        with patch.object(c.os, "close", side_effect=Unprintable()) as close:
+            with self.assertRaises(c.ContractError) as result:
+                with c.descriptor_scope(201, 202, 201): raise primary
+            self.assertEqual([call.args[0] for call in close.call_args_list], [201, 202])
+        self.assertIs(result.exception, primary)
+        self.assertEqual(primary._s8_abort_error["code"], "S8_EXECUTION_ABORT_RED")
+        self.assertEqual(primary._s8_cleanup_errors, [dict(type="Unprintable", code="UNKNOWN")]*2)
+
+    def test_cleanup_only_scope_is_red_and_attempts_all_descriptors(self):
+        with patch.object(c.os, "close", side_effect=OSError("private")) as close:
+            with self.assertRaisesRegex(c.ContractError, "DESCRIPTOR_CLEANUP_RED") as result:
+                with c.descriptor_scope(201, 202): pass
+        self.assertEqual(close.call_count, 2)
+        self.assertEqual(result.exception._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")]*2)
+
+    def test_resource_scope_preserves_primary_and_closes_every_resource_once(self):
+        class Broken:
+            calls = 0
+            def close(self):
+                self.calls += 1
+                raise OSError("private")
+        first, second = Broken(), Broken()
+        primary = c.ContractError("S8_EXECUTION_PRIMARY_RED")
+        with self.assertRaises(c.ContractError) as result:
+            with c.resource_scope(first, second): raise primary
+        self.assertIs(result.exception, primary)
+        self.assertEqual((first.calls, second.calls), (1, 1))
+        self.assertEqual(primary._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")]*2)
+
+    def test_dispatch_and_admission_resource_ownership_detached_before_close(self):
+        class Broken:
+            calls = 0
+            def close(self):
+                self.calls += 1
+                raise OSError("private")
+        dispatcher = object.__new__(DispatchBoundary)
+        dispatcher.server, dispatcher.journal = Broken(), Broken()
+        server, journal = dispatcher.server, dispatcher.journal
+        with self.assertRaises(c.ContractError) as result: dispatcher.close()
+        self.assertEqual(result.exception._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")]*2)
+        dispatcher.close()
+        self.assertEqual((server.calls, journal.calls), (1, 1))
+        channel = object.__new__(AdmissionChannel)
+        channel.server = Broken(); server = channel.server
+        with self.assertRaises(c.ContractError): channel.close()
+        channel.close()
+        self.assertTrue(channel.closed)
+        self.assertEqual(server.calls, 1)
+
+    def test_journal_write_failure_and_unlock_failure_retain_primary(self):
+        journal = object.__new__(c.Journal)
+        journal.fd = 501
+        with patch.object(journal, "check"), \
+                patch.object(c.os, "open", return_value=502), \
+                patch.object(c.os, "write", return_value=0), \
+                patch.object(c.os, "close", side_effect=OSError("private")) as close:
+            with self.assertRaisesRegex(c.ContractError, "JOURNAL_WRITE_RED") as result:
+                journal.once("operation.json", dict(synthetic=True))
+            close.assert_called_once_with(502)
+        self.assertEqual(result.exception._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")])
+        primary = c.ContractError("S8_EXECUTION_PRIMARY_RED")
+        with patch.object(journal, "check"), patch.object(c.fcntl, "flock", side_effect=[None, OSError("private")]):
+            with self.assertRaises(c.ContractError) as result:
+                with journal.locked(): raise primary
+        self.assertIs(result.exception, primary)
+        self.assertEqual(primary._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")])
+
+    def test_journal_close_unknown_is_not_retried(self):
+        journal = object.__new__(c.Journal)
+        journal.fd = 501
+        with patch.object(c.os, "close", side_effect=OSError("private")) as close:
+            with self.assertRaisesRegex(c.ContractError, "DESCRIPTOR_CLEANUP_RED"): journal.close()
+            journal.close()
+        self.assertIsNone(journal.fd)
+        close.assert_called_once_with(501)
+
+    def test_fence_worker_failure_retains_primary_and_releases_owned_fd(self):
+        witness = object.__new__(fence_module.NewJournalFence)
+        witness.stop = SimpleNamespace(is_set=lambda: False)
+        witness.fd, witness.consumer_error, witness.failure = 601, None, False
+        witness.owner_pid, witness.owner_tid = os.getpid(), fence_module.threading.get_native_id()
+        primary = c.ContractError("S8_EXECUTION_FANOTIFY_EVENT_RED")
+        primary._s8_abort_error = dict(code="S8_EXECUTION_ABORT_RED")
+        with patch.object(fence_module.select, "select", side_effect=primary), \
+                patch.object(c.os, "close", side_effect=OSError("private")) as close:
+            witness._serve()
+            with self.assertRaises(c.ContractError) as result: witness.check()
+        self.assertIs(result.exception, primary)
+        self.assertTrue(witness.failure)
+        self.assertIsNone(witness.fd)
+        self.assertEqual(primary._s8_abort_error["code"], "S8_EXECUTION_ABORT_RED")
+        self.assertEqual(primary._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")])
+        close.assert_called_once_with(601)
+
+    def test_channel_constructor_timeout_failure_preserves_primary(self):
+        primary = c.ContractError("S8_EXECUTION_CHANNEL_PRIMARY_RED")
+        server = SimpleNamespace(settimeout=lambda _: (_ for _ in ()).throw(primary),
+                                 close=lambda: (_ for _ in ()).throw(OSError("private")))
+        with patch("tu1nz_s8_admission_channel.os.geteuid", return_value=0), \
+                patch("tu1nz_s8_admission_channel.protect_process"), \
+                patch("tu1nz_s8_admission_channel.socket.SOCK_CLOEXEC", 0x80000, create=True), \
+                patch("tu1nz_s8_admission_channel.socket.socket", return_value=server):
+            with self.assertRaises(c.ContractError) as result: AdmissionChannel(Path("/synthetic"), "synthetic.service")
+        self.assertIs(result.exception, primary)
+        self.assertEqual(primary._s8_cleanup_errors[0]["code"], "S8_EXECUTION_RESOURCE_CLEANUP_RED")
 
     def test_all_closes_attempted_redacted_once_no_retry(self):
         witness = self.witness()
@@ -211,6 +339,46 @@ class PathPolicyTests(unittest.TestCase):
         self.assertIs(result.exception, primary)
         self.assertEqual(len(closed), 2)  # real inotify and first ancestor FD
         self.assertEqual(primary._s8_cleanup_errors[1:], [dict(type="OSError", code="UNKNOWN")]*2)
+        for fd in closed:
+            with self.assertRaises(OSError): os.fstat(fd)
+
+    def test_native_metadata_flags_rejection_survives_lost_close_ack(self):
+        fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        value = array.array("L", [0]); fcntl.ioctl(fd, 0x80086601, value, True)
+        original = value[0]
+        fcntl.ioctl(fd, 0x40086602, array.array("L", [original | 0x40]))
+        os.close(fd)
+        actual_close = os.close
+        closed = []
+        def lost_ack(descriptor):
+            actual_close(descriptor); closed.append(descriptor)
+            raise OSError("private lost acknowledgement")
+        try:
+            with patch.object(policy.os, "close", side_effect=lost_ack):
+                with self.assertRaisesRegex(c.ContractError, "PARENT_FLAGS_RED") as result:
+                    policy.parent_metadata(self.root)
+            self.assertEqual(result.exception._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")])
+            self.assertEqual(len(closed), 1)
+            with self.assertRaises(OSError): os.fstat(closed[0])
+        finally:
+            fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try: fcntl.ioctl(fd, 0x40086602, array.array("L", [original]))
+            finally: os.close(fd)
+
+    def test_native_sealed_copy_primary_and_both_owned_fds_survive_lost_close_ack(self):
+        from scripts import tu1nz_s8_sealed_root as sealed
+        image = self.root/"synthetic-image"
+        image.write_bytes(b"synthetic")
+        actual_close = os.close
+        closed = []
+        def lost_ack(fd):
+            actual_close(fd); closed.append(fd)
+            raise OSError("private lost acknowledgement")
+        with patch.object(sealed.os, "close", side_effect=lost_ack):
+            with self.assertRaisesRegex(sealed.SealedRootError, "IMAGE_INPUT_DRIFT") as result:
+                sealed.sealed_copy(image, hashlib.sha256(b"different").hexdigest())
+        self.assertEqual(result.exception._s8_cleanup_errors, [dict(type="OSError", code="UNKNOWN")]*2)
+        self.assertEqual(len(set(closed)), 2)
         for fd in closed:
             with self.assertRaises(OSError): os.fstat(fd)
 

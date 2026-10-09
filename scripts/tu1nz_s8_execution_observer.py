@@ -63,7 +63,7 @@ def _file_bytes(path, parent_fd, *, expected, limit):
     before = c.protected(path)
     c.require(0 < before.st_size <= limit, "INPUT_SIZE_RED")
     fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
-    try:
+    with c.descriptor_scope(fd):
         c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)), "INPUT_DRIFT")
         payload = bytearray()
         while len(payload) < before.st_size:
@@ -74,8 +74,6 @@ def _file_bytes(path, parent_fd, *, expected, limit):
         c.protected(path)
         c.require(expected is None or hashlib.sha256(payload).hexdigest() == expected, "INPUT_DIGEST_RED")
         return bytes(payload)
-    finally:
-        os.close(fd)
 
 
 def service(unit):

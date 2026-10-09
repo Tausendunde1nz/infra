@@ -19,7 +19,7 @@ import socket
 import struct
 import subprocess
 
-from tu1nz_s8_execution_contract import canonical, hex_value, process_identity, require
+from tu1nz_s8_execution_contract import canonical, close_descriptors, close_members, close_preserving, descriptor_scope, hex_value, process_identity, require, resource_scope
 
 MAX_MESSAGE = 32768
 
@@ -88,8 +88,8 @@ def sealed_message(payload):
         require(fcntl.fcntl(fd, fcntl.F_GET_SEALS) == 15, "CHANNEL_SEAL_RED")
         os.lseek(fd, 0, os.SEEK_SET)
         return fd
-    except BaseException:
-        os.close(fd)
+    except BaseException as error:
+        close_descriptors(error, fd)
         raise
 
 
@@ -109,17 +109,17 @@ class AdmissionChannel:
         protect_process()
         self.runtime_unit = runtime_unit
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
-        self.server.settimeout(30)
         self.phase = "condition"
         self.invocation = None
         self.closed = False
         try:
+            self.server.settimeout(30)
             # Existing socket/path is an interruption, not a reason to unlink.
             self.server.bind(str(path))
             os.chmod(path, 0o600)
             self.server.listen(1)
-        except BaseException:
-            self.server.close()
+        except BaseException as error:
+            close_preserving(error, self)
             raise
 
     def accept_once(self, phase, authorize):
@@ -129,7 +129,7 @@ class AdmissionChannel:
         self.phase = "execute" if phase == "condition" else "closed"
         try:
             connection, _ = self.server.accept()
-            with connection:
+            with resource_scope(connection):
                 connection.settimeout(10)
                 data, ancillary, flags, _ = connection.recvmsg(MAX_MESSAGE + 1, 0)
                 require(not ancillary and flags == 0 and 0 < len(data) <= MAX_MESSAGE,
@@ -148,20 +148,18 @@ class AdmissionChannel:
                 require(bind_peer(connection, unit=self.runtime_unit, phase=phase, invocation=invocation)
                         == identity, "CHANNEL_PEER_CHANGED")
                 descriptor = sealed_message(response)
-                try:
+                with descriptor_scope(descriptor):
                     require(connection.sendmsg([b"S8-SEALED-ONE-SHOT"], [
                         (socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [descriptor]))
                     ]) == len(b"S8-SEALED-ONE-SHOT"), "CHANNEL_SEND_UNKNOWN_NO_RETRY")
-                finally:
-                    os.close(descriptor)
             return invocation
-        except BaseException:
-            self.close()
+        except BaseException as error:
+            close_preserving(error, self)
             raise
 
     def close(self):
         self.closed = True
-        self.server.close()
+        close_members(self, "server")
         # Never unlink a socket to manufacture a reusable phase.
 
 
@@ -170,7 +168,8 @@ def request_once(path: Path, *, coordinator_unit, phase, invocation):
     require(phase in {"condition", "execute"}, "CHANNEL_PHASE_RED")
     protect_process()
     descriptors = []
-    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC) as connection:
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
+    with resource_scope(connection):
         connection.settimeout(10)
         connection.connect(str(path))
         coordinator_invocation = properties(coordinator_unit)["InvocationID"]
@@ -178,6 +177,7 @@ def request_once(path: Path, *, coordinator_unit, phase, invocation):
                              invocation=coordinator_invocation)
         data = canonical(dict(phase=phase, invocation=invocation))
         require(connection.send(data) == len(data), "CHANNEL_SEND_UNKNOWN_NO_RETRY")
+        primary = None
         try:
             data, ancillary, flags, _ = connection.recvmsg(64, socket.CMSG_SPACE(4))
             for level, kind, value in ancillary:
@@ -190,6 +190,9 @@ def request_once(path: Path, *, coordinator_unit, phase, invocation):
             require(bind_peer(connection, unit=coordinator_unit, phase="coordinate",
                               invocation=coordinator_invocation) == identity, "CHANNEL_PEER_CHANGED")
             return read_sealed(descriptors[0])
+        except BaseException as error:
+            primary = error
+            raise
         finally:
-            for fd in descriptors:
-                os.close(fd)
+            owned, descriptors = descriptors, []
+            close_descriptors(primary, *owned)

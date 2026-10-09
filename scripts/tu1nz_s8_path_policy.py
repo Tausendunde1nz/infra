@@ -12,7 +12,7 @@ from pathlib import Path
 import stat
 import struct
 
-from tu1nz_s8_execution_contract import ContractError, close_preserving, failure_record, protected, require
+from tu1nz_s8_execution_contract import ContractError, close_preserving, descriptor_scope, failure_record, protected, require
 
 ACCESS = "system.posix_acl_access"
 DEFAULT = "system.posix_acl_default"
@@ -77,14 +77,12 @@ def parent_metadata(path, *, creation=False):
     path = Path(path)
     before = _parent_metadata(path, creation=creation)
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    try:
+    with descriptor_scope(fd):
         require(identity(before) == identity(os.fstat(fd)), "PARENT_IDENTITY_RED")
         require(not inode_flags(fd) & ~(0x80000 | 0x1000 | 0x20 | 0x10), "PARENT_FLAGS_RED")
         require(identity(before) == identity(os.fstat(fd)) ==
                 identity(_parent_metadata(path, creation=creation)), "PARENT_IDENTITY_RED")
         return before
-    finally:
-        os.close(fd)
 
 
 def identity(m):

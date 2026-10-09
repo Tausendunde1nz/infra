@@ -16,7 +16,7 @@ import select
 import struct
 import threading
 
-from tu1nz_s8_execution_contract import ContractError, close_preserving, failure_record, protected, require
+from tu1nz_s8_execution_contract import ContractError, close_descriptors, close_preserving, descriptor_scope, failure_record, protected, require
 
 
 EVENT=struct.Struct("=IBBHQii")
@@ -62,12 +62,14 @@ class NewJournalFence:
         protected(root,directory=True,mode=directory_mode)
         self.root=root
         self.directory=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        self.identity=(os.fstat(self.directory).st_dev,os.fstat(self.directory).st_ino)
+        self.identity=None
         self.owner_tid=threading.get_native_id()
         self.owner_pid=os.getpid()
         self.fd=None;self.events=None;self.thread=None
         self.failure=False;self.foreign=False;self.stop=threading.Event()
+        self.consumer_error=None
         try:
+            self.identity=(os.fstat(self.directory).st_dev,os.fstat(self.directory).st_ino)
             require(inode_flags(self.directory)&APPEND,"APPEND_ONLY_DIRECTORY_REQUIRED")
             require(not any(root.iterdir()),"NEW_EMPTY_JOURNAL_REQUIRED")
             libc=ctypes.CDLL(None,use_errno=True)
@@ -108,36 +110,35 @@ class NewJournalFence:
                     require(version==3 and EVENT.size<=meta<=length<=len(payload)-offset
                             and fd>=0 and mask&0x10000 and not mask&0x4000,"FANOTIFY_EVENT_RED")
                     offset+=length
-                    try:
+                    with descriptor_scope(fd):
                         allowed=tid==self.owner_tid and os.getpid()==self.owner_pid
                         if not allowed:self.foreign=True
                         require(os.write(self.fd,RESPONSE.pack(fd,1 if allowed else 2))==RESPONSE.size,
                                 "FANOTIFY_RESPONSE_RED")
-                    finally:os.close(fd)
-        except BaseException:
+        except BaseException as error:
+            self.consumer_error=error
             self.failure=True
             # A dead consumer must not leave permission requests blocked. The
             # failure latch precedes close; callers cannot publish authority
             # after the release. Existing partial records remain consuming.
             descriptor=self.fd
             self.fd=None
-            if descriptor is not None and descriptor>=0:
-                os.close(descriptor)
+            close_descriptors(error, descriptor)
 
     def check(self):
         require(os.getpid()==self.owner_pid and threading.get_native_id()==self.owner_tid,
                 "JOURNAL_WRITER_IDENTITY_RED")
+        if self.consumer_error is not None: raise self.consumer_error
         # Our own marked-directory open is a synchronous permission round trip.
         # It ensures the consumer is alive; it never authorizes a foreign open.
         require(self.thread is not None and self.thread.is_alive() and not self.failure,
                 "JOURNAL_GUARD_LOST")
         probe=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        try:
+        with descriptor_scope(probe):
             m=protected(self.root,directory=True,mode=self.directory_mode)
             require((m.st_dev,m.st_ino)==self.identity==
                     (os.fstat(probe).st_dev,os.fstat(probe).st_ino)
                     and inode_flags(probe)&APPEND,"JOURNAL_IDENTITY_RED")
-        finally:os.close(probe)
         require(not self.failure and not self.foreign,"JOURNAL_FOREIGN_OPEN_RED")
         try:events=os.read(self.events,65536)
         except BlockingIOError:events=b""

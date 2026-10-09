@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from tu1nz_s8_execution_contract import Journal, close_members, close_preserving, fingerprint, protected, require
+from tu1nz_s8_execution_contract import Journal, close_descriptors, close_members, close_preserving, descriptor_scope, fingerprint, protected, require
 from tu1nz_s8_journal_fence import (
     APPEND, IMMUTABLE, NewJournalFence, add_inode_protection, inode_flags,
 )
@@ -27,6 +27,7 @@ class ProtectedJournal:
         self.closed = False
         parent = os.open(root.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         directory = None
+        primary = None
         try:
             # The separately provisioned parent must already retain new names
             # against removal/rebinding. Mere root ownership is insufficient.
@@ -45,13 +46,18 @@ class ProtectedJournal:
             self.journal = Journal(root)
             self.check()
         except BaseException as error:
+            primary = error
             self.failed = True
             close_preserving(error, self)
             raise
         finally:
-            if directory is not None:
-                os.close(directory)
-            os.close(parent)
+            owned = (directory, parent)
+            directory = parent = None
+            try: close_descriptors(primary, *owned)
+            except BaseException as error:
+                self.failed = True
+                close_preserving(error, self)
+                raise
 
     def check(self):
         require(not self.closed and not self.failed, "JOURNAL_NO_AUTHORITY")
@@ -62,11 +68,9 @@ class ProtectedJournal:
                 m = protected(self.root / name, mode=0o600)
                 require(fingerprint(m) == identity, "JOURNAL_SEALED_RECORD_DRIFT")
                 fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.journal.fd)
-                try:
+                with descriptor_scope(fd):
                     require(fingerprint(os.fstat(fd)) == identity and inode_flags(fd) & IMMUTABLE,
                             "JOURNAL_SEALED_RECORD_DRIFT")
-                finally:
-                    os.close(fd)
             self.fence.check()
         except BaseException:
             self.failed = True
@@ -80,11 +84,9 @@ class ProtectedJournal:
             # already active before creation and denies every other thread.
             self.fence.check()
             fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.journal.fd)
-            try:
+            with descriptor_scope(fd):
                 add_inode_protection(fd, IMMUTABLE)
                 self.records[name] = fingerprint(os.fstat(fd))
-            finally:
-                os.close(fd)
             os.fsync(self.journal.fd)
             self.check()
             return result

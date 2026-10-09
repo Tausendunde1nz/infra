@@ -16,7 +16,7 @@ import re
 import stat
 import struct
 
-from tu1nz_s8_execution_contract import ContractError, Journal, canonical, close_members, close_preserving, failure_record, fingerprint, hex_value, protected, require
+from tu1nz_s8_execution_contract import ContractError, Journal, canonical, close_members, close_preserving, descriptor_scope, failure_record, fingerprint, hex_value, protected, require
 from tu1nz_s8_journal_fence import APPEND, IMMUTABLE, NewJournalFence, add_inode_protection, inode_flags
 from tu1nz_s8_path_policy import PathChain, parent_metadata
 
@@ -110,12 +110,11 @@ class NewStock:
             self.witness.check(require_creation=True)
             directory = os.open(root.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                                 dir_fd=self.witness.chain.fd)
-            try:
+            with descriptor_scope(directory):
                 m = protected(root, directory=True, mode=0o700)
                 require(fingerprint(m) == fingerprint(os.fstat(directory)), "STOCK_IDENTITY_RED")
                 add_inode_protection(directory, APPEND)
                 self.identity = os.fstat(directory).st_dev, os.fstat(directory).st_ino
-            finally: os.close(directory)
             self.witness.check(require_creation=True)
             self.fence = NewJournalFence(root)
             self.journal = Journal(root)
@@ -130,10 +129,9 @@ class NewStock:
     def _seal_file(self, name):
         self.fence.check()
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.journal.fd)
-        try:
+        with descriptor_scope(fd):
             add_inode_protection(fd, IMMUTABLE)
             self.records[name] = fingerprint(os.fstat(fd))
-        finally: os.close(fd)
         os.fsync(self.journal.fd)
 
     def check(self):
@@ -159,13 +157,12 @@ class NewStock:
                     and hashlib.sha256(data).hexdigest() == self.files[name]["sha256"], "STOCK_INPUT_RED")
             fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                          0o600, dir_fd=self.journal.fd)
-            try:
+            with descriptor_scope(fd):
                 remaining = memoryview(data)
                 while remaining:
                     count = os.write(fd, remaining)
                     require(count > 0, "STOCK_WRITE_RED"); remaining = remaining[count:]
                 os.fsync(fd)
-            finally: os.close(fd)
             self._seal_file(name)
             self.check()
         except BaseException:
@@ -179,12 +176,11 @@ class NewStock:
             if self.state_directory:
                 os.mkdir("state", mode=0o700, dir_fd=self.journal.fd)
                 child = os.open("state", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=self.journal.fd)
-                try:
+                with descriptor_scope(child):
                     protected(self.root / "state", directory=True, mode=0o700)
                     require(not os.listdir(child), "STOCK_STATE_NOT_EMPTY")
                     add_inode_protection(child, APPEND)
                     state_identity = os.fstat(child).st_dev, os.fstat(child).st_ino
-                finally: os.close(child)
             self.fence.check(); self.witness.check(require_creation=True)
             add_inode_protection(self.journal.fd, IMMUTABLE)
             self.fence.check(); self.witness.check(require_creation=True)

@@ -136,3 +136,19 @@ original exception including any separate abort record. Cleanup-only failure
 remains RED. Portable multi-error cases and native real-FD/lost-acknowledgement
 and constructor-failure regressions cover this correction, not namespace Q.
 This correction requires new exact-head CI/review; earlier GREEN is historical.
+
+A subsequent exact-head review found the same masking pattern in parent
+metadata and the protected-journal constructor's final descriptors. The shared
+descriptor/resource scopes now preserve the body's primary error, attempt all
+owned closes independently, and make cleanup-only failure RED. This also
+replaces that identical pattern in adjacent S8 journal, stock, authenticated
+input, mount/image and handoff lifetimes. Descriptor/owner references are
+detached before ambiguous closes; sealed-image ownership is transferred only
+after its input closed successfully. Redaction failure cannot skip cleanup.
+Synthetic portable faults and real native metadata/journal/sealed-FD cases
+cover primary, abort, multiple cleanup, consumed-name retention and no retry.
+No admission, rights predicate, host path, privilege or namespace-Q test changes.
+The worker retains its original failure and mounted-image cleanup never
+unmounts a foreign object or treats an ambiguous close as successful release.
+New exact-head native CI and independent review remain required; these local
+fault injections are not host acceptance or a rerun of the historical Q probe.

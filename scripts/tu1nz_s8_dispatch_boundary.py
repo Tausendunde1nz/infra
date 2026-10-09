@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import socket
 
-from tu1nz_s8_execution_contract import canonical, digest, hex_value, process_identity, require
+from tu1nz_s8_execution_contract import canonical, close_descriptors, close_members, close_preserving, descriptor_scope, digest, hex_value, process_identity, require, resource_scope
 from tu1nz_s8_admission_channel import (
     bind_peer, peer, properties, protect_process, read_sealed, sealed_message,
 )
@@ -42,19 +42,19 @@ class DispatchBoundary:
             self.server.bind(str(parent / "dispatch.sock"))
             os.chmod(parent / "dispatch.sock", 0o600)
             self.server.listen(1)
-        except BaseException:
-            self.close()
+        except BaseException as error:
+            close_preserving(error, self)
             raise
 
     def issue_once(self, start):
         require(not self.used, "DISPATCH_ALREADY_CONSUMED")
         self.used = True
-        try:
+        with resource_scope(self):
             self.journal.check()
             # No retry or second call after an exception/ambiguous result.
             result = start()
             connection, _ = self.server.accept()
-            with connection:
+            with resource_scope(connection):
                 connection.settimeout(10)
                 raw, ancillary, flags, _ = connection.recvmsg(4096, 0)
                 value = json.loads(raw)
@@ -74,22 +74,15 @@ class DispatchBoundary:
                 require(bind_peer(connection, unit=self.coordinator, phase="coordinate",
                                   invocation=value["invocation"]) == identity, "DISPATCH_PEER_DRIFT")
                 descriptor = sealed_message(canonical(receipt))
-                try:
+                with descriptor_scope(descriptor):
                     require(connection.sendmsg([b"S8-DISPATCH-ONCE"], [
                         (socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [descriptor]))
                     ]) == len(b"S8-DISPATCH-ONCE"), "DISPATCH_SEND_UNKNOWN_NO_RETRY")
-                finally:
-                    os.close(descriptor)
             self.journal.handoff()
             return result
-        finally:
-            self.close()
 
     def close(self):
-        if self.server is not None:
-            self.server.close()
-        if self.journal is not None:
-            self.journal.close()
+        close_members(self, "server", "journal")
         # No unlink, flag removal, reset or adoption API.
 
 
@@ -102,7 +95,8 @@ def receive_once(parent: Path, *, coordinator: str, owner: dict, binding_sha256:
     require(state["MainPID"] == str(os.getpid()) and state["ActiveState"] == "activating"
             and state["NRestarts"] == "0", "DISPATCH_COORDINATOR_ROLE_RED")
     descriptors = []
-    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC) as connection:
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
+    with resource_scope(connection):
         connection.settimeout(10)
         try:
             connection.connect(str(parent / "dispatch.sock"))
@@ -111,6 +105,7 @@ def receive_once(parent: Path, *, coordinator: str, owner: dict, binding_sha256:
         require(peer(connection) == owner, "DISPATCH_OWNER_DRIFT")
         request = canonical(dict(invocation=state["InvocationID"], binding_sha256=binding_sha256))
         require(connection.send(request) == len(request), "DISPATCH_SEND_UNKNOWN_NO_RETRY")
+        primary = None
         try:
             raw, ancillary, flags, _ = connection.recvmsg(64, socket.CMSG_SPACE(4))
             for level, kind, value in ancillary:
@@ -129,5 +124,9 @@ def receive_once(parent: Path, *, coordinator: str, owner: dict, binding_sha256:
             require(peer(connection) == owner and properties(coordinator) == state,
                     "DISPATCH_PEER_DRIFT")
             return value
+        except BaseException as error:
+            primary = error
+            raise
         finally:
-            for fd in descriptors: os.close(fd)
+            owned, descriptors = descriptors, []
+            close_descriptors(primary, *owned)
