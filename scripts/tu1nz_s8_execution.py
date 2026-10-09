@@ -68,6 +68,9 @@ def stock(config):
 
 
 def environment_unchanged(config):
+    # Refuse fresh acceptance if PID 1 no longer reports the installed guard.
+    # A point-in-time read is not the still-open durable namespace proof.
+    observer.installed_start_guard(observer.service(c.UNIT))
     c.require(observer.history() == config["baseline"]["history"], "HISTORICAL_STATE_CHANGED")
     observer.file_bytes(observer.BASE_UNIT, expected=observer.BASE_UNIT_SHA256)
     current = observer.public_health()

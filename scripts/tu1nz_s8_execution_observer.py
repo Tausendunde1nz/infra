@@ -88,6 +88,20 @@ def service(unit):
     return dict(rows)
 
 
+def installed_start_guard(state):
+    """Reject an observed loss of the loaded interlock; not a durable fence.
+
+    A protected drop-in inode need not remain visible to PID 1. This check
+    grants no start authority and cannot prove check-to-use or post-process
+    namespace protection. Those remain separate mandatory evidence gates.
+    """
+    c.require(state.get("FragmentPath") == str(BASE_UNIT)
+              and state.get("NeedDaemonReload") == "no"
+              and state.get("DropInPaths") == str(BASE_UNIT)+".d/00-atomic-admission.conf"
+              and state.get("Restart") == "no" and state.get("RefuseManualStart") == "yes",
+              "INSTALLED_ADMISSION_CONTRACT_RED")
+
+
 def history():
     result = {name: hashlib.sha256(file_bytes(HISTORY/name, expected=wanted)).hexdigest()
               for name, wanted in HISTORY_HASHES.items()}
@@ -198,6 +212,8 @@ def failed_precondition(*, installed=False):
               and state["MainPID"] == state["ControlPID"] == state["NRestarts"] == "0"
               and state["InvocationID"] == c.FAILED_INVOCATION and state["NeedDaemonReload"] == "no"
               and state["FragmentPath"] == str(BASE_UNIT), "INCIDENT_STATE_CHANGED")
+    if installed:
+        installed_start_guard(state)
     c.require(not recognized_pollers(), "COMPETING_POLLER")
     if not installed:
         c.require(state["DropInPaths"] == "" and not os.path.lexists(ROOT), "PREEXISTING_EXECUTION_STOCK")

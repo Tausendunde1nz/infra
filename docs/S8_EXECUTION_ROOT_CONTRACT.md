@@ -1,5 +1,82 @@
 # S8 isolated execution root — status and historical construction checkpoints
 
+## Status delta 2026-10-09: defensive draft, mandatory proof still OPEN
+
+The preceding R2 candidate at Control
+`1f10812959ba48d010f46682c0d51280deefad2f` and Application
+`e0070ef37285d714973462bccd9347f8256b93cc` completed CI (37502514195 and
+37501613415) and regular exact-head reviews without findings. Those results
+remain historical evidence; they do not cover this new draft or close the
+additional systemd namespace protection gate. PR219 and PR126 remain open;
+no R2 merge or freeze has occurred. Older pending/unreviewed wording below
+is a construction checkpoint, not a denial of those completed reviews.
+
+An isolated synthetic component showed a protected drop-in still present on
+its original inode but absent from PID 1's loaded configuration after ancestor
+replacement and reload. Its base unit was under `/run/systemd/system`, unlike
+the actual S8 base under `/etc/systemd/system`. Persistent visibility is
+falsified for that tested arrangement; transfer to S8 and a complete
+admission/lease bypass are NOT PROVEN. The investigation remains
+OPEN / PLATFORM_BLOCKED and must not be repeated or relabelled as a fix test.
+
+This draft reuses the installer's existing loaded-guard requirements in the
+installed observer precondition, including the coordinator's last observation
+before its dependency-start request. It also checks them during the runtime
+environment observation before lease admission and fresh acceptance. The
+exact fragment, no pending reload, sole expected drop-in, `Restart=no`, and
+`RefuseManualStart=yes` are required. Observed loss rejects; it creates no new
+authority, fallback, replay permission or cleanup exception.
+
+These reads are **point-in-time checks, not a namespace fence**. A change after
+the read, an unobserved change restored before the read, or guard loss after
+the coordinator ends is not excluded. An unguarded entry would not execute
+the anchor check; the anchor is not a substitute for enforcing that entry.
+No complete correction of persistent visibility is claimed. The narrow
+in-memory adapter/orchestration regressions do not execute systemd, ancestor
+replacement, PostgreSQL or providers. Native candidate integration and a new
+exact-delta review remain required; old CI/reviews cannot be transferred.
+
+No new host path, parent protection, privilege, root-trust exception or threat
+model change is introduced. `/tu1nz-s8-admission-anchor-v1` remains the sole
+planned path exception; historical evidence and tags are unchanged. Any
+proposal to protect existing ancestors or move the enforcement boundary needs
+an explicit scope decision before implementation. Live and R15 remain NO-GO;
+R15 pause compatibility OPEN, historical cause UNKNOWN, S9/S10/S11 and product
+gates separately retained. This draft is not an executable live release.
+
+### Defensive analysis and CI/review boundary
+
+The five loaded-property checks detect a reported loss; they do not
+authenticate every loaded execution directive or bind all of PID 1's input
+namespace. Protecting only the existing drop-in's inode cannot establish that
+the manager will continue to resolve its canonical path after the witness
+ends. No complete in-scope persistent correction is demonstrated by Source
+analysis. The actual S8 arrangement's behavior remains an unperformed,
+mandatory proof, not a claim of a complete bypass.
+
+For the saved component's ancestor problem, an additional protection contract
+would at least have to cover `/etc`, `/etc/systemd`, and
+`/etc/systemd/system`, not only the leaf. Applying append-only/immutable
+directory protection there is NOT authorized: it affects unrelated config and
+unit rename/removal workflows and would need exact metadata/flag backups,
+filesystem prerequisites, maintenance ownership, abort/restore rules, and
+isolated proof. It is a scope proposal, not a complete accepted solution.
+Systemd also loads other paths, aliases and prefix/type drop-ins; these cannot
+silently be assumed trusted merely because the canonical leaf is protected.
+The official [systemd v255 unit contract](https://github.com/systemd/systemd/blob/v255/man/systemd.unit.xml)
+documents these resolution inputs. Actual host path/version configuration
+has not been re-observed in this Source-only session.
+
+The authorized existing Control native runner and private Application capsule
+runner do not contain the blocked systemd ancestor/reload investigation.
+Their older `/etc/tu1nz` anchor-rebinding case is a different retained
+regression; the legacy base-restore component leaves the protected drop-in
+visible. Neither is coverage of the missing systemd namespace property.
+Ordinary candidate CI and independent review may proceed on this partial
+correction, with that mandatory gate still OPEN / PLATFORM_BLOCKED. Review
+must assess remaining guard gaps and evidence limits without executing or
+delegating the blocked investigation. No merge or freeze in this session.
+
 ## Status delta 2026-10-06: R1 source closed; R2 source work in progress
 
 The INCOMPLETE/pending/not-yet-accepted statements below are preserved
