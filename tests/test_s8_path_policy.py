@@ -14,6 +14,64 @@ import tu1nz_s8_path_policy as policy
 from tu1nz_s8_existing_dropin import ExistingDropinStock
 from tu1nz_s8_protected_journal import ProtectedJournal
 from tu1nz_s8_journal_fence import APPEND, add_inode_protection
+from tu1nz_s8_new_stock import ParentCreationWitness
+
+
+class PathCleanupTests(unittest.TestCase):
+    """Fault injection only; not the blocked systemd namespace experiment."""
+    def witness(self):
+        witness = object.__new__(policy.PathChain)
+        witness.events, witness.descriptors = 101, [102, 103]
+        witness.failed = False
+        return witness
+
+    def test_all_closes_attempted_redacted_once_no_retry(self):
+        witness = self.witness()
+        with patch.object(policy.os, "close", side_effect=OSError("private-path-and-secret")) as close:
+            with self.assertRaisesRegex(c.ContractError, "PATH_WITNESS_CLEANUP_RED") as result:
+                witness.close()
+            self.assertEqual([call.args[0] for call in close.call_args_list], [101, 103, 102])
+            self.assertEqual(result.exception._s8_cleanup_errors,
+                             [dict(type="OSError", code="UNKNOWN")]*3)
+            witness.close()
+            self.assertEqual(close.call_count, 3)
+        self.assertIsNone(witness.events)
+        self.assertEqual(witness.descriptors, [])
+        self.assertTrue(witness.failed)
+
+    def test_body_primary_and_abort_survive_multiple_cleanup_errors(self):
+        witness = self.witness()
+        primary = c.ContractError("S8_EXECUTION_PRIMARY_RED")
+        primary._s8_abort_error = dict(type="ContractError", code="S8_EXECUTION_ABORT_RED")
+        with patch.object(policy.os, "close", side_effect=OSError("private")):
+            with self.assertRaises(c.ContractError) as result:
+                with witness: raise primary
+        self.assertIs(result.exception, primary)
+        self.assertEqual(primary._s8_abort_error["code"], "S8_EXECUTION_ABORT_RED")
+        self.assertEqual(primary._s8_cleanup_errors[0]["code"], "S8_EXECUTION_PATH_WITNESS_CLEANUP_RED")
+        self.assertEqual(primary._s8_cleanup_errors[1:], [dict(type="OSError", code="UNKNOWN")]*3)
+
+    def test_final_integrity_check_failure_not_replaced(self):
+        witness = self.witness()
+        primary = c.ContractError("S8_EXECUTION_PARENT_IDENTITY_RED")
+        with patch.object(witness, "check", side_effect=primary), \
+                patch.object(policy.os, "close", side_effect=OSError("private")):
+            with self.assertRaises(c.ContractError) as result:
+                with witness: pass
+        self.assertIs(result.exception, primary)
+        self.assertEqual(len(primary._s8_cleanup_errors), 4)
+
+    def test_parent_creation_closes_both_resources_and_preserves_nested_errors(self):
+        chain = self.witness()
+        witness = object.__new__(ParentCreationWitness)
+        witness.fd, witness.chain = 104, chain
+        with patch.object(policy.os, "close", side_effect=OSError("private")) as close:
+            with self.assertRaisesRegex(c.ContractError, "STOCK_PARENT_CLEANUP_RED") as result:
+                witness.close()
+            self.assertEqual([call.args[0] for call in close.call_args_list], [104, 101, 103, 102])
+            self.assertEqual(len(result.exception._s8_cleanup_errors), 5)
+            witness.close()
+            self.assertEqual(close.call_count, 4)
 
 
 @unittest.skipUnless(sys.platform == "linux" and os.geteuid() == 0 and
@@ -119,6 +177,42 @@ class PathPolicyTests(unittest.TestCase):
         (dropin/"foreign.conf").write_bytes(b"foreign")
         with self.assertRaisesRegex(c.ContractError,"NOT_EMPTY"):
             policy.dropin_snapshot(dropin)
+
+    def test_native_lost_close_acknowledgements_preserve_primary_and_close_every_fd(self):
+        witness = policy.PathChain(self.root)
+        owned = [witness.events, *witness.descriptors]
+        actual_close = os.close
+        primary = c.ContractError("S8_EXECUTION_PARENT_IDENTITY_RED")
+        def lost_ack(fd):
+            actual_close(fd)
+            raise OSError("synthetic lost acknowledgement; private details")
+        with patch.object(policy.os, "close", side_effect=lost_ack) as close:
+            with self.assertRaises(c.ContractError) as result:
+                with witness: raise primary
+            self.assertIs(result.exception, primary)
+            self.assertCountEqual([call.args[0] for call in close.call_args_list], owned)
+            self.assertEqual(primary._s8_cleanup_errors[1:],
+                             [dict(type="OSError", code="UNKNOWN")]*len(owned))
+            witness.close()
+            self.assertEqual(close.call_count, len(owned))
+        for fd in owned:
+            with self.assertRaises(OSError): os.fstat(fd)
+
+    def test_native_constructor_primary_survives_cleanup_failure(self):
+        primary = c.ContractError("S8_EXECUTION_PARENT_METADATA_RED")
+        actual_close = os.close
+        closed = []
+        def lost_ack(fd):
+            actual_close(fd); closed.append(fd)
+            raise OSError("private details")
+        with patch.object(policy, "parent_metadata", side_effect=primary), \
+                patch.object(policy.os, "close", side_effect=lost_ack):
+            with self.assertRaises(c.ContractError) as result: policy.PathChain(self.root)
+        self.assertIs(result.exception, primary)
+        self.assertEqual(len(closed), 2)  # real inotify and first ancestor FD
+        self.assertEqual(primary._s8_cleanup_errors[1:], [dict(type="OSError", code="UNKNOWN")]*2)
+        for fd in closed:
+            with self.assertRaises(OSError): os.fstat(fd)
 
 
 if __name__ == "__main__": unittest.main()

@@ -124,3 +124,15 @@ trees, post-merge CI, and a new create-only Source freeze with exact model,
 sources/image/configuration/history and review/CI provenance. Historical tags
 remain unchanged. Correct status is **Source GREEN under changed model** only
 after those gates, never original-Q GREEN or current host/live acceptance.
+
+## Review correction: path-witness cleanup provenance
+
+Review of Control `22cf352fa85d98a0f8faa55a51858ead4ffa2aeb` identified a
+descriptor-close error that could stop remaining closes or mask the original
+integrity failure. Path-chain and parent-creation witnesses now attempt every
+owned resource once, detach each descriptor before close (no ambiguous-close
+retry on a reused FD), aggregate redacted cleanup errors, and preserve the
+original exception including any separate abort record. Cleanup-only failure
+remains RED. Portable multi-error cases and native real-FD/lost-acknowledgement
+and constructor-failure regressions cover this correction, not namespace Q.
+This correction requires new exact-head CI/review; earlier GREEN is historical.

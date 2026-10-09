@@ -16,7 +16,7 @@ import re
 import stat
 import struct
 
-from tu1nz_s8_execution_contract import Journal, canonical, close_members, close_preserving, fingerprint, hex_value, protected, require
+from tu1nz_s8_execution_contract import ContractError, Journal, canonical, close_members, close_preserving, failure_record, fingerprint, hex_value, protected, require
 from tu1nz_s8_journal_fence import APPEND, IMMUTABLE, NewJournalFence, add_inode_protection, inode_flags
 from tu1nz_s8_path_policy import PathChain, parent_metadata
 
@@ -41,8 +41,8 @@ class ParentCreationWitness:
             # Own parent relocation/removal/metadata + direct child changes.
             self.wd = libc.inotify_add_watch(self.fd, os.fsencode(parent), 0x00000fc4)
             require(self.wd >= 0, "STOCK_PARENT_WATCH_REQUIRED")
-        except BaseException:
-            self.close(); raise
+        except BaseException as error:
+            close_preserving(error, self); raise
 
     def check(self, *, require_creation=False):
         self.chain.check()
@@ -68,11 +68,15 @@ class ParentCreationWitness:
         require(not require_creation or self.created, "STOCK_CREATE_NOT_OBSERVED")
 
     def close(self):
-        try:
-            if self.fd is not None and self.fd >= 0:
-                os.close(self.fd); self.fd = None
-        finally:
-            self.chain.close()
+        failure = ContractError("S8_EXECUTION_STOCK_PARENT_CLEANUP_RED")
+        failure._s8_cleanup_errors = []
+        fd, self.fd = self.fd, None
+        chain, self.chain = self.chain, None
+        if fd is not None and fd >= 0:
+            try: os.close(fd)
+            except BaseException as error: failure._s8_cleanup_errors.append(failure_record(error))
+        close_preserving(failure, chain)
+        if failure._s8_cleanup_errors: raise failure
 
 
 class NewStock:

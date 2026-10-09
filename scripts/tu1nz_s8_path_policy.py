@@ -12,7 +12,7 @@ from pathlib import Path
 import stat
 import struct
 
-from tu1nz_s8_execution_contract import protected, require
+from tu1nz_s8_execution_contract import ContractError, close_preserving, failure_record, protected, require
 
 ACCESS = "system.posix_acl_access"
 DEFAULT = "system.posix_acl_default"
@@ -151,8 +151,8 @@ class PathChain:
                 self.nodes.append((wd, path, fd, identity(m), os.fsencode(target) if target else None,
                                    creation and index+1 == len(paths)))
                 self.check()
-        except BaseException:
-            self.close()
+        except BaseException as error:
+            close_preserving(error, self)
             raise
 
     @property
@@ -184,17 +184,33 @@ class PathChain:
             raise
 
     def close(self):
-        if self.events is not None:
-            os.close(self.events)
-            self.events = None
+        # Relinquish each descriptor before attempting close. An interrupted or
+        # ambiguously acknowledged close must never be retried on a reused FD.
+        errors = []
+        events, self.events = self.events, None
+        self.failed = True
+        if events is not None:
+            try: os.close(events)
+            except BaseException as error: errors.append(failure_record(error))
         while self.descriptors:
-            os.close(self.descriptors.pop())
+            fd = self.descriptors.pop()
+            try: os.close(fd)
+            except BaseException as error: errors.append(failure_record(error))
+        if errors:
+            error = ContractError("S8_EXECUTION_PATH_WITNESS_CLEANUP_RED")
+            error._s8_cleanup_errors = errors
+            raise error
 
     def __enter__(self):
         return self
 
     def __exit__(self, kind, value, trace):
+        if value is not None:
+            close_preserving(value, self)
+            return False
         try:
-            if kind is None: self.check()
-        finally:
-            self.close()
+            self.check()
+        except BaseException as error:
+            close_preserving(error, self)
+            raise
+        self.close()
