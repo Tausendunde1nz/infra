@@ -1,6 +1,7 @@
 """Durable local protocol tests; these do not claim integrated/live admission."""
 from datetime import datetime,timedelta,timezone
 import json
+import copy
 import os
 from pathlib import Path
 import tempfile
@@ -16,12 +17,85 @@ INVOCATION="1"*32
 
 
 def binding():return dict(freeze_sha256="a"*64,image_sha256="b"*64)
-def grant():return dict(schema="TU1NZ_S8_EXECUTION_GRANT_V1",slot=c.SLOT,
+def accepted_inventory(value):
+    """Synthetic parser fixture, NEVER a rights inventory or live acceptance."""
+    def actor(identity, role, uid, write):
+        return dict(identity_sha256=identity*64, role=role, uid=uid,
+                    authorization_sha256="4"*64, evidence_sha256="5"*64,
+                    namespace_write=write, manager_api=write, helper_api=write)
+    return dict(schema="TU1NZ_S8_SYSTEMD_ACCEPTANCE_V1", model=c.SYSTEMD_MODEL, slot=c.SLOT,
+                freeze_sha256=value["freeze_sha256"], host_sha256=c.digest(value["host"]),
+                observed_at=value["issued_at"], expires_at=value["expires_at"],
+                inventory_complete=True, maintenance_excluded=True,
+                evidence={name:"6"*64 for name in c.SYSTEMD_INVENTORY_SCOPES},
+                actors=[actor("1", "ADMINISTRATOR", 0, True), actor("2", "NONADMIN_SERVICE", 0, False)])
+
+
+def grant():
+    value=dict(schema="TU1NZ_S8_EXECUTION_GRANT_V3",slot=c.SLOT,
                        incident_invocation=c.FAILED_INVOCATION,freeze_sha256="a"*64,
                        image_sha256="b"*64,human_authorization_sha256="c"*64,
+                       host=dict(machine_sha256="d"*64, mount_sha256="e"*64,
+                                 boot_id="11111111-1111-1111-1111-111111111111",
+                                 root_identity=[1,2],namespace_identity=[3,4]),
+                       provisioner=dict(pid=123,start_ticks=456,uid=0,
+                                        boot_id="11111111-1111-1111-1111-111111111111"),
                        issued_at=NOW.isoformat(),expires_at=(NOW+timedelta(hours=1)).isoformat())
+    value["systemd_acceptance"]=accepted_inventory(value)
+    return value
 def lease():return dict(release=c.LEASE_RELEASE,owner=None,expires=None,revision=c.LEASE_REVISION,
                        last_poll=c.LAST_POLL,updated=c.LAST_UPDATE,code="BOT_POLLER_NOT_RUNNING")
+
+
+class AdministrationTests(unittest.TestCase):
+    def check(self, value): c.grant_check(value, binding(), NOW)
+
+    def test_explicit_roles_not_uid_zero_determine_parser_admission(self):
+        value=grant(); self.check(value)
+        self.assertEqual(value["systemd_acceptance"]["actors"][1]["uid"],0)
+        # UID0 helper is allowed only with positively evidenced NO authority.
+        for field in ("namespace_write","manager_api","helper_api"):
+            changed=copy.deepcopy(value); changed["systemd_acceptance"]["actors"][1][field]=True
+            with self.subTest(field=field),self.assertRaisesRegex(c.ContractError,"NONADMIN_AUTHORITY_RED"):
+                self.check(changed)
+
+    def test_missing_old_incomplete_or_unknown_acceptance_denies(self):
+        for change in (lambda v:v.pop("systemd_acceptance"),
+                lambda v:v.update(schema="TU1NZ_S8_EXECUTION_GRANT_V2"),
+                lambda v:v["systemd_acceptance"].update(inventory_complete=False),
+                lambda v:v["systemd_acceptance"].update(maintenance_excluded=False),
+                lambda v:v["systemd_acceptance"].update(actors=[]),
+                lambda v:v["systemd_acceptance"]["actors"][0].update(role="ROOT"),
+                lambda v:v["systemd_acceptance"]["actors"][1].update(namespace_write="UNKNOWN")):
+            value=grant();change(value)
+            with self.assertRaises(c.ContractError):self.check(value)
+        for scope in c.SYSTEMD_INVENTORY_SCOPES:
+            for changed in (None,"UNKNOWN","0"*64):
+                value=grant()
+                if changed is None:del value["systemd_acceptance"]["evidence"][scope]
+                else:value["systemd_acceptance"]["evidence"][scope]=changed
+                with self.subTest(scope=scope),self.assertRaises(c.ContractError):self.check(value)
+
+    def test_contradictory_duplicate_actor_and_no_named_administrator_denies(self):
+        for change in (lambda a:a.append(copy.deepcopy(a[0])),
+                lambda a:a[0].update(role="NONADMIN_SERVICE"),
+                lambda a:a[1].update(role="ADMINISTRATOR"),
+                lambda a:a[0].update(authorization_sha256="UNKNOWN")):
+            value=grant();change(value["systemd_acceptance"]["actors"])
+            with self.assertRaises(c.ContractError):self.check(value)
+
+    def test_host_freeze_slot_and_model_are_independently_bound(self):
+        for field,changed in (("host_sha256","7"*64),("freeze_sha256","8"*64),
+                ("slot","new-slot"),("model","old-model")):
+            value=grant();value["systemd_acceptance"][field]=changed
+            with self.subTest(field=field),self.assertRaises(c.ContractError):self.check(value)
+
+    def test_stale_future_expired_or_overlong_acceptance_denies(self):
+        for field,changed in (("observed_at",NOW-timedelta(seconds=301)),
+                ("observed_at",NOW+timedelta(seconds=1)),("expires_at",NOW),
+                ("expires_at",NOW+timedelta(days=2))):
+            value=grant();value["systemd_acceptance"][field]=changed.isoformat()
+            with self.subTest(field=field),self.assertRaises(c.ContractError):self.check(value)
 
 
 @unittest.skipUnless(sys.platform=="linux", "native Linux ACL/journal semantics required")

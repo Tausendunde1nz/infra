@@ -13,7 +13,7 @@ from tu1nz_s8_execution_observer import HISTORY_HASHES, BASE_UNIT_SHA256
 
 
 def sample():
-    return dict(schema="TU1NZ_S8_EXECUTION_FREEZE_V1", control=dict(commit="1"*40, tree="2"*40),
+    return dict(schema="TU1NZ_S8_EXECUTION_FREEZE_V2", security_model=c.security_model(), control=dict(commit="1"*40, tree="2"*40),
         application=dict(commit="3"*40, tree="4"*40), image=dict(sha256="5"*64, size=1024, metadata_sha256="6"*64),
         sources={name: "7"*64 for name in ("runtime.py", "polling.py", "recovery_admission.py")},
         control_sources={name: "8"*64 for name in release.SOURCE_NAMES},
@@ -36,6 +36,17 @@ def tag(value):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_model_is_explicit_and_never_makes_original_q_or_host_green(self):
+        for key in c.security_model():
+            value=sample(); del value["security_model"][key]
+            with self.subTest(key=key), self.assertRaises(c.ContractError): release.validate(value)
+        for key, changed in (("blanket_root_exception", True), ("nonadmin_namespace_authority", True),
+                ("original_q", "GREEN"), ("host_acceptance", "GREEN"), ("original_full_bypass", "PROVEN")):
+            value=sample(); value["security_model"][key]=changed
+            with self.subTest(key=key), self.assertRaises(c.ContractError): release.validate(value)
+        value=sample(); value["schema"]="TU1NZ_S8_EXECUTION_FREEZE_V1"
+        with self.assertRaises(c.ContractError): release.validate(value)
+
     def test_exact_object_and_separate_release_roles(self):
         value = sample()
         raw, identity = tag(value)

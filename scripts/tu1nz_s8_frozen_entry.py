@@ -17,15 +17,17 @@ import zlib
 
 MODULES = (
     "tu1nz_s8_execution_contract",
+    "tu1nz_s8_path_policy",
     "tu1nz_s8_journal_fence",
     "tu1nz_s8_protected_journal",
+    "tu1nz_s8_anchor",
     "tu1nz_s8_admission_channel",
     "tu1nz_s8_sealed_root",
     "tu1nz_s8_runtime_interfaces",
     "tu1nz_s8_execution_observer",
     "tu1nz_s8_dispatch_boundary",
 )
-INSTALLER_MODULES = (*MODULES, "tu1nz_s8_execution", "tu1nz_s8_new_stock", "tu1nz_s8_execution_units",
+INSTALLER_MODULES = (*MODULES, "tu1nz_s8_execution", "tu1nz_s8_new_stock", "tu1nz_s8_existing_dropin", "tu1nz_s8_anchor_bootstrap", "tu1nz_s8_execution_units",
     "tu1nz_s8_frozen_entry", "tu1nz_s8_execution_release", "tu1nz_s8_provision", "tu1nz_s8_installer_entry")
 
 

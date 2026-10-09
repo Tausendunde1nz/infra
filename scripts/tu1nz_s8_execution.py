@@ -16,6 +16,7 @@ import sys
 import time
 
 import tu1nz_s8_execution_contract as c
+import tu1nz_s8_anchor as anchor
 import tu1nz_s8_sealed_root as sealed
 import tu1nz_s8_execution_observer as observer
 from tu1nz_s8_admission_channel import AdmissionChannel, properties, request_once
@@ -29,19 +30,21 @@ def stock(config):
     """No caller-supplied path choices or adoption of a previously made stock."""
     c.require(type(config) is dict and set(config) == {
         "schema", "root_identity", "state_identity", "files", "coordinator", "dispatcher",
-        "binding", "grant", "baseline", "runtime_uid", "runtime_gid"}
+        "binding", "grant", "baseline", "runtime_uid", "runtime_gid", "anchor"}
         and config["schema"] == "TU1NZ_S8_FROZEN_INVOCATION_V1", "INVOCATION_CONFIGURATION_RED")
     c.require(config["coordinator"] == "tu1nz-s8-execution-coordinator-r1.service", "COORDINATOR_BINDING_RED")
+    c.require(anchor.validate(config["anchor"], binding=config["binding"], grant=config["grant"],
+              dispatcher=config["dispatcher"]) == {k: v for k, v in config.items() if k != "anchor"},
+              "ANCHOR_EXECUTION_OBJECTS_RED")
     root = observer.ROOT
     for path, expected, flags in ((root, config["root_identity"], APPEND|IMMUTABLE),
                                   (root/"state", config["state_identity"], APPEND)):
         meta = c.protected(path, directory=True, mode=0o700)
         c.require([meta.st_dev, meta.st_ino] == expected, "STOCK_IDENTITY_RED")
         fd = os.open(path, os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        try:
+        with c.descriptor_scope(fd):
             c.require((os.fstat(fd).st_dev, os.fstat(fd).st_ino) == (meta.st_dev, meta.st_ino)
                       and inode_flags(fd) & flags == flags, "STOCK_PROTECTION_RED")
-        finally: os.close(fd)
     required = {"capsule.squashfs", "freeze.json", "grant.json", "baseline.json", "historical-unit.txt",
                 "resolv.conf", *CONFIG_NAMES}
     c.require(set(config["files"]) == required and set(os.listdir(root)) == required|{"stock-plan.json", "state"},
@@ -51,8 +54,7 @@ def stock(config):
         spec = config["files"][name]
         c.require(meta.st_size == spec["size"], "STOCK_INPUT_RED")
         fd = os.open(root/name, os.O_RDONLY|os.O_NOFOLLOW)
-        try: c.require(inode_flags(fd) & IMMUTABLE, "STOCK_PROTECTION_RED")
-        finally: os.close(fd)
+        with c.descriptor_scope(fd): c.require(inode_flags(fd) & IMMUTABLE, "STOCK_PROTECTION_RED")
         # The image is hashed while copying to its sealed backing descriptor.
         # Every smaller command/permission input is authenticated here too.
         if name != "capsule.squashfs": observer.file_bytes(root/name, expected=spec["sha256"])
@@ -64,6 +66,9 @@ def stock(config):
 
 
 def environment_unchanged(config):
+    # Refuse fresh acceptance if PID 1 no longer reports the installed guard.
+    # A point-in-time read is not the still-open durable namespace proof.
+    observer.installed_start_guard(observer.service(c.UNIT))
     c.require(observer.history() == config["baseline"]["history"], "HISTORICAL_STATE_CHANGED")
     observer.file_bytes(observer.BASE_UNIT, expected=observer.BASE_UNIT_SHA256)
     current = observer.public_health()
@@ -154,6 +159,7 @@ def coordinate(config):
         permit = None
 
         def condition(invocation, _peer):
+            stock(config)
             c.consume_condition(journal, invocation=invocation, coordinator=coordinator, clock=now,
                 observe_lease=lambda: environment_unchanged(config)[0]["leases"][0],
                 binding=config["binding"], grant=config["grant"])
@@ -177,16 +183,20 @@ def coordinate(config):
         print(c.canonical(dict(event="S8_SINGLE_ADMISSION_ACCEPTED", freeze_sha256=config["binding"]["freeze_sha256"],
                                invocation=channel.invocation, s11_s12_acceptance=False)).decode(), flush=True)
     except BaseException as error:
-        primary = type(error).__name__
+        primary = error
         # Recording failure is secondary; it cannot prevent channel cleanup or
         # the failed coordinator exit, which stops its BindsTo runtime.
-        try: journal.once("failed.json", dict(primary_type=primary, retry_allowed=False))
-        except BaseException: pass
+        try: journal.once("failed.json", dict(primary=c.failure_record(primary), retry_allowed=False))
+        except BaseException as secondary:
+            primary._s8_abort_errors = [c.failure_record(secondary)]
         raise
     finally:
-        try:
-            if channel is not None: channel.close()
-        finally: journal.close()
+        if primary is not None:
+            c.close_preserving(primary, channel, journal)
+        else:
+            closed = c.ContractError("S8_EXECUTION_COORDINATOR_CLEANUP_RED")
+            c.close_preserving(closed, channel, journal)
+            if closed._s8_cleanup_errors: raise closed
 
 
 def execute(config, value):
@@ -241,5 +251,7 @@ if __name__ == "__main__":
         # No traceback/argv, credentials or provider messages in public logs.
         code = str(error)
         print(json.dumps(dict(event="S8_EXECUTION_ABORTED_NO_RETRY", error_type=type(error).__name__,
-            code=code if re.fullmatch(r"S8_[A-Z0-9_]{1,160}", code) else "UNKNOWN")), flush=True)
+            code=code if re.fullmatch(r"S8_[A-Z0-9_]{1,160}", code) else "UNKNOWN",
+            abort_errors=getattr(error,"_s8_abort_errors",[]),
+            cleanup_errors=getattr(error,"_s8_cleanup_errors",[]))), flush=True)
         raise SystemExit(2)

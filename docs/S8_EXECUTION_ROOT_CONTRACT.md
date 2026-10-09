@@ -1,4 +1,215 @@
-# S8 isolated execution root — construction checkpoint
+# S8 isolated execution root — status and historical construction checkpoints
+
+## Current contract delta 2026-10-09: explicitly accepted administrative boundary
+
+The user has accepted the precise administrative systemd-integrity boundary
+and residual mistake/compromise risk, including identified capability-free
+root filewriters. See [the version-bound decision and live gates](S8_ADMINISTRATIVE_TRUST_CONTRACT.md).
+No blanket root exemption or live authorization follows. Grant V3 requires a
+host-/freeze-/fixed-slot-bound current rights/Writer acceptance; unknown or
+nonadmin direct/manager/helper namespace authority denies before mutation.
+Freeze V2 records this exact model, original-Q historical limit and mandatory
+pre-live host acceptance. Old grants/envelopes cannot silently adopt the model.
+
+Only Q against the specifically trusted administrative actor class is replaced
+as the new release gate. The original component visibility is FALSIFIED;
+original Q stays historical OPEN / PLATFORM_BLOCKED, full bypass NOT PROVEN.
+No blocked investigation is executed or relabelled. Native schema/real-entry
+negatives and the existing kernel/PID1/PostgreSQL chain remain mandatory.
+Source closure is conditional on final CI/reviews/merge/post-merge provenance;
+host acceptance UNKNOWN and Live/R15 NO-GO remain after Source closure.
+
+All following dated draft/pending/no-merge/model-unapproved paragraphs are
+preserved historical checkpoints, not the current decision or final outcome.
+R1 and other historical tags, incident evidence and safety requirements remain.
+
+## Status delta 2026-10-09: defensive draft, mandatory proof still OPEN
+
+The preceding R2 candidate at Control
+`1f10812959ba48d010f46682c0d51280deefad2f` and Application
+`e0070ef37285d714973462bccd9347f8256b93cc` completed CI (37502514195 and
+37501613415) and regular exact-head reviews without findings. Those results
+remain historical evidence; they do not cover this new draft or close the
+additional systemd namespace protection gate. PR219 and PR126 remain open;
+no R2 merge or freeze has occurred. Older pending/unreviewed wording below
+is a construction checkpoint, not a denial of those completed reviews.
+
+An isolated synthetic component showed a protected drop-in still present on
+its original inode but absent from PID 1's loaded configuration after ancestor
+replacement and reload. Its base unit was under `/run/systemd/system`, unlike
+the actual S8 base under `/etc/systemd/system`. Persistent visibility is
+falsified for that tested arrangement; transfer to S8 and a complete
+admission/lease bypass are NOT PROVEN. The investigation remains
+OPEN / PLATFORM_BLOCKED and must not be repeated or relabelled as a fix test.
+
+This draft reuses the installer's existing loaded-guard requirements in the
+installed observer precondition, including the coordinator's last observation
+before its dependency-start request. It also checks them during the runtime
+environment observation before lease admission and fresh acceptance. The
+exact fragment, no pending reload, sole expected drop-in, `Restart=no`, and
+`RefuseManualStart=yes` are required. Observed loss rejects; it creates no new
+authority, fallback, replay permission or cleanup exception.
+
+These reads are **point-in-time checks, not a namespace fence**. A change after
+the read, an unobserved change restored before the read, or guard loss after
+the coordinator ends is not excluded. An unguarded entry would not execute
+the anchor check; the anchor is not a substitute for enforcing that entry.
+No complete correction of persistent visibility is claimed. The narrow
+in-memory adapter/orchestration regressions do not execute systemd, ancestor
+replacement, PostgreSQL or providers. Native candidate integration and a new
+exact-delta review remain required; old CI/reviews cannot be transferred.
+
+No new host path, parent protection, privilege, root-trust exception or threat
+model change is introduced. `/tu1nz-s8-admission-anchor-v1` remains the sole
+planned path exception; historical evidence and tags are unchanged. Any
+proposal to protect existing ancestors or move the enforcement boundary needs
+an explicit scope decision before implementation. Live and R15 remain NO-GO;
+R15 pause compatibility OPEN, historical cause UNKNOWN, S9/S10/S11 and product
+gates separately retained. This draft is not an executable live release.
+
+### Defensive analysis and CI/review boundary
+
+The five loaded-property checks detect a reported loss; they do not
+authenticate every loaded execution directive or bind all of PID 1's input
+namespace. Protecting only the existing drop-in's inode cannot establish that
+the manager will continue to resolve its canonical path after the witness
+ends. No complete in-scope persistent correction is demonstrated by Source
+analysis. The actual S8 arrangement's behavior remains an unperformed,
+mandatory proof, not a claim of a complete bypass.
+
+For the saved component's ancestor problem, an additional protection contract
+would at least have to cover `/etc`, `/etc/systemd`, and
+`/etc/systemd/system`, not only the leaf. Applying append-only/immutable
+directory protection there is NOT authorized: it affects unrelated config and
+unit rename/removal workflows and would need exact metadata/flag backups,
+filesystem prerequisites, maintenance ownership, abort/restore rules, and
+isolated proof. It is a scope proposal, not a complete accepted solution.
+Systemd also loads other paths, aliases and prefix/type drop-ins; these cannot
+silently be assumed trusted merely because the canonical leaf is protected.
+The official [systemd v255 unit contract](https://github.com/systemd/systemd/blob/v255/man/systemd.unit.xml)
+documents these resolution inputs. Actual host path/version configuration
+has not been re-observed in this Source-only session.
+
+The authorized existing Control native runner and private Application capsule
+runner do not contain the blocked systemd ancestor/reload investigation.
+Their older `/etc/tu1nz` anchor-rebinding case is a different retained
+regression; the legacy base-restore component leaves the protected drop-in
+visible. Neither is coverage of the missing systemd namespace property.
+Ordinary candidate CI and independent review may proceed on this partial
+correction, with that mandatory gate still OPEN / PLATFORM_BLOCKED. Review
+must assess remaining guard gaps and evidence limits without executing or
+delegating the blocked investigation. No merge or freeze in this session.
+
+## Status delta 2026-10-06: R1 source closed; R2 source work in progress
+
+The INCOMPLETE/pending/not-yet-accepted statements below are preserved
+historical construction checkpoints, not the final R1 source status. R1 closed
+with Control PR218 (merge `2934a155706c3c9758f45bad5945aa060891e492`) and
+Application PR125 (merge `9d288a700229cfa727ee38a61c66fcdaf9308854`), final
+Same-SHA reviews and post-merge CI. Its unchanged annotated freeze is
+`s8-isolated-atomic-recovery-freeze-r1`, tag object
+`db2e4b0862777cd27df5309dcf09d12e24de1fc3`. Source closure is not live acceptance.
+
+The subsequent narrow parent-ACL/existing-empty-drop-in work is an UNREVIEWED
+R2 draft, not a release. A native isolated Linux counterexample demonstrates
+that an ordinary root file writer with zero effective/permitted capabilities
+can move a writable ancestor while leaving protected child inodes and spent
+records unchanged, then recreate the canonical name. A live witness does not
+establish durability after its process terminates. This is a failed protection
+proof, not evidence of a complete admission bypass or a historical/live attack.
+
+Variant A's exact planned `/tu1nz-s8-admission-anchor-v1` path exception was
+explicitly approved for SOURCE ONLY. The earlier path-policy decision gate is
+resolved, not the protection proof. R2 adds a fixed-slot global anchor before
+execution-stock/drop-in mutation, exact parent ACL profiles, and a journalled
+new binding of the existing empty drop-in (historical origin UNKNOWN).
+No root-trust exception, watcher-only substitute, slot reset, new merge or R2
+freeze is accepted. Full native candidate CI and review are still pending. No live
+changes or server probes are authorized. Unknown historical metadata/xattrs
+and missing host kernel/filesystem proofs stay UNKNOWN. R15 pause compatibility
+remains OPEN; separate S9/S10/S11 RED and product gates are not cleared.
+
+### R2 anchor and restoration contract (unaccepted implementation)
+
+The fixed slot is still `s8-same-release-20261004-1`, independent of the freeze,
+application version and execution-stock name. The only proposed new top-level
+path is `/tu1nz-s8-admission-anchor-v1`. Existing parents are never chmodded,
+chowned, given ACLs or protected flags. The new root is root:root/0700,
+APPEND+IMMUTABLE; its `anchor.json` and `stock-plan.json` are root:root/0600,
+IMMUTABLE. `state/` is root:root/0700, APPEND. Its fixed-slot subdirectory is
+new, APPEND then IMMUTABLE and contains immutable `intent.json` and
+`objects.json`. Unknown xattrs/flags, foreign names and object drift deny.
+
+R2 has no bootstrap-only, adopt, reopen, reset or restore-to-available API.
+The same live provisioner performs the distinct ordered phases: authenticate
+and observe; create/seal the anchor; consume the fixed child slot; materialize
+the execution stock; bind its exact identities, inputs and live dispatcher;
+seal/handoff those records; bind/seal the drop-in; then dispatch once. Any
+existing anchor (even empty, partial, foreign or completed) denies a new run.
+The in-process latch is consumed before the first anchor mutation; the root
+name is retained by kernel flags before any execution-stock change. Failure
+to publish the child intent cannot permit an S8 start. Every subsequent start
+decision authenticates the anchor's inode/record/release/host/slot bindings,
+plus the existing live peer handshake. Receipts are never reusable authority.
+
+Grant V2 binds the original explicit human authorization to the host's machine
+digest, root/mount identity, current boot and exact provisioner PID/start ticks.
+A new process, stale/unknown owner, different boot or missing/wrong anchor
+denies. Read-only preflight may inspect a grant reserved for a living operator
+process; execution must actually be that process (the later isolated Python
+exec preserves its PID/start ticks). No grant is generated by the installer.
+The live plan must explain this reservation/exec sequence; a completed child
+preflight is not itself the reserved owner or a reusable permission ticket.
+PID-1's intentionally private child namespaces compare the same underlying
+host root/boot/machine and protected anchor, not equal mount-namespace IDs.
+They additionally require the existing exact PID-1/live-peer admission chain.
+
+Ordinary file writers, including UID 0 and competing processes, are not
+trusted. Exact-thread fanotify fencing precedes regular writes; immutable
+records and append/immutable directory protections survive the writing
+process. Kernel/PID 1, privileged ptrace, mount/block-device administration
+and flag-clearing powers remain the explicit OS trust base, not a blanket
+UID-0 exemption. This includes authorization to make PID 1 or a privileged
+helper execute those powers; a process with CapEff=0 but such administrative
+API access is not merely a direct filesystem writer. Capability-free syscall
+tests do not prove protection against systemd administration. Moving the
+ancestor of historical/configuration stock cannot
+remove the independent global slot. Capable host administration, full-memory
+VM rewind or malicious raw filesystem rollback are NOT claimed to be defeated.
+
+Backups preserve evidence, not live authority. No restore function may copy an
+old AVAILABLE state into the canonical anchor, remove/unseal it, issue a new
+grant, or reconstruct a dispatcher. Ordinary data restoration must exclude
+the canonical anchor and retain its consumed records. Missing/conflicting
+anchor after restoration requires a separate human integrity decision, never
+bootstrap fallback. After process death/reboot the old process/boot binding
+cannot pass, even if record bytes are restored. No full host reboot/power-loss
+durability experiment has yet been performed; predicates/component results
+must not be labelled that experiment or a host acceptance.
+
+The exact Grant V2 digest must additionally be pinned out-of-band in the
+operator's `--expected-grant-sha256` argument, alongside the tag object and
+installer digest. Root-owned bytes in mutable staging are not by themselves
+human authorization. This value is not read or inferred from that staging.
+
+The original capability-free ancestor-rebinding counterexample is retained
+byte-for-byte as `tests/s8_parent_rebind_counterexample.py` (SHA256
+`47d64d4c9af09ba30f1a01b4e329522bb8334915505686dc3834497ef15b29a9`).
+It proves namespace loss, not a complete original S8 admission bypass.
+
+Every existing ancestor also requires a readable, exact inode-flag policy:
+only EXTENTS/INDEX storage-format bits and restrictive APPEND/IMMUTABLE bits
+are accepted alongside the exact DAC/ACL/xattr predicate. Unknown flags deny;
+no flag is removed or normalized. Existing live-parent flags have not yet been
+collected and remain a separate read-only host prerequisite. Native NODUMP
+negative cases cover both a strict parent and an exact ACL-profile parent.
+
+Cleanup attempts every owned resource even after an earlier close/join error;
+all redacted failures survive independently of the primary/abort failure.
+Coordinator failure recording cannot mask the original error or suppress
+channel/journal cleanup. Such failures never publish successful authority.
+
+## Historical R1 construction record (not current status)
 
 ## Current delta (supersedes older construction checkpoints below)
 

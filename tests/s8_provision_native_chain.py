@@ -7,6 +7,7 @@ mocked. The production provisioner, coordinator, unit renderer and launcher run
 unchanged. Test-only module trailers adapt external interfaces, never a live API.
 """
 import array
+import ctypes
 import fcntl
 import hashlib
 import importlib
@@ -24,6 +25,8 @@ import tu1nz_s8_execution_contract as c
 import tu1nz_s8_execution_observer as observer
 import tu1nz_s8_execution_release as release
 import tu1nz_s8_provision as provision
+import tu1nz_s8_anchor as anchor
+from tu1nz_s8_path_policy import ACCESS, DEFAULT, CONFIG_ACCESS, REPOSITORY_ACCESS, REPOSITORY_DEFAULT, acl_bytes
 from tu1nz_s8_execution_units import COORDINATOR
 from tu1nz_s8_runtime_interfaces import CONFIG_NAMES
 
@@ -129,6 +132,19 @@ def setup(image):
     cmd(["systemctl", "start", c.UNIT], check=False)
     until(lambda: observer.service(c.UNIT)["ActiveState"] == "failed")
     invocation = observer.service(c.UNIT)["InvocationID"]
+    # Exact observed parent profiles and existing empty drop-in. These are
+    # synthetic objects made before the production preflight, never predicates
+    # replaced with success booleans. No live metadata is changed by this test.
+    os.chown(config_root, 0, 1001)
+    os.setxattr(config_root, ACCESS, acl_bytes(CONFIG_ACCESS))
+    os.chmod(config_root, 0o750)
+    repository_parent = Path("/opt/tu1nz_repos")
+    os.chown(repository_parent, 0, 1001)
+    os.setxattr(repository_parent, ACCESS, acl_bytes(REPOSITORY_ACCESS))
+    os.setxattr(repository_parent, DEFAULT, acl_bytes(REPOSITORY_DEFAULT))
+    os.chmod(repository_parent, 0o2550)
+    dropin = Path(str(observer.BASE_UNIT)+".d")
+    dropin.mkdir(mode=0o755); dropin.chmod(0o755)
     return metadata, pairs, hashes, configs, invocation
 
 
@@ -196,10 +212,40 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
         hashes=hashes, git_barriers="RETAINED", aborted="RETAINED_NO_CONTINUATION")
     tag_bytes, tag_object = tag(value)
     instant = datetime.now(timezone.utc)
-    grant = c.canonical(dict(schema="TU1NZ_S8_EXECUTION_GRANT_V1", slot=c.SLOT, incident_invocation=incident,
+    from tests.test_s8_execution_contract import accepted_inventory
+    grant_value = dict(schema="TU1NZ_S8_EXECUTION_GRANT_V3", slot=c.SLOT, incident_invocation=incident,
+        host=anchor.host(), provisioner=c.process_identity(os.getpid()),
         freeze_sha256=hashlib.sha256(c.canonical(value)).hexdigest(), image_sha256=value["image"]["sha256"],
         human_authorization_sha256=hashlib.sha256(b"ISOLATED_SYNTHETIC_NOT_HUMAN_AUTHORITY").hexdigest(),
-        issued_at=instant.isoformat(), expires_at=(instant+timedelta(minutes=8)).isoformat()))
+        issued_at=instant.isoformat(), expires_at=(instant+timedelta(minutes=8)).isoformat())
+    grant_value["systemd_acceptance"] = accepted_inventory(grant_value)
+    # Actual production admission rejects before anchor/stock/PID-1/SQL change.
+    # This is a SYNTHETIC attestation/parser test, not a real host inventory or
+    # an ancestor/name-reuse systemd investigation. All fixtures remain netless.
+    before_sql = sql("SELECT row_to_json(s) FROM commercial_s10_2d_bot_polling_state s")
+    before_history = observer.history()
+    before_dropin = observer.dropin_snapshot(Path(str(observer.BASE_UNIT)+".d"))
+    for mode_change in ("missing", "unknown", "uid0-writer", "helper", "other-host"):
+        invalid = json.loads(c.canonical(grant_value))
+        if mode_change == "missing": del invalid["systemd_acceptance"]
+        elif mode_change == "unknown": invalid["systemd_acceptance"]["inventory_complete"] = False
+        elif mode_change == "other-host": invalid["systemd_acceptance"]["host_sha256"] = "f"*64
+        else:
+            invalid["systemd_acceptance"]["actors"][1][
+                "namespace_write" if mode_change == "uid0-writer" else "helper_api"] = True
+        try:
+            provision.provision(tag_bytes=tag_bytes, tag_object=tag_object, grant_bytes=c.canonical(invalid),
+                expected_grant_sha256=c.digest(invalid), image_bytes=image.read_bytes(), control_sources=sources)
+        except c.ContractError as error:
+            c.require(str(error).startswith(("S8_EXECUTION_GRANT_RED", "S8_EXECUTION_SYSTEMD_")),
+                      "NATIVE_WRONG_SYSTEMD_ACCEPTANCE_GATE")
+        else: c.require(False, "NATIVE_UNACCEPTED_ADMIN_MODEL_ADMITTED")
+        c.require(not anchor.ROOT.exists() and not observer.ROOT.exists()
+            and before_sql == sql("SELECT row_to_json(s) FROM commercial_s10_2d_bot_polling_state s")
+            and before_history == observer.history()
+            and before_dropin == observer.dropin_snapshot(Path(str(observer.BASE_UNIT)+".d")),
+            "NATIVE_SYSTEMD_REJECTION_MUTATION")
+    grant = c.canonical(grant_value)
     original_build = provision.build
     captured = {}
     def capture(*args):
@@ -217,6 +263,7 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
         provision.subprocess.Popen = unknown
     try:
         result = provision.provision(tag_bytes=tag_bytes, tag_object=tag_object, grant_bytes=grant,
+            expected_grant_sha256=hashlib.sha256(grant).hexdigest(),
             image_bytes=image.read_bytes(), control_sources=sources)
         c.require(mode == "success" and result["status"] == "S8_SINGLE_ADMISSION_ACCEPTED", "NATIVE_PROVISION_RED")
         c.require(result["acceptance"]["initial_admission"]["claimed_revision"] == 277133
@@ -244,9 +291,64 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
               and records == {str(p.relative_to(observer.ROOT)): p.read_bytes() for p in observer.ROOT.rglob("*.json")}
               and history == observer.history(), "NATIVE_REPLAY_MUTATION")
     c.require(cmd(["systemctl", "start", c.UNIT], check=False).returncode != 0, "NATIVE_NORMAL_FALLBACK")
+    # End-to-end regression of the original counterexample. The service is
+    # already stopped and its canonical replay has failed. An ordinary root
+    # file writer hides the *real freshly provisioned* stock and recreates the
+    # exact parent profile/name. The actual production admission function must
+    # still stop at the independent anchor, even for a different release and
+    # newly pinned synthetic grant. No observer/protection predicate is mocked.
+    anchor_records = {str(p.relative_to(anchor.ROOT)):p.read_bytes() for p in anchor.ROOT.rglob("*.json")}
+    retained = Path("/etc/tu1nz-native-retained-parent")
+    c.require(not retained.exists(), "NATIVE_REBIND_TARGET_EXISTS")
+    child = os.fork()
+    if child == 0:
+        os.setgroups([1001])
+        class Header(ctypes.Structure): _fields_ = [("version",ctypes.c_uint32),("pid",ctypes.c_int)]
+        class Data(ctypes.Structure):
+            _fields_ = [("effective",ctypes.c_uint32),("permitted",ctypes.c_uint32),("inheritable",ctypes.c_uint32)]
+        libc = ctypes.CDLL(None,use_errno=True)
+        assert libc.capset(ctypes.byref(Header(0x20080522,0)),(Data*2)()) == 0
+        fields = dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
+        assert all(int(fields[key],16)==0 for key in ("CapEff","CapPrm","CapInh","CapAmb"))
+        config_parent = observer.ROOT.parent
+        config_parent.rename(retained)
+        config_parent.mkdir(mode=0o750)
+        os.chown(config_parent,-1,1001)
+        os.setxattr(config_parent,ACCESS,acl_bytes(CONFIG_ACCESS))
+        os.chmod(config_parent,0o750)
+        observer.ROOT.mkdir(mode=0o700)
+        os._exit(0)
+    c.require(os.waitstatus_to_exitcode(os.waitpid(child,0)[1]) == 0, "NATIVE_ROOT_WRITER_REBIND_FAILED")
+    # Both original grant and a distinct synthetic release/authorization must
+    # fail at the actual global admission gate, BEFORE historical path reads.
+    for changed in (False, True):
+        next_value = json.loads(c.canonical(value))
+        next_grant = json.loads(grant)
+        if changed:
+            next_value["control"]["commit"] = "f"*40
+            next_grant["freeze_sha256"] = c.digest(next_value)
+            next_grant["human_authorization_sha256"] = "e"*64
+            next_grant["systemd_acceptance"]["freeze_sha256"] = next_grant["freeze_sha256"]
+        next_raw, next_object = tag(next_value)
+        try:
+            provision.provision(tag_bytes=next_raw,tag_object=next_object,
+                grant_bytes=c.canonical(next_grant),expected_grant_sha256=c.digest(next_grant),
+                image_bytes=image.read_bytes(),control_sources=sources)
+        except c.ContractError as error:
+            c.require(str(error) == "S8_EXECUTION_ANCHOR_EXISTS_NO_ADOPTION_NO_RETRY", "NATIVE_WRONG_REPLAY_GATE")
+        else: c.require(False,"NATIVE_NEW_ADMISSION_AFTER_REBIND")
+    c.require(anchor_records == {str(p.relative_to(anchor.ROOT)):p.read_bytes() for p in anchor.ROOT.rglob("*.json")}
+              and records == {str(p.relative_to(retained/observer.ROOT.name)):p.read_bytes()
+                               for p in (retained/observer.ROOT.name).rglob("*.json")}
+              and stable == sql("SELECT row_to_json(s) FROM commercial_s10_2d_bot_polling_state s"),
+              "NATIVE_REBIND_CHANGED_CONSUMPTION_OR_SQL")
     print(json.dumps(dict(component="S8_NATIVE_PROVISION_COORDINATOR_SEALED_SQL", mode=mode,
         application=metadata["application"], image_sha256=value["image"]["sha256"], history_unchanged=True,
-        replay_rejected=True, provider_calls=0, live_authority=False, production_entrypoint=False,
+        replay_rejected=True, namespace_rebind_actual_admission_denied=True,
+        different_release_and_authorization_cannot_rearm=True,
+        synthetic_systemd_acceptance_rejections_before_mutation=5,
+        actual_host_inventory_proven=False, original_systemd_q_proven=False,
+        provider_calls=0, live_authority=False, production_entrypoint=False,
         external_substitutions=["synthetic_incident_and_history", "database_address", "public_http", "provider_and_unrelated_store"]), sort_keys=True))
 
 
@@ -254,7 +356,8 @@ def cleanup():
     cmd(["systemctl", "stop", COORDINATOR, c.UNIT, *observer.PUBLIC_UNITS], check=False)
     # Only fresh fixture objects in this disposable test container. Production
     # APIs have no flag-removal, unlink, rollback-to-normal or retry operation.
-    for root in (observer.ROOT, Path(str(observer.BASE_UNIT)+".d")):
+    for root in (observer.ROOT, Path(str(observer.BASE_UNIT)+".d"), anchor.ROOT,
+                 Path("/etc/tu1nz-native-retained-parent")/observer.ROOT.name):
         if not root.exists(): continue
         for path in sorted([*root.rglob("*"), root], key=lambda p: len(p.parts), reverse=True):
             if not path.is_file() and not path.is_dir(): continue

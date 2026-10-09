@@ -19,6 +19,8 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - name: S8 durable anchor and exact ACL/drop-in (native isolated PID 1)
+        run: bash tests/s8_anchor_native.sh
       - name: R15 aborted containment (native Linux; isolated; guards unchanged)
         run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s12_1_aborted_containment
       - name: S11/S12 release compatibility (native Linux; offline)

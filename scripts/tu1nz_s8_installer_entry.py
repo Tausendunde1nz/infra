@@ -21,6 +21,7 @@ def main(sources):
     parser.add_argument("--expected-tag-object", required=True)
     parser.add_argument("--image", required=True, type=Path)
     parser.add_argument("--grant", required=True, type=Path)
+    parser.add_argument("--expected-grant-sha256", required=True)
     args = parser.parse_args()
     # This isolated process owns its umask. Existing filesystem metadata is
     # never adjusted to pass a gate; the new-object constructors require 0077.
@@ -28,6 +29,7 @@ def main(sources):
     try:
         values = dict(tag_bytes=file_bytes(args.tag_file, limit=262144), tag_object=args.expected_tag_object,
             grant_bytes=file_bytes(args.grant, limit=16384), image_bytes=file_bytes(args.image, limit=1024*1024*1024),
+            expected_grant_sha256=args.expected_grant_sha256,
             control_sources=sources)
         if args.mode == "preflight":
             result = prepare_inputs(**values)

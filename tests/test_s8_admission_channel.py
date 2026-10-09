@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0,"/source/scripts")
 from tu1nz_s8_admission_channel import AdmissionChannel,request_once
 from tu1nz_s8_execution_contract import *
+from tu1nz_s8_anchor import host
 from tu1nz_s8_protected_journal import ProtectedJournal
 from tu1nz_s8_journal_fence import APPEND,add_inode_protection
 root=Path(__file__).parent
@@ -35,9 +36,18 @@ if mode=="coordinate":
  channel=AdmissionChannel(root/"channel.sock",config["runtime"])
  started=clock()
  binding=dict(freeze_sha256="a"*64,image_sha256="b"*64)
- grant=dict(schema="TU1NZ_S8_EXECUTION_GRANT_V1",slot=SLOT,incident_invocation=FAILED_INVOCATION,
+ grant=dict(schema="TU1NZ_S8_EXECUTION_GRANT_V3",slot=SLOT,incident_invocation=FAILED_INVOCATION,
+  host=host(require_host_namespace=False),provisioner=process_identity(os.getpid()),
   freeze_sha256="a"*64,image_sha256="b"*64,human_authorization_sha256="c"*64,
   issued_at=started.isoformat(),expires_at=(started+timedelta(minutes=2)).isoformat())
+ # Synthetic parser input only, never a real host acceptance.
+ grant["systemd_acceptance"]=dict(schema="TU1NZ_S8_SYSTEMD_ACCEPTANCE_V1",model=SYSTEMD_MODEL,
+  slot=SLOT,freeze_sha256=grant["freeze_sha256"],host_sha256=digest(grant["host"]),
+  observed_at=grant["issued_at"],expires_at=grant["expires_at"],inventory_complete=True,
+  maintenance_excluded=True,evidence={name:"6"*64 for name in SYSTEMD_INVENTORY_SCOPES},
+  actors=[dict(identity_sha256=i*64,role=r,uid=0,authorization_sha256="4"*64,evidence_sha256="5"*64,
+   namespace_write=w,manager_api=w,helper_api=w)
+   for i,r,w in (("1","ADMINISTRATOR",True),("2","NONADMIN_SERVICE",False))])
  journal.once("operation.json",dict(grant_sha256=digest(grant),binding_sha256=digest(binding)))
  identity=process_identity(os.getpid())
  lease=dict(release=LEASE_RELEASE,owner=None,expires=None,revision=LEASE_REVISION,

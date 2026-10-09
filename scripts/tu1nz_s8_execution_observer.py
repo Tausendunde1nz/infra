@@ -15,6 +15,7 @@ import stat
 import subprocess
 
 import tu1nz_s8_execution_contract as c
+from tu1nz_s8_path_policy import PathChain, dropin_snapshot
 
 ROOT = Path("/etc/tu1nz/s8-atomic-admission-r1")
 HISTORY = Path("/etc/tu1nz/adult-commercial-s12-1-private/state")
@@ -52,12 +53,17 @@ def command(argv, *, input=None, timeout=15):
 
 def file_bytes(path, *, expected=None, limit=4*1024*1024):
     """Snapshot a protected regular inode; no adoption or metadata changes."""
-    c.require(path.is_absolute() and path.resolve(strict=True) == path, "INPUT_PATH_RED")
-    for parent in path.parents: c.protected(parent, directory=True)
+    with PathChain(path.parent, leaf=path.name) as chain:
+        result = _file_bytes(path, chain.fd, expected=expected, limit=limit)
+        chain.check()
+        return result
+
+
+def _file_bytes(path, parent_fd, *, expected, limit):
     before = c.protected(path)
     c.require(0 < before.st_size <= limit, "INPUT_SIZE_RED")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    try:
+    fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
+    with c.descriptor_scope(fd):
         c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)), "INPUT_DRIFT")
         payload = bytearray()
         while len(payload) < before.st_size:
@@ -68,8 +74,6 @@ def file_bytes(path, *, expected=None, limit=4*1024*1024):
         c.protected(path)
         c.require(expected is None or hashlib.sha256(payload).hexdigest() == expected, "INPUT_DIGEST_RED")
         return bytes(payload)
-    finally:
-        os.close(fd)
 
 
 def service(unit):
@@ -82,6 +86,20 @@ def service(unit):
     return dict(rows)
 
 
+def installed_start_guard(state):
+    """Reject an observed loss of the loaded interlock; not a durable fence.
+
+    A protected drop-in inode need not remain visible to PID 1. This check
+    grants no start authority and cannot prove check-to-use or post-process
+    namespace protection. Those remain separate mandatory evidence gates.
+    """
+    c.require(state.get("FragmentPath") == str(BASE_UNIT)
+              and state.get("NeedDaemonReload") == "no"
+              and state.get("DropInPaths") == str(BASE_UNIT)+".d/00-atomic-admission.conf"
+              and state.get("Restart") == "no" and state.get("RefuseManualStart") == "yes",
+              "INSTALLED_ADMISSION_CONTRACT_RED")
+
+
 def history():
     result = {name: hashlib.sha256(file_bytes(HISTORY/name, expected=wanted)).hexdigest()
               for name, wanted in HISTORY_HASHES.items()}
@@ -90,15 +108,17 @@ def history():
     repositories = {}
     for text, expected in HISTORICAL_ROOTS.items():
         root = Path(text)
-        guard = c.protected(root/".git", directory=True, mode=0)
-        real_git = root/".git.s12-1-recovery"
-        c.protected(real_git, directory=True, mode=0o700)
-        args = ["/usr/bin/git", "--no-optional-locks", "-c", "safe.directory="+text,
-                "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                "--git-dir="+str(real_git), "--work-tree="+text]
-        pair = tuple(command([*args, "rev-parse", ref]).strip() for ref in ("HEAD", "HEAD^{tree}"))
-        c.require(pair == expected, "HISTORICAL_RELEASE_RED")
-        repositories[text] = dict(commit=pair[0], tree=pair[1], guard=list(c.fingerprint(guard)))
+        with PathChain(root) as chain:
+            guard = c.protected(root/".git", directory=True, mode=0)
+            real_git = root/".git.s12-1-recovery"
+            c.protected(real_git, directory=True, mode=0o700)
+            args = ["/usr/bin/git", "--no-optional-locks", "-c", "safe.directory="+text,
+                    "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+                    "--git-dir="+str(real_git), "--work-tree="+text]
+            pair = tuple(command([*args, "rev-parse", ref]).strip() for ref in ("HEAD", "HEAD^{tree}"))
+            c.require(pair == expected, "HISTORICAL_RELEASE_RED")
+            chain.check()
+            repositories[text] = dict(commit=pair[0], tree=pair[1], guard=list(c.fingerprint(guard)))
     return dict(hashes=result, repositories=repositories, absent_markers=list(ABSENT_MARKERS))
 
 
@@ -190,11 +210,15 @@ def failed_precondition(*, installed=False):
               and state["MainPID"] == state["ControlPID"] == state["NRestarts"] == "0"
               and state["InvocationID"] == c.FAILED_INVOCATION and state["NeedDaemonReload"] == "no"
               and state["FragmentPath"] == str(BASE_UNIT), "INCIDENT_STATE_CHANGED")
+    if installed:
+        installed_start_guard(state)
     c.require(not recognized_pollers(), "COMPETING_POLLER")
     if not installed:
-        c.require(state["DropInPaths"] == "" and not os.path.lexists(str(BASE_UNIT)+".d")
-                  and not os.path.lexists(ROOT), "PREEXISTING_EXECUTION_STOCK")
+        c.require(state["DropInPaths"] == "" and not os.path.lexists(ROOT), "PREEXISTING_EXECUTION_STOCK")
+        dropin = dropin_snapshot(Path(str(BASE_UNIT)+".d"))
+    else:
+        dropin = None
     data = database()
     c.lease_admission(data["leases"][0])
-    return dict(history=history(), health=public_health(), s8=state, database=data,
+    return dict(history=history(), health=public_health(), s8=state, database=data, dropin=dropin,
                 observed_at=datetime.now(timezone.utc).isoformat())

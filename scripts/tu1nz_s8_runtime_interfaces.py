@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import stat
 
-from tu1nz_s8_execution_contract import require
+from tu1nz_s8_execution_contract import descriptor_scope, require
 from tu1nz_s8_sealed_root import require_private_namespace, run
 
 
@@ -81,7 +81,7 @@ def resolver_input(payload: bytes):
 
 def _write(directory: Path, name: str, payload: bytes):
     fd = os.open(directory / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
-    try:
+    with descriptor_scope(fd):
         os.fchmod(fd, 0o644)
         remaining = payload
         while remaining:
@@ -89,8 +89,6 @@ def _write(directory: Path, name: str, payload: bytes):
             require(size > 0, "CONFIGURATION_WRITE_RED")
             remaining = remaining[size:]
         os.fsync(fd)
-    finally:
-        os.close(fd)
 
 
 def mount_configuration(mounted, values, expected, resolver):
@@ -115,8 +113,7 @@ def mount_configuration(mounted, values, expected, resolver):
     for name in CONFIG_NAMES: _write(target, name, values[name])
     _write(target, "resolv.conf", resolver)
     directory = os.open(target, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try: os.fsync(directory)
-    finally: os.close(directory)
+    with descriptor_scope(directory): os.fsync(directory)
     run(["/usr/bin/mount", "-o", "remount,ro,nodev,nosuid,noexec", str(target)])
     # The image prescribes an empty regular resolver mountpoint. Docker's
     # omitted runtime resolver must never become a hidden build dependency.

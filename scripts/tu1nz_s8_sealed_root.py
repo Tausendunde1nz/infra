@@ -21,6 +21,13 @@ import stat
 import struct
 import subprocess
 
+# Frozen entries load the exact embedded top-level contract first. Ordinary
+# package imports use its explicit sibling; no arbitrary disk fallback exists.
+if __package__:
+    from .tu1nz_s8_execution_contract import close_descriptors, descriptor_scope
+else:
+    from tu1nz_s8_execution_contract import close_descriptors, descriptor_scope
+
 
 class SealedRootError(RuntimeError):
     pass
@@ -71,32 +78,33 @@ def sealed_copy(path: Path, sha256: str, *, owner=0, limit=1024*1024*1024):
             and before.st_uid == owner and not before.st_mode & 0o022
             and 0 < before.st_size <= limit, "IMAGE_INPUT_RED")
     source = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    target = os.memfd_create("tu1nz-s8-execution", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    target = None
     try:
-        fingerprint = lambda s: (s.st_dev,s.st_ino,s.st_size,s.st_uid,s.st_gid,s.st_mode,s.st_mtime_ns,s.st_ctime_ns)
-        require(fingerprint(before) == fingerprint(os.fstat(source)), "IMAGE_INPUT_DRIFT")
-        h = hashlib.sha256()
-        remaining = before.st_size
-        while remaining:
-            data = os.read(source, min(remaining, 1024*1024))
-            require(bool(data), "IMAGE_SHORT_READ")
-            h.update(data); remaining -= len(data)
-            while data:
-                written = os.write(target, data)
-                require(written > 0, "IMAGE_COPY_RED")
-                data = data[written:]
-        require(h.hexdigest() == sha256 and fingerprint(before) == fingerprint(os.fstat(source))
-                == fingerprint(path.lstat()), "IMAGE_INPUT_DRIFT")
-        seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
-        fcntl.fcntl(target, fcntl.F_ADD_SEALS, seals)
-        require(fcntl.fcntl(target, fcntl.F_GET_SEALS) == seals, "IMAGE_SEAL_RED")
-        os.lseek(target, 0, os.SEEK_SET)
+        with descriptor_scope(source):
+            target = os.memfd_create("tu1nz-s8-execution", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+            fingerprint = lambda s: (s.st_dev,s.st_ino,s.st_size,s.st_uid,s.st_gid,s.st_mode,s.st_mtime_ns,s.st_ctime_ns)
+            require(fingerprint(before) == fingerprint(os.fstat(source)), "IMAGE_INPUT_DRIFT")
+            h = hashlib.sha256()
+            remaining = before.st_size
+            while remaining:
+                data = os.read(source, min(remaining, 1024*1024))
+                require(bool(data), "IMAGE_SHORT_READ")
+                h.update(data); remaining -= len(data)
+                while data:
+                    written = os.write(target, data)
+                    require(written > 0, "IMAGE_COPY_RED")
+                    data = data[written:]
+            require(h.hexdigest() == sha256 and fingerprint(before) == fingerprint(os.fstat(source))
+                    == fingerprint(path.lstat()), "IMAGE_INPUT_DRIFT")
+            seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
+            fcntl.fcntl(target, fcntl.F_ADD_SEALS, seals)
+            require(fcntl.fcntl(target, fcntl.F_GET_SEALS) == seals, "IMAGE_SEAL_RED")
+            os.lseek(target, 0, os.SEEK_SET)
+        # Ownership is transferred only after the input descriptor closed.
         return target
-    except BaseException:
-        os.close(target)
+    except BaseException as error:
+        close_descriptors(error, target)
         raise
-    finally:
-        os.close(source)
 
 
 class MountedImage:
@@ -117,10 +125,8 @@ class MountedImage:
                 and not any(self.destination.iterdir()), "MOUNTPOINT_RED")
         self.original_device = m.st_dev
         control = os.open("/dev/loop-control", os.O_RDWR | os.O_CLOEXEC)
-        try:
+        with descriptor_scope(control):
             number = fcntl.ioctl(control, 0x4C82)  # LOOP_CTL_GET_FREE
-        finally:
-            os.close(control)
         require(0 <= number < 1048576, "LOOP_IDENTITY_RED")
         self.loop = f"/dev/loop{number}"
         # No mknod, module loading or changes to somebody else's loop device.
@@ -154,18 +160,24 @@ class MountedImage:
 
     def close(self):
         # Retain proof until detach. Do not touch a device whose identity changed.
-        if self.loop_fd is not None and self.attached:
-            self._check_loop()
-            current = self.destination.stat().st_dev
-            expected = os.fstat(self.loop_fd).st_rdev
-            require(current in (self.original_device, expected), "MOUNT_IDENTITY_RED")
-            # Also handles a mount command whose successful output was lost.
-            if current == expected:
-                run(["/usr/bin/umount", str(self.destination)])
-                self.mounted = False
-        if self.loop_fd is not None:
-            os.close(self.loop_fd)  # AUTOCLEAR releases only our attachment.
-            self.loop_fd = None
+        primary = None
+        try:
+            if self.loop_fd is not None and self.attached:
+                self._check_loop()
+                current = self.destination.stat().st_dev
+                expected = os.fstat(self.loop_fd).st_rdev
+                require(current in (self.original_device, expected), "MOUNT_IDENTITY_RED")
+                # No unmount of a foreign/unknown object. Closing our own FD
+                # below is not a global detach or a successful-unmount receipt.
+                if current == expected:
+                    run(["/usr/bin/umount", str(self.destination)])
+                    self.mounted = False
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            fd, self.loop_fd = self.loop_fd, None
+            close_descriptors(primary, fd)
 
 
 def bind_readonly(source: Path, destination: Path):
@@ -195,7 +207,7 @@ def bind_null_device(mounted: MountedImage):
             and metadata.st_dev == mounted.destination.stat().st_dev,
             "NULL_MOUNTPOINT_RED")
     fd = os.open("/dev/null", os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
-    try:
+    with descriptor_scope(fd):
         device = os.fstat(fd)
         require(stat.S_ISCHR(device.st_mode) and device.st_rdev == os.makedev(1, 3)
                 and device.st_uid == 0 and device.st_gid == 0
@@ -209,8 +221,6 @@ def bind_null_device(mounted: MountedImage):
                            "--mountpoint", str(target)]).split(","))
         require({"ro", "nosuid", "noexec"} <= options and "nodev" not in options,
                 "NULL_MOUNT_OPTIONS_RED")
-    finally:
-        os.close(fd)
 
 
 def private_permit(mounted: MountedImage, payload: bytes):
@@ -236,15 +246,13 @@ def private_permit(mounted: MountedImage, payload: bytes):
     run(["/usr/bin/mount","-t","tmpfs","-o","rw,size=64k,mode=0755,nosuid,nodev,noexec",
          "s8-private-permit",str(destination)])
     fd=os.open(destination/"permit.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o644)
-    try:
+    with descriptor_scope(fd):
         os.fchmod(fd,0o644)
         remaining=payload
         while remaining:
             count=os.write(fd,remaining)
             require(count>0,"PERMIT_WRITE_RED");remaining=remaining[count:]
         os.fsync(fd)
-    finally:
-        os.close(fd)
     # Remount only after the sole writable descriptor is closed. No handle,
     # shared path or writable mount escapes into the unprivileged poller.
     run(["/usr/bin/mount","-o","remount,ro,nosuid,nodev,noexec",str(destination)])
@@ -317,17 +325,15 @@ def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: i
         m,_=credential_metadata(origin,uid=uid,gid=gid,layout=layout)
         require(0<m.st_size<=limit,"CREDENTIAL_METADATA_RED")
         fd=os.open(origin,os.O_RDONLY|os.O_NOFOLLOW)
-        try:
+        with descriptor_scope(fd):
             mark=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mode,st.st_uid,st.st_gid,st.st_mtime_ns,st.st_ctime_ns)
             require(mark(os.fstat(fd))==mark(m),"CREDENTIAL_INPUT_DRIFT")
             payload=os.read(fd,limit+1)
             require(len(payload)==m.st_size and mark(os.fstat(fd))==mark(m)==mark(origin.lstat()),
                     "CREDENTIAL_INPUT_DRIFT")
             credential_metadata(origin,uid=uid,gid=gid,layout=layout)
-        finally:
-            os.close(fd)
         output=os.open(destination/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-        try:
+        with descriptor_scope(output):
             remaining=payload
             while remaining:
                 count=os.write(output,remaining)
@@ -335,8 +341,6 @@ def private_credentials(mounted: MountedImage, source: Path, *, uid: int, gid: i
             # Set final mode while still the creator/owner. Afterwards the
             # deliberately absent CAP_FOWNER must not be needed or added.
             os.fchmod(output,0o600);os.fchown(output,uid,gid);os.fsync(output)
-        finally:
-            os.close(output)
     fresh,_=credential_metadata(source,uid=uid,gid=gid,directory=True,layout=layout)
     require(mark(fresh)==mark(before),"CREDENTIAL_INPUT_DRIFT")
     run(["/usr/bin/mount","-o","remount,ro,nosuid,nodev,noexec",str(destination)])
