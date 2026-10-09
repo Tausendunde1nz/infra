@@ -170,6 +170,7 @@ class AnchorNativeTests(unittest.TestCase):
         value["image"]["sha256"] = hashlib.sha256(image).hexdigest(); value["image"]["size"] = len(image)
         raw, object_id = tag(value)
         self.authority.update(freeze_sha256=c.digest(value),image_sha256=value["image"]["sha256"])
+        self.authority["systemd_acceptance"]["freeze_sha256"] = self.authority["freeze_sha256"]
         anchor.ROOT.mkdir(mode=0o700)
         with patch.object(provision.observer, "failed_precondition", side_effect=AssertionError("must refuse first")):
             with self.assertRaisesRegex(c.ContractError, "ANCHOR_EXISTS"):
