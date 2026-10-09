@@ -1,5 +1,28 @@
 # S8 isolated execution root — status and historical construction checkpoints
 
+## Current contract delta 2026-10-09: explicitly accepted administrative boundary
+
+The user has accepted the precise administrative systemd-integrity boundary
+and residual mistake/compromise risk, including identified capability-free
+root filewriters. See [the version-bound decision and live gates](S8_ADMINISTRATIVE_TRUST_CONTRACT.md).
+No blanket root exemption or live authorization follows. Grant V3 requires a
+host-/freeze-/fixed-slot-bound current rights/Writer acceptance; unknown or
+nonadmin direct/manager/helper namespace authority denies before mutation.
+Freeze V2 records this exact model, original-Q historical limit and mandatory
+pre-live host acceptance. Old grants/envelopes cannot silently adopt the model.
+
+Only Q against the specifically trusted administrative actor class is replaced
+as the new release gate. The original component visibility is FALSIFIED;
+original Q stays historical OPEN / PLATFORM_BLOCKED, full bypass NOT PROVEN.
+No blocked investigation is executed or relabelled. Native schema/real-entry
+negatives and the existing kernel/PID1/PostgreSQL chain remain mandatory.
+Source closure is conditional on final CI/reviews/merge/post-merge provenance;
+host acceptance UNKNOWN and Live/R15 NO-GO remain after Source closure.
+
+All following dated draft/pending/no-merge/model-unapproved paragraphs are
+preserved historical checkpoints, not the current decision or final outcome.
+R1 and other historical tags, incident evidence and safety requirements remain.
+
 ## Status delta 2026-10-09: defensive draft, mandatory proof still OPEN
 
 The preceding R2 candidate at Control

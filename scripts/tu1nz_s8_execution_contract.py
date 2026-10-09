@@ -29,6 +29,22 @@ HISTORICAL_CONTROL = ("b44a3a7e6162a2cc01ef0eb0da564bec68090adc", "477e63c6818d4
 LAST_POLL = "2026-10-04T08:49:01.753806+00:00"
 LAST_UPDATE = "2026-10-04T08:51:02.165718+00:00"
 MAX_GRANT_SECONDS = 86400
+SYSTEMD_MODEL = "TU1NZ_S8_ADMIN_SYSTEMD_INTEGRITY_V1"
+SYSTEMD_INVENTORY_SCOPES = (
+    "configuration_selection", "loaded_execution", "ancestors_dac_acl_flags_mounts",
+    "actors_credentials_namespaces_fds", "sudo_polkit_dbus_helpers", "maintenance_exclusion",
+)
+
+
+def security_model():
+    """Source decision only. Neither a host acceptance nor runtime authority."""
+    return dict(id=SYSTEMD_MODEL, administrative_namespace_integrity="TRUSTED_EXPLICIT_ROLES",
+        source_decision_sha256="4f25541e8d56c012154f6880079faf481dc00abf7c455403a3247cc0fbd674f3",
+        proposal_sha256="925c75e2486b1a7bb79c119497533e3894fd16989c55b8aeaa9cf0adae448d86",
+        administrative_mistake_compromise="ACCEPTED_RESIDUAL_RISK_NOT_EQUIVALENT",
+        blanket_root_exception=False, nonadmin_namespace_authority=False,
+        original_q="HISTORICAL_OPEN_COMPONENT_VISIBILITY_FALSIFIED",
+        original_full_bypass="NOT_PROVEN", host_acceptance="REQUIRED_BEFORE_LIVE_UNKNOWN_DENIES")
 
 
 class ContractError(RuntimeError):
@@ -90,11 +106,57 @@ def utc(value):
         raise ContractError("S8_EXECUTION_TIMESTAMP_RED") from None
 
 
+def administration_check(grant, now):
+    """Validate an independently collected, operator-pinned host acceptance.
+
+    This parser cannot discover omitted actors or prove truthful observations.
+    The complete raw rights inventory and its independent acceptance are host
+    TCB inputs, authenticated by the separately pinned human grant. No default,
+    UID/capability inference, or Source/CI-generated live receipt is permitted.
+    Rechecks bind the same receipt/time window; they are NOT a namespace fence.
+    """
+    value = grant["systemd_acceptance"]
+    require(type(value) is dict and set(value) == {
+        "schema", "model", "slot", "freeze_sha256", "host_sha256", "observed_at", "expires_at",
+        "inventory_complete", "maintenance_excluded", "evidence", "actors"}, "SYSTEMD_ACCEPTANCE_RED")
+    require(value["schema"] == "TU1NZ_S8_SYSTEMD_ACCEPTANCE_V1" and value["model"] == SYSTEMD_MODEL
+            and value["slot"] == SLOT and value["freeze_sha256"] == grant["freeze_sha256"]
+            and value["host_sha256"] == digest(grant["host"]), "SYSTEMD_ACCEPTANCE_BINDING_RED")
+    require(value["inventory_complete"] is True and value["maintenance_excluded"] is True,
+            "SYSTEMD_INVENTORY_INCOMPLETE")
+    evidence = value["evidence"]
+    require(type(evidence) is dict and set(evidence) == set(SYSTEMD_INVENTORY_SCOPES)
+            and all(hex_value(v, 64) for v in evidence.values()), "SYSTEMD_EVIDENCE_UNKNOWN")
+    observed, expires, issued = utc(value["observed_at"]), utc(value["expires_at"]), utc(grant["issued_at"])
+    require(0 <= (issued-observed).total_seconds() <= 300
+            and observed <= now < expires <= utc(grant["expires_at"]), "SYSTEMD_ACCEPTANCE_TIME_RED")
+    actors = value["actors"]
+    require(type(actors) is list and 2 <= len(actors) <= 4096, "SYSTEMD_ACTORS_UNKNOWN")
+    identities, roles = set(), set()
+    for actor in actors:
+        require(type(actor) is dict and set(actor) == {
+            "identity_sha256", "role", "authorization_sha256", "evidence_sha256", "uid",
+            "namespace_write", "manager_api", "helper_api"}, "SYSTEMD_ACTOR_UNKNOWN")
+        require(all(hex_value(actor[k], 64) for k in
+                    ("identity_sha256", "authorization_sha256", "evidence_sha256"))
+                and actor["identity_sha256"] not in identities
+                and type(actor["uid"]) is int and 0 <= actor["uid"] < 2**32
+                and type(actor["role"]) is str
+                and actor["role"] in {"ADMINISTRATOR", "NONADMIN_SERVICE"}
+                and all(type(actor[k]) is bool for k in ("namespace_write", "manager_api", "helper_api")),
+                "SYSTEMD_ACTOR_UNKNOWN")
+        identities.add(actor["identity_sha256"]); roles.add(actor["role"])
+        if actor["role"] == "NONADMIN_SERVICE":
+            require(not any(actor[k] for k in ("namespace_write", "manager_api", "helper_api")),
+                    "SYSTEMD_NONADMIN_AUTHORITY_RED")
+    require(roles == {"ADMINISTRATOR", "NONADMIN_SERVICE"}, "SYSTEMD_ROLES_UNKNOWN")
+
+
 def grant_check(grant, binding, now):
     require(type(grant) is dict and set(grant) == {
         "schema","slot","incident_invocation","freeze_sha256","image_sha256",
-        "human_authorization_sha256","issued_at","expires_at","host","provisioner"}, "GRANT_RED")
-    require(grant["schema"] == "TU1NZ_S8_EXECUTION_GRANT_V2" and grant["slot"] == SLOT
+        "human_authorization_sha256","issued_at","expires_at","host","provisioner","systemd_acceptance"}, "GRANT_RED")
+    require(grant["schema"] == "TU1NZ_S8_EXECUTION_GRANT_V3" and grant["slot"] == SLOT
             and grant["incident_invocation"] == FAILED_INVOCATION, "GRANT_RED")
     require(type(grant["host"]) is dict and set(grant["host"]) == {
         "machine_sha256", "boot_id", "root_identity", "mount_sha256", "namespace_identity"}, "GRANT_HOST_RED")
@@ -114,6 +176,7 @@ def grant_check(grant, binding, now):
     issued, expires = utc(grant["issued_at"]), utc(grant["expires_at"])
     require(0 < (expires-issued).total_seconds() <= MAX_GRANT_SECONDS
             and issued <= now < expires, "GRANT_TIME_RED")
+    administration_check(grant, now)
 
 
 def lease_admission(row):

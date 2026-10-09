@@ -212,11 +212,40 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
         hashes=hashes, git_barriers="RETAINED", aborted="RETAINED_NO_CONTINUATION")
     tag_bytes, tag_object = tag(value)
     instant = datetime.now(timezone.utc)
-    grant = c.canonical(dict(schema="TU1NZ_S8_EXECUTION_GRANT_V2", slot=c.SLOT, incident_invocation=incident,
+    from tests.test_s8_execution_contract import accepted_inventory
+    grant_value = dict(schema="TU1NZ_S8_EXECUTION_GRANT_V3", slot=c.SLOT, incident_invocation=incident,
         host=anchor.host(), provisioner=c.process_identity(os.getpid()),
         freeze_sha256=hashlib.sha256(c.canonical(value)).hexdigest(), image_sha256=value["image"]["sha256"],
         human_authorization_sha256=hashlib.sha256(b"ISOLATED_SYNTHETIC_NOT_HUMAN_AUTHORITY").hexdigest(),
-        issued_at=instant.isoformat(), expires_at=(instant+timedelta(minutes=8)).isoformat()))
+        issued_at=instant.isoformat(), expires_at=(instant+timedelta(minutes=8)).isoformat())
+    grant_value["systemd_acceptance"] = accepted_inventory(grant_value)
+    # Actual production admission rejects before anchor/stock/PID-1/SQL change.
+    # This is a SYNTHETIC attestation/parser test, not a real host inventory or
+    # an ancestor/name-reuse systemd investigation. All fixtures remain netless.
+    before_sql = sql("SELECT row_to_json(s) FROM commercial_s10_2d_bot_polling_state s")
+    before_history = observer.history()
+    before_dropin = observer.dropin_snapshot(Path(str(observer.BASE_UNIT)+".d"))
+    for mode_change in ("missing", "unknown", "uid0-writer", "helper", "other-host"):
+        invalid = json.loads(c.canonical(grant_value))
+        if mode_change == "missing": del invalid["systemd_acceptance"]
+        elif mode_change == "unknown": invalid["systemd_acceptance"]["inventory_complete"] = False
+        elif mode_change == "other-host": invalid["systemd_acceptance"]["host_sha256"] = "f"*64
+        else:
+            invalid["systemd_acceptance"]["actors"][1][
+                "namespace_write" if mode_change == "uid0-writer" else "helper_api"] = True
+        try:
+            provision.provision(tag_bytes=tag_bytes, tag_object=tag_object, grant_bytes=c.canonical(invalid),
+                expected_grant_sha256=c.digest(invalid), image_bytes=image.read_bytes(), control_sources=sources)
+        except c.ContractError as error:
+            c.require(str(error).startswith(("S8_EXECUTION_GRANT_RED", "S8_EXECUTION_SYSTEMD_")),
+                      "NATIVE_WRONG_SYSTEMD_ACCEPTANCE_GATE")
+        else: c.require(False, "NATIVE_UNACCEPTED_ADMIN_MODEL_ADMITTED")
+        c.require(not anchor.ROOT.exists() and not observer.ROOT.exists()
+            and before_sql == sql("SELECT row_to_json(s) FROM commercial_s10_2d_bot_polling_state s")
+            and before_history == observer.history()
+            and before_dropin == observer.dropin_snapshot(Path(str(observer.BASE_UNIT)+".d")),
+            "NATIVE_SYSTEMD_REJECTION_MUTATION")
+    grant = c.canonical(grant_value)
     original_build = provision.build
     captured = {}
     def capture(*args):
@@ -299,6 +328,7 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
             next_value["control"]["commit"] = "f"*40
             next_grant["freeze_sha256"] = c.digest(next_value)
             next_grant["human_authorization_sha256"] = "e"*64
+            next_grant["systemd_acceptance"]["freeze_sha256"] = next_grant["freeze_sha256"]
         next_raw, next_object = tag(next_value)
         try:
             provision.provision(tag_bytes=next_raw,tag_object=next_object,
@@ -316,6 +346,8 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
         application=metadata["application"], image_sha256=value["image"]["sha256"], history_unchanged=True,
         replay_rejected=True, namespace_rebind_actual_admission_denied=True,
         different_release_and_authorization_cannot_rearm=True,
+        synthetic_systemd_acceptance_rejections_before_mutation=5,
+        actual_host_inventory_proven=False, original_systemd_q_proven=False,
         provider_calls=0, live_authority=False, production_entrypoint=False,
         external_substitutions=["synthetic_incident_and_history", "database_address", "public_http", "provider_and_unrelated_store"]), sort_keys=True))
 

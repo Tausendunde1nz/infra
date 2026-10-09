@@ -28,10 +28,13 @@ import tu1nz_s8_provision as provision
 
 def grant():
     now = datetime.now(timezone.utc)
-    return dict(schema="TU1NZ_S8_EXECUTION_GRANT_V2", slot=c.SLOT, incident_invocation=c.FAILED_INVOCATION,
+    from tests.test_s8_execution_contract import accepted_inventory
+    value = dict(schema="TU1NZ_S8_EXECUTION_GRANT_V3", slot=c.SLOT, incident_invocation=c.FAILED_INVOCATION,
         freeze_sha256="a"*64, image_sha256="b"*64, human_authorization_sha256="c"*64,
         issued_at=now.isoformat(), expires_at=(now+timedelta(hours=1)).isoformat(),
         host=anchor.host(), provisioner=c.process_identity(os.getpid()))
+    value["systemd_acceptance"] = accepted_inventory(value)
+    return value
 
 
 class AnchorPortableTests(unittest.TestCase):

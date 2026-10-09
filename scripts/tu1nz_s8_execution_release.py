@@ -35,8 +35,9 @@ def decode_tag(raw: bytes, *, tag_object: str):
 def validate(value):
     c.require(type(value) is dict and set(value) == {
         "schema", "control", "application", "image", "sources", "control_sources", "configurations",
-        "history", "original_unit_sha256", "safety", "provenance"}
-        and value["schema"] == "TU1NZ_S8_EXECUTION_FREEZE_V1", "RELEASE_ENVELOPE_RED")
+        "history", "original_unit_sha256", "safety", "provenance", "security_model"}
+        and value["schema"] == "TU1NZ_S8_EXECUTION_FREEZE_V2", "RELEASE_ENVELOPE_RED")
+    c.require(value["security_model"] == c.security_model(), "RELEASE_SECURITY_MODEL_RED")
     for role in ("control", "application"):
         c.require(type(value[role]) is dict and set(value[role]) == {"commit", "tree"}
                   and all(c.hex_value(v, 40) for v in value[role].values()), "RELEASE_IDENTITY_RED")
