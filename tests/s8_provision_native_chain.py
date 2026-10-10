@@ -29,9 +29,11 @@ import tu1nz_s8_anchor as anchor
 from tu1nz_s8_path_policy import ACCESS, DEFAULT, CONFIG_ACCESS, REPOSITORY_ACCESS, REPOSITORY_DEFAULT, acl_bytes
 from tu1nz_s8_execution_units import COORDINATOR
 from tu1nz_s8_runtime_interfaces import CONFIG_NAMES
+from tests import s8_historical_fixture_mounts as fixture_mounts
 
 FIXTURE = Path("/etc/tu1nz-s8-provision-native-fixture")
 ADMIN = "postgresql://tu1nz_test@/tu1nz_s8_exec_native?host=/run/postgresql"
+SHIM_BINDING = None
 
 
 def cmd(argv, *, input=None, check=True):
@@ -65,7 +67,30 @@ def empty_git(root):
     return pair
 
 
+def failure_shim(executable, fixture):
+    """One synthetic exit-2 inode, not executable historical source.
+
+    The fresh ext4 historical fixture deliberately stays noexec. Bind only
+    this new, exact test script from the disposable fixture's executable
+    filesystem onto the unchanged unit's synthetic pathname. Never remount
+    the repositories, change a production predicate or extend a live path.
+    The fresh test container is this owned mount's lifetime boundary.
+    """
+    c.require(not os.path.lexists(executable) and not os.path.lexists(fixture),
+              'NATIVE_FRESH_SHIM_REQUIRED')
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.parent.parent.chmod(0o755); executable.parent.chmod(0o755)
+    for path in (fixture,executable):
+        path.write_bytes(b'#!/bin/sh\nexit 2\n'); path.chmod(0o755)
+    cmd(['mount','--bind',str(fixture),str(executable)])
+    c.require(cmd(['findmnt','-n','-o','TARGET','-T',str(executable)]).stdout.strip()==str(executable)
+              and 'noexec' not in cmd(['findmnt','-n','-o','OPTIONS','-T',str(executable)]).stdout.strip().split(','),
+              'NATIVE_SHIM_EXEC_MOUNT_RED')
+    return fixture_mounts.capture(executable, (str(executable),))
+
+
 def setup(image):
+    global SHIM_BINDING
     c.require(not FIXTURE.exists() and not observer.ROOT.exists(), "NATIVE_FRESH_HOST_REQUIRED")
     FIXTURE.mkdir(mode=0o700)
     (FIXTURE/"isolation").write_bytes(b"TU1NZ_ISOLATED_NO_PROVIDER\n")
@@ -101,10 +126,8 @@ def setup(image):
     # The actual unchanged historical unit fails exactly once, from its real
     # ExecStart pathname. Only that pathname's synthetic fixture returns 2.
     executable = Path("/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s8-telegram")
-    executable.parent.mkdir(parents=True)
-    executable.parent.parent.chmod(0o755); executable.parent.chmod(0o755)
-    executable.write_text("#!/bin/sh\nexit 2\n"); executable.chmod(0o755)
-    observer.HISTORY.mkdir(parents=True)
+    SHIM_BINDING = failure_shim(executable,FIXTURE/'historical-failure-shim')
+    c.require(observer.HISTORY.is_dir() and not list(observer.HISTORY.iterdir()), "NATIVE_FRESH_HISTORY_REQUIRED")
     hashes = {}
     for name in observer.HISTORY_HASHES:
         data = c.canonical(dict(synthetic=True, object=name, historical_cause="UNKNOWN"))
@@ -130,7 +153,12 @@ def setup(image):
     cmd(["systemctl", "daemon-reload"])
     cmd(["systemctl", "start", *observer.PUBLIC_UNITS])
     cmd(["systemctl", "start", c.UNIT], check=False)
-    until(lambda: observer.service(c.UNIT)["ActiveState"] == "failed")
+    def synthetic_incident_ready():
+        value = observer.service(c.UNIT)
+        c.require(value['NRestarts']=='0' and value['ExecMainStatus'] in {'0','2'},
+                  'NATIVE_SYNTHETIC_INCIDENT_RED')
+        return value['ActiveState']=='failed' and value['ExecMainStatus']=='2'
+    until(synthetic_incident_ready)
     invocation = observer.service(c.UNIT)["InvocationID"]
     # Exact observed parent profiles and existing empty drop-in. These are
     # synthetic objects made before the production preflight, never predicates
@@ -159,6 +187,18 @@ def setup(image):
             ):
                 os.setxattr(path, ACCESS, acl_bytes(access))
                 os.setxattr(path, DEFAULT, acl_bytes(REPOSITORY_DEFAULT))
+        # Reproduce both diagnosed descendant profiles inside the real chain,
+        # not only a standalone reader test. Kernel exclusion, not metadata
+        # normalization or a group exception, must make them eligible.
+        if root.name == 'adult-publishing-core':
+            orig = root/'.git.s12-1-recovery/ORIG_HEAD'
+            orig.write_bytes((pairs[text][0]+'\n').encode())
+            acl = ((1,6,path_policy.UNDEFINED),*path_policy.GIT_ACCESS[1:4],
+                   (16,6,path_policy.UNDEFINED),(32,0,path_policy.UNDEFINED))
+            os.setxattr(orig,ACCESS,acl_bytes(acl))
+        else:
+            branches = root/'.git.s12-1-recovery/branches'
+            os.chown(branches,1001,1001); branches.chmod(0o2775)
     return metadata, pairs, hashes, configs, invocation
 
 
@@ -367,6 +407,7 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
 
 
 def cleanup():
+    global SHIM_BINDING
     cmd(["systemctl", "stop", COORDINATOR, c.UNIT, *observer.PUBLIC_UNITS], check=False)
     # Only fresh fixture objects in this disposable test container. Production
     # APIs have no flag-removal, unlink, rollback-to-normal or retry operation.
@@ -380,14 +421,30 @@ def cleanup():
                 flags = array.array("L", [0]); fcntl.ioctl(fd, 0x80086601, flags, True)
                 flags[0] &= ~0x30; fcntl.ioctl(fd, 0x40086602, flags)
             finally: os.close(fd)
+    if SHIM_BINDING is not None:
+        owned, SHIM_BINDING = SHIM_BINDING, None
+        fixture_mounts.unmount_owned(owned)  # exactly once, no ambiguous retry
+
+
+class FixtureCleanup:
+    def close(self):
+        cleanup()
 
 
 if __name__ == "__main__":
-    try: main()
+    try:
+        with c.resource_scope(FixtureCleanup()):
+            try: main()
+            except BaseException as error:
+                try:
+                    print(cmd(["journalctl", "--no-pager", "-u", COORDINATOR, "-u", c.UNIT, "-n", "35"]).stdout)
+                except BaseException as diagnostic:
+                    error._s8_cleanup_errors = [*getattr(error, '_s8_cleanup_errors', []), c.failure_record(diagnostic)]
+                if isinstance(error, provision.ProvisionAborted): print(json.dumps(error.evidence, sort_keys=True))
+                raise
     except BaseException as error:
         # Fresh fixture journal only, never a server journal. All credentials,
         # identities and SQL rows were created synthetically by this file.
-        print(cmd(["journalctl", "--no-pager", "-u", COORDINATOR, "-u", c.UNIT, "-n", "35"]).stdout)
-        if isinstance(error, provision.ProvisionAborted): print(json.dumps(error.evidence, sort_keys=True))
+        print(json.dumps(dict(primary=c.failure_record(error), abort=getattr(error, '_s8_abort_error', None),
+                              cleanup=getattr(error, '_s8_cleanup_errors', [])), sort_keys=True))
         raise
-    finally: cleanup()

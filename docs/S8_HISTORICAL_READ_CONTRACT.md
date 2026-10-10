@@ -1,5 +1,9 @@
 # Historical S8 read binding — R3 source delta, 2026-10-10
 
+R3 is retained below as historical source context. The R4 candidate supersedes
+its permission/event-only descendant capture; see
+`S8_HISTORICAL_KERNEL_CAPTURE_R4.md`. R3's green results do not accept R4.
+
 R2 confused the strict metadata predicate for new execution stock with
 protected reading of the incident's historical repositories. Its group-zero
 requirement rejected the observed root-owned GID1001 repository directories;

@@ -24,6 +24,8 @@ MODULES = (
     "tu1nz_s8_admission_channel",
     "tu1nz_s8_sealed_root",
     "tu1nz_s8_runtime_interfaces",
+    "tu1nz_s8_historical_kernel",
+    "tu1nz_s8_historical_objects",
     "tu1nz_s8_historical_read",
     "tu1nz_s8_execution_observer",
     "tu1nz_s8_dispatch_boundary",

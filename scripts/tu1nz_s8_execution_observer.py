@@ -2,21 +2,25 @@
 
 No raw journal records, credentials, messages or lease-owner identifiers leave
 this adapter. The OS/PID-1/postgres peer-auth interfaces are explicit host TCB.
-All Git reads disable optional locks; no index refresh or repository writes.
+Historical Git objects are decoded in-process; no index refresh, Git child
+or repository writes.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import ExitStack
 import hashlib
 import json
 import os
 from pathlib import Path
 import stat
 import subprocess
+import time
 
 import tu1nz_s8_execution_contract as c
 from tu1nz_s8_path_policy import PathChain, dropin_snapshot
 from tu1nz_s8_historical_read import repository as historical_repository
+from tu1nz_s8_historical_kernel import ReadLeases
 
 ROOT = Path("/etc/tu1nz/s8-atomic-admission-r1")
 HISTORY = Path("/etc/tu1nz/adult-commercial-s12-1-private/state")
@@ -52,29 +56,40 @@ def command(argv, *, input=None, timeout=15):
     return result.stdout
 
 
-def file_bytes(path, *, expected=None, limit=4*1024*1024):
+def file_bytes(path, *, expected=None, limit=4*1024*1024, historical_capture=False, capture=None):
     """Snapshot a protected regular inode; no adoption or metadata changes."""
-    with PathChain(path.parent, leaf=path.name) as chain:
-        result = _file_bytes(path, chain.fd, expected=expected, limit=limit)
+    with ExitStack() as owned:
+        scope = owned if capture is None else capture
+        chain = scope.enter_context(PathChain(path.parent, leaf=path.name))
+        result = _file_bytes(path, chain.fd, expected=expected, limit=limit,
+                             historical_capture=historical_capture, capture=scope)
         chain.check()
         return result
 
 
-def _file_bytes(path, parent_fd, *, expected, limit):
+def _file_bytes(path, parent_fd, *, expected, limit, historical_capture=False, capture):
     before = c.protected(path)
     c.require(0 < before.st_size <= limit, "INPUT_SIZE_RED")
     fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
-    with c.descriptor_scope(fd):
-        c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)), "INPUT_DRIFT")
-        payload = bytearray()
-        while len(payload) < before.st_size:
-            part = os.read(fd, min(1024*1024, before.st_size-len(payload)))
-            c.require(bool(part), "INPUT_SHORT_READ")
-            payload.extend(part)
-        c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)) == c.fingerprint(path.lstat()), "INPUT_DRIFT")
-        c.protected(path)
-        c.require(expected is None or hashlib.sha256(payload).hexdigest() == expected, "INPUT_DIGEST_RED")
-        return bytes(payload)
+    capture.enter_context(c.descriptor_scope(fd))
+    leases = capture.enter_context(ReadLeases(deadline=getattr(capture,'_s8_deadline',None))) if historical_capture else None
+    if leases is not None: leases.acquire(fd)
+    return _read_file_bytes(path, fd, before, expected=expected, limit=limit, leases=leases)
+
+
+def _read_file_bytes(path, fd, before, *, expected, limit, leases):
+    c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)), "INPUT_DRIFT")
+    payload = bytearray()
+    while len(payload) < before.st_size:
+        if leases is not None: leases.check()
+        part = os.read(fd, min(1024*1024, before.st_size-len(payload)))
+        c.require(bool(part), "INPUT_SHORT_READ")
+        payload.extend(part)
+    c.require(c.fingerprint(before) == c.fingerprint(os.fstat(fd)) == c.fingerprint(path.lstat()), "INPUT_DRIFT")
+    c.protected(path)
+    c.require(expected is None or hashlib.sha256(payload).hexdigest() == expected, "INPUT_DIGEST_RED")
+    if leases is not None: leases.check()
+    return bytes(payload)
 
 
 def service(unit):
@@ -108,14 +123,21 @@ def history():
     c.require(set(HISTORY_HASHES) == {'repository-barrier.json', 'repository-barrier.r12-bindings.json',
         'repository-barrier.r12-abort.json', 'deployment-attempted.json'} and
         all(c.hex_value(value, 64) for value in HISTORY_HASHES.values()), 'HISTORICAL_BINDING_UNAVAILABLE')
-    result = {name: hashlib.sha256(file_bytes(HISTORY/name, expected=wanted)).hexdigest()
-              for name, wanted in HISTORY_HASHES.items()}
-    for name in ABSENT_MARKERS:
-        c.require(not os.path.lexists(HISTORY/name), "HISTORICAL_ATTEMPT_CHANGED")
-    repositories = {}
-    for text, expected in HISTORICAL_ROOTS.items():
-        repositories[text] = historical_repository(Path(text), expected)
-    return dict(hashes=result, repositories=repositories, absent_markers=list(ABSENT_MARKERS))
+    # Keep every evidence inode, repository input and selected absent marker's
+    # namespace witness alive until the whole aggregate has passed. Independent
+    # earlier successes cannot substitute for one common protected interval.
+    with ExitStack() as capture:
+        capture._s8_deadline = time.monotonic()+30
+        for name in ABSENT_MARKERS:
+            capture.enter_context(PathChain(HISTORY,leaf=name))
+            c.require(not os.path.lexists(HISTORY/name), "HISTORICAL_ATTEMPT_CHANGED")
+        result = {name: hashlib.sha256(file_bytes(HISTORY/name, expected=wanted,
+                  historical_capture=True, capture=capture)).hexdigest()
+                  for name, wanted in HISTORY_HASHES.items()}
+        repositories = {}
+        for text, expected in HISTORICAL_ROOTS.items():
+            repositories[text] = historical_repository(Path(text), expected, capture=capture)
+        return dict(hashes=result, repositories=repositories, absent_markers=list(ABSENT_MARKERS))
 
 
 SQL = """

@@ -1,4 +1,9 @@
 *
+!scripts/tu1nz_s8_historical_kernel.py
+!scripts/tu1nz_s8_historical_objects.py
+!tests/s8_historical_kernel_native.sh
+!tests/s8_historical_chain_native.sh
+!tests/test_s8_historical_objects.py
 !tests/test_s12_1_aborted_containment.py
 !analysis/COMMERCIAL_S12_1_R14_ABORTED_EVIDENCE.json
 !.gitignore
@@ -371,6 +376,7 @@
 !scripts/tu1nz_s8_path_policy.py
 !scripts/tu1nz_s8_historical_read.py
 !tests/test_s8_historical_read.py
+!tests/s8_historical_fixture_mounts.py
 !scripts/tu1nz_s8_existing_dropin.py
 !tests/test_s8_anchor.py
 !tests/test_s8_path_policy.py
