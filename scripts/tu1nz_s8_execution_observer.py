@@ -16,6 +16,7 @@ import subprocess
 
 import tu1nz_s8_execution_contract as c
 from tu1nz_s8_path_policy import PathChain, dropin_snapshot
+from tu1nz_s8_historical_read import repository as historical_repository
 
 ROOT = Path("/etc/tu1nz/s8-atomic-admission-r1")
 HISTORY = Path("/etc/tu1nz/adult-commercial-s12-1-private/state")
@@ -101,24 +102,19 @@ def installed_start_guard(state):
 
 
 def history():
+    c.require(HISTORICAL_ROOTS == {
+        '/opt/tu1nz_repos/adult-publishing-core': c.HISTORICAL_APPLICATION,
+        '/opt/tu1nz_repos/control': c.HISTORICAL_CONTROL}, 'HISTORICAL_BINDING_UNAVAILABLE')
+    c.require(set(HISTORY_HASHES) == {'repository-barrier.json', 'repository-barrier.r12-bindings.json',
+        'repository-barrier.r12-abort.json', 'deployment-attempted.json'} and
+        all(c.hex_value(value, 64) for value in HISTORY_HASHES.values()), 'HISTORICAL_BINDING_UNAVAILABLE')
     result = {name: hashlib.sha256(file_bytes(HISTORY/name, expected=wanted)).hexdigest()
               for name, wanted in HISTORY_HASHES.items()}
     for name in ABSENT_MARKERS:
         c.require(not os.path.lexists(HISTORY/name), "HISTORICAL_ATTEMPT_CHANGED")
     repositories = {}
     for text, expected in HISTORICAL_ROOTS.items():
-        root = Path(text)
-        with PathChain(root) as chain:
-            guard = c.protected(root/".git", directory=True, mode=0)
-            real_git = root/".git.s12-1-recovery"
-            c.protected(real_git, directory=True, mode=0o700)
-            args = ["/usr/bin/git", "--no-optional-locks", "-c", "safe.directory="+text,
-                    "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                    "--git-dir="+str(real_git), "--work-tree="+text]
-            pair = tuple(command([*args, "rev-parse", ref]).strip() for ref in ("HEAD", "HEAD^{tree}"))
-            c.require(pair == expected, "HISTORICAL_RELEASE_RED")
-            chain.check()
-            repositories[text] = dict(commit=pair[0], tree=pair[1], guard=list(c.fingerprint(guard)))
+        repositories[text] = historical_repository(Path(text), expected)
     return dict(hashes=result, repositories=repositories, absent_markers=list(ABSENT_MARKERS))
 
 

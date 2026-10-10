@@ -24,6 +24,7 @@ MODULES = (
     "tu1nz_s8_admission_channel",
     "tu1nz_s8_sealed_root",
     "tu1nz_s8_runtime_interfaces",
+    "tu1nz_s8_historical_read",
     "tu1nz_s8_execution_observer",
     "tu1nz_s8_dispatch_boundary",
 )
@@ -51,7 +52,10 @@ def _build(order, modules, entry, expected, *, expose_sources=False):
                 or hashlib.sha256(source).hexdigest() != expected[name]):
             raise ValueError("S8_FROZEN_ENTRY_SOURCE_BINDING_RED")
         compile(source, "<frozen-s8/" + name + ">", "exec")
-    payload = json.dumps({name: base64.b64encode(values[name]).decode("ascii")
+    # Reversible byte strings compress as source, not as a second base64 layer.
+    # Latin-1 is a byte-preserving transport, not the Python source encoding.
+    # The exact prevalidated source bytes and the 100000 command bound remain.
+    payload = json.dumps({name: values[name].decode("latin1")
                           for name in (*order, "entry")}, sort_keys=True, separators=(",", ":"))
     loader = f'''import base64,json,sys,types
 if not sys.flags.isolated or not sys.flags.no_site or not sys.dont_write_bytecode:
@@ -62,10 +66,10 @@ for _name in {order!r}:
  _module=types.ModuleType(_name)
  _module.__file__="<frozen-s8/"+_name+">"
  sys.modules[_name]=_module
- exec(compile(base64.b64decode(_sources[_name]),_module.__file__,"exec"),_module.__dict__)
-_entry=base64.b64decode(_sources["entry"])
+ exec(compile(_sources[_name].encode("latin1"),_module.__file__,"exec"),_module.__dict__)
+_entry=_sources["entry"].encode("latin1")
 _scope={{"__name__":"__main__","__file__":"<frozen-s8/entry>"}}
-if {expose_sources!r}:_scope["BUNDLE_SOURCES"]={{name:base64.b64decode(_sources[name]) for name in {order!r}}}
+if {expose_sources!r}:_scope["BUNDLE_SOURCES"]={{name:_sources[name].encode("latin1") for name in {order!r}}}
 exec(compile(_entry,"<frozen-s8/entry>","exec"),_scope)
 '''
     compressed = base64.b64encode(zlib.compress(loader.encode(), 9)).decode("ascii")
