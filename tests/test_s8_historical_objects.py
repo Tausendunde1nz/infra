@@ -6,6 +6,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zlib
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
@@ -136,6 +137,45 @@ class ObjectDecoderTests(unittest.TestCase):
         with self.assertRaisesRegex(c.ContractError,'OBJECT_BOUND'):
             raw = zlib.compress(b'x'*100000)
             g.inflate(raw,0,len(raw),10,lambda:None)
+
+    def test_all_mapping_cleanup_failures_preserve_the_original_failure(self):
+        packed_fixture(self.root,6); self.reload()
+        real_map = g.mmap.mmap
+        closed = []
+        class Mapping:
+            def __init__(self,*args,**options): self.value = real_map(*args,**options)
+            def __getitem__(self,index): return self.value[index]
+            def __len__(self): return len(self.value)
+            def close(self):
+                self.value.close(); closed.append(True)
+                raise OSError('synthetic lost close acknowledgement')
+            def __enter__(self): return self
+            def __exit__(self,*args): self.close()
+        primary = PermissionError('synthetic private primary')
+        with patch.object(g.mmap,'mmap',Mapping), patch.object(g.ObjectStore,'_hash',side_effect=primary):
+            with self.assertRaises(PermissionError) as failure: g.ObjectStore(self.inputs)
+        self.assertIs(failure.exception,primary)
+        self.assertEqual(len(closed),2)
+        self.assertEqual(sum(row['type']=='OSError' for row in failure.exception._s8_cleanup_errors),2)
+
+    def test_closed_store_cannot_resume_and_normal_cleanup_is_not_a_read_error(self):
+        stem,_,target,_,_ = packed_fixture(self.root,6); self.reload()
+        store = g.ObjectStore(self.inputs)
+        store.close()
+        with self.assertRaisesRegex(c.ContractError,'OBJECT_WITNESS_LOST'): store.read(target)
+        store.close()  # no second close of any owned map
+        closed = []
+        class FailedMap:
+            def close(self):
+                closed.append(True)
+                raise OSError('synthetic lost close acknowledgement')
+        store = g.ObjectStore(self.inputs)
+        store.close()
+        store.mappings = [FailedMap(),FailedMap()]
+        with self.assertRaisesRegex(c.ContractError,'RESOURCE_CLEANUP_RED') as failure: store.close()
+        self.assertEqual(len(closed),2)
+        self.assertEqual(sum(row['type']=='OSError' for row in failure.exception._s8_cleanup_errors),2)
+        self.assertFalse(hasattr(failure.exception,'_s8_read_failure'))
 
     def test_symbolic_detached_and_packed_head_no_ref_escape(self):
         oid = 'a'*40; head = self.root/'HEAD'

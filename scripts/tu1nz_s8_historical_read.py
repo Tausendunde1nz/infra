@@ -164,6 +164,7 @@ class GitReadWitness:
         return any(path == self.root/leaf for path,_ in self.rows)
 
     def input_descriptor(self, leaf):
+        c.require(not self.failed and self.fd is not None and self.owner == os.getpid(), 'HISTORICAL_WITNESS_LOST')
         self.leases.check()
         for (path,expected),fd in zip(self.rows,self.descriptors):
             if path == self.root/leaf:

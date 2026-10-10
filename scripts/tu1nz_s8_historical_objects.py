@@ -4,7 +4,6 @@ No Git subprocess, configuration execution, network, index or worktree access.
 Only held, leased inputs can be consulted. Unsupported representations deny
 the capture, never trigger an external decoder or object fetch.
 """
-from contextlib import ExitStack
 import hashlib
 import mmap
 import os
@@ -156,7 +155,8 @@ def delta(base, raw, check):
 class ObjectStore:
     def __init__(self, witness):
         self.witness = witness
-        self.scope = ExitStack()
+        self.mappings = []
+        self.closed = False
         self.packs = []
         self.active = set()
         try:
@@ -170,12 +170,16 @@ class ObjectStore:
             c.close_preserving(error,self)
             raise
 
-    def check(self): self.witness.leases.remaining()
+    def check(self):
+        require(not self.closed and not getattr(self.witness,'failed',False), 'HISTORICAL_OBJECT_WITNESS_LOST')
+        self.witness.leases.remaining()
 
     def _map(self, name, bound):
         fd,size = self.witness.input_descriptor(name)
         require(0 < size <= bound, 'HISTORICAL_OBJECT_BOUND')
-        return self.scope.enter_context(mmap.mmap(fd,0,access=mmap.ACCESS_READ))
+        value = mmap.mmap(fd,0,access=mmap.ACCESS_READ)
+        self.mappings.append(value)
+        return value
 
     def _hash(self, data, end):
         value = hashlib.sha1()
@@ -275,7 +279,12 @@ class ObjectStore:
             return resolved,delta(payload,raw,self.check)
         return KINDS[kind],raw
 
-    def close(self): self.scope.close()
+    def close(self):
+        self.closed = True
+        mappings,self.mappings = self.mappings,[]
+        failure = c.ContractError('S8_EXECUTION_RESOURCE_CLEANUP_RED')
+        c.close_preserving(failure,*reversed(mappings))
+        if failure._s8_cleanup_errors: raise failure
     def __enter__(self): return self
     def __exit__(self,kind,value,trace):
         if value is not None: c.close_preserving(value,self)

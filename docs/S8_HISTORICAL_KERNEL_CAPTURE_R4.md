@@ -110,12 +110,22 @@ Local native aarch64 ext4 candidate: 35/35 tests passed with no skip, including
 separate UID1001 and UID0/capability-free retained FD/shared-map writers,
 read-only aliases, common evidence/marker capture, Git-generated packed
 commit/tree identities, synthetic OFS/REF deltas and interrupted cleanup.
-Portable selection: 66 tests, 18 native-only skips; this is not native acceptance.
+Portable selection before the cleanup correction: 66 tests, 18 native-only
+skips; this is not native acceptance.
 An earlier four-case feasibility run had three passes and one non-reproduced
 immutable-only comparison (ext4 ftruncate returned EPERM); its RED output is
 retained privately, not relabelled GREEN or used as this lease proof. Earlier
 overlay counterevidence remains unchanged. Mandatory amd64/native integration
 and exact final-source closure remain necessary.
+
+A subsequent synthetic double-mapping-cleanup fault exposed a dropped
+secondary error in the decoder's ExitStack cleanup. That counterproof is
+retained. Independent per-mapping cleanup now preserves every failure and the
+original primary; a closed store/failed witness cannot resume. The earlier
+35-test proof does not accept this correction. Fresh local native ext4 proof
+passed 37/37 with no skips, and the corrected portable selection passed 68
+tests with 18 native-only skips. Complete final-source CI/review remains
+mandatory; the superseded first CI was deliberately cancelled, not GREEN.
 
 R3 and earlier freezes/counterproofs remain unchanged. Native tests, mandatory
 CI, exact-SHA independent reviews, merges/post-merge CI and R4 freeze are OPEN
