@@ -28,5 +28,5 @@ test "$ready" = true
 docker exec "$native" python3 -B -m unittest -v \
   tests.test_s8_anchor tests.test_s8_path_policy tests.test_s8_execution_contract \
   tests.test_s8_new_stock tests.test_s8_protected_journal tests.test_s8_journal_kernel_barrier \
-  tests.test_s8_admission_channel tests.test_s8_frozen_entry tests.test_s8_execution_observer \
-  tests.test_s8_historical_read
+  tests.test_s8_admission_channel tests.test_s8_frozen_entry tests.test_s8_execution_observer
+docker exec "$native" bash tests/s8_historical_kernel_native.sh

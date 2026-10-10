@@ -5,15 +5,17 @@ establish historical owner/inode continuity or authorize any historical writer.
 Only the pinned commit/tree objects are attested, not the live worktree.
 """
 import ctypes
-import hashlib
+from contextlib import ExitStack
+import fcntl
 import os
 from pathlib import Path
 import stat
-import subprocess
 
 import tu1nz_s8_execution_contract as c
 import tu1nz_s8_path_policy as p
 from tu1nz_s8_journal_fence import inode_flags
+from tu1nz_s8_historical_kernel import ReadLeases, ext4
+from tu1nz_s8_historical_objects import ObjectStore, config_safe, resolve_head, object_read
 
 
 def unavailable(error):
@@ -25,7 +27,7 @@ def unavailable(error):
     return result
 
 
-def node_metadata(path):
+def node_metadata(path, *, descriptor=None, directory_watch=None):
     """Read-only Git descendants: no effective non-owner write, no unknown ACL.
 
     This is not an exemption for an arbitrary repository or an ACL writer.
@@ -33,10 +35,23 @@ def node_metadata(path):
     Defaults are observed, not exercised. File hardlinks/symlinks are denied.
     """
     m = path.lstat()
-    c.require(m.st_uid == 0 and m.st_gid in (0, 1001)
+    # The legacy permission-only predicate remains a negative regression.
+    # The actual R4 reader supplies its held inode plus the active whole-tree
+    # witness. A regular inode requires a kernel read lease; directories must
+    # already be watched before enumeration. ACLs are observed, not altered.
+    if descriptor is not None:
+        ext4(descriptor)
+        c.require(c.fingerprint(m) == c.fingerprint(os.fstat(descriptor)), 'HISTORICAL_READ_CHANGED')
+        if stat.S_ISREG(m.st_mode):
+            c.require(fcntl.fcntl(descriptor, fcntl.F_GETLEASE) == fcntl.F_RDLCK, 'HISTORICAL_LEASE_BREAK')
+        else:
+            c.require(type(directory_watch) is int and directory_watch >= 0,
+                      'HISTORICAL_WATCH_REQUIRED')
+    c.require((m.st_uid == 0 or (descriptor is not None and stat.S_ISDIR(m.st_mode) and m.st_uid == 1001))
+              and m.st_gid in (0, 1001)
               and (stat.S_ISDIR(m.st_mode) or stat.S_ISREG(m.st_mode))
               and (stat.S_ISDIR(m.st_mode) or m.st_nlink == 1)
-              and not m.st_mode & 0o022, 'HISTORICAL_UNSAFE_METADATA')
+              and (descriptor is not None or not m.st_mode & 0o022), 'HISTORICAL_UNSAFE_METADATA')
     names = set(os.listxattr(path, follow_symlinks=False))
     c.require(names <= {p.ACCESS, p.DEFAULT} and
               (stat.S_ISDIR(m.st_mode) or p.DEFAULT not in names), 'HISTORICAL_UNSAFE_XATTR')
@@ -45,7 +60,7 @@ def node_metadata(path):
         # agree with the kernel DAC mask and deny effective non-owner writes.
         access = ((1, (m.st_mode >> 6) & 7, p.UNDEFINED), *p.GIT_ACCESS[1:4],
                   (16, (m.st_mode >> 3) & 7, p.UNDEFINED), (32, m.st_mode & 7, p.UNDEFINED))
-        p.no_nonowner_write(access)
+        if descriptor is None: p.no_nonowner_write(access)
         c.require(os.getxattr(path, p.ACCESS, follow_symlinks=False) == p.acl_bytes(access),
                   'HISTORICAL_UNSAFE_ACL')
     if p.DEFAULT in names:
@@ -61,8 +76,11 @@ class GitReadWitness:
     just parent directories. Missing/overflowed events and interruption deny
     the result; nothing is resumed, normalized or journalled on the host.
     """
-    def __init__(self, root):
+    def __init__(self, root, *, deadline=None):
         self.root, self.rows, self.fd = Path(root), [], None
+        self.descriptors, self.leases, self.device = [], None, None
+        self.watches = {}
+        self.failed = False
         self.owner = os.getpid()
         libc = ctypes.CDLL(None, use_errno=True)
         libc.inotify_init1.argtypes = [ctypes.c_int]
@@ -70,65 +88,100 @@ class GitReadWitness:
         libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
         libc.inotify_add_watch.restype = ctypes.c_int
         try:
+            self.leases = ReadLeases(deadline=deadline)
             self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
             c.require(self.fd >= 0, 'HISTORICAL_WATCH_REQUIRED')
             pending = [self.root]
             while pending:
                 path = pending.pop()
+                self.leases.remaining()
                 c.require(len(self.rows) < 65536, 'HISTORICAL_READ_BOUND')
-                if path == self.root:
-                    before = c.fingerprint(p.historical_metadata(path))
-                else:
-                    before = node_metadata(path)
+                before = c.fingerprint(path.lstat())
+                m = path.lstat()
+                c.require((stat.S_ISDIR(m.st_mode) or stat.S_ISREG(m.st_mode))
+                          and (stat.S_ISDIR(m.st_mode) or m.st_nlink == 1), 'HISTORICAL_UNSAFE_METADATA')
                 flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
                 if path.is_dir(): flags |= os.O_DIRECTORY
                 descriptor = os.open(path, flags)
-                with c.descriptor_scope(descriptor):
-                    c.require(c.fingerprint(os.fstat(descriptor)) == before, 'HISTORICAL_READ_CHANGED')
-                    c.require(not inode_flags(descriptor) & ~(0x80000 | 0x1000 | 0x20 | 0x10),
-                              'HISTORICAL_UNSAFE_FLAGS')
-                    watch = libc.inotify_add_watch(self.fd, os.fsencode('/proc/self/fd/'+str(descriptor)), 0x00000fce)
-                    c.require(watch >= 0, 'HISTORICAL_WATCH_REQUIRED')
-                    self.rows.append((path, before))
-                    if stat.S_ISDIR(os.fstat(descriptor).st_mode):
-                        names = os.listdir(descriptor)
-                        c.require(len(names) <= 65536, 'HISTORICAL_READ_BOUND')
-                        pending.extend(path/name for name in names)
+                self.descriptors.append(descriptor)
+                c.require(c.fingerprint(os.fstat(descriptor)) == before, 'HISTORICAL_READ_CHANGED')
+                ext4(descriptor)
+                c.require(not inode_flags(descriptor) & ~(0x80000 | 0x1000 | 0x20 | 0x10),
+                          'HISTORICAL_UNSAFE_FLAGS')
+                self.device = self.device or before[0]
+                c.require(before[0] == self.device, 'HISTORICAL_FILESYSTEM_CHANGED')
+                if stat.S_ISREG(os.fstat(descriptor).st_mode): self.leases.acquire(descriptor)
+                watch = libc.inotify_add_watch(self.fd, os.fsencode('/proc/self/fd/'+str(descriptor)), 0x00000fce)
+                c.require(watch >= 0, 'HISTORICAL_WATCH_REQUIRED')
+                if path == self.root:
+                    c.require(c.fingerprint(p.historical_metadata(path)) == before, 'HISTORICAL_READ_CHANGED')
+                else:
+                    c.require(node_metadata(path, descriptor=descriptor, directory_watch=watch) == before,
+                              'HISTORICAL_READ_CHANGED')
+                self.rows.append((path, before))
+                self.watches[descriptor] = watch
+                if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                    names = os.listdir(descriptor)
+                    c.require(len(names) <= 65536, 'HISTORICAL_READ_BOUND')
+                    pending.extend(path/name for name in names)
             self.check()
         except BaseException as error:
             c.close_preserving(error, self)
             raise
 
     def check(self):
-        c.require(self.fd is not None and self.owner == os.getpid(), 'HISTORICAL_WITNESS_LOST')
-        for path, expected in self.rows:
-            actual = c.fingerprint(p.historical_metadata(path)) if path == self.root else node_metadata(path)
+        try:
+            self._check()
+        except BaseException:
+            self.failed = True
+            raise
+
+    def _check(self):
+        c.require(not self.failed and self.fd is not None and self.owner == os.getpid(), 'HISTORICAL_WITNESS_LOST')
+        c.require(len(self.rows) == len(self.descriptors), 'HISTORICAL_WITNESS_LOST')
+        self.leases.check()
+        for (path, expected), descriptor in zip(self.rows, self.descriptors):
+            c.require(not inode_flags(descriptor) & ~(0x80000 | 0x1000 | 0x20 | 0x10),
+                      'HISTORICAL_UNSAFE_FLAGS')
+            c.require(c.fingerprint(os.fstat(descriptor)) == expected, 'HISTORICAL_READ_CHANGED')
+            actual = c.fingerprint(p.historical_metadata(path)) if path == self.root else node_metadata(
+                path, descriptor=descriptor, directory_watch=self.watches[descriptor])
             c.require(actual == expected, 'HISTORICAL_READ_CHANGED')
         try: event = os.read(self.fd, 65536)
         except BlockingIOError: event = b''
         c.require(not event, 'HISTORICAL_READ_CHANGED')
+        self.leases.check()
 
     def read(self, leaf):
-        path = self.root/leaf
-        expected = next((value for node, value in self.rows if node == path), None)
-        c.require(expected is not None and stat.S_ISREG(expected[5])
-                  and 0 < expected[2] <= 65536, 'HISTORICAL_INPUT_UNAVAILABLE')
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-        with c.descriptor_scope(fd):
-            c.require(c.fingerprint(os.fstat(fd)) == expected, 'HISTORICAL_READ_CHANGED')
-            value = bytearray()
-            while len(value) < expected[2]:
-                part = os.read(fd, expected[2]-len(value))
-                c.require(bool(part), 'HISTORICAL_READ_UNAVAILABLE')
-                value.extend(part)
-            c.require(c.fingerprint(os.fstat(fd)) == expected, 'HISTORICAL_READ_CHANGED')
+        fd,size = self.input_descriptor(leaf)
+        c.require(0 < size <= 65536, 'HISTORICAL_INPUT_UNAVAILABLE')
+        value = os.pread(fd,size,0)
+        c.require(len(value) == size, 'HISTORICAL_READ_UNAVAILABLE')
         self.check()
-        return bytes(value)
+        return value
+
+    def has(self, leaf):
+        return any(path == self.root/leaf for path,_ in self.rows)
+
+    def input_descriptor(self, leaf):
+        self.leases.check()
+        for (path,expected),fd in zip(self.rows,self.descriptors):
+            if path == self.root/leaf:
+                c.require(stat.S_ISREG(expected[5]) and c.fingerprint(os.fstat(fd)) == expected,
+                          'HISTORICAL_INPUT_UNAVAILABLE')
+                return fd,expected[2]
+        raise c.ContractError('S8_EXECUTION_HISTORICAL_READ_UNAVAILABLE')
 
     def close(self):
+        self.failed = True
+        descriptors, self.descriptors = self.descriptors, []
         fd, self.fd = self.fd, None
-        if fd is not None:
-            with c.descriptor_scope(fd): pass
+        try:
+            if self.leases is not None: self.leases.close()
+        except BaseException as error:
+            c.close_descriptors(error, fd, *reversed(descriptors))
+            raise
+        c.close_descriptors(None, fd, *reversed(descriptors))
 
     def __enter__(self): return self
 
@@ -143,21 +196,6 @@ class GitReadWitness:
         self.close()
 
 
-def git_read(args, *, input=None):
-    # Never inherit provider credentials, Git config injection, hooks, replace
-    # refs or an allowed remote transport. No output/errors are put in evidence.
-    env = dict(PATH='/usr/sbin:/usr/bin:/sbin:/bin', LC_ALL='C', GIT_OPTIONAL_LOCKS='0',
-        GIT_TERMINAL_PROMPT='0', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null',
-        GIT_NO_REPLACE_OBJECTS='1', GIT_NO_LAZY_FETCH='1', GIT_ALLOW_PROTOCOL='')
-    try:
-        result = subprocess.run(['/usr/bin/git', '--no-optional-locks', *args], input=input,
-            capture_output=True, timeout=15, env=env)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise unavailable(error) from None
-    c.require(result.returncode == 0, 'HISTORICAL_READ_UNAVAILABLE')
-    return result.stdout
-
-
 def git_config_safe(witness):
     """No config includes, promisor fetching, alternate/worktree object roots.
 
@@ -169,22 +207,10 @@ def git_config_safe(witness):
         c.require(not os.path.lexists(witness.root/name), 'HISTORICAL_UNSAFE_INDIRECTION')
     c.require(not any(path.name.endswith('.promisor') for path, _ in witness.rows),
               'HISTORICAL_UNSAFE_INDIRECTION')
-    raw = git_read(['config', '--no-includes', '--file', '/dev/stdin', '--null', '--list'],
-                   input=witness.read('config'))
-    for row in raw.split(b'\0'):
-        if not row: continue
-        key, sep, value = row.partition(b'\n')
-        ordinary = key in {b'core.repositoryformatversion', b'core.filemode', b'core.bare',
-            b'core.logallrefupdates', b'core.ignorecase', b'core.precomposeunicode'}
-        reference = (key.startswith(b'remote.') and key.endswith((b'.url', b'.fetch'))) or \
-                    (key.startswith(b'branch.') and key.endswith((b'.remote', b'.merge')))
-        c.require(sep and (ordinary or reference), 'HISTORICAL_UNSAFE_CONFIG')
-        if key == b'core.repositoryformatversion': c.require(value == b'0', 'HISTORICAL_UNSAFE_CONFIG')
-        if key == b'core.bare': c.require(value == b'false', 'HISTORICAL_UNSAFE_CONFIG')
-    witness.check()
+    config_safe(witness)
 
 
-def repository(root, expected):
+def repository(root, expected, *, capture=None):
     """Attest fixed HEAD, raw commit/tree object identities, and read interval.
 
     No physical inode predecessor or whole live-worktree equality is inferred.
@@ -194,30 +220,25 @@ def repository(root, expected):
     c.require(type(expected) is tuple and len(expected) == 2 and
               all(c.hex_value(value, 40) for value in expected), 'HISTORICAL_BINDING_UNAVAILABLE')
     try:
-        with p.PathChain(root, leaf='.git', historical=True) as ancestry:
+        with ExitStack() as owned:
+            scope = owned if capture is None else capture
+            ancestry = scope.enter_context(p.PathChain(root, leaf='.git', historical=True))
             guard = p.historical_metadata(root/'.git')
             real_git = root/'.git.s12-1-recovery'
-            with p.PathChain(real_git, historical=True) as chain, GitReadWitness(real_git) as witness:
-                git_config_safe(witness)
-                args = ['-c', 'safe.directory='+str(root), '-c', 'core.fsmonitor=false',
-                        '-c', 'core.hooksPath=/dev/null', '--git-dir='+str(real_git), '--work-tree='+str(root)]
-                pair = tuple(git_read([*args, 'rev-parse', '--verify', ref]).strip().decode('ascii')
-                             for ref in ('HEAD', 'HEAD^{tree}'))
-                c.require(pair == expected, 'HISTORICAL_CONTENT_RED')
-                for oid, kind in zip(expected, ('commit', 'tree')):
-                    size = git_read([*args, 'cat-file', '-s', oid]).strip()
-                    c.require(size.isdigit() and len(size) <= 8 and 0 < int(size) <= 4*1024*1024,
-                              'HISTORICAL_OBJECT_BOUND')
-                    witness.check(); chain.check(); ancestry.check()
-                    payload = git_read([*args, 'cat-file', kind, oid])
-                    c.require(len(payload) == int(size), 'HISTORICAL_READ_CHANGED')
-                    digest = hashlib.sha1(kind.encode()+b' '+str(len(payload)).encode()+b'\0'+payload).hexdigest()
-                    c.require(digest == oid, 'HISTORICAL_CONTENT_RED')
-                    if kind == 'commit':
+            chain = scope.enter_context(p.PathChain(real_git, historical=True))
+            witness = scope.enter_context(GitReadWitness(real_git, deadline=getattr(scope,'_s8_deadline',None)))
+            git_config_safe(witness)
+            head = resolve_head(witness)
+            c.require(head == expected[0], 'HISTORICAL_CONTENT_RED')
+            with ObjectStore(witness) as store:
+                for oid,kind in zip(expected,(b'commit',b'tree')):
+                    actual,payload = object_read(store,oid)
+                    c.require(actual == kind and bool(payload), 'HISTORICAL_CONTENT_RED')
+                    if kind == b'commit':
                         c.require(payload.startswith(b'tree '+expected[1].encode()+b'\n'), 'HISTORICAL_CONTENT_RED')
                     witness.check(); chain.check(); ancestry.check()
-                c.require(c.fingerprint(p.historical_metadata(root/'.git')) == c.fingerprint(guard),
-                          'HISTORICAL_READ_CHANGED')
-            return dict(commit=pair[0], tree=pair[1], guard=list(c.fingerprint(guard)))
+            c.require(c.fingerprint(p.historical_metadata(root/'.git')) == c.fingerprint(guard),
+                      'HISTORICAL_READ_CHANGED')
+            return dict(commit=head, tree=expected[1], guard=list(c.fingerprint(guard)))
     except (OSError, UnicodeError) as error:
         raise unavailable(error) from None

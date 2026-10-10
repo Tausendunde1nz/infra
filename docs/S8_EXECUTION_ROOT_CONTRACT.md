@@ -1,5 +1,19 @@
 # S8 isolated execution root — status and historical construction checkpoints
 
+## R4 historical capture candidate — 2026-10-10
+
+R3 is a completed historical source release, not current host acceptance.
+The R4 candidate replaces permission/event-only historical content capture
+with kernel read leases, whole-input namespace/metadata witnesses and bounded
+in-process SHA-1 Git decoding. See
+[the R4 contract](S8_HISTORICAL_KERNEL_CAPTURE_R4.md) for the exact capture claim,
+writer boundary, native requirements and future host-read plan. Earlier
+INCOMPLETE/pending construction sections remain historical checkpoints.
+R4 CI/review/merge/postmerge/freeze gates are still OPEN until final evidence
+exists; neither earlier GREEN nor offline results attest the real host.
+Historical owner/inode continuity/cause UNKNOWN, host HEAD/tree UNVERIFIED,
+Live/R15 NO-GO and other product/RED gates unchanged.
+
 ## Current historical-read source delta 2026-10-10
 
 The R2 source closure at Control `72eb91534c446c5388ad499c7626ab2abf5f8e55`

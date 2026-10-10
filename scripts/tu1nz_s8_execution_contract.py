@@ -18,7 +18,7 @@ import stat
 
 SLOT = "s8-same-release-20261004-1"
 UNIT = "tu1nz-adult-public-s8-telegram.service"
-FREEZE_TAG = "s8-isolated-atomic-recovery-freeze-r3"
+FREEZE_TAG = "s8-isolated-atomic-recovery-freeze-r4"
 LEASE_RELEASE = "s10-2d-r3-5"
 LEASE_REVISION = 277132
 FAILED_INVOCATION = "faa9196594964c7999390b250111a4ed"

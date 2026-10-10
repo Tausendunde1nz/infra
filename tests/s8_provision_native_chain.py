@@ -104,7 +104,7 @@ def setup(image):
     executable.parent.mkdir(parents=True)
     executable.parent.parent.chmod(0o755); executable.parent.chmod(0o755)
     executable.write_text("#!/bin/sh\nexit 2\n"); executable.chmod(0o755)
-    observer.HISTORY.mkdir(parents=True)
+    c.require(observer.HISTORY.is_dir() and not list(observer.HISTORY.iterdir()), "NATIVE_FRESH_HISTORY_REQUIRED")
     hashes = {}
     for name in observer.HISTORY_HASHES:
         data = c.canonical(dict(synthetic=True, object=name, historical_cause="UNKNOWN"))
@@ -159,6 +159,18 @@ def setup(image):
             ):
                 os.setxattr(path, ACCESS, acl_bytes(access))
                 os.setxattr(path, DEFAULT, acl_bytes(REPOSITORY_DEFAULT))
+        # Reproduce both diagnosed descendant profiles inside the real chain,
+        # not only a standalone reader test. Kernel exclusion, not metadata
+        # normalization or a group exception, must make them eligible.
+        if root.name == 'adult-publishing-core':
+            orig = root/'.git.s12-1-recovery/ORIG_HEAD'
+            orig.write_bytes((pairs[text][0]+'\n').encode())
+            acl = ((1,6,path_policy.UNDEFINED),*path_policy.GIT_ACCESS[1:4],
+                   (16,6,path_policy.UNDEFINED),(32,0,path_policy.UNDEFINED))
+            os.setxattr(orig,ACCESS,acl_bytes(acl))
+        else:
+            branches = root/'.git.s12-1-recovery/branches'
+            os.chown(branches,1001,1001); branches.chmod(0o2775)
     return metadata, pairs, hashes, configs, invocation
 
 

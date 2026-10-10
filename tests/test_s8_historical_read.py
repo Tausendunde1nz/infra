@@ -1,5 +1,8 @@
 """Synthetic native historical-read regressions; no PID1, network or providers."""
 import os
+import errno
+import hashlib
+import mmap
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +15,7 @@ import tu1nz_s8_execution_contract as c
 import tu1nz_s8_execution_observer as o
 import tu1nz_s8_historical_read as h
 import tu1nz_s8_path_policy as p
+import tu1nz_s8_historical_kernel as k
 
 
 class BindingTests(unittest.TestCase):
@@ -48,7 +52,8 @@ class BindingTests(unittest.TestCase):
 class NativeReadTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(Path('/.dockerenv').exists())
-        self.temp = tempfile.TemporaryDirectory(prefix='s8-historical-read-', dir='/etc')
+        self.assertEqual(os.environ.get('TU1NZ_S8_NATIVE_EXT4_ROOT'), '/proof')
+        self.temp = tempfile.TemporaryDirectory(prefix='s8-historical-read-', dir='/proof')
         self.base = Path(self.temp.name)
         self.root = self.base/'repository'; self.root.mkdir()
         self.git(['init', '--quiet', str(self.root)])
@@ -78,6 +83,10 @@ class NativeReadTests(unittest.TestCase):
         return subprocess.check_output(['/usr/bin/git', *args], stderr=subprocess.DEVNULL)
 
     def tearDown(self):
+        # Test-process isolation only. Production has no signal/attempt reset;
+        # the frozen owning process exits on a failed capture.
+        while k.LEASE_SIGNAL in k.signal.sigpending():
+            k.signal.sigtimedwait({k.LEASE_SIGNAL}, 0)
         self.profiles.stop()
         (self.root/'.git').chmod(0o700)
         self.root.chmod(0o700)
@@ -126,7 +135,10 @@ class NativeReadTests(unittest.TestCase):
     def test_descendant_writer_symlink_or_hardlink_denied(self):
         path = self.real_git/'HEAD'; original = path.read_bytes()
         path.chmod(0o660)
-        with self.assertRaisesRegex(c.ContractError,'UNSAFE_METADATA'): h.repository(self.root,self.expected)
+        # Mode/ACL are not normalized: writer exclusion, not group trust,
+        # now decides whether this current profile can be captured.
+        with self.assertRaisesRegex(c.ContractError,'UNSAFE_METADATA'): h.node_metadata(path)
+        self.assertEqual(h.repository(self.root,self.expected)['commit'], self.expected[0])
         path.chmod(0o644)
         os.link(path,self.real_git/'foreign-link')
         with self.assertRaisesRegex(c.ContractError,'UNSAFE_METADATA'): h.repository(self.root,self.expected)
@@ -154,54 +166,55 @@ class NativeReadTests(unittest.TestCase):
         with self.assertRaisesRegex(c.ContractError,'UNSAFE_INDIRECTION'): h.repository(self.root,self.expected)
 
     def test_native_write_restore_during_git_read_is_rejected(self):
-        original = h.git_read; changed = False
+        original = h.resolve_head; changed = False
         path = self.real_git/'HEAD'; payload = path.read_bytes()
         def racing(args, **options):
             nonlocal changed
             value = original(args, **options)
-            if 'rev-parse' in args and not changed:
+            if not changed:
                 changed = True
-                path.write_bytes(b'synthetic concurrent change\n'); path.write_bytes(payload)
+                with self.assertRaises(OSError) as denied:
+                    fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+                    os.close(fd)
+                self.assertIn(denied.exception.errno, (errno.EAGAIN, errno.EWOULDBLOCK))
             return value
-        with patch.object(h,'git_read',side_effect=racing), self.assertRaisesRegex(
-                c.ContractError,'HISTORICAL_READ_CHANGED'):
+        with patch.object(h,'resolve_head',side_effect=racing), self.assertRaisesRegex(
+                c.ContractError,'HISTORICAL_LEASE_BREAK'):
             h.repository(self.root,self.expected)
         self.assertTrue(changed)
 
     def test_interruption_closes_all_watches_no_second_read(self):
         before = len(os.listdir('/proc/self/fd'))
-        with patch.object(h,'git_read',side_effect=KeyboardInterrupt) as read:
+        with patch.object(h,'resolve_head',side_effect=KeyboardInterrupt) as read:
             with self.assertRaises(KeyboardInterrupt): h.repository(self.root,self.expected)
         self.assertEqual(read.call_count,1)
         self.assertEqual(len(os.listdir('/proc/self/fd')),before)
 
     def test_existing_descriptor_write_restore_and_ancestor_exchange_deny(self):
-        original = h.git_read
+        original = h.resolve_head
         for scenario in ('descriptor', 'ancestor'):
             with self.subTest(scenario=scenario):
                 done = False
                 path = self.real_git/'HEAD'; payload = path.read_bytes()
-                descriptor = os.open(path, os.O_RDWR)
+                descriptor = os.open(path, os.O_RDWR if scenario == 'descriptor' else os.O_RDONLY)
                 def racing(args, **options):
                     nonlocal done
                     result = original(args, **options)
-                    if 'rev-parse' in args and not done:
+                    if not done:
                         done = True
-                        if scenario == 'descriptor':
-                            os.pwrite(descriptor, b'x', 0); os.pwrite(descriptor, payload, 0)
-                        else:
+                        if scenario == 'ancestor':
                             moved = self.root.with_name('temporarily-moved')
                             self.root.rename(moved); moved.rename(self.root)
                     return result
                 try:
-                    with patch.object(h,'git_read',side_effect=racing), self.assertRaises(c.ContractError):
+                    with patch.object(h,'resolve_head',side_effect=racing), self.assertRaises(c.ContractError):
                         h.repository(self.root,self.expected)
-                    self.assertTrue(done)
+                    self.assertEqual(done, scenario == 'ancestor')
                 finally: os.close(descriptor)
 
     def test_permission_failure_and_cleanup_remain_distinct(self):
         before = len(os.listdir('/proc/self/fd'))
-        with patch.object(h,'git_read',side_effect=PermissionError('not disclosed')) as read:
+        with patch.object(h,'resolve_head',side_effect=PermissionError('not disclosed')) as read:
             with self.assertRaisesRegex(c.ContractError, 'HISTORICAL_READ_UNAVAILABLE') as failure:
                 h.repository(self.root,self.expected)
         self.assertEqual(failure.exception._s8_read_failure['type'],'PermissionError')
@@ -209,10 +222,260 @@ class NativeReadTests(unittest.TestCase):
         self.assertEqual(len(os.listdir('/proc/self/fd')),before)
 
     def test_read_interval_watcher_loss_denies(self):
-        with h.GitReadWitness(self.real_git) as witness:
+        witness = h.GitReadWitness(self.real_git)
+        try:
             witness.owner = -1
             with self.assertRaisesRegex(c.ContractError, 'WITNESS_LOST'): witness.check()
             witness.owner = os.getpid()
+            with self.assertRaisesRegex(c.ContractError, 'WITNESS_LOST'): witness.check()
+        finally: witness.close()
+
+    def test_observed_orig_head_acl_and_branches_owner_capture_without_normalization(self):
+        orig = self.real_git/'ORIG_HEAD'; orig.write_bytes((self.expected[0]+'\n').encode())
+        acl = ((1,6,p.UNDEFINED),*p.GIT_ACCESS[1:4],(16,6,p.UNDEFINED),(32,0,p.UNDEFINED))
+        os.setxattr(orig,p.ACCESS,p.acl_bytes(acl))
+        branches = self.real_git/'branches'
+        os.chown(branches,1001,1001); branches.chmod(0o2775)
+        before = {node:(c.fingerprint(node.lstat()), {name:os.getxattr(node,name)
+                  for name in os.listxattr(node)}) for node in (orig,branches)}
+        for node in (orig,branches):
+            with self.assertRaises(c.ContractError): h.node_metadata(node)
+        self.assertEqual(h.repository(self.root,self.expected)['commit'],self.expected[0])
+        after = {node:(c.fingerprint(node.lstat()), {name:os.getxattr(node,name)
+                 for name in os.listxattr(node)}) for node in (orig,branches)}
+        self.assertEqual(before,after)
+
+    def test_retained_shared_mapping_denies_before_any_git_use(self):
+        path = self.real_git/'HEAD'
+        writer = os.open(path,os.O_RDWR)
+        mapping = mmap.mmap(writer,0,access=mmap.ACCESS_WRITE)
+        os.close(writer)
+        try:
+            with patch.object(h,'resolve_head') as read, self.assertRaisesRegex(
+                    c.ContractError,'WRITER_EXCLUSION_UNAVAILABLE'):
+                h.repository(self.root,self.expected)
+            read.assert_not_called()
+        finally: mapping.close()
+
+    def test_foreign_unprivileged_writer_fd_and_mapping_are_not_permission_exemptions(self):
+        child_source = '''import ctypes,mmap,os,sys
+fd=int(sys.argv[1]); uid=int(sys.argv[2]); use_map=sys.argv[3]=='map'
+if uid:
+ os.setgroups([]);os.setgid(uid);os.setuid(uid)
+else:
+ class Header(ctypes.Structure):_fields_=[('version',ctypes.c_uint32),('pid',ctypes.c_int)]
+ class Data(ctypes.Structure):_fields_=[('effective',ctypes.c_uint32),('permitted',ctypes.c_uint32),('inheritable',ctypes.c_uint32)]
+ libc=ctypes.CDLL(None,use_errno=True);assert libc.capset(ctypes.byref(Header(0x20080522,0)),(Data*2)())==0
+mapping=mmap.mmap(fd,0,access=mmap.ACCESS_WRITE) if use_map else None
+if mapping is not None:os.close(fd)
+status=open('/proc/self/status').read().splitlines()
+assert next(x for x in status if x.startswith('CapEff:')).split()[1]=='0000000000000000'
+print('SYNTHETIC_WRITER_READY',flush=True)
+sys.stdin.buffer.read(1)
+if mapping is not None:mapping.close()
+else:os.close(fd)
+'''
+        for uid in (0,1001):
+            for mode in ('fd','map'):
+                with self.subTest(uid=uid,mode=mode):
+                    writer = os.open(self.real_git/'HEAD',os.O_RDWR)
+                    child = subprocess.Popen([sys.executable,'-I','-B','-c',child_source,str(writer),str(uid),mode],
+                        pass_fds=(writer,),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                    os.close(writer)
+                    try:
+                        self.assertEqual(child.stdout.readline(),b'SYNTHETIC_WRITER_READY\n')
+                        with patch.object(h,'resolve_head') as read, self.assertRaisesRegex(
+                                c.ContractError,'WRITER_EXCLUSION_UNAVAILABLE'):
+                            h.repository(self.root,self.expected)
+                        read.assert_not_called()
+                    finally:
+                        _,error = child.communicate(b'finish',timeout=5)
+                    self.assertEqual(child.returncode,0,error.decode())
+
+    def test_unsupported_native_filesystem_never_falls_back_to_permission_only(self):
+        with tempfile.TemporaryDirectory(prefix='s8-synthetic-overlay-') as folder:
+            path = Path(folder)/'file'; path.write_bytes(b'synthetic')
+            fd = os.open(path,os.O_RDONLY)
+            try:
+                with self.assertRaisesRegex(c.ContractError,'EXT4_REQUIRED'): k.ext4(fd)
+            finally: os.close(fd)
+
+    def test_retained_directory_fd_metadata_and_creation_rejected(self):
+        branches = self.real_git/'branches'
+        os.chown(branches,1001,1001); branches.chmod(0o2775)
+        directory = os.open(branches,os.O_RDONLY | os.O_DIRECTORY)
+        original = h.resolve_head
+        def racing(args, **options):
+            result = original(args, **options)
+            fd = os.open('synthetic-created',os.O_WRONLY | os.O_CREAT | os.O_EXCL,0o600,dir_fd=directory)
+            os.close(fd)
+            os.unlink('synthetic-created',dir_fd=directory)
+            os.fchmod(directory,0o2700); os.fchmod(directory,0o2775)
+            return result
+        try:
+            with patch.object(h,'resolve_head',side_effect=racing), self.assertRaises(c.ContractError):
+                h.repository(self.root,self.expected)
+        finally: os.close(directory)
+
+    def test_fixed_evidence_payload_requires_kernel_writer_exclusion(self):
+        evidence = self.base/'synthetic-evidence.json'
+        payload = b'{"synthetic":true}\n'; evidence.write_bytes(payload); evidence.chmod(0o600)
+        digest = hashlib.sha256(payload).hexdigest()
+        self.assertEqual(o.file_bytes(evidence,expected=digest,historical_capture=True),payload)
+        writer = os.open(evidence,os.O_RDWR)
+        try:
+            with self.assertRaisesRegex(c.ContractError,'WRITER_EXCLUSION_UNAVAILABLE'):
+                o.file_bytes(evidence,expected=digest,historical_capture=True)
+        finally: os.close(writer)
+
+    def test_broken_lease_is_latched_no_reclaim_or_capture_resume(self):
+        witness = h.GitReadWitness(self.real_git)
+        path = self.real_git/'HEAD'
+        try:
+            with self.assertRaises(OSError): os.open(path,os.O_WRONLY | os.O_NONBLOCK)
+            with self.assertRaisesRegex(c.ContractError,'LEASE_BREAK'): witness.check()
+            with self.assertRaisesRegex(c.ContractError,'WITNESS_LOST'): witness.check()
+            fd = os.open(path,os.O_RDONLY)
+            try:
+                with patch.object(k.fcntl,'fcntl',wraps=k.fcntl.fcntl) as call:
+                    with self.assertRaises(c.ContractError): witness.leases.acquire(fd)
+                call.assert_not_called()
+            finally: os.close(fd)
+        finally: witness.close()
+
+    def test_capture_deadline_loss_fails_without_retry(self):
+        witness = h.GitReadWitness(self.real_git)
+        try:
+            witness.leases.deadline = 0
+            with self.assertRaisesRegex(c.ContractError,'CAPTURE_TIMEOUT'): witness.check()
+            with self.assertRaisesRegex(c.ContractError,'WITNESS_LOST'): witness.check()
+        finally: witness.close()
+
+    def test_native_git_gc_packed_refs_and_objects_match_git_oracle(self):
+        args = ['--git-dir='+str(self.real_git),'--work-tree='+str(self.root)]
+        for i in range(8):
+            (self.root/'synthetic.txt').write_bytes(b'nearly-identical synthetic payload\n'*200+str(i).encode())
+            self.git([*args,'add','synthetic.txt'])
+            self.git([*args,'-c','user.name=Synthetic','-c','user.email=fixture@example.invalid',
+                      'commit','--quiet','-m','synthetic-pack'])
+        self.git([*args,'gc','--aggressive','--prune=now'])  # only this test's synthetic fixture
+        expected = tuple(self.git([*args,'rev-parse',ref]).decode().strip() for ref in ('HEAD','HEAD^{tree}'))
+        self.assertTrue(list((self.real_git/'objects/pack').glob('*.idx')))
+        with patch.object(h,'resolve_head',wraps=h.resolve_head) as read:
+            actual = h.repository(self.root,expected)
+        self.assertEqual((actual['commit'],actual['tree']),expected)
+        self.assertEqual(read.call_count,1)
+        self.assertFalse(hasattr(h,'git_read'))
+
+    def test_readonly_bind_alias_does_not_hide_foreign_writer(self):
+        alias = self.base/'readonly-alias'; alias.mkdir()
+        profiles = {alias:(1001,0o2550,p.APPLICATION_ACCESS,p.REPOSITORY_DEFAULT),
+            alias/'.git':(0,0,((1,0,p.UNDEFINED),*p.GIT_ACCESS[1:]),p.REPOSITORY_DEFAULT),
+            alias/'.git.s12-1-recovery':(0,0o700,p.GIT_ACCESS,p.REPOSITORY_DEFAULT)}
+        subprocess.run(['/usr/bin/mount','--bind',str(self.root),str(alias)],check=True)
+        try:
+            subprocess.run(['/usr/bin/mount','-o','remount,bind,ro',str(alias)],check=True)
+            writer = os.open(self.real_git/'HEAD',os.O_RDWR)
+            try:
+                with patch.dict(p.HISTORICAL_PROFILES,profiles), self.assertRaisesRegex(
+                        c.ContractError,'WRITER_EXCLUSION_UNAVAILABLE'):
+                    h.repository(alias,self.expected)
+            finally: os.close(writer)
+            with patch.dict(p.HISTORICAL_PROFILES,profiles):
+                self.assertEqual(h.repository(alias,self.expected)['commit'],self.expected[0])
+                original = h.resolve_head
+                done = False
+                def racing(args,**options):
+                    nonlocal done
+                    result = original(args,**options)
+                    if not done:
+                        done = True
+                        with self.assertRaises(OSError): os.open(self.real_git/'HEAD',os.O_WRONLY | os.O_NONBLOCK)
+                    return result
+                with patch.object(h,'resolve_head',side_effect=racing), self.assertRaises(c.ContractError):
+                    h.repository(alias,self.expected)
+                self.assertTrue(done)
+        finally: subprocess.run(['/usr/bin/umount',str(alias)],check=True)
+
+    def test_canonical_history_aggregate_validates_inputs_not_cached_success(self):
+        history = self.base/'synthetic-history'; history.mkdir(mode=0o700)
+        hashes = {}
+        for name in o.HISTORY_HASHES:
+            payload = ('{"synthetic":"'+name+'"}\n').encode()
+            (history/name).write_bytes(payload); (history/name).chmod(0o600)
+            hashes[name] = hashlib.sha256(payload).hexdigest()
+        role_roots = {name:self.root for name in o.HISTORICAL_ROOTS}
+        def mapped_path(text): return role_roots.get(str(text),Path(text))
+        with patch.object(o,'HISTORY',history), patch.object(o,'HISTORY_HASHES',hashes), \
+             patch.object(c,'HISTORICAL_APPLICATION',self.expected), \
+             patch.object(c,'HISTORICAL_CONTROL',self.expected), \
+             patch.object(o,'HISTORICAL_ROOTS',{name:self.expected for name in role_roots}), \
+             patch.object(o,'Path',side_effect=mapped_path):
+            value = o.history()
+            self.assertEqual(value['hashes'],hashes)
+            self.assertEqual(set(value['repositories']),set(role_roots))
+            self.assertEqual(c.SLOT,'s8-same-release-20261004-1')
+            (history/next(iter(hashes))).write_bytes(b'{"synthetic":"changed"}\n')
+            with self.assertRaisesRegex(c.ContractError,'INPUT_DIGEST_RED'): o.history()
+
+    def test_primary_and_cleanup_failure_both_retained_all_descriptors_closed(self):
+        before = len(os.listdir('/proc/self/fd'))
+        real_close = os.close
+        active = False; failed = False
+        def read(*args,**options):
+            nonlocal active
+            active = True
+            raise PermissionError('private synthetic content not disclosed')
+        def close(fd):
+            nonlocal failed
+            real_close(fd)
+            if active and not failed:
+                failed = True
+                raise OSError('private synthetic close acknowledgement')
+        with patch.object(h,'resolve_head',side_effect=read), patch.object(c.os,'close',side_effect=close):
+            with self.assertRaisesRegex(c.ContractError,'HISTORICAL_READ_UNAVAILABLE') as failure:
+                h.repository(self.root,self.expected)
+        self.assertTrue(failed)
+        self.assertEqual(failure.exception._s8_read_failure['type'],'PermissionError')
+        self.assertTrue(failure.exception._s8_cleanup_errors)
+        self.assertFalse(hasattr(failure.exception,'_s8_abort_error'))
+        self.assertEqual(len(os.listdir('/proc/self/fd')),before)
+
+    def test_late_evidence_change_or_marker_restore_invalidates_whole_history(self):
+        for scenario in ('evidence-writer','marker-restore'):
+            with self.subTest(scenario=scenario):
+                history = self.base/scenario; history.mkdir(mode=0o700)
+                hashes = {}
+                for name in o.HISTORY_HASHES:
+                    payload = ('{"synthetic":"'+name+'"}\n').encode()
+                    (history/name).write_bytes(payload); (history/name).chmod(0o600)
+                    hashes[name] = hashlib.sha256(payload).hexdigest()
+                roles = {name:self.root for name in o.HISTORICAL_ROOTS}
+                def mapped_path(text): return roles.get(str(text),Path(text))
+                original = h.resolve_head
+                done = False
+                def racing(args,**options):
+                    nonlocal done
+                    result = original(args,**options)
+                    if not done:
+                        done = True
+                        if scenario == 'evidence-writer':
+                            with self.assertRaises(OSError):
+                                os.open(history/next(iter(hashes)),os.O_WRONLY | os.O_NONBLOCK)
+                        else:
+                            marker = history/o.ABSENT_MARKERS[0]
+                            marker.write_bytes(b'synthetic concurrent marker'); marker.unlink()
+                    return result
+                with patch.object(o,'HISTORY',history), patch.object(o,'HISTORY_HASHES',hashes), \
+                     patch.object(c,'HISTORICAL_APPLICATION',self.expected), \
+                     patch.object(c,'HISTORICAL_CONTROL',self.expected), \
+                     patch.object(o,'HISTORICAL_ROOTS',{name:self.expected for name in roles}), \
+                     patch.object(o,'Path',side_effect=mapped_path), \
+                     patch.object(h,'resolve_head',side_effect=racing), self.assertRaises(c.ContractError):
+                    o.history()
+                self.assertTrue(done)
+                while k.LEASE_SIGNAL in k.signal.sigpending():
+                    k.signal.sigtimedwait({k.LEASE_SIGNAL},0)  # isolated case teardown only
 
 
 if __name__ == '__main__': unittest.main()
