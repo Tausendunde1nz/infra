@@ -127,6 +127,21 @@ passed 37/37 with no skips, and the corrected portable selection passed 68
 tests with 18 native-only skips. Complete final-source CI/review remains
 mandatory; the superseded first CI was deliberately cancelled, not GREEN.
 
+The first private Application integration run exposed a synthetic-fixture
+conflict: the new noexec ext4 historical mount prevented the unchanged legacy
+unit's synthetic exit-2 pathname, producing 203/EXEC/restarts. This is retained
+as RED, not a production reader fault. The fixture now binds only its fresh
+exact exit-2 file from the disposable executable test filesystem; historical
+repositories remain noexec. A native regression checks that limited file bind,
+continued repository noexec and real protected Git capture. Initial fixture
+acceptance now requires exit 2 and zero restarts, rejecting 203/other outcomes
+immediately instead of increasing the deadline. The production reader,
+historical profiles, service and lease predicates are unchanged. Fresh final
+source CI/reviews and complete private provisioning integration are required.
+The corrected local native fixture/reader selection passed 38/38 with no skip;
+this does not substitute for the new exact-head Control CI/review or the
+Application's complete actual provisioning-chain gates.
+
 R3 and earlier freezes/counterproofs remain unchanged. Native tests, mandatory
 CI, exact-SHA independent reviews, merges/post-merge CI and R4 freeze are OPEN
 until recorded for the final source. This candidate is not live acceptance.

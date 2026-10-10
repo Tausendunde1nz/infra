@@ -65,6 +65,27 @@ def empty_git(root):
     return pair
 
 
+def failure_shim(executable, fixture):
+    """One synthetic exit-2 inode, not executable historical source.
+
+    The fresh ext4 historical fixture deliberately stays noexec. Bind only
+    this new, exact test script from the disposable fixture's executable
+    filesystem onto the unchanged unit's synthetic pathname. Never remount
+    the repositories, change a production predicate or extend a live path.
+    The fresh test container is this owned mount's lifetime boundary.
+    """
+    c.require(not os.path.lexists(executable) and not os.path.lexists(fixture),
+              'NATIVE_FRESH_SHIM_REQUIRED')
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    executable.parent.parent.chmod(0o755); executable.parent.chmod(0o755)
+    for path in (fixture,executable):
+        path.write_bytes(b'#!/bin/sh\nexit 2\n'); path.chmod(0o755)
+    cmd(['mount','--bind',str(fixture),str(executable)])
+    c.require(cmd(['findmnt','-n','-o','TARGET','-T',str(executable)]).stdout.strip()==str(executable)
+              and 'noexec' not in cmd(['findmnt','-n','-o','OPTIONS','-T',str(executable)]).stdout.strip().split(','),
+              'NATIVE_SHIM_EXEC_MOUNT_RED')
+
+
 def setup(image):
     c.require(not FIXTURE.exists() and not observer.ROOT.exists(), "NATIVE_FRESH_HOST_REQUIRED")
     FIXTURE.mkdir(mode=0o700)
@@ -101,9 +122,7 @@ def setup(image):
     # The actual unchanged historical unit fails exactly once, from its real
     # ExecStart pathname. Only that pathname's synthetic fixture returns 2.
     executable = Path("/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s8-telegram")
-    executable.parent.mkdir(parents=True)
-    executable.parent.parent.chmod(0o755); executable.parent.chmod(0o755)
-    executable.write_text("#!/bin/sh\nexit 2\n"); executable.chmod(0o755)
+    failure_shim(executable,FIXTURE/'historical-failure-shim')
     c.require(observer.HISTORY.is_dir() and not list(observer.HISTORY.iterdir()), "NATIVE_FRESH_HISTORY_REQUIRED")
     hashes = {}
     for name in observer.HISTORY_HASHES:
@@ -130,7 +149,12 @@ def setup(image):
     cmd(["systemctl", "daemon-reload"])
     cmd(["systemctl", "start", *observer.PUBLIC_UNITS])
     cmd(["systemctl", "start", c.UNIT], check=False)
-    until(lambda: observer.service(c.UNIT)["ActiveState"] == "failed")
+    def synthetic_incident_ready():
+        value = observer.service(c.UNIT)
+        c.require(value['NRestarts']=='0' and value['ExecMainStatus'] in {'0','2'},
+                  'NATIVE_SYNTHETIC_INCIDENT_RED')
+        return value['ActiveState']=='failed' and value['ExecMainStatus']=='2'
+    until(synthetic_incident_ready)
     invocation = observer.service(c.UNIT)["InvocationID"]
     # Exact observed parent profiles and existing empty drop-in. These are
     # synthetic objects made before the production preflight, never predicates

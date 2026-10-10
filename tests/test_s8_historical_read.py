@@ -102,6 +102,30 @@ class NativeReadTests(unittest.TestCase):
         self.assertEqual(index, (self.real_git/'index').read_bytes())
         with self.assertRaises(c.ContractError): p.parent_metadata(self.root)
 
+    def test_synthetic_failure_shim_does_not_make_historical_mount_executable(self):
+        # The actual chain's initial failed-unit fixture must return 2, not
+        # 203/EXEC plus restart. Keep the repository/ext4 mount noexec and
+        # prove only the fresh exact synthetic file bind is executable.
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        from s8_provision_native_chain import failure_shim
+        blocked = self.base/'blocked-script'
+        blocked.write_bytes(b'#!/bin/sh\nexit 2\n'); blocked.chmod(0o755)
+        with self.assertRaises(PermissionError): subprocess.run([str(blocked)],check=False)
+        target = self.base/'synthetic-bin'/'failure-script'
+        with tempfile.TemporaryDirectory(prefix='s8-owned-shim-',dir='/var/tmp') as directory:
+            try:
+                failure_shim(target,Path(directory)/'exit-two')
+                self.assertEqual(subprocess.run([str(target)],check=False).returncode,2)
+                options = subprocess.check_output(['findmnt','-n','-o','OPTIONS','-T',str(self.root)]).decode().strip().split(',')
+                self.assertIn('noexec',options)
+                self.assertEqual(h.repository(self.root,self.expected)['commit'],self.expected[0])
+            finally:
+                # Only this new exact file bind; never a host/historical mount.
+                if target.exists() and subprocess.check_output([
+                    'findmnt','-n','-o','TARGET','-T',str(target)]).decode().strip()==str(target):
+                    subprocess.run(['umount',str(target)],check=True)
+        with self.assertRaises(PermissionError): subprocess.run([str(target)],check=False)
+
     def test_control_group_only_read_profile(self):
         for path in (self.root, self.root/'.git', self.real_git):
             for name in (p.ACCESS,p.DEFAULT): os.removexattr(path,name)
