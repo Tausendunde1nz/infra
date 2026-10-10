@@ -38,6 +38,9 @@ class BindingTests(unittest.TestCase):
         self.assertNotIn(Path('/etc/tu1nz/s8-atomic-admission-r1'), p.HISTORICAL_PROFILES)
         with self.assertRaisesRegex(c.ContractError, 'HISTORICAL_CREATION_FORBIDDEN'):
             p.parent_metadata(Path('/not-accessed'), historical=True, creation=True)
+        control = Path('/opt/tu1nz_repos/control')
+        self.assertEqual(p.HISTORICAL_PROFILES[control/'.git'], (0,0,None,None))
+        self.assertEqual(p.HISTORICAL_PROFILES[control/'.git.s12-1-recovery'], (0,0o700,None,None))
 
 
 @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0 and
@@ -91,9 +94,18 @@ class NativeReadTests(unittest.TestCase):
         with self.assertRaises(c.ContractError): p.parent_metadata(self.root)
 
     def test_control_group_only_read_profile(self):
-        for name in (p.ACCESS, p.DEFAULT): os.removexattr(self.root, name)
-        with patch.dict(p.HISTORICAL_PROFILES, {self.root:(1001,0o2550,None,None)}):
+        for path in (self.root, self.root/'.git', self.real_git):
+            for name in (p.ACCESS,p.DEFAULT): os.removexattr(path,name)
+        profiles = {self.root:(1001,0o2550,None,None),
+                    self.root/'.git':(0,0,None,None), self.real_git:(0,0o700,None,None)}
+        with patch.dict(p.HISTORICAL_PROFILES, profiles):
             self.assertEqual(h.repository(self.root, self.expected)['commit'], self.expected[0])
+            (self.root/'.git').chmod(0o700)
+            with self.assertRaisesRegex(c.ContractError,'UNSAFE_METADATA'): h.repository(self.root,self.expected)
+            (self.root/'.git').chmod(0)
+            self.real_git.chmod(0o755)
+            with self.assertRaisesRegex(c.ContractError,'UNSAFE_METADATA'): h.repository(self.root,self.expected)
+            self.real_git.chmod(0o700)
 
     def test_effective_write_wrong_owner_group_xattr_or_default_denied(self):
         for kind in ('effective-write', 'owner', 'group', 'xattr', 'default'):

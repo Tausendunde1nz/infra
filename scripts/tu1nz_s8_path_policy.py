@@ -39,6 +39,8 @@ GIT_ACCESS = ((1, 7, UNDEFINED), (2, 7, 1001), (4, 7, UNDEFINED),
               (8, 5, 1001), (16, 0, UNDEFINED), (32, 0, UNDEFINED))
 HISTORICAL_PROFILES = {
     Path('/opt/tu1nz_repos/control'): (1001, 0o2550, None, None),
+    Path('/opt/tu1nz_repos/control/.git'): (0, 0, None, None),
+    Path('/opt/tu1nz_repos/control/.git.s12-1-recovery'): (0, 0o700, None, None),
     Path('/opt/tu1nz_repos/adult-publishing-core'): (1001, 0o2550, APPLICATION_ACCESS, REPOSITORY_DEFAULT),
     Path('/opt/tu1nz_repos/adult-publishing-core/.git'): (0, 0, ((1, 0, UNDEFINED), *GIT_ACCESS[1:]), REPOSITORY_DEFAULT),
     Path('/opt/tu1nz_repos/adult-publishing-core/.git.s12-1-recovery'): (0, 0o700, GIT_ACCESS, REPOSITORY_DEFAULT),

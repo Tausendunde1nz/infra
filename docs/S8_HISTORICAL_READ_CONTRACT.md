@@ -26,6 +26,9 @@ are never exercised to create or adopt objects. This is no group/ACL writer
 exception. Existing Git descendants must themselves deny effective non-owner
 writes and match the bounded read policy; unobserved descendant metadata may
 therefore still deny the later host check. No normalization is authorized.
+Both historical Git guards still require exact root-owned `0000`, and their
+real Git directories exact `0700`; a reopened guard remains denied even if
+the commit/tree still matches. Control retains its no-ACL Git profile.
 
 Every Git inode and relevant ancestor is continuously watched for this read
 interval, including write-and-restore through an already open descriptor.
