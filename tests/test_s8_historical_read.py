@@ -140,6 +140,65 @@ class NativeReadTests(unittest.TestCase):
             with self.assertRaisesRegex(c.ContractError,'UNSAFE_METADATA'): h.repository(self.root,self.expected)
             self.real_git.chmod(0o700)
 
+    def test_fixture_mount_cleanup_follows_owned_object_not_reused_name(self):
+        from tests import s8_historical_fixture_mounts as owned
+        source = self.base/'owned-source'; source.mkdir()
+        foreign_source = self.base/'foreign-source'; foreign_source.mkdir()
+        parent = self.base/'mount-parent'; parent.mkdir()
+        target = parent/'binding'; target.mkdir()
+        retained = self.base/'mount-retained'
+        subprocess.run(['mount','--bind',str(source),str(target)],check=True)
+        original = owned.capture(target,(str(target),str(retained/'binding')))
+        foreign = None
+        try:
+            parent.rename(retained); parent.mkdir(); target.mkdir()
+            subprocess.run(['mount','--bind',str(foreign_source),str(target)],check=True)
+            foreign = owned.capture(target,(str(target),))
+            self.assertEqual(owned.current(original),str(retained/'binding'))
+            owned.unmount_owned(original)
+            self.assertEqual(owned.current(foreign),str(target))
+            self.assertNotIn(original['id'],[v['id'] for v in owned.mounts()])
+        finally:
+            for value in (foreign,original):
+                if value is not None and any(v['id']==value['id'] for v in owned.mounts()):
+                    owned.unmount_owned(value)
+
+    def test_fixture_mount_unbound_relocation_denied_not_adopted(self):
+        from tests import s8_historical_fixture_mounts as owned
+        source = self.base/'owned-source'; source.mkdir()
+        parent = self.base/'mount-parent'; parent.mkdir()
+        target = parent/'binding'; target.mkdir()
+        retained = self.base/'unbound-parent'
+        subprocess.run(['mount','--bind',str(source),str(target)],check=True)
+        binding = owned.capture(target,(str(target),))
+        try:
+            parent.rename(retained)
+            with self.assertRaisesRegex(AssertionError,'TARGET_UNBOUND'):
+                owned.unmount_owned(binding)
+            self.assertIn(binding['id'],[v['id'] for v in owned.mounts()])
+        finally:
+            retained.rename(parent)
+            owned.unmount_owned(binding)
+
+    def test_fixture_cleanup_preserves_primary_and_attempts_independent_mount(self):
+        from tests import s8_historical_fixture_mounts as owned
+        source = self.base/'owned-source'; source.mkdir()
+        target = self.base/'owned-target'; target.mkdir()
+        subprocess.run(['mount','--bind',str(source),str(target)],check=True)
+        binding = owned.capture(target,(str(target),))
+        missing = {**binding,'id':-1}
+        try:
+            result,status = owned.release_all((missing,binding),17)
+            self.assertEqual(status,17)
+            self.assertEqual(result['primary_code'],17)
+            self.assertEqual(result['cleanup'],[dict(type='AssertionError',code='S8_NATIVE_FIXTURE_MOUNT_MISSING')])
+            self.assertNotIn(binding['id'],[v['id'] for v in owned.mounts()])
+            result,status = owned.release_all((missing,),0)
+            self.assertEqual(status,2)
+            self.assertEqual(len(result['cleanup']),1)
+        finally:
+            if any(v['id']==binding['id'] for v in owned.mounts()): owned.unmount_owned(binding)
+
     def test_effective_write_wrong_owner_group_xattr_or_default_denied(self):
         for kind in ('effective-write', 'owner', 'group', 'xattr', 'default'):
             with self.subTest(kind=kind):

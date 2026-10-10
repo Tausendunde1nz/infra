@@ -25,14 +25,19 @@ for target in /opt/tu1nz_repos /etc/tu1nz/adult-commercial-s12-1-private/state; 
   test "$(findmnt -n -o FSTYPE -T "$target")" = ext4
   test "$(findmnt -n -o MAJ:MIN -T "$target")" = "$(findmnt -n -o MAJ:MIN -T /s8-provision-historical)"
 done
+python3 -B tests/s8_historical_fixture_mounts.py capture
 status=0
 python3 -B tests/s8_provision_native_chain.py "${1:?synthetic chain mode required}" || status=$?
 # Release only this case's validated synthetic binds/loop. No existing host or
 # historical mounts are reachable. Preserve test failure as the primary code.
-umount /etc/tu1nz/adult-commercial-s12-1-private/state
-umount /opt/tu1nz_repos
-test "$(findmnt -n -o SOURCE -T /s8-provision-historical)" = "$device"
-umount /s8-provision-historical
-test "$(losetup -n -O BACK-FILE "$device")" = /s8-provision-historical.img
-losetup --detach "$device"
-exit "$status"
+cleanup_status=0
+# The test deliberately relocates /etc/tu1nz. Resolve the captured mount ID,
+# object and two prescribed synthetic names, never adopt the old pathname.
+python3 -B tests/s8_historical_fixture_mounts.py release "$status" || cleanup_status=$?
+if test "$(losetup -n -O BACK-FILE "$device")" = /s8-provision-historical.img; then
+  losetup --detach "$device" || { test "$cleanup_status" != 0 || cleanup_status=2; }
+else
+  test "$cleanup_status" != 0 || cleanup_status=2
+fi
+test "$status" = 0 || exit "$status"
+exit "$cleanup_status"

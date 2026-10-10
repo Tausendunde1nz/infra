@@ -29,9 +29,11 @@ import tu1nz_s8_anchor as anchor
 from tu1nz_s8_path_policy import ACCESS, DEFAULT, CONFIG_ACCESS, REPOSITORY_ACCESS, REPOSITORY_DEFAULT, acl_bytes
 from tu1nz_s8_execution_units import COORDINATOR
 from tu1nz_s8_runtime_interfaces import CONFIG_NAMES
+from tests import s8_historical_fixture_mounts as fixture_mounts
 
 FIXTURE = Path("/etc/tu1nz-s8-provision-native-fixture")
 ADMIN = "postgresql://tu1nz_test@/tu1nz_s8_exec_native?host=/run/postgresql"
+SHIM_BINDING = None
 
 
 def cmd(argv, *, input=None, check=True):
@@ -84,9 +86,11 @@ def failure_shim(executable, fixture):
     c.require(cmd(['findmnt','-n','-o','TARGET','-T',str(executable)]).stdout.strip()==str(executable)
               and 'noexec' not in cmd(['findmnt','-n','-o','OPTIONS','-T',str(executable)]).stdout.strip().split(','),
               'NATIVE_SHIM_EXEC_MOUNT_RED')
+    return fixture_mounts.capture(executable, (str(executable),))
 
 
 def setup(image):
+    global SHIM_BINDING
     c.require(not FIXTURE.exists() and not observer.ROOT.exists(), "NATIVE_FRESH_HOST_REQUIRED")
     FIXTURE.mkdir(mode=0o700)
     (FIXTURE/"isolation").write_bytes(b"TU1NZ_ISOLATED_NO_PROVIDER\n")
@@ -122,7 +126,7 @@ def setup(image):
     # The actual unchanged historical unit fails exactly once, from its real
     # ExecStart pathname. Only that pathname's synthetic fixture returns 2.
     executable = Path("/opt/tu1nz_repos/adult-publishing-core/.venv/bin/tu1nz-public-s8-telegram")
-    failure_shim(executable,FIXTURE/'historical-failure-shim')
+    SHIM_BINDING = failure_shim(executable,FIXTURE/'historical-failure-shim')
     c.require(observer.HISTORY.is_dir() and not list(observer.HISTORY.iterdir()), "NATIVE_FRESH_HISTORY_REQUIRED")
     hashes = {}
     for name in observer.HISTORY_HASHES:
@@ -403,6 +407,7 @@ def enter_capsule(mounted, *, uid, gid, image_sha256, argv, environment):
 
 
 def cleanup():
+    global SHIM_BINDING
     cmd(["systemctl", "stop", COORDINATOR, c.UNIT, *observer.PUBLIC_UNITS], check=False)
     # Only fresh fixture objects in this disposable test container. Production
     # APIs have no flag-removal, unlink, rollback-to-normal or retry operation.
@@ -416,14 +421,30 @@ def cleanup():
                 flags = array.array("L", [0]); fcntl.ioctl(fd, 0x80086601, flags, True)
                 flags[0] &= ~0x30; fcntl.ioctl(fd, 0x40086602, flags)
             finally: os.close(fd)
+    if SHIM_BINDING is not None:
+        owned, SHIM_BINDING = SHIM_BINDING, None
+        fixture_mounts.unmount_owned(owned)  # exactly once, no ambiguous retry
+
+
+class FixtureCleanup:
+    def close(self):
+        cleanup()
 
 
 if __name__ == "__main__":
-    try: main()
+    try:
+        with c.resource_scope(FixtureCleanup()):
+            try: main()
+            except BaseException as error:
+                try:
+                    print(cmd(["journalctl", "--no-pager", "-u", COORDINATOR, "-u", c.UNIT, "-n", "35"]).stdout)
+                except BaseException as diagnostic:
+                    error._s8_cleanup_errors = [*getattr(error, '_s8_cleanup_errors', []), c.failure_record(diagnostic)]
+                if isinstance(error, provision.ProvisionAborted): print(json.dumps(error.evidence, sort_keys=True))
+                raise
     except BaseException as error:
         # Fresh fixture journal only, never a server journal. All credentials,
         # identities and SQL rows were created synthetically by this file.
-        print(cmd(["journalctl", "--no-pager", "-u", COORDINATOR, "-u", c.UNIT, "-n", "35"]).stdout)
-        if isinstance(error, provision.ProvisionAborted): print(json.dumps(error.evidence, sort_keys=True))
+        print(json.dumps(dict(primary=c.failure_record(error), abort=getattr(error, '_s8_abort_error', None),
+                              cleanup=getattr(error, '_s8_cleanup_errors', [])), sort_keys=True))
         raise
-    finally: cleanup()

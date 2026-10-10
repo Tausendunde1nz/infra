@@ -146,3 +146,17 @@ R3 and earlier freezes/counterproofs remain unchanged. Native tests, mandatory
 CI, exact-SHA independent reviews, merges/post-merge CI and R4 freeze are OPEN
 until recorded for the final source. This candidate is not live acceptance.
 R15 pause compatibility OPEN; Live/R15 NO-GO; S9/S10/S11/product gates unchanged.
+# Integrated fixture-cleanup correction
+
+The next private candidate proved the positive provisioning/SQL/one-shot
+admission chain, but remained RED because its shell teardown addressed a
+synthetic history bind by an old pathname after the intentional fixture-parent
+relocation. No artifact or full-chain acceptance was emitted. The correction
+is test-only: retain mount ID, namespace, backing root/device/source and object
+identity; resolve only the two prescribed fresh-fixture names; never unmount a
+foreign replacement at the old name. The separately captured synthetic file
+bind is closed once before its repository bind. Cleanup failures remain RED
+and cannot replace a primary test failure. New generic bind-mount regressions
+do not exercise or repeat the historically blocked systemd-Q investigation.
+The isolated native reader/decoder/fixture suite is now 41/41 with no skips;
+the corrected full private provisioning chain remains a mandatory pending gate.

@@ -376,6 +376,7 @@
 !scripts/tu1nz_s8_path_policy.py
 !scripts/tu1nz_s8_historical_read.py
 !tests/test_s8_historical_read.py
+!tests/s8_historical_fixture_mounts.py
 !scripts/tu1nz_s8_existing_dropin.py
 !tests/test_s8_anchor.py
 !tests/test_s8_path_policy.py
