@@ -78,7 +78,7 @@ def config_safe(witness):
         line = raw.strip()
         if not line or line.startswith(('#',';')): continue
         if line.startswith('['):
-            require(re.fullmatch(r'\[(core|remote "[^"\x00-\x1f]+"|branch "[^"\x00-\x1f]+")\]',line),
+            require(re.fullmatch(r'\[(core|user|remote "[^"\x00-\x1f]+"|branch "[^"\x00-\x1f]+")\]',line),
                     'HISTORICAL_UNSAFE_CONFIG')
             section = line[1:-1]
             continue
@@ -88,7 +88,12 @@ def config_safe(witness):
         key = key.lower()
         ordinary = section == 'core' and key in {
             'repositoryformatversion','filemode','bare','logallrefupdates','ignorecase','precomposeunicode'}
-        inert = (section.startswith('remote "') and key in {'url','fetch'}) or \
+        # Preserve the canonical S12 local-config read contract. These keys
+        # remain data: this decoder starts no Git/SSH/helper subprocess and
+        # never turns a value into an argv, shell command or import path.
+        inert = (section == 'core' and key == 'sshcommand') or \
+                (section == 'user' and key in {'name','email'}) or \
+                (section.startswith('remote "') and key in {'url','fetch'}) or \
                 (section.startswith('branch "') and key in {'remote','merge'})
         require((ordinary or inert) and (section,key) not in seen, 'HISTORICAL_UNSAFE_CONFIG')
         seen[section,key] = value.lower() if ordinary else value

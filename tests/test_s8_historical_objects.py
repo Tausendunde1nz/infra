@@ -194,8 +194,19 @@ class ObjectDecoderTests(unittest.TestCase):
     def test_config_only_known_inert_fields_and_required_format(self):
         good = b'[core]\nrepositoryformatversion = 0\nbare = false\n[remote "origin"]\nurl = https://fixture.invalid/repo\n'
         path = self.root/'config'; path.write_bytes(good); g.config_safe(self.inputs)
+        inert = good+b'[core]\nsshCommand = echo never-executed\n[user]\nname = Synthetic\nemail = fixture@example.invalid\n'
+        path.write_bytes(inert)
+        with patch('subprocess.Popen',side_effect=AssertionError('unexpected child')):
+            g.config_safe(self.inputs)
         for raw in (good+b'[include]\npath = private\n',good+b'[core]\nbare = false\n',
                     good.replace(b'= 0',b'= 1'),b'[core]\nbare = false\n'):
+            path.write_bytes(raw)
+            with self.subTest(), self.assertRaises(c.ContractError): g.config_safe(self.inputs)
+        for raw in (inert+b'[core]\nSSHCOMMAND = second\n',
+                    inert+b'[core]\nhooksPath = /unknown\n',
+                    inert+b'[core]\nfsmonitor = command\n',
+                    inert+b'[credential]\nhelper = command\n',
+                    inert+b'[user]\nsigningkey = unknown\n'):
             path.write_bytes(raw)
             with self.subTest(), self.assertRaises(c.ContractError): g.config_safe(self.inputs)
 

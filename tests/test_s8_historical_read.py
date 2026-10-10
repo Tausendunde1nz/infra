@@ -140,6 +140,20 @@ class NativeReadTests(unittest.TestCase):
             with self.assertRaisesRegex(c.ContractError,'UNSAFE_METADATA'): h.repository(self.root,self.expected)
             self.real_git.chmod(0o700)
 
+    def test_canonical_ssh_and_user_config_are_data_never_child_commands(self):
+        config = self.real_git/'config'
+        original = config.read_bytes()
+        sentinel = self.base/'command-must-not-run'
+        for value in ('ssh -i /synthetic-key -o IdentitiesOnly=yes',
+                      'touch '+str(sentinel)):
+            config.write_bytes(original+b'\tsshCommand = '+value.encode()+
+                b'\n[user]\n\tname = Synthetic fixture\n\temail = fixture@example.invalid\n')
+            with patch('subprocess.Popen',side_effect=AssertionError('unexpected child')):
+                actual = h.repository(self.root,self.expected)
+            self.assertEqual((actual['commit'],actual['tree']),self.expected)
+            self.assertFalse(sentinel.exists())
+        config.write_bytes(original)
+
     def test_fixture_mount_cleanup_follows_owned_object_not_reused_name(self):
         from tests import s8_historical_fixture_mounts as owned
         source = self.base/'owned-source'; source.mkdir()

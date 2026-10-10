@@ -148,6 +148,14 @@ until recorded for the final source. This candidate is not live acceptance.
 R15 pause compatibility OPEN; Live/R15 NO-GO; S9/S10/S11/product gates unchanged.
 # Integrated fixture-cleanup correction
 
+Review P1: the canonical S12 repository-local config allows core.sshCommand
+and user.name/email. The decoder now accepts exactly those additional inert
+keys; it never executes them, starts Git/SSH/helper children, or emits identity
+values. Unknown executable/indirection keys and unsafe formats remain denied.
+A protected native capture accepts canonical and poisoned command-shaped
+values with every subprocess creation forbidden. Host config continuity is
+still UNKNOWN; this does not adopt any current value as a historical baseline.
+
 The next private candidate proved the positive provisioning/SQL/one-shot
 admission chain, but remained RED because its shell teardown addressed a
 synthetic history bind by an old pathname after the intentional fixture-parent
@@ -158,5 +166,5 @@ foreign replacement at the old name. The separately captured synthetic file
 bind is closed once before its repository bind. Cleanup failures remain RED
 and cannot replace a primary test failure. New generic bind-mount regressions
 do not exercise or repeat the historically blocked systemd-Q investigation.
-The isolated native reader/decoder/fixture suite is now 41/41 with no skips;
+The isolated native reader/decoder/fixture suite is now 42/42 with no skips;
 the corrected full private provisioning chain remains a mandatory pending gate.
