@@ -37,6 +37,17 @@ class FrozenEntryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "COMMAND_RED"):
                 entry.systemd_command("import base64,zlib;" + value, "execute")
 
+    def test_source_byte_transport_preserves_declared_encoding_and_utf8(self):
+        modules, _, _ = self.sources()
+        for main in (b'# coding: latin-1\nprint("caf\xe9")\n',
+                     'print("Grüße")\n'.encode('utf8')):
+            expected = {name: hashlib.sha256(value).hexdigest()
+                        for name, value in {**modules, 'entry': main}.items()}
+            program = entry.build(modules, main, expected)
+            result = subprocess.run([sys.executable, '-I', '-B', '-S', '-c', program],
+                                    capture_output=True, check=True)
+            self.assertIn(result.stdout.decode('utf8').strip(), ('café', 'Grüße'))
+
     def test_installer_is_self_contained_and_has_no_resume_or_grant_generation(self):
         root = Path(__file__).resolve().parents[1]/"scripts"
         sources = {name: (root/(name+".py")).read_bytes() for name in entry.INSTALLER_MODULES}

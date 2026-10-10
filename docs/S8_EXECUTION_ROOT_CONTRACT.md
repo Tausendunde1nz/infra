@@ -1,5 +1,18 @@
 # S8 isolated execution root — status and historical construction checkpoints
 
+## Current historical-read source delta 2026-10-10
+
+The R2 source closure at Control `72eb91534c446c5388ad499c7626ab2abf5f8e55`
+and Application `96c9cadc7ba1062f65b981facba41f4f519eb563`, freeze R2 tag
+`f0d84305e126f241181d74cf34dbddfdc480e03f`, is retained unchanged. It does not
+accept this new R3 source delta. See [the historical-read contract](S8_HISTORICAL_READ_CONTRACT.md)
+for the separate current read-eligibility predicate, exact object checks and
+historical provenance limits. Final R3 CI/review/post-merge/freeze gates remain
+pending until independently completed; no current host acceptance is claimed.
+Older draft/pending statements below are dated checkpoints, not a rollback of
+R2 completion. Live/R15 NO-GO, historical causes UNKNOWN and product gates
+CLOSED remain unchanged.
+
 ## Current contract delta 2026-10-09: explicitly accepted administrative boundary
 
 The user has accepted the precise administrative systemd-integrity boundary

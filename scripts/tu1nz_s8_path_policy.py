@@ -31,6 +31,47 @@ PROFILES = {
     Path("/opt/tu1nz_repos"): (0o2550, REPOSITORY_ACCESS, REPOSITORY_DEFAULT),
 }
 
+# Current read-eligibility predicates, NOT historical inode/owner provenance.
+# Only the incident's two roots/barriers may use these; never creation policy.
+APPLICATION_ACCESS = ((1, 5, UNDEFINED), (2, 7, 1001), (4, 7, UNDEFINED),
+                      (8, 5, 1001), (16, 5, UNDEFINED), (32, 0, UNDEFINED))
+GIT_ACCESS = ((1, 7, UNDEFINED), (2, 7, 1001), (4, 7, UNDEFINED),
+              (8, 5, 1001), (16, 0, UNDEFINED), (32, 0, UNDEFINED))
+HISTORICAL_PROFILES = {
+    Path('/opt/tu1nz_repos/control'): (1001, 0o2550, None, None),
+    Path('/opt/tu1nz_repos/control/.git'): (0, 0, None, None),
+    Path('/opt/tu1nz_repos/control/.git.s12-1-recovery'): (0, 0o700, None, None),
+    Path('/opt/tu1nz_repos/adult-publishing-core'): (1001, 0o2550, APPLICATION_ACCESS, REPOSITORY_DEFAULT),
+    Path('/opt/tu1nz_repos/adult-publishing-core/.git'): (0, 0, ((1, 0, UNDEFINED), *GIT_ACCESS[1:]), REPOSITORY_DEFAULT),
+    Path('/opt/tu1nz_repos/adult-publishing-core/.git.s12-1-recovery'): (0, 0o700, GIT_ACCESS, REPOSITORY_DEFAULT),
+}
+
+
+def historical_metadata(path):
+    """Exact current metadata eligibility for an exclusively historical read.
+
+    No predecessor identity is asserted. Content/object bindings and live
+    change detection remain mandatory and independent of these permissions.
+    Defaults are compared but never used to create/adopt any object.
+    """
+    path = Path(path)
+    if path not in HISTORICAL_PROFILES:
+        return _parent_metadata(path)
+    gid, mode, access, default = HISTORICAL_PROFILES[path]
+    m = path.lstat()
+    require(stat.S_ISDIR(m.st_mode) and m.st_uid == 0 and m.st_gid == gid
+            and stat.S_IMODE(m.st_mode) == mode, 'HISTORICAL_UNSAFE_METADATA')
+    expected = {}
+    if access is not None:
+        no_nonowner_write(access)
+        expected[ACCESS] = acl_bytes(access)
+    if default is not None:
+        expected[DEFAULT] = acl_bytes(default)
+    require(set(os.listxattr(path, follow_symlinks=False)) == set(expected), 'HISTORICAL_UNSAFE_XATTR')
+    for name, value in expected.items():
+        require(os.getxattr(path, name, follow_symlinks=False) == value, 'HISTORICAL_UNSAFE_ACL')
+    return m
+
 
 def acl_bytes(entries):
     return struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *entry) for entry in entries)
@@ -66,7 +107,7 @@ def _parent_metadata(path, *, creation=False):
     return m
 
 
-def parent_metadata(path, *, creation=False):
+def parent_metadata(path, *, creation=False, historical=False):
     """Validate both DAC/ACL metadata and the observed inode's flag policy.
 
     EXTENTS/INDEX describe storage, APPEND/IMMUTABLE restrict operations. No
@@ -75,13 +116,15 @@ def parent_metadata(path, *, creation=False):
     """
     from tu1nz_s8_journal_fence import inode_flags
     path = Path(path)
-    before = _parent_metadata(path, creation=creation)
+    require(not (historical and creation), 'HISTORICAL_CREATION_FORBIDDEN')
+    metadata = historical_metadata if historical else lambda p: _parent_metadata(p, creation=creation)
+    before = metadata(path)
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     with descriptor_scope(fd):
         require(identity(before) == identity(os.fstat(fd)), "PARENT_IDENTITY_RED")
         require(not inode_flags(fd) & ~(0x80000 | 0x1000 | 0x20 | 0x10), "PARENT_FLAGS_RED")
         require(identity(before) == identity(os.fstat(fd)) ==
-                identity(_parent_metadata(path, creation=creation)), "PARENT_IDENTITY_RED")
+                identity(metadata(path)), "PARENT_IDENTITY_RED")
         return before
 
 
@@ -122,9 +165,11 @@ class PathChain:
     must BOTH agree. No background watcher or interrupted lifetime is trusted.
     A selected leaf may be watched read-only; unrelated siblings are ignored.
     """
-    def __init__(self, directory, *, creation=False, leaf=None):
+    def __init__(self, directory, *, creation=False, leaf=None, historical=False):
         directory = Path(directory)
         require(directory.is_absolute() and ".." not in directory.parts, "PARENT_PATH_RED")
+        require(not (historical and creation), 'HISTORICAL_CREATION_FORBIDDEN')
+        self.historical = historical
         self.descriptors, self.nodes = [], []
         self.failed = False
         libc = ctypes.CDLL(None, use_errno=True)
@@ -144,7 +189,8 @@ class PathChain:
                 wd = libc.inotify_add_watch(self.events, os.fsencode("/proc/self/fd/"+str(fd)), 0x00000fce)
                 require(wd >= 0 and wd not in {row[0] for row in self.nodes}, "PARENT_WATCH_REQUIRED")
                 target = paths[index+1].name if index+1 < len(paths) else leaf
-                m = parent_metadata(path, creation=creation and index+1 == len(paths))
+                options = dict(historical=True) if historical else {}
+                m = parent_metadata(path, creation=creation and index+1 == len(paths), **options)
                 require(identity(m) == identity(os.fstat(fd)), "PARENT_IDENTITY_RED")
                 self.nodes.append((wd, path, fd, identity(m), os.fsencode(target) if target else None,
                                    creation and index+1 == len(paths)))
@@ -161,7 +207,8 @@ class PathChain:
         require(not self.failed and self.events is not None and self.owner == os.getpid(), "PARENT_WITNESS_LOST")
         try:
             for _, path, fd, expected, _, creation in self.nodes:
-                require(identity(parent_metadata(path, creation=creation)) == identity(os.fstat(fd)) == expected,
+                options = dict(historical=True) if getattr(self, 'historical', False) else {}
+                require(identity(parent_metadata(path, creation=creation, **options)) == identity(os.fstat(fd)) == expected,
                         "PARENT_IDENTITY_RED")
             by_watch = {row[0]: row[4] for row in self.nodes}
             while True:

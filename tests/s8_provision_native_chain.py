@@ -145,6 +145,20 @@ def setup(image):
     os.chmod(repository_parent, 0o2550)
     dropin = Path(str(observer.BASE_UNIT)+".d")
     dropin.mkdir(mode=0o755); dropin.chmod(0o755)
+    # Reproduce current incident read eligibility, never adopt live metadata.
+    # Synthetic commit/tree constants are already substituted separately below.
+    import tu1nz_s8_path_policy as path_policy
+    for text in pairs:
+        root = Path(text)
+        os.chown(root, 0, 1001); root.chmod(0o2550)
+        if root.name == 'adult-publishing-core':
+            for path, access in (
+                (root, path_policy.APPLICATION_ACCESS),
+                (root/'.git', ((1, 0, path_policy.UNDEFINED), *path_policy.GIT_ACCESS[1:])),
+                (root/'.git.s12-1-recovery', path_policy.GIT_ACCESS),
+            ):
+                os.setxattr(path, ACCESS, acl_bytes(access))
+                os.setxattr(path, DEFAULT, acl_bytes(REPOSITORY_DEFAULT))
     return metadata, pairs, hashes, configs, invocation
 
 
