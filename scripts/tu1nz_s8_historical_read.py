@@ -31,7 +31,7 @@ def unavailable(error):
 
 
 def node_metadata(path, *, descriptor=None, directory_watch=None):
-    """Read-only Git descendants: no effective non-owner write, no unknown ACL.
+    """Known Git descendants in a kernel-excluded current capture.
 
     This is not an exemption for an arbitrary repository or an ACL writer.
     The caller must already hold the exact, root-owned historical ancestry.
@@ -50,7 +50,12 @@ def node_metadata(path, *, descriptor=None, directory_watch=None):
         else:
             c.require(type(directory_watch) is int and directory_watch >= 0,
                       'HISTORICAL_WATCH_REQUIRED')
-    c.require((m.st_uid == 0 or (descriptor is not None and stat.S_ISDIR(m.st_mode) and m.st_uid == 1001))
+    # R4's kernel exclusion applies to every regular inode, not just root-
+    # owned files. UID1001 is the same bounded descendant identity already
+    # admitted for directories; it is never trusted to refrain from writing.
+    # The descriptor-free legacy route still requires UID0. Actual callers
+    # retain the whole-tree/ancestry witness and all leases until final check.
+    c.require((m.st_uid == 0 or (descriptor is not None and m.st_uid == 1001))
               and m.st_gid in (0, 1001)
               and (stat.S_ISDIR(m.st_mode) or stat.S_ISREG(m.st_mode))
               and (stat.S_ISDIR(m.st_mode) or m.st_nlink == 1)
@@ -60,7 +65,8 @@ def node_metadata(path, *, descriptor=None, directory_watch=None):
               (stat.S_ISDIR(m.st_mode) or p.DEFAULT not in names), 'HISTORICAL_UNSAFE_XATTR')
     if p.ACCESS in names:
         # Only the already evidenced named UID/GID layout; permissions must
-        # agree with the kernel DAC mask and deny effective non-owner writes.
+        # agree with the kernel DAC mask. The legacy route denies effective
+        # writes; the held route excludes them via leases/whole-tree watches.
         access = ((1, (m.st_mode >> 6) & 7, p.UNDEFINED), *p.GIT_ACCESS[1:4],
                   (16, (m.st_mode >> 3) & 7, p.UNDEFINED), (32, m.st_mode & 7, p.UNDEFINED))
         if descriptor is None: p.no_nonowner_write(access)

@@ -15,7 +15,7 @@ mount -o nodev,nosuid,noexec "$device" /proof
 test "$(findmnt -n -o FSTYPE -T /proof)" = ext4
 test "$(findmnt -n -o SOURCE -T /proof)" = "$device"
 status=0
-TU1NZ_S8_NATIVE_EXT4_ROOT=/proof python3 -B -m unittest -v tests.test_s8_historical_read tests.test_s8_historical_objects tests.test_s8_history_operator_native || status=$?
+TU1NZ_S8_NATIVE_EXT4_ROOT=/proof python3 -B -m unittest -v tests.test_s8_historical_read tests.test_s8_historical_owned_inputs tests.test_s8_historical_objects tests.test_s8_history_operator_native || status=$?
 test "$(findmnt -n -o SOURCE -T /proof)" = "$device"
 umount /proof
 test "$(losetup -n -O BACK-FILE "$device")" = /s8-historical-native.img
