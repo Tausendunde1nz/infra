@@ -14,12 +14,14 @@ import resource
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 import tu1nz_s8_frozen_entry as frozen
 import tu1nz_s8_history_operator as operator
 import tu1nz_s8_execution_observer as observer
 import tu1nz_s8_path_policy as policy
+from tu1nz_s8_historical_capacity import census
 from tests import test_s8_historical_read as read_fixture
 
 
@@ -157,6 +159,21 @@ print('S8_HISTORY_REPORT_END')
         self.assertEqual(value['canonical_result']['historical_capture'],'RED')
         self.assertIn('FD_HARD_CAPACITY_INSUFFICIENT',repr(value['canonical_result']['primary']))
         self.assertEqual(value['canonical_result']['fd_capacity'],{})
+
+    def test_native_metadata_counts_two_trees_and_fixed_scope(self):
+        # Scaled profile only: actual ext4 metadata I/O, no mocked stat/FD/ACL
+        # observations. The unscaled 40k+40k traversal is a separate adapter
+        # regression; neither fixture claims Host timing/capacity acceptance.
+        inventory=census(self.roots)
+        bound=max(row['nodes'] for row in inventory)
+        with patch.object(operator,'ROOTS',tuple(self.roots)),patch.object(operator,'HISTORY',self.history), \
+             patch.object(operator,'OTHER_FIXED',()),patch.object(operator,'MAX_NODES_PER_GIT',bound):
+            summary,rows=operator.metadata()
+        self.assertEqual(summary['objects'],len(rows))
+        self.assertGreater(summary['objects'],sum(row['nodes'] for row in inventory))
+        self.assertGreater(summary['objects'],bound)
+        self.assertEqual(summary['target_leases'],[])
+        self.assertTrue(summary['access_time_excluded'])
 
     def test_resource_exhaustion_after_75_real_leases_has_complete_cleanup(self):
         value=self.run_chain('exhaustion')

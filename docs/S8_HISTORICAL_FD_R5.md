@@ -25,7 +25,14 @@ Required soft limit = already-held FD high-water + every simultaneously held
 Git inode + each duplicated ancestry/inotify chain + four Evidence descriptors
 and lease watchers + both Git witness/lease watcher pairs + two mmap duplicate
 FDs per possible simultaneously mapped pack + eight transient/cleanup FDs.
-Pack/node bounds remain the object reader's64/65536 bounds. The eight-slot
+Pack/node bounds remain the object reader's64/65536 bounds per repository.
+The supervisor's aggregate metadata bound covers both complete trees plus
+fixed ancestry/evidence objects. The unchanged census still denies either
+individual tree exceeding its profile before Reader start; the metadata
+deadline, types, stability and directory-entry checks remain in force.
+Regression evidence includes a synthetic-I/O 40000+40000 traversal and a
+separately labeled scaled-profile native ext4 metadata traversal. Neither
+is a current Host capacity/timing proof. The eight-slot
 reserve covers four initialization/transient handles and four independent
 error/cleanup/readback handles; it is not a fixed bulk limit.
 

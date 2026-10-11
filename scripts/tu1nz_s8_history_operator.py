@@ -21,7 +21,7 @@ import shlex
 import zlib
 
 import tu1nz_s8_execution_contract as c
-from tu1nz_s8_historical_capacity import probe
+from tu1nz_s8_historical_capacity import MAX_NODES_PER_GIT, probe
 
 ROOTS = (Path('/opt/tu1nz_repos/adult-publishing-core'), Path('/opt/tu1nz_repos/control'))
 HISTORY = Path('/etc/tu1nz/adult-commercial-s12-1-private/state')
@@ -109,8 +109,13 @@ def metadata():
         targets.add(p)
         targets.update(p.parents)
     pending=sorted(targets,key=str); recursive={root/'.git.s12-1-recovery' for root in ROOTS}
+    # The census/witness budget applies separately to each Git tree. Include
+    # both whole trees and the fixed ancestry/evidence objects without double
+    # counting their roots. The later unchanged census still denies an excess
+    # within either individual tree before any Reader or protection starts.
+    maximum_rows=len(targets-recursive)+len(recursive)*MAX_NODES_PER_GIT
     while pending:
-        require(time.monotonic()<deadline and len(rows)<65536,'METADATA_READ_BOUND')
+        require(time.monotonic()<deadline and len(rows)<maximum_rows,'METADATA_READ_BOUND')
         p=pending.pop()
         if str(p) in rows: continue
         try: m=p.lstat()
@@ -128,7 +133,7 @@ def metadata():
                         inode_flags=int.from_bytes(flags[:4],'little'))
             if p in recursive or any(r in p.parents for r in recursive):
                 if stat.S_ISDIR(m.st_mode):
-                    children=sorted(os.listdir(fd));require(len(children)<=65536,'METADATA_READ_BOUND')
+                    children=sorted(os.listdir(fd));require(len(children)<=MAX_NODES_PER_GIT,'METADATA_READ_BOUND')
                     pending.extend(p/name for name in children)
             if stat.S_ISREG(m.st_mode): regular+=1
             require(fingerprint(m)==fingerprint(os.fstat(fd))==fingerprint(p.lstat()),'METADATA_UNSTABLE')

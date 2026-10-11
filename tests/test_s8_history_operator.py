@@ -3,7 +3,9 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import stat
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
 
@@ -110,6 +112,61 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual(op.parse_report(data,0),{'status':'GREEN'})
         for raw,code in ((data+data,0),(data,255),(b'partial',0),(b'x'*(4*1024*1024+1),0)):
             self.assertEqual(op.parse_report(raw,code)['cleanup'],'UNKNOWN')
+
+
+class MetadataBudgetTests(unittest.TestCase):
+    """Actual traversal with a synthetic I/O adapter, not a kernel/Host proof."""
+    def capture(self, counts, *, bound=65536, expired=False):
+        roots=(Path('/synthetic/a'),Path('/synthetic/b'))
+        history=Path('/synthetic/state')
+        trees={root/'.git.s12-1-recovery':count for root,count in zip(roots,counts,strict=True)}
+        directories={history,*history.parents,*roots,*(p for root in roots for p in root.parents),*trees}
+        current={}
+        def metadata(path):
+            return SimpleNamespace(st_dev=1,st_ino=2,st_size=0,st_mtime_ns=1,st_ctime_ns=1,
+                st_mode=(stat.S_IFDIR if path in directories else stat.S_IFREG)|0o444,
+                st_uid=0,st_gid=0,st_nlink=1)
+        def opened(path,*args): current[42]=Path(path);return 42
+        def listing(fd): return ['node'+str(i) for i in range(trees[current[fd]]-1)]
+        clock=Mock(side_effect=[0,31]) if expired else Mock(return_value=0)
+        with patch.object(op,'ROOTS',roots),patch.object(op,'HISTORY',history), \
+             patch.object(op,'OTHER_FIXED',()),patch.object(op,'MAX_NODES_PER_GIT',bound), \
+             patch.object(Path,'lstat',metadata),patch.object(Path,'read_text',return_value=''), \
+             patch.object(op.os,'open',side_effect=opened) as opening, \
+             patch.object(op.os,'fstat',side_effect=lambda fd:metadata(current[fd])), \
+             patch.object(op.os,'close'),patch.object(op.os,'listdir',side_effect=listing), \
+             patch.object(op.os,'listxattr',return_value=[],create=True),patch.object(op.fcntl,'ioctl',return_value=b'\0'*8), \
+             patch.object(op.time,'monotonic',clock):
+            try:return op.metadata(),roots,history
+            finally:
+                if expired:opening.assert_not_called()
+
+    def test_two_supported_40000_node_trees_not_combined_65536_cap(self):
+        (summary,rows),roots,history=self.capture((40000,40000))
+        fixed={history,*(history/n for n in (*op.FILES,*op.MARKERS)),
+            *(p for root in roots for p in (root,root/'.git',root/'.git.s12-1-recovery'))}
+        targets=set(fixed)
+        for p in fixed:targets.update(p.parents)
+        trees={root/'.git.s12-1-recovery' for root in roots}
+        self.assertEqual(summary['objects'],80000+len(targets-trees))
+        self.assertEqual(len(rows),summary['objects']);self.assertGreater(summary['objects'],65536)
+        self.assertEqual(summary['target_leases'],[])
+
+    def test_exact_per_tree_budget_and_fixed_ancestry_are_included(self):
+        (summary,rows),_,_=self.capture((8,8),bound=8)
+        self.assertEqual(summary['objects'],len(rows));self.assertGreater(len(rows),16)
+
+    def test_combined_profile_excess_still_denied(self):
+        with self.assertRaisesRegex(RuntimeError,'METADATA_READ_BOUND'):
+            self.capture((9,9),bound=8)
+
+    def test_directory_entry_bound_still_denied(self):
+        with self.assertRaisesRegex(RuntimeError,'METADATA_READ_BOUND'):
+            self.capture((10,1),bound=8)
+
+    def test_original_deadline_remains_in_force(self):
+        with self.assertRaisesRegex(RuntimeError,'METADATA_READ_BOUND'):
+            self.capture((1,1),expired=True)
 
 
 if __name__=='__main__':unittest.main()
