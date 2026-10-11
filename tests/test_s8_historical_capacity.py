@@ -5,6 +5,7 @@ from pathlib import Path
 import resource
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -137,6 +138,24 @@ class BudgetTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform=='linux','native Linux resource context')
 class NativeCapacityTests(unittest.TestCase):
+    def test_real_threaded_process_cannot_change_reader_limit(self):
+        before = resource.getrlimit(resource.RLIMIT_NOFILE)
+        ready, release = threading.Event(), threading.Event()
+        def held_thread():
+            ready.set()
+            release.wait(10)
+        thread = threading.Thread(target=held_thread)
+        thread.start()
+        try:
+            self.assertTrue(ready.wait(5))
+            with self.assertRaisesRegex(c.ContractError, 'FD_DEDICATED_PROCESS_REQUIRED'):
+                cap.probe(ROOTS, HISTORY)
+            self.assertEqual(resource.getrlimit(resource.RLIMIT_NOFILE), before)
+        finally:
+            release.set()
+            thread.join(5)
+            self.assertFalse(thread.is_alive())
+
     def test_real_many_held_fds_and_transient_budget_restore(self):
         before=resource.getrlimit(resource.RLIMIT_NOFILE)
         self.assertTrue(before[1]==resource.RLIM_INFINITY or before[1]>2200)

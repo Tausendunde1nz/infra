@@ -10,6 +10,17 @@ not an observed Reader peak). R5 performs a bounded metadata-only census in
 the actual dedicated, single-thread Reader before any historical protection
 or content read. The census is NOT integrity acceptance.
 
+The dedicated history-only entry explicitly selects this capacity context by
+supplying its FD report. Existing in-process coordinator observations keep
+their inherited limits and unchanged common capture. They may already hold
+threaded kernel guards and are not dedicated Reader processes. No global
+process limit change is permitted there; insufficient inherited resources
+still fail through the original protected capture/cleanup, never via fallback.
+The actual later S8 coordinator's inherited capacity remains a separate Host
+prerequisite, not proved by the history-only low-softlimit result. Native full
+provisioning must validate both distinct paths; a Reader admission error is
+never caught and retried through the coordinator path.
+
 Required soft limit = already-held FD high-water + every simultaneously held
 Git inode + each duplicated ancestry/inotify chain + four Evidence descriptors
 and lease watchers + both Git witness/lease watcher pairs + two mmap duplicate

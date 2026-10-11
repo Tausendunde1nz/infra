@@ -8,7 +8,7 @@ or repository writes.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from tu1nz_s8_historical_capacity import capture_capacity
 import hashlib
 import json
@@ -118,6 +118,13 @@ def installed_start_guard(state):
 
 
 def history(*, fd_evidence=None):
+    """Common protected capture; FD changes only in the explicit Reader entry.
+
+    The existing coordinator may already own threaded kernel guards. It keeps
+    its inherited limits and original capture/error behavior. Supplying a FD
+    report selects the dedicated single-thread Reader contract; its admission
+    failure must propagate, never fall back to the in-process route.
+    """
     c.require(HISTORICAL_ROOTS == {
         '/opt/tu1nz_repos/adult-publishing-core': c.HISTORICAL_APPLICATION,
         '/opt/tu1nz_repos/control': c.HISTORICAL_CONTROL}, 'HISTORICAL_BINDING_UNAVAILABLE')
@@ -127,7 +134,9 @@ def history(*, fd_evidence=None):
     # Keep every evidence inode, repository input and selected absent marker's
     # namespace witness alive until the whole aggregate has passed. Independent
     # earlier successes cannot substitute for one common protected interval.
-    with capture_capacity(tuple(HISTORICAL_ROOTS), HISTORY, fd_evidence) as capacity, ExitStack() as capture:
+    capacity_scope = (nullcontext() if fd_evidence is None else
+                      capture_capacity(tuple(HISTORICAL_ROOTS), HISTORY, fd_evidence))
+    with capacity_scope as capacity, ExitStack() as capture:
         capture._s8_deadline = time.monotonic()+30
         for name in ABSENT_MARKERS:
             capture.enter_context(PathChain(HISTORY,leaf=name))
@@ -138,7 +147,8 @@ def history(*, fd_evidence=None):
         repositories = {}
         for text, expected in HISTORICAL_ROOTS.items():
             repositories[text] = historical_repository(Path(text), expected, capture=capture)
-        capacity.observe()
+        if capacity is not None:
+            capacity.observe()
         return dict(hashes=result, repositories=repositories, absent_markers=list(ABSENT_MARKERS))
 
 
