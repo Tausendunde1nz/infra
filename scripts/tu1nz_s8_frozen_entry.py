@@ -24,14 +24,24 @@ MODULES = (
     "tu1nz_s8_admission_channel",
     "tu1nz_s8_sealed_root",
     "tu1nz_s8_runtime_interfaces",
+    "tu1nz_s8_historical_capacity",
     "tu1nz_s8_historical_kernel",
     "tu1nz_s8_historical_objects",
     "tu1nz_s8_historical_read",
     "tu1nz_s8_execution_observer",
     "tu1nz_s8_dispatch_boundary",
+    "tu1nz_s8_history_entry",
+    "tu1nz_s8_history_operator",
 )
 INSTALLER_MODULES = (*MODULES, "tu1nz_s8_execution", "tu1nz_s8_new_stock", "tu1nz_s8_existing_dropin", "tu1nz_s8_anchor_bootstrap", "tu1nz_s8_execution_units",
     "tu1nz_s8_frozen_entry", "tu1nz_s8_execution_release", "tu1nz_s8_provision", "tu1nz_s8_installer_entry")
+HISTORY_OPERATOR_MODULES = ("tu1nz_s8_execution_contract", "tu1nz_s8_historical_capacity", "tu1nz_s8_history_operator")
+
+
+def build_history_operator(modules, entry, expected):
+    # The history Reader is an independently pinned stdin payload, not a second
+    # copy of every installer/runtime module in the supervising process.
+    return _build(HISTORY_OPERATOR_MODULES, modules, entry, expected)
 
 
 def build(modules: dict[str, bytes], entry: bytes, expected: dict[str, str]) -> str:

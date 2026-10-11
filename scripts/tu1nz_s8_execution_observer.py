@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from contextlib import ExitStack
+from tu1nz_s8_historical_capacity import capture_capacity
 import hashlib
 import json
 import os
@@ -116,7 +117,7 @@ def installed_start_guard(state):
               "INSTALLED_ADMISSION_CONTRACT_RED")
 
 
-def history():
+def history(*, fd_evidence=None):
     c.require(HISTORICAL_ROOTS == {
         '/opt/tu1nz_repos/adult-publishing-core': c.HISTORICAL_APPLICATION,
         '/opt/tu1nz_repos/control': c.HISTORICAL_CONTROL}, 'HISTORICAL_BINDING_UNAVAILABLE')
@@ -126,7 +127,7 @@ def history():
     # Keep every evidence inode, repository input and selected absent marker's
     # namespace witness alive until the whole aggregate has passed. Independent
     # earlier successes cannot substitute for one common protected interval.
-    with ExitStack() as capture:
+    with capture_capacity(tuple(HISTORICAL_ROOTS), HISTORY, fd_evidence) as capacity, ExitStack() as capture:
         capture._s8_deadline = time.monotonic()+30
         for name in ABSENT_MARKERS:
             capture.enter_context(PathChain(HISTORY,leaf=name))
@@ -137,6 +138,7 @@ def history():
         repositories = {}
         for text, expected in HISTORICAL_ROOTS.items():
             repositories[text] = historical_repository(Path(text), expected, capture=capture)
+        capacity.observe()
         return dict(hashes=result, repositories=repositories, absent_markers=list(ABSENT_MARKERS))
 
 
