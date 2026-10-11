@@ -1,4 +1,10 @@
 *
+!scripts/tu1nz_s8_historical_capacity.py
+!scripts/tu1nz_s8_history_entry.py
+!scripts/tu1nz_s8_history_operator.py
+!tests/test_s8_historical_capacity.py
+!tests/test_s8_history_operator.py
+!tests/test_s8_history_operator_native.py
 !scripts/tu1nz_s8_historical_kernel.py
 !scripts/tu1nz_s8_historical_objects.py
 !tests/s8_historical_kernel_native.sh

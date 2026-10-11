@@ -21,6 +21,9 @@ from tu1nz_s8_historical_objects import ObjectStore, config_safe, resolve_head, 
 def unavailable(error):
     """Translate access/IO failures without relabelling them as drift."""
     result = c.ContractError('S8_EXECUTION_HISTORICAL_READ_UNAVAILABLE')
+    # Keep resource/access provenance machine-readable without exposing the
+    # private OS exception message or mislabelling EMFILE as content drift.
+    result.errno = getattr(error, 'errno', None)
     result._s8_read_failure = c.failure_record(error)
     for name in ('_s8_cleanup_errors', '_s8_abort_error'):
         if hasattr(error, name): setattr(result, name, getattr(error, name))

@@ -503,11 +503,15 @@ else:os.close(fd)
             hashes[name] = hashlib.sha256(payload).hexdigest()
         role_roots = {name:self.root for name in o.HISTORICAL_ROOTS}
         def mapped_path(text): return role_roots.get(str(text),Path(text))
+        real_capacity = o.capture_capacity
+        def fixture_capacity(roots, history, evidence):
+            return real_capacity(tuple(role_roots[str(root)] for root in roots), history, evidence)
         with patch.object(o,'HISTORY',history), patch.object(o,'HISTORY_HASHES',hashes), \
              patch.object(c,'HISTORICAL_APPLICATION',self.expected), \
              patch.object(c,'HISTORICAL_CONTROL',self.expected), \
              patch.object(o,'HISTORICAL_ROOTS',{name:self.expected for name in role_roots}), \
-             patch.object(o,'Path',side_effect=mapped_path):
+             patch.object(o,'Path',side_effect=mapped_path), \
+             patch.object(o,'capture_capacity',side_effect=fixture_capacity):
             value = o.history()
             self.assertEqual(value['hashes'],hashes)
             self.assertEqual(set(value['repositories']),set(role_roots))
@@ -549,6 +553,9 @@ else:os.close(fd)
                     hashes[name] = hashlib.sha256(payload).hexdigest()
                 roles = {name:self.root for name in o.HISTORICAL_ROOTS}
                 def mapped_path(text): return roles.get(str(text),Path(text))
+                real_capacity = o.capture_capacity
+                def fixture_capacity(roots, history, evidence):
+                    return real_capacity(tuple(roles[str(root)] for root in roots), history, evidence)
                 original = h.resolve_head
                 done = False
                 def racing(args,**options):
@@ -568,6 +575,7 @@ else:os.close(fd)
                      patch.object(c,'HISTORICAL_CONTROL',self.expected), \
                      patch.object(o,'HISTORICAL_ROOTS',{name:self.expected for name in roles}), \
                      patch.object(o,'Path',side_effect=mapped_path), \
+                     patch.object(o,'capture_capacity',side_effect=fixture_capacity), \
                      patch.object(h,'resolve_head',side_effect=racing), self.assertRaises(c.ContractError):
                     o.history()
                 self.assertTrue(done)

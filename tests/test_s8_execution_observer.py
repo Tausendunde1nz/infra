@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
 import tu1nz_s8_execution_contract as c
@@ -15,6 +15,47 @@ import tu1nz_s8_execution as execution
 
 
 class ObserverTests(unittest.TestCase):
+    def history_io(self, stack):
+        # Routing proof only. Real common capture is required by ext4 and the
+        # full PID-1/provision chain; these adapters do not prove integrity.
+        chain = stack.enter_context(patch.object(observer, 'PathChain', return_value=MagicMock()))
+        stack.enter_context(patch.object(observer.os.path, 'lexists', return_value=False))
+        stack.enter_context(patch.object(observer, 'file_bytes', return_value=b'synthetic'))
+        repo = stack.enter_context(patch.object(observer, 'historical_repository', return_value={}))
+        return chain, repo
+
+    def test_coordinator_history_never_enters_reader_limit_context(self):
+        with ExitStack() as stack:
+            _, repository = self.history_io(stack)
+            capacity = stack.enter_context(patch.object(observer, 'capture_capacity',
+                                                       side_effect=AssertionError('not dedicated')))
+            result = observer.history()
+            capacity.assert_not_called()
+            self.assertEqual(repository.call_count, 2)
+            self.assertEqual(set(result['hashes']), set(observer.HISTORY_HASHES))
+
+    def test_explicit_reader_enters_and_observes_capacity(self):
+        with ExitStack() as stack:
+            self.history_io(stack)
+            context = MagicMock()
+            capacity = stack.enter_context(patch.object(observer, 'capture_capacity', return_value=context))
+            report = {}
+            observer.history(fd_evidence=report)
+            capacity.assert_called_once_with(tuple(observer.HISTORICAL_ROOTS), observer.HISTORY, report)
+            context.__enter__.return_value.observe.assert_called_once_with()
+            context.__exit__.assert_called_once()
+
+    def test_explicit_reader_capacity_denial_never_falls_back(self):
+        with patch.object(observer, 'capture_capacity',
+                          side_effect=c.ContractError('S8_EXECUTION_FD_DEDICATED_PROCESS_REQUIRED')) as capacity, \
+                patch.object(observer, 'PathChain') as chain, \
+                patch.object(observer, 'historical_repository') as repository:
+            with self.assertRaisesRegex(c.ContractError, 'FD_DEDICATED_PROCESS_REQUIRED'):
+                observer.history(fd_evidence={})
+            capacity.assert_called_once()
+            chain.assert_not_called()
+            repository.assert_not_called()
+
     def installed_state(self):
         return dict(ActiveState="failed", SubState="failed", Result="exit-code",
             ExecMainStatus="2", MainPID="0", ControlPID="0", NRestarts="0",
