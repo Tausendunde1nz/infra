@@ -21,7 +21,16 @@ jobs:
           fetch-tags: true
       - name: S8 durable anchor and exact ACL/drop-in (native isolated PID 1)
         run: bash tests/s8_anchor_native.sh
-      - name: Checkout exact public Control policy provenance (no persisted credentials)
+      - name: Require private Control policy CI read access (no fallback)
+        env:
+          CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
+        run: |
+          test "${{ github.event_name }}" = push || test "${{ github.event.pull_request.head.repo.full_name }}" = "Tausendunde1nz/infra"
+          if [ -z "$CONTROL_POLICY_READ_TOKEN" ]; then
+            echo "::error::CONTROL_POLICY_CI_READ_ACCESS_MISSING: configure contents-read-only access to private Tausendunde1nz/control; no fallback or fixture substitution"
+            exit 1
+          fi
+      - name: Checkout exact private Control policy provenance (no persisted credentials)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: Tausendunde1nz/control
@@ -29,6 +38,7 @@ jobs:
           path: policy-target
           fetch-depth: 0
           persist-credentials: false
+          token: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
       - name: Control-only authenticated isolated governance bootstrap capsule
         run: >-
           python3 -B scripts/tu1nz_control_recovery_release.py

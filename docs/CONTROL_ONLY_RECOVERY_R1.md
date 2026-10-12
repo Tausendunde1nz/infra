@@ -175,4 +175,16 @@ not repeated or repackaged here. A full mandatory CI and exact-SHA independent
 review are required after new Source changes; historical GREEN is not reused
 to accept these new bytes.
 
+CI's real-target native witness requires explicit `CONTROL_POLICY_READ_TOKEN`
+with contents-read-only permission for private `Tausendunde1nz/control`.
+`infra` is public: do not commit/upload the private target capsule or use
+the operator's personal credential as a workaround. Only trusted same-repo
+PRs/pushes may use the input; checkout must not persist the credential. The
+capsule includes authenticated private Git source, never a production key or
+Host backup, and is mounted alone read-only into the networkless test.
+Absent input fails explicitly before checkout, no GITHUB_TOKEN fallback,
+synthetic replacement, skipped native tests or release-gate relaxation.
+Credential creation/permission assignment is a separate necessary Human
+action; Source code and a regular review cannot replace completed native CI.
+
 See `CONTROL_ONLY_RECOVERY_R1_LIVE_PLAN.txt` and the shared handoff delta.
