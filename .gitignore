@@ -1,4 +1,16 @@
 *
+!scripts/tu1nz_control_recovery.py
+!scripts/tu1nz_control_recovery_contract.py
+!scripts/tu1nz_control_recovery_authority.py
+!scripts/tu1nz_control_recovery_release.py
+!scripts/tu1nz_control_recovery_entry.py
+!scripts/tu1nz_control_recovery_freeze.py
+!tests/test_control_only_recovery.py
+!tests/control_only_recovery_native.sh
+!tests/control_recovery_scenarios.py
+!config/control-only-recovery/
+!config/control-only-recovery/authority-ed25519.pub
+!manifests/control-only-recovery-r1.json
 !scripts/tu1nz_s8_historical_capacity.py
 !scripts/tu1nz_s8_history_entry.py
 !scripts/tu1nz_s8_history_operator.py
