@@ -87,13 +87,14 @@ def oid(kind, raw):
     return hashlib.sha1(kind.encode()+b' '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
 
 
-def tree_entries(raw):
+def tree_entries(raw,*,historical=False):
     result=[];pos=0;seen=set()
     while pos < len(raw):
         end=raw.find(b'\0',pos)
         require(end >= 0 and end+21 <= len(raw),'TREE_INVALID')
         mode,sep,name=raw[pos:end].partition(b' ')
-        require(sep and mode in (b'40000',b'100644',b'100755'), 'TREE_MODE_UNSUPPORTED')
+        supported=(b'40000',b'100644',b'100755',b'120000') if historical else (b'40000',b'100644',b'100755')
+        require(sep and mode in supported, 'TREE_MODE_UNSUPPORTED')
         name=name.decode('utf-8');relative(name)
         require('/' not in name and name not in seen,'TREE_INVALID');seen.add(name)
         result.append((mode.decode(),name,raw[end+1:end+21].hex()));pos=end+21

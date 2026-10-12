@@ -126,6 +126,7 @@ for case in ('entry','success','large-stock','hardlinks','acl','lost-confirmatio
              'revoke','revoke-failure','late-completion-failure','missing-completion','completion-drift',
              'competing-anchor','multiple-errors','application-change','interrupt-COMPLETION_WRITTEN',
              'source-origin','missing-worktree','bad-index',
+             'missing-head-subtree','corrupt-head-subtree',
              'writer','namespace-source','extra-output','corrupt-backup','marker-change','metadata-aba',
              'existing-anchor','wrong-target','wrong-signature','interrupt-CLAIM_DURABLE',
              'interrupt-BACKUP_READBACK','interrupt-RESTORE_TESTED','interrupt-RELEASE_SEALED',

@@ -12,6 +12,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import zlib
 from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
@@ -103,6 +104,14 @@ def scenario(base,name):
         config.write_text(config.read_text().replace('https://github.com/Tausendunde1nz/infra','https://example.invalid/wrong'))
     if name=='missing-worktree':(layout.historical/'tracked.txt').unlink()
     if name=='bad-index':(layout.historical/'.git.s12-1-recovery/index').write_bytes(b'CORRUPT')
+    if name in ('missing-head-subtree','corrupt-head-subtree'):
+        gitdir=layout.historical/'.git.s12-1-recovery'
+        child=command('git','--git-dir',str(gitdir),'rev-parse',layout.old_commit+':nested').decode().strip()
+        object_path=gitdir/'objects'/child[:2]/child[2:]
+        if name=='missing-head-subtree':object_path.rename(object_path.with_name(object_path.name+'-preserved'))
+        else:
+            raw=b'100644 different.txt\0'+bytes.fromhex('a'*40)
+            object_path.write_bytes(zlib.compress(b'tree '+str(len(raw)).encode()+b'\0'+raw))
     if name=='hardlinks':os.link(layout.historical/'private-unversioned.txt',layout.historical/'private-alias.txt')
     if name=='large-stock':
         (layout.historical/'synthetic-unversioned').mkdir()
@@ -249,6 +258,8 @@ for kind,path in (('write',sys.argv[1]),('chmod',sys.argv[1]),('rename',sys.argv
         'wrong-signature':'CONTROL_RECOVERY_GRANT_SIGNATURE_RED',
         'capless-metadata':'S8_EXECUTION_HISTORICAL_READ_CHANGED',
         'application-change':'S8_EXECUTION_HISTORICAL_READ_CHANGED',
+        'missing-head-subtree':'S8_EXECUTION_HISTORICAL_READ_UNAVAILABLE',
+        'corrupt-head-subtree':'S8_EXECUTION_HISTORICAL_CONTENT_RED',
     }
     if name in expected:assert result['primary']['code']==expected[name],result
     if name.startswith('interrupt-') and name!='interrupt-COMPLETION_WRITTEN':

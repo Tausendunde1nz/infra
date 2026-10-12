@@ -253,7 +253,23 @@ def source_binding(snapshot,layout):
     with ObjectStore(view) as objects:
         kind,raw=object_read(objects,layout.old_commit)
         c.require(kind==b'commit' and raw.startswith(b'tree '+layout.old_tree.encode()+b'\n'),'HISTORICAL_TREE_RED')
-        kind,_=object_read(objects,layout.old_tree);c.require(kind==b'tree','HISTORICAL_TREE_RED')
+        checked={}
+        def tree(object_id,active):
+            c.require(object_id not in active and len(active)<64 and len(checked)<c.MAX_NODES,
+                      'HISTORICAL_TREE_BOUND_OR_CYCLE')
+            if object_id in checked:
+                c.require(checked[object_id]=='tree','HISTORICAL_TREE_RED');return
+            kind,raw=object_read(objects,object_id);c.require(kind==b'tree','HISTORICAL_TREE_RED')
+            for mode,_,child in c.tree_entries(raw,historical=True):
+                if mode=='40000':tree(child,active|{object_id})
+                else:
+                    c.require(checked.get(child,'blob')=='blob','HISTORICAL_TREE_RED')
+                    if child not in checked:
+                        c.require(len(checked)<c.MAX_NODES,'HISTORICAL_TREE_BOUND_OR_CYCLE')
+                        kind,_=object_read(objects,child);c.require(kind==b'blob','HISTORICAL_TREE_RED')
+                        checked[child]='blob'
+            checked[object_id]='tree'
+        tree(layout.old_tree,set())
         for path,entry in index.items():
             c.require(path in snapshot.nodes,'WORKTREE_INCOMPLETE')
             kind,_=object_read(objects,entry['oid']);c.require(kind==b'blob','INDEX_OBJECT_RED')
@@ -276,6 +292,7 @@ def source_binding(snapshot,layout):
     snapshot.check()
     return {'origin':origin,'commit':layout.old_commit,'tree':layout.old_tree,
             'index_sha256':c.digest(view.read('index')),'index_entries':len(index),
+            'validated_head_tree_objects':len(checked),
             'preserved_worktree_index_deltas':deltas}
 
 
