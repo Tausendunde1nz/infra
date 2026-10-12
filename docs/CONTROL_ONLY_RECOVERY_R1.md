@@ -175,16 +175,50 @@ not repeated or repackaged here. A full mandatory CI and exact-SHA independent
 review are required after new Source changes; historical GREEN is not reused
 to accept these new bytes.
 
-CI's real-target native witness requires explicit `CONTROL_POLICY_READ_TOKEN`
-with contents-read-only permission for private `Tausendunde1nz/control`.
-`infra` is public: do not commit/upload the private target capsule or use
-the operator's personal credential as a workaround. Only trusted same-repo
-PRs/pushes may use the input; checkout must not persist the credential. The
-capsule includes authenticated private Git source, never a production key or
-Host backup, and is mounted alone read-only into the networkless test.
-Absent input fails explicitly before checkout, no GITHUB_TOKEN fallback,
-synthetic replacement, skipped native tests or release-gate relaxation.
-Credential creation/permission assignment is a separate necessary Human
-action; Source code and a regular review cannot replace completed native CI.
+Private CI uses `CONTROL_POLICY_READ_TOKEN` ONLY as an Environment secret in
+public infra's `control-private-ci`, never a repository/organization secret
+or general inherited credential. Required maintainer BaDa1001 approves the
+exact run/Source SHA AFTER independent Same-SHA review of workflow, scripts,
+Dockerfile and imported code. Same-repo origin alone is NOT trust. Before
+approval independently reread required reviewer, admin-bypass=false, allowed
+refs/pull/225/merge and control-main, absent same-name repo/org fallback,
+actual head/tree and pending job/run. GitHub holds the fresh hosted job before
+any step/secret. No privileged PR trigger, shared/self-hosted runner or image/
+cache/executable artifact from an unreviewed predecessor. The authorized
+operator may approve their initiated run after independent code review; no
+unavailable second maintainer is assumed. GitHub/platform and deliberate
+account/environment administrators are explicit TCB, not ordinary writers.
+
+Dedicated fine-grained credential: ONLY private Control, Contents:read and
+unavoidable Metadata:read, seven-day expiry; verify profile and functional
+read, not just name/prefix. No account/organization/write/Host/provider rights.
+Creation may need human login/MFA/organization approval. Never reuse/extract
+broad CLI credentials. Value goes directly to protected GitHub Secret UI,
+not chat/Source/argv/history/report. No automatic rotation or replacement.
+
+`control-private-provenance` checks out the reviewed event-head SHA (push:
+exact merge SHA), persist-credentials=false, then tests public boundaries and
+builds a fresh digest-pinned image BEFORE private input. Only its final finite
+helper gets the credential. Temporary askpass uses a child-only environment,
+no value-bearing file/URL/argv/Git config or tracing. Exact target/ancestry is
+fetched into a fresh0700 RUNNER_TEMP child OUTSIDE workspace; full capsule SHA
+is validated, bare Git/askpass removed. Native container receives ONLY capsule
+RO plus public Source RO, never token. No private checkout in workspace,
+Docker build context, broad mount, public artifacts/caches/summaries.
+
+Child stdout/stderr is bounded private memory, never raw public output or
+traceback. Public output is fixed codes/count64/approved capsule SHA only.
+Success requires all64 native cases, no skips. Finally only labeled own
+container (including private ext4/rootfs) and owned temp child are removed on
+success/failure/timeout/interrupt. Ambiguous cleanup is RED. Noncatchable
+SIGKILL/runner crash ends at ephemeral hosted-VM destruction; no physical
+zeroization is claimed. No later ordinary job shares this runner/input.
+Full `restore-contract` is a separate fresh secretfree job after private
+success. Freeze requires both specific successful jobs and all native steps;
+missing/skipped/neutral/cancelled/failed private gate cannot be substituted.
+
+Absent input/approval never falls back, skips provenance, creates synthetic
+replacement or relaxes release gates. Private graph is not committed/uploaded
+to public infra. Source tests/review cannot replace completed protected CI.
 
 See `CONTROL_ONLY_RECOVERY_R1_LIVE_PLAN.txt` and the shared handoff delta.

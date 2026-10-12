@@ -16,6 +16,7 @@ ROOT=Path(__file__).resolve().parents[1]
 FILES=[*(f'scripts/{name}.py' for name in MODULES),
  'scripts/tu1nz_control_recovery_authority.py','scripts/tu1nz_control_recovery_release.py',
  'scripts/tu1nz_control_recovery_freeze.py','tests/test_control_only_recovery.py',
+ 'scripts/tu1nz_control_private_ci.py','tests/test_control_private_ci.py',
  'tests/control_recovery_scenarios.py','tests/control_only_recovery_native.sh',
  'docs/CONTROL_ONLY_RECOVERY_R1.md','docs/CONTROL_ONLY_RECOVERY_R1_LIVE_PLAN.txt',
  'docs/CONTROL_ONLY_RECOVERY_SHARED_HANDOFF.txt','manifests/control-only-recovery-r1.json',
@@ -47,14 +48,7 @@ def gates(pr,head,pr_run,merge_run,review_comment):
         c.require(run['head_sha']==sha and run['event']==event and run['status']=='completed' and
             run['conclusion']=='success' and run['path']=='.github/workflows/control-validation.yml','CI_GATE_RED')
         jobs=api(f'repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100')['jobs']
-        job=next(v for v in jobs if v['name']=='restore-contract')
-        required=('S8 durable anchor','Control-only create-only recovery','R15 aborted containment',
-                  'Control-only authenticated isolated governance',
-                  'S11/S12 release compatibility','R12 native Linux','Integrated S12 attempt chain')
-        for prefix in required:
-            c.require(any(s['name'].startswith(prefix) and s['conclusion']=='success' for s in job['steps']),
-                      'NATIVE_GATE_MISSING')
-        c.require(job['conclusion']=='success','CI_GATE_RED')
+        validate_native_jobs(jobs)
         ci.append({'id':run_id,'sha':sha,'url':run['html_url'],'conclusion':'success'})
     review=api(f'repos/{REPO}/issues/comments/{review_comment}')
     reviewed=re.search(r'Reviewed commit:\*\* `([0-9a-f]{10,40})`',review['body'])
@@ -68,6 +62,21 @@ def gates(pr,head,pr_run,merge_run,review_comment):
         re.search(r'\bP[12]\b',m['body']) for m in t['comments']['nodes']) for t in threads['nodes']),
         'OPEN_REVIEW_FINDING')
     return merge,tree,ci,{'head':head,'url':review['html_url'],'comment_id':review_comment,'findings':'NONE'}
+
+
+def validate_native_jobs(jobs):
+    required={
+        'control-private-provenance':('Private CI boundary regression tests',
+            'Build fresh approved native image','Control-only create-only recovery'),
+        'restore-contract':('S8 durable anchor','R15 aborted containment',
+            'S11/S12 release compatibility','R12 native Linux','Integrated S12 attempt chain'),
+    }
+    for name,prefixes in required.items():
+        found=[v for v in jobs if v['name']==name]
+        c.require(len(found)==1 and found[0]['conclusion']=='success','CI_GATE_RED')
+        for prefix in prefixes:
+            c.require(any(s['name'].startswith(prefix) and s['conclusion']=='success'
+                          for s in found[0]['steps']),'NATIVE_GATE_MISSING')
 
 
 def main():

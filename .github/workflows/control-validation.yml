@@ -9,7 +9,40 @@ permissions:
   contents: read
 
 jobs:
+  control-private-provenance:
+    name: control-private-provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Environment-only credential. Required maintainer approval BEFORE this
+    # fresh job starts: actual exact SHA including workflow/scripts/Dockerfile
+    # must have independent review; same-repo origin alone is NOT trust.
+    environment: control-private-ci
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Private CI boundary regression tests (no private input or credential)
+        run: python3 -B -m unittest -v tests.test_control_private_ci
+      - name: Build fresh approved native image before private input (no reused artifact)
+        run: docker build --file tests/s8-native.Dockerfile --tag "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
+      - name: Control-only create-only recovery (approved private provenance; sanitized output; cleanup)
+        env:
+          CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
+          CONTROL_PRIVATE_ENVIRONMENT: control-private-ci
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          python3 -I -B scripts/tu1nz_control_private_ci.py
+          --image "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      # No later job step, artifact, cache or summary receives private data.
+      # Helper catches failures/signals and deletes ONLY its owned inputs and
+      # labeled container. Hosted VM destruction is the SIGKILL/crash boundary.
   restore-contract:
+    needs: control-private-provenance
     runs-on: ubuntu-24.04
     # Native ptrace/Landlock now covers every Git reader as well as writers.
     # Keep all success/rollback/interruption cases; allow their full duration.
@@ -19,38 +52,9 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - name: S8 durable anchor and exact ACL/drop-in (native isolated PID 1)
         run: bash tests/s8_anchor_native.sh
-      - name: Require private Control policy CI read access (no fallback)
-        env:
-          CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
-        run: |
-          test "${{ github.event_name }}" = push || test "${{ github.event.pull_request.head.repo.full_name }}" = "Tausendunde1nz/infra"
-          if [ -z "$CONTROL_POLICY_READ_TOKEN" ]; then
-            echo "::error::CONTROL_POLICY_CI_READ_ACCESS_MISSING: configure contents-read-only access to private Tausendunde1nz/control; no fallback or fixture substitution"
-            exit 1
-          fi
-      - name: Checkout exact private Control policy provenance (no persisted credentials)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: Tausendunde1nz/control
-          ref: 2281b2b397c017bc370ba108eab3dc00c989eaa5
-          path: policy-target
-          fetch-depth: 0
-          persist-credentials: false
-          token: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
-      - name: Control-only authenticated isolated governance bootstrap capsule
-        run: >-
-          python3 -B scripts/tu1nz_control_recovery_release.py
-          --source "$PWD/policy-target" --output "$RUNNER_TEMP/control-policy-target.json"
-      - name: Control-only create-only recovery (native ext4, no network/host targets)
-        run: >-
-          docker run --network none --privileged --env container=docker
-          --mount "type=bind,src=$PWD,dst=/work,readonly" --workdir /work
-          --mount "type=bind,src=$RUNNER_TEMP/control-policy-target.json,dst=/target-capsule.json,readonly"
-          --env TU1NZ_CONTROL_POLICY_CAPSULE=/target-capsule.json
-          "tu1nz-s8-anchor-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          bash tests/control_only_recovery_native.sh
       - name: R15 aborted containment (native Linux; isolated; guards unchanged)
         run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s12_1_aborted_containment
       - name: S11/S12 release compatibility (native Linux; offline)

@@ -16,6 +16,11 @@ resets any slot. SAME Control slot/path/key; any old/orphan client consumption
 record denies. R1 freeze remains historical and unchanged.
 
 Source closure ONLY after exact CI, review, merge, post-CI and published freeze.
+Private CI now requires a separate fresh reviewed-SHA job behind GitHub
+Environment-only credential/maintainer approval; ordinary job is secretfree.
+Private input outside workspace, capsule-only mount, bounded sanitized output,
+finite own cleanup. Credential profile/read function and both full jobs must
+pass; no source-only or review-only shortcut. Host plan/slot stay unchanged.
 Host current origin/worktree/index, custody/actors/tools/device boundary,
 capacity, backup/restore, new view/governance/health and permission coverage
 are NOT accepted here. See finite LIVE_PLAN; current task made no Host call.
