@@ -3,6 +3,11 @@
 set -euo pipefail
 test -f /.dockerenv
 test "$(id -u)" = 0
+test -r "${TU1NZ_CONTROL_POLICY_CAPSULE:?authentic public target capsule required}"
+# Numeric consumer needs a real NSS entry for unchanged Path.home() default
+# evaluation. Isolated container only; no HOME rewrite or global policy file.
+if ! getent passwd 1001 >/dev/null; then useradd --uid 1001 --home-dir /home/chatops --no-create-home chatops; fi
+test ! -e /home/chatops/.codex
 test ! -e /control-only-native.img
 test ! -e /control-proof
 truncate -s 512M /control-only-native.img

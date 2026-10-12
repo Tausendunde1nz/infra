@@ -56,7 +56,7 @@ class Portable(unittest.TestCase):
         with self.assertRaises(c.RecoveryError):c.Capsule(c.canonical(value),target)
     def test_frozen_entry_bootstrap_uses_no_host_imports_and_rejects_packet_drift(self):
         from tu1nz_control_recovery_entry import BOOTSTRAP,MODULES,PUBLIC_SHA
-        self.assertEqual(len(set(MODULES)),7)
+        self.assertEqual(len(set(MODULES)),8)
         self.assertEqual(c.digest((Path(__file__).resolve().parents[1]/'config/control-only-recovery/authority-ed25519.pub').read_bytes()),PUBLIC_SHA)
         result=subprocess.run([sys.executable,'-I','-B','-S','-c',BOOTSTRAP,'0'*64],
                               input=b'{}\n',capture_output=True,timeout=10)
@@ -110,6 +110,40 @@ class Portable(unittest.TestCase):
             self.assertEqual(marker.read_bytes(),b'partial')
             self.assertFalse((mirror/marker.name).exists())
 
+    def test_any_orphan_or_old_freeze_record_denies_before_dispatch(self):
+        for suffix in a.MARKER_SUFFIXES:
+            with self.subTest(suffix=suffix),tempfile.TemporaryDirectory() as name:
+                root,mirror=Path(name)/'a',Path(name)/'b';root.mkdir(mode=0o700);mirror.mkdir(mode=0o700)
+                marker=mirror/(c.SLOT+'.'+suffix+'.json');marker.write_bytes(b'old-or-ambiguous-preserve')
+                with self.assertRaises(c.RecoveryError):
+                    a.supervise_single_dispatch(lambda _:self.fail('second launch'),root,mirror,
+                        release={'new_freeze':'never_a_new_slot'})
+                self.assertEqual(marker.read_bytes(),b'old-or-ambiguous-preserve')
+                self.assertEqual(list(root.iterdir()),[])
+
+    def test_production_bootstrap_rejects_wrong_layout_or_source_before_creation(self):
+        from tu1nz_control_recovery_governance import validate_source,prepare,FREEZE_TAG
+        from dataclasses import replace
+        source={'tag':FREEZE_TAG,'tag_object':'1'*40,'commit':'2'*40,'tree':'3'*40,'executor_sha256':'4'*64}
+        fake=type('BoundTarget',(),{'target':dict(c.TARGET)})()
+        for layout in (replace(c.Layout.production(),anchor=Path('/wrong')),
+                       replace(c.Layout.production(),host='f'*64)):
+            with self.assertRaisesRegex(c.RecoveryError,'GOVERNANCE_LAYOUT_BINDING_RED'):
+                prepare(fake,layout,source)
+        for altered in ({**source,'tag':'control-only-recovery-source-freeze-r1'},
+                        {**source,'executor_sha256':'invalid'}, {}):
+            with self.assertRaises(c.RecoveryError):validate_source(altered)
+
+    def test_source_tag_envelope_must_bind_actual_commit_tree_and_object(self):
+        from tu1nz_control_recovery_entry import validate_tag_envelope
+        from tu1nz_control_recovery_governance import FREEZE_TAG
+        raw=('object '+ '2'*40+'\ntype commit\ntag '+FREEZE_TAG+'\ntagger Synthetic\n\n{}\n').encode()
+        source={'tag':FREEZE_TAG,'tag_object':c.oid('tag',raw),'commit':'2'*40,'tree':'3'*40}
+        validate_tag_envelope(raw,source,'2'*40,'3'*40)
+        for changed,commit,tree in ((raw.replace(b'type commit',b'type blob'),'2'*40,'3'*40),
+                                   (raw,'9'*40,'3'*40),(raw,'2'*40,'9'*40)):
+            with self.assertRaises(c.RecoveryError):validate_tag_envelope(changed,source,commit,tree)
+
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0 and os.environ.get('container')=='docker'
                      and os.environ.get('TU1NZ_CONTROL_NATIVE_ROOT'),'isolated native ext4 only')
@@ -132,6 +166,11 @@ for case in ('entry','success','large-stock','hardlinks','acl','lost-confirmatio
              'interrupt-BACKUP_READBACK','interrupt-RESTORE_TESTED','interrupt-RELEASE_SEALED',
              'interrupt-RECEIPT_WRITTEN'):
     setattr(Native,'test_'+case.replace('-','_'),lambda self,name=case:self.run_case(name))
+
+for case in ('success','production-client','policy-missing','policy-tampered','source-r1','source-incomplete','host',
+             'bootstrap-changed','unsigned-user','unsigned-path','interrupt','override','config','context-tampered'):
+    name='governance-'+case
+    setattr(Native,'test_'+name.replace('-','_'),lambda self,name=name:self.run_case(name))
 
 
 if __name__=='__main__':unittest.main()

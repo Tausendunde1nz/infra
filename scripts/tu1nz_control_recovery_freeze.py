@@ -10,7 +10,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import tu1nz_control_recovery_contract as c
 from tu1nz_control_recovery_entry import MODULES,PUBLIC_SHA
 
-TAG='control-only-recovery-source-freeze-r1'
+TAG='control-only-recovery-source-freeze-r2'
 REPO='Tausendunde1nz/infra'
 ROOT=Path(__file__).resolve().parents[1]
 FILES=[*(f'scripts/{name}.py' for name in MODULES),
@@ -49,6 +49,7 @@ def gates(pr,head,pr_run,merge_run,review_comment):
         jobs=api(f'repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100')['jobs']
         job=next(v for v in jobs if v['name']=='restore-contract')
         required=('S8 durable anchor','Control-only create-only recovery','R15 aborted containment',
+                  'Control-only authenticated isolated governance',
                   'S11/S12 release compatibility','R12 native Linux','Integrated S12 attempt chain')
         for prefix in required:
             c.require(any(s['name'].startswith(prefix) and s['conclusion']=='success' for s in job['steps']),
@@ -81,7 +82,9 @@ def main():
     manifest=json.loads(git('show',merge+':manifests/control-only-recovery-r1.json'))
     c.require(manifest['target']==c.TARGET and manifest['public_key_sha256']==PUBLIC_SHA and
         manifest['live_authority'] is False and git('rev-parse',manifest['r6_tag']).decode().strip()==
-        manifest['r6_tag_object'],'RELEASE_BINDING_RED')
+        manifest['r6_tag_object'] and manifest['freeze_tag']==TAG and
+        manifest['slot']==c.SLOT and git('rev-parse',manifest['r1_tag_preserved']).decode().strip()==
+        manifest['r1_tag_object'],'RELEASE_BINDING_RED')
     hashes={name:c.digest(git('show',merge+':'+name)) for name in FILES}
     value={'schema':c.SCHEMA+'_SOURCE_FREEZE','tag':TAG,'control':{'commit':merge,'tree':tree},
         'pr':args.pr,'review':review,'ci':ci,'files':hashes,'release':manifest,

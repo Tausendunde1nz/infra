@@ -22,6 +22,7 @@ import tu1nz_control_recovery_contract as c
 CLIENT_ROOT=Path('/Users/daniel/Developer/tu1nz/control-only-recovery-authority')
 CLIENT_MIRROR=Path('/Users/daniel/.codex/backups/control-only-recovery-authority')
 CLIENT_OPENSSL='/opt/homebrew/bin/openssl' if sys.platform=='darwin' else '/usr/bin/openssl'
+MARKER_SUFFIXES=('attempt','signature-reserved','grant-body','grant','result','accepted','revoked')
 
 
 def fsync_directory(path):
@@ -46,7 +47,9 @@ def spend_before_dispatch(root=CLIENT_ROOT,mirror=CLIENT_MIRROR,*,release):
     """Fail closed on either missing/mismatched/partial existing copy; never heal."""
     for p in (root,mirror):secure_client_parent(p)
     paths=[p/(c.SLOT+'.attempt.json') for p in (root,mirror)]
-    c.require(not any(os.path.lexists(p) for p in paths),'CLIENT_SLOT_ALREADY_OR_AMBIGUOUSLY_CONSUMED')
+    c.require(not any(os.path.lexists(parent/(c.SLOT+'.'+suffix+'.json'))
+        for parent in (root,mirror) for suffix in MARKER_SUFFIXES),
+        'CLIENT_SLOT_ALREADY_OR_AMBIGUOUSLY_CONSUMED')
     raw=c.canonical({'schema':c.SCHEMA+'_CLIENT_ATTEMPT','slot':c.SLOT,'release':release,
                      'automatic_retry':False,'signature_dispatched':False})
     for path in paths:new(path,raw)
@@ -65,7 +68,10 @@ def sign_for_dispatched_session(body,key,root=CLIENT_ROOT,mirror=CLIENT_MIRROR,*
         release=json.loads(attempts[0])['release']
         c.require(body['host']==c.MACHINE and body['historical_root']==list(c.R6_ROOT) and
             body['historical_guard']==list(c.R6_GUARD) and body['quarantined_git']==list(c.R6_QUARANTINE)
-            and body['capsule_sha256']==release['capsule_sha256'],'CLIENT_PRODUCTION_BINDING_RED')
+            and body['capsule_sha256']==release['capsule_sha256'] and
+            body['governance']['source_release']==release['source_release'] and
+            c.digest(c.canonical(body['governance']))==release['governance_intent_sha256'],
+            'CLIENT_PRODUCTION_BINDING_RED')
     reservations=[p/(c.SLOT+'.signature-reserved.json') for p in (root,mirror)]
     c.require(not any(os.path.lexists(p) for p in reservations),'SIGNATURE_ALREADY_OR_AMBIGUOUSLY_CONSUMED')
     reservation=c.canonical({'schema':c.SCHEMA+'_CLIENT_SIGNATURE_RESERVED','slot':c.SLOT,
@@ -120,6 +126,10 @@ def accept_final(result,grant,root=CLIENT_ROOT,mirror=CLIENT_MIRROR):
     c.require(receipt['grant_sha256']==c.digest(raw_grant) and receipt['slot']==c.SLOT and
         receipt['host']==grant['body']['host'] and receipt['target']==grant['body']['target'] and
         receipt['capsule_sha256']==grant['body']['capsule_sha256'],'CLIENT_RESULT_BINDING_RED')
+    if grant['body'].get('governance') is not None:
+        c.require(receipt['governance']['intent_sha256']==c.digest(c.canonical(grant['body']['governance'])) and
+                  receipt['governance']['transaction_sha256']==c.digest(c.canonical(grant['body'])),
+                  'CLIENT_GOVERNANCE_BINDING_RED')
     for parent in (root,mirror):
         secure_client_parent(parent)
         c.require((parent/(c.SLOT+'.grant.json')).read_bytes()==raw_grant,'CLIENT_GRANT_READBACK_RED')
@@ -173,7 +183,21 @@ def transport_once(factory,packet,key,root=CLIENT_ROOT,mirror=CLIENT_MIRROR,*,re
     c.require(release.get('host_gates')=={
         'protected_current_read':'GREEN','tools_kernel_tcb':'GREEN','writer_device_boundary':'GREEN',
         'capacity_filesystem':'GREEN','public_and_consumer_baseline':'GREEN',
-        'source_target_policy_context':'GREEN','exact_host_scope_authorized':'GREEN'},'HOST_GATES_OPEN')
+        'authenticated_isolated_bootstrap_intent':'GREEN',
+        'exact_host_scope_authorized':'GREEN'},'HOST_GATES_OPEN')
+    # Caller independently authenticates the Source freeze and current Host
+    # permission. Never consume the fixed slot for a stale packet or policy.
+    from tu1nz_control_recovery_entry import executor_digest,PUBLIC_SHA
+    from tu1nz_control_recovery_governance import prepare,intent,validate_source
+    value=json.loads(packet);source=release['source_release'];validate_source(source)
+    c.require(set(value)=={'schema','modules','source','public','capsule'} and
+        value['schema']==c.SCHEMA+'_MEMORY_PACKET' and value['source']==source and
+        executor_digest(value['modules'])==source['executor_sha256'] and
+        c.digest(base64.b64decode(value['public'],validate=True))==PUBLIC_SHA,'TRANSPORT_SOURCE_RED')
+    capsule=c.Capsule(base64.b64decode(value['capsule'],validate=True))
+    plan=prepare(capsule,c.Layout.production(),source)
+    c.require(capsule.sha256==release['capsule_sha256'] and
+        c.digest(c.canonical(intent(plan)))==release['governance_intent_sha256'],'TRANSPORT_BOOTSTRAP_RED')
     proc=None;selector=None;out={'schema':c.SCHEMA+'_TRANSPORT_RESULT','accepted':False,
         'primary':None,'abort':None,'cleanup':[],'automatic_retry':False,'host_outcome':'UNKNOWN'}
     def dispatch(_):

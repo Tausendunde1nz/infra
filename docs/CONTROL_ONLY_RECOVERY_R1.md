@@ -1,7 +1,7 @@
-# Control-only recovery R1 — separate protected source view
+# Control-only recovery — R2 isolated governance delta, unchanged R1 slot/path
 
 Source-only contract. Source closure is established only by the immutable
-`control-only-recovery-source-freeze-r1` payload with exact CI/review/merge
+`control-only-recovery-source-freeze-r2` payload with exact CI/review/merge
 bindings. This document, a test GREEN or a generated packet is NOT Host or
 deployment authority. R6 history capture remains GREEN for its old interval;
 it is neither repeated nor a continuing writer fence.
@@ -120,9 +120,50 @@ lost reply remains UNKNOWN/ineligible, not GREEN or permission to retry.
 Host Git/strict fsck/status run as intended UID/GID1001, no index update or
 historical Git subprocess. Main and origin/main are pinned and full target
 commit/object provenance is carried so the unchanged canonical governance
-script can perform ancestry checks. The actual Host instruction/global
-Control context remains UNKNOWN: governance must genuinely pass in the new
-CWD; missing/global path mismatch cannot be patched by invented instructions.
+script can perform ancestry checks. R1 used the default UID1001 global layer;
+the 2026-10-12 preliminary read found /home/chatops/.codex absent. R1's Source
+GREEN remains historical, not acceptance of that missing Host prerequisite.
+
+## R2 authentic isolated bootstrap (not global Host policy)
+
+The exact target's `operative-policy-v1.1.md`, `AGENTS.md`, canonical SSOT,
+SUPERSEDED manifest and preflight are authenticated against fixed SHA256s,
+the complete pinned Git graph and both original governance ancestors. The
+only global AGENTS transformation is the single command-token substitution
+already versioned in that target's `governance/test_preflight.py`. Policybody
+is unchanged. The established Mac interpreter token is command metadata
+parsed by the unchanged tool, NOT a claim that this binary runs on Linux.
+
+Before dispatch: local canonical preflight, independently verified new
+Source freeze/packet and current Host gates, plus authentic finite bootstrap
+intent. This explicitly is NOT a filesystem preflight on nonexistent files.
+No circular self-approval: the reviewed memory executor, target provenance,
+trusted client signature and separate exact Host permission authorize only
+the enumerated creation. Missing/inconsistent bindings deny before mkdir.
+
+The signed grant additionally binds R2 Source tag object/commit/tree,
+aggregate executor bytes, policy hashes, fixed host, reader1001/groups1001,
+exact release/context/CWD and SAME logical slot. PID/boot/nonce and current
+ancestors bind that intent to one transaction. The actual new context has
+exactly `governance-context/AGENTS.md` and `binding.json`, immutable root:1001
+0440 files under 0550 immutable directory. Its sibling location avoids
+dirtying the target release. No config, override, fallback or historical
+context is adopted; no HOME/CODEX_HOME rewrite or global Host policy change.
+
+After release and context sealing, the unchanged target preflight runs as
+actual UID/GID1001/groups=[1001] with `--codex-home <fixed sibling>` and exact
+`--cwd <release>`. Exit0, exact ACTIVE stdout and exactly the two expected
+instruction-layer lines are required. Its original canonical/ancestry/
+origin/main/clean/tracked-preflight gates remain operative. Context hashes
+and transaction binding enter the protected prepared receipt and final
+sealed-pair verification. No runtime or general Host policy acceptance.
+
+New R2 Source does not mint another attempt: same client namespaces, key,
+slot and Host anchor. ANY old/partial/orphan attempt/signature/grant/result/
+acceptance/revocation marker on either client side denies before dispatch.
+Rebinding is possible only before first consumption, with exact verified R2
+artifact and a newly signed live transaction; an R1 grant cannot match it.
+No old signature reuse, repair, reset, deletion or key rotation is supported.
 
 ## Source verification boundary
 

@@ -5,6 +5,7 @@
 !scripts/tu1nz_control_recovery_release.py
 !scripts/tu1nz_control_recovery_entry.py
 !scripts/tu1nz_control_recovery_freeze.py
+!scripts/tu1nz_control_recovery_governance.py
 !tests/test_control_only_recovery.py
 !tests/control_only_recovery_native.sh
 !tests/control_recovery_scenarios.py

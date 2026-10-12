@@ -8,8 +8,12 @@ New contract prepares an independent immutable control/main2281b2b/3d52fe08
 view with current whole Control backup and a real logical restore proof.
 No original Control/guard exchange, Application mutation or consumer retarget.
 Full target Git provenance is required for unchanged canonical governance;
-the exact current Host policy/global context is UNKNOWN and must pass rather
-than being normalised. Fixed client/session one-shot never resets S8/R15 slots.
+R2 isolated context uses only authenticated target policy with the existing
+tested command relocation and explicit --codex-home. Pre-mutation signed
+bootstrap intent is distinct from actual post-sealing preflight; neither
+changes global Host policy or adds rights. Fixed client/session one-shot never
+resets any slot. SAME Control slot/path/key; any old/orphan client consumption
+record denies. R1 freeze remains historical and unchanged.
 
 Source closure ONLY after exact CI, review, merge, post-CI and published freeze.
 Host current origin/worktree/index, custody/actors/tools/device boundary,
@@ -26,5 +30,7 @@ sibling view. Source/content work independent of those gates may continue.
 The earlier “no new server action” phrase in the Lighting historical handoff
 does not revoke the later conditional Control recovery approval. This does
 not authorize the new sibling paths, publishing or productive index changes.
-The one concrete proposed extension is the frozen sibling-path transition;
+The concrete R2 plan delta to confirm later is two-file isolated context
+creation under that sibling, explicit bootstrap/preflight order and new
+Source/packet binding to the still-unspent SAME slot. No Host action here;
 no renewed blanket Recovery approval. S8/S9/S10/S11 RED, R15/S12/Live NO-GO.

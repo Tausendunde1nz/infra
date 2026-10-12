@@ -21,10 +21,24 @@ jobs:
           fetch-tags: true
       - name: S8 durable anchor and exact ACL/drop-in (native isolated PID 1)
         run: bash tests/s8_anchor_native.sh
+      - name: Checkout exact public Control policy provenance (no persisted credentials)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Tausendunde1nz/control
+          ref: 2281b2b397c017bc370ba108eab3dc00c989eaa5
+          path: policy-target
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Control-only authenticated isolated governance bootstrap capsule
+        run: >-
+          python3 -B scripts/tu1nz_control_recovery_release.py
+          --source "$PWD/policy-target" --output "$RUNNER_TEMP/control-policy-target.json"
       - name: Control-only create-only recovery (native ext4, no network/host targets)
         run: >-
           docker run --network none --privileged --env container=docker
           --mount "type=bind,src=$PWD,dst=/work,readonly" --workdir /work
+          --mount "type=bind,src=$RUNNER_TEMP/control-policy-target.json,dst=/target-capsule.json,readonly"
+          --env TU1NZ_CONTROL_POLICY_CAPSULE=/target-capsule.json
           "tu1nz-s8-anchor-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           bash tests/control_only_recovery_native.sh
       - name: R15 aborted containment (native Linux; isolated; guards unchanged)
