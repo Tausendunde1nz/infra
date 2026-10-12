@@ -1,0 +1,25 @@
+{
+  "schema": "TU1NZ_CONTROL_ONLY_RECOVERY_R1_SOURCE",
+  "slot": "control-only-recovery-20261012-1",
+  "target": {
+    "repository": "https://github.com/Tausendunde1nz/control",
+    "commit": "2281b2b397c017bc370ba108eab3dc00c989eaa5",
+    "tree": "3d52fe0898238e1132d8947a7e171d8086982170"
+  },
+  "capsule_sha256": "11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb",
+  "public_key_sha256": "6b25f4c44c74ef77679e2b83609ab62af3e33a36a7338d4f0046426923e096e5",
+  "r6_tag": "s8-isolated-atomic-recovery-freeze-r6",
+  "r6_tag_object": "0ac4a5037fff8a074aaa8ca93d1262555a13c415",
+  "application_unchanged_commit": "82f9ac03de7a9ea1a6bc13d116c51497e091775b",
+  "historical_control_commit": "b44a3a7e6162a2cc01ef0eb0da564bec68090adc",
+  "historical_control_tree": "477e63c6818d42473a9e4400b83faedead7524bc",
+  "planned_host_root": "/opt/tu1nz_repos/control-only-recovery-r1",
+  "historical_roots_or_guards_changed": false,
+  "consumers_rebound": false,
+  "live_authority": false,
+  "host_gates": "UNKNOWN_REQUIRE_CURRENT_SEPARATE_ACCEPTANCE",
+  "rc5_productive_index_binding": "OPEN",
+  "lighting_publication": "NOT_AUTHORIZED",
+  "s8_s9_s10_s11": "RED_NOT_LIFTED",
+  "r15": "NO_GO"
+}

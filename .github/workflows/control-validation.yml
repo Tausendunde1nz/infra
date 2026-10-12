@@ -21,6 +21,12 @@ jobs:
           fetch-tags: true
       - name: S8 durable anchor and exact ACL/drop-in (native isolated PID 1)
         run: bash tests/s8_anchor_native.sh
+      - name: Control-only create-only recovery (native ext4, no network/host targets)
+        run: >-
+          docker run --network none --privileged --env container=docker
+          --mount "type=bind,src=$PWD,dst=/work,readonly" --workdir /work
+          "tu1nz-s8-anchor-ci:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          bash tests/control_only_recovery_native.sh
       - name: R15 aborted containment (native Linux; isolated; guards unchanged)
         run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v -f tests.test_s12_1_aborted_containment
       - name: S11/S12 release compatibility (native Linux; offline)

@@ -1,0 +1,117 @@
+CONTROL-ONLY R1 — VERSION-BOUND PLAN, NOT EXECUTED / NOT LIVE AUTHORITY
+
+Bind exact Source commit/tree/tag object from the final immutable freeze,
+public signer SHA6b25f4c44c74ef77679e2b83609ab62af3e33a36a7338d4f0046426923e096e5,
+target control2281b2b397c017bc370ba108eab3dc00c989eaa5 / tree3d52fe0898238e1132d8947a7e171d8086982170,
+capsule SHA11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb.
+Capsule is PRIVATE target Git source/provenance, not public CI evidence and
+not a backup of historical Host Control. Re-render packet from frozen bytes;
+bind packet SHA independently, verify memory modules and both private copies.
+
+1. CURRENT PROTECTED READ / NO MUTATION OR CLIENT SPEND YET
+   Existing authorized chatops Tailscale identity/strict host key, sudo only
+   command-specific via operator's own secure TTY; no passwords in argv/logs.
+   Verify current machine SHAa2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae,
+   kernel/ext4/fs leases enabled, tools/interpreter/sudo/timeout integrity,
+   capabilities CHOWN/DAC_OVERRIDE/DAC_READ_SEARCH/FOWNER/SETGID/LINUX_IMMUTABLE/LEASE,
+   all relevant mount/device/ancestor identities, DAC/ACL/security attributes,
+   actual writer/lock/delegated privilege and raw-device/tooling access.
+   Do not infer writer confinement from capless UID0. Unknown required actor
+   or kernel/tooling trust boundary stops. No lease/protection function probe
+   on historical data outside the bound read/transition. Observe health and
+   actual Governance instruction/global-Control context without creating it.
+   No general R6 reader retry; reuse its semantic result within its interval.
+   Required R6 endpoints: Control(2049,1283349), guard(2049,1459619),
+   quarantine(2049,1453930), root0:1001/2550 no xattrs, guard0:0/000,
+   quarantine0:0/0700 no xattrs. Not claimed historical continuity.
+   Verify entire current Control inventory/index/origin and existing four
+   evidence hashes under a NEW finite mutation/preservation witness; ordinary
+   pre-read does not confer durable writer freedom. No unknown file removal.
+   Target governance needs complete ancestry and a genuinely valid existing
+   instruction/global checkout context; none is currently Host-confirmed.
+   If that context needs new paths/rights/policy, return its exact scope
+   conflict for decision, do not manufacture a GREEN global layer.
+
+2. FINITE ALLOWLIST / CAPACITY
+   New directory ONLY /opt/tu1nz_repos/control-only-recovery-r1 (initial0700,
+   then root:1001/0550+i), claim.json immutable0600 root:1001.
+   Child release, backup/data, restore-test/tree, journal.
+   backup and restore-test parents root:root/000+i BEFORE private copies;
+   backup/data files root:1001/000+i, dirs root:root/000+i after readback.
+   restore-test/tree reconstructs original metadata behind its sealed000
+   parent; it is never a productive checkout. journal remains private0700,
+   receipts/completion immutable0600. release files0:1001/0440 or0550+i,
+   dirs0:1001/0550+i, no inherited ACLs/xattrs. No existing parent protection
+   change, no historical .git/guard rename/chmod/chown or marker change.
+   Require native ext4 and actual free bytes/inodes; engine bound20k nodes,
+   512MiB input/capsule,16MiB per object, no external links/special files.
+   Minimum free bytes >=3*Control bytes+2*capsule bytes+1MiB and inodes
+   >=3*Control nodes+2*target release file count+128; also account for all
+   metadata overhead before dispatch, not just this conservative byte test.
+   Host actual capacity and total descriptor requirements UNKNOWN; effective
+   FD admission must cover BOTH full Control and Application preservation
+   census plus target/output FDs within unchanged hard limit.
+
+3. BACKUP / ONE-SHOT EXECUTION
+   Existing verified private client authority key400, directories700 and both
+   spent-record namespaces checked; never regenerate/reset missing state.
+   Record exact protected Host prerequisites and permission coverage BEFORE
+   entering transport_once. Spend BEFORE a single SSH factory launch; failed
+   sudo/auth/upload already consumes the client attempt. Record signature
+   reservation BEFORE signing the exact received live PID/boot/nonce.
+   Password in private operator TTY only; no tool/UI workaround of a denied
+   surface. Remote argv is produced by remote_argv(packetSHA); pinned memory
+   source, python -I -B -S, no historical imports, command-only sudo -S -k.
+   GNU timeout40s + TERM/KILL-after5s applies ONLY to our executor. Transport
+   total50s from dispatch; common input lease windows <=30s, never extended.
+   Exact slot control-only-recovery-20261012-1; no replacement grant/start.
+   Exclusive anchor/bootstrap claim, NEW full protected Control capture,
+   pinned source/index/config/opaque files; backup/readback/real private
+   restore; sealed exact target; UID1001 Git/fsck/status/canonical governance;
+   prepared receipt under fences; cleanup; completion/current pair checks;
+   client final clean result and matching acceptance. Never consumer start.
+   Missing/foreign/partial anchor, retained writer, changed ancestor/ACL,
+   unknown origin/profile, incomplete index, short read, failed backup,
+   host scope/context mismatch or deadline => fail closed, no retry.
+
+4. ABORT / RETURN / ACCEPTANCE
+   Before client spend: no attempt/Host mutation. After client spend: permanent
+   consumption, even if Host not reached. After first Host mkdir: retain
+   partial new tree and denied/pending evidence; never normalise/adopt/remove.
+   No consumer switch; historical original remains the rollback reference.
+   Received clean client acceptance may later be revoked via append-only
+   revoke_acceptance; EITHER revocation denies. Failure/partial revocation
+   preserves bytes and consumption, no historical restoration/reset.
+   Orphaned completion, lost exit, absent client copy or cleanup error =>
+   UNKNOWN/ineligible. Read-only verification is not a replacement launch.
+   Observe exact new root/Commit/Tree/Git cleanliness as UID1001, actual
+   canonical Governance in new CWD, all fixed historical hashes/guards,
+   unchanged complete Application preservation and marker set. Before/after
+   service/Invocation/PID/restart and public HTTP baseline must match; known
+   S8/S9/S10/S11 RED stay separate. Source GREEN never proves Host health.
+   Retain private backup/index/manifest/receipt; datensparse public handoff
+   contains only hashes/bindings/counts/provenance, never raw contents/IDs.
+   SSH and own sudo context end; no foreign cache invalidation or signals.
+
+5. EXISTING AUTHORITY / EXACT ADDITIONAL DECISION
+   Existing conditional Control-only recovery authorization covers protected
+   preparation, proved source/backup/writer/return gates and a defined Control
+   recovery, not website publishing. The CURRENT Source task grants NO Host
+   action. This separate sibling view does not change historical guards.
+   One concrete extension for later action: authorize create-only staging,
+   metadata-preserving backup/private restore and immutable source view at
+   exactly /opt/tu1nz_repos/control-only-recovery-r1 under this frozen plan,
+   including early fixed client spend and the append-only eligibility return.
+   No authority to redirect productive RC5/index consumers is requested here.
+   Additional unsupported Host context/actor/path requirements remain a real
+   new gate; do not roll them into a blanket approval.
+
+6. LIGHTING / RC5
+   Sibling read-only view is a source prerequisite only. Productive canonical
+   Control remains unchanged/guarded. Lighting PR76 and its11 files remain
+   untouched; fresh candidate/base integration and the exact permitted deploy
+   entry/user/allowlist/backup/restore/health are still open. RC5 productive
+   index and installed artifact checks remain OPEN. No direct Webroot copy,
+   pull/update of immutable view, service start, S8/R15/S12 recovery, provider,
+   deployment or runtime unlock. A later Host view acceptance is not an
+   automatic deployment permission.
