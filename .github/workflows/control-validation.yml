@@ -53,6 +53,8 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+      - name: Public web Docker delegation isolation (native isolated PID 1; no network)
+        run: bash tests/public_web_isolation_native.sh
       - name: S8 durable anchor and exact ACL/drop-in (native isolated PID 1)
         run: bash tests/s8_anchor_native.sh
       - name: R15 aborted containment (native Linux; isolated; guards unchanged)

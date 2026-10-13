@@ -1,4 +1,13 @@
 *
+!scripts/tu1nz_public_web_isolate_r1.py
+!tests/test_public_web_isolation.py
+!tests/public_web_isolation_native.py
+!tests/public_web_isolation_native.sh
+!systemd/tu1nz-adult-public-s7.service.d/
+!systemd/tu1nz-adult-public-s7.service.d/zz-public-isolation-r1.conf
+!systemd/tu1nz-adult-public-s8-landing.service.d/zz-public-isolation-r1.conf
+!systemd/tu1nz-adult-public-s10-wms.service.d/
+!systemd/tu1nz-adult-public-s10-wms.service.d/zz-public-isolation-r1.conf
 !scripts/tu1nz_control_recovery.py
 !scripts/tu1nz_control_recovery_contract.py
 !scripts/tu1nz_control_recovery_authority.py
