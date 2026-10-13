@@ -1,5 +1,6 @@
 """Finite bootstrap contract tests; real Linux enforcement is a separate gate."""
 import importlib.util
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import subprocess
@@ -72,18 +73,21 @@ class Contract(unittest.TestCase):
    self.assertNotIn('CANARY',str(error));kill.assert_called_once_with(14,m.signal.SIGKILL,None,0)
 
  def test_reap_interruption_never_signals_reusable_numeric_pid(self):
-  with patch.object(m.sys,'platform','linux'),patch.object(m.os,'geteuid',return_value=0),\
-       patch.dict(os.environ,{},clear=True),patch.object(m.pwd,'getpwnam',return_value=Mock(pw_uid=1001)),\
-       patch.object(m.grp,'getgrnam',return_value=Mock(gr_gid=1001)),\
-       patch.object(m,'mappings',return_value=[(0,0,4294967295)]),patch.object(m.os,'setgroups'),\
-       patch.object(m.os,'pipe2',side_effect=[(10,11),(12,13)],create=True),patch.object(m.os,'fork',return_value=123),\
-       patch.object(m.os,'pidfd_open',return_value=14,create=True),patch.object(m.os,'open',return_value=15),\
-       patch.object(m.select,'select',return_value=([10],[],[])),patch.object(m.os,'read',return_value=b'R'),\
-       patch.object(m.Path,'write_text'),patch.object(m.os,'write'),patch.object(m.os,'close'),\
-       patch.object(m.ctypes,'CDLL',return_value=Mock(setns=Mock(return_value=0))),\
-       patch.object(m.os,'waitpid',side_effect=[m.Denied('BOOTSTRAP_INTERRUPTED'),ChildProcessError]),\
-       patch.object(m.signal,'pidfd_send_signal',side_effect=ProcessLookupError,create=True) as handle_signal,\
-       patch.object(m.os,'kill') as numeric_signal:
+  with ExitStack() as stack:
+   stack.enter_context(patch.dict(os.environ,{},clear=True))
+   mocks=(
+    (m.sys,'platform',{'new':'linux'}),(m.os,'geteuid',{'return_value':0}),
+    (m.pwd,'getpwnam',{'return_value':Mock(pw_uid=1001)}),(m.grp,'getgrnam',{'return_value':Mock(gr_gid=1001)}),
+    (m,'mappings',{'return_value':[(0,0,4294967295)]}),(m.os,'setgroups',{}),
+    (m.os,'pipe2',{'side_effect':[(10,11),(12,13)],'create':True}),(m.os,'fork',{'return_value':123}),
+    (m.os,'pidfd_open',{'return_value':14,'create':True}),(m.os,'open',{'return_value':15}),
+    (m.select,'select',{'return_value':([10],[],[])}),(m.os,'read',{'return_value':b'R'}),
+    (m.Path,'write_text',{}),(m.os,'write',{}),(m.os,'close',{}),
+    (m.ctypes,'CDLL',{'return_value':Mock(setns=Mock(return_value=0))}),
+    (m.os,'waitpid',{'side_effect':[m.Denied('BOOTSTRAP_INTERRUPTED'),ChildProcessError]}))
+   for obj,name,kwargs in mocks:stack.enter_context(patch.object(obj,name,**kwargs))
+   handle_signal=stack.enter_context(patch.object(m.signal,'pidfd_send_signal',side_effect=ProcessLookupError,create=True))
+   numeric_signal=stack.enter_context(patch.object(m.os,'kill'))
    with self.assertRaises(m.Denied) as result:m.establish_namespace()
    self.assertEqual(result.exception.primary,'PUBLIC_WEB_ISOLATION_BOOTSTRAP_INTERRUPTED')
    self.assertEqual(result.exception.abort,[])
