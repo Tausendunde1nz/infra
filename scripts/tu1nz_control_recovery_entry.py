@@ -17,6 +17,7 @@ import tu1nz_control_recovery_contract as c
 
 PUBLIC_SHA='6b25f4c44c74ef77679e2b83609ab62af3e33a36a7338d4f0046426923e096e5'
 MODULES=('tu1nz_control_recovery_contract','tu1nz_control_recovery','tu1nz_control_recovery_entry',
+ 'tu1nz_control_recovery_governance',
  'tu1nz_s8_execution_contract','tu1nz_s8_admission_channel',
  'tu1nz_s8_historical_kernel','tu1nz_s8_historical_objects')
 
@@ -38,13 +39,13 @@ def remote_argv(packet_sha256):
         '-o','ControlPath=none','chatops@100.121.130.51',command]
 
 
-def serve(capsule,public,*,layout=None,reader=None,writer=None):
+def serve(capsule,public,*,layout=None,reader=None,writer=None,source=None):
     # layout is a library-only synthetic fixture injection, not a host CLI.
     from tu1nz_control_recovery import Session,recover_view
     reader=sys.stdin.buffer if reader is None else reader
     writer=sys.stdout.buffer if writer is None else writer
     layout=c.Layout.production() if layout is None else layout
-    session=Session(layout,capsule)
+    session=Session(layout,capsule,source=source)
     writer.write(c.canonical({'schema':c.SCHEMA+'_HELLO','body':session.body})+b'\n');writer.flush()
     raw=reader.readline(65537);c.require(0<len(raw)<=65536 and raw.endswith(b'\n'),'GRANT_ENVELOPE_RED')
     grant=json.loads(raw);result=recover_view(layout,capsule,session,grant,public)
@@ -53,12 +54,45 @@ def serve(capsule,public,*,layout=None,reader=None,writer=None):
 
 
 def packet(root,capsule_raw):
+    import subprocess
+    from tu1nz_control_recovery_governance import FREEZE_TAG,validate_source
     c.Capsule(capsule_raw)
     public=(root/'config/control-only-recovery/authority-ed25519.pub').read_bytes()
     c.require(c.digest(public)==PUBLIC_SHA,'PUBLIC_KEY_PIN_RED')
     modules={name:base64.b64encode((root/'scripts'/(name+'.py')).read_bytes()).decode() for name in MODULES}
+    def git(*args):
+        return subprocess.check_output(['/usr/bin/git','--no-optional-locks','-C',str(root),*args])
+    raw=git('cat-file','tag',FREEZE_TAG)
+    freeze=json.loads(raw.partition(b'\n\n')[2])
+    source={'tag':FREEZE_TAG,'tag_object':git('rev-parse',FREEZE_TAG).decode().strip(),
+        'commit':freeze['control']['commit'],'tree':freeze['control']['tree'],
+        'executor_sha256':executor_digest(modules)}
+    validate_source(source)
+    validate_tag_envelope(raw,source,git('rev-parse',FREEZE_TAG+'^{commit}').decode().strip(),
+                          git('rev-parse',FREEZE_TAG+'^{tree}').decode().strip())
+    c.require(freeze['source_only'] is True and freeze['tag']==FREEZE_TAG and
+        git('rev-parse','HEAD').decode().strip()==source['commit'] and
+        git('rev-parse','HEAD^{tree}').decode().strip()==source['tree'] and
+        not git('status','--porcelain=v1'),'PACKET_SOURCE_FREEZE_RED')
+    for name in MODULES:
+        c.require(c.digest(base64.b64decode(modules[name],validate=True))==
+            freeze['files']['scripts/'+name+'.py'],'PACKET_SOURCE_FREEZE_RED')
     return c.canonical({'schema':c.SCHEMA+'_MEMORY_PACKET','modules':modules,
-        'public':base64.b64encode(public).decode(),'capsule':base64.b64encode(capsule_raw).decode()})
+        'source':source,'public':base64.b64encode(public).decode(),
+        'capsule':base64.b64encode(capsule_raw).decode()})
+
+
+def executor_digest(modules):
+    c.require(set(modules)==set(MODULES),'PACKET_MODULE_BINDING_RED')
+    return c.digest(c.canonical({name:c.digest(base64.b64decode(raw,validate=True))
+                                for name,raw in modules.items()}))
+
+
+def validate_tag_envelope(raw,source,commit,tree):
+    expected=['object '+source['commit'],'type commit','tag '+source['tag']]
+    c.require(raw.partition(b'\n\n')[0].decode().splitlines()[:3]==expected and
+        c.oid('tag',raw)==source['tag_object'] and commit==source['commit'] and tree==source['tree'],
+        'PACKET_TAG_ENVELOPE_RED')
 
 
 # Packet digest is a separately frozen/operator-verified argument. The memory
@@ -84,8 +118,10 @@ sys.meta_path.insert(0,Frozen())
 import tu1nz_control_recovery_entry as e
 import tu1nz_control_recovery_contract as c
 assert set(modules)==set(e.MODULES)
+assert set(p)=={'schema','modules','source','public','capsule'}
+assert p['source']['executor_sha256']==e.executor_digest(p['modules'])
 public=base64.b64decode(p['public'],validate=True);assert c.digest(public)==e.PUBLIC_SHA
-raise SystemExit(e.serve(c.Capsule(base64.b64decode(p['capsule'],validate=True)),public))
+raise SystemExit(e.serve(c.Capsule(base64.b64decode(p['capsule'],validate=True)),public,source=p['source']))
 '''
 
 

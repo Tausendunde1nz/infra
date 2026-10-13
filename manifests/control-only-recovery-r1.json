@@ -1,5 +1,13 @@
 {
   "schema": "TU1NZ_CONTROL_ONLY_RECOVERY_R1_SOURCE",
+  "source_revision": "R2_ISOLATED_GOVERNANCE",
+  "freeze_tag": "control-only-recovery-source-freeze-r2",
+  "r1_tag_preserved": "control-only-recovery-source-freeze-r1",
+  "r1_tag_object": "3bb80507b269dd96137c138a4a51effd3d577b70",
+  "governance_context": "governance-context",
+  "governance_context_files": ["AGENTS.md", "binding.json"],
+  "bootstrap": "AUTHENTICATED_INTENT_BEFORE_MUTATION_NOT_FILESYSTEM_PREFLIGHT",
+  "global_policy_or_home_changed": false,
   "slot": "control-only-recovery-20261012-1",
   "target": {
     "repository": "https://github.com/Tausendunde1nz/control",

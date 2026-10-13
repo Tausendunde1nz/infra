@@ -20,6 +20,142 @@ import tu1nz_control_recovery_contract as c
 import tu1nz_control_recovery as r
 import tu1nz_control_recovery_authority as a
 from tu1nz_control_recovery_release import build_capsule
+import tu1nz_control_recovery_governance as g
+
+
+def governance_scenario(base,name):
+    """Real pinned target preflight, synthetic Host/keys and private ext4 only.
+
+    Synthetic library Layout is not a production CLI path override. Host
+    release/signer authority is not inferred from this offline witness.
+    """
+    layout,_,key,public,authority,mirror=fixture(base)
+    capsule=c.Capsule(Path(os.environ['TU1NZ_CONTROL_POLICY_CAPSULE']).read_bytes())
+    source={'tag':g.FREEZE_TAG,'tag_object':'1'*40,'commit':'2'*40,'tree':'3'*40,
+            'executor_sha256':'4'*64}
+    if name=='governance-production-client':
+        return production_client_case(base,layout,capsule,key,authority,mirror,source)
+    if name in ('governance-policy-missing','governance-policy-tampered'):
+        if name.endswith('missing'):del capsule.files['AGENTS.md']
+        else:capsule.files['AGENTS.md']={**capsule.files['AGENTS.md'],'bytes':b'permissive policy'}
+    if name=='governance-source-r1':source['tag']='control-only-recovery-source-freeze-r1'
+    if name=='governance-source-incomplete':del source['executor_sha256']
+    if name=='governance-host':layout=c.Layout(**{**layout.__dict__,'host':'f'*64})
+    predenied=name in ('governance-policy-missing','governance-policy-tampered',
+        'governance-source-r1','governance-source-incomplete','governance-host')
+    try:session=r.Session(layout,capsule,source=source)
+    except c.RecoveryError as error:
+        assert predenied and not layout.anchor.exists(),str(error)
+        assert not list(authority.iterdir()) and not list(mirror.iterdir())
+        return {'case':name,'passed':True,'denied_before_mutation_and_spend':True,'error':str(error)}
+    assert not predenied
+    # Test key only, finite signed engine transaction. No operator key or
+    # production signer/Host permission is involved in synthetic Layout.
+    a.spend_before_dispatch(authority,mirror,release={'synthetic':True,'source_release':source})
+    body=c.canonical(session.body);path=base/'synthetic-body.json';a.new(path,body)
+    signature=command('openssl','pkeyutl','-sign','-inkey',str(key),'-rawin','-in',str(path))
+    grant={'body':json.loads(body),'signature':base64.b64encode(signature).decode()}
+    for parent in (authority,mirror):a.new(parent/(c.SLOT+'.grant.json'),c.canonical(grant))
+    if name=='governance-bootstrap-changed':session.governance['reader']['uid']=1002
+    if name=='governance-unsigned-user':grant['body']['governance']['reader']['uid']=1002
+    if name=='governance-unsigned-path':grant['body']['governance']['cwd']='/wrong'
+    before=r.preserved_state(layout)
+    def boundary(phase):
+        if name=='governance-interrupt' and phase=='CONTEXT_SEALED':raise KeyboardInterrupt()
+        if phase=='CONTEXT_SEALED' and name in ('governance-override','governance-config'):
+            path=layout.anchor/'governance-context'/('AGENTS.override.md' if name.endswith('override') else 'config.toml')
+            fd=os.open(path.parent,os.O_RDONLY);r.set_flags(fd,r.flags(fd)&~r.IMMUTABLE);os.close(fd)
+            path.write_bytes(b'FOREIGN KEEP')
+        if phase=='CONTEXT_SEALED' and name=='governance-context-tampered':
+            path=layout.anchor/'governance-context/AGENTS.md'
+            fd=os.open(path,os.O_RDONLY);r.set_flags(fd,r.flags(fd)&~r.IMMUTABLE);os.close(fd)
+            path.write_bytes(b'permissive policy')
+    result=r.recover_view(layout,capsule,session,grant,public,boundary=boundary)
+    success=name=='governance-success'
+    assert result['accepted']==success,result
+    assert r.preserved_state(layout)==before and result['historical_mutated'] is False
+    assert result['fd_baseline_restored'],result
+    if success:
+        assert result['consumer']['governance']=='GREEN_ISOLATED_V1_1_CURRENT_NEW_CWD_ONLY'
+        proof=result['consumer']['governance_binding']
+        assert proof['transaction_sha256']==c.digest(body)
+        a.accept_final(result,grant,authority,mirror)
+        r.verify_completed_view(layout,capsule,grant,public)
+        release=layout.anchor/'release'
+        def drop():os.setgroups([1001]);os.setgid(1001);os.setuid(1001)
+        # No isolated argument: a missing real global instruction layer is
+        # still RED. The successful explicit invocation did not create it.
+        env={'PATH':'/usr/bin:/bin','GIT_CONFIG_GLOBAL':'/dev/null','GIT_CONFIG_SYSTEM':'/dev/null',
+             'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'safe.directory','GIT_CONFIG_VALUE_0':str(release)}
+        default=subprocess.run([sys.executable,'-I','-B',str(release/'governance/preflight.py'),
+            '--cwd',str(release)],cwd=release,env=env,preexec_fn=drop,capture_output=True,timeout=10)
+        assert default.returncode!=0 and b'missing global instruction layer' in default.stderr,default.stderr
+    else:
+        assert result['primary'] is not None,result
+        if name in ('governance-bootstrap-changed','governance-unsigned-user','governance-unsigned-path'):
+            assert not result['slot_consumed'] and not layout.anchor.exists(),result
+        else:assert result['slot_consumed'],result
+    try:a.spend_before_dispatch(authority,mirror,release={'new_freeze':'not_a_new_slot'})
+    except c.RecoveryError:pass
+    else:raise AssertionError('new freeze reopened same slot')
+    return {'case':name,'passed':True,'accepted':result['accepted'],'primary':result['primary'],
+            'abort':result['abort'],'cleanup':result['cleanup'],'synthetic_only':True}
+
+
+def production_client_case(base,layout,capsule,key,authority,mirror,source):
+    """Production branches, synthetic frozen IDs/key, no transport/Host call."""
+    from tu1nz_control_recovery_entry import MODULES,PUBLIC_SHA,executor_digest
+    root=Path(__file__).resolve().parents[1]
+    modules={n:base64.b64encode((root/'scripts'/(n+'.py')).read_bytes()).decode() for n in MODULES}
+    source={**source,'executor_sha256':executor_digest(modules)}
+    value={'schema':c.SCHEMA+'_MEMORY_PACKET','source':source,'modules':modules,
+        'public':base64.b64encode((root/'config/control-only-recovery/authority-ed25519.pub').read_bytes()).decode(),
+        'capsule':base64.b64encode(capsule.raw).decode()}
+    assert c.digest(base64.b64decode(value['public']))==PUBLIC_SHA
+    plan=g.prepare(capsule,c.Layout.production(),source)
+    release={'source_release':source,'capsule_sha256':capsule.sha256,
+        'governance_intent_sha256':c.digest(c.canonical(g.intent(plan))),
+        'host_gates':{'protected_current_read':'GREEN','tools_kernel_tcb':'GREEN',
+        'writer_device_boundary':'GREEN','capacity_filesystem':'GREEN','public_and_consumer_baseline':'GREEN',
+        'authenticated_isolated_bootstrap_intent':'GREEN','exact_host_scope_authorized':'GREEN'}}
+    for defect in ('module','source','intent','old-packet'):
+        data=json.loads(c.canonical(value));record=json.loads(c.canonical(release))
+        if defect=='module':data['modules'][MODULES[0]]=base64.b64encode(b'changed').decode()
+        if defect=='source':data['source']['tag_object']='9'*40
+        if defect=='intent':record['governance_intent_sha256']='9'*64
+        if defect=='old-packet':del data['source']
+        packet=c.canonical(data);record['packet_sha256']=c.digest(packet)
+        try:a.transport_once(lambda:(_ for _ in ()).throw(AssertionError('unauthorized launch')),packet,
+                key,authority,mirror,release=record)
+        except c.RecoveryError:pass
+        else:raise AssertionError('invalid production bootstrap not rejected before spend')
+        assert not list(authority.iterdir()) and not list(mirror.iterdir())
+    # An exactly bound valid input gets only ONE synthetic factory call; a
+    # lost outcome consumes forever. This does not contact the network.
+    packet=c.canonical(value);release['packet_sha256']=c.digest(packet);calls=[]
+    def factory():calls.append(1);raise RuntimeError('synthetic unavailable transport')
+    result=a.transport_once(factory,packet,key,authority,mirror,release=release)
+    assert not result['accepted'] and calls==[1]
+    result=a.transport_once(factory,packet,key,authority,mirror,release=release)
+    assert not result['accepted'] and calls==[1]
+    body={'schema':c.SCHEMA+'_GRANT','slot':c.SLOT,'target':c.TARGET,'nonce':'a'*64,'pid':123,
+        'host':c.MACHINE,'historical_root':list(c.R6_ROOT),'historical_guard':list(c.R6_GUARD),
+        'quarantined_git':list(c.R6_QUARANTINE),'capsule_sha256':capsule.sha256,'governance':g.intent(plan)}
+    for defect in ('source','intent'):
+        altered=json.loads(c.canonical(body))
+        if defect=='source':altered['governance']['source_release']['tag_object']='9'*40
+        else:altered['governance']['reader']['uid']=1002
+        try:a.sign_for_dispatched_session(altered,key,authority,mirror)
+        except c.RecoveryError:pass
+        else:raise AssertionError('mismatched HELLO signed')
+        assert not (authority/(c.SLOT+'.signature-reserved.json')).exists()
+        assert not (mirror/(c.SLOT+'.signature-reserved.json')).exists()
+    grant=a.sign_for_dispatched_session(body,key,authority,mirror)
+    r.verify_signature(command('openssl','pkey','-in',str(key),'-pubout'),c.canonical(body),
+                       base64.b64decode(grant['signature']))
+    assert not layout.anchor.exists()
+    return {'case':'governance-production-client','passed':True,'factory_calls':1,
+            'host_calls':0,'synthetic_only':True}
 
 
 def command(*argv,cwd=None):
@@ -301,5 +437,5 @@ os.chmod(old+'/control',0o2550)
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--case',required=True);parser.add_argument('--base',type=Path,required=True)
     args=parser.parse_args()
-    value=scenario(args.base,args.case)
+    value=(governance_scenario if args.case.startswith('governance-') else scenario)(args.base,args.case)
     print(json.dumps(value,sort_keys=True))

@@ -415,8 +415,10 @@ class OwnedTree:
 
 class Session:
     """Process-local one-use latch; signed grants cannot survive process death."""
-    def __init__(self,layout,capsule):
+    def __init__(self,layout,capsule,*,source=None):
         native_prerequisites(layout);protect_process()
+        import tu1nz_control_recovery_governance as governance
+        self.governance=governance.prepare(capsule,layout,source)
         self.used=False;self.layout=layout;self.capsule=capsule;self.snapshot=None
         self.fd_baseline=fd_state()
         self.nonce=os.urandom(32).hex();self.pid=os.getpid()
@@ -426,7 +428,8 @@ class Session:
             'ancestors':ancestors(layout.historical),
             'anchor_ancestors':ancestors(layout.anchor.parent),
             'historical_root':list(layout.pin),'historical_guard':list(layout.guard_pin),
-            'quarantined_git':list(layout.quarantine_pin)}
+            'quarantined_git':list(layout.quarantine_pin),
+            'governance':governance.intent(self.governance)}
 
     def consume(self,grant,public_key):
         c.require(not self.used,'SESSION_ALREADY_CONSUMED');self.used=True
@@ -552,13 +555,12 @@ class PreservedFence:
         if self.application is not None:self.application.close(result);self.application=None
 
 
-def consumer_read_check(root,capsule):
+def consumer_read_check(root,capsule,plan=None,transaction=None):
     """Real intended numeric UID/GID, no source-index refresh or global config."""
     def drop():
         os.setgroups([1001]);os.setgid(1001);os.setuid(1001)
-    # Git config is explicitly disabled; do NOT force a fictitious HOME for
-    # the unchanged governance tool. Its actual UID1001 instruction/global
-    # Control context must be independently protected/accepted before dispatch.
+    # Explicit supported context; neither HOME nor CODEX_HOME is redirected.
+    # The unchanged real preflight checks the exact clean Control view itself.
     env={'PATH':'/usr/bin:/bin','LC_ALL':'C',
          'GIT_CONFIG_GLOBAL':'/dev/null','GIT_CONFIG_SYSTEM':'/dev/null',
          'GIT_OPTIONAL_LOCKS':'0','GIT_TERMINAL_PROMPT':'0','PYTHONDONTWRITEBYTECODE':'1',
@@ -576,9 +578,21 @@ def consumer_read_check(root,capsule):
     proof={'uid':1001,'gid':1001,'git_readonly':'GREEN','commit':commit,'tree':tree,
            'productive_rc5_index_binding':'OPEN_NOT_CHANGED','deployment':'NOT_AUTHORIZED'}
     if 'governance/preflight.py' in capsule.files:
-        output=execute(['/usr/bin/python3','-I','-B',str(root/'governance/preflight.py'),'--cwd',str(root)])
-        c.require(b'GOVERNANCE_V1_1_ACTIVE' in output,'CONSUMER_GOVERNANCE_RED')
-        proof['governance']='GREEN_CURRENT_NEW_CWD_ONLY'
+        import tu1nz_control_recovery_governance as governance
+        c.require(plan is not None and str(root)==plan['cwd']==plan['target'], 'GOVERNANCE_CWD_RED')
+        context=Path(plan['context'])
+        proof['governance_binding']=governance.check_context(context,plan,transaction)
+        execute(['/usr/bin/python3','-I','-B','-c',
+            'import os;assert (os.getuid(),os.getgid(),os.getgroups())==(1001,1001,[1001])'])
+        argv=['/usr/bin/python3','-I','-B',str(root/'governance/preflight.py'),
+              '--cwd',str(root),'--codex-home',str(context)]
+        result=subprocess.run(argv,cwd=root,env=env,preexec_fn=drop,capture_output=True,timeout=10)
+        layers=('INSTRUCTION_LAYER '+str(context/'AGENTS.md')+'\n'+
+                'INSTRUCTION_LAYER '+str(root/'AGENTS.md')+'\n').encode()
+        c.require(result.returncode==0 and result.stdout==b'GOVERNANCE_V1_1_ACTIVE\n' and
+                  result.stderr==layers,'CONSUMER_GOVERNANCE_RED')
+        governance.check_context(context,plan,transaction)
+        proof['governance']='GREEN_ISOLATED_V1_1_CURRENT_NEW_CWD_ONLY'
     else:proof['governance']='UNAVAILABLE_SYNTHETIC_TARGET_ONLY'
     return proof
 
@@ -591,12 +605,23 @@ def recover_view(layout,capsule,session,grant,public_key,*,boundary=lambda phase
     trees=[];before=None;fence=None;namespace=None
     def step(phase):out['phase']=phase;boundary(phase)
     try:
-        native_prerequisites(layout);session.consume(grant,public_key)
+        native_prerequisites(layout)
+        import tu1nz_control_recovery_governance as governance
+        # Revalidate memory intent immediately BEFORE signature consumption or
+        # any Host mkdir. This is not a preflight on nonexistent Host files.
+        source_release=(session.body.get('governance') or {}).get('source_release')
+        current_plan=governance.prepare(capsule,layout,source_release)
+        c.require(governance.intent(current_plan)==session.body['governance'] and
+                  governance.intent(session.governance)==session.body['governance'],
+                  'GOVERNANCE_BOOTSTRAP_CHANGED')
+        session.consume(grant,public_key)
         before=preserved_state(layout);step('BEFORE_CLAIM')
         namespace=NamespaceFence(layout.anchor.parent)
         os.mkdir(layout.anchor,0o700);out['slot_consumed']=True
         anchor=OwnedTree(layout.anchor,namespace);trees.append(anchor)
-        for name in ('backup','restore-test','release','journal'):anchor.directory(name)
+        names=('backup','restore-test','release','journal')
+        if current_plan is not None:names+=('governance-context',)
+        for name in names:anchor.directory(name)
         for name in ('backup/data','restore-test/tree'):anchor.directory(name)
         for name in ('backup','restore-test'):
             fd=anchor.records[name]['fd'];os.fchown(fd,0,0);os.fchmod(fd,0)
@@ -611,7 +636,7 @@ def recover_view(layout,capsule,session,grant,public_key,*,boundary=lambda phase
         step('CLAIM_DURABLE')
         c.require(ancestors(layout.historical)==session.body['ancestors'] and
                   ancestors(layout.anchor.parent)==session.body['anchor_ancestors'],'ANCESTOR_CHANGED')
-        snapshot=Snapshot(layout.historical,reserve=2*len(capsule.release_files())+64)
+        snapshot=Snapshot(layout.historical,reserve=2*len(capsule.release_files())+70)
         session.snapshot=snapshot
         fence=PreservedFence(layout,snapshot.leases);fence.open()
         source=source_binding(snapshot,layout);out['source']=source
@@ -680,13 +705,19 @@ def recover_view(layout,capsule,session,grant,public_key,*,boundary=lambda phase
         for name,(raw,mode) in capsule.release_files().items():target.file(name,raw,mode)
         target.directory('.git/refs')
         target.seal();snapshot.check();step('RELEASE_SEALED')
-        out['consumer']=consumer_read_check(layout.anchor/'release',capsule)
+        if current_plan is not None:
+            context=OwnedTree(layout.anchor/'governance-context',namespace);trees.append(context)
+            for name,raw in governance.context_files(current_plan,session.body).items():
+                context.file(name,raw,0o440)
+            context.seal();snapshot.check();step('CONTEXT_SEALED')
+        out['consumer']=consumer_read_check(layout.anchor/'release',capsule,current_plan,session.body)
         c.require(preserved_state(layout)==before,'PRESERVED_CHANGED')
         c.require(ancestors(layout.anchor.parent)==session.body['anchor_ancestors'],'ANCHOR_ANCESTOR_CHANGED')
         journal=OwnedTree(layout.anchor/'journal',namespace);trees.append(journal)
         receipt={'schema':c.SCHEMA+'_PREPARED_PENDING_CLEANUP','slot':c.SLOT,'target':capsule.target,
                  'capsule_sha256':capsule.sha256,'backup_manifest_sha256':c.digest(manifest),
                  'source':source,'host':layout.host,'grant_sha256':c.digest(c.canonical(grant)),
+                 'governance':out['consumer'].get('governance_binding'),
                  'ancestors':session.body['anchor_ancestors'],'historical_mutated':False,
                  'anchor_identity':list(identity(layout.anchor)),
                  'release_manifest':{name:{'sha256':c.digest(raw),'mode':mode}
@@ -695,6 +726,7 @@ def recover_view(layout,capsule,session,grant,public_key,*,boundary=lambda phase
                  'host_consumer_governance_deployment_acceptance':'OPEN_REQUIRED_SEPARATELY'}
         journal.file('prepared.json',c.canonical(receipt));snapshot.check();journal.check()
         target.check();backup.check();restore.check();namespace.check()
+        if current_plan is not None:context.check()
         fence.check()
         step('RECEIPT_WRITTEN');out['receipt']=receipt
     except BaseException as error:
@@ -813,5 +845,21 @@ def verify_completed_view(layout,capsule,grant,public_key):
                 c.require(name in files,'FOREIGN_OUTPUT');raw,mode=files[name]
                 c.require(read_sealed(child,mode,1001)==raw,'VIEW_CONTENT_RED');actual_files.add(name)
     c.require(actual_files==set(files) and actual_dirs==expected_dirs,'VIEW_INVENTORY_RED')
+    import tu1nz_control_recovery_governance as governance
+    source_release=(grant['body'].get('governance') or {}).get('source_release')
+    plan=governance.prepare(capsule,layout,source_release)
+    c.require(governance.intent(plan)==grant['body']['governance'],'GOVERNANCE_TRANSACTION_RED')
+    if plan is not None:
+        context=root/'governance-context'
+        fd=os.open(context,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:
+            m=metadata(fd);c.require(m['uid']==0 and m['gid']==1001 and m['mode']==0o550 and
+                not m['attrs'] and m['flags']&IMMUTABLE,'VIEW_SEAL_RED')
+        finally:os.close(fd)
+        for name,raw in governance.context_files(plan,grant['body']).items():
+            c.require(read_sealed(context/name,0o440,1001)==raw,'GOVERNANCE_CONTEXT_BINDING_RED')
+        c.require(governance.check_context(context,plan,grant['body'])==receipt['governance'],
+                  'GOVERNANCE_RECEIPT_RED')
+    else:c.require(receipt['governance'] is None,'GOVERNANCE_RECEIPT_RED')
     c.require(ancestors(root.parent)==grant['body']['anchor_ancestors'],'ANCHOR_ANCESTOR_CHANGED')
     return {'prepared_sha256':c.digest(prepared_raw),'target':capsule.target,'slot':c.SLOT}
