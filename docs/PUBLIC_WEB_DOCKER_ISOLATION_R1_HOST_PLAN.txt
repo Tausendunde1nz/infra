@@ -1,0 +1,114 @@
+PUBLIC WEB ISOLATION R1 — SEPARATE HOST APPROVAL REQUIRED; NOT EXECUTED
+
+SOURCE BINDING
+Use only the final reviewed merge, successful full post-merge CI and hashes
+of the four artifacts below. Record them in the private delivery receipt;
+no draft or intermediate prototype may be applied. Application code and
+existing release/configuration identities must match the accepted current
+Host binding; this plan does not deploy a new application release.
+
+PERSISTENT HOST DELTA — EXACT ALLOWLIST
+/usr/local/bin/tu1nz_public_web_isolate_r1.py (new root:root0555 helper)
+/etc/systemd/system/tu1nz-adult-public-s7.service.d/zz-public-isolation-r1.conf
+/etc/systemd/system/tu1nz-adult-public-s8-landing.service.d/zz-public-isolation-r1.conf
+/etc/systemd/system/tu1nz-adult-public-s10-wms.service.d/zz-public-isolation-r1.conf
+New drop-ins root:root0644, no writer ACL/default-ACL inheritance. Existing
+parent rights are not changed. If a target exists, is a symlink, has foreign
+content or an unsafe ancestor/ACL profile: stop, preserve, do not overwrite.
+No global Docker/NSS/user settings, base units, state owners/modes, historic
+repositories/Git guards, provider contracts, leases or markers are changed.
+
+EPHEMERAL START DELTA / RISK
+Each of exactly these three service starts runs the fixed reviewed helper
+initially privileged, under the inherited service mount/filesystem sandbox.
+It removes groups before creating/joining its own minimal user namespace,
+reaps its owned child, drops all caps and UID/GID before fixed app exec.
+Only S7 creates a private tmpfs view over its exact two /run/credentials
+inputs, read-only after verified copy; no persistent credential copy.
+An unsupported kernel/systemd/userns/mount/credential profile denies startup
+instead of falling back. Controlled outage of public pages is possible.
+UID1001 remains; unrelated same-UID file-level authority is NOT claimed
+removed. Alternate administrative access must be independently excluded.
+
+PRE-MUTATION CURRENT GATES
+Canonical governance, exact host/user/paths/source/installed units and all
+drop-ins authenticated. No competing unit/config/source writers; root helper
+and interpreter/dependencies plus every relevant ancestor protected against
+nonadministrative replacement/write/ACL grants. Validate local systemd
+semantics, namespace/map/setgroups/mount support using only separately
+approved isolated synthetic probe paths if fresh functional proof is needed.
+Do not probe/rewrite historical repositories or repeat a blocked experiment.
+Inspect actual service environments/activation descriptors and permissions,
+Docker/containerd/rootless socket aliases, TCP daemon listeners, account/ACL
+based administrative brokers and sudo/polkit rules. No production daemon
+write operation or privilege-escalation trial. Unknown effective authority
+stops admission. NSS identity must be exactly1001; shared account unchanged.
+Require native pidfd_open/pidfd_send_signal and default SIGCHLD reaping;
+missing support denies, never signal a reusable numeric PID.
+Fresh pre-state: exact three services, public HTTP, ports, state/DB health;
+separate failed S8Telegram/S9/S10health/S11 states remain separate.
+
+BACKUP / ACTUAL RETURN
+Create-only private transaction backup under
+/var/log/tausendunde1nz/public-web-isolation-r1/<approved-transaction>/
+with root:root0700 parents, no secrets in public output. Require conflict-free
+target/space. Capture exact three base units plus ALL their current drop-ins,
+existence/identity/hash/uid/gid/mode/ACL/xattrs/flags and parent/mount profiles,
+effective systemd configuration, relevant config input metadata/hash and
+package/tool/source pins. Private credential inputs stay protected; if backed
+up, copy within the approved private backup only, never public artifacts.
+Record expected four target ABSENCE and prior service/HTTP state. Backup
+consistency must be witnessed against competing writers and independently
+read back; isolate a restore rehearsal before touching live configuration.
+Rollback is configuration-only, NOT database/state/queued-event time travel.
+Do not restore stale counters, DB data or other applications over newer work.
+
+ORDER AFTER SEPARATE EXACT APPROVAL
+1. All pre-gates and read-back/rehearsed backup GREEN; no R2 dispatch/slot.
+2. Stop WMS, then S8-Landing, then S7 explicitly. Requires=S7 can otherwise
+   restart dependent units; do not rely on a simple S7 restart as serial work.
+   Confirm own three cgroups stopped; do not stop unrelated S8Telegram/S9.
+3. Install only four authenticated artifacts create-only; verify final bytes,
+   ownership/mode/ACLs/ancestor protection. daemon-reload; verify effective
+   configs/ExecStart/search paths and retained inherited sandbox before start.
+4. Start S7; require fresh healthy invocation and DB/credential function.
+   Start S8-Landing then WMS serially; admit no automatic broad recovery.
+   Existing bounded public Restart rules are not S8 Telegram attempt slots.
+5. Fresh actual PID/cgroup/namespace checks: UID/GID1001 triples, groups[],
+   five capsets0, NNP1, exact minimal uid/gid maps, denied setgroups, no
+   effective operator proc-root/home or administrative socket/broker access.
+   Verify S7 exact read-only credential view privately, no retained bootstrap
+   child/privileges; data/DB peer and aggregate/traffic reads/writes preserved.
+6. Internal -> proxy -> external public health/root/privacy/terms/imprint;
+   compare preserved files/configs/services, journal finite data-safe errors.
+   Re-observe after normal operation/restart acceptance where approved;
+   do not send real Telegram/provider tests. No green from synthetic tests.
+
+ABORT / RETURN
+Stop before mutation for any pre-gate contradiction/unknown or new authority.
+After partial install/start failure, stop only these three units; preserve
+partial configuration/evidence. Return only by the rehearsed backup contract:
+move newly created four artifacts to that approved private transaction's
+quarantine (no deletion), restore only originally existing config objects
+with exact metadata, daemon-reload and start S7 -> S8-Landing -> WMS. Verify
+the prior function/config state and report failures separately. If this
+restores old Docker delegation, R2 actor/TCB gate is RED/OPEN again. Do not
+call that return security-GREEN. No slot reset, recovery retry or guard change.
+If safe return fails: stop, preserve and request a concrete new decision.
+
+AFTER RIGHTS ACCEPTANCE
+Refresh the existing R2 writer/device/TCB/tool/capacity/content/backup/restore/
+health/context gates from its immutable R2 packet and unchanged source view.
+An advanced infra main does not rewrite the older frozen source. The SAME
+unspent logical slot and current exact conditional R2 authority remain; no
+diagnostic dispatch/signature or new grant. Lighting deployment additionally
+needs its separately bound candidate/allowlist/backup/restore/entry acceptance.
+
+CONFIRMATION TEXT — LATER, WITH FINAL SOURCE RECEIPT
+I authorize only the bound public-web-isolation-R1 four-artifact rollout,
+private verified configuration backup/restore, explicit serial stop/start
+of S7/S8-Landing/WMS and current rights/function acceptance described here,
+provided all listed current gates are GREEN. No global user/Docker change,
+application release deployment, S8Telegram/R15/RC5/Runtime activation or R2
+slot use is included in this new rights approval. Existing conditional R2
+permission is not requested again and cannot be used until its gates pass.

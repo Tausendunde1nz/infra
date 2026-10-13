@@ -53,6 +53,8 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
+      - name: Public web Docker delegation isolation (native isolated PID 1; no network)
+        run: bash tests/public_web_isolation_native.sh
       - name: S8 durable anchor and exact ACL/drop-in (native isolated PID 1)
         run: bash tests/s8_anchor_native.sh
       - name: R15 aborted containment (native Linux; isolated; guards unchanged)
@@ -667,7 +669,7 @@ jobs:
         shell: bash
         run: |
           temporary_units="$(mktemp -d)"
-          cp systemd/tu1nz-adult-public-s10-* "$temporary_units/"
+          cp -R systemd/tu1nz-adult-public-s10-* "$temporary_units/"
           cp systemd/tu1nz-adult-public-s7.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-telegram.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"

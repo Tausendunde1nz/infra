@@ -26,6 +26,11 @@ from tu1nz_control_recovery_release import build_capsule,save_new
 
 ENVIRONMENT='control-private-ci'
 REPOSITORY='Tausendunde1nz/infra'
+# Finite separately reviewed source PRs, never a generic same-repo exception.
+# Environment required-reviewer approval still binds every actual exact SHA
+# BEFORE any job/secret. PR226 extends public-service isolation source only;
+# it does not change capsule, token repository scope or Host admission.
+APPROVED_SOURCE_PRS=frozenset((225,226))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'
@@ -45,7 +50,8 @@ def runtime_binding(env,root):
     value=json.loads(Path(env['GITHUB_EVENT_PATH']).read_bytes())
     if event=='pull_request':
         c.require(value['pull_request']['head']['repo']['full_name']==REPOSITORY and
-                  value['number']==225,'CI_UNTRUSTED_PR_RED')
+                  type(value['number']) is int and value['number'] in APPROVED_SOURCE_PRS,
+                  'CI_UNTRUSTED_PR_RED')
         expected=value['pull_request']['head']['sha']
     else:
         c.require(value['ref']=='refs/heads/control-main','CI_PUSH_REF_RED')
