@@ -4,6 +4,7 @@ from contextlib import ExitStack
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import sys
 import unittest
 from unittest.mock import Mock,patch
@@ -13,6 +14,15 @@ spec=importlib.util.spec_from_file_location('public_isolation',ROOT/'scripts/tu1
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class Contract(unittest.TestCase):
+ def test_static_wms_collector_includes_new_dropin_directory(self):
+  workflow=(ROOT/'.github/workflows/control-validation.yml').read_text()
+  self.assertIn('cp -R systemd/tu1nz-adult-public-s10-* "$temporary_units/"',workflow)
+  with tempfile.TemporaryDirectory(prefix='public-static-units-') as target:
+   paths=sorted((ROOT/'systemd').glob('tu1nz-adult-public-s10-*'))
+   subprocess.run(['/bin/cp','-R',*[str(p) for p in paths],target],check=True,capture_output=True)
+   copied=Path(target)/'tu1nz-adult-public-s10-wms.service.d/zz-public-isolation-r1.conf'
+   self.assertEqual(copied.read_bytes(),(ROOT/'systemd'/copied.parent.name/copied.name).read_bytes())
+
  def test_exact_profiles_no_arbitrary_program_pid_user_or_mapping(self):
   self.assertEqual(set(m.PROFILES),{'s7','s8-landing','wms'})
   for profile,(unit,command) in m.PROFILES.items():

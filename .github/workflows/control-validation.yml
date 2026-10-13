@@ -669,7 +669,7 @@ jobs:
         shell: bash
         run: |
           temporary_units="$(mktemp -d)"
-          cp systemd/tu1nz-adult-public-s10-* "$temporary_units/"
+          cp -R systemd/tu1nz-adult-public-s10-* "$temporary_units/"
           cp systemd/tu1nz-adult-public-s7.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-telegram.service "$temporary_units/"
           cp systemd/tu1nz-adult-public-s8-landing.service "$temporary_units/"
