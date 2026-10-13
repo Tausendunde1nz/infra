@@ -32,7 +32,8 @@ systemd manager, exact unit configuration and immutable administrator-owned
 installation paths. It initially needs namespace/mount/credential-drop
 privileges. Applications never inherit them. It is NOT a blanket root
 exception or protection from a compromised host TCB. The helper becomes
-non-dumpable before reading credentials. It signals only its unreaped child;
+non-dumpable before reading credentials. It signals only its owned creator
+through a retained pidfd (no numeric-PID fallback, including reap/interruption);
 primary, abort and cleanup error codes are separate and data-free.
 
 S7's two manager credentials are read from the exact read-only private

@@ -12,7 +12,7 @@ APP=Path('/opt/tu1nz_repos/adult-publishing-core')
 STATE=Path('/var/lib/tu1nz-adult-public-s9')
 UNITS=('tu1nz-adult-public-s7.service','tu1nz-adult-public-s8-landing.service','tu1nz-adult-public-s10-wms.service')
 PROBE=r'''
-import ctypes,hashlib,json,os,socket,sys,stat
+import ctypes,hashlib,json,os,socket,sys,stat,time
 from pathlib import Path
 profile='s7' if 'tu1nz-public-s7' in sys.argv[0] else ('s8-landing' if 'tu1nz-public-s8' in sys.argv[0] else 'wms')
 uid=lambda p:Path(p).read_text().strip()
@@ -51,6 +51,12 @@ if profile!='s7':
  out['state']={'preserved':json.loads(path.read_text())==old,'owner':path.stat().st_uid,'mode':oct(path.stat().st_mode&0o777)}
  if profile=='wms':
   path=Path(sys.argv[sys.argv.index('--traffic-quality-state')+1]);out['traffic_state']={'owner':path.stat().st_uid,'readable':bool(path.read_bytes())}
+# Deterministic exit-bound publication; journal delivery is asynchronous.
+record=Path('/run/public-isolation-results')/(profile+'.json')
+out['invocation']=1+json.loads(record.read_text())['invocation'] if record.exists() else 1
+out['observed_monotonic_ns']=time.monotonic_ns()
+temporary=record.with_name(record.name+'.'+str(os.getpid()))
+temporary.write_text(json.dumps(out,sort_keys=True));temporary.chmod(0o600);os.replace(temporary,record)
 print('PUBLIC_ISOLATION_NATIVE_REPORT '+json.dumps(out,sort_keys=True),flush=True)
 '''
 def cmd(*args):
@@ -89,6 +95,7 @@ def main():
  for name in ('tu1nz-public-s7','tu1nz-public-s8-landing'):put(APP/'.venv/bin'/name,program,0o755)
  os.symlink('/usr/bin/python3',APP/'.venv/bin/python');put(APP/'src/tu1nz_exposure_s10/runtime.py',PROBE)
  STATE.mkdir();os.chown(STATE,1001,1001);STATE.chmod(0o700)
+ results=Path('/run/public-isolation-results');results.mkdir();results.chmod(0o700);os.chown(results,1001,1001)
  for name in ('landing-aggregates.json','wms-traffic-quality.json'):
   put(STATE/name,json.dumps({'synthetic_count':7}),0o600);os.chown(STATE/name,1001,1001)
  helper=Path('/usr/local/bin/tu1nz_public_web_isolate_r1.py');shutil.copyfile(ROOT/'scripts'/helper.name,helper);helper.chmod(0o555)
@@ -107,7 +114,7 @@ def main():
   for p in src.glob('*.conf'):
    if p.name=='s9-growth.conf' or p.name=='zz-public-isolation-r1.conf':shutil.copyfile(p,dest/p.name)
   # Synthetic program exits after recording; no fixture retry or public ports.
-  put(dest/'zzz-native-fixture.conf','[Service]\nType=oneshot\nRestart=no\nRemainAfterExit=yes\n')
+  put(dest/'zzz-native-fixture.conf','[Service]\nType=oneshot\nRestart=no\nRemainAfterExit=yes\nReadWritePaths=/run/public-isolation-results\n')
  admin=server(Path('/run/public-isolation-admin.sock'),987,0o660)
  pg=server(Path('/run/public-isolation-pg.sock'),0,0o666,peer=True)
  operator=subprocess.Popen(['/usr/bin/setpriv','--reuid=1001','--regid=1001','--init-groups','/bin/sleep','180'])
@@ -119,9 +126,10 @@ def main():
    log=cmd('/usr/bin/journalctl','-u',unit,'--no-pager','-o','cat')
    if started.returncode:
     raise RuntimeError(json.dumps({'unit':unit,'exit':started.returncode,'journal':log[-4000:]}))
-   lines=[line.partition('PUBLIC_ISOLATION_NATIVE_REPORT ')[2] for line in log.splitlines() if line.startswith('PUBLIC_ISOLATION_NATIVE_REPORT ')]
-   assert len(lines)==1,log
-   v=json.loads(lines[0]);assert v['uid']==[1001]*3 and v['gid']==[1001]*3 and not v['groups']
+   profile={'tu1nz-adult-public-s7.service':'s7','tu1nz-adult-public-s8-landing.service':'s8-landing',
+            'tu1nz-adult-public-s10-wms.service':'wms'}[unit]
+   v=json.loads((results/(profile+'.json')).read_text());assert v['invocation']==1
+   assert v['uid']==[1001]*3 and v['gid']==[1001]*3 and not v['groups']
    assert all(int(x,16)==0 for x in v['caps'].values()) and v['no_new_privileges']=='1'
    assert not v['ordinary_admin']['connected'] and v['ordinary_admin']['errno'] in (1,13)
    assert v['pg_peer']=={'connected':True,'response':'1001:1001'}
@@ -132,13 +140,11 @@ def main():
   # Ordinary service restart is allowed, not an S8 Telegram one-shot. Every
   # invocation must independently remove NSS groups/caps again.
   for unit in reversed(UNITS):cmd('/usr/bin/systemctl','stop',unit)
-  for unit in UNITS:
+  for unit,prior in zip(UNITS,reports):
    cmd('/usr/bin/systemctl','start',unit)
-   lines=[line.partition('PUBLIC_ISOLATION_NATIVE_REPORT ')[2] for line in
-          cmd('/usr/bin/journalctl','-u',unit,'--no-pager','-o','cat').splitlines()
-          if line.startswith('PUBLIC_ISOLATION_NATIVE_REPORT ')]
-   assert len(lines)==2
-   v=json.loads(lines[-1]);assert not v['groups'] and all(int(x,16)==0 for x in v['caps'].values())
+   v=json.loads((results/(prior['profile']+'.json')).read_text())
+   assert v['invocation']==2 and v['observed_monotonic_ns']>prior['observed_monotonic_ns']
+   assert not v['groups'] and all(int(x,16)==0 for x in v['caps'].values())
   negatives=[]
   for label,argv in (
     ('nonroot',['/usr/bin/setpriv','--reuid=1001','--regid=1001','--init-groups']),
@@ -156,8 +162,15 @@ def main():
   cmd('/usr/bin/systemctl','daemon-reload')
   result=subprocess.run(['/usr/bin/systemctl','start',deny.name],capture_output=True,text=True,timeout=15)
   assert result.returncode!=0
-  log=cmd('/usr/bin/journalctl','-u',deny.name,'--no-pager','-o','cat')
+  cmd('/usr/bin/journalctl','--sync')
+  deadline=time.monotonic()+5
+  while True:
+   log=cmd('/usr/bin/journalctl','-u',deny.name,'--no-pager','-o','cat')
+   if 'PUBLIC_WEB_ISOLATION_NAMESPACE_CREATION_RED' in log:break
+   assert time.monotonic()<deadline;time.sleep(0.01)
   assert 'PUBLIC_WEB_ISOLATION_NAMESPACE_CREATION_RED' in log and 'PUBLIC_ISOLATION_NATIVE_REPORT' not in log
+  assert cmd('/usr/bin/systemctl','show',deny.name,'-p','ExecMainStatus','--value').strip()=='125'
+  assert json.loads((results/'wms.json').read_text())['invocation']==2
   negatives.append('kernel_namespace_denial')
   # Real fork/map cleanup; only scheduling is delayed in this synthetic harness.
   harness=Path('/run/public-isolation-interruption.py')
@@ -197,6 +210,18 @@ except m.Denied as error:
    if child.poll() is None:child.kill();child.wait(timeout=5)
    child.stdout.close();child.stderr.close()
   negatives.append('actual_sigterm_owned_creator_cleanup')
+  ready_r,ready_w=os.pipe2(os.O_CLOEXEC)
+  dead=os.fork()
+  if dead==0:
+   os.close(ready_w);os.read(ready_r,1);os._exit(0)
+  os.close(ready_r);handle=os.pidfd_open(dead,0)
+  try:
+   os.write(ready_w,b'X');os.close(ready_w);os.waitpid(dead,0)
+   try:signal.pidfd_send_signal(handle,signal.SIGKILL,None,0)
+   except ProcessLookupError:pass
+   else:raise AssertionError('dead creator handle unexpectedly signalled')
+  finally:os.close(handle)
+  negatives.append('real_dead_creator_handle_no_signal_target')
   print(json.dumps({'native_public_isolation':'GREEN','profiles':len(reports),'restart_profiles':3,'negative_cases':negatives,'reports':reports,
                     'production_host_or_credentials':False,'provider_operations':0},sort_keys=True))
  finally:

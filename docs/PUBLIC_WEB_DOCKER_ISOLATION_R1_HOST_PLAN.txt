@@ -43,6 +43,8 @@ Docker/containerd/rootless socket aliases, TCP daemon listeners, account/ACL
 based administrative brokers and sudo/polkit rules. No production daemon
 write operation or privilege-escalation trial. Unknown effective authority
 stops admission. NSS identity must be exactly1001; shared account unchanged.
+Require native pidfd_open/pidfd_send_signal and default SIGCHLD reaping;
+missing support denies, never signal a reusable numeric PID.
 Fresh pre-state: exact three services, public HTTP, ports, state/DB health;
 separate failed S8Telegram/S9/S10health/S11 states remain separate.
 

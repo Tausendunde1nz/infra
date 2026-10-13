@@ -121,7 +121,9 @@ def establish_namespace():
  require(mappings('/proc/self/uid_map')==[(0,0,4294967295)] and
          mappings('/proc/self/gid_map')==[(0,0,4294967295)],'INITIAL_MANAGER_NAMESPACE_REQUIRED')
  os.setgroups([])
- ready_r=ready_w=done_r=done_w=ns=None;pid=None;reaped=False;primary=None;abort=[];cleanup=[]
+ require(hasattr(os,'pidfd_open') and hasattr(signal,'pidfd_send_signal') and
+         signal.getsignal(signal.SIGCHLD)==signal.SIG_DFL,'CREATOR_HANDLE_SUPPORT_REQUIRED')
+ ready_r=ready_w=done_r=done_w=ns=creator_fd=None;pid=None;reaped=False;primary=None;abort=[];cleanup=[]
  try:
   ready_r,ready_w=os.pipe2(os.O_CLOEXEC);done_r,done_w=os.pipe2(os.O_CLOEXEC)
   pid=os.fork()
@@ -139,6 +141,9 @@ def establish_namespace():
    os._exit(0)
   except BaseException:os._exit(125)
  try:
+  # Retained kernel object, including interruption after waitpid/reap but
+  # before Python assigned the reaped flag. Never signal a numeric PID.
+  creator_fd=os.pidfd_open(pid,0)
   os.close(ready_w);ready_w=None;os.close(done_r);done_r=None
   require(select.select([ready_r],[],[],5)[0] and os.read(ready_r,1)==b'R','NAMESPACE_CREATION_RED')
   root=Path('/proc')/str(pid)
@@ -153,17 +158,25 @@ def establish_namespace():
  except BaseException as error:primary=error
  finally:
   # Do not allow a second interruption to abandon an owned creator. Never
-  # signal an unrelated PID: our child is not reaped/reusable until waitpid.
+  # signal an unrelated PID: only the retained kernel process handle is used.
   saved={sig:signal.getsignal(sig) for sig in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP)}
   for sig in saved:signal.signal(sig,signal.SIG_IGN)
   if not reaped:
-   try:
-    try:os.kill(pid,signal.SIGKILL)
-    except ProcessLookupError:pass
-   except BaseException:abort.append('PUBLIC_WEB_ISOLATION_OWNED_CREATOR_ABORT_RED')
+   if creator_fd is not None:
+    try:
+     try:signal.pidfd_send_signal(creator_fd,signal.SIGKILL,None,0)
+     except ProcessLookupError:pass
+    except BaseException:abort.append('PUBLIC_WEB_ISOLATION_OWNED_CREATOR_ABORT_RED')
+   else:
+    # No handle: close acknowledgement; child exits on EOF or fixed5s
+    # deadline. Missing binding cannot permit a numeric-PID signal fallback.
+    abort.append('PUBLIC_WEB_ISOLATION_CREATOR_HANDLE_UNAVAILABLE_NO_SIGNAL')
+    if done_w is not None:
+     try:os.close(done_w);done_w=None
+     except BaseException:cleanup.append('PUBLIC_WEB_ISOLATION_OWNED_DESCRIPTOR_CLOSE_RED')
    try:os.waitpid(pid,0);reaped=True
    except BaseException:cleanup.append('PUBLIC_WEB_ISOLATION_OWNED_CREATOR_REAP_RED')
-  for fd in (ready_r,ready_w,done_r,done_w,ns):
+  for fd in (ready_r,ready_w,done_r,done_w,ns,creator_fd):
    if fd is not None:
     try:os.close(fd)
     except BaseException:cleanup.append('PUBLIC_WEB_ISOLATION_OWNED_DESCRIPTOR_CLOSE_RED')

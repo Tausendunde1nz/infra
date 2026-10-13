@@ -60,15 +60,35 @@ class Contract(unittest.TestCase):
        patch.object(m.grp,'getgrnam',return_value=Mock(gr_gid=1001)),\
        patch.object(m,'mappings',return_value=[(0,0,4294967295)]),patch.object(m.os,'setgroups'),\
        patch.object(m.os,'pipe2',side_effect=[(10,11),(12,13)],create=True),patch.object(m.os,'fork',return_value=123),\
+       patch.object(m.os,'pidfd_open',return_value=14,create=True),\
        patch.object(m.select,'select',return_value=([],[],[])),patch.object(m.os,'close'),\
-       patch.object(m.os,'kill',side_effect=OSError('PRIVATE_CANARY')) as kill,\
+       patch.object(m.signal,'pidfd_send_signal',side_effect=OSError('PRIVATE_CANARY'),create=True) as kill,\
        patch.object(m.os,'waitpid',side_effect=OSError('PRIVATE_CANARY')):
    with self.assertRaises(m.Denied) as result:m.establish_namespace()
    error=result.exception
    self.assertEqual(error.primary,'PUBLIC_WEB_ISOLATION_NAMESPACE_CREATION_RED')
    self.assertEqual(error.abort,['PUBLIC_WEB_ISOLATION_OWNED_CREATOR_ABORT_RED'])
    self.assertEqual(error.cleanup,['PUBLIC_WEB_ISOLATION_OWNED_CREATOR_REAP_RED'])
-   self.assertNotIn('CANARY',str(error));kill.assert_called_once_with(123,m.signal.SIGKILL)
+   self.assertNotIn('CANARY',str(error));kill.assert_called_once_with(14,m.signal.SIGKILL,None,0)
+
+ def test_reap_interruption_never_signals_reusable_numeric_pid(self):
+  with patch.object(m.sys,'platform','linux'),patch.object(m.os,'geteuid',return_value=0),\
+       patch.dict(os.environ,{},clear=True),patch.object(m.pwd,'getpwnam',return_value=Mock(pw_uid=1001)),\
+       patch.object(m.grp,'getgrnam',return_value=Mock(gr_gid=1001)),\
+       patch.object(m,'mappings',return_value=[(0,0,4294967295)]),patch.object(m.os,'setgroups'),\
+       patch.object(m.os,'pipe2',side_effect=[(10,11),(12,13)],create=True),patch.object(m.os,'fork',return_value=123),\
+       patch.object(m.os,'pidfd_open',return_value=14,create=True),patch.object(m.os,'open',return_value=15),\
+       patch.object(m.select,'select',return_value=([10],[],[])),patch.object(m.os,'read',return_value=b'R'),\
+       patch.object(m.Path,'write_text'),patch.object(m.os,'write'),patch.object(m.os,'close'),\
+       patch.object(m.ctypes,'CDLL',return_value=Mock(setns=Mock(return_value=0))),\
+       patch.object(m.os,'waitpid',side_effect=[m.Denied('BOOTSTRAP_INTERRUPTED'),ChildProcessError]),\
+       patch.object(m.signal,'pidfd_send_signal',side_effect=ProcessLookupError,create=True) as handle_signal,\
+       patch.object(m.os,'kill') as numeric_signal:
+   with self.assertRaises(m.Denied) as result:m.establish_namespace()
+   self.assertEqual(result.exception.primary,'PUBLIC_WEB_ISOLATION_BOOTSTRAP_INTERRUPTED')
+   self.assertEqual(result.exception.abort,[])
+   self.assertEqual(result.exception.cleanup,['PUBLIC_WEB_ISOLATION_OWNED_CREATOR_REAP_RED'])
+   handle_signal.assert_called_once_with(14,m.signal.SIGKILL,None,0);numeric_signal.assert_not_called()
 
  def test_interruption_is_not_success_or_a_retry(self):
   with self.assertRaisesRegex(m.Denied,'BOOTSTRAP_INTERRUPTED'):m.interrupted(m.signal.SIGTERM,None)
