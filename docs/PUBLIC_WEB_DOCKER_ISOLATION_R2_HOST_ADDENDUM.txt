@@ -1,0 +1,117 @@
+PUBLIC RIGHTS R2 SOURCE/PLAN ADDENDUM — NOT EXECUTED / NO HOST AUTHORITY
+
+EXACT SOURCE BINDINGS
+Final Infra reviewed commit/tree and successful pre/post-CI bind this plan.
+Runtime helper and three drop-ins are BYTE-UNCHANGED from reviewed PR226:
+helper2884c2531e73480513d533844cab9ac1a906e13fd4fdb104ab1d49759f3e9b01,
+S7df605ffec37e59d1c3c535a93879e7e155447967c6cd97a2f83ca866f841c16b,
+S8Landing1e84f8904b4ce292e8b002ad373b27ea5d6592ddaaca4c07c68e990452133213,
+WMSce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3.
+Current private Control PR78 merge6321a7a5d9555930452fa4dd2fe8bc27ca37601f,
+tree018de1eb382beec58a6a2ae1ad8fe93b0c6344d8; requiredCI38613796550 and
+postCI38614720814 GREEN. Independent same-SHA Code/Security review6175209589
+completed0c0bf241b64a6dd918788e18738f94117b8e1aa0, no open findings.
+Its managed/lighting/HOST_ADDENDUM.txt
+SHA4371945a05a0c6b0640c5c8a04efe570fedc2436ddee34ad68527a202ea9fd83
+is the complete OWNERSHIP/PROBE/RETURN specification; read the exact private
+bound Source, not a substituted public policy/export or historical template.
+Lighting candidate de4dbb967ff109a100cd726344ace37f682be392/eleven outputs
+unchanged. Original R2 release7641/Control-target2281/packet/freeze98fc0c and
+logical slotcontrol-only-recovery-20261012-1 unchanged. No new real signature.
+
+OLD PLAN -> EXACT NEW HOST DELTA (PROPOSED ONLY)
+Private rights backup moves from the historical log prefix to:
+/opt/tu1nz_repos/public-web-isolation-r1/20261014-1
+Children before, restore-test, quarantine, probe, reports and result are only
+OWN create-only private objects; directory0700/file0600/root:root. If any target
+is occupied/partial/foreign, do not adopt, reset, delete or rename transaction.
+Lighting private root separately moves to:
+/opt/tu1nz_repos/lighting-halloween-r1/20261014-1
+Its own writer-preparation-r2 journal is separate from later deployment child;
+no use of either as an R2 slot or a website publishing authorization.
+
+PROTECTED PARENTS, NOT A DIFFERENT NAME
+Check /, /opt, /opt/tu1nz_repos and every current/new ancestor by held no-follow
+identity and actual effective uid/gid/mode/access ACL/mask/flags/mount/LSM.
+Exclude nonadministrative replacement and unknown privileged/broker/file
+writers. Do not apply a blanket trusted-root/process/group exception.
+The only planned inherited-default-ACL profile is exactly root:GID1001 2550,
+accessACLbbbc8b936a7cad0d7fa64bf952045752629a4d6079d951b277685d1fe9062a3a,
+defaultACL ee5723ea29015f2982fcbef933358c14995db738d69bf15e3ad6d3718b8e4617.
+Named/group write maskedr-x is not actual write; effective access write denies.
+Default inheritance is safe ONLY for OWN newly created0700 children (mask0),
+then own inherited ACLs removed, exact root:root0700 reread BEFORE use. Retain
+existing shared-parent metadata; any other or changed profile denies. No
+chmod/chown/setfacl /var/log, /opt, existing shared paths or historical repos.
+Existing webroot read/execution protection remains stricter and separate.
+
+BACKUP / RESTORE / RISK / CONDITIONAL RETURN
+Before the existing rollout's first mutation, exact ALL three base units and
+ALL drop-ins plus absence of four targets, config/tool/dependency/credential
+bindings and metadata, fresh PID/cgroup/data/DB/internal/proxy/public baseline.
+Consistent protected capture, independent private byte/metadata readback and
+isolated restore rehearsal on own objects; preserve old inodes/evidence.
+No productive DB/counter/queue restore, no historical normalization. Same-device
+requirement, actual flags/ACL/space, source and private ancestor binding must
+be fresh, not inferred from former observations. Existing return remains
+configuration-only: own four files quarantined, exact former configuration,
+reload and serial S7->S8Landing->WMS start/acceptance. Restored Docker authority
+makes R2 admission RED, not security-GREEN. Primary/abort/cleanup stay separate.
+If a current competing actor prevents consistent protected backup/admission,
+stop; do NOT silently move the approved stop before backup or relax the gate.
+
+BOUNDED FUNCTION PROBE — LATER ADDITIONAL APPROVAL, NOT A CURRENT TEST
+Exact persistent root:
+/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe
+Own root/source/inputs/reports/quarantine, sealed manifest, max512MiB private
+RootDirectory with pinned installed Python/libs; no install/download. Only
+synthetic app paths/contracts/data/NSS entries inside that private root, no
+production application/credentials/socket/DB/source mounts. Unchanged helper
+and runtime artifact Source mounted read-only. Probe artifacts never installed
+at the four productive targets. Three SERIAL transient units, exactly:
+tu1nz-public-isolation-r2-probe-s7.service
+tu1nz-public-isolation-r2-probe-s8-landing.service
+tu1nz-public-isolation-r2-probe-wms.service
+Only manager runtime records /run/systemd/transient/<exact-unit>, own cgroup
+and own credential directories in addition to the private root; no persistent
+unit, daemon-reload or productive dependency. Host NSS/groups untouched.
+Numeric1001 User/Group, privileged ! bootstrap under accepted inherited sandbox,
+own RootDirectory/MountAPIVFS, PrivateNetwork=yes, Typeoneshot/Restartno, no
+provider and no external interfaces/routes. S7 manager credentials contain ONLY
+synthetic strings; canonical credential alias is confined INSIDE the private
+root/mount namespace. Exact wrapper/mapping and installed-version syntax must
+pass, no production credentials and no undocumented fallback.
+Per-unit20s start/runtime,5s stop; outer120s; CPU20%, memory256MiB, tasks16,
+NOFILE128, FSIZE16MiB. Source hash/pidfd-owned creator/reap/map/setgroups/caps/
+NNP/credential view and synthetic state/Unix peer checks. One pass/profile,
+no retries, no S8 ancestor/replay investigation. Failed/unsupported/changed
+state aborts and retains evidence; terminate ONLY own retained exact unit/
+cgroup/handles, never a reused numeric PID. Reread results/journal, preserve
+all owned persistent probe objects; release only own runtime resources.
+Synthetic GREEN is NOT productive data/DB/HTTP acceptance or another gate.
+
+TARGETED READONLY ALTERNATIVE AUTHORITY — NO PRIVILEGE TRIAL
+Current exact actors/identity/groups/caps/ns/NNP/LSM, config/executable and
+activation/inherited-FD bindings; daemon TCP on ANY configured port, Unix/
+containerd/rootless aliases -> retained process/starttime -> effective socket/
+path/mount/ACL. Protected sudoers/includes, polkit rules/actions and D-Bus
+peer/policy/credential-agent reachability; do not print secrets/private content.
+No writable daemon/DBus API, authentication/escalation trial or provider test.
+Static plausibility does NOT prove effective exclusion; unreadable or dynamic
+unknown authority remains UNKNOWN/denies. Root administrative/kernel TCB is
+explicitly admitted, never an exemption for arbitrary Root-file/app writers.
+
+UNCHANGED OPERATIONS / SINGLE LATER DECISION
+The approved four-artifact installation and WMS->S8Landing->S7 stop followed by
+S7->S8Landing->WMS start/function acceptance retain their original order/gates.
+No further generic approval for those or the original conditional R2 request.
+ONE later addendum decision must identify final Infra/Control source hashes,
+the two changed private roots, bounded probe/readonly checks and actual private
+Lighting object-plan hash BEFORE its owner-only changes; full capture missing
+today remains OPEN. Control's bound HOST_ADDENDUM contains the finite per-object
+scope, leases/backup/intents/no retry/conditional return/nginx-read acceptance.
+No UID33 execution exception, shared-parent normalization, arbitrary recursive
+chown/chmod, nginx restart/edit or publication. R2 original release/slot is not
+rebound to changed artifacts and not consumed by probes or owner preparation.
+No Host action/signature in Source session. Historical tags/evidence/Git guards
+preserved. RC5productive/S8Telegram/R15/Runtime remain NO-GO.

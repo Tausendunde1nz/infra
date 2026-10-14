@@ -50,7 +50,7 @@ separate failed S8Telegram/S9/S10health/S11 states remain separate.
 
 BACKUP / ACTUAL RETURN
 Create-only private transaction backup under
-/var/log/tausendunde1nz/public-web-isolation-r1/<approved-transaction>/
+/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/
 with root:root0700 parents, no secrets in public output. Require conflict-free
 target/space. Capture exact three base units plus ALL their current drop-ins,
 existence/identity/hash/uid/gid/mode/ACL/xattrs/flags and parent/mount profiles,
@@ -112,3 +112,15 @@ provided all listed current gates are GREEN. No global user/Docker change,
 application release deployment, S8Telegram/R15/RC5/Runtime activation or R2
 slot use is included in this new rights approval. Existing conditional R2
 permission is not requested again and cannot be used until its gates pass.
+
+SOURCE/PLAN R2 ADDENDUM — CHANGED HOST STEPS NOT APPROVED YET
+The old log staging location is historical, never a fallback. The replacement
+path and separately bounded synthetic Host probe/targeted authority reads are
+specified in PUBLIC_WEB_DOCKER_ISOLATION_R2_HOST_ADDENDUM.txt. Current support/
+namespace/alternative-authority gates remain OPEN; no Source/container result
+is Host admission. Same four runtime artifact bytes, same conditional rights/
+R2 permission, same original R2 packet/freeze/unspent slot; no new signature.
+No existing shared-parent group/mode/ACL normalization, arbitrary Root trust,
+silent change to backup/stop/start ordering or current Host execution.
+The single later addendum approval covers ONLY the changed private staging,
+probe/readonly checks and separately object-bound Lighting owner preparation.
