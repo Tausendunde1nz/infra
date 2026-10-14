@@ -14,6 +14,19 @@ spec=importlib.util.spec_from_file_location('public_isolation',ROOT/'scripts/tu1
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class Contract(unittest.TestCase):
+ def test_r2_plan_exact_private_staging_and_open_host_gates(self):
+  plan=(ROOT/'docs/PUBLIC_WEB_DOCKER_ISOLATION_R1_HOST_PLAN.txt').read_text()
+  addendum=(ROOT/'docs/PUBLIC_WEB_DOCKER_ISOLATION_R2_HOST_ADDENDUM.txt').read_text()
+  self.assertIn('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/',plan)
+  self.assertNotIn('/var/log/tausendunde1nz/public-web-isolation-r1/<approved-transaction>',plan)
+  for value in ('/opt/tu1nz_repos/lighting-halloween-r1/20261014-1',
+                'tu1nz-public-isolation-r2-probe-s7.service',
+                'tu1nz-public-isolation-r2-probe-s8-landing.service',
+                'tu1nz-public-isolation-r2-probe-wms.service',
+                'Current support/', 'remain OPEN'):
+   self.assertIn(value,plan+'\n'+addendum)
+  self.assertIn('no S8 ancestor/replay investigation',addendum)
+  self.assertIn('No Host action/signature in Source session',addendum)
  def test_static_wms_collector_includes_new_dropin_directory(self):
   workflow=(ROOT/'.github/workflows/control-validation.yml').read_text()
   self.assertIn('cp -R systemd/tu1nz-adult-public-s10-* "$temporary_units/"',workflow)
