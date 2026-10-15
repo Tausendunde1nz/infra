@@ -22,6 +22,7 @@ TX='public-rights-20261014-1'
 MACHINE='a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae'
 OWNER_PLAN='e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36'
 BOOT='/etc/tu1nz/public-web-bootstrap-r3/20261014-1'
+CUSTODY_PARENT=Path('/Users/daniel/Developer/tu1nz/service-isolation-lighting-night-20261013/host-operator-intents')
 BARRIER='zzzz-tu1nz-bootstrap-r3.conf'
 BARRIER_BYTES=('[Unit]\n# R3 start barrier, not a permit/slot. Never create this condition path.\n'
                'ConditionPathExists='+BOOT+'/NEVER-CREATE-START-PERMIT\n').encode()
@@ -83,8 +84,6 @@ REQUIRED={
                  'owned_probe_cleanup_receipted','no_real_inputs_provider_or_network'},
  'install':QUIET|{'four_exact_unchanged_runtime_artifacts','backup_restore_and_probes_bound',
                   'effective_config_verified_barriers_still_false'},
- 'release':frozenset(('all_three_own_barriers_quarantined_exactly','no_foreign_change',
-                     'effective_installed_isolation_verified','persistent_journal_protected')),
  'rights':frozenset(('three_actual_functional_invocations','uid_gid_1001_groups_empty',
                     'five_capsets_zero_NNP1_minimal_maps','no_effective_alternate_admin_access',
                     'actual_credentials_data_DB_and_HTTP','old_separate_RED_states_not_lifted')),
@@ -113,12 +112,16 @@ REQUIRED={
  'return_config':frozenset(('exact_original_config_source_inputs_verified_no_foreign_change',
                      'no_forward_artifacts_left','all_three_stopped_and_bound',
                      'own_barriers_and_journal_bound')),
- 'return_release':frozenset(('all_three_own_return_barriers_quarantined_exactly',
-                     'reload_verified_original_effective_config_no_false_barrier',
-                     'no_foreign_change','persistent_journal_protected')),
  'old_function':frozenset(('original_function_and_config_verified','restored_old_authority_security_RED')),
 }
 for _unit in UNITS:
+    REQUIRED['release:'+_unit]=frozenset(('only_this_own_barrier_quarantined_exactly',
+        'downstream_barriers_still_effective','prior_unit_function_durably_accepted',
+        'effective_installed_isolation_verified','no_foreign_change','persistent_journal_protected'))
+    REQUIRED['return_release:'+_unit]=frozenset(('only_this_own_return_barrier_quarantined_exactly',
+        'downstream_barriers_still_effective','prior_old_unit_function_durably_accepted',
+        'reload_verified_original_effective_config_no_false_barrier_for_this_unit',
+        'no_foreign_change','persistent_journal_protected'))
     REQUIRED['started:'+_unit]=frozenset(('fresh_expected_invocation_cgroup_function',
         'actual_unit_rights_and_required_data_DB_HTTP_or_credentials'))
     REQUIRED['old_started:'+_unit]=frozenset(('fresh_original_unit_invocation_and_function',))
@@ -133,6 +136,8 @@ class Journal:
     """
     def __init__(self,parent,binding):
         self.parent=Path(parent);self.binding=binding;self.seq=0
+        require(self.parent==CUSTODY_PARENT and self.parent.resolve(strict=True)==CUSTODY_PARENT,
+                'FIXED_CUSTODY_PARENT_RED')
         require(re.fullmatch('[a-f0-9]{64}',binding) is not None,'BINDING_RED')
         self.pfd=None;self.fd=None
         try:
@@ -161,7 +166,7 @@ class Journal:
         os.fsync(self.fd);self.check()
     def write(self,kind,value):
         self.check();self.seq+=1
-        require(self.seq<=64 and re.fullmatch('[a-z_]+',kind) is not None,'JOURNAL_BOUND')
+        require(self.seq<=128 and re.fullmatch('[a-z_]+',kind) is not None,'JOURNAL_BOUND')
         raw=canonical({'sequence':self.seq,'kind':kind,'binding':self.binding,'value':value})
         require(len(raw)<=65536,'JOURNAL_RECORD_BOUND')
         fd=os.open(str(self.seq).zfill(3)+'-'+kind+'.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd)
@@ -183,11 +188,16 @@ class Flow:
         self.deadline=time.monotonic()+600
     def witness(self,phase):
         self.current_gate=phase
-        o=self.a.observe(phase)
+        require(time.monotonic()<self.deadline,'OBSERVATION_DEADLINE_HOLD')
+        o=self.a.observe(phase,deadline=self.deadline)
+        require(time.monotonic()<=self.deadline,'OBSERVATION_DEADLINE_HOLD')
         require(type(o) is Observation and o.transaction==TX and o.binding==self.j.binding
                 and o.phase==phase,'OBSERVATION_BINDING_RED')
         age=time.monotonic()-o.observed_monotonic
         require(0<=age<=2 and REQUIRED[phase]<=o.facts,'CURRENT_'+phase.upper()+'_GATE_RED')
+        self.j.write('observation',{'phase':phase,'facts_sha256':digest(canonical(sorted(o.facts))),
+                                   'observed_monotonic':o.observed_monotonic})
+        require(time.monotonic()<=self.deadline,'OBSERVATION_PERSISTENCE_DEADLINE_HOLD')
         return o
     def effect(self,name,unit=None):
         # Lost ACK/interrupt/failure never turns into a repeated request. Leave
@@ -222,14 +232,15 @@ class Flow:
                 self.witness('quiet');self.effect(action);self.witness(phase);self.stage=phase.upper()
             self.witness('quiet');self.install_started=True
             self.effect('install_four_artifacts');self.witness('install');self.stage='INSTALLED'
-            self.effect('quarantine_own_barriers');self.witness('release')
             for unit in UNITS:
+                self.effect('quarantine_own_barrier',unit);self.witness('release:'+unit)
                 self.effect('start',unit);self.witness('started:'+unit)
             self.witness('rights');self.stage='RIGHTS_ACCEPTED'
             self.witness('owner_ready');self.owner_started=True
             self.effect('supervised_owner_transaction');self.witness('owner_done')
             self.stage='RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED'
             self.j.write('complete',{'stage':self.stage,'r2_dispatch':False,'slot_consumed':False})
+            require(time.monotonic()<=self.deadline,'COMPLETION_PERSISTENCE_DEADLINE_HOLD')
             return self.stage
         except BaseException as e:
             self.hold=True;self.last_fault=type(e).__name__
@@ -246,21 +257,23 @@ class Flow:
         require(self.hold and not self.return_used and not self.owner_started,'RETURN_NOT_ADMITTED')
         # Requires a separate current confirmation and actual fresh proofs; NOT
         # called by forward(). Even failure before stop never assumes old state.
-        self.witness('return_request')
         phase='return_after_install' if self.install_started else 'return_before_install'
-        self.return_used=True;self.j.write('return_intent',{'phase':phase,'security_result':'RED'})
+        self.return_used=True
         try:
+            self.j.write('return_intent',{'phase':phase,'security_result':'RED'})
+            self.witness('return_request')
             self.effect('establish_return_barriers');self.witness('barriers')
             for unit in STOP:
                 r=self.effect('return_stop',unit)
                 require(r.get('cgroup_empty') is True and r.get('no_job') is True,'RETURN_INCOMPLETE_STOP_HOLD')
             self.witness(phase)
             self.effect('return_old_configuration',phase);self.witness('return_config')
-            self.effect('quarantine_own_return_barriers');self.witness('return_release')
             for unit in UNITS:
+                self.effect('quarantine_own_return_barrier',unit);self.witness('return_release:'+unit)
                 self.effect('start_old',unit);self.witness('old_started:'+unit)
             self.witness('old_function');self.stage='OLD_OPERATION_RESTORED_SECURITY_RED'
             self.j.write('returned',{'stage':self.stage,'r2_eligible':False,'forward_retry':False})
+            require(time.monotonic()<=self.deadline,'RETURN_PERSISTENCE_DEADLINE_HOLD')
             return self.stage
         except BaseException as e:
             primary=e.primary if type(e) is FlowFailure else failure_code(e)

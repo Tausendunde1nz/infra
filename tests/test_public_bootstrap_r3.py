@@ -11,10 +11,11 @@ ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('bootstrap_r3',ROOT/'scripts/tu1nz_public_bootstrap_r3.py')
 m=importlib.util.module_from_spec(spec);sys.modules[spec.name]=m;spec.loader.exec_module(m)
 BINDING='a'*64
+def temporary():return tempfile.TemporaryDirectory(dir=Path(tempfile.gettempdir()).resolve())
 
 class Adapter:
     def __init__(self):self.calls=[];self.deny=None;self.fail=None;self.unknown=None;self.incomplete=False
-    def observe(self,phase):
+    def observe(self,phase,*,deadline):
         facts=m.REQUIRED[phase]
         if phase==self.deny:facts=frozenset()
         return m.Observation(m.TX,BINDING,phase,frozenset(facts),time.monotonic())
@@ -27,7 +28,8 @@ class Adapter:
 
 class BootstrapSequence(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.tmp=temporary();self.addCleanup(self.tmp.cleanup)
+        self.custody=patch.object(m,'CUSTODY_PARENT',Path(self.tmp.name));self.custody.start();self.addCleanup(self.custody.stop)
         self.j=m.Journal(self.tmp.name,BINDING);self.addCleanup(self.j.close)
         self.a=Adapter();self.f=m.Flow(self.a,self.j)
     def test_full_sequence_no_R2_dispatch(self):
@@ -66,7 +68,7 @@ class BootstrapSequence(unittest.TestCase):
         self.assertNotIn('create_sealed_staging',str(self.a.calls))
     def test_post_stop_backup_restore_probe_failures_no_automatic_return(self):
         for action in ('protected_rights_backup','isolated_restore_rehearsal','bounded_synthetic_probes'):
-            with self.subTest(action=action),tempfile.TemporaryDirectory() as parent:
+            with self.subTest(action=action),temporary() as parent,patch.object(m,'CUSTODY_PARENT',Path(parent)):
                 j=m.Journal(parent,BINDING);a=Adapter();a.fail=action;f=m.Flow(a,j)
                 try:
                     with self.assertRaises(m.FlowFailure):f.forward()
@@ -80,8 +82,8 @@ class BootstrapSequence(unittest.TestCase):
         self.assertEqual(self.f.return_old(),'OLD_OPERATION_RESTORED_SECURITY_RED')
         self.assertEqual([u for a,u in self.a.calls if a=='start_old'],list(m.UNITS))
         names=[a for a,u in self.a.calls]
-        self.assertLess(names.index('return_old_configuration'),names.index('quarantine_own_return_barriers'))
-        self.assertLess(names.index('quarantine_own_return_barriers'),names.index('start_old'))
+        self.assertLess(names.index('return_old_configuration'),names.index('quarantine_own_return_barrier'))
+        self.assertLess(names.index('quarantine_own_return_barrier'),names.index('start_old'))
         with self.assertRaises(m.Denied):self.f.return_old()
         with self.assertRaises(m.Denied):self.f.r2_eligibility()
         with self.assertRaises(m.Denied):self.f.forward()
@@ -104,21 +106,21 @@ class BootstrapSequence(unittest.TestCase):
         with self.assertRaises(m.Denied):self.f.return_old()
         self.assertNotIn('start_old',str(self.a.calls))
     def test_return_configuration_postproof_and_barrier_release_are_distinct_gates(self):
-        for phase in ('return_config','return_release'):
-            with self.subTest(phase=phase),tempfile.TemporaryDirectory() as parent:
+        for phase in ('return_config','return_release:'+m.UNITS[0]):
+            with self.subTest(phase=phase),temporary() as parent,patch.object(m,'CUSTODY_PARENT',Path(parent)):
                 j=m.Journal(parent,BINDING);a=Adapter();a.fail='install_four_artifacts';f=m.Flow(a,j)
                 try:
                     with self.assertRaises(m.FlowFailure):f.forward()
                     a.fail=None;a.deny=phase
                     with self.assertRaises(m.FlowFailure):f.return_old()
                     self.assertNotIn('start_old',str(a.calls))
-                    if phase=='return_config':self.assertNotIn('quarantine_own_return_barriers',str(a.calls))
+                    if phase=='return_config':self.assertNotIn('quarantine_own_return_barrier',str(a.calls))
                     with self.assertRaises(m.Denied):f.return_old()
                 finally:j.close()
     def test_unknown_return_barrier_release_never_requests_start(self):
         self.a.fail='protected_rights_backup'
         with self.assertRaises(m.FlowFailure):self.f.forward()
-        self.a.fail=None;self.a.unknown='quarantine_own_return_barriers'
+        self.a.fail=None;self.a.unknown='quarantine_own_return_barrier'
         with self.assertRaises(m.FlowFailure):self.f.return_old()
         self.assertNotIn('start_old',str(self.a.calls))
     def test_failed_or_unknown_start_not_retried(self):
@@ -143,6 +145,64 @@ class BootstrapSequence(unittest.TestCase):
         with self.assertRaises(m.Denied):m.Flow(Adapter(),self.j)
     def test_reopen_or_new_binding_does_not_make_new_attempt(self):
         with self.assertRaises(m.Denied):m.Journal(self.tmp.name,'b'*64)
+    def test_alternate_empty_custody_parent_cannot_create_fresh_claim(self):
+        with temporary() as alternate,self.assertRaisesRegex(m.Denied,'FIXED_CUSTODY_PARENT_RED'):
+            m.Journal(alternate,BINDING)
+    def test_denied_return_admission_consumes_attempt_before_any_effect(self):
+        self.a.fail='protected_rights_backup'
+        with self.assertRaises(m.FlowFailure):self.f.forward()
+        self.a.fail=None;self.a.deny='return_request'
+        with self.assertRaises(m.FlowFailure):self.f.return_old()
+        before=list(self.a.calls);self.a.deny=None
+        with self.assertRaises(m.Denied):self.f.return_old()
+        self.assertEqual(before,self.a.calls)
+        records=[json.loads(p.read_bytes()) for p in (Path(self.tmp.name)/m.TX).glob('*.json')]
+        self.assertTrue(any(r['kind']=='return_intent' for r in records))
+    def test_late_owner_observation_never_reports_completion(self):
+        clock=[100.0];original=self.a.observe
+        def observe(phase,*,deadline):
+            if phase=='owner_done':clock[0]=deadline+1
+            return original(phase,deadline=deadline)
+        with patch.object(m.time,'monotonic',side_effect=lambda:clock[0]):
+            self.f.deadline=700
+            with patch.object(self.a,'observe',side_effect=observe),self.assertRaises(m.FlowFailure):self.f.forward()
+        self.assertTrue(self.f.hold)
+        self.assertNotEqual(self.f.stage,'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED')
+    def test_function_observation_is_durable_before_downstream_barrier_release(self):
+        self.f.forward()
+        records=[json.loads(p.read_bytes()) for p in sorted((Path(self.tmp.name)/m.TX).glob('*.json'))]
+        for prior,downstream in zip(m.UNITS,m.UNITS[1:]):
+            observed=next(r['sequence'] for r in records if r['kind']=='observation' and r['value']['phase']=='started:'+prior)
+            released=next(r['sequence'] for r in records if r['kind']=='intent' and r['value']=={'action':'quarantine_own_barrier','unit':downstream})
+            self.assertLess(observed,released)
+        self.assertLess(len(records),128)
+    def test_failed_function_observation_persistence_keeps_downstream_barrier(self):
+        original=self.j.write
+        def write(kind,value):
+            if kind=='observation' and value['phase']=='started:'+m.UNITS[0]:raise OSError('SYNTHETIC_STORAGE_RED')
+            return original(kind,value)
+        with patch.object(self.j,'write',side_effect=write),self.assertRaises(m.FlowFailure):self.f.forward()
+        self.assertEqual([u for a,u in self.a.calls if a=='quarantine_own_barrier'],[m.UNITS[0]])
+    def test_slow_observation_persistence_does_not_admit_effect(self):
+        clock=[100.0];original=self.j.write
+        def write(kind,value):
+            result=original(kind,value)
+            if kind=='observation':clock[0]=701
+            return result
+        with patch.object(m.time,'monotonic',side_effect=lambda:clock[0]):
+            self.f.deadline=700
+            with patch.object(self.j,'write',side_effect=write),self.assertRaises(m.FlowFailure):self.f.forward()
+        self.assertEqual(self.a.calls,[])
+    def test_slow_completion_never_returns_GREEN(self):
+        clock=[100.0];original=self.j.write
+        def write(kind,value):
+            result=original(kind,value)
+            if kind=='complete':clock[0]=701
+            return result
+        with patch.object(m.time,'monotonic',side_effect=lambda:clock[0]):
+            self.f.deadline=700
+            with patch.object(self.j,'write',side_effect=write),self.assertRaises(m.FlowFailure):self.f.forward()
+        self.assertTrue(self.f.hold)
     def test_lost_ack_durable_intent_remains_and_no_replay(self):
         original=self.j.write
         def fail(kind,value):

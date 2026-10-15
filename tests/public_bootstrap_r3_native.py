@@ -39,7 +39,8 @@ class FixtureAdapter:
     """Synthetic receipt issuer, NOT an actual Host/TCB/owner admission adapter."""
     def __init__(self,work,scenario):
         self.work=work;self.scenario=scenario;self.calls=[];self.backup=None;self.foreign=None
-    def observe(self,phase):
+    def observe(self,phase,*,deadline):
+        assert time.monotonic()<=deadline
         facts=set(m.REQUIRED[phase])
         if phase in ('quiet','staging_ready','staging','backup','restore','probes','install'):
             if any(running(u) or not empty(u) for u in m.UNITS):facts.discard('three_cgroups_empty')
@@ -47,12 +48,14 @@ class FixtureAdapter:
             facts.discard('no_unknown_authority')
         if phase=='barriers':
             if not all((ETC/(u+'.d')/m.BARRIER).read_bytes()==m.BARRIER_BYTES for u in m.UNITS):facts.clear()
-        if phase=='backup' and self.scenario in ('backup','foreign_return','return_release'):facts.discard('independent_readback')
+        if phase=='backup' and self.scenario in ('backup','foreign_return','return_release','return_crash_release'):facts.discard('independent_readback')
         if phase=='restore' and self.scenario=='restore':facts.discard('isolated_metadata_content_restore_and_return_rehearsal')
         if phase=='probes' and self.scenario=='probe':facts.discard('installed_kernel_systemd_proof')
         if phase=='return_before_install' and self.scenario=='foreign_return':facts.clear()
-        if phase=='return_release':
-            if any((ETC/(u+'.d')/m.BARRIER).exists() for u in m.UNITS):facts.clear()
+        if phase.startswith(('return_release:','release:')):
+            unit=phase.split(':',1)[1];index=m.UNITS.index(unit)
+            if (ETC/(unit+'.d')/m.BARRIER).exists():facts.clear()
+            if any(not (ETC/(u+'.d')/m.BARRIER).exists() for u in m.UNITS[index+1:]):facts.clear()
         if phase=='return_config' and any(self.work.glob('synthetic-install-*')):facts.clear()
         return m.Observation(m.TX,BINDING,phase,frozenset(facts),time.monotonic())
     def perform(self,action,unit,*,deadline):
@@ -94,16 +97,18 @@ class FixtureAdapter:
                     p=self.work/('synthetic-install-'+str(i))
                     assert p.read_bytes()==b'SYNTHETIC_NOT_RUNTIME'
                     p.rename(self.work/('quarantined-install-'+str(i)))
-        elif action in ('quarantine_own_barriers','quarantine_own_return_barriers'):
+        elif action in ('quarantine_own_barrier','quarantine_own_return_barrier'):
             if self.scenario=='return_release':raise OSError('SYNTHETIC_RETURN_RELEASE_FAILURE')
-            for u in m.UNITS:
-                p=ETC/(u+'.d')/m.BARRIER
-                assert p.read_bytes()==m.BARRIER_BYTES
-                target=self.work/('quarantined-'+u)
-                if target.exists():target=self.work/('return-quarantined-'+u)
-                p.rename(target)
+            p=ETC/(unit+'.d')/m.BARRIER
+            assert p.read_bytes()==m.BARRIER_BYTES
+            target=self.work/('quarantined-'+unit)
+            if target.exists():target=self.work/('return-quarantined-'+unit)
+            p.rename(target)
             system('daemon-reload')
-        elif action in ('start','start_old'):system('start',unit)
+        elif action in ('start','start_old'):
+            system('start',unit)
+            if self.scenario=='crash_release' and action=='start':raise KeyboardInterrupt()
+            if self.scenario=='return_crash_release' and action=='start_old':raise KeyboardInterrupt()
         elif action=='supervised_owner_transaction':
             assert all(running(u) for u in m.UNITS)
             # Component84/leases/owner enforcement is not replaced by this
@@ -137,10 +142,13 @@ def cleanup_fixture():
 def main():
     results=[]
     for scenario in ('success','incomplete','remaining_writer','backup','restore','probe','foreign_return',
-                     'interrupted','partial_install','return_release'):
+                     'interrupted','partial_install','return_release','crash_release','return_crash_release'):
         setup()
         with tempfile.TemporaryDirectory(prefix='r3-native-journal-',dir='/etc') as temp:
             parent=Path(temp);parent.chmod(0o700);work=parent/'work';work.mkdir(mode=0o700)
+            # Explicit synthetic guest custody substitution; production requires
+            # the fixed reviewed Mac parent and cannot select this fixture path.
+            m.CUSTODY_PARENT=parent
             j=m.Journal(parent,BINDING);adapter=FixtureAdapter(work,scenario);flow=m.Flow(adapter,j)
             if scenario=='remaining_writer':
                 # An actually live synthetic descendant outside the3 service
@@ -155,8 +163,8 @@ def main():
                     try:flow.forward();raise AssertionError('FAILURE_NOT_DENIED')
                     except (m.Denied,KeyboardInterrupt):pass
                     assert flow.hold
-                    if scenario!='partial_install':assert not any(a=='install_four_artifacts' for a,u in adapter.calls)
-                    if scenario in ('backup','restore','probe','foreign_return','partial_install','return_release'):
+                    if scenario not in ('partial_install','crash_release'):assert not any(a=='install_four_artifacts' for a,u in adapter.calls)
+                    if scenario in ('backup','restore','probe','foreign_return','partial_install','return_release','return_crash_release'):
                         # Persistent condition refuses both manual and dependency
                         # activation, including after manager re-execution.
                         system('daemon-reexec');system('start',m.UNITS[1],check=False)
@@ -165,12 +173,22 @@ def main():
                             try:flow.return_old();raise AssertionError('UNSAFE_RETURN')
                             except m.Denied:pass
                             assert all(not running(u) for u in m.UNITS)
+                        elif scenario=='return_crash_release':
+                            try:flow.return_old();raise AssertionError('RETURN_INTERRUPT_NOT_DENIED')
+                            except m.Denied:pass
+                            system('daemon-reexec')
+                            for u in m.UNITS[1:]:system('start',u,check=False)
+                            assert running(m.UNITS[0]) and all(not running(u) and empty(u) for u in m.UNITS[1:])
                         else:
                             assert flow.return_old()=='OLD_OPERATION_RESTORED_SECURITY_RED'
                             assert all(running(u) for u in m.UNITS)
                     else:
                         assert not any(a=='start_old' for a,u in adapter.calls)
                         if adapter.foreign is not None:assert adapter.foreign.poll() is None
+                        if scenario=='crash_release':
+                            system('daemon-reexec')
+                            for u in m.UNITS[1:]:system('start',u,check=False)
+                            assert all(not running(u) and empty(u) for u in m.UNITS[1:])
                 try:m.Journal(parent,'d'*64);raise AssertionError('REPLAY')
                 except m.Denied:pass
                 results.append({'scenario':scenario,'result':'GREEN','actual_systemd':True,

@@ -89,7 +89,8 @@ route denies. Never manufacture a permit or rely on an ephemeral /run marker.
 Only daemon-reload of this exact verified delta, no foreign effective changes.
 
 CLIENT ONE-TRANSACTION CUSTODY / INTERRUPTION
-Protected client parent is fixed in the versioned execution receipt beneath
+Protected client parent is enforced by Source CUSTODY_PARENT, not supplied as
+an arbitrary caller-selected receipt field. Its EXACT path is
 /Users/daniel/Developer/tu1nz/service-isolation-lighting-night-20261013/host-operator-intents;
 transaction name FIXED public-rights-20261014-1, independent of release/branch/
 freeze/Host journal name. No alternate parent/name to get another attempt.
@@ -99,12 +100,15 @@ Server bootstrap journal is compared/hash-linked to independently held client
 intent, never trusted just because root owns it. It can be admitted as protected
 only AFTER full post-stop exclusion/reverification. Missing/contradictory copy
 denies, never reconstruct an unused permission from absence. This is NOT R2.
-Coordinator outer deadline600s; each stop/start request20s, other adapter
+Coordinator outer deadline600s, checked BEFORE/AFTER EVERY observation as well
+as effect; late fresh-timestamp receipt cannot create success. Observations
+also receive the deadline and adapter must enforce its bound. Each stop/start request20s, other adapter
 actions at most120s and never beyond the outer deadline. Adapter must enforce
 the passed monotonic deadline/owned cleanup; a late result is HOLD, not success.
 This changes no base-unit TimeoutStop/Kill/Restart rule: a still-running manager
 job remains UNKNOWN and is not repeated. Owner120s/512FD and probe limits remain
-strict. At most64 journal records/64KiB each; ACK field allowlist, no raw logs,
+strict. At most128 journal records/64KiB each (includes durable per-unit function
+observations and one separate return); ACK field allowlist, no raw logs,
 secrets or private error text. Primary/abort/cleanup remain separate even when
 the final hold-record write itself fails; preserve existing durable intent.
 On interruption/timeout/lost ACK hold; no second forward call after process
@@ -148,11 +152,17 @@ PHASES / CURRENT PREREQUISITES / EFFECTS
    unless the separate conditional OLD-OPERATION return below is admitted.
 6. Recheck full exclusion/backup/restore/probes; install only original4 pinned
    runtime artifacts create-only. Verify exact effective configs with barriers
-   still false. Quarantine only OWN exact bootstrap barrier inodes to the
-   same-filesystem private bootstrap quarantine after durable intents; reload
-   and verify no foreign changes. Never remove/adopt other drop-ins.
-7. Start S7 -> fresh credentials/DB/function/identity proof; then S8Landing ->
-   its fresh function/data proof; then WMS -> its fresh function/state proof.
+   still false. Never release all3 barriers together or remove/adopt other
+   drop-ins. Only the next unit's exact own barrier inode may be quarantined
+   to the same-filesystem private bootstrap quarantine after its durable intent.
+7. Quarantine/reload/verify ONLY S7 barrier -> start S7 -> fresh credentials/DB/
+   function/identity proof -> durably accepted observation; ONLY THEN quarantine/
+   reload/verify S8Landing barrier -> start/fresh function/data -> durable proof;
+   ONLY THEN release WMS barrier -> start/fresh function/state -> durable proof.
+   Every downstream barrier remains persistent until predecessor acceptance.
+   A crash/reboot may activate an already released unit under its unchanged
+   base policy, NOT an unreleased downstream unit. It invalidates current
+   acceptance/continuation; no restored journal is current rights/R2 GREEN.
    After EACH start deny further starts on unknown/RED. Actual groups[], five
    capsets0,NNP1,minimal maps, no effective alternative authority/alias and
    owned bootstrap cleanup; actual internal/proxy/public and required data/DB
@@ -189,11 +199,14 @@ as needed ONLY after unknown effects resolved (already stopped is witnessed,
 not retried). Verify required PRE-restoration proofs before changing original
 configs; do not require the later restored-config postcondition as admission.
 After restoration verify original effective config/source/inputs/no forward
-artifacts while barriers remain false. Then separately quarantine ONLY the3
-exact own return barrier inodes, daemon-reload and verify the original effective
-config with no remaining false barrier/foreign delta. Failure/unknown outcome
-in either postproof or release holds BEFORE any old start; never create permit.
-Start old S7 -> function -> old S8Landing -> function -> old WMS -> function.
+artifacts while barriers remain false. Then separately quarantine ONLY the
+next unit's exact own return barrier inode, daemon-reload and verify the original effective
+config with no false barrier/foreign delta FOR THAT UNIT ONLY. Other downstream
+barriers stay false. Failure/unknown postproof/release holds BEFORE that old
+start; never create permit. Old S7 -> function/DURABLE acceptance -> only then
+release old S8Landing barrier -> start/function/DURABLE acceptance -> only then
+release old WMS barrier -> start/function. The once-return attempt is consumed
+and its intent persisted BEFORE return admission, even if admission is denied.
 Outcome OLD_OPERATION_RESTORED_SECURITY_RED, never R2/deployment eligibility.
 Old Docker/owner authority can be restored, outage/time/counters cannot rewind.
 Failed return/unknown start leaves occupied transaction/partial state; no
