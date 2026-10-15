@@ -1,5 +1,10 @@
 PUBLIC RIGHTS R2 SOURCE/PLAN ADDENDUM — NOT EXECUTED / NO HOST AUTHORITY
 
+R3 proposal only: PUBLIC_WEB_BOOTSTRAP_R3_HOST_PLAN.txt resolves the known
+pre-stop delegation/backup cycle by explicitly new stop-only admission and
+persistent exact3 barriers. No existing permission silently covers it; until
+the new exact Host decision, the below order/stop prohibition still applies.
+
 EXACT SOURCE BINDINGS
 Final Infra reviewed commit/tree and successful pre/post-CI bind this plan.
 Runtime helper and three drop-ins are BYTE-UNCHANGED from reviewed PR226:

@@ -1,0 +1,242 @@
+PUBLIC WEB BOOTSTRAP R3 — SOURCE PROPOSAL, NO HOST AUTHORITY
+
+DELTA / EXACT BINDINGS
+Supersedes ONLY the impossible backup-before-stop bootstrap in R1/R2 after a
+separate explicit final-SHA Host decision. Until that decision the existing
+Host permissions/order remain unchanged. Current Source-only approval permits
+no early stop, bootstrap directory, barrier, installation, owner change or R2.
+New component scripts/tu1nz_public_bootstrap_r3.py orders durable intents and
+phase-specific actual observations; it is NOT a complete Host executor, JSON
+grant, signature issuer, SSH tool or replacement for any full operator fence.
+The actual Source receipt must bind both final reviewed merge/tree/hashes.
+
+UNCHANGED COMPONENT ORIGINS (not reinterpreted as current Host proof)
+Control6321a7a5d9555930452fa4dd2fe8bc27ca37601f supplies the immutable ownerplan
+e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36 and its
+entry/guard bytes. New Control changes are documentary ONLY. Keep old plan
+source field intact: do not rerun the planner at a new HEAD to replace its hash.
+Infra49f20e191872a9f3791ac593fc16cf53de5891e5 supplies unchanged4 runtime bytes:
+helper2884c2531e73480513d533844cab9ac1a906e13fd4fdb104ab1d49759f3e9b01,
+S7df605ffec37e59d1c3c535a93879e7e155447967c6cd97a2f83ca866f841c16b,
+S8Landing1e84f8904b4ce292e8b002ad373b27ea5d6592ddaaca4c07c68e990452133213,
+WMSce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3.
+Original immutable R2 release/Control target2281/packet/capsule/freeze98fc0cec
+and logical slotcontrol-only-recovery-20261012-1 stay unchanged. No new slot,
+signature or claimed fresh remote-unspent proof. Eleven Lighting outputs and
+candidate de4dbb967ff109a100cd726344ace37f682be392 remain byte-unchanged.
+
+WHY THE CYCLE IS REMOVED, NOT HIDDEN
+R1 required full writer exclusion/backup before stopping exactly the three
+actors whose known Docker delegation prevents that exclusion. R3 separates
+STOP-ONLY BOOTSTRAP ADMISSION from MUTATION/BACKUP ADMISSION. The former uses
+trusted pre-existing Source/operator/PID1 identities and a READ WITNESS, not
+the later backup, probes, installed helper or successful stop. Full exclusion
+is obtained/verified AFTER quiescence and BEFORE opt staging or any backup
+called protected. Installation requires that backup and its successful restore.
+Owner preparation requires actual rights acceptance and its OWN fresh backup.
+No phase depends on a later success as evidence of its own admission.
+
+EXPLICIT TRUST/RISK DELTA — MUST BE IN THE NEW HOST DECISION
+Kernel/PID1/authenticated operator and individually pinned administrative TCB
+remain trusted; not arbitrary UID0/UID1001 applications or Docker clients.
+Other privileged/broker/namespace writers must already be individually
+excluded or explicitly within the existing, narrowly evidenced TCB. No blanket
+Root exemption. Only the EXACT three known delegated public target contexts
+are tolerated during the finite STOP-ONLY bootstrap for the purpose of
+removing them, never as safe writers for protected backups/data changes.
+This is a visible phase-specific admission/risk change, NOT proof of equal
+protection while the old delegation is live and NOT current risk acceptance.
+Control-plane drift/extra authority/compromise suspicion denies even bootstrap.
+This design does not claim resistance to an already compromised kernel/PID1 or
+an actively fully privileged adversary rewriting the Host during bootstrap.
+If that resistance is required, do NOT run this plan or silently change TCB.
+All final backup/rights/owner/R2 safety requirements remain undiminished.
+
+PRE-STOP INFORMATION: TRUSTED BASELINE != READ WITNESS != BACKUP
+Before first Host mutation bind actual host, exact3 unit/cgroup/invocation/
+PID-start identities, Source/tool/dependency origins, numeric account, all unit
+files/drop-ins and required original config/input identities to independently
+authenticated existing releases and protected CLIENT custody. A current value
+is never promoted to historical Soll. Missing authenticated baseline denies.
+Capture current state/function/DB/internal-proxy-public baseline privately with
+stable reads and compare to those pre-existing pins. Label this READ WITNESS:
+it does NOT prove consistent filesystem capture, writer exclusion, preservation
+of every unversioned byte or an unconditional restoration path. No DB snapshot,
+counter/queue rewind or private credential publication. No claim of compromise
+or observed writes from ownership/socket access alone.
+The documented source/control/return prerequisites must be identifiable before
+stop; restarting is still CONDITIONAL on fresh checks after quiescence. A
+post-stop mismatch can require staying down; accept that outage explicitly.
+
+EXACT NEW BOOTSTRAP HOST OBJECTS — PROPOSED, NOT CREATED
+/etc/tu1nz/public-web-bootstrap-r3/20261014-1/ root:root0700, new own parents
+only; subdirs read-witness, intents, acknowledgments, quarantine, reports.
+Files0600. This is a stop-control journal, NOT a consistent protected backup.
+Never create its condition path NEVER-CREATE-START-PERMIT. Foreign/partial/
+occupied transaction, unsafe existing ancestor/profile or cross-device barrier
+quarantine denies; no adoption/reset/delete/new transaction suffix.
+Exactly3 new root:root0644 no-writer-ACL persistent drop-ins:
+/etc/systemd/system/tu1nz-adult-public-s7.service.d/zzzz-tu1nz-bootstrap-r3.conf
+/etc/systemd/system/tu1nz-adult-public-s8-landing.service.d/zzzz-tu1nz-bootstrap-r3.conf
+/etc/systemd/system/tu1nz-adult-public-s10-wms.service.d/zzzz-tu1nz-bootstrap-r3.conf
+Bytes exactly BARRIER_BYTES from reviewed component. New S7/WMS .d parents
+only root:root0755 after exact profile checks, existing S8Landing parent/ACL
+unchanged. No base-unit rewrite, global mask/disable/NSS/Docker/user modification.
+Own bootstrap objects and barrier quarantine must share an admitted filesystem.
+Persistent condition barriers intentionally survive manager/Host restart;
+unexpected loss/replacement, later overriding condition or new activation
+route denies. Never manufacture a permit or rely on an ephemeral /run marker.
+Only daemon-reload of this exact verified delta, no foreign effective changes.
+
+CLIENT ONE-TRANSACTION CUSTODY / INTERRUPTION
+Protected client parent is enforced by Source CUSTODY_PARENT, not supplied as
+an arbitrary caller-selected receipt field. Its EXACT path is
+/Users/daniel/Developer/tu1nz/service-isolation-lighting-night-20261013/host-operator-intents;
+transaction name FIXED public-rights-20261014-1, independent of release/branch/
+freeze/Host journal name. No alternate parent/name to get another attempt.
+Create-only protected local binding/claim BEFORE any Host write/stop, fsync
+each intent BEFORE effect, ACK only actual confirmed outcome; mirror privately.
+Server bootstrap journal is compared/hash-linked to independently held client
+intent, never trusted just because root owns it. It can be admitted as protected
+only AFTER full post-stop exclusion/reverification. Missing/contradictory copy
+denies, never reconstruct an unused permission from absence. This is NOT R2.
+Coordinator outer deadline600s, checked BEFORE/AFTER EVERY observation as well
+as effect; late fresh-timestamp receipt cannot create success. Observations
+also receive the deadline and adapter must enforce its bound. Each stop/start request20s, other adapter
+actions at most120s and never beyond the outer deadline. Adapter must enforce
+the passed monotonic deadline/owned cleanup; a late result is HOLD, not success.
+This changes no base-unit TimeoutStop/Kill/Restart rule: a still-running manager
+job remains UNKNOWN and is not repeated. Owner120s/512FD and probe limits remain
+strict. At most128 journal records/64KiB each (includes durable per-unit function
+observations and one separate return); ACK field allowlist, no raw logs,
+secrets or private error text. Primary/abort/cleanup remain separate even when
+the final hold-record write itself fails; preserve existing durable intent.
+On interruption/timeout/lost ACK hold; no second forward call after process
+restart/new release and no automatic return. Inspect/classify same transaction
+read-only. Preserve partial objects/control barriers; do not delete or reset.
+
+PHASES / CURRENT PREREQUISITES / EFFECTS
+0. STOP-ONLY admission: above authenticated baseline/current read witness,
+   operator/manager trust and every OTHER actor closed. Exact stop impact set
+   must exclude foreign dependencies. Enumerate Requires/BindsTo/PartOf/stop
+   propagation, aliases, jobs, OnFailure, timers/sockets/path and external start
+   callers. Unknown/extra influence denies; do not stop/disable those callers.
+   A named group, root status or actor census alone is not such closure.
+   Record source-bound pre-state in independent local custody, not as backup.
+1. Durable local claim/intent; create ONLY own persistent bootstrap journal/
+   barriers create-only, verify bytes/identities/ACL/flags/name custody, reload,
+   verify exact3 effective false conditions. No stop before barrier admission.
+2. Stop WMS -> S8Landing -> S7 serially, one request each; verify actual own
+   cgroup (all descendants), invocation/starttime and no pending job after EACH.
+   Explicit stop suppresses the normal Restart=on-failure of those units;
+   barriers prevent manual/dependency/timer starts until explicitly released.
+   KillMode/stop propagation must be bound. No numeric foreign-PID signalling,
+   no extra service/daemon/container stop, no broad process pause. Incomplete
+   or unclassified stop holds, preserves barriers; no hidden retry/start.
+3. FULL post-stop admission: all3 cgroups empty, no escaped/broker descendants,
+   pending/deferred activation or writable FD/mapping; all remaining actors,
+   namespace/LSM/socket/TCP/sudo/polkit/D-Bus/agent authority individually
+   verified, exact control/source/read-witness pins/barriers unchanged.
+   Stop3 alone is insufficient. Other UID1001 shells/user manager/bus, container
+   contexts or Root apps are not silently TCB. Any missing proof holds here.
+4. Only NOW create/seal the original2 opt staging roots/own private children,
+   known pinned parent ACL/default inheritance contract, current space/quota,
+   mount/device/namespace guards. Shared parents/attrs stay unchanged. Snapshot
+   exact3 base units/ALL drop-ins/inputs/tool pins and4 target absences into a
+   genuinely protected backup; independently reread and perform isolated
+   metadata/content/rename-return rehearsal on own copies. No live DB restore.
+5. Run original3 bounded synthetic probes exactly per R2 addendum, real
+   installed kernel/systemd checks, networknone/private RootDirectory, synthetic
+   credentials/data/NSS only, fixed unit names/limits/one pass/owned cleanup.
+   Source/native fixture GREEN is not this Host proof. Failure stays stopped
+   unless the separate conditional OLD-OPERATION return below is admitted.
+6. Recheck full exclusion/backup/restore/probes; install only original4 pinned
+   runtime artifacts create-only. Verify exact effective configs with barriers
+   still false. Never release all3 barriers together or remove/adopt other
+   drop-ins. Only the next unit's exact own barrier inode may be quarantined
+   to the same-filesystem private bootstrap quarantine after its durable intent.
+7. Quarantine/reload/verify ONLY S7 barrier -> start S7 -> fresh credentials/DB/
+   function/identity proof -> durably accepted observation; ONLY THEN quarantine/
+   reload/verify S8Landing barrier -> start/fresh function/data -> durable proof;
+   ONLY THEN release WMS barrier -> start/fresh function/state -> durable proof.
+   Every downstream barrier remains persistent until predecessor acceptance.
+   A crash/reboot may activate an already released unit under its unchanged
+   base policy, NOT an unreleased downstream unit. It invalidates current
+   acceptance/continuation; no restored journal is current rights/R2 GREEN.
+   After EACH start deny further starts on unknown/RED. Actual groups[], five
+   capsets0,NNP1,minimal maps, no effective alternative authority/alias and
+   owned bootstrap cleanup; actual internal/proxy/public and required data/DB
+   function. Existing bounded public Restart rules remain distinct from an
+   operator retry/R2 slot. An unknown requested start is not requested again.
+8. Actual rights admission current; original e9ac7f...88-object plan must still
+   match exactly (no new hash). Separate owner journal and ALL82 regular-file
+   leases/writable-FD/mapping+namespace guards, actual complete owner backup /
+   independent reread/isolated restore, 120s/512FD supervisor through84 actions,
+   receipt AND cleanup. Root/parent dirs first then files;4 root objects NONE.
+   Preserve old guard/entry byte checks, content/mode/gid/ACL/attrs/flags/inodes;
+   actual ctime changes retained. No individual primitive substitutes for this.
+9. Only after clean actual rights/owner receipts refresh ALL original frozen
+   R2 gates and fresh same-slot state. No R2 dispatch/signature in this new
+   component, no remote slot GREEN from the old reading or Source tests. The
+   unchanged separately conditional R2 operation remains separate. No Lighting
+   publication: later exact candidate/entry decision only after actual success.
+
+POST-STOP FAILURE / CONDITIONAL RETURN MATRIX
+Before/during barrier or stop, outcome unknown: HOLD, record actual partial
+state; no assertion all stopped and no automatic restart or rollback.
+After complete stop but before installation (backup/readback/restore/probe fail):
+return ONLY after separate once-return confirmation, all prior intents/jobs
+classified, exact original config/source/inputs matched to AUTHENTICATED
+baseline again, original function prerequisites current, all remaining TCB
+closed and own barriers/journal bound. Do NOT restore bytes from the untrusted
+pre-stop witness or require nonexistent post-stop backup as proof of this
+unchanged-configuration return. Otherwise keep stopped/barriers and HOLD.
+After partial install/start but BEFORE any owner attempt: additionally actual
+protected backup/restore proof, quarantine only own4 installed artifacts and
+restore exact originally existing configs; no foreign edits. One return intent
+before any return effect; establish/verify own barriers, own serial return-stop
+as needed ONLY after unknown effects resolved (already stopped is witnessed,
+not retried). Verify required PRE-restoration proofs before changing original
+configs; do not require the later restored-config postcondition as admission.
+After restoration verify original effective config/source/inputs/no forward
+artifacts while barriers remain false. Then separately quarantine ONLY the
+next unit's exact own return barrier inode, daemon-reload and verify the original effective
+config with no false barrier/foreign delta FOR THAT UNIT ONLY. Other downstream
+barriers stay false. Failure/unknown postproof/release holds BEFORE that old
+start; never create permit. Old S7 -> function/DURABLE acceptance -> only then
+release old S8Landing barrier -> start/function/DURABLE acceptance -> only then
+release old WMS barrier -> start/function. The once-return attempt is consumed
+and its intent persisted BEFORE return admission, even if admission is denied.
+Outcome OLD_OPERATION_RESTORED_SECURITY_RED, never R2/deployment eligibility.
+Old Docker/owner authority can be restored, outage/time/counters cannot rewind.
+Failed return/unknown start leaves occupied transaction/partial state; no
+second return/forward attempt or automatic broad recovery.
+Once owner attempt begins: NO configuration return from this component.
+Preserve partial protection/evidence. Only the original separately confirmed
+one-shot owner-return contract with ALL actual post-state/intent/ACK/lease/
+namespace proofs can return original inodes, files-before-reverse-depth-dirs/
+rootlast. Restoring UID33 reopens writer authority/security RED. No fresh slot.
+
+NATIVE SOURCE EVIDENCE / HOST LIMITS
+New unit tests cover phase gates, proof/source/tx freshness, stop failure,
+residual writers, pre-stop-witness-not-backup, failed backup/restore/probes,
+explicit safe/denied return, per-unit start health, owner/R2 holds, interruption,
+durable intent/lost ACK/record failure and replay. Isolated networknone PID1
+fixture uses synthetic units/data only: real stop/descendant-empty/condition
+barriers/manual+dependency activation/manager-reexec and old-operation return.
+Reexec is NOT a production Host reboot proof. Fixture receipt issuer is
+synthetic: it proves ordering/durability, NOT actual Host TCB/backup/owner/DB/R2.
+Unchanged helper native tests, Control owner/actual frozen R2 integration and
+all required CI remain in force. Never repeat the blocked S8 ancestor test.
+
+ONE LATER DECISION, NEW STEPS ONLY
+Confirm final reviewed Control/Infra Source receipt plus unchanged e9ac7f...
+owner plan; explicitly authorize the new persistent bootstrap root/3 barriers/
+own .d parents and their exact reload/quarantine, stop-only phase-specific
+known3 delegation exposure, controlled early WMS->S8Landing->S7 stop BEFORE
+protected opt backup, and ONE conditional OLD-OPERATION return with the above
+criteria/outage risk. Existing private opt paths/probes/owner list/rights/R2
+permission remain conditional unchanged, not requested generally again.
+This is not automatic risk acceptance or a current Host operation. Unknown
+other authority/missing original baseline/scope impact still denies. No global
+rights/user/group changes, foreign stops, publication/S8Telegram/R15/RC5/Runtime.

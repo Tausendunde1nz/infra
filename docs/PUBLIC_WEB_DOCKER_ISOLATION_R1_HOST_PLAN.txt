@@ -1,5 +1,11 @@
 PUBLIC WEB ISOLATION R1 — SEPARATE HOST APPROVAL REQUIRED; NOT EXECUTED
 
+R3 SOURCE PROPOSAL: PUBLIC_WEB_BOOTSTRAP_R3_HOST_PLAN.txt separates stop-only
+bootstrap from full protected-backup admission and proposes exact persistent
+start barriers/early serial stop/conditional old-operation return. Its new
+paths and phase-specific exposure need a separate final-bound Host decision.
+Until then the unchanged approval/order below remains; no early stop now.
+
 SOURCE BINDING
 Use only the final reviewed merge, successful full post-merge CI and hashes
 of the four artifacts below. Record them in the private delivery receipt;

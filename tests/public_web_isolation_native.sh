@@ -22,4 +22,6 @@ for _ in $(seq 1 30); do
 done
 test "$ready" = true
 docker exec "$native" python3 -B -m unittest -v tests.test_public_web_isolation
+docker exec "$native" python3 -B -m unittest -v tests.test_public_bootstrap_r3
+docker exec "$native" python3 -B /source/tests/public_bootstrap_r3_native.py
 docker exec "$native" python3 -B /source/tests/public_web_isolation_native.py
