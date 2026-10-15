@@ -47,12 +47,16 @@ class FixtureAdapter:
             facts.discard('no_unknown_authority')
         if phase=='barriers':
             if not all((ETC/(u+'.d')/m.BARRIER).read_bytes()==m.BARRIER_BYTES for u in m.UNITS):facts.clear()
-        if phase=='backup' and self.scenario in ('backup','foreign_return'):facts.discard('independent_readback')
+        if phase=='backup' and self.scenario in ('backup','foreign_return','return_release'):facts.discard('independent_readback')
         if phase=='restore' and self.scenario=='restore':facts.discard('isolated_metadata_content_restore_and_return_rehearsal')
         if phase=='probes' and self.scenario=='probe':facts.discard('installed_kernel_systemd_proof')
         if phase=='return_before_install' and self.scenario=='foreign_return':facts.clear()
+        if phase=='return_release':
+            if any((ETC/(u+'.d')/m.BARRIER).exists() for u in m.UNITS):facts.clear()
+        if phase=='return_config' and any(self.work.glob('synthetic-install-*')):facts.clear()
         return m.Observation(m.TX,BINDING,phase,frozenset(facts),time.monotonic())
-    def perform(self,action,unit):
+    def perform(self,action,unit,*,deadline):
+        assert time.monotonic()<deadline
         self.calls.append((action,unit))
         if action in ('create_persistent_barriers','establish_return_barriers'):
             BOOT.mkdir(parents=True,exist_ok=True);BOOT.chmod(0o700)
@@ -81,7 +85,17 @@ class FixtureAdapter:
             pass
         elif action=='install_four_artifacts':
             for i in range(4):put(self.work/('synthetic-install-'+str(i)),b'SYNTHETIC_NOT_RUNTIME',0o600)
-        elif action in ('quarantine_own_barriers','return_old_configuration'):
+            if self.scenario=='partial_install':raise OSError('SYNTHETIC_INSTALL_UNKNOWN')
+        elif action=='return_old_configuration':
+            # Configuration restoration does NOT implicitly release start barriers.
+            if unit=='return_after_install':
+                assert self.backup and all((ETC/u).read_bytes()==raw for u,raw in self.backup.items())
+                for i in range(4):
+                    p=self.work/('synthetic-install-'+str(i))
+                    assert p.read_bytes()==b'SYNTHETIC_NOT_RUNTIME'
+                    p.rename(self.work/('quarantined-install-'+str(i)))
+        elif action in ('quarantine_own_barriers','quarantine_own_return_barriers'):
+            if self.scenario=='return_release':raise OSError('SYNTHETIC_RETURN_RELEASE_FAILURE')
             for u in m.UNITS:
                 p=ETC/(u+'.d')/m.BARRIER
                 assert p.read_bytes()==m.BARRIER_BYTES
@@ -122,7 +136,8 @@ def cleanup_fixture():
 
 def main():
     results=[]
-    for scenario in ('success','incomplete','remaining_writer','backup','restore','probe','foreign_return','interrupted'):
+    for scenario in ('success','incomplete','remaining_writer','backup','restore','probe','foreign_return',
+                     'interrupted','partial_install','return_release'):
         setup()
         with tempfile.TemporaryDirectory(prefix='r3-native-journal-',dir='/etc') as temp:
             parent=Path(temp);parent.chmod(0o700);work=parent/'work';work.mkdir(mode=0o700)
@@ -139,13 +154,14 @@ def main():
                 else:
                     try:flow.forward();raise AssertionError('FAILURE_NOT_DENIED')
                     except (m.Denied,KeyboardInterrupt):pass
-                    assert flow.hold and not any(a=='install_four_artifacts' for a,u in adapter.calls)
-                    if scenario in ('backup','restore','probe','foreign_return'):
+                    assert flow.hold
+                    if scenario!='partial_install':assert not any(a=='install_four_artifacts' for a,u in adapter.calls)
+                    if scenario in ('backup','restore','probe','foreign_return','partial_install','return_release'):
                         # Persistent condition refuses both manual and dependency
                         # activation, including after manager re-execution.
                         system('daemon-reexec');system('start',m.UNITS[1],check=False)
                         assert all(not running(u) and empty(u) for u in m.UNITS)
-                        if scenario=='foreign_return':
+                        if scenario in ('foreign_return','return_release'):
                             try:flow.return_old();raise AssertionError('UNSAFE_RETURN')
                             except m.Denied:pass
                             assert all(not running(u) for u in m.UNITS)

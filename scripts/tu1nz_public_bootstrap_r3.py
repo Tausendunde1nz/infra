@@ -31,6 +31,8 @@ def digest(raw):return hashlib.sha256(raw).hexdigest()
 class Denied(RuntimeError):pass
 class FlowFailure(Denied):
     def __init__(self,primary,*,abort=(),cleanup=()):
+        require(all(type(c) is str and re.fullmatch(r'PUBLIC_BOOTSTRAP_[A-Z0-9_]{1,96}',c)
+                    for c in (primary,*abort,*cleanup)),'ERROR_PROVENANCE_SCHEMA_RED')
         self.primary=primary;self.abort=tuple(abort);self.cleanup=tuple(cleanup)
         super().__init__(primary)
 def failure_code(error):
@@ -105,10 +107,15 @@ REQUIRED={
                      'other_actor_TCB_and_original_function_prerequisites_current',
                      'own_barriers_and_journal_bound','separate_once_old_operation_return_confirmed')),
  'return_after_install':frozenset(('all_three_stopped_and_bound','no_owner_attempt_or_change',
-                     'protected_backup_restore_bound','only_own_four_artifacts_quarantined',
-                     'exact_original_config_restored_and_verified_no_foreign_change',
+                     'protected_backup_restore_bound','only_own_four_artifacts_bound_for_quarantine',
                      'other_actor_TCB_and_original_function_prerequisites_current',
                      'own_barriers_and_journal_bound','separate_once_old_operation_return_confirmed')),
+ 'return_config':frozenset(('exact_original_config_source_inputs_verified_no_foreign_change',
+                     'no_forward_artifacts_left','all_three_stopped_and_bound',
+                     'own_barriers_and_journal_bound')),
+ 'return_release':frozenset(('all_three_own_return_barriers_quarantined_exactly',
+                     'reload_verified_original_effective_config_no_false_barrier',
+                     'no_foreign_change','persistent_journal_protected')),
  'old_function':frozenset(('original_function_and_config_verified','restored_old_authority_security_RED')),
 }
 for _unit in UNITS:
@@ -156,6 +163,7 @@ class Journal:
         self.check();self.seq+=1
         require(self.seq<=64 and re.fullmatch('[a-z_]+',kind) is not None,'JOURNAL_BOUND')
         raw=canonical({'sequence':self.seq,'kind':kind,'binding':self.binding,'value':value})
+        require(len(raw)<=65536,'JOURNAL_RECORD_BOUND')
         fd=os.open(str(self.seq).zfill(3)+'-'+kind+'.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=self.fd)
         with os.fdopen(fd,'wb') as f:f.write(raw);f.flush();os.fsync(f.fileno())
         os.fsync(self.fd);os.fsync(self.pfd);self.check()
@@ -172,6 +180,7 @@ class Flow:
         self.mutation_started=False;self.install_started=False;self.owner_started=False
         self.return_used=False;self.hold=False;self.last_fault=None
         self.current_action=None;self.current_gate=None
+        self.deadline=time.monotonic()+600
     def witness(self,phase):
         self.current_gate=phase
         o=self.a.observe(phase)
@@ -184,11 +193,16 @@ class Flow:
         # Lost ACK/interrupt/failure never turns into a repeated request. Leave
         # intent and barriers, let same bounded transaction be classified READONLY.
         self.current_action=name
+        require(time.monotonic()<self.deadline,'TRANSACTION_DEADLINE')
         self.j.write('intent',{'action':name,'unit':unit})
         self.mutation_started=True
-        value=self.a.perform(name,unit)
+        limit=min(self.deadline,time.monotonic()+(20 if name in ('stop','return_stop','start','start_old') else 120))
+        value=self.a.perform(name,unit,deadline=limit)
+        require(time.monotonic()<=limit,'ACTION_DEADLINE_HOLD')
         require(value is not None and value.get('outcome')=='CONFIRMED','ACTION_UNKNOWN_HOLD')
         require(value.get('action')==name and value.get('unit')==unit,'ACTION_BINDING_RED')
+        require(set(value)<=frozenset(('action','unit','outcome','cgroup_empty','no_job','proof_sha256')),
+                'ACTION_RECEIPT_FIELDS_RED')
         self.j.write('ack',value)
         return value
     def forward(self):
@@ -219,13 +233,15 @@ class Flow:
             return self.stage
         except BaseException as e:
             self.hold=True;self.last_fault=type(e).__name__
-            primary=failure_code(e);cleanup=[]
+            primary=e.primary if type(e) is FlowFailure else failure_code(e)
+            abort=list(e.abort) if type(e) is FlowFailure else []
+            cleanup=list(e.cleanup) if type(e) is FlowFailure else []
             try:
                 self.j.write('hold',{'stage':self.stage,'error_type':self.last_fault,
                     'action':self.current_action,'gate':self.current_gate,
-                    'primary':primary,'abort':[],'cleanup':[]})
+                    'primary':primary,'abort':abort,'cleanup':cleanup})
             except BaseException:cleanup.append('PUBLIC_BOOTSTRAP_HOLD_RECORD_PERSISTENCE_RED')
-            raise FlowFailure(primary,cleanup=cleanup) from None
+            raise FlowFailure(primary,abort=abort,cleanup=cleanup) from None
     def return_old(self):
         require(self.hold and not self.return_used and not self.owner_started,'RETURN_NOT_ADMITTED')
         # Requires a separate current confirmation and actual fresh proofs; NOT
@@ -239,17 +255,20 @@ class Flow:
                 r=self.effect('return_stop',unit)
                 require(r.get('cgroup_empty') is True and r.get('no_job') is True,'RETURN_INCOMPLETE_STOP_HOLD')
             self.witness(phase)
-            self.effect('return_old_configuration',phase)
+            self.effect('return_old_configuration',phase);self.witness('return_config')
+            self.effect('quarantine_own_return_barriers');self.witness('return_release')
             for unit in UNITS:
                 self.effect('start_old',unit);self.witness('old_started:'+unit)
             self.witness('old_function');self.stage='OLD_OPERATION_RESTORED_SECURITY_RED'
             self.j.write('returned',{'stage':self.stage,'r2_eligible':False,'forward_retry':False})
             return self.stage
         except BaseException as e:
-            primary=failure_code(e);cleanup=[]
-            try:self.j.write('hold',{'stage':'RETURN_UNKNOWN','primary':primary,'abort':[],'cleanup':[]})
+            primary=e.primary if type(e) is FlowFailure else failure_code(e)
+            abort=list(e.abort) if type(e) is FlowFailure else []
+            cleanup=list(e.cleanup) if type(e) is FlowFailure else []
+            try:self.j.write('hold',{'stage':'RETURN_UNKNOWN','primary':primary,'abort':abort,'cleanup':cleanup})
             except BaseException:cleanup.append('PUBLIC_BOOTSTRAP_HOLD_RECORD_PERSISTENCE_RED')
-            raise FlowFailure(primary,cleanup=cleanup) from None
+            raise FlowFailure(primary,abort=abort,cleanup=cleanup) from None
     def r2_eligibility(self):
         require(self.stage=='RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED' and not self.hold,'R2_NOT_ELIGIBLE')
         self.witness('r2_ready')

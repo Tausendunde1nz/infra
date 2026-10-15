@@ -18,7 +18,7 @@ class Adapter:
         facts=m.REQUIRED[phase]
         if phase==self.deny:facts=frozenset()
         return m.Observation(m.TX,BINDING,phase,frozenset(facts),time.monotonic())
-    def perform(self,action,unit):
+    def perform(self,action,unit,*,deadline):
         self.calls.append((action,unit))
         if action==self.fail:raise OSError('PRIVATE_FAILURE_DETAILS')
         if action==self.unknown:return None
@@ -79,6 +79,9 @@ class BootstrapSequence(unittest.TestCase):
         self.a.fail=None
         self.assertEqual(self.f.return_old(),'OLD_OPERATION_RESTORED_SECURITY_RED')
         self.assertEqual([u for a,u in self.a.calls if a=='start_old'],list(m.UNITS))
+        names=[a for a,u in self.a.calls]
+        self.assertLess(names.index('return_old_configuration'),names.index('quarantine_own_return_barriers'))
+        self.assertLess(names.index('quarantine_own_return_barriers'),names.index('start_old'))
         with self.assertRaises(m.Denied):self.f.return_old()
         with self.assertRaises(m.Denied):self.f.r2_eligibility()
         with self.assertRaises(m.Denied):self.f.forward()
@@ -99,6 +102,24 @@ class BootstrapSequence(unittest.TestCase):
         with self.assertRaises(m.FlowFailure):self.f.forward()
         self.a.fail=None;self.a.deny='return_after_install'
         with self.assertRaises(m.Denied):self.f.return_old()
+        self.assertNotIn('start_old',str(self.a.calls))
+    def test_return_configuration_postproof_and_barrier_release_are_distinct_gates(self):
+        for phase in ('return_config','return_release'):
+            with self.subTest(phase=phase),tempfile.TemporaryDirectory() as parent:
+                j=m.Journal(parent,BINDING);a=Adapter();a.fail='install_four_artifacts';f=m.Flow(a,j)
+                try:
+                    with self.assertRaises(m.FlowFailure):f.forward()
+                    a.fail=None;a.deny=phase
+                    with self.assertRaises(m.FlowFailure):f.return_old()
+                    self.assertNotIn('start_old',str(a.calls))
+                    if phase=='return_config':self.assertNotIn('quarantine_own_return_barriers',str(a.calls))
+                    with self.assertRaises(m.Denied):f.return_old()
+                finally:j.close()
+    def test_unknown_return_barrier_release_never_requests_start(self):
+        self.a.fail='protected_rights_backup'
+        with self.assertRaises(m.FlowFailure):self.f.forward()
+        self.a.fail=None;self.a.unknown='quarantine_own_return_barriers'
+        with self.assertRaises(m.FlowFailure):self.f.return_old()
         self.assertNotIn('start_old',str(self.a.calls))
     def test_failed_or_unknown_start_not_retried(self):
         self.a.unknown='start'
@@ -165,5 +186,39 @@ class BootstrapSequence(unittest.TestCase):
         self.a.deny='started:'+m.UNITS[0]
         with self.assertRaises(m.FlowFailure):self.f.forward()
         self.assertEqual([u for a,u in self.a.calls if a=='start'],[m.UNITS[0]])
+    def test_oversized_record_denies_before_action(self):
+        with self.assertRaises(m.Denied):self.j.write('intent',{'data':'X'*65536})
+        self.assertEqual(self.a.calls,[])
+    def test_adapter_private_fields_not_persisted(self):
+        original=self.a.perform
+        def perform(action,unit,*,deadline):
+            return {**original(action,unit,deadline=deadline),'secret':'PRIVATE_CANARY'}
+        with patch.object(self.a,'perform',side_effect=perform),self.assertRaises(m.FlowFailure):self.f.forward()
+        raw=b''.join(p.read_bytes() for p in (Path(self.tmp.name)/m.TX).glob('*.json'))
+        self.assertNotIn(b'PRIVATE_CANARY',raw)
+    def test_late_adapter_response_does_not_admit_next_action(self):
+        clock=[100.0]
+        original=self.a.perform
+        def late(action,unit,*,deadline):
+            value=original(action,unit,deadline=deadline);clock[0]=deadline+1;return value
+        with patch.object(m.time,'monotonic',side_effect=lambda:clock[0]):
+            self.f.deadline=700
+            with patch.object(self.a,'perform',side_effect=late),self.assertRaises(m.FlowFailure):self.f.forward()
+        self.assertEqual(self.a.calls,[('create_persistent_barriers',None)])
+    def test_component_primary_abort_cleanup_not_overwritten(self):
+        failure=m.FlowFailure('PUBLIC_BOOTSTRAP_COMPONENT_PRIMARY',
+            abort=('PUBLIC_BOOTSTRAP_COMPONENT_ABORT',),cleanup=('PUBLIC_BOOTSTRAP_COMPONENT_CLEANUP',))
+        with patch.object(self.a,'perform',side_effect=failure),self.assertRaises(m.FlowFailure) as result:self.f.forward()
+        self.assertEqual(result.exception.primary,failure.primary)
+        self.assertEqual(result.exception.abort,failure.abort)
+        self.assertEqual(result.exception.cleanup,failure.cleanup)
+    def test_original_four_runtime_bytes_unchanged(self):
+        expected={'scripts/tu1nz_public_web_isolate_r1.py':'2884c2531e73480513d533844cab9ac1a906e13fd4fdb104ab1d49759f3e9b01',
+          'tu1nz-adult-public-s7.service':'df605ffec37e59d1c3c535a93879e7e155447967c6cd97a2f83ca866f841c16b',
+          'tu1nz-adult-public-s8-landing.service':'1e84f8904b4ce292e8b002ad373b27ea5d6592ddaaca4c07c68e990452133213',
+          'tu1nz-adult-public-s10-wms.service':'ce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3'}
+        for name,h in expected.items():
+            path=ROOT/name if name.startswith('scripts/') else ROOT/'systemd'/(name+'.d')/'zz-public-isolation-r1.conf'
+            self.assertEqual(m.digest(path.read_bytes()),h)
 
 if __name__=='__main__':unittest.main(verbosity=2)

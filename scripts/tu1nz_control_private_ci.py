@@ -33,7 +33,9 @@ REPOSITORY='Tausendunde1nz/infra'
 # PR227 is the separately reviewed opt-staging/Host-plan Source addendum.
 # Keep exact PR membership; unchanged required reviewer approval still checks
 # each actual SHA before secrets. No generic branch/fork or Host permission.
-APPROVED_SOURCE_PRS=frozenset((225,226,227))
+# PR228 is only the R3 stop/bootstrap sequencing Source delta. Existing exact
+# SHA review and environment reviewer approval still precede ANY private input.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'

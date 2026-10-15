@@ -99,6 +99,14 @@ Server bootstrap journal is compared/hash-linked to independently held client
 intent, never trusted just because root owns it. It can be admitted as protected
 only AFTER full post-stop exclusion/reverification. Missing/contradictory copy
 denies, never reconstruct an unused permission from absence. This is NOT R2.
+Coordinator outer deadline600s; each stop/start request20s, other adapter
+actions at most120s and never beyond the outer deadline. Adapter must enforce
+the passed monotonic deadline/owned cleanup; a late result is HOLD, not success.
+This changes no base-unit TimeoutStop/Kill/Restart rule: a still-running manager
+job remains UNKNOWN and is not repeated. Owner120s/512FD and probe limits remain
+strict. At most64 journal records/64KiB each; ACK field allowlist, no raw logs,
+secrets or private error text. Primary/abort/cleanup remain separate even when
+the final hold-record write itself fails; preserve existing durable intent.
 On interruption/timeout/lost ACK hold; no second forward call after process
 restart/new release and no automatic return. Inspect/classify same transaction
 read-only. Preserve partial objects/control barriers; do not delete or reset.
@@ -178,7 +186,13 @@ protected backup/restore proof, quarantine only own4 installed artifacts and
 restore exact originally existing configs; no foreign edits. One return intent
 before any return effect; establish/verify own barriers, own serial return-stop
 as needed ONLY after unknown effects resolved (already stopped is witnessed,
-not retried). Verify required return proofs before changing original configs.
+not retried). Verify required PRE-restoration proofs before changing original
+configs; do not require the later restored-config postcondition as admission.
+After restoration verify original effective config/source/inputs/no forward
+artifacts while barriers remain false. Then separately quarantine ONLY the3
+exact own return barrier inodes, daemon-reload and verify the original effective
+config with no remaining false barrier/foreign delta. Failure/unknown outcome
+in either postproof or release holds BEFORE any old start; never create permit.
 Start old S7 -> function -> old S8Landing -> function -> old WMS -> function.
 Outcome OLD_OPERATION_RESTORED_SECURITY_RED, never R2/deployment eligibility.
 Old Docker/owner authority can be restored, outage/time/counters cannot rewind.
