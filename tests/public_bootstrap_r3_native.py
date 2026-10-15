@@ -57,6 +57,11 @@ class FixtureAdapter:
             if (ETC/(unit+'.d')/m.BARRIER).exists():facts.clear()
             if any(not (ETC/(u+'.d')/m.BARRIER).exists() for u in m.UNITS[index+1:]):facts.clear()
         if phase=='return_config' and any(self.work.glob('synthetic-install-*')):facts.clear()
+        if phase.startswith('return_state:'):
+            unit=phase.split(':',1)[1]
+            if running(unit):facts.add('currently_active_requires_single_return_stop')
+            elif empty(unit):facts.add('currently_stopped_cgroup_empty')
+        if phase=='started:'+m.UNITS[0] and self.scenario=='partial_start_return':facts.clear()
         return m.Observation(m.TX,BINDING,phase,frozenset(facts),time.monotonic())
     def perform(self,action,unit,*,deadline):
         assert time.monotonic()<deadline
@@ -68,6 +73,7 @@ class FixtureAdapter:
                 if not p.exists():put(p,m.BARRIER_BYTES)
             system('daemon-reload')
         elif action in ('stop','return_stop'):
+            if action=='return_stop':assert running(unit),'DUPLICATE_RETURN_STOP'
             if self.scenario=='incomplete' and action=='stop':
                 return {'outcome':'CONFIRMED','action':action,'unit':unit,'cgroup_empty':False,'no_job':False}
             system('stop',unit)
@@ -142,7 +148,7 @@ def cleanup_fixture():
 def main():
     results=[]
     for scenario in ('success','incomplete','remaining_writer','backup','restore','probe','foreign_return',
-                     'interrupted','partial_install','return_release','crash_release','return_crash_release'):
+                     'interrupted','partial_install','return_release','crash_release','return_crash_release','partial_start_return'):
         setup()
         with tempfile.TemporaryDirectory(prefix='r3-native-journal-',dir='/etc') as temp:
             parent=Path(temp);parent.chmod(0o700);work=parent/'work';work.mkdir(mode=0o700)
@@ -163,7 +169,12 @@ def main():
                     try:flow.forward();raise AssertionError('FAILURE_NOT_DENIED')
                     except (m.Denied,KeyboardInterrupt):pass
                     assert flow.hold
-                    if scenario not in ('partial_install','crash_release'):assert not any(a=='install_four_artifacts' for a,u in adapter.calls)
+                    if scenario not in ('partial_install','crash_release','partial_start_return'):assert not any(a=='install_four_artifacts' for a,u in adapter.calls)
+                    if scenario=='partial_start_return':
+                        assert running(m.UNITS[0]) and all(not running(u) for u in m.UNITS[1:])
+                        assert flow.return_old()=='OLD_OPERATION_RESTORED_SECURITY_RED'
+                        assert [u for a,u in adapter.calls if a=='return_stop']==[m.UNITS[0]]
+                        assert all(running(u) for u in m.UNITS)
                     if scenario in ('backup','restore','probe','foreign_return','partial_install','return_release','return_crash_release'):
                         # Persistent condition refuses both manual and dependency
                         # activation, including after manager re-execution.
@@ -182,7 +193,7 @@ def main():
                         else:
                             assert flow.return_old()=='OLD_OPERATION_RESTORED_SECURITY_RED'
                             assert all(running(u) for u in m.UNITS)
-                    else:
+                    elif scenario!='partial_start_return':
                         assert not any(a=='start_old' for a,u in adapter.calls)
                         if adapter.foreign is not None:assert adapter.foreign.poll() is None
                         if scenario=='crash_release':

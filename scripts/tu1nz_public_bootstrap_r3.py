@@ -115,6 +115,8 @@ REQUIRED={
  'old_function':frozenset(('original_function_and_config_verified','restored_old_authority_security_RED')),
 }
 for _unit in UNITS:
+    REQUIRED['return_state:'+_unit]=frozenset(('fresh_exact_unit_invocation_cgroup_classified',
+        'all_prior_effects_classified_no_pending_job','own_persistent_barrier_effective'))
     REQUIRED['release:'+_unit]=frozenset(('only_this_own_barrier_quarantined_exactly',
         'downstream_barriers_still_effective','prior_unit_function_durably_accepted',
         'effective_installed_isolation_verified','no_foreign_change','persistent_journal_protected'))
@@ -206,6 +208,7 @@ class Flow:
         require(time.monotonic()<self.deadline,'TRANSACTION_DEADLINE')
         self.j.write('intent',{'action':name,'unit':unit})
         self.mutation_started=True
+        require(time.monotonic()<self.deadline,'INTENT_PERSISTENCE_DEADLINE_HOLD')
         limit=min(self.deadline,time.monotonic()+(20 if name in ('stop','return_stop','start','start_old') else 120))
         value=self.a.perform(name,unit,deadline=limit)
         require(time.monotonic()<=limit,'ACTION_DEADLINE_HOLD')
@@ -264,8 +267,13 @@ class Flow:
             self.witness('return_request')
             self.effect('establish_return_barriers');self.witness('barriers')
             for unit in STOP:
-                r=self.effect('return_stop',unit)
-                require(r.get('cgroup_empty') is True and r.get('no_job') is True,'RETURN_INCOMPLETE_STOP_HOLD')
+                o=self.witness('return_state:'+unit)
+                stopped='currently_stopped_cgroup_empty' in o.facts
+                active='currently_active_requires_single_return_stop' in o.facts
+                require(stopped!=active,'RETURN_STATE_AMBIGUOUS_HOLD')
+                if active:
+                    r=self.effect('return_stop',unit)
+                    require(r.get('cgroup_empty') is True and r.get('no_job') is True,'RETURN_INCOMPLETE_STOP_HOLD')
             self.witness(phase)
             self.effect('return_old_configuration',phase);self.witness('return_config')
             for unit in UNITS:

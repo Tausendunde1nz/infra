@@ -14,15 +14,22 @@ BINDING='a'*64
 def temporary():return tempfile.TemporaryDirectory(dir=Path(tempfile.gettempdir()).resolve())
 
 class Adapter:
-    def __init__(self):self.calls=[];self.deny=None;self.fail=None;self.unknown=None;self.incomplete=False
+    def __init__(self):
+        self.calls=[];self.deny=None;self.fail=None;self.unknown=None;self.incomplete=False;self.active=set(m.UNITS)
     def observe(self,phase,*,deadline):
         facts=m.REQUIRED[phase]
+        if phase.startswith('return_state:'):
+            unit=phase.split(':',1)[1]
+            facts=facts|{'currently_active_requires_single_return_stop' if unit in self.active else 'currently_stopped_cgroup_empty'}
         if phase==self.deny:facts=frozenset()
         return m.Observation(m.TX,BINDING,phase,frozenset(facts),time.monotonic())
     def perform(self,action,unit,*,deadline):
         self.calls.append((action,unit))
         if action==self.fail:raise OSError('PRIVATE_FAILURE_DETAILS')
         if action==self.unknown:return None
+        if action=='return_stop':assert unit in self.active,'DUPLICATE_STOP_REQUEST'
+        if action in ('stop','return_stop') and not self.incomplete:self.active.discard(unit)
+        if action in ('start','start_old'):self.active.add(unit)
         return {'action':action,'unit':unit,'outcome':'CONFIRMED',
                 'cgroup_empty':not self.incomplete,'no_job':True}
 
@@ -81,6 +88,7 @@ class BootstrapSequence(unittest.TestCase):
         self.a.fail=None
         self.assertEqual(self.f.return_old(),'OLD_OPERATION_RESTORED_SECURITY_RED')
         self.assertEqual([u for a,u in self.a.calls if a=='start_old'],list(m.UNITS))
+        self.assertEqual([u for a,u in self.a.calls if a=='return_stop'],[])
         names=[a for a,u in self.a.calls]
         self.assertLess(names.index('return_old_configuration'),names.index('quarantine_own_return_barrier'))
         self.assertLess(names.index('quarantine_own_return_barrier'),names.index('start_old'))
@@ -203,6 +211,33 @@ class BootstrapSequence(unittest.TestCase):
             self.f.deadline=700
             with patch.object(self.j,'write',side_effect=write),self.assertRaises(m.FlowFailure):self.f.forward()
         self.assertTrue(self.f.hold)
+    def test_slow_intent_persistence_never_calls_adapter(self):
+        clock=[100.0];original=self.j.write
+        def write(kind,value):
+            result=original(kind,value)
+            if kind=='intent':clock[0]=701
+            return result
+        with patch.object(m.time,'monotonic',side_effect=lambda:clock[0]):
+            self.f.deadline=700
+            with patch.object(self.j,'write',side_effect=write),self.assertRaises(m.FlowFailure):self.f.forward()
+        self.assertEqual(self.a.calls,[])
+    def test_return_stop_only_fresh_classified_active_invocation(self):
+        self.a.deny='started:'+m.UNITS[0]
+        with self.assertRaises(m.FlowFailure):self.f.forward()
+        self.a.deny=None
+        self.assertEqual(self.f.return_old(),'OLD_OPERATION_RESTORED_SECURITY_RED')
+        self.assertEqual([u for a,u in self.a.calls if a=='return_stop'],[m.UNITS[0]])
+    def test_ambiguous_current_return_state_never_resends_stop(self):
+        self.a.fail='protected_rights_backup'
+        with self.assertRaises(m.FlowFailure):self.f.forward()
+        self.a.fail=None;original=self.a.observe
+        def observe(phase,*,deadline):
+            o=original(phase,deadline=deadline)
+            if phase.startswith('return_state:'):
+                return m.Observation(o.transaction,o.binding,o.phase,m.REQUIRED[phase],o.observed_monotonic)
+            return o
+        with patch.object(self.a,'observe',side_effect=observe),self.assertRaises(m.FlowFailure):self.f.return_old()
+        self.assertNotIn('return_stop',str(self.a.calls));self.assertNotIn('start_old',str(self.a.calls))
     def test_lost_ack_durable_intent_remains_and_no_replay(self):
         original=self.j.write
         def fail(kind,value):
