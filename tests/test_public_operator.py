@@ -154,6 +154,35 @@ except BaseException as error:
                 with self.assertRaisesRegex(io.Hold, 'UNIT_RESTART_COUNTER_UNKNOWN'):
                     observe.Authority.unit(SimpleNamespace(deadline=time.monotonic()+1), observe.UNITS[0])
 
+    def test_unit_batch_requires_every_exact_individual_block(self):
+        # Parser-only protocol cases, not manager/authority GREEN substitutes.
+        units = observe.UNITS[:2]
+        a = 'Id='+units[0]+'\nLoadState=loaded'
+        b = 'Id='+units[1]+'\nLoadState=loaded'
+        bad = (a, a+'\n\n'+a, a+'\n\n'+b+'\nId='+units[1],
+               a+'\n\n'+b.replace(units[1], 'foreign.service'),
+               a+'\n\n'+b+'\nUnknown=yes', a+'\n\n'+b.replace('LoadState=loaded', 'LoadState'))
+        for raw in bad:
+            with self.subTest(raw=raw), patch.object(observe, 'command',
+                    return_value=SimpleNamespace(returncode=0, stdout=raw.encode())):
+                with self.assertRaises(io.Hold): observe.unit_properties(units, 'LoadState', time.monotonic()+1)
+        with patch.object(observe, 'command', return_value=SimpleNamespace(returncode=0,
+                stdout=(b+'\n\n'+a+'\n').encode())) as queried:
+            result = observe.unit_properties(units, 'LoadState', time.monotonic()+1)
+            self.assertEqual(set(result), set(units)); self.assertEqual(queried.call_count, 1)
+
+    def test_unit_batch_is_fresh_each_call_and_failure_is_not_cached(self):
+        unit = observe.UNITS[0]; deadline = time.monotonic()+1
+        first = SimpleNamespace(returncode=0, stdout=('Id='+unit+'\nLoadState=loaded').encode())
+        changed = SimpleNamespace(returncode=0, stdout=('Id='+unit+'\nLoadState=not-found').encode())
+        failed = SimpleNamespace(returncode=1, stdout=first.stdout)
+        with patch.object(observe, 'command', side_effect=(first, changed, failed)) as queried:
+            self.assertEqual(observe.unit_properties((unit,), 'LoadState', deadline)[unit]['LoadState'], 'loaded')
+            self.assertEqual(observe.unit_properties((unit,), 'LoadState', deadline)[unit]['LoadState'], 'not-found')
+            with self.assertRaisesRegex(io.Hold, 'UNIT_READ_UNKNOWN'):
+                observe.unit_properties((unit,), 'LoadState', deadline)
+            self.assertEqual(queried.call_count, 3)
+
     def test_entry_sanitizes_private_input_error_without_traceback(self):
         output = text_io.StringIO()
         with patch.object(client, 'main', side_effect=OSError('PRIVATE_CANARY_PATH')), contextlib.redirect_stdout(output):

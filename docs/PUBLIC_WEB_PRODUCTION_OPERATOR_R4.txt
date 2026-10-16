@@ -109,6 +109,14 @@ rights backup, independent read/restore/rename-return rehearsal; three probes;
 four unchanged create-only artifacts; ONLY S7 release/start/actual/durable acceptance,
 then Landing, then WMS; actual rights/function; complete owner operation/cleanup.
 Outer600s, each start/stop20s, other actions<=120s; owner TOTAL120s/512FD, no widening.
+Fresh manager reads of all three units and their same allowed dependencies are
+batched within each individual check. Every exact Id/property/block is required;
+duplicates, missing/foreign objects, malformed output and read failure deny.
+The actor census obtains its own NEW unit batch; no observation is cached across
+checks or effects. The manager read is not claimed atomic or future-stable.
+This removes thousands of duplicate systemctl process launches, not conditions
+or fences. The native production entry compares actual batched/single PID1
+reads; parser negatives cover missing/duplicate/foreign blocks and fresh changes.
 First invocation is tracked through kernel credential setup; a later automatic
 restart cannot be substituted for that requested start. Current listener belongs
 to the actual unit process. Actual internal/proxy/public HTTP, credential view,

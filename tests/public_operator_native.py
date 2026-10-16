@@ -384,6 +384,11 @@ def main():
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source(); setup(s)
     b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
     write(ROOT/'baseline.json', baseline_raw, 0o600)
+    # Actual PID1 batch and three independent single reads must agree before
+    # fault injection. Not a synthetic success response for an observer.
+    measured_units = s.load('observe').unit_rows(UNITS, time.monotonic()+20)
+    assert measured_units == {u: s.load('observe').Authority.unit(
+        type('Read', (), {'deadline': time.monotonic()+20})(), u) for u in UNITS}
     legacy = {}
     for u in UNITS:
         row = s.load('observe').process(int(s.load('observe').Authority.unit(

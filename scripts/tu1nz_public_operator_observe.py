@@ -71,6 +71,47 @@ def command(argv, deadline, *, data=None, preexec=None, extra_env=None):
     return result
 
 
+def unit_properties(units, properties, deadline):
+    """One fresh bounded manager read, never a cache across checks/actions.
+
+    Keep every requested object/property, reject duplicates/missing/foreign
+    blocks. Repeated identical dependency reads within a single census need
+    not each spawn another systemctl process. Manager reads remain sequential,
+    not claimed to be an atomic snapshot or evidence of future stability.
+    """
+    allowed = {*UNITS, 'system.slice', 'sysinit.target', 'network-online.target', 'tmp.mount'}
+    io.require(units and len(units) == len(set(units)) and set(units) <= allowed,
+               'UNIT_BATCH_SCOPE')
+    keys = set(properties.split(',')) | {'Id'}
+    io.require(keys <= set(PROPERTIES.split(',')), 'UNIT_PROPERTY_SCOPE')
+    r = command(['/usr/bin/systemctl', 'show', *units, '--no-pager',
+                 '--property='+','.join(sorted(keys))], deadline)
+    io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
+    result = {}
+    for block in r.stdout.decode().strip().split('\n\n'):
+        value = {}
+        for line in block.splitlines():
+            io.require('=' in line, 'UNIT_PROFILE_UNKNOWN')
+            name, item = line.split('=', 1)
+            io.require(name in keys and name not in value, 'UNIT_PROFILE_UNKNOWN')
+            value[name] = item
+        identity = value.get('Id')
+        io.require(set(value) == keys and identity in units and identity not in result,
+                   'UNIT_PROFILE_UNKNOWN')
+        result[identity] = value
+    io.require(set(result) == set(units), 'UNIT_PROFILE_UNKNOWN')
+    return result
+
+
+def unit_rows(units, deadline):
+    result = unit_properties(units, PROPERTIES, deadline)
+    for value in result.values():
+        io.require(value['LoadState'] == 'loaded', 'UNIT_PROFILE_UNKNOWN')
+        io.require(re.fullmatch('0|[1-9][0-9]{0,9}', value['NRestarts']) and
+                   int(value['NRestarts']) <= 0xffffffff, 'UNIT_RESTART_COUNTER_UNKNOWN')
+    return result
+
+
 def starttime(pid):
     value = Path('/proc', str(pid), 'stat').read_text()
     return value[value.rfind(')')+2:].split()[19]
@@ -192,7 +233,7 @@ class Authority:
             baseline['source_origin_receipts'], python_binary=baseline['source_release']['python_binary'], deadline=deadline)
         self.check_files()
         io.require(self.unit_search() == baseline['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
-        self.initial_units = {u: self.unit(u) for u in UNITS}
+        self.initial_units = unit_rows(UNITS, self.deadline)
         self.check(stop_only=True)
 
     def function(self, unit, *, old):
@@ -404,18 +445,20 @@ class Authority:
 
     def unit(self, unit):
         io.require(unit in UNITS, 'UNIT_SCOPE')
-        r = command(['/usr/bin/systemctl', 'show', unit, '--no-pager', '--property='+PROPERTIES], self.deadline)
-        io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
-        value = dict(x.split('=', 1) for x in r.stdout.decode().splitlines() if '=' in x)
-        io.require(set(PROPERTIES.split(',')) <= set(value) and value['Id'] == unit and
-                   value['LoadState'] == 'loaded', 'UNIT_PROFILE_UNKNOWN')
-        io.require(re.fullmatch('0|[1-9][0-9]{0,9}', value['NRestarts']) and
-                   int(value['NRestarts']) <= 0xffffffff, 'UNIT_RESTART_COUNTER_UNKNOWN')
-        return value
+        return unit_rows((unit,), self.deadline)[unit]
 
     def units_check(self, *, stop_only):
+        rows = unit_rows(UNITS, self.deadline)
+        # Gather only the same four permitted dependencies, freshly measured
+        # in this check. No dependency is inferred healthy from the baseline.
+        dependency_names = set()
+        for value in rows.values():
+            dependency_names.update(set(value['Requires'].split()) & {'system.slice', 'sysinit.target'})
+            dependency_names.update(set(value['Wants'].split()) & {'network-online.target', 'tmp.mount'})
+        dependencies = (unit_properties(sorted(dependency_names),
+            'LoadState,StopWhenUnneeded,ActiveState,Job', self.deadline) if dependency_names else {})
         for unit in UNITS:
-            value = self.unit(unit)
+            value = rows[unit]
             expected = self.b['unit_files'][unit]
             io.require(value['FragmentPath'] == expected['fragment'] and
                        not value['Job'] and value['NeedDaemonReload'] == 'no' and
@@ -432,10 +475,8 @@ class Authority:
                        value['User'] == value['Group'] == 'chatops' and value['NoNewPrivileges'] == 'yes',
                        'FIXED_UNIT_CONTROL_CONTRACT_CHANGED')
             for implicit in actual_requires & {'system.slice', 'sysinit.target'}:
-                r = command(['/usr/bin/systemctl', 'show', implicit, '--no-pager',
-                             '--property=StopWhenUnneeded,LoadState'], self.deadline)
-                props = dict(x.split('=', 1) for x in r.stdout.decode().splitlines() if '=' in x)
-                io.require(r.returncode == 0 and props == {'LoadState': 'loaded', 'StopWhenUnneeded': 'no'},
+                props = dependencies[implicit]
+                io.require(props['LoadState'] == 'loaded' and props['StopWhenUnneeded'] == 'no',
                            'IMPLICIT_DEPENDENCY_STOP_IMPACT_UNKNOWN')
             io.require(not any(value[k] for k in ('Triggers', 'TriggeredBy', 'OnFailure')),
                        'UNCONTROLLED_ACTIVATION')
@@ -447,10 +488,8 @@ class Authority:
             wants = set(value['Wants'].split())
             io.require(wants <= {'network-online.target', 'tmp.mount'}, 'FOREIGN_START_IMPACT')
             for dependency in wants:
-                r = command(['/usr/bin/systemctl', 'show', dependency, '--no-pager',
-                             '--property=StopWhenUnneeded,LoadState,ActiveState,Job'], self.deadline)
-                props = dict(x.split('=', 1) for x in r.stdout.decode().splitlines() if '=' in x)
-                io.require(r.returncode == 0 and props == {'LoadState': 'loaded', 'StopWhenUnneeded': 'no',
+                props = {k: v for k, v in dependencies[dependency].items() if k != 'Id'}
+                io.require(props == {'LoadState': 'loaded', 'StopWhenUnneeded': 'no',
                                                           'ActiveState': 'active', 'Job': ''},
                            'START_DEPENDENCY_NOT_ALREADY_ACTIVE_OR_UNCONTROLLED')
             # Allowed base dependency order is pinned independently, not merely
@@ -512,8 +551,9 @@ class Authority:
         # query repeated all three manager reads for every unrelated PID. No
         # observation is reused across censuses or a Host action.
         right_pids = {}; right_seen = set()
+        right_rows = unit_rows(sorted(self.rights), self.deadline) if self.rights else {}
         for unit in self.rights:
-            value = self.unit(unit); expected = self.runtime_invocations[unit]
+            value = right_rows[unit]; expected = self.runtime_invocations[unit]
             io.require(value['ActiveState'] == 'active' and not value['Job'] and
                        value['NRestarts'] == '0' and
                        (value['InvocationID'], int(value['MainPID'])) == expected[:2],
