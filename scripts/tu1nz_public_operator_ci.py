@@ -20,9 +20,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tu1nz_control_private_ci as boundary
 import tu1nz_public_operator as operator
 
-CONTROL_COMMIT = 'af33477cef240c8b0060a1d65745f9bb75538431'
+CONTROL_COMMIT = 'f2979863bbb7043261e9177842503a9b47cdb49f'
 CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
          'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack')
+FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
+          'runtime_tamper': ['REAL_RUNTIME_DRIFT_BEFORE_ADMISSION'],
+          'namespace_swap': ['REAL_RENAME_AND_RETURN'], 'lost_ack': ['REAL_INVALID_TRANSPORT_ACK'],
+          'interrupt': ['OWNED_COORDINATOR_PIDFD_INTERRUPT'],
+          'restore_fail_return': ['REAL_BACKUP_CORRUPTION'],
+          'probe_fail_return': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT'],
+          'denied_return': ['REAL_RUNTIME_DRIFT_AFTER_STOP'],
+          'owner_return': ['EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT'],
+          'lost_start_ack': ['REAL_INVALID_START_ACK']}
 SCHEMA = 'TU1NZ_PUBLIC_OPERATOR_NATIVE_CI_V1'
 
 
@@ -114,6 +123,7 @@ def validate_report(raw, case, hashes):
             value['scenario'] == case and value['source_files'] == hashes and
             value['fixture_only_no_host_acceptance'] is True and
             re.fullmatch('[a-f0-9]{64}', value['proof'] or ''), 'REPORT_SOURCE_OR_SCHEMA_RED')
+    require(value['actual_faults'] == FAULTS[case], 'INTENDED_FAULT_NOT_WITNESSED')
     if case == 'success':
         require((value['status'], value['server_exit'], value['owner_confirmations'], value['actual_root_objects']) ==
                 ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', 0, 84, 88), 'FORWARD_RED')

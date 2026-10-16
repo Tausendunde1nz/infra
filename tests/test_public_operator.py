@@ -4,6 +4,9 @@ Full action/observation/supervisor proofs are the separate native suite. These
 tests cover parsing, exact custody, reference material and negative CLI edges.
 """
 import importlib.util
+import base64
+import contextlib
+import io as text_io
 import json
 import os
 from pathlib import Path
@@ -12,6 +15,8 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 SCRIPTS = Path(__file__).resolve().parents[1]/'scripts'
 sys.path.insert(0, str(SCRIPTS))
@@ -28,6 +33,49 @@ class Reply:
 
 
 class OperatorBoundary(unittest.TestCase):
+    def test_entry_sanitizes_private_input_error_without_traceback(self):
+        output = text_io.StringIO()
+        with patch.object(client, 'main', side_effect=OSError('PRIVATE_CANARY_PATH')), contextlib.redirect_stdout(output):
+            self.assertEqual(client.entry(), 1)
+        value = json.loads(output.getvalue())
+        self.assertEqual(value['status'], 'HOLD'); self.assertNotIn('CANARY', output.getvalue())
+        self.assertNotIn('Traceback', output.getvalue())
+
+    def test_transport_eof_records_rereads_and_reports_hold_without_ssh(self):
+        # Transport-boundary ONLY: replace the SSH executable with an owned
+        # local framed peer which closes before a result. No Host observation,
+        # admission flag, action, journal claim or provider effect is supplied.
+        raw = (SCRIPTS/'tu1nz_public_operator_io.py').read_bytes(); digest = io.sha(raw)
+        peer = ('import sys,json;sys.stdin.buffer.readline();v=json.dumps('+repr(
+            {'type': 'ready', 'io_sha256': digest})+').encode();'
+            'sys.stdout.buffer.write(len(v).to_bytes(4,"big")+v);sys.stdout.buffer.flush();'
+            'n=int.from_bytes(sys.stdin.buffer.read(4),"big");sys.stdin.buffer.read(n)')
+        original = subprocess.Popen; children = []
+        def popen(argv, **kw):
+            if argv[0] == '/usr/bin/ssh':
+                child = original([sys.executable, '-I', '-B', '-c', peer], **kw)
+                children.append(child); return child
+            return original(argv, **kw)
+        with tempfile.TemporaryDirectory(prefix='PRIVATE_CANARY-') as d:
+            paths = [Path(d)/name for name in ('first', 'second')]
+            for p in paths: p.mkdir(mode=0o700)
+            fds = [os.open(p, os.O_RDONLY | os.O_DIRECTORY) for p in paths]
+            output = text_io.StringIO()
+            with patch.object(client, 'preparation_records', return_value=(paths, fds)), \
+                 patch.object(client.getpass, 'getpass', return_value='SYNTHETIC_ONLY'), \
+                 patch.object(client.subprocess, 'Popen', popen), contextlib.redirect_stdout(output):
+                result = client.execute({'binding': 'a'*64}, {'io': base64.b64encode(raw).decode()}, {'io': digest},
+                                        {'http': {'lighting': {'location': 'root'}}}, SimpleNamespace(UNITS=()))
+            self.assertEqual(result, 1); self.assertEqual(json.loads(output.getvalue())['status'], 'HOLD')
+            self.assertEqual((paths[0]/'result.json').read_bytes(), (paths[1]/'result.json').read_bytes())
+            record = json.loads((paths[0]/'result.json').read_bytes())
+            self.assertEqual(record['status'], 'HOLD'); self.assertTrue(record['client_primary'])
+            self.assertEqual(record['client_abort'], []); self.assertEqual(record['client_cleanup'], [])
+            self.assertEqual(len(children), 1); self.assertIsNotNone(children[0].poll())
+            for fd in fds:
+                with self.assertRaises(OSError): os.fstat(fd)
+            self.assertNotIn('CANARY', output.getvalue()); self.assertNotIn('Traceback', output.getvalue())
+
     def test_strict_json_duplicates_and_nonfinite(self):
         for raw in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":Infinity}'):
             with self.subTest(raw=raw), self.assertRaises(io.Hold): io.parse(raw)

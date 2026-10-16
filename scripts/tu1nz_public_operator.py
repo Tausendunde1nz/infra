@@ -337,6 +337,11 @@ def main():
         print(json.dumps({'status': 'LOCAL_PACKAGE_VALIDATED_NO_HOST_ACCESS', 'binding': packet['binding'],
                           'host_dispatched': False, 'slot_consumed': False})); return
     io.require(sys.stdin.isatty(), 'HUMAN_TTY_REQUIRED_NO_CHAT_PASSWORD')
+    return execute(packet, encoded, hashes, baseline, r3, owner_hold_before=args.hold_owner_before)
+
+
+def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None):
+    """Actual owned transport/custody lifecycle; no Host gate substitutions."""
     program = bootstrap(base64.b64decode(encoded['io']))
     remote = 'LC_ALL=C '+shlex.join(['/usr/bin/sudo', '-S', '-k', '-p', '', '--',
                                     '/usr/bin/python3', '-I', '-B', '-S', '-c', program])
@@ -363,14 +368,13 @@ def main():
         wire.send(packet)
         http = [e for u in (*r3.UNITS, 'lighting') for e in
                 (baseline['http'][u] if u != 'lighting' else [baseline['http'][u]]) if e['location'] == 'client']
-        client = Client(wire, r3, packet['binding'], http_expectations=http, owner_hold_before=args.hold_owner_before)
+        client = Client(wire, r3, packet['binding'], http_expectations=http, owner_hold_before=owner_hold_before)
         result = client.serve(); child.stdin.close()
         io.require(child.wait(timeout=5) == 0, 'SSH_END_UNKNOWN')
     except BaseException as error:
         result = {**result, 'remote_status': result['status'], 'status': 'HOLD',
                   'client_primary': getattr(error, 'primary', 'PUBLIC_BOOTSTRAP_CLIENT_INTERRUPTED_OR_IO_UNKNOWN'),
                   'client_abort': [], 'client_cleanup': getattr(error, 'client_cleanup', [])}
-        raise
     finally:
         password = None
         cleanup = list(result.get('client_cleanup', []))
@@ -416,4 +420,18 @@ def main():
     return 0 if result['status'] == 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED' else 1
 
 
-if __name__ == '__main__': raise SystemExit(main())
+def entry():
+    try:
+        return main()
+    except SystemExit:
+        raise  # argparse help/usage has no Host dispatch and no private payload.
+    except BaseException as error:
+        primary = getattr(error, 'primary', '')
+        if not isinstance(primary, str) or not re.fullmatch('PUBLIC_BOOTSTRAP_[A-Z0-9_]{1,160}', primary):
+            primary = 'PUBLIC_OPERATOR_ENTRY_DENIED_OR_OUTCOME_UNCONFIRMED'
+        print(json.dumps({'status': 'HOLD', 'primary': primary, 'r2_dispatch': False,
+                          'slot_consumed_by_operator': False}))
+        return 1
+
+
+if __name__ == '__main__': raise SystemExit(entry())

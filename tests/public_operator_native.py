@@ -396,6 +396,8 @@ def main():
     endpoints = [e for u in (*UNITS, 'lighting') for e in (b['http'][u] if u != 'lighting' else [b['http'][u]])
                  if e['location'] == 'client']
     fault_wire = FaultWire(wire, args.scenario, child)
+    if args.scenario == 'writer': fault_wire.injected.append('REAL_PREEXISTING_WRITABLE_FD')
+    if args.scenario == 'runtime_tamper': fault_wire.injected.append('REAL_RUNTIME_DRIFT_BEFORE_ADMISSION')
     supervisor = client.Client(fault_wire, r, packet['binding'], http_expectations=endpoints)
     result = {'status': 'UNKNOWN_TEST_PROTOCOL_HOLD'}
     try:
@@ -408,6 +410,8 @@ def main():
     if held_writer is not None: os.close(held_writer)
     write(ROOT/'server-stderr', stderr, 0o600)
     write(ROOT/'result.json', io.canonical(result), 0o600)
+    from tu1nz_public_operator_ci import FAULTS
+    assert fault_wire.injected == FAULTS[args.scenario], 'INTENDED_REAL_FAULT_NOT_INJECTED'
     acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
     actual_root = sum(p.stat().st_uid == 0 for p in [WEB, *WEB.rglob('*')])
     print(json.dumps({'scenario': args.scenario, 'status': result['status'], 'server_exit': code,

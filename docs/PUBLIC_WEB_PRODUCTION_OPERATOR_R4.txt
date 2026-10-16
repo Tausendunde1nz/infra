@@ -141,7 +141,7 @@ The SSH executable/real Tailscale/sudo endpoint is NOT exercised by those fixtur
 actual Host authentication/rights and every fresh Host prerequisite remain gates.
 Required CI uses exact reviewed private Control Source, network-none read-only
 mounts, no token in the guest and no private output/artifact/cache publication.
-The private-CI helper pins Controlaf33477cef240c8b0060a1d65745f9bb75538431,
+The private-CI helper pins Controlf2979863bbb7043261e9177842503a9b47cdb49f,
 fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
 and tests each scenario in a new finite network-none/read-only/PID1 guest.
 The two approved private helpers clean their OWN inputs/containers separately;
@@ -151,6 +151,19 @@ owner120s/start-stop20s/outer600s and the original downstream75min gate remain
 unchanged. Forks, arbitrary same-repo PRs and unreviewed Environment admission
 remain denied. Every actual SHA including CI helper/workflow/image must have
 independent review before the required Environment reviewer authorizes the job.
+Every fault case must also supply its exact real injection marker; generic HOLD
+or the right object count alone cannot prove the intended path was exercised.
+CLI transport failure still writes BOTH private results, closes owned resources,
+independently rereads the results and reports sanitized HOLD/exit1, no traceback.
+
+Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
+any child. All planned objects must share that device. Only after every exact
+per-object/name/ancestor watch is active and setup queues have been checked is
+the temporary broad mark closed. ANY mutation during that small setup interval
+is unclassified and denies, including unrelated filesystem work; not a proven
+Site drift. A busy Host can therefore conservatively HOLD. No retry or broader
+deadline follows. FAN_MARK_FILESYSTEM support and the operator's existing
+CAP_SYS_ADMIN are fresh Host gates; no rights installation/fallback is supplied.
 
 Source GREEN never supplies fresh Host authority, role closure, safe ancestry,
 space/quota/LSM/kernel proof, current exact e9ac7f census, protected backup/restore,

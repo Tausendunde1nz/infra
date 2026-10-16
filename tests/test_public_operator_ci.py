@@ -15,7 +15,7 @@ import tu1nz_public_operator_ci as m
 
 class PublicOperatorCI(unittest.TestCase):
     def test_exact_private_commit_and_three_blobs_only(self):
-        self.assertEqual(m.CONTROL_COMMIT, 'af33477cef240c8b0060a1d65745f9bb75538431')
+        self.assertEqual(m.CONTROL_COMMIT, 'f2979863bbb7043261e9177842503a9b47cdb49f')
         calls = []
         def command(argv, **kw):
             calls.append((argv, dict(kw.get('env', m.boundary.tool_env()))))
@@ -69,6 +69,16 @@ class PublicOperatorCI(unittest.TestCase):
                         {'fixture_only_no_host_acceptance': False}, {'server_exit': 1}, {'green': True}):
             with self.subTest(changed=changed), self.assertRaises((m.CIError, m.operator.io.Hold)):
                 m.validate_report(json.dumps({**value, **changed}).encode(), 'success', hashes)
+
+    def test_every_fault_requires_its_own_actual_marker(self):
+        self.assertEqual(set(m.FAULTS), set(m.CASES))
+        for case in m.CASES:
+            if case == 'success': continue
+            value = {'scenario': case, 'status': 'HOLD', 'server_exit': 0, 'proof': 'a'*64,
+                     'source_files': {}, 'owner_confirmations': 0, 'actual_root_objects': 4,
+                     'actual_faults': [], 'fixture_only_no_host_acceptance': True}
+            with self.subTest(case=case), self.assertRaisesRegex(m.CIError, 'INTENDED_FAULT_NOT_WITNESSED'):
+                m.validate_report(json.dumps(value).encode(), case, {})
 
     def test_native_failure_and_interrupt_never_leak_private_output_and_cleanup(self):
         for failure in (RuntimeError('PRIVATE_CANARY github_pat_SYNTHETIC'), InterruptedError('PRIVATE_CANARY')):
