@@ -769,7 +769,7 @@ class Authority:
                 continue
             io.require(stat.S_ISSOCK(s.st_mode), 'BROKER_ALIAS_UNKNOWN')
             io.require(not os.listxattr(actual), 'BROKER_ACL_OR_LSM_UNKNOWN')
-            groups = set(row['groups']) | set(row['gid'])
+            groups = set(row['groups']) | {row['gid'][3]}
             bits = (stat.S_IMODE(s.st_mode) >> (6 if uid == s.st_uid else 3 if s.st_gid in groups else 0)) & 7
             io.require(not bits & 2 or (known_stop and path in
                        ('/run/docker.sock', '/var/run/docker.sock', '/run/containerd/containerd.sock')),

@@ -63,6 +63,13 @@ class OperatorBoundary(unittest.TestCase):
 
     @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid(self):
+        self._actual_socket_dac_probe(filesystem_group=False)
+
+    @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
+    def test_actual_fsgid_not_real_saved_group_controls_other_write(self):
+        self._actual_socket_dac_probe(filesystem_group=True)
+
+    def _actual_socket_dac_probe(self, *, filesystem_group):
         # Actual synthetic Unix socket and actual kernel fsuid in an owned
         # subprocess only. No administrative broker/provider operation.
         with tempfile.TemporaryDirectory() as d:
@@ -70,17 +77,21 @@ class OperatorBoundary(unittest.TestCase):
             listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 listener.bind(str(path)); listener.listen(1)
-                os.chown(path, 1001, 1001); path.chmod(0o200)
+                os.chown(path, 1001, 1001); path.chmod(0o002 if filesystem_group else 0o200)
                 program = '''import ctypes,json,os,socket,sys
 from pathlib import Path
 libc=ctypes.CDLL(None,use_errno=True)
 phase="NATIVE_FSUID_CHILD_SETFSUID_RED"
 try:
- assert libc.setfsuid(1001)==0
+ group=sys.argv[2]=="GROUP"
+ if group:
+  os.setgroups([]);os.setresgid(1001,1002,1001)
+ assert libc.setfsuid(1003 if group else 1001)==0
  phase="NATIVE_FSUID_CHILD_UID_VIEW_RED"
  s=dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
  uids=list(map(int,s["Uid"].split()))
- assert os.geteuid()==0 and uids[1]==0 and uids[3]==1001
+ assert os.geteuid()==0 and uids[1]==0 and uids[3]==(1003 if group else 1001)
+ if group:assert list(map(int,s["Gid"].split()))==[1001,1002,1001,1002] and not s["Groups"].split()
  phase="NATIVE_FSUID_CHILD_CONNECT_RED"
  peer=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);peer.connect(sys.argv[1]);peer.close()
  print("ACTUAL_FSUID_SOCKET_CONNECTED",flush=True)
@@ -95,7 +106,8 @@ except BaseException as error:
                 # identity. Only the observed actor has a different fsuid.
                 # Changing the observer's fsuid too would test different
                 # procfs/LSM read authority, not the production DAC decision.
-                child = subprocess.Popen([sys.executable, '-I', '-B', '-c', program, str(path)],
+                child = subprocess.Popen([sys.executable, '-I', '-B', '-c', program, str(path),
+                                          'GROUP' if filesystem_group else 'OWNER'],
                                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 failure = None; ready = False
                 try:
@@ -103,7 +115,9 @@ except BaseException as error:
                     ready = child.stdout.readline(128) == b'ACTUAL_FSUID_SOCKET_CONNECTED\n'
                     self.assertTrue(ready)
                     row = observe.process(child.pid)
-                    self.assertEqual(row['uid'][1], 0); self.assertEqual(row['uid'][3], 1001)
+                    self.assertEqual(row['uid'][1], 0); self.assertEqual(row['uid'][3], 1003 if filesystem_group else 1001)
+                    if filesystem_group:
+                        self.assertEqual(row['gid'], [1001, 1002, 1001, 1002]); self.assertEqual(row['groups'], [])
                     def unexpected(*a, **k): raise AssertionError('DAC_REJECTION_MUST_PRECEDE_INHERITED_INSPECTION')
                     authority = SimpleNamespace(b={'broker_tcp': [], 'broker_sockets': [str(path)]},
                                                 inherited_sockets=unexpected)

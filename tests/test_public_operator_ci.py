@@ -164,7 +164,8 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertEqual(argv[:6], ['/usr/bin/docker', 'exec', 'owned', '/usr/bin/python3', '-I', '-B'])
         self.assertIn('os.geteuid()==0', argv[-1]); self.assertIn('not r.skipped', argv[-1])
         self.assertIn('test_actual_fsuid_socket_owner_', argv[-1])
-        self.assertIn('test_actual_child_dac_failure_', argv[-1]); self.assertIn('r.testsRun==2', argv[-1])
+        self.assertIn('test_actual_child_dac_failure_', argv[-1]); self.assertIn('r.testsRun==3', argv[-1])
+        self.assertIn('test_actual_fsgid_not_real_saved_group_', argv[-1])
 
     def test_zero_uid_without_ptrace_is_not_native_observer_evidence(self):
         with patch('tests.test_public_operator.sys.platform', 'linux'), \

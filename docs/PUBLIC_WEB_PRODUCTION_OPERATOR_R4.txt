@@ -174,6 +174,12 @@ remain denied. Every actual SHA including CI helper/workflow/image must have
 independent review before the required Environment reviewer authorizes the job.
 Every fault case must also supply its exact real injection marker; generic HOLD
 or the right object count alone cannot prove the intended path was exercised.
+Socket group-class selection uses ONLY filesystem GID plus supplementary groups,
+not real/effective/saved GIDs. A third mandatory native root case proves real
+GID/savedGID1001, filesystemGID1002, no supplementary groups and filesystemUID1003
+can actually connect to a UID/GID1001 socket with mode0002 (other-write only).
+The production broker calculation must deny that authority; treating it as a
+non-writable group member would hide the actual other-write permission.
 On failure CI emits only schema-checked Source component/line/type locations;
 never child stderr, exception values, assertions, private Source or observations.
 Unknown/malformed diagnostic data is omitted, and the scenario remains RED.
@@ -199,9 +205,9 @@ The synthetic child reports a finite setup/UID-view/connect/handshake code and
 bounded errno, never exception text. Parent cleanup cannot replace that child's
 actual failure with a generic exit assertion. Other observer failures retain
 their primary cause. These are fixture diagnostics, not new admission facts.
-The mandatory root entry runs BOTH the actual successful-connect/DAC-denial
-case and a real synthetic mode0 socket failure. The latter must retain connect
-phase/errno13 through cleanup; neither case may be skipped or mocked GREEN.
+The mandatory root entry runs the actual fsuid-owner and fsgid/other-write cases
+plus a real synthetic mode0 socket failure. The latter must retain connect
+phase/errno13 through cleanup; no case may be skipped or mocked GREEN.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
 after a successful matrix still makes the job RED, without discarding its proof.

@@ -66,12 +66,17 @@ sys.path.insert(0,"/source")
 from tests.test_public_operator import OperatorBoundary
 class Result(unittest.TestResult):
  error=None
- def addError(self,test,error):self.error=error;super().addError(test,error)
- def addFailure(self,test,error):self.error=error;super().addFailure(test,error)
+ def addError(self,test,error):
+  if self.error is None:self.error=error
+  super().addError(test,error)
+ def addFailure(self,test,error):
+  if self.error is None:self.error=error
+  super().addFailure(test,error)
 r=Result()
 unittest.TestSuite([OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid"),
- OperatorBoundary("test_actual_child_dac_failure_is_not_replaced_by_fixture_cleanup")]).run(r)
-if not (r.testsRun==2 and not r.skipped and not r.failures and not r.errors):
+ OperatorBoundary("test_actual_child_dac_failure_is_not_replaced_by_fixture_cleanup"),
+ OperatorBoundary("test_actual_fsgid_not_real_saved_group_controls_other_write")]).run(r)
+if not (r.testsRun==3 and not r.skipped and not r.failures and not r.errors):
  line=1;kind="AssertionError";cause=None;number=0
  if r.error:
   kind=r.error[0].__name__;trace=r.error[2]
@@ -312,7 +317,7 @@ def run(workspace, image):
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
-                  'native_fsuid_tests': 2,
+                  'native_fsuid_tests': 3,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback
