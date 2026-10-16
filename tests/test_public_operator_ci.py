@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 import tu1nz_public_operator_ci as m
+from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
@@ -159,6 +160,16 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertEqual(argv[:6], ['/usr/bin/docker', 'exec', 'owned', '/usr/bin/python3', '-I', '-B'])
         self.assertIn('os.geteuid()==0', argv[-1]); self.assertIn('not r.skipped', argv[-1])
         self.assertIn('test_actual_fsuid_socket_owner_', argv[-1])
+
+    def test_zero_uid_without_ptrace_is_not_native_observer_evidence(self):
+        with patch('tests.test_public_operator.sys.platform', 'linux'), \
+             patch('tests.test_public_operator.os.geteuid', return_value=0), \
+             patch('tests.test_public_operator.Path.read_text', return_value='CapEff:\t0000000000000000\n'):
+            self.assertFalse(native_trace_capable())
+        with patch('tests.test_public_operator.sys.platform', 'linux'), \
+             patch('tests.test_public_operator.os.geteuid', return_value=0), \
+             patch('tests.test_public_operator.Path.read_text', return_value='CapEff:\t0000000000080000\n'):
+            self.assertTrue(native_trace_capable())
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

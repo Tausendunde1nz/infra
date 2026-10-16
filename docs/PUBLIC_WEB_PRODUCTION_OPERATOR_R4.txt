@@ -190,6 +190,11 @@ parent reads its real proc identity and requires the actual broker-DAC denial.
 CI distinguishes create/inspect/start/PID1-ready/fsuid/production phases. A root
 regression failure retains its public Source location and, if available, only
 an allowlisted cause code, not a formatted unittest traceback or child stderr.
+The component's ordinary-container predicate requires actual CAP_SYS_PTRACE:
+UID0 alone cannot inspect the fsuid-changed nondumpable synthetic child. Missing
+capability skips this component in an ordinary boundary environment, NOT GREEN
+native proof. The required privileged CI guest still forbids skips and must
+produce the actual native marker. No Host capability installation is supplied.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
 after a successful matrix still makes the job RED, without discarding its proof.

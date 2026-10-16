@@ -34,8 +34,16 @@ class Reply:
     def receive(self): return self.reply
 
 
+def native_trace_capable():
+    if sys.platform != 'linux' or os.geteuid() != 0: return False
+    try:
+        status = dict(line.split(':', 1) for line in Path('/proc/self/status').read_text().splitlines() if ':' in line)
+        return bool(int(status['CapEff'].strip(), 16) & (1 << 19))  # CAP_SYS_PTRACE
+    except (OSError, ValueError, KeyError): return False
+
+
 class OperatorBoundary(unittest.TestCase):
-    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0, 'requires isolated native Linux root')
+    @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid(self):
         # Actual synthetic Unix socket and actual kernel fsuid in an owned
         # subprocess only. No administrative broker/provider operation.
