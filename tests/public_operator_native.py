@@ -1,0 +1,442 @@
+"""Real production session/Client/adapter in a fresh network-none PID1 guest.
+
+Only synthetic application, SQL, TLS, policy and website data. The sole test
+substitutions are EXPECTED target machine/owner-plan/custody/legacy-context bindings, because
+real Host data and its immutable plan are forbidden here. No observation,
+authorization query, fence, action, backup, supervisor or receipt is replaced.
+No production entry exposes these test binding substitutions as CLI options.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import fcntl
+import hashlib
+import importlib.util
+import json
+import os
+import signal
+from pathlib import Path
+import stat
+import socket
+import struct
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, '/source/scripts')
+import tu1nz_public_operator as client
+import tu1nz_public_operator_io as io
+
+ROOT = Path('/fixture-r4')
+APP = Path('/opt/tu1nz_repos/adult-publishing-core')
+STATE = Path('/var/lib/tu1nz-adult-public-s9')
+WEB = Path('/var/www/lighting.tu1nz.com')
+UNITS = ('tu1nz-adult-public-s7.service', 'tu1nz-adult-public-s8-landing.service', 'tu1nz-adult-public-s10-wms.service')
+CONFIGS = ('adult-commercial-s7-public.json', 'adult-commercial-s8-landing.json', 'adult-commercial-s10-wms.json')
+PROFILES = ('s7', 's8-landing', 'wms')
+SERVER = r'''import argparse,json,os,sys
+from http.server import BaseHTTPRequestHandler,HTTPServer
+from pathlib import Path
+p=argparse.ArgumentParser();p.add_argument('--contract');args,_=p.parse_known_args()
+c=json.loads(Path(args.contract).read_bytes());body=('SYNTHETIC-'+c['profile']).encode()
+if c['profile']!='s7':
+ root=Path('/var/lib/tu1nz-adult-public-s9')
+ for name in ('landing-aggregates.json','wms-traffic-quality.json'):
+  q=root/name
+  if not q.exists():q.write_text('{"synthetic_count":7}');q.chmod(0o600)
+class Handler(BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+ def do_HEAD(self):self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers()
+ def log_message(self,*a):pass
+HTTPServer((c['bind_host'],c['bind_port']),Handler).serve_forever()
+'''
+SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
+             'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack')
+
+
+class FaultWire:
+    """Test faults are real Guest files/signals/transport, never observations.
+
+    The actual production Client and remote admission/backup/action/supervisor
+    code still execute. No REQUIRED facts, policy response or GREEN is replaced.
+    """
+    def __init__(self, wire, scenario, child):
+        self.wire, self.scenario, self.child = wire, scenario, child
+        self.record = None; self.intents = self.acks = 0; self.injected = []
+
+    @property
+    def deadline(self): return self.wire.deadline
+
+    def receive(self):
+        message = self.wire.receive()
+        if message.get('type') != 'durable_record': return message
+        self.record = message['record']; kind, value = self.record['kind'], self.record['value']
+        if kind == 'owner_object_intent':
+            self.intents += 1
+            if self.intents == 8 and self.scenario == 'namespace_swap':
+                path = WEB/'dir0/file5'; saved = WEB/'dir0/fixture-renamed'
+                os.rename(path, saved); os.rename(saved, path); self.injected.append('REAL_RENAME_AND_RETURN')
+            if self.intents == 8 and self.scenario == 'interrupt':
+                fd = os.pidfd_open(self.child.pid)
+                try: signal.pidfd_send_signal(fd, signal.SIGINT)
+                finally: os.close(fd)
+                self.injected.append('OWNED_COORDINATOR_PIDFD_INTERRUPT')
+        if kind == 'owner_object_ack': self.acks += 1
+        if kind == 'host_action_intent' and not self.injected:
+            if value['action'] == 'isolated_restore_rehearsal' and self.scenario == 'restore_fail_return':
+                p = Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/before/000')
+                p.write_bytes(b'SYNTHETIC_PRIVATE_BACKUP_CORRUPTION'); self.injected.append('REAL_BACKUP_CORRUPTION')
+            if value['action'] == 'create_sealed_staging' and self.scenario == 'denied_return':
+                p = APP/'.venv/bin/tu1nz-public-s7'
+                p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_RUNTIME_DRIFT\n')
+                self.injected.append('REAL_RUNTIME_DRIFT_AFTER_STOP')
+        if kind == 'probe_start_intent' and not self.injected and self.scenario == 'probe_fail_return':
+            p = Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe/inputs/s7_form_secret')
+            p.write_bytes(b'SYNTHETIC-ONLY-DIFFERENT-00000000000000000000000000000000')
+            self.injected.append('REAL_SYNTHETIC_CREDENTIAL_DRIFT')
+        return message
+
+    def send(self, message):
+        if message.get('type') == 'persisted' and self.record is not None:
+            kind, value = self.record['kind'], self.record['value']
+            if self.scenario == 'lost_ack' and kind == 'owner_object_ack' and self.acks == 8:
+                message = {**message, 'sha256': '0'*64}; self.injected.append('REAL_INVALID_TRANSPORT_ACK')
+            if self.scenario == 'lost_start_ack' and kind == 'host_action_ack' and value['action'] == 'start':
+                message = {**message, 'sha256': '0'*64}; self.injected.append('REAL_INVALID_START_ACK')
+            if self.scenario == 'owner_return' and kind == 'owner_object_intent' and self.intents == 8:
+                message = {**message, 'control': 'HOLD_BEFORE_OWNER_EFFECT'}
+                self.injected.append('EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT')
+        if message.get('type') == 'decision':
+            if self.scenario in ('restore_fail_return', 'probe_fail_return', 'denied_return', 'lost_start_ack'):
+                message = {'type': 'decision', 'value': 'RETURN_OLD'}
+            elif self.scenario in ('owner_return', 'namespace_swap', 'lost_ack'):
+                message = {'type': 'decision', 'value': 'OWNER_RETURN'}
+        self.wire.send(message)
+
+
+def run(*args, data=None):
+    r = subprocess.run(args, input=data, capture_output=True, timeout=30)
+    if r.returncode:
+        raise RuntimeError('SYNTHETIC_SETUP_'+Path(args[0]).name+'_EXIT_'+str(r.returncode))
+    return r.stdout
+
+
+def write(path, raw, mode=0o644):
+    path = Path(path); path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    with os.fdopen(fd, 'wb') as f: f.write(raw); f.flush(); os.fsync(f.fileno())
+
+
+def assert_guest():
+    assert os.geteuid() == 0 and Path('/.dockerenv').is_file() and os.environ.get('container') == 'docker'
+    assert Path('/proc/1/comm').read_text().strip() == 'systemd'
+    assert not ROOT.exists() and not Path('/opt/tu1nz_repos').exists()
+    assert all(p.name == 'lo' or not int((p/'flags').read_text(), 16) & 1
+               for p in Path('/sys/class/net').iterdir() if p.is_dir())
+    assert not Path('/proc/net/route').read_text().splitlines()[1:]
+    for path in ('/source', '/control-source'):
+        assert run('/usr/bin/findmnt', '-n', '-o', 'VFS-OPTIONS', '-T', path).decode().split(',')[0] == 'ro'
+
+
+def source():
+    paths = {n: Path('/source')/p for n, p in client.INFRA_FILES.items()}
+    paths.update({n: Path('/control-source')/p for n, p in client.CONTROL_FILES.items()})
+    raw = {n: p.read_bytes() for n, p in paths.items()}
+    hashes = {n: io.sha(x) for n, x in raw.items()}
+    encoded = {n: base64.b64encode(x).decode() for n, x in raw.items()}
+    s = io.Source(encoded, hashes)
+    for name in ('io', 'entry', 'guard', 'owner', 'r3', 'fs', 'runtime_guard', 'observe', 'probes', 'host'): s.load(name)
+    return s, encoded, hashes
+
+
+def setup(s):
+    ROOT.mkdir(mode=0o700)
+    # Read-only kernel inventory mount in this synthetic guest only. Never a
+    # production-adapter effect: absent Host evidence must remain UNKNOWN.
+    if not Path('/sys/kernel/security/lsm').exists():
+        run('/usr/bin/mount', '-t', 'securityfs', '-o', 'ro', 'securityfs', '/sys/kernel/security')
+    # Distribution nginx may already be running in this NEW disposable guest.
+    # Stop that fixture service before constructing its synthetic edge. This
+    # is not a production-adapter action and never reaches an existing Host.
+    run('/usr/bin/systemctl', 'stop', 'nginx.service')
+    import pwd
+    try: pwd.getpwnam('chatops')
+    except KeyError:
+        run('/usr/sbin/groupadd', '--gid', '1001', 'chatops')
+        run('/usr/sbin/useradd', '--uid', '1001', '--gid', '1001', '--no-create-home', 'chatops')
+    # Reproduce the existing expected parent ACL, without touching a Host.
+    parent = Path('/opt/tu1nz_repos'); parent.mkdir(); os.chown(parent, 0, 1001)
+    unset = 0xffffffff
+    access = [(1,5,unset),(2,1,995),(2,1,996),(2,7,1001),(4,7,unset),(8,7,1001),(16,5,unset),(32,0,unset)]
+    default = [(1,7,unset),(2,7,1001),(4,7,unset),(8,5,1001),(16,7,unset),(32,0,unset)]
+    for name, rows in (('access', access), ('default', default)):
+        os.setxattr(parent, 'system.posix_acl_'+name, struct.pack('<I', 2)+b''.join(struct.pack('<HHI', *r) for r in rows))
+    parent.chmod(0o2550)
+    # Private synthetic App tree, with its own inherited ACL removed explicitly
+    # by the fixture creator. The production adapter never normalizes this tree.
+    APP.mkdir(mode=0o755)
+    for attr in os.listxattr(APP): os.removexattr(APP, attr)
+    os.chown(APP, 0, 0); APP.chmod(0o755)
+    for profile in ('s7', 's8-landing'):
+        write(APP/('.venv/bin/tu1nz-public-'+profile), b'#!/usr/bin/python3\n'+SERVER.encode(), 0o555)
+    write(APP/'src/tu1nz_exposure_s10/__init__.py', b'')
+    write(APP/'src/tu1nz_exposure_s10/runtime.py', SERVER.encode())
+    os.symlink('/usr/bin/python3', APP/'.venv/bin/python')
+    STATE.mkdir(mode=0o700, parents=True); os.chown(STATE, 1001, 1001)
+    for name in ('landing-aggregates.json', 'wms-traffic-quality.json'):
+        write(STATE/name, b'{"synthetic_count":7}', 0o600); os.chown(STATE/name, 1001, 1001)
+    for i, (name, profile) in enumerate(zip(CONFIGS, PROFILES)):
+        write('/etc/tu1nz/'+name, io.canonical({'profile': profile, 'canonical_origin':
+            'https://wantmeseen.com' if i == 2 else 'https://tu1nz.com', 'bind_host': '127.0.0.1', 'bind_port': 18071+i}))
+    for name in ('adult-commercial-s10-wms-copy.json', 'adult-commercial-s10-wms-bot-identity.json',
+                 'adult-commercial-s10-2d-community.json'):
+        write('/etc/tu1nz/'+name, b'{"synthetic":1}')
+    write('/etc/tu1nz/adult-commercial-s7-form.secret', b'SYNTHETIC-ONLY-NOT-A-PRODUCTION-SECRET', 0o600)
+    write('/etc/tu1nz/adult-commercial-s7-database.dsn', b'postgresql:///r4_probe', 0o600)
+    for unit in UNITS:
+        raw = (Path('/source/systemd')/unit).read_bytes()
+        write('/etc/systemd/system/'+unit, raw)
+    write('/etc/systemd/system/'+UNITS[1]+'.d/s9-growth.conf',
+          (Path('/source/systemd')/(UNITS[1]+'.d/s9-growth.conf')).read_bytes())
+    # Existing static NO policy in this synthetic environment, not a proposed
+    # Host installation and not a fake authorization result. Real D-Bus policy
+    # evaluations and the live unique owner are subsequently checked.
+    write('/etc/polkit-1/rules.d/00-fixture-public-no-admin.rules', s.load('observe').STATIC_SYSTEMD_DENY)
+    run('/usr/bin/systemctl', 'start', 'polkit.service')
+    run('/usr/bin/pg_ctlcluster', '16', 'main', 'status')
+    sql = ("CREATE ROLE chatops LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; "
+           "CREATE DATABASE r4_probe OWNER chatops;")
+    run('/usr/sbin/runuser', '-u', 'postgres', '--', '/usr/bin/psql', '-X', '-v', 'ON_ERROR_STOP=1', data=sql.encode())
+    run('/usr/sbin/runuser', '-u', 'postgres', '--', '/usr/bin/psql', '-X', '-d', 'r4_probe',
+        '-v', 'ON_ERROR_STOP=1', data=("CREATE TABLE commercial_s7_waitlist (id int); "
+        "CREATE TABLE commercial_s7_analytics_events (id int); "
+        "GRANT SELECT ON ALL TABLES IN SCHEMA public TO chatops;").encode())
+    # Own ext4 website supports real FID metadata notifications and all leases.
+    run('/usr/bin/truncate', '-s', '512M', str(ROOT/'web.img'))
+    run('/usr/sbin/mkfs.ext4', '-q', '-F', str(ROOT/'web.img'))
+    # Docker exposes only loop0..7 by default although the kernel allocates
+    # further devices. Retain every earlier fixture; create only the missing
+    # device node in THIS guest's private /dev, never detach another image.
+    loop_control = os.open('/dev/loop-control', os.O_RDWR | os.O_CLOEXEC)
+    try: loop_number = fcntl.ioctl(loop_control, 0x4C82, 0)  # LOOP_CTL_GET_FREE
+    finally: os.close(loop_control)
+    assert 0 <= loop_number < 64
+    loop_path = Path('/dev/loop'+str(loop_number))
+    if not loop_path.exists(): os.mknod(loop_path, stat.S_IFBLK | 0o600, os.makedev(7, loop_number))
+    assert stat.S_ISBLK(loop_path.stat().st_mode) and loop_path.stat().st_rdev == os.makedev(7, loop_number)
+    Path('/var/www').mkdir(exist_ok=True)
+    run('/usr/bin/mount', '-o', 'loop', str(ROOT/'web.img'), '/var/www')
+    WEB.mkdir(mode=0o755)
+    for i in range(5): (WEB/('dir'+str(i))).mkdir(mode=0o755)
+    for i in range(82):
+        p = WEB/'index.html' if i == 0 else WEB/('dir'+str(i%5))/('file'+str(i))
+        write(p, ('SYNTHETIC-FILE-'+str(i)).encode())
+        os.chown(p, 0 if 1 <= i <= 4 else 33, 33)
+    for p in [WEB, *WEB.glob('dir*')]: os.chown(p, 33, 33)
+    # Synthetic public edge: real nginx UID33 reads, real TLS validation and
+    # real proxy requests. DNS/TLS trust are fixture data confined to this guest.
+    run('/usr/bin/openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+        '-subj', '/CN=TU1NZ-SYNTHETIC-ONLY', '-addext', 'subjectAltName=DNS:tu1nz.com,DNS:wantmeseen.com,DNS:lighting.tu1nz.com',
+        '-addext', 'basicConstraints=critical,CA:TRUE', '-keyout', str(ROOT/'tls.key'), '-out', str(ROOT/'tls.crt'))
+    run('/usr/bin/cp', str(ROOT/'tls.crt'), '/usr/local/share/ca-certificates/tu1nz-synthetic.crt')
+    run('/usr/sbin/update-ca-certificates')
+    with Path('/etc/hosts').open('a') as f:
+        f.write('\n127.0.0.1 tu1nz.com wantmeseen.com lighting.tu1nz.com '+socket.gethostname()+'\n')
+    nginx = ('user www-data; worker_processes 1; pid /run/nginx.pid; events { worker_connections 128; }\n'
+             'http { access_log off; error_log '+str(ROOT/'nginx-error.log')+' error;\n')
+    for domain, locations in (
+        ('tu1nz.com', 'location /adult/ { proxy_pass http://127.0.0.1:18071; } location / { proxy_pass http://127.0.0.1:18072; }'),
+        ('wantmeseen.com', 'location / { proxy_pass http://127.0.0.1:18073; }'),
+        ('lighting.tu1nz.com', 'root '+str(WEB)+'; index index.html;')):
+        nginx += ('server { listen 80; listen 443 ssl; server_name '+domain+'; ssl_certificate '+str(ROOT/'tls.crt')+
+                  '; ssl_certificate_key '+str(ROOT/'tls.key')+'; '+locations+' }\n')
+    nginx += '}\n'
+    # Replace only this new guest's distribution fixture config, never a Host.
+    Path('/etc/nginx/nginx.conf').write_text(nginx)
+    run('/usr/bin/systemctl', 'daemon-reload')
+    for unit in UNITS: run('/usr/bin/systemctl', 'start', unit)
+    run('/usr/bin/systemctl', 'start', 'nginx.service')
+
+
+def baseline(s):
+    observer = s.load('observe'); entry = s.load('entry'); fs = s.load('fs')
+    paths = fs.Paths(entry, deadline=time.monotonic()+120)
+    pseudo = observer.Authority.__new__(observer.Authority)
+    pseudo.paths = paths; pseudo.deadline = paths.deadline
+    pseudo.own_config_paths = set(); pseudo.new_parent_paths = set()
+    machine = io.sha(Path('/etc/machine-id').read_bytes())
+    origin = io.sha(Path(__file__).read_bytes())
+    b = {'schema': 'TU1NZ_PUBLIC_HOST_BASELINE_V1', 'machine_sha256': machine,
+         'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'files': {}, 'unit_files': {},
+         'actors': [], 'policy_roots': {}, 'broker_sockets': [], 'broker_tcp': [], 'source_release': {},
+         'http': {}, 'database': {}, 'nginx_groups': [33], 'source_origin_receipts': [origin],
+         'unit_search_sha256': pseudo.unit_search()}
+    files = {str(p) for p in Path('/etc/tu1nz').iterdir()} | {
+        '/etc/passwd', '/etc/group', '/etc/nsswitch.conf', '/etc/sudoers', '/etc/hosts'}
+    for unit in UNITS:
+        v = observer.Authority.unit(pseudo, unit)
+        b['unit_files'][unit] = {'fragment': v['FragmentPath'], 'dropins': v['DropInPaths'].split(),
+                                'properties': {k: v[k] for k in ('Requires', 'BindsTo', 'PartOf', 'KillMode',
+                                                               'Restart', 'User', 'Group', 'NoNewPrivileges')}}
+        files.update([v['FragmentPath'], *v['DropInPaths'].split()])
+    roots = ('/etc/polkit-1/rules.d', '/usr/share/polkit-1/rules.d', '/etc/sudoers.d',
+             '/etc/dbus-1/system.d', '/usr/share/dbus-1/system.d')
+    for root in roots:
+        b['policy_roots'][root] = sorted(os.listdir(root)); files.update(root+'/'+n for n in b['policy_roots'][root])
+    for p in sorted(files):
+        raw, m = paths.read(p)
+        b['files'][p] = {k: m[k] for k in ('uid', 'gid', 'mode', 'attrs', 'flags')}
+        b['files'][p].update(sha256=io.sha(raw), origin_sha256=origin)
+    targets = {int(observer.Authority.unit(pseudo, u)['MainPID']) for u in UNITS}
+    profiles = {}
+    for name in os.listdir('/proc'):
+        if not name.isdecimal() or int(name) in targets: continue
+        try: row = observer.process(int(name))
+        except (FileNotFoundError, ProcessLookupError): continue
+        if row.get('kernel_thread'): continue
+        role = 'kernel_manager' if int(name) == 1 else ('nginx_reader' if row['uid'] == [33]*4 else
+                'authenticated_maintenance' if int(name) == os.getpid() else 'administrative_service')
+        profile = {k: row[k] for k in ('exe', 'exe_sha256', 'uid', 'gid', 'groups', 'caps', 'nnp',
+                                      'argv_sha256', 'cgroup', 'initial_env_sha256', 'lsm_sha256', 'namespaces')}
+        profile.update(role=role, max_instances=0, origin_sha256=origin)
+        key = io.sha(io.canonical(profile)); profiles.setdefault(key, profile)['max_instances'] += 1
+    b['actors'] = list(profiles.values())
+    # Pin installed dependency bytes, not a hardcoded "kernel supported" flag.
+    dependencies = {}; objects = set(); python = Path('/usr/bin/python3').resolve()
+    for path in [python, *(p for p in Path('/usr/lib/python3.12').rglob('*') if
+                            p.is_file() and not p.is_symlink() and p.suffix in ('.py', '.so'))]:
+        dependencies[str(path)] = {'source': str(path.resolve()), 'sha256': io.sha(path.read_bytes())}
+        if path == python or path.suffix == '.so':
+            for line in run('/usr/bin/ldd', str(path)).decode().splitlines():
+                objects.update(w for w in line.split() if w.startswith('/'))
+    for name in objects:
+        path = Path(name); dependencies[name] = {'source': str(path.resolve()), 'sha256': io.sha(path.read_bytes())}
+    dependencies['/usr/bin/python3'] = {'source': str(python), 'sha256': io.sha(python.read_bytes())}
+    objects = {'.': {'kind': 'directory'}}
+    for p in sorted(APP.rglob('*')):
+        rel = str(p.relative_to(APP))
+        objects[rel] = ({'kind': 'link', 'target': os.readlink(p)} if p.is_symlink() else
+                        {'kind': 'directory'} if p.is_dir() else {'kind': 'file', 'sha256': io.sha(p.read_bytes())})
+    b['source_release'] = {'probe_dependencies': dependencies, 'python_binary': str(python),
+        'runtime_reference': {'schema': 'TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1', 'commit': origin[:40],
+            'tree': io.sha(io.canonical(objects))[:40], 'origin_sha256': origin, 'objects': objects}}
+    b['database'] = {'role': 'chatops', 'database': 'r4_probe', 'credential_sha256': {
+        's7_form_secret': io.sha(Path('/etc/tu1nz/adult-commercial-s7-form.secret').read_bytes()),
+        's7_database_dsn': io.sha(Path('/etc/tu1nz/adult-commercial-s7-database.dsn').read_bytes())}}
+    for i, unit in enumerate(UNITS):
+        path = '/adult/health' if i == 0 else '/health'; domain = 'wantmeseen.com' if i == 2 else 'tu1nz.com'
+        body = ('SYNTHETIC-'+PROFILES[i]).encode()
+        def endpoint(stage, location, url, host):
+            return {'stage': stage, 'location': location, 'url': url, 'method': 'GET', 'host_header': host,
+                    'status': 200, 'body_sha256': io.sha(body)}
+        b['http'][unit] = [endpoint('internal', 'host', 'http://127.0.0.1:'+str(18071+i)+path, None),
+            endpoint('proxy', 'host', 'http://127.0.0.1'+path, domain),
+            endpoint('public', 'client', 'https://'+domain+path, None)]
+    b['http']['lighting'] = {'stage': 'public', 'location': 'client', 'url': 'https://lighting.tu1nz.com/',
+        'method': 'GET', 'host_header': None, 'status': 200, 'body_sha256': io.sha((WEB/'index.html').read_bytes())}
+    errors = paths.close(); assert not errors
+    return b
+
+
+def plan(s, machine):
+    guard = s.load('guard'); guard.d.MACHINE = machine
+    rows = {}
+    for p in [WEB, *sorted(WEB.rglob('*'))]:
+        fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try: rows[str(p.relative_to(WEB))] = guard.observe_fd(fd)
+        finally: os.close(fd)
+    capture = {'schema': 'TU1NZ_LIGHTING_COMPLETE_PROTECTED_READ_V1', 'host': machine, 'root': str(WEB),
+               'objects': rows, 'second_pass': rows, 'observed_at_utc': '2026-10-16T00:00:00Z',
+               'reader_sha256': io.sha(Path(__file__).read_bytes())}
+    return io.canonical(guard.ownership_plan(capture))
+
+
+def main():
+    parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
+    args = parser.parse_args(); assert_guest(); s, encoded, hashes = source(); setup(s)
+    b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
+    write(ROOT/'baseline.json', baseline_raw, 0o600)
+    legacy = {}
+    for u in UNITS:
+        row = s.load('observe').process(int(s.load('observe').Authority.unit(
+            type('Read', (), {'deadline': time.monotonic()+30})(), u)['MainPID']))
+        legacy[u] = {k: row[k] for k in ('uid', 'gid', 'groups', 'nnp')}
+        legacy[u]['caps'] = {k: format(row['caps'][k], '016x') for k in ('CapInh', 'CapPrm', 'CapEff', 'CapAmb')}
+    legacy_hash = io.sha(io.canonical(legacy))
+    scope = {'schema': 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1', 'release_sha256': 'a'*64,
+        'baseline_sha256': io.sha(baseline_raw), 'administrative_roles_sha256': io.sha(io.canonical(b['actors'])),
+        'baseline_origins_sha256': io.sha(io.canonical(b['source_origin_receipts'])), 'r3_approval_sha256': client.APPROVAL,
+        'machine_sha256': b['machine_sha256'], 'transaction': 'public-rights-20261014-1',
+        'owner_plan_sha256': io.sha(raw_plan)}
+    raw_scope = io.canonical(scope)
+    packet = {'source': encoded, 'hashes': hashes, 'baseline': b, 'baseline_raw': base64.b64encode(baseline_raw).decode(),
+              'owner_plan': base64.b64encode(raw_plan).decode(), 'scope': scope,
+              'scope_raw': base64.b64encode(raw_scope).decode(), 'scope_sha256': io.sha(raw_scope), 'binding': io.sha(raw_scope)}
+    held_writer = None
+    if args.scenario == 'writer': held_writer = os.open(WEB/'dir0/file5', os.O_WRONLY | os.O_CLOEXEC)
+    if args.scenario == 'runtime_tamper':
+        p = APP/'.venv/bin/tu1nz-public-s7'; p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_REFERENCE_MISMATCH\n')
+    r = s.load('r3'); r.MACHINE = b['machine_sha256']; r.OWNER_PLAN = io.sha(raw_plan)
+    r.CUSTODY_PARENT = ROOT/'client-custody'; r.CUSTODY_PARENT.mkdir(mode=0o700)
+    program = client.bootstrap(base64.b64decode(encoded['io']))
+    target_substitution = ('s.load("r3").MACHINE='+repr(r.MACHINE)+'\n'+
+                          's.load("entry").MACHINE='+repr(r.MACHINE)+'\n'+
+                          's.load("r3").OWNER_PLAN='+repr(r.OWNER_PLAN)+'\n'+
+                          's.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_hash)+'\n')
+    target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
+        b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
+    program = program.replace('s.load("host").session(s,p,w)', target_substitution+'s.load("host").session(s,p,w)')
+    child = subprocess.Popen(['/usr/bin/python3', '-I', '-B', '-S', '-c', program],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    wire = io.Wire(child.stdout.fileno(), child.stdin.fileno(), deadline=time.monotonic()+600)
+    assert wire.receive() == {'type': 'ready', 'io_sha256': hashes['io']}
+    wire.send(packet)
+    endpoints = [e for u in (*UNITS, 'lighting') for e in (b['http'][u] if u != 'lighting' else [b['http'][u]])
+                 if e['location'] == 'client']
+    fault_wire = FaultWire(wire, args.scenario, child)
+    supervisor = client.Client(fault_wire, r, packet['binding'], http_expectations=endpoints)
+    result = {'status': 'UNKNOWN_TEST_PROTOCOL_HOLD'}
+    try:
+        result = supervisor.serve()
+    except BaseException as error:
+        result.update(error_type=type(error).__name__, primary=getattr(error, 'primary', 'UNKNOWN'))
+    finally:
+        child.stdin.close(); supervisor.close()
+    stderr = child.stderr.read(); code = child.wait(timeout=10)
+    if held_writer is not None: os.close(held_writer)
+    write(ROOT/'server-stderr', stderr, 0o600)
+    write(ROOT/'result.json', io.canonical(result), 0o600)
+    acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
+    actual_root = sum(p.stat().st_uid == 0 for p in [WEB, *WEB.rglob('*')])
+    print(json.dumps({'scenario': args.scenario, 'status': result['status'], 'server_exit': code,
+                      'proof': io.sha(io.canonical(result)), 'source_files': hashes,
+                      'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,
+                      'actual_faults': fault_wire.injected,
+                      'fixture_only_no_host_acceptance': True}))
+    if args.scenario == 'success':
+        assert code == 0 and result['status'] == 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', result
+        assert actual_root == 88 and len(acknowledgments) == 84
+    elif args.scenario in ('restore_fail_return', 'probe_fail_return'):
+        assert code == 0 and result['status'] == 'OLD_OPERATION_RESTORED_SECURITY_RED', result
+        assert actual_root == 4 and not acknowledgments
+    elif args.scenario == 'owner_return':
+        assert code == 0 and result['status'] == 'OWNER_RETURNED_SECURITY_RED', result
+        assert actual_root == 4 and len(acknowledgments) == 7
+    else:
+        assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
+        if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack'): assert actual_root == 4
+        else: assert 4 < actual_root < 88
+        if args.scenario == 'runtime_tamper': assert not (r.CUSTODY_PARENT/r.TX).exists()
+        if args.scenario == 'denied_return':
+            assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'inactive'
+                       for u in UNITS)
+    if (r.CUSTODY_PARENT/r.TX).exists():
+        try: repeated = r.Journal(r.CUSTODY_PARENT, packet['binding'])
+        except r.Denied: pass
+        else:
+            repeated.close(); raise AssertionError('FIXED_TRANSACTION_REPLAY_NOT_DENIED')
+
+
+if __name__ == '__main__': main()

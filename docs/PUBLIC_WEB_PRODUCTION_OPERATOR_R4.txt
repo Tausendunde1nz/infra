@@ -1,0 +1,160 @@
+PUBLIC R3 PRODUCTION ADAPTER / OWNER SUPERVISOR — R4 SOURCE CONTRACT
+
+DELTA, NOT HOST AUTHORITY
+Completes the separately required operator from PUBLIC_WEB_BOOTSTRAP_R3_HOST_PLAN.
+The R3 ordering module, four runtime artifacts, Control entry/primitive, original
+e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36 ownerplan,
+public-rights-20261014-1 transaction and original frozen R2 target/capsule/slot
+are unchanged. Historical R3 "component, not full executor" descriptions remain
+true for that historical component; the new operator is the explicit missing
+implementation. No signature, fresh Host GREEN, global health, publication,
+S8 Telegram activation, R15 or Runtime permission is created by this document.
+
+PRODUCTION ENTRY / ALL COMPONENTS
+scripts/tu1nz_public_operator.py is the ONLY production CLI. Without --execute
+it validates LOCAL data/Source only. --help has no effects. It runs the canonical
+Mac preflight in the ACTUAL Infra CWD, then verifies clean exact reviewed merges,
+trees, old component pins, private release/scope hashes and material origins.
+The private final Source receipt records both actual merge/review/CI bindings;
+it must never be assembled from assumed GREEN fields or an old SHA's checks.
+
+Required arguments: --infra, --control, --release, --release-sha256, --scope,
+--approved-scope-sha256, --baseline, --owner-plan, --origin (repeat for EACH bound
+origin file). --application-reference defaults to the permanent canonical local
+Application reference. There is NO Host/TX/plan/skip/retry/adapter override.
+--hold-owner-before can only DENY at an exact original-plan object, never permit
+an additional effect. Normal execution does not require or use that option.
+The private final handoff supplies the exact release-file hash and permanent
+paths. Fresh baseline/scope material is still required, not a placeholder
+approval/hash generated later and automatically accepted by this program.
+
+Code package, authenticated in memory:
+  io: strict framing, duplicate/nonfinite rejection, bounded durable hash chain;
+  fs: no-follow descriptor/name/profile witnesses, create-only objects, copies;
+  runtime_guard: exact reference inventory, read eligibility, all-file events;
+  observe: real PID1/proc/policy/broker/namespace/rights/function observations;
+  probes: exactly three synthetic StartTransientUnit calls and owned cleanup;
+  host: real R3 actions, typed observations, conditional returns and receipts;
+  original R3 ordering component; unchanged four runtime bytes;
+  Control owner_supervisor plus exact unchanged entry and writer_guard primitive.
+No import from the locked historical Control tree, HOME/PYTHONPATH policy fallback
+or test adapter. The original frozen R2 dispatcher is separate and NOT invoked.
+
+Transport: fixed chatops@100.121.130.51, strict existing SSH Host key, no agent or
+multiplexing/forwarding; sudo password from the local secure TTY only, never argv,
+environment, chat or logs. Root's reviewed ready frame must precede the private
+packet. Same-process EOF/interruption/deadline gives HOLD, no reconnect/resume.
+Only the owned LOCAL SSH child may be closed/terminated during channel cleanup;
+no numeric remote-PID fallback. Local preparation records are not a transaction
+permit; only the unchanged fixed client Journal claim precedes Host mutation.
+
+AUTHENTIC REFERENCE != CURRENT READ WITNESS
+Expected code/config/policy/actor identities come from independently authenticated
+references and explicitly bound existing TCB assumptions. The scope independently
+binds their raw hashes, actor roles, Host, current boot, transaction and old plan.
+--origin material must be private, unique, independently reread and hash-exact;
+runtime origin schema TU1NZ_PUBLIC_RUNTIME_ORIGIN_V1 binds commit/tree, complete
+runtime-object manifest digest and pre-existing evidence hashes also supplied.
+Hash identity alone does NOT validate historical assertions in a receipt.
+Do not produce those assertions from a current server inventory or call them
+historical Soll. Missing authentic dependency origin remains UNKNOWN and denies
+BEFORE the stop/claim, not a reason to normalize the Host or waive a guard.
+
+Client additionally verifies ALL tracked Application bytes against canonical
+Git93555d8a141caf8ace33522f9340d30bfc47d2bb/tree1e8a644115127818f394b6f9d24f31826e04ecba,
+without replace refs, hooks, working-copy adoption or Git writes. Installed and
+untracked runtime bytes require the independently authenticated prior artifact
+origin, not only a current wheel RECORD or current hash. The Root adapter checks
+the entire declared live Application inventory (only the two historical .git
+stocks excluded), bytes/links, current effective read integrity and event fence.
+This verifies consumed files, NOT current Host Git HEAD/tree/index/history; those
+unchanged original R2 historical gates remain separately mandatory.
+
+Runtime default ACLs are read-only eligibility: exact known inherited default
+bytes only, root owner, every effective nonowner access-write denied, masks and
+security attributes/flags checked. Never a creation policy, owner/inode history
+claim, metadata normalization or generic GID/ACL exception. Source/namespace events,
+open writable FDs and shared writable mappings deny. Private COW data pages do
+not write the source inode; the stricter separate Site owner mapping guard is
+unchanged. A live proc/policy/broker/LSM view that cannot be read denies.
+
+ACTUAL ADMISSION, NOT INPUT GREEN
+All present actors require exact Source/context/numeric/initial-env/LSM/namespace
+bindings to an individually declared role. No arbitrary UID0/UID1001 app exception.
+Only kernel/PID1, this authenticated operator ancestry and individually evidenced
+administration are the existing TCB. The EXACT old three contexts alone retain
+their approved stop-only delegation exception; full closure follows their stop.
+Sudo parser/unknown-subject errors are not denial; polkit is a noninteractive
+query to an EXISTING unique owner, no daemon activation or auth attempt. Challenge,
+grant, dynamic unknown policy or missing evidence denies. Existing exact static
+NO can cache an actually observed negative only with current actor/policy/owner
+identities; this code NEVER installs that rule. Inherited Unix FDs are inspected
+with GET syscalls only, not inferred safe from current DAC or a nonzero UID.
+
+Actual complete PID1 UnitPath, dependencies, empty jobs, effective typed false
+conditions, source/ancestors and no foreign deltas precede each relevant effect.
+PID1's regenerated OUTPUT directories may change inode on the authorized reload;
+their complete byte/namespace/profile outputs must still match. Original config,
+inputs, Source and owner identities are NOT rebound. Newly created own parents
+are traversed too: foreign contents are not hidden by the parent exclusion.
+
+ACTUAL SEQUENCE / FAILURE
+R3 exact sequence and budgets unchanged: client claim; persistent barriers;
+WMS->Landing->S7 one stop each; full closure; two approved opt roots; actual full
+rights backup, independent read/restore/rename-return rehearsal; three probes;
+four unchanged create-only artifacts; ONLY S7 release/start/actual/durable acceptance,
+then Landing, then WMS; actual rights/function; complete owner operation/cleanup.
+Outer600s, each start/stop20s, other actions<=120s; owner TOTAL120s/512FD, no widening.
+First invocation is tracked through kernel credential setup; a later automatic
+restart cannot be substituted for that requested start. Current listener belongs
+to the actual unit process. Actual internal/proxy/public HTTP, credential view,
+SELECT-only DB peer and bounded current state reads are recorded privately with
+kernel identities and hashes, never secret/message/row contents or user IDs.
+
+Probes use only synthetic RootDirectory data/credentials/NSS and private network,
+the approved names/paths/limits, effective kernel rights/maps, real Unix peer and
+GID987 denial. Type=oneshot RuntimeMax is NOT claimed as the effective timeout;
+TimeoutStart20s/stop5s/outer120s are enforced. Own stopped failed transient units
+may remain: retain exact file/invocation/config and empty cgroup/job proof. A
+reload's zero per-Exec statistics do not replace that binding. No reset-failed,
+second probe start, foreign stop or deletion is used for cleanup.
+
+Any failed/late/lost result leaves durable intent and HOLD. A later separate
+surviving-session RETURN_OLD requires fresh READ-ONLY classification, exact own
+barriers/quarantine, original code/config/inputs and all existing matrix gates.
+Only known private backup/restore/probe or bound partial-install outcomes can be
+classified; no forward ACK is invented. Unknown stop/start, lost chain, unsafe
+Source or unconfirmed cleanup denies. Once owner admission begins NO configuration
+return. OWNER_RETURN has its own once-consumed intent, current leases/names/actual
+post-states/ACKs and original ordering. Both returns mean SECURITY_RED, no R2.
+No TTY/lost confirmation/deadline defaults HOLD. A durable DENIAL before an owner
+effect can stop forward work but cannot repair a lost operation ACK.
+
+SOURCE TESTS / REMAINING HOST GATES
+Native tests enter the production bootstrap/session/Client/adapter/supervisor over
+real bounded stdio, Linux PID1, ext4 leases/events, PostgreSQL and synthetic TLS/
+nginx. Only expected fixture Host/plan/custody/old-context/Application bindings
+are substituted; no safety observation or action is mocked GREEN. Real filesystem,
+signal and ACK faults cover success, extra writers, code/object drift, partial
+changes, interruption, lost confirmations, explicit and denied returns, and replay.
+The SSH executable/real Tailscale/sudo endpoint is NOT exercised by those fixtures;
+actual Host authentication/rights and every fresh Host prerequisite remain gates.
+Required CI uses exact reviewed private Control Source, network-none read-only
+mounts, no token in the guest and no private output/artifact/cache publication.
+The private-CI helper pins Controlaf33477cef240c8b0060a1d65745f9bb75538431,
+fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
+and tests each scenario in a new finite network-none/read-only/PID1 guest.
+The two approved private helpers clean their OWN inputs/containers separately;
+neither receives the other's capsule or private tree. Image builds precede all
+private inputs. CI30min is only the enlarged job envelope for added scenarios;
+owner120s/start-stop20s/outer600s and the original downstream75min gate remain
+unchanged. Forks, arbitrary same-repo PRs and unreviewed Environment admission
+remain denied. Every actual SHA including CI helper/workflow/image must have
+independent review before the required Environment reviewer authorizes the job.
+
+Source GREEN never supplies fresh Host authority, role closure, safe ancestry,
+space/quota/LSM/kernel proof, current exact e9ac7f census, protected backup/restore,
+live health, clean cleanup or remote R2 slot. Those must be measured at their
+actual phases under the existing permissions. Existing S9/S10/S11 RED and S8/R15/
+product NO-GO remain unchanged. Final code/source-receipt binding is the only
+unavoidable additional confirmation, not a new general recovery permission.

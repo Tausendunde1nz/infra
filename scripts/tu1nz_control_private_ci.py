@@ -35,7 +35,9 @@ REPOSITORY='Tausendunde1nz/infra'
 # each actual SHA before secrets. No generic branch/fork or Host permission.
 # PR228 is only the R3 stop/bootstrap sequencing Source delta. Existing exact
 # SHA review and environment reviewer approval still precede ANY private input.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228))
+# PR229 is the finite production-adapter/owner-supervisor integration delta.
+# It neither widens credential scope nor removes exact-SHA Environment review.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'
