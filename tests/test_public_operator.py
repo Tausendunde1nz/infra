@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import socket
 import sys
 import tempfile
 import time
@@ -33,6 +34,41 @@ class Reply:
 
 
 class OperatorBoundary(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0, 'requires isolated native Linux root')
+    def test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid(self):
+        # Actual synthetic Unix socket and actual kernel fsuid in an owned
+        # subprocess only. No administrative broker/provider operation.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); root.chmod(0o755); path = root/'synthetic.sock'
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                listener.bind(str(path)); listener.listen(1)
+                os.chown(path, 1001, 1001); path.chmod(0o200)
+                program = '''import ctypes,os,socket,sys
+from pathlib import Path
+from types import SimpleNamespace
+sys.path.insert(0,sys.argv[1])
+import tu1nz_public_operator_observe as observe
+import tu1nz_public_operator_io as io
+libc=ctypes.CDLL(None,use_errno=True)
+assert libc.setfsuid(1001)==0
+s=dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
+row={"pid":os.getpid(),"uid":list(map(int,s["Uid"].split())),"gid":list(map(int,s["Gid"].split())),"groups":list(map(int,s["Groups"].split()))}
+assert os.geteuid()==0 and row["uid"][1]==0 and row["uid"][3]==1001
+peer=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);peer.connect(sys.argv[2]);peer.close()
+def unexpected(*a,**k):raise AssertionError("DAC_REJECTION_MUST_PRECEDE_INHERITED_INSPECTION")
+authority=SimpleNamespace(b={"broker_tcp":[],"broker_sockets":[sys.argv[2]]},inherited_sockets=unexpected)
+try:observe.Authority.broker_access(authority,row)
+except io.Hold as error:assert str(error)=="PUBLIC_OPERATOR_BROKER_EFFECTIVE_DAC_ACCESS"
+else:raise AssertionError("ACTUAL_FSUID_OWNER_NOT_REJECTED")
+print("ACTUAL_FSUID_SOCKET_DAC_DENIED_GREEN")
+'''
+                result = subprocess.run([sys.executable, '-I', '-B', '-c', program, str(SCRIPTS), str(path)],
+                                        capture_output=True, timeout=20)
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                self.assertEqual(result.stdout.strip(), b'ACTUAL_FSUID_SOCKET_DAC_DENIED_GREEN')
+            finally: listener.close()
+
     def test_unknown_or_non_uint32_restart_counter_denies_unit_read(self):
         for counter in ('', '-1', 'True', '00', '4294967296'):
             values = {p: '' for p in observe.PROPERTIES.split(',')}

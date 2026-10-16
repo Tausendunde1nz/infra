@@ -90,6 +90,10 @@ grant, dynamic unknown policy or missing evidence denies. Existing exact static
 NO can cache an actually observed negative only with current actor/policy/owner
 identities; this code NEVER installs that rule. Inherited Unix FDs are inspected
 with GET syscalls only, not inferred safe from current DAC or a nonzero UID.
+Unix-socket pathname ownership is evaluated using the captured filesystem UID,
+not the effective UID. A native synthetic socket test actually changes fsuid,
+proves kernel connect access with a different effective UID and demands rejection
+before inherited-descriptor inspection. No administrative broker is contacted.
 
 Actual complete PID1 UnitPath, dependencies, empty jobs, effective typed false
 conditions, source/ancestors and no foreign deltas precede each relevant effect.

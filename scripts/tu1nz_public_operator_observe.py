@@ -758,7 +758,9 @@ class Authority:
     def broker_access(self, row, *, known_stop=False):
         # Unknown TCP broker authentication is never inferred from an absent FD.
         io.require(not self.b['broker_tcp'], 'TCP_BROKER_AUTHENTICATION_UNPROVEN')
-        uid = row['uid'][1]
+        # Linux pathname DAC uses fsuid, not effective UID. In particular an
+        # otherwise different effective UID must not hide socket ownership.
+        uid = row['uid'][3]
         for path in self.b['broker_sockets']:
             actual = Path('/proc')/str(row['pid'])/'root'/path.lstrip('/')
             try:
