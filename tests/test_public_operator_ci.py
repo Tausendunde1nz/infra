@@ -15,6 +15,15 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_pid1_name_does_not_admit_fixture_before_actual_boot_running(self):
+        replies = [(0, b'systemd\n'), (1, b'starting\n'), (0, b'systemd\n'), (0, b'running\n')]
+        with patch.object(m.boundary, 'bounded', side_effect=replies) as query, patch.object(m.time, 'sleep'):
+            m.ready('owned')
+        self.assertEqual(query.call_count, 4)
+        for call in query.call_args_list:
+            self.assertLessEqual(call.kwargs['timeout'], 5)
+        self.assertEqual(query.call_args_list[1].args[0][-2:], ['/usr/bin/systemctl', 'is-system-running'])
+
     def test_exact_private_commit_and_three_blobs_only(self):
         self.assertEqual(m.CONTROL_COMMIT, 'f2979863bbb7043261e9177842503a9b47cdb49f')
         calls = []
@@ -166,6 +175,7 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertIn('test_actual_fsuid_socket_owner_', argv[-1])
         self.assertIn('test_actual_child_dac_failure_', argv[-1]); self.assertIn('r.testsRun==3', argv[-1])
         self.assertIn('test_actual_fsgid_not_real_saved_group_', argv[-1])
+        self.assertLess(argv[-1].index('prepare_guest_kernel_view()'), argv[-1].index('r=Result()'))
 
     def test_zero_uid_without_ptrace_is_not_native_observer_evidence(self):
         with patch('tests.test_public_operator.sys.platform', 'linux'), \

@@ -190,6 +190,21 @@ redacted even if they look like uppercase codes. No observation payload leaves
 private CI memory. The actual fsuid/socket regression also runs explicitly as
 root in the first network-none CI guest, with skips/errors/failures forbidden;
 the unprivileged runner's boundary-test skip is NOT its native proof.
+Before any fixture socket/input, the CI guest must have actual PID1 systemd AND
+actual is-system-running=running, not only an early PID1 name. This reuses the
+existing native-suite readiness requirement within the SAME20s budget. A
+starting/degraded/unreadable guest is not admitted. No reset or unit-state fix.
+Earlier ENOENT at synthetic child connect proves missing path at that point;
+the precise historical remover/mount event remains UNKNOWN. Source readiness
+does not reclassify that missing path as an application permission failure.
+The early native component must also establish the SAME actual read-only
+securityfs view previously established only later by the full Guest fixture.
+The shared fixture-only initializer checks container/PID1/private-root before
+that isolated mount and reads the actual LSM list. It supplies no observation
+GREEN or Host repair. A fresh local Guest proved that the prior order left
+this view missing before process identity inspection, independently of boot.
+Missing/unreadable securityfs on a real Host still denies; no production mount
+or extra Host right/path is introduced by this test setup correction.
 That regression keeps the production-style privileged observer in the parent;
 only the observed synthetic child changes fsuid and actually connects. The
 parent reads its real proc identity and requires the actual broker-DAC denial.

@@ -63,6 +63,8 @@ def native_fsuid_argv(name):
     program = '''import os,sys,unittest,json
 assert sys.platform=="linux" and os.geteuid()==0
 sys.path.insert(0,"/source")
+from tests.public_operator_native import prepare_guest_kernel_view
+prepare_guest_kernel_view()
 from tests.test_public_operator import OperatorBoundary
 class Result(unittest.TestResult):
  error=None
@@ -168,10 +170,17 @@ def ready(name):
     deadline = time.monotonic()+20
     while time.monotonic() < deadline:
         code, raw = boundary.bounded(['/usr/bin/docker', 'exec', name, '/usr/bin/python3', '-I', '-B', '-c',
-            'from pathlib import Path;print(Path("/proc/1/comm").read_text().strip())'], timeout=5)
-        if code == 0 and raw.strip() == b'systemd': return
-        time.sleep(0.1)
-    raise CIError('PID1_READY_RED')
+            'from pathlib import Path;print(Path("/proc/1/comm").read_text().strip())'],
+            timeout=min(5, max(0.01, deadline-time.monotonic())))
+        if code == 0 and raw.strip() == b'systemd' and time.monotonic() < deadline:
+            # PID1's name alone says nothing about boot/tmpfiles/namespace
+            # setup completion. Do not create the fixture socket during boot.
+            code, state = boundary.bounded(['/usr/bin/docker', 'exec', name,
+                '/usr/bin/systemctl', 'is-system-running'],
+                timeout=min(5, max(0.01, deadline-time.monotonic())))
+            if code == 0 and state.strip() == b'running' and time.monotonic() < deadline: return
+        time.sleep(min(0.1, max(0, deadline-time.monotonic())))
+    raise CIError('GUEST_BOOT_READY_RED')
 
 
 def validate_report(raw, case, hashes):

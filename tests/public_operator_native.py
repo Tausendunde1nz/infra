@@ -163,12 +163,25 @@ def source():
     return s, encoded, hashes
 
 
-def setup(s):
-    ROOT.mkdir(mode=0o700)
+def prepare_guest_kernel_view():
+    """Fixture-only read view, before either component or full driver tests.
+
+    The production adapter never mounts a Host filesystem to fill a missing
+    observation. This is the already-used synthetic Guest prerequisite only.
+    """
+    assert os.geteuid() == 0 and Path('/.dockerenv').is_file() and os.environ.get('container') == 'docker'
+    assert Path('/proc/1/comm').read_text().strip() == 'systemd'
+    assert run('/usr/bin/findmnt', '-n', '-o', 'PROPAGATION', '--mountpoint', '/').strip() == b'private'
     # Read-only kernel inventory mount in this synthetic guest only. Never a
     # production-adapter effect: absent Host evidence must remain UNKNOWN.
     if not Path('/sys/kernel/security/lsm').exists():
         run('/usr/bin/mount', '-t', 'securityfs', '-o', 'ro', 'securityfs', '/sys/kernel/security')
+    assert Path('/sys/kernel/security/lsm').read_text().strip()
+
+
+def setup(s):
+    ROOT.mkdir(mode=0o700)
+    prepare_guest_kernel_view()
     # Distribution nginx may already be running in this NEW disposable guest.
     # Stop that fixture service before constructing its synthetic edge. This
     # is not a production-adapter action and never reaches an existing Host.
