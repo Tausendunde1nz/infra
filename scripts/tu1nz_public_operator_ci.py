@@ -5,6 +5,7 @@ credential, private source, exception text or guest output reaches public logs,
 artifacts or caches. This helper is NOT Host admission or a deployment entry.
 """
 import argparse
+import ast
 import base64
 import hashlib
 import json
@@ -37,6 +38,29 @@ FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'old_restart': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT', 'REAL_INITIAL_FAILURE_ARMED',
                           'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION']}
 SCHEMA = 'TU1NZ_PUBLIC_OPERATOR_NATIVE_CI_V1'
+
+
+def diagnostic_codes():
+    # Only literal public Source symbols can leave private CI memory. A child
+    # exception or Host value merely matching a regex is NOT publishable.
+    workspace = Path(__file__).resolve().parents[1]
+    symbols = set()
+    for relative in operator.INFRA_FILES.values():
+        if not relative.endswith('.py'): continue
+        for node in ast.walk(ast.parse((workspace/relative).read_bytes())):
+            if isinstance(node, ast.Constant) and type(node.value) is str and re.fullmatch('[A-Z][A-Z0-9_]{1,160}', node.value):
+                symbols.add(node.value)
+    return symbols | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
+                                              'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_') for x in symbols}
+
+
+def native_fsuid_argv(name):
+    program = ('import os,sys,unittest;assert sys.platform=="linux" and os.geteuid()==0;'
+        'sys.path.insert(0,"/source");from tests.test_public_operator import OperatorBoundary;'
+        'r=unittest.TestResult();OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid").run(r);'
+        'assert r.testsRun==1 and not r.skipped and not r.failures and not r.errors;'
+        'print("ACTUAL_NATIVE_FSUID_DAC_GREEN")')
+    return ['/usr/bin/docker', 'exec', name, '/usr/bin/python3', '-I', '-B', '-c', program]
 
 
 class CIError(RuntimeError):
@@ -156,7 +180,8 @@ def failure_location(raw):
         value = operator.io.parse(raw.strip())
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
-        require(set(location) == {'test_line', 'test_type', 'production_fault'}, 'FAILURE_SCHEMA')
+        require(set(location) in ({'test_line', 'test_type', 'production_fault'},
+                                 {'test_line', 'test_type', 'production_fault', 'outcome'}), 'FAILURE_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
                 location['test_type'] in ('AssertionError', 'RuntimeError', 'OSError', 'Hold',
                                           'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
@@ -169,6 +194,28 @@ def failure_location(raw):
                     fault['type'] in ('Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'AssertionError',
                                       'OSError', 'PermissionError', 'FileNotFoundError', 'RuntimeError',
                                       'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
+        if 'outcome' in location:
+            outcome = location['outcome']
+            require(type(outcome) is dict and set(outcome) == {'status', 'primary', 'abort', 'cleanup',
+                'client_error_type', 'server_exit', 'owner_confirmations', 'actual_root_objects',
+                'last_record_kind', 'last_record_sequence'}, 'OUTCOME_SCHEMA')
+            require(type(outcome['server_exit']) is int and -128 <= outcome['server_exit'] <= 255 and
+                    type(outcome['owner_confirmations']) is int and 0 <= outcome['owner_confirmations'] <= 84 and
+                    type(outcome['actual_root_objects']) is int and 0 <= outcome['actual_root_objects'] <= 88 and
+                    type(outcome['last_record_sequence']) is int and 0 <= outcome['last_record_sequence'] <= 10000 and
+                    all(type(outcome[k]) is list and len(outcome[k]) <= 32 for k in ('abort', 'cleanup')),
+                    'OUTCOME_SCHEMA')
+            symbols = diagnostic_codes()
+            def code(value): return value if type(value) is str and value in symbols else ('UNCLASSIFIED_CODE_REDACTED' if value is not None else None)
+            outcome = {**outcome, **{k: code(outcome[k]) for k in ('status', 'primary')},
+                       **{k: [code(x) for x in outcome[k]] for k in ('abort', 'cleanup')}}
+            outcome['client_error_type'] = outcome['client_error_type'] if outcome['client_error_type'] in (
+                None, 'Hold', 'OSError', 'AssertionError', 'TimeoutExpired', 'ValueError', 'KeyError') else 'REDACTED'
+            outcome['last_record_kind'] = outcome['last_record_kind'] if outcome['last_record_kind'] in (
+                None, 'flow_claim', 'host_action_intent', 'host_action_ack', 'function_accepted',
+                'owner_claim_intent', 'owner_ready', 'owner_object_intent', 'owner_object_ack',
+                'owner_completion', 'owner_cleanup', 'operator_pending_cleanup', 'operator_cleanup') else 'REDACTED'
+            location = {**location, 'outcome': outcome}
         return location
     except BaseException:
         return None
@@ -217,6 +264,9 @@ def run(workspace, image):
             command(native_argv(workspace, control, image, container, owner), timeout=30)
             inspect_guest(container, owner, workspace, control, image_id)
             command(['/usr/bin/docker', 'start', container], timeout=30); ready(container)
+            if case == 'success':
+                require(command(native_fsuid_argv(container), timeout=30).strip() == b'ACTUAL_NATIVE_FSUID_DAC_GREEN',
+                        'NATIVE_FSUID_DAC_RED')
             code, raw = boundary.bounded(['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
                 '/source/tests/public_operator_native.py', '--scenario', case], timeout=720)
             if code != 0: diagnostic = failure_location(raw)
@@ -225,6 +275,7 @@ def run(workspace, image):
             boundary.cleanup_container(container, owner); container = None
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
+                  'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback

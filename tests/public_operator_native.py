@@ -59,6 +59,7 @@ SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'ru
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
              'first_restart', 'old_restart')
 PRODUCTION_FAULT = None
+PRODUCTION_OUTCOME = None
 
 
 class FaultWire:
@@ -365,7 +366,7 @@ def plan(s, machine):
 
 
 def main():
-    global PRODUCTION_FAULT
+    global PRODUCTION_FAULT, PRODUCTION_OUTCOME
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source(); setup(s)
     b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
@@ -467,6 +468,11 @@ s.load("host").command=_delay_after_actual_start
     assert fault_wire.injected == FAULTS[args.scenario], 'INTENDED_REAL_FAULT_NOT_INJECTED'
     acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
     actual_root = sum(p.stat().st_uid == 0 for p in [WEB, *WEB.rglob('*')])
+    PRODUCTION_OUTCOME = {k: result.get(k) for k in ('status', 'primary', 'abort', 'cleanup')}
+    PRODUCTION_OUTCOME.update(abort=result.get('abort', []), cleanup=result.get('cleanup', []),
+        client_error_type=result.get('error_type'), server_exit=code, owner_confirmations=len(acknowledgments),
+        actual_root_objects=actual_root, last_record_kind=fault_wire.record.get('kind') if fault_wire.record else None,
+        last_record_sequence=fault_wire.record.get('sequence', 0) if fault_wire.record else 0)
     report = {'scenario': args.scenario, 'status': result['status'], 'server_exit': code,
                       'proof': io.sha(io.canonical(result)), 'source_files': hashes,
                       'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,
@@ -505,6 +511,7 @@ if __name__ == '__main__':
         while trace is not None:
             if trace.tb_frame.f_code.co_filename == __file__: line = trace.tb_lineno
             trace = trace.tb_next
-        print(json.dumps({'native_failure': {'test_line': line, 'test_type': type(error).__name__,
-                                             'production_fault': PRODUCTION_FAULT}}))
+        location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
+        if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
+        print(json.dumps({'native_failure': location}))
         raise SystemExit(1)

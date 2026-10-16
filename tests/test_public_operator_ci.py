@@ -132,5 +132,27 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertFalse(result['green']); self.assertEqual(result['code'], 'PRIVATE_OPERATOR_CI_CLEANUP_RED')
         self.assertEqual(result['cases'], []); self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
 
+    def test_finite_failure_codes_and_counters_never_publish_unknown_values(self):
+        outcome = {'status': 'HOLD', 'primary': 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_DEADLINE',
+            'abort': ['PRIVATE_CANARY'], 'cleanup': [], 'client_error_type': 'PRIVATE_CANARY',
+            'server_exit': 1, 'owner_confirmations': 7, 'actual_root_objects': 11,
+            'last_record_kind': 'owner_object_intent', 'last_record_sequence': 123}
+        value = {'native_failure': {'test_line': 476, 'test_type': 'AssertionError',
+                 'production_fault': None, 'outcome': outcome}}
+        result = m.failure_location(json.dumps(value).encode())
+        self.assertEqual(result['outcome']['primary'], outcome['primary'])
+        self.assertEqual(result['outcome']['owner_confirmations'], 7)
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+        for key, changed in (('owner_confirmations', True), ('actual_root_objects', 89), ('server_exit', 'PRIVATE_CANARY')):
+            with self.subTest(key=key):
+                value['native_failure']['outcome'] = {**outcome, key: changed}
+                self.assertIsNone(m.failure_location(json.dumps(value).encode()))
+
+    def test_native_fsuid_regression_has_exact_root_non_skipped_guest_entry(self):
+        argv = m.native_fsuid_argv('owned')
+        self.assertEqual(argv[:6], ['/usr/bin/docker', 'exec', 'owned', '/usr/bin/python3', '-I', '-B'])
+        self.assertIn('os.geteuid()==0', argv[-1]); self.assertIn('not r.skipped', argv[-1])
+        self.assertIn('test_actual_fsuid_socket_owner_', argv[-1])
+
 
 if __name__ == '__main__': unittest.main(verbosity=2)

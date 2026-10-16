@@ -177,6 +177,13 @@ or the right object count alone cannot prove the intended path was exercised.
 On failure CI emits only schema-checked Source component/line/type locations;
 never child stderr, exception values, assertions, private Source or observations.
 Unknown/malformed diagnostic data is omitted, and the scenario remains RED.
+Failure outcomes additionally retain bounded actual confirmation/object counts
+and last-record kind/sequence. Only literal PUBLIC Source error symbols (including
+their defined prefixes) are published; arbitrary exception/Host values are
+redacted even if they look like uppercase codes. No observation payload leaves
+private CI memory. The actual fsuid/socket regression also runs explicitly as
+root in the first network-none CI guest, with skips/errors/failures forbidden;
+the unprivileged runner's boundary-test skip is NOT its native proof.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
 after a successful matrix still makes the job RED, without discarding its proof.
