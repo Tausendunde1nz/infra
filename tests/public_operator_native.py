@@ -4,7 +4,9 @@ Only synthetic application, SQL, TLS, policy and website data. The sole test
 substitutions are EXPECTED target machine/owner-plan/custody/legacy-context bindings, because
 real Host data and its immutable plan are forbidden here. No observation,
 authorization query, fence, action, backup, supervisor or receipt is replaced.
-No production entry exposes these test binding substitutions as CLI options.
+The two restart-race cases also delay the caller AFTER the actual start command,
+without substituting a manager response or safety decision. No production entry
+exposes these test bindings/scheduler injections as CLI options.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ from http.server import BaseHTTPRequestHandler,HTTPServer
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--contract');args,_=p.parse_known_args()
 c=json.loads(Path(args.contract).read_bytes());body=('SYNTHETIC-'+c['profile']).encode()
+if c['profile']=='s7' and Path('/var/lib/tu1nz-adult-public-s9/native-crash-request').exists():os._exit(72)
 if c['profile']!='s7':
  root=Path('/var/lib/tu1nz-adult-public-s9')
  for name in ('landing-aggregates.json','wms-traffic-quality.json'):
@@ -53,7 +56,8 @@ class Handler(BaseHTTPRequestHandler):
 HTTPServer((c['bind_host'],c['bind_port']),Handler).serve_forever()
 '''
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
-             'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack')
+             'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
+             'first_restart', 'old_restart')
 
 
 class FaultWire:
@@ -73,6 +77,12 @@ class FaultWire:
         message = self.wire.receive()
         if message.get('type') != 'durable_record': return message
         self.record = message['record']; kind, value = self.record['kind'], self.record['value']
+        wanted = 'start_old' if self.scenario == 'old_restart' else 'start'
+        if (self.scenario in ('first_restart', 'old_restart') and kind == 'host_action_intent' and
+                value['action'] == wanted and value.get('unit') == UNITS[0]):
+            marker = STATE/'native-crash-request'
+            write(marker, b'SYNTHETIC_INITIAL_INVOCATION_CRASH_ONLY', 0o600); os.chown(marker, 1001, 1001)
+            self.injected.append('REAL_INITIAL_FAILURE_ARMED')
         if kind == 'owner_object_intent':
             self.intents += 1
             if self.intents == 8 and self.scenario == 'namespace_swap':
@@ -92,7 +102,7 @@ class FaultWire:
                 p = APP/'.venv/bin/tu1nz-public-s7'
                 p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_RUNTIME_DRIFT\n')
                 self.injected.append('REAL_RUNTIME_DRIFT_AFTER_STOP')
-        if kind == 'probe_start_intent' and not self.injected and self.scenario == 'probe_fail_return':
+        if kind == 'probe_start_intent' and not self.injected and self.scenario in ('probe_fail_return', 'old_restart'):
             p = Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe/inputs/s7_form_secret')
             p.write_bytes(b'SYNTHETIC-ONLY-DIFFERENT-00000000000000000000000000000000')
             self.injected.append('REAL_SYNTHETIC_CREDENTIAL_DRIFT')
@@ -109,7 +119,7 @@ class FaultWire:
                 message = {**message, 'control': 'HOLD_BEFORE_OWNER_EFFECT'}
                 self.injected.append('EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT')
         if message.get('type') == 'decision':
-            if self.scenario in ('restore_fail_return', 'probe_fail_return', 'denied_return', 'lost_start_ack'):
+            if self.scenario in ('restore_fail_return', 'probe_fail_return', 'denied_return', 'lost_start_ack', 'old_restart'):
                 message = {'type': 'decision', 'value': 'RETURN_OLD'}
             elif self.scenario in ('owner_return', 'namespace_swap', 'lost_ack'):
                 message = {'type': 'decision', 'value': 'OWNER_RETURN'}
@@ -387,6 +397,40 @@ def main():
                           's.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_hash)+'\n')
     target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
         b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
+    if args.scenario in ('first_restart', 'old_restart'):
+        # Deterministic scheduler fault ONLY: execute the ACTUAL start, then
+        # delay its caller until the real crash/on-failure replacement exists.
+        # No observation/action result is replaced or returned as GREEN.
+        target_substitution += '''
+_real_command=s.load("host").command
+_delayed=False
+def _delay_after_actual_start(argv, deadline):
+ global _delayed
+ result=_real_command(argv,deadline)
+ if argv==["/usr/bin/systemctl","start","tu1nz-adult-public-s7.service"] and not _delayed:
+  _delayed=True
+  import json,time
+  from pathlib import Path
+  marker=Path("/var/lib/tu1nz-adult-public-s9/native-crash-request")
+  assert marker.is_file()
+  while True:
+   row=_real_command(["/usr/bin/systemctl","show","tu1nz-adult-public-s7.service","--property=ExecMainStatus,InvocationID"],deadline)
+   value=dict(line.split("=",1) for line in row.stdout.decode().splitlines() if "=" in line)
+   if value.get("ExecMainStatus")=="72":break
+   assert time.monotonic()<deadline
+   time.sleep(.01)
+  initial=value["InvocationID"];marker.unlink()
+  while True:
+   row=_real_command(["/usr/bin/systemctl","show","tu1nz-adult-public-s7.service","--property=NRestarts,InvocationID,ActiveState,MainPID"],deadline)
+   value=dict(line.split("=",1) for line in row.stdout.decode().splitlines() if "=" in line)
+   if int(value["NRestarts"])>=1 and value["ActiveState"]=="active" and int(value["MainPID"])>0:break
+   assert time.monotonic()<deadline
+   time.sleep(.01)
+  assert initial and initial!=value["InvocationID"]
+  with Path("/fixture-r4/actual-restart-proof.json").open("x") as f:json.dump({"initial":initial,"replacement":value},f)
+ return result
+s.load("host").command=_delay_after_actual_start
+'''
     program = program.replace('s.load("host").session(s,p,w)', target_substitution+'s.load("host").session(s,p,w)')
     child = subprocess.Popen(['/usr/bin/python3', '-I', '-B', '-S', '-c', program],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -410,6 +454,12 @@ def main():
     if held_writer is not None: os.close(held_writer)
     write(ROOT/'server-stderr', stderr, 0o600)
     write(ROOT/'result.json', io.canonical(result), 0o600)
+    if args.scenario in ('first_restart', 'old_restart'):
+        proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
+        assert proof['initial'] != proof['replacement']['InvocationID'] and int(proof['replacement']['NRestarts']) >= 1
+        expected = 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_FIRST_START_AUTORESTART_DETECTED'
+        assert result.get('primary') == expected or expected in result.get('abort', []), result
+        fault_wire.injected.append('REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION')
     from tu1nz_public_operator_ci import FAULTS
     assert fault_wire.injected == FAULTS[args.scenario], 'INTENDED_REAL_FAULT_NOT_INJECTED'
     acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
@@ -430,7 +480,7 @@ def main():
         assert actual_root == 4 and len(acknowledgments) == 7
     else:
         assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
-        if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack'): assert actual_root == 4
+        if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart'): assert actual_root == 4
         else: assert 4 < actual_root < 88
         if args.scenario == 'runtime_tamper': assert not (r.CUSTODY_PARENT/r.TX).exists()
         if args.scenario == 'denied_return':

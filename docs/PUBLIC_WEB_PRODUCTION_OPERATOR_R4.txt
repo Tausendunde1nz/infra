@@ -110,6 +110,17 @@ restart cannot be substituted for that requested start. Current listener belongs
 to the actual unit process. Actual internal/proxy/public HTTP, credential view,
 SELECT-only DB peer and bounded current state reads are recorded privately with
 kernel identities and hashes, never secret/message/row contents or user IDs.
+The actual manager uint32 NRestarts is required, not an input reference flag.
+Before a requested start the unit must be fully inactive/no PID/job; its prior
+counter/InvocationID are recorded without rewriting history. After that manual
+start NRestarts must be0 BEFORE even naming the first observed invocation, and
+remain0 alongside the exact InvocationID/PID/starttime in forward AND old-return
+acceptance. Any automatic replacement already before the first sample denies.
+No reset-failed, manual second start, Restart setting change or relaxed deadline.
+Counter semantics/source: systemd v255 service_start/service_enter_restart,
+https://github.com/systemd/systemd/blob/v255/src/core/service.c
+The manager/approved controllers remain the existing explicit TCB; this is not
+a claim to resist a malicious fully trusted controller resetting manager state.
 
 Probes use only synthetic RootDirectory data/credentials/NSS and private network,
 the approved names/paths/limits, effective kernel rights/maps, real Unix peer and
@@ -137,13 +148,19 @@ nginx. Only expected fixture Host/plan/custody/old-context/Application bindings
 are substituted; no safety observation or action is mocked GREEN. Real filesystem,
 signal and ACK faults cover success, extra writers, code/object drift, partial
 changes, interruption, lost confirmations, explicit and denied returns, and replay.
+Two additional native cases cause a real exit72 and the unchanged15s on-failure
+restart before the caller's first sample, both forward and old-return. A test-only
+scheduler wrapper delays the caller after executing the ACTUAL start; it returns
+the real command result and all manager/counter observations are real. Actual
+distinct InvocationIDs, restart counter>=1 and HOLD provenance must be proved.
+This is disclosed fault scheduling, not a safety-observation GREEN substitution.
 The SSH executable/real Tailscale/sudo endpoint is NOT exercised by those fixtures;
 actual Host authentication/rights and every fresh Host prerequisite remain gates.
 Required CI uses exact reviewed private Control Source, network-none read-only
 mounts, no token in the guest and no private output/artifact/cache publication.
 The private-CI helper pins Controlf2979863bbb7043261e9177842503a9b47cdb49f,
 fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
-and tests each scenario in a new finite network-none/read-only/PID1 guest.
+and tests all13 scenarios in new finite network-none/read-only/PID1 guests.
 The two approved private helpers clean their OWN inputs/containers separately;
 neither receives the other's capsule or private tree. Image builds precede all
 private inputs. CI30min is only the enlarged job envelope for added scenarios;

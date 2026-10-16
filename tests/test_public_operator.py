@@ -33,6 +33,15 @@ class Reply:
 
 
 class OperatorBoundary(unittest.TestCase):
+    def test_unknown_or_non_uint32_restart_counter_denies_unit_read(self):
+        for counter in ('', '-1', 'True', '00', '4294967296'):
+            values = {p: '' for p in observe.PROPERTIES.split(',')}
+            values.update(Id=observe.UNITS[0], LoadState='loaded', NRestarts=counter)
+            reply = SimpleNamespace(returncode=0, stdout='\n'.join(k+'='+v for k, v in values.items()).encode())
+            with self.subTest(counter=counter), patch.object(observe, 'command', return_value=reply):
+                with self.assertRaisesRegex(io.Hold, 'UNIT_RESTART_COUNTER_UNKNOWN'):
+                    observe.Authority.unit(SimpleNamespace(deadline=time.monotonic()+1), observe.UNITS[0])
+
     def test_entry_sanitizes_private_input_error_without_traceback(self):
         output = text_io.StringIO()
         with patch.object(client, 'main', side_effect=OSError('PRIVATE_CANARY_PATH')), contextlib.redirect_stdout(output):

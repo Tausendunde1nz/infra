@@ -22,7 +22,8 @@ import tu1nz_public_operator as operator
 
 CONTROL_COMMIT = 'f2979863bbb7043261e9177842503a9b47cdb49f'
 CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
-         'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack')
+         'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
+         'first_restart', 'old_restart')
 FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'runtime_tamper': ['REAL_RUNTIME_DRIFT_BEFORE_ADMISSION'],
           'namespace_swap': ['REAL_RENAME_AND_RETURN'], 'lost_ack': ['REAL_INVALID_TRANSPORT_ACK'],
@@ -31,7 +32,10 @@ FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'probe_fail_return': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT'],
           'denied_return': ['REAL_RUNTIME_DRIFT_AFTER_STOP'],
           'owner_return': ['EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT'],
-          'lost_start_ack': ['REAL_INVALID_START_ACK']}
+          'lost_start_ack': ['REAL_INVALID_START_ACK'],
+          'first_restart': ['REAL_INITIAL_FAILURE_ARMED', 'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
+          'old_restart': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT', 'REAL_INITIAL_FAILURE_ARMED',
+                          'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION']}
 SCHEMA = 'TU1NZ_PUBLIC_OPERATOR_NATIVE_CI_V1'
 
 
@@ -133,11 +137,12 @@ def validate_report(raw, case, hashes):
                 (status, 0, 7 if case == 'owner_return' else 0, 4), 'RETURN_RED')
     else:
         require(value['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), 'FAULT_NOT_HELD')
-        if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack'):
+        if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart'):
             require(value['actual_root_objects'] == 4, 'UNAUTHORIZED_OWNER_EFFECT')
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')
-    return {'scenario': case, 'result_sha256': value['proof'], 'status': value['status']}
+    return {'scenario': case, 'result_sha256': value['proof'], 'status': value['status'],
+            'actual_faults': value['actual_faults']}
 
 
 def run(workspace, image):
@@ -170,7 +175,7 @@ def run(workspace, image):
             records.append(validate_report(raw, case, hashes))
             boundary.cleanup_container(container, owner); container = None
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
-                  'control_commit': CONTROL_COMMIT, 'source_files': hashes, 'cases': records,
+                  'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback

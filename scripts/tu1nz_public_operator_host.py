@@ -517,14 +517,27 @@ class Adapter:
             old = action == 'start_old'; attempted = self.old_start_requested if old else self.start_requested
             io.require(unit in UNITS and unit not in attempted and self.a.empty(unit), 'NO_START_REPLAY_OR_NONEMPTY')
             self.condition(unit, present=False); attempted.add(unit)
+            before = self.a.unit(unit)
+            io.require(before['ActiveState'] == 'inactive' and before['MainPID'] == '0' and not before['Job'],
+                       'START_BASELINE_NOT_FULLY_INACTIVE')
+            self.channel.record('first_start_attempt', {'unit': unit, 'old_operation': old,
+                'prior_invocation': before['InvocationID'], 'prior_restart_counter': before['NRestarts']})
             r = command(['/usr/bin/systemctl', 'start', unit], deadline)
             io.require(r.returncode == 0, 'START_OUTCOME_UNKNOWN_NO_RETRY')
-            value = self.a.unit(unit); row = process(int(value['MainPID']))
+            value = self.a.unit(unit)
+            # A manual start resets the manager's automatic-restart counter;
+            # every queued automatic restart increments and retains it. Thus
+            # a replacement BEFORE this first sample cannot become "first".
+            # Counter semantics: systemd v255 src/core/service.c service_start /
+            # service_enter_restart. No reset/restart-rule mutation is used.
+            io.require(value['NRestarts'] == '0', 'FIRST_START_AUTORESTART_DETECTED')
+            row = process(int(value['MainPID']))
             io.require(value['ActiveState'] == 'active' and not value['Job'], 'START_OUTCOME_UNKNOWN_NO_RETRY')
             first = (value['InvocationID'], row['pid'], row['starttime'])
             while True:
                 value = self.a.unit(unit); row = process(int(value['MainPID']))
                 io.require((value['InvocationID'], row['pid'], row['starttime']) == first and
+                           value['NRestarts'] == '0' and
                            value['ActiveState'] == 'active' and not value['Job'], 'FIRST_START_INVOCATION_CHANGED')
                 if old:
                     if all(row[k] == v for k, v in self.a.original_profiles[unit].items()):
@@ -537,8 +550,9 @@ class Adapter:
                 time.sleep(.01)
             (self.old_started if old else self.started)[unit] = (row['pid'], row['starttime'])
             self.a.stopped.remove(unit)
+            self.a.runtime_invocations[unit] = first
             if not old:
-                self.a.rights.add(unit); self.a.runtime_invocations[unit] = first
+                self.a.rights.add(unit)
             else:
                 self.a.targets[unit] = (row['pid'], row['starttime'])
         elif action == 'supervised_owner_transaction':

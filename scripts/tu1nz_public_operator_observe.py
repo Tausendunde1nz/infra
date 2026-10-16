@@ -32,7 +32,7 @@ UNITS = ('tu1nz-adult-public-s7.service', 'tu1nz-adult-public-s8-landing.service
          'tu1nz-adult-public-s10-wms.service')
 CAPS = ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb')
 PROPERTIES = ('Id,Names,LoadState,ActiveState,SubState,Result,MainPID,ControlPID,Job,'
-              'InvocationID,ControlGroup,NeedDaemonReload,FragmentPath,DropInPaths,'
+              'InvocationID,NRestarts,ControlGroup,NeedDaemonReload,FragmentPath,DropInPaths,'
               'Requires,BindsTo,PartOf,RequiredBy,BoundBy,ConsistsOf,PropagatesStopTo,'
               'StopPropagatedFrom,Triggers,TriggeredBy,OnFailure,KillMode,Restart,'
               'TimeoutStopUSec,User,Group,SupplementaryGroups,NoNewPrivileges,'
@@ -409,6 +409,8 @@ class Authority:
         value = dict(x.split('=', 1) for x in r.stdout.decode().splitlines() if '=' in x)
         io.require(set(PROPERTIES.split(',')) <= set(value) and value['Id'] == unit and
                    value['LoadState'] == 'loaded', 'UNIT_PROFILE_UNKNOWN')
+        io.require(re.fullmatch('0|[1-9][0-9]{0,9}', value['NRestarts']) and
+                   int(value['NRestarts']) <= 0xffffffff, 'UNIT_RESTART_COUNTER_UNKNOWN')
         return value
 
     def units_check(self, *, stop_only):
@@ -462,6 +464,10 @@ class Authority:
             if current is not None:
                 io.require(value['ControlGroup'] == '/system.slice/'+unit and
                            current['cgroup'] == '0::'+value['ControlGroup'], 'UNIT_PROCESS_CGROUP_BINDING')
+            if unit in self.runtime_invocations and unit not in self.stopped:
+                io.require(value['NRestarts'] == '0' and current is not None and value['ActiveState'] == 'active' and
+                           (value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
+                           'ACCEPTED_FIRST_INVOCATION_OR_RESTART_COUNTER_CHANGED')
             if unit in self.stopped:
                 io.require(value['ActiveState'] == 'inactive' and current is None and self.empty(unit),
                            'UNIT_NOT_QUIET')
@@ -509,6 +515,7 @@ class Authority:
         for unit in self.rights:
             value = self.unit(unit); expected = self.runtime_invocations[unit]
             io.require(value['ActiveState'] == 'active' and not value['Job'] and
+                       value['NRestarts'] == '0' and
                        (value['InvocationID'], int(value['MainPID'])) == expected[:2],
                        'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
             right_pids[expected[1]] = (unit, expected[2])
