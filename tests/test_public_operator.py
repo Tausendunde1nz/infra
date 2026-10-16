@@ -42,7 +42,25 @@ def native_trace_capable():
     except (OSError, ValueError, KeyError): return False
 
 
+class NativeFSUIDFailure(AssertionError):
+    def __init__(self, code, number=0):
+        self.primary = code; self.native_errno = number
+        super().__init__(code)
+
+
 class OperatorBoundary(unittest.TestCase):
+    @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
+    def test_actual_child_dac_failure_is_not_replaced_by_fixture_cleanup(self):
+        original = Path.chmod
+        def deny_fixture_socket(path, mode, *args, **kwargs):
+            # Fixture INPUT fault only: real mode0 on the actual synthetic
+            # socket. No production observation/permission result is replaced.
+            return original(path, 0 if path.name == 'synthetic.sock' else mode, *args, **kwargs)
+        with patch.object(Path, 'chmod', deny_fixture_socket), self.assertRaises(NativeFSUIDFailure) as caught:
+            self.test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid()
+        self.assertEqual(caught.exception.primary, 'NATIVE_FSUID_CHILD_CONNECT_RED')
+        self.assertEqual(caught.exception.native_errno, 13)
+
     @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid(self):
         # Actual synthetic Unix socket and actual kernel fsuid in an owned
@@ -56,13 +74,22 @@ class OperatorBoundary(unittest.TestCase):
                 program = '''import ctypes,json,os,socket,sys
 from pathlib import Path
 libc=ctypes.CDLL(None,use_errno=True)
-assert libc.setfsuid(1001)==0
-s=dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
-uids=list(map(int,s["Uid"].split()))
-assert os.geteuid()==0 and uids[1]==0 and uids[3]==1001
-peer=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);peer.connect(sys.argv[1]);peer.close()
-print("ACTUAL_FSUID_SOCKET_CONNECTED",flush=True)
-assert sys.stdin.buffer.readline()==b"DONE\\n"
+phase="NATIVE_FSUID_CHILD_SETFSUID_RED"
+try:
+ assert libc.setfsuid(1001)==0
+ phase="NATIVE_FSUID_CHILD_UID_VIEW_RED"
+ s=dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
+ uids=list(map(int,s["Uid"].split()))
+ assert os.geteuid()==0 and uids[1]==0 and uids[3]==1001
+ phase="NATIVE_FSUID_CHILD_CONNECT_RED"
+ peer=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);peer.connect(sys.argv[1]);peer.close()
+ print("ACTUAL_FSUID_SOCKET_CONNECTED",flush=True)
+ phase="NATIVE_FSUID_CHILD_HANDSHAKE_RED"
+ assert sys.stdin.buffer.readline()==b"DONE\\n"
+except BaseException as error:
+ number=error.errno if isinstance(error,OSError) and type(error.errno) is int and 0<error.errno<4096 else 0
+ sys.stderr.write(json.dumps({"code":phase,"errno":number})+"\\n")
+ raise SystemExit(1)
 '''
                 # The real production observer retains its privileged read
                 # identity. Only the observed actor has a different fsuid.
@@ -70,9 +97,11 @@ assert sys.stdin.buffer.readline()==b"DONE\\n"
                 # procfs/LSM read authority, not the production DAC decision.
                 child = subprocess.Popen([sys.executable, '-I', '-B', '-c', program, str(path)],
                                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                failure = None; ready = False
                 try:
                     self.assertTrue(select.select([child.stdout], [], [], 10)[0])
-                    self.assertEqual(child.stdout.readline(128), b'ACTUAL_FSUID_SOCKET_CONNECTED\n')
+                    ready = child.stdout.readline(128) == b'ACTUAL_FSUID_SOCKET_CONNECTED\n'
+                    self.assertTrue(ready)
                     row = observe.process(child.pid)
                     self.assertEqual(row['uid'][1], 0); self.assertEqual(row['uid'][3], 1001)
                     def unexpected(*a, **k): raise AssertionError('DAC_REJECTION_MUST_PRECEDE_INHERITED_INSPECTION')
@@ -80,9 +109,26 @@ assert sys.stdin.buffer.readline()==b"DONE\\n"
                                                 inherited_sockets=unexpected)
                     with self.assertRaisesRegex(io.Hold, 'BROKER_EFFECTIVE_DAC_ACCESS'):
                         observe.Authority.broker_access(authority, row)
+                except BaseException as error:
+                    failure = error
                 finally:
                     _out, errors = child.communicate(b'DONE\n', timeout=10)
-                    self.assertEqual(child.returncode, 0, errors.decode())
+                    if child.returncode != 0:
+                        try:
+                            detail = json.loads(errors)
+                            self.assertEqual(set(detail), {'code', 'errno'})
+                            self.assertIn(detail['code'], ('NATIVE_FSUID_CHILD_SETFSUID_RED', 'NATIVE_FSUID_CHILD_UID_VIEW_RED',
+                                'NATIVE_FSUID_CHILD_CONNECT_RED', 'NATIVE_FSUID_CHILD_HANDSHAKE_RED'))
+                            self.assertIs(type(detail['errno']), int); self.assertTrue(0 <= detail['errno'] < 4096)
+                        except BaseException:
+                            detail = {'code': 'NATIVE_FSUID_CHILD_PROTOCOL_RED', 'errno': 0}
+                        child_failure = NativeFSUIDFailure(detail['code'], detail['errno'])
+                        if failure is None or not ready:
+                            if failure is not None: child_failure.__context__ = failure
+                            failure = child_failure
+                        else:
+                            failure.native_cleanup = detail
+                    if failure is not None: raise failure
             finally: listener.close()
 
     def test_unknown_or_non_uint32_restart_counter_denies_unit_read(self):

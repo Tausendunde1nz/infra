@@ -195,6 +195,13 @@ UID0 alone cannot inspect the fsuid-changed nondumpable synthetic child. Missing
 capability skips this component in an ordinary boundary environment, NOT GREEN
 native proof. The required privileged CI guest still forbids skips and must
 produce the actual native marker. No Host capability installation is supplied.
+The synthetic child reports a finite setup/UID-view/connect/handshake code and
+bounded errno, never exception text. Parent cleanup cannot replace that child's
+actual failure with a generic exit assertion. Other observer failures retain
+their primary cause. These are fixture diagnostics, not new admission facts.
+The mandatory root entry runs BOTH the actual successful-connect/DAC-denial
+case and a real synthetic mode0 socket failure. The latter must retain connect
+phase/errno13 through cleanup; neither case may be skipped or mocked GREEN.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
 after a successful matrix still makes the job RED, without discarding its proof.

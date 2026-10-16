@@ -117,6 +117,10 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertNotIn('PRIVATE_CANARY', json.dumps(m.failure_location(json.dumps(value).encode())))
         value['native_failure']['test_type'] = 'PermissionError'
         self.assertEqual(m.failure_location(json.dumps(value).encode())['test_type'], 'PermissionError')
+        value['native_failure'].update(test_type='NativeFSUIDFailure', cause_code='NATIVE_FSUID_CHILD_CONNECT_RED', errno=13)
+        self.assertEqual(m.failure_location(json.dumps(value).encode())['errno'], 13)
+        value['native_failure']['errno'] = True
+        self.assertIsNone(m.failure_location(json.dumps(value).encode()))
 
     def test_cleanup_preserves_primary_location_and_both_independent_errors(self):
         location = {'test_line': 494, 'test_type': 'AssertionError', 'production_fault': None}
@@ -160,6 +164,7 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertEqual(argv[:6], ['/usr/bin/docker', 'exec', 'owned', '/usr/bin/python3', '-I', '-B'])
         self.assertIn('os.geteuid()==0', argv[-1]); self.assertIn('not r.skipped', argv[-1])
         self.assertIn('test_actual_fsuid_socket_owner_', argv[-1])
+        self.assertIn('test_actual_child_dac_failure_', argv[-1]); self.assertIn('r.testsRun==2', argv[-1])
 
     def test_zero_uid_without_ptrace_is_not_native_observer_evidence(self):
         with patch('tests.test_public_operator.sys.platform', 'linux'), \

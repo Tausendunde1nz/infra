@@ -40,7 +40,9 @@ FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
                           'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION']}
 SCHEMA = 'TU1NZ_PUBLIC_OPERATOR_NATIVE_CI_V1'
 SAFE_FAILURE_TYPES = frozenset(n for n, v in vars(builtins).items()
-    if isinstance(v, type) and issubclass(v, BaseException)) | {'Hold', 'Denied', 'FlowFailure', 'OwnerFailure'}
+    if isinstance(v, type) and issubclass(v, BaseException)) | {'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
+SAFE_NATIVE_CODES = frozenset(('NATIVE_FSUID_CHILD_SETFSUID_RED', 'NATIVE_FSUID_CHILD_UID_VIEW_RED',
+    'NATIVE_FSUID_CHILD_CONNECT_RED', 'NATIVE_FSUID_CHILD_HANDSHAKE_RED', 'NATIVE_FSUID_CHILD_PROTOCOL_RED'))
 
 
 def diagnostic_codes():
@@ -53,7 +55,7 @@ def diagnostic_codes():
         for node in ast.walk(ast.parse((workspace/relative).read_bytes())):
             if isinstance(node, ast.Constant) and type(node.value) is str and re.fullmatch('[A-Z][A-Z0-9_]{1,160}', node.value):
                 symbols.add(node.value)
-    return symbols | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
+    return symbols | SAFE_NATIVE_CODES | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
                                               'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_') for x in symbols}
 
 
@@ -67,9 +69,10 @@ class Result(unittest.TestResult):
  def addError(self,test,error):self.error=error;super().addError(test,error)
  def addFailure(self,test,error):self.error=error;super().addFailure(test,error)
 r=Result()
-OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid").run(r)
-if not (r.testsRun==1 and not r.skipped and not r.failures and not r.errors):
- line=1;kind="AssertionError";cause=None
+unittest.TestSuite([OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid"),
+ OperatorBoundary("test_actual_child_dac_failure_is_not_replaced_by_fixture_cleanup")]).run(r)
+if not (r.testsRun==2 and not r.skipped and not r.failures and not r.errors):
+ line=1;kind="AssertionError";cause=None;number=0
  if r.error:
   kind=r.error[0].__name__;trace=r.error[2]
   while trace is not None:
@@ -78,9 +81,10 @@ if not (r.testsRun==1 and not r.skipped and not r.failures and not r.errors):
   error=r.error[1];seen=set()
   while error is not None and id(error) not in seen:
    seen.add(id(error))
-   if isinstance(getattr(error,"primary",None),str):cause=error.primary;break
+   if isinstance(getattr(error,"primary",None),str):
+    cause=error.primary;number=getattr(error,"native_errno",0);break
    error=error.__context__
- print(json.dumps({"native_failure":{"test_line":line,"test_type":kind,"production_fault":None,"cause_code":cause}}))
+ print(json.dumps({"native_failure":{"test_line":line,"test_type":kind,"production_fault":None,"cause_code":cause,"errno":number}}))
  raise SystemExit(1)
 print("ACTUAL_NATIVE_FSUID_DAC_GREEN")
 '''
@@ -205,7 +209,9 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code'}, 'FAILURE_SCHEMA')
+                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code', 'errno'}, 'FAILURE_SCHEMA')
+        if 'errno' in location:
+            require(type(location['errno']) is int and 0 <= location['errno'] < 4096, 'FAILURE_ERRNO_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
                 location['test_type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}, 'FAILURE_SCHEMA')
         fault = location['production_fault']
@@ -306,6 +312,7 @@ def run(workspace, image):
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
+                  'native_fsuid_tests': 2,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback
