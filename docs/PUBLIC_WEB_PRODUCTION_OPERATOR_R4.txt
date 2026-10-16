@@ -44,6 +44,15 @@ Transport: fixed chatops@100.121.130.51, strict existing SSH Host key, no agent 
 multiplexing/forwarding; sudo password from the local secure TTY only, never argv,
 environment, chat or logs. Root's reviewed ready frame must precede the private
 packet. Same-process EOF/interruption/deadline gives HOLD, no reconnect/resume.
+OpenSSH uses -F /dev/null: neither user nor global ssh_config may redirect the
+endpoint, execute a proxy/local/known-host command or select another trust store.
+HostName/User/Port and HostKeyAlias are fixed; only the existing
+/Users/daniel/.ssh/known_hosts and /Users/daniel/.ssh/id_ed25519 are selected.
+No agent, certificate, password/keyboard-interactive fallback or enrollment.
+Missing key/trust/authentication fails closed; no new key or Host permission.
+The regular boundary suite also runs actual OpenSSH -G (no connection) and
+checks the effective endpoint/trust/key/options; production never uses -G output
+as a remote ready/admission or auth proof. No production credential is tested.
 Only the owned LOCAL SSH child may be closed/terminated during channel cleanup;
 no numeric remote-PID fallback. Local preparation records are not a transaction
 permit; only the unchanged fixed client Journal claim precedes Host mutation.

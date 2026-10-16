@@ -3,7 +3,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Build-time public distribution packages only. No private Source, Host data,
 # keys, provider input or host-manager socket is ever copied into this image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 git openssl acl systemd systemd-sysv dbus util-linux e2fsprogs \
+    python3 git openssh-client openssl acl systemd systemd-sysv dbus util-linux e2fsprogs \
     procps ca-certificates postgresql-16 postgresql-client-16 sudo polkitd nginx \
     && apt-get clean
 STOPSIGNAL SIGRTMIN+3

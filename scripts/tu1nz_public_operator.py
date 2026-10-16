@@ -43,6 +43,25 @@ CONTROL_FILES = {'owner': 'managed/lighting/scripts/owner_supervisor.py',
                  'guard': 'managed/lighting/scripts/writer_guard_contract.py'}
 APPROVAL = '7032ae9a4baf5c358e81050cd3fd675386c2f33100ab9932f504c053eaa10a7d'
 HOST = 'chatops@100.121.130.51'
+SSH_OPTIONS = (
+    'HostName=100.121.130.51', 'User=chatops', 'Port=22', 'BatchMode=yes', 'ConnectTimeout=10',
+    'StrictHostKeyChecking=yes', 'UpdateHostKeys=no',
+    'UserKnownHostsFile=/Users/daniel/.ssh/known_hosts', 'GlobalKnownHostsFile=/dev/null',
+    'KnownHostsCommand=none', 'HostKeyAlias=100.121.130.51', 'CanonicalizeHostname=no',
+    'ProxyCommand=none', 'ProxyJump=none', 'PermitLocalCommand=no', 'RemoteCommand=none',
+    'IdentityFile=/Users/daniel/.ssh/id_ed25519',
+    'IdentityAgent=none', 'IdentitiesOnly=yes', 'CertificateFile=none',
+    'PreferredAuthentications=publickey', 'PasswordAuthentication=no',
+    'KbdInteractiveAuthentication=no', 'GSSAPIAuthentication=no', 'HostbasedAuthentication=no',
+    'ControlMaster=no', 'ControlPath=none', 'ForwardAgent=no', 'ClearAllForwardings=yes')
+
+
+def ssh_argv(remote):
+    # -F also excludes system-wide ssh_config. No user Include/Match, proxy,
+    # alternate endpoint, external known-host command or agent can receive the
+    # sudo password/private packet. Existing key/trust store, no enrollment.
+    return ['/usr/bin/ssh', '-F', '/dev/null', '-T',
+            *[part for option in SSH_OPTIONS for part in ('-o', option)], HOST, remote]
 
 
 def git(root, *args):
@@ -345,9 +364,7 @@ def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None):
     program = bootstrap(base64.b64decode(encoded['io']))
     remote = 'LC_ALL=C '+shlex.join(['/usr/bin/sudo', '-S', '-k', '-p', '', '--',
                                     '/usr/bin/python3', '-I', '-B', '-S', '-c', program])
-    argv = ['/usr/bin/ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
-            '-o', 'StrictHostKeyChecking=yes', '-o', 'UpdateHostKeys=no', '-o', 'ControlMaster=no',
-            '-o', 'ControlPath=none', '-o', 'ForwardAgent=no', '-o', 'ClearAllForwardings=yes', HOST, remote]
+    argv = ssh_argv(remote)
     # Password exists only in the invoking TTY and this owned SSH stdin. Do not
     # send a payload until the reviewed bootstrap has actually replaced sudo.
     # Preflight evidence is NOT a transaction permit. A real Host effect still

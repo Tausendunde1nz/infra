@@ -203,6 +203,7 @@ except BaseException as error:
         original = subprocess.Popen; children = []
         def popen(argv, **kw):
             if argv[0] == '/usr/bin/ssh':
+                self.assertEqual(argv, client.ssh_argv(argv[-1]))
                 child = original([sys.executable, '-I', '-B', '-c', peer], **kw)
                 children.append(child); return child
             return original(argv, **kw)
@@ -225,6 +226,27 @@ except BaseException as error:
             for fd in fds:
                 with self.assertRaises(OSError): os.fstat(fd)
             self.assertNotIn('CANARY', output.getvalue()); self.assertNotIn('Traceback', output.getvalue())
+
+    def test_actual_ssh_config_only_keeps_fixed_endpoint_and_trust_sources(self):
+        # OpenSSH -G only parses configuration: no socket, key enrollment,
+        # authentication, local command, sudo password or private payload.
+        argv = client.ssh_argv('SYNTHETIC_NOT_EXECUTED')
+        self.assertEqual(argv[:4], ['/usr/bin/ssh', '-F', '/dev/null', '-T'])
+        result = subprocess.run([argv[0], '-G', *argv[1:]], capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0)
+        values = {}
+        for line in result.stdout.decode().splitlines():
+            key, value = line.split(' ', 1); values.setdefault(key, []).append(value)
+        expected = {'hostname': '100.121.130.51', 'user': 'chatops', 'port': '22',
+            'userknownhostsfile': '/Users/daniel/.ssh/known_hosts', 'globalknownhostsfile': '/dev/null',
+            'hostkeyalias': '100.121.130.51', 'identityfile': '/Users/daniel/.ssh/id_ed25519',
+            'identityagent': 'none', 'identitiesonly': 'yes', 'canonicalizehostname': 'false',
+            'permitlocalcommand': 'no', 'stricthostkeychecking': 'true', 'forwardagent': 'no',
+            'controlmaster': 'false', 'preferredauthentications': 'publickey',
+            'passwordauthentication': 'no', 'kbdinteractiveauthentication': 'no'}
+        for key, value in expected.items(): self.assertEqual(values.get(key), [value], key)
+        for key in ('proxycommand', 'proxyjump', 'knownhostscommand', 'remotecommand'):
+            self.assertIn(values.get(key), (None, ['none']), key)
 
     def test_strict_json_duplicates_and_nonfinite(self):
         for raw in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":Infinity}'):
