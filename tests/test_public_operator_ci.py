@@ -110,6 +110,10 @@ class PublicOperatorCI(unittest.TestCase):
             with self.subTest(changed=changed):
                 self.assertIsNone(m.failure_location(json.dumps({'native_failure': {**value['native_failure'], **changed}}).encode()))
         self.assertIsNone(m.failure_location(b'PRIVATE_CANARY github_pat_SYNTHETIC'))
+        value['native_failure']['cause_code'] = 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_BROKER_EFFECTIVE_DAC_ACCESS'
+        self.assertEqual(m.failure_location(json.dumps(value).encode())['cause_code'], value['native_failure']['cause_code'])
+        value['native_failure']['cause_code'] = 'PRIVATE_CANARY'
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(m.failure_location(json.dumps(value).encode())))
 
     def test_cleanup_preserves_primary_location_and_both_independent_errors(self):
         location = {'test_line': 494, 'test_type': 'AssertionError', 'production_fault': None}

@@ -184,6 +184,12 @@ redacted even if they look like uppercase codes. No observation payload leaves
 private CI memory. The actual fsuid/socket regression also runs explicitly as
 root in the first network-none CI guest, with skips/errors/failures forbidden;
 the unprivileged runner's boundary-test skip is NOT its native proof.
+That regression keeps the production-style privileged observer in the parent;
+only the observed synthetic child changes fsuid and actually connects. The
+parent reads its real proc identity and requires the actual broker-DAC denial.
+CI distinguishes create/inspect/start/PID1-ready/fsuid/production phases. A root
+regression failure retains its public Source location and, if available, only
+an allowlisted cause code, not a formatted unittest traceback or child stderr.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
 after a successful matrix still makes the job RED, without discarding its proof.

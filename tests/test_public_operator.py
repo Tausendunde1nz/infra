@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import subprocess
 import socket
+import select
 import sys
 import tempfile
 import time
@@ -44,29 +45,36 @@ class OperatorBoundary(unittest.TestCase):
             try:
                 listener.bind(str(path)); listener.listen(1)
                 os.chown(path, 1001, 1001); path.chmod(0o200)
-                program = '''import ctypes,os,socket,sys
+                program = '''import ctypes,json,os,socket,sys
 from pathlib import Path
-from types import SimpleNamespace
-sys.path.insert(0,sys.argv[1])
-import tu1nz_public_operator_observe as observe
-import tu1nz_public_operator_io as io
 libc=ctypes.CDLL(None,use_errno=True)
 assert libc.setfsuid(1001)==0
 s=dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
-row={"pid":os.getpid(),"uid":list(map(int,s["Uid"].split())),"gid":list(map(int,s["Gid"].split())),"groups":list(map(int,s["Groups"].split()))}
-assert os.geteuid()==0 and row["uid"][1]==0 and row["uid"][3]==1001
-peer=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);peer.connect(sys.argv[2]);peer.close()
-def unexpected(*a,**k):raise AssertionError("DAC_REJECTION_MUST_PRECEDE_INHERITED_INSPECTION")
-authority=SimpleNamespace(b={"broker_tcp":[],"broker_sockets":[sys.argv[2]]},inherited_sockets=unexpected)
-try:observe.Authority.broker_access(authority,row)
-except io.Hold as error:assert str(error)=="PUBLIC_OPERATOR_BROKER_EFFECTIVE_DAC_ACCESS"
-else:raise AssertionError("ACTUAL_FSUID_OWNER_NOT_REJECTED")
-print("ACTUAL_FSUID_SOCKET_DAC_DENIED_GREEN")
+uids=list(map(int,s["Uid"].split()))
+assert os.geteuid()==0 and uids[1]==0 and uids[3]==1001
+peer=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);peer.connect(sys.argv[1]);peer.close()
+print("ACTUAL_FSUID_SOCKET_CONNECTED",flush=True)
+assert sys.stdin.buffer.readline()==b"DONE\\n"
 '''
-                result = subprocess.run([sys.executable, '-I', '-B', '-c', program, str(SCRIPTS), str(path)],
-                                        capture_output=True, timeout=20)
-                self.assertEqual(result.returncode, 0, result.stderr.decode())
-                self.assertEqual(result.stdout.strip(), b'ACTUAL_FSUID_SOCKET_DAC_DENIED_GREEN')
+                # The real production observer retains its privileged read
+                # identity. Only the observed actor has a different fsuid.
+                # Changing the observer's fsuid too would test different
+                # procfs/LSM read authority, not the production DAC decision.
+                child = subprocess.Popen([sys.executable, '-I', '-B', '-c', program, str(path)],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                try:
+                    self.assertTrue(select.select([child.stdout], [], [], 10)[0])
+                    self.assertEqual(child.stdout.readline(128), b'ACTUAL_FSUID_SOCKET_CONNECTED\n')
+                    row = observe.process(child.pid)
+                    self.assertEqual(row['uid'][1], 0); self.assertEqual(row['uid'][3], 1001)
+                    def unexpected(*a, **k): raise AssertionError('DAC_REJECTION_MUST_PRECEDE_INHERITED_INSPECTION')
+                    authority = SimpleNamespace(b={'broker_tcp': [], 'broker_sockets': [str(path)]},
+                                                inherited_sockets=unexpected)
+                    with self.assertRaisesRegex(io.Hold, 'BROKER_EFFECTIVE_DAC_ACCESS'):
+                        observe.Authority.broker_access(authority, row)
+                finally:
+                    _out, errors = child.communicate(b'DONE\n', timeout=10)
+                    self.assertEqual(child.returncode, 0, errors.decode())
             finally: listener.close()
 
     def test_unknown_or_non_uint32_restart_counter_denies_unit_read(self):

@@ -55,11 +55,32 @@ def diagnostic_codes():
 
 
 def native_fsuid_argv(name):
-    program = ('import os,sys,unittest;assert sys.platform=="linux" and os.geteuid()==0;'
-        'sys.path.insert(0,"/source");from tests.test_public_operator import OperatorBoundary;'
-        'r=unittest.TestResult();OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid").run(r);'
-        'assert r.testsRun==1 and not r.skipped and not r.failures and not r.errors;'
-        'print("ACTUAL_NATIVE_FSUID_DAC_GREEN")')
+    program = '''import os,sys,unittest,json
+assert sys.platform=="linux" and os.geteuid()==0
+sys.path.insert(0,"/source")
+from tests.test_public_operator import OperatorBoundary
+class Result(unittest.TestResult):
+ error=None
+ def addError(self,test,error):self.error=error;super().addError(test,error)
+ def addFailure(self,test,error):self.error=error;super().addFailure(test,error)
+r=Result()
+OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid").run(r)
+if not (r.testsRun==1 and not r.skipped and not r.failures and not r.errors):
+ line=1;kind="AssertionError";cause=None
+ if r.error:
+  kind=r.error[0].__name__;trace=r.error[2]
+  while trace is not None:
+   if trace.tb_frame.f_code.co_filename=="/source/tests/test_public_operator.py":line=trace.tb_lineno
+   trace=trace.tb_next
+  error=r.error[1];seen=set()
+  while error is not None and id(error) not in seen:
+   seen.add(id(error))
+   if isinstance(getattr(error,"primary",None),str):cause=error.primary;break
+   error=error.__context__
+ print(json.dumps({"native_failure":{"test_line":line,"test_type":kind,"production_fault":None,"cause_code":cause}}))
+ raise SystemExit(1)
+print("ACTUAL_NATIVE_FSUID_DAC_GREEN")
+'''
     return ['/usr/bin/docker', 'exec', name, '/usr/bin/python3', '-I', '-B', '-c', program]
 
 
@@ -180,8 +201,8 @@ def failure_location(raw):
         value = operator.io.parse(raw.strip())
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
-        require(set(location) in ({'test_line', 'test_type', 'production_fault'},
-                                 {'test_line', 'test_type', 'production_fault', 'outcome'}), 'FAILURE_SCHEMA')
+        require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
+                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code'}, 'FAILURE_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
                 location['test_type'] in ('AssertionError', 'RuntimeError', 'OSError', 'Hold',
                                           'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
@@ -194,6 +215,10 @@ def failure_location(raw):
                     fault['type'] in ('Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'AssertionError',
                                       'OSError', 'PermissionError', 'FileNotFoundError', 'RuntimeError',
                                       'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
+        if 'cause_code' in location:
+            value = location['cause_code']
+            location = {**location, 'cause_code': value if type(value) is str and value in diagnostic_codes()
+                        else (None if value is None else 'UNCLASSIFIED_CODE_REDACTED')}
         if 'outcome' in location:
             outcome = location['outcome']
             require(type(outcome) is dict and set(outcome) == {'status', 'primary', 'abort', 'cleanup',
@@ -259,14 +284,19 @@ def run(workspace, image):
                        for n, p in operator.INFRA_FILES.items()})
         records = []
         for case in CASES:
-            phase = case
+            phase = case+'-create'
             container = 'tu1nz-public-operator-private-'+owner+'-'+case.replace('_', '-')
             command(native_argv(workspace, control, image, container, owner), timeout=30)
-            inspect_guest(container, owner, workspace, control, image_id)
-            command(['/usr/bin/docker', 'start', container], timeout=30); ready(container)
+            phase = case+'-inspect'; inspect_guest(container, owner, workspace, control, image_id)
+            phase = case+'-start'; command(['/usr/bin/docker', 'start', container], timeout=30)
+            phase = case+'-ready'; ready(container)
             if case == 'success':
-                require(command(native_fsuid_argv(container), timeout=30).strip() == b'ACTUAL_NATIVE_FSUID_DAC_GREEN',
+                phase = case+'-fsuid'
+                code, raw = boundary.bounded(native_fsuid_argv(container), timeout=30)
+                if code != 0: diagnostic = failure_location(raw)
+                require(code == 0 and raw.strip() == b'ACTUAL_NATIVE_FSUID_DAC_GREEN',
                         'NATIVE_FSUID_DAC_RED')
+            phase = case+'-production'
             code, raw = boundary.bounded(['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
                 '/source/tests/public_operator_native.py', '--scenario', case], timeout=720)
             if code != 0: diagnostic = failure_location(raw)
