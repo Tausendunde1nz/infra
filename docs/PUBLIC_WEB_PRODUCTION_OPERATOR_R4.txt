@@ -173,6 +173,9 @@ or the right object count alone cannot prove the intended path was exercised.
 On failure CI emits only schema-checked Source component/line/type locations;
 never child stderr, exception values, assertions, private Source or observations.
 Unknown/malformed diagnostic data is omitted, and the scenario remains RED.
+Container and private-input cleanup errors are independent ordered fields. They
+cannot replace an earlier native failure/location or each other; cleanup failure
+after a successful matrix still makes the job RED, without discarding its proof.
 CLI transport failure still writes BOTH private results, closes owned resources,
 independently rereads the results and reports sanitized HOLD/exit1, no traceback.
 

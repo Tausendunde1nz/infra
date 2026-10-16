@@ -111,5 +111,26 @@ class PublicOperatorCI(unittest.TestCase):
                 self.assertIsNone(m.failure_location(json.dumps({'native_failure': {**value['native_failure'], **changed}}).encode()))
         self.assertIsNone(m.failure_location(b'PRIVATE_CANARY github_pat_SYNTHETIC'))
 
+    def test_cleanup_preserves_primary_location_and_both_independent_errors(self):
+        location = {'test_line': 494, 'test_type': 'AssertionError', 'production_fault': None}
+        for container_fails, input_fails in ((True, False), (False, True), (True, True)):
+            with self.subTest(container=container_fails, inputs=input_fails):
+                original = {'schema': m.SCHEMA, 'green': False, 'stage': 'success',
+                            'code': 'NATIVE_CASE_RED', 'failure_location': location}
+                with patch.object(m.boundary, 'cleanup_container', side_effect=RuntimeError('PRIVATE_CANARY') if container_fails else None) as container, \
+                     patch.object(m.boundary, 'remove_private', side_effect=RuntimeError('PRIVATE_CANARY') if input_fails else None) as inputs:
+                    result = m.cleanup_result(original, 'owned', 'nonce', Path('/private/inputs'), Path('/private'))
+                container.assert_called_once(); inputs.assert_called_once()
+                self.assertFalse(result['green']); self.assertEqual(result['code'], 'NATIVE_CASE_RED')
+                self.assertEqual(result['failure_location'], location)
+                self.assertEqual(result['cleanup_errors'], (['OWNED_CONTAINER_CLEANUP_RED'] if container_fails else [])+
+                                 (['PRIVATE_INPUT_CLEANUP_RED'] if input_fails else []))
+                self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+        original = {'schema': m.SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'cases': []}
+        with patch.object(m.boundary, 'remove_private', side_effect=RuntimeError('PRIVATE_CANARY')):
+            result = m.cleanup_result(original, None, 'nonce', Path('/private/inputs'), Path('/private'))
+        self.assertFalse(result['green']); self.assertEqual(result['code'], 'PRIVATE_OPERATOR_CI_CLEANUP_RED')
+        self.assertEqual(result['cases'], []); self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+
 
 if __name__ == '__main__': unittest.main(verbosity=2)

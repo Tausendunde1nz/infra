@@ -174,6 +174,24 @@ def failure_location(raw):
         return None
 
 
+def cleanup_result(result, container, owner, root, parent):
+    """Independent cleanup provenance never replaces an earlier failure."""
+    errors = []
+    try:
+        if container is not None: boundary.cleanup_container(container, owner)
+    except BaseException:
+        errors.append('OWNED_CONTAINER_CLEANUP_RED')
+    try:
+        if root is not None: boundary.remove_private(root, parent)
+    except BaseException:
+        errors.append('PRIVATE_INPUT_CLEANUP_RED')
+    if errors:
+        return {**result, 'green': False,
+                'code': 'PRIVATE_OPERATOR_CI_CLEANUP_RED' if result['green'] else result['code'],
+                'cleanup_errors': errors}
+    return result
+
+
 def run(workspace, image):
     root = None; container = None; owner = uuid.uuid4().hex; phase = 'admission'
     parent = Path(os.environ.get('RUNNER_TEMP', '/nonexistent'))
@@ -215,14 +233,7 @@ def run(workspace, image):
                   'code': str(error) if type(error) is CIError else 'PRIVATE_OPERATOR_CI_RED'}
         if diagnostic is not None: result['failure_location'] = diagnostic
     finally:
-        try:
-            if container is not None: boundary.cleanup_container(container, owner)
-        except BaseException:
-            result = {'schema': SCHEMA, 'green': False, 'code': 'OWNED_CONTAINER_CLEANUP_RED'}
-        try:
-            if root is not None: boundary.remove_private(root, parent)
-        except BaseException:
-            result = {'schema': SCHEMA, 'green': False, 'code': 'PRIVATE_INPUT_CLEANUP_RED'}
+        result = cleanup_result(result, container, owner, root, parent)
     print(json.dumps(result, sort_keys=True))
     return 0 if result['green'] else 1
 
