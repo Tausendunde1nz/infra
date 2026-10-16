@@ -145,10 +145,40 @@ def validate_report(raw, case, hashes):
             'actual_faults': value['actual_faults']}
 
 
+def failure_location(raw):
+    """Finite Source locations only. Never forward child text or private data.
+
+    Failure logs must distinguish a fixture error from a production rejection
+    without persisting a traceback, observation, argv or private Source blob.
+    This diagnostic cannot make a failed scenario pass.
+    """
+    try:
+        value = operator.io.parse(raw.strip())
+        require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
+        location = value['native_failure']
+        require(set(location) == {'test_line', 'test_type', 'production_fault'}, 'FAILURE_SCHEMA')
+        require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
+                location['test_type'] in ('AssertionError', 'RuntimeError', 'OSError', 'Hold',
+                                          'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
+        fault = location['production_fault']
+        if fault is not None:
+            require(set(fault) == {'component', 'line', 'type'} and
+                    fault['component'] in {'<authenticated-memory:'+n+'>' for n in
+                        (*operator.INFRA_FILES, *operator.CONTROL_FILES)} and
+                    type(fault['line']) is int and 0 < fault['line'] < 10000 and
+                    fault['type'] in ('Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'AssertionError',
+                                      'OSError', 'PermissionError', 'FileNotFoundError', 'RuntimeError',
+                                      'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
+        return location
+    except BaseException:
+        return None
+
+
 def run(workspace, image):
     root = None; container = None; owner = uuid.uuid4().hex; phase = 'admission'
     parent = Path(os.environ.get('RUNNER_TEMP', '/nonexistent'))
     result = {'schema': SCHEMA, 'green': False, 'code': 'PRIVATE_OPERATOR_CI_RED'}
+    diagnostic = None
     try:
         token = os.environ.pop('CONTROL_POLICY_READ_TOKEN', None)
         sha = boundary.runtime_binding(os.environ, workspace)
@@ -171,6 +201,7 @@ def run(workspace, image):
             command(['/usr/bin/docker', 'start', container], timeout=30); ready(container)
             code, raw = boundary.bounded(['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
                 '/source/tests/public_operator_native.py', '--scenario', case], timeout=720)
+            if code != 0: diagnostic = failure_location(raw)
             require(code == 0, 'NATIVE_CASE_RED')
             records.append(validate_report(raw, case, hashes))
             boundary.cleanup_container(container, owner); container = None
@@ -182,6 +213,7 @@ def run(workspace, image):
         # or private source. Only our finite safe stage and owned enum.
         result = {'schema': SCHEMA, 'green': False, 'stage': phase,
                   'code': str(error) if type(error) is CIError else 'PRIVATE_OPERATOR_CI_RED'}
+        if diagnostic is not None: result['failure_location'] = diagnostic
     finally:
         try:
             if container is not None: boundary.cleanup_container(container, owner)

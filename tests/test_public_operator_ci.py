@@ -99,5 +99,17 @@ class PublicOperatorCI(unittest.TestCase):
              patch.object(m, 'fetch_control') as fetch, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(m.run(Path('/public'), 'image'), 1); fetch.assert_not_called()
 
+    def test_failure_diagnostic_allows_only_bounded_source_locations(self):
+        value = {'native_failure': {'test_line': 494, 'test_type': 'AssertionError',
+                 'production_fault': {'component': '<authenticated-memory:observe>', 'line': 123, 'type': 'Hold'}}}
+        self.assertEqual(m.failure_location(json.dumps(value).encode()), value['native_failure'])
+        for changed in ({'test_line': True}, {'test_type': 'PRIVATE_CANARY'},
+                        {'production_fault': {'component': '/private/CANARY', 'line': 123, 'type': 'Hold'}},
+                        {'production_fault': {'component': '<authenticated-memory:observe>', 'line': 123,
+                                              'type': 'Hold', 'message': 'PRIVATE_CANARY'}}):
+            with self.subTest(changed=changed):
+                self.assertIsNone(m.failure_location(json.dumps({'native_failure': {**value['native_failure'], **changed}}).encode()))
+        self.assertIsNone(m.failure_location(b'PRIVATE_CANARY github_pat_SYNTHETIC'))
+
 
 if __name__ == '__main__': unittest.main(verbosity=2)

@@ -170,6 +170,9 @@ remain denied. Every actual SHA including CI helper/workflow/image must have
 independent review before the required Environment reviewer authorizes the job.
 Every fault case must also supply its exact real injection marker; generic HOLD
 or the right object count alone cannot prove the intended path was exercised.
+On failure CI emits only schema-checked Source component/line/type locations;
+never child stderr, exception values, assertions, private Source or observations.
+Unknown/malformed diagnostic data is omitted, and the scenario remains RED.
 CLI transport failure still writes BOTH private results, closes owned resources,
 independently rereads the results and reports sanitized HOLD/exit1, no traceback.
 

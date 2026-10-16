@@ -58,6 +58,7 @@ HTTPServer((c['bind_host'],c['bind_port']),Handler).serve_forever()
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
              'first_restart', 'old_restart')
+PRODUCTION_FAULT = None
 
 
 class FaultWire:
@@ -364,6 +365,7 @@ def plan(s, machine):
 
 
 def main():
+    global PRODUCTION_FAULT
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source(); setup(s)
     b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
@@ -454,6 +456,7 @@ s.load("host").command=_delay_after_actual_start
     if held_writer is not None: os.close(held_writer)
     write(ROOT/'server-stderr', stderr, 0o600)
     write(ROOT/'result.json', io.canonical(result), 0o600)
+    PRODUCTION_FAULT = result.get('source_fault')
     if args.scenario in ('first_restart', 'old_restart'):
         proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
         assert proof['initial'] != proof['replacement']['InvocationID'] and int(proof['replacement']['NRestarts']) >= 1
@@ -464,11 +467,11 @@ s.load("host").command=_delay_after_actual_start
     assert fault_wire.injected == FAULTS[args.scenario], 'INTENDED_REAL_FAULT_NOT_INJECTED'
     acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
     actual_root = sum(p.stat().st_uid == 0 for p in [WEB, *WEB.rglob('*')])
-    print(json.dumps({'scenario': args.scenario, 'status': result['status'], 'server_exit': code,
+    report = {'scenario': args.scenario, 'status': result['status'], 'server_exit': code,
                       'proof': io.sha(io.canonical(result)), 'source_files': hashes,
                       'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,
                       'actual_faults': fault_wire.injected,
-                      'fixture_only_no_host_acceptance': True}))
+                      'fixture_only_no_host_acceptance': True}
     if args.scenario == 'success':
         assert code == 0 and result['status'] == 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', result
         assert actual_root == 88 and len(acknowledgments) == 84
@@ -491,6 +494,17 @@ s.load("host").command=_delay_after_actual_start
         except r.Denied: pass
         else:
             repeated.close(); raise AssertionError('FIXED_TRANSACTION_REPLAY_NOT_DENIED')
+    print(json.dumps(report))
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    try: main()
+    except BaseException as error:
+        # Only source locations, not assertion values/tracebacks/observations.
+        trace = error.__traceback__; line = 1
+        while trace is not None:
+            if trace.tb_frame.f_code.co_filename == __file__: line = trace.tb_lineno
+            trace = trace.tb_next
+        print(json.dumps({'native_failure': {'test_line': line, 'test_type': type(error).__name__,
+                                             'production_fault': PRODUCTION_FAULT}}))
+        raise SystemExit(1)
