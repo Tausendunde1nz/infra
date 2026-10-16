@@ -7,6 +7,7 @@ artifacts or caches. This helper is NOT Host admission or a deployment entry.
 import argparse
 import ast
 import base64
+import builtins
 import hashlib
 import json
 import os
@@ -38,6 +39,8 @@ FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'old_restart': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT', 'REAL_INITIAL_FAILURE_ARMED',
                           'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION']}
 SCHEMA = 'TU1NZ_PUBLIC_OPERATOR_NATIVE_CI_V1'
+SAFE_FAILURE_TYPES = frozenset(n for n, v in vars(builtins).items()
+    if isinstance(v, type) and issubclass(v, BaseException)) | {'Hold', 'Denied', 'FlowFailure', 'OwnerFailure'}
 
 
 def diagnostic_codes():
@@ -204,17 +207,14 @@ def failure_location(raw):
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
                 {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code'}, 'FAILURE_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
-                location['test_type'] in ('AssertionError', 'RuntimeError', 'OSError', 'Hold',
-                                          'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
+                location['test_type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}, 'FAILURE_SCHEMA')
         fault = location['production_fault']
         if fault is not None:
             require(set(fault) == {'component', 'line', 'type'} and
                     fault['component'] in {'<authenticated-memory:'+n+'>' for n in
                         (*operator.INFRA_FILES, *operator.CONTROL_FILES)} and
                     type(fault['line']) is int and 0 < fault['line'] < 10000 and
-                    fault['type'] in ('Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'AssertionError',
-                                      'OSError', 'PermissionError', 'FileNotFoundError', 'RuntimeError',
-                                      'KeyError', 'ValueError', 'TimeoutExpired'), 'FAILURE_SCHEMA')
+                    fault['type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}, 'FAILURE_SCHEMA')
         if 'cause_code' in location:
             value = location['cause_code']
             location = {**location, 'cause_code': value if type(value) is str and value in diagnostic_codes()
@@ -234,8 +234,8 @@ def failure_location(raw):
             def code(value): return value if type(value) is str and value in symbols else ('UNCLASSIFIED_CODE_REDACTED' if value is not None else None)
             outcome = {**outcome, **{k: code(outcome[k]) for k in ('status', 'primary')},
                        **{k: [code(x) for x in outcome[k]] for k in ('abort', 'cleanup')}}
-            outcome['client_error_type'] = outcome['client_error_type'] if outcome['client_error_type'] in (
-                None, 'Hold', 'OSError', 'AssertionError', 'TimeoutExpired', 'ValueError', 'KeyError') else 'REDACTED'
+            outcome['client_error_type'] = outcome['client_error_type'] if outcome['client_error_type'] is None or (
+                type(outcome['client_error_type']) is str and outcome['client_error_type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}) else 'REDACTED'
             outcome['last_record_kind'] = outcome['last_record_kind'] if outcome['last_record_kind'] in (
                 None, 'flow_claim', 'host_action_intent', 'host_action_ack', 'function_accepted',
                 'owner_claim_intent', 'owner_ready', 'owner_object_intent', 'owner_object_ack',

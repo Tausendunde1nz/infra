@@ -114,6 +114,8 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertEqual(m.failure_location(json.dumps(value).encode())['cause_code'], value['native_failure']['cause_code'])
         value['native_failure']['cause_code'] = 'PRIVATE_CANARY'
         self.assertNotIn('PRIVATE_CANARY', json.dumps(m.failure_location(json.dumps(value).encode())))
+        value['native_failure']['test_type'] = 'PermissionError'
+        self.assertEqual(m.failure_location(json.dumps(value).encode())['test_type'], 'PermissionError')
 
     def test_cleanup_preserves_primary_location_and_both_independent_errors(self):
         location = {'test_line': 494, 'test_type': 'AssertionError', 'production_fault': None}
