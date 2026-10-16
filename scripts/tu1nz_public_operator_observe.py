@@ -924,8 +924,9 @@ class Authority:
                    'QUEUED_MANAGER_JOB_UNKNOWN')
         io.require(self.unit_search() == self.b['unit_search_sha256'], 'FOREIGN_MANAGER_RELOAD_DELTA')
         self.units_check(stop_only=stop_only); self.actors_check(stop_only=stop_only)
-        writer_check(self.runtime.files | {v[:2] for v in self.initial.values()}, self.deadline,
-                     excluded=set(self.targets.values()) if stop_only else ())
+        # The three bound delegation exceptions authorize only their stop.
+        # They never waive existing writable Source/config FDs or shared maps.
+        writer_check(self.runtime.files | {v[:2] for v in self.initial.values()}, self.deadline)
         self.paths.check()
         io.require(time.monotonic() < self.deadline, 'AUTHORITY_DEADLINE')
 

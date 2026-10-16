@@ -37,11 +37,22 @@ WEB = Path('/var/www/lighting.tu1nz.com')
 UNITS = ('tu1nz-adult-public-s7.service', 'tu1nz-adult-public-s8-landing.service', 'tu1nz-adult-public-s10-wms.service')
 CONFIGS = ('adult-commercial-s7-public.json', 'adult-commercial-s8-landing.json', 'adult-commercial-s10-wms.json')
 PROFILES = ('s7', 's8-landing', 'wms')
-SERVER = r'''import argparse,json,os,sys
+SERVER = r'''import argparse,ctypes,json,mmap,os,sys
 from http.server import BaseHTTPRequestHandler,HTTPServer
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--contract');args,_=p.parse_known_args()
 c=json.loads(Path(args.contract).read_bytes());body=('SYNTHETIC-'+c['profile']).encode()
+handle_kind=Path('/var/lib/tu1nz-adult-public-s9/native-source-handle-kind')
+if c['profile']=='s7' and handle_kind.exists():
+ held_fd=os.open('/opt/tu1nz_repos/adult-publishing-core/source-handle.bin',os.O_RDWR)
+ if handle_kind.read_text()=='shared':
+  libc=ctypes.CDLL(None,use_errno=True);libc.mmap.restype=ctypes.c_void_p
+  libc.mmap.argtypes=[ctypes.c_void_p,ctypes.c_size_t,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_long]
+  held_map=libc.mmap(None,os.fstat(held_fd).st_size,mmap.PROT_READ|mmap.PROT_WRITE,mmap.MAP_SHARED,held_fd,0)
+  assert held_map not in (None,ctypes.c_void_p(-1).value)
+  os.close(held_fd)
+  ctypes.memmove(held_map,b'READY',5)
+ else:os.pwrite(held_fd,b'READY',0);os.fsync(held_fd)
 if c['profile']=='s7' and Path('/var/lib/tu1nz-adult-public-s9/native-crash-request').exists():os._exit(72)
 if c['profile']!='s7':
  root=Path('/var/lib/tu1nz-adult-public-s9')
@@ -57,7 +68,7 @@ HTTPServer((c['bind_host'],c['bind_port']),Handler).serve_forever()
 '''
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
-             'first_restart', 'old_restart')
+             'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping')
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 
@@ -179,7 +190,7 @@ def prepare_guest_kernel_view():
     assert Path('/sys/kernel/security/lsm').read_text().strip()
 
 
-def setup(s):
+def setup(s, *, source_handle=None):
     ROOT.mkdir(mode=0o700)
     prepare_guest_kernel_view()
     # Distribution nginx may already be running in this NEW disposable guest.
@@ -260,6 +271,16 @@ def setup(s):
         write(p, ('SYNTHETIC-FILE-'+str(i)).encode())
         os.chown(p, 0 if 1 <= i <= 4 else 33, 33)
     for p in [WEB, *WEB.glob('dir*')]: os.chown(p, 33, 33)
+    if source_handle is not None:
+        # Synthetic INPUT fault before admission: a real service opens a file
+        # while writable, then root restores read-only metadata. Existing FD /
+        # shared map authority survives chmod and must still deny the stop.
+        assert source_handle in ('fd', 'shared')
+        write(APP/'source-handle.bin', b'SYNTHETIC-SOURCE-HANDLE\n'*128, 0o666)
+        (APP/'source-handle.bin').chmod(0o666)  # real fixture access, not subject to creator umask
+        write(STATE/'native-source-handle-kind', source_handle.encode())
+        write('/etc/systemd/system/'+UNITS[0]+'.d/fixture-source-handle.conf',
+              b'[Service]\nReadWritePaths=/opt/tu1nz_repos/adult-publishing-core/source-handle.bin\n')
     # Synthetic public edge: real nginx UID33 reads, real TLS validation and
     # real proxy requests. DNS/TLS trust are fixture data confined to this guest.
     run('/usr/bin/openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -283,6 +304,12 @@ def setup(s):
     run('/usr/bin/systemctl', 'daemon-reload')
     for unit in UNITS: run('/usr/bin/systemctl', 'start', unit)
     run('/usr/bin/systemctl', 'start', 'nginx.service')
+    if source_handle is not None:
+        deadline = time.monotonic()+10
+        while not (APP/'source-handle.bin').read_bytes().startswith(b'READY'):
+            assert time.monotonic() < deadline
+            time.sleep(.01)
+        (APP/'source-handle.bin').chmod(0o555)
 
 
 def baseline(s):
@@ -381,7 +408,8 @@ def plan(s, machine):
 def main():
     global PRODUCTION_FAULT, PRODUCTION_OUTCOME
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
-    args = parser.parse_args(); assert_guest(); s, encoded, hashes = source(); setup(s)
+    args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
+    setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared'}.get(args.scenario))
     b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
     write(ROOT/'baseline.json', baseline_raw, 0o600)
     # Actual PID1 batch and three independent single reads must agree before
@@ -463,6 +491,9 @@ s.load("host").command=_delay_after_actual_start
     fault_wire = FaultWire(wire, args.scenario, child)
     if args.scenario == 'writer': fault_wire.injected.append('REAL_PREEXISTING_WRITABLE_FD')
     if args.scenario == 'runtime_tamper': fault_wire.injected.append('REAL_RUNTIME_DRIFT_BEFORE_ADMISSION')
+    if args.scenario in ('stop_source_fd', 'stop_source_mapping'):
+        fault_wire.injected.append('REAL_STOP_TARGET_SOURCE_FD' if args.scenario == 'stop_source_fd'
+                                   else 'REAL_STOP_TARGET_SOURCE_SHARED_MAP')
     supervisor = client.Client(fault_wire, r, packet['binding'], http_expectations=endpoints)
     result = {'status': 'UNKNOWN_TEST_PROTOCOL_HOLD'}
     try:
@@ -507,9 +538,16 @@ s.load("host").command=_delay_after_actual_start
         assert actual_root == 4 and len(acknowledgments) == 7
     else:
         assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
-        if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart'): assert actual_root == 4
+        if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
+                             'stop_source_fd', 'stop_source_mapping'): assert actual_root == 4
         else: assert 4 < actual_root < 88
-        if args.scenario == 'runtime_tamper': assert not (r.CUSTODY_PARENT/r.TX).exists()
+        if args.scenario in ('runtime_tamper', 'stop_source_fd', 'stop_source_mapping'):
+            assert not (r.CUSTODY_PARENT/r.TX).exists()
+        if args.scenario in ('stop_source_fd', 'stop_source_mapping'):
+            expected = 'EXISTING_SOURCE_WRITABLE_FD' if args.scenario == 'stop_source_fd' else 'EXISTING_SOURCE_SHARED_WRITABLE_MAPPING'
+            assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_'+expected, result
+            assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'active'
+                       for u in UNITS)
         if args.scenario == 'denied_return':
             assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'inactive'
                        for u in UNITS)

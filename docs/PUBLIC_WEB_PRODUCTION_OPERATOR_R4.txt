@@ -93,6 +93,9 @@ bindings to an individually declared role. No arbitrary UID0/UID1001 app excepti
 Only kernel/PID1, this authenticated operator ancestry and individually evidenced
 administration are the existing TCB. The EXACT old three contexts alone retain
 their approved stop-only delegation exception; full closure follows their stop.
+It does NOT exempt their existing Source/config FDs or shared writable mappings.
+The writer scan has no caller-supplied process-exclusion parameter, including
+for TCB actors and the three original service processes before the first stop.
 Sudo parser/unknown-subject errors are not denial; polkit is a noninteractive
 query to an EXISTING unique owner, no daemon activation or auth attempt. Challenge,
 grant, dynamic unknown policy or missing evidence denies. Existing exact static
@@ -175,13 +178,20 @@ scheduler wrapper delays the caller after executing the ACTUAL start; it returns
 the real command result and all manager/counter observations are real. Actual
 distinct InvocationIDs, restart counter>=1 and HOLD provenance must be proved.
 This is disclosed fault scheduling, not a safety-observation GREEN substitution.
+Two further native cases make the original synthetic S7 process retain a real
+writable Source FD or shared writable mapping after read-only modes are restored.
+Only their synthetic input unit grants that file's initial write access. Actual
+production admission must identify the exact FD/map rejection BEFORE client
+claim, bootstrap or stop, leaving all three services active and owner objects
+unchanged. No observer/credential/authority result is replaced by a test flag.
 The SSH executable/real Tailscale/sudo endpoint is NOT exercised by those fixtures;
 actual Host authentication/rights and every fresh Host prerequisite remain gates.
 Required CI uses exact reviewed private Control Source, network-none read-only
 mounts, no token in the guest and no private output/artifact/cache publication.
 The private-CI helper pins Controlf2979863bbb7043261e9177842503a9b47cdb49f,
 fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
-and tests all13 scenarios in new finite network-none/read-only/PID1 guests.
+and tests all15 scenarios (the original13 plus both stop-target Source-handle
+regressions) in new finite network-none/read-only/PID1 guests.
 The two approved private helpers clean their OWN inputs/containers separately;
 neither receives the other's capsule or private tree. Image builds precede all
 private inputs. CI30min is only the enlarged job envelope for added scenarios;

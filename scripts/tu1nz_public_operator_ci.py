@@ -25,8 +25,10 @@ import tu1nz_public_operator as operator
 CONTROL_COMMIT = 'f2979863bbb7043261e9177842503a9b47cdb49f'
 CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
          'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
-         'first_restart', 'old_restart')
+         'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping')
 FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
+          'stop_source_fd': ['REAL_STOP_TARGET_SOURCE_FD'],
+          'stop_source_mapping': ['REAL_STOP_TARGET_SOURCE_SHARED_MAP'],
           'runtime_tamper': ['REAL_RUNTIME_DRIFT_BEFORE_ADMISSION'],
           'namespace_swap': ['REAL_RENAME_AND_RETURN'], 'lost_ack': ['REAL_INVALID_TRANSPORT_ACK'],
           'interrupt': ['OWNED_COORDINATOR_PIDFD_INTERRUPT'],
@@ -203,7 +205,8 @@ def validate_report(raw, case, hashes):
                 (status, 0, 7 if case == 'owner_return' else 0, 4), 'RETURN_RED')
     else:
         require(value['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), 'FAULT_NOT_HELD')
-        if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart'):
+        if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
+                    'stop_source_fd', 'stop_source_mapping'):
             require(value['actual_root_objects'] == 4, 'UNAUTHORIZED_OWNER_EFFECT')
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')

@@ -45,7 +45,7 @@ def metadata(entry, fd):
             s.st_size, s.st_mtime_ns, s.st_ctime_ns, attrs, flags)
 
 
-def writer_check(targets, deadline, *, excluded=()):
+def writer_check(targets, deadline):
     """Actual existing FD/shared-mapping write authority, including TCB actors.
 
     A private COW data mapping cannot write back to its source file. It is not
@@ -59,7 +59,6 @@ def writer_check(targets, deadline, *, excluded=()):
         root = Path('/proc')/name
         try:
             raw = (root/'stat').read_text(); tick = raw[raw.rfind(')')+2:].split()[19]
-            if (int(name), tick) in excluded: continue
             fields = dict(x.split(':', 1) for x in (root/'status').read_text().splitlines() if ':' in x)
             if fields.get('Kthread', '').strip() == '1': continue
             names = list((root/'fd').iterdir()); io.require(len(names) <= 8192, 'WRITER_DESCRIPTOR_BOUND')
