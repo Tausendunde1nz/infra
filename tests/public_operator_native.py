@@ -758,6 +758,30 @@ def actual_loader_alias_fence(s):
         finally:assert paths.close()  # failed namespace binding remains latched
 
 
+def actual_read_census_fence(s):
+    fs=s.load('fs');entry=s.load('entry')
+    for case in ('rename_return','metadata_return','effect_refusal'):
+        root=ROOT/('read-census-'+case);root.mkdir(mode=0o700);child=root/'bound';child.mkdir(mode=0o700)
+        paths=fs.Paths(entry,deadline=time.monotonic()+20);paths.get(str(child));denied=False
+        try:
+            try:
+                with paths.read_census():
+                    with paths.read_census():paths.check()
+                    if case=='rename_return':
+                        saved=root/'saved';child.rename(saved);saved.rename(child)
+                    elif case=='metadata_return':child.chmod(0o755);child.chmod(0o700)
+                    else:paths.create_file(str(child/'MUST_NOT_BE_CREATED'),b'NO')
+                    paths.check()  # events still fail INSIDE the census
+            except s.load('io').Hold:denied=True
+            assert denied and paths._read_depth==0 and not (child/'MUST_NOT_BE_CREATED').exists()
+            if case!='effect_refusal':
+                assert paths.failed
+                try:paths.check()
+                except s.load('io').Hold:pass
+                else:raise AssertionError('CENSUS_EVENT_NOT_LATCHED')
+        finally:paths.close()
+
+
 def actual_loader_configuration_fence(s):
     replacement=s.load('replacement');fs=s.load('fs');entry=s.load('entry')
     for case in ('cache_write_return','preload_create_return','cache_open_writer'):
@@ -828,6 +852,7 @@ def main():
     legacy_bytes={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
     source_read_census_fence(s)
     actual_loader_alias_fence(s)
+    actual_read_census_fence(s)
     actual_loader_configuration_fence(s)
     actual_policy_owner_epoch(s)
     if args.scenario == 'thread_authority':

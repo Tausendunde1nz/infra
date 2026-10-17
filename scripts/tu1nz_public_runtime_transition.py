@@ -412,10 +412,15 @@ class ReplacementAuthority(Authority):
         self.check_loader_paths()
 
     def check(self,*,stop_only=False):
-        self.check_loader_configuration()
-        super().check(stop_only=stop_only)
-        if self.legacy_runtime is not self.runtime:self.legacy_runtime.check()
-        self.verify_external_libraries()
+        # No actions, records, starts, writes or authorization effects occur
+        # here. Every process/manager/file/loader fact remains freshly read.
+        # Keep every event check; bracket this complete read-only census with
+        # full ancestor metadata instead of O(reads*parents) rescans.
+        with self.paths.read_census():
+            self.check_loader_configuration()
+            super().check(stop_only=stop_only)
+            if self.legacy_runtime is not self.runtime:self.legacy_runtime.check()
+            self.verify_external_libraries()
 
     def close(self):
         errors=[]

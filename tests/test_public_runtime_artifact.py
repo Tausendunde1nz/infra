@@ -34,6 +34,46 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_read_census_closes_fresh_metadata_and_preserves_primary(self):
+        from unittest.mock import Mock
+        import tu1nz_public_operator_fs as fs
+        import stat,time
+        before={'device':1,'inode':2,'uid':0,'gid':0,'mode':0o700,'type':stat.S_IFDIR,'attrs':{},'flags':0}
+        def fixture():
+            p=fs.Paths.__new__(fs.Paths);p._read_depth=0;p.census_cleanup=[];p.failed=False
+            p.events=99;p.deadline=time.monotonic()+10;p.names={};p.self_watches=set()
+            p.rows={'/synthetic':(7,before,8,'synthetic')};p.d=SimpleNamespace(metadata=Mock(return_value=before))
+            return p
+        named=SimpleNamespace(st_dev=1,st_ino=2)
+        with patch.object(fs.os,'read',side_effect=BlockingIOError),patch.object(fs.os,'stat',return_value=named):
+            p=fixture()
+            with p.read_census():
+                for _ in range(20):p.check()
+                with p.read_census():p.check()
+                self.assertEqual(p.d.metadata.call_count,1)
+            self.assertEqual(p.d.metadata.call_count,2);self.assertEqual(p._read_depth,0)
+            p.check();self.assertEqual(p.d.metadata.call_count,3)  # no sample/GREEN survives
+            p=fixture();p.d.metadata.side_effect=[before,{**before,'mode':0o755}]
+            with self.assertRaises(wire.Hold):
+                with p.read_census():p.check()
+            self.assertTrue(p.failed);self.assertEqual(p._read_depth,0)
+            p=fixture();p.d.metadata.side_effect=[before,{**before,'mode':0o755}]
+            primary=RuntimeError('SYNTHETIC_PRIMARY')
+            with self.assertRaises(RuntimeError) as caught:
+                with p.read_census():raise primary
+            self.assertIs(caught.exception,primary);self.assertTrue(p.failed);self.assertTrue(p.census_cleanup)
+            p=fixture()
+            with self.assertRaises(KeyboardInterrupt):
+                with p.read_census():raise KeyboardInterrupt()
+            self.assertEqual(p._read_depth,0);self.assertEqual(p.d.metadata.call_count,2)
+            for effect in ('create_directory','create_file','quarantine','close'):
+                p=fixture()
+                with self.subTest(effect=effect),p.read_census(),self.assertRaises(wire.Hold):
+                    if effect=='close':p.close()
+                    elif effect=='create_directory':p.create_directory('/MUST_NOT_BE_CREATED')
+                    elif effect=='create_file':p.create_file('/MUST_NOT_BE_CREATED',b'NO')
+                    else:p.quarantine('/NO','/NO2',{})
+
     def test_external_read_batch_is_fresh_and_closes_all_name_fences(self):
         from unittest.mock import Mock
         raw=b'SYNTHETIC_LIBRARY_BYTES';row={'device':1,'inode':2,'mtime_ns':3,'ctime_ns':4}

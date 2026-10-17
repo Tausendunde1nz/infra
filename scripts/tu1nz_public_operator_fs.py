@@ -6,6 +6,7 @@ observations. This module never accepts a flag claiming those gates passed.
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 import ctypes
 import fcntl
 import os
@@ -35,6 +36,7 @@ class Paths:
         self.events = self.libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
         io.require(self.events >= 0, 'PATH_WATCH_UNAVAILABLE')
         self.names = {}; self.self_watches = set(); self.failed = False
+        self._read_depth=0;self.census_cleanup=[]
         self.get('/')
 
     def get(self, path):
@@ -44,7 +46,7 @@ class Paths:
         if name in self.rows:
             return self.rows[name][0]
         parent = self.get(str(p.parent)) if name != '/' else None
-        self.check()  # drain previous bindings BEFORE admitting this new name
+        self.check(full=True)  # new name admissions always recheck ALL parents
         fd = os.open(p.name, DIR, dir_fd=parent) if parent is not None else os.open('/', DIR)
         try:
             row = self.d.metadata(fd, staging_ancestor=name == '/opt/tu1nz_repos')
@@ -56,14 +58,45 @@ class Paths:
                 wd = self.libc.inotify_add_watch(self.events, os.fsencode('/proc/self/fd/'+str(parent)), 0x2ec4)
                 io.require(wd >= 0, 'PATH_WATCH_UNAVAILABLE')
                 self.names.setdefault(wd, set()).add(p.name)
-            self.check()
+            self.check(full=True)
             return fd
         except BaseException:
             if name not in self.rows:
                 os.close(fd)
             raise
 
-    def check(self):
+    @contextmanager
+    def read_census(self):
+        """One no-effect interval, not a previous-GREEN cache.
+
+        Every nested check still drains/latches events and enforces deadline.
+        Full fresh parent metadata/name checks bracket the whole read census.
+        New bindings always force full checks; mutation/close APIs are barred.
+        Only the reviewed R5 Authority's read-only check uses this context.
+        """
+        before=self._read_depth
+        io.require(0<=before<64,'PATH_READ_CENSUS_SCOPE')
+        self.check(full=before==0)
+        primary=None
+        try:
+            self._read_depth=before+1
+            yield
+        except BaseException as error:
+            primary=error
+            raise
+        finally:
+            self._read_depth=before
+            if before==0:
+                try:self.check(full=True)
+                except BaseException as closing:
+                    if primary is None:raise
+                    # Preserve the original error. Closing loss remains latched
+                    # and is separately reported by the ordinary Paths.close.
+                    self.failed=True
+                    self.census_cleanup.append(getattr(closing,'primary',
+                        'PUBLIC_OPERATOR_PATH_CENSUS_CLOSE_UNKNOWN'))
+
+    def check(self, *, full=False):
         try:
             io.require(not self.failed and time.monotonic() < self.deadline, 'PATH_FENCE_LOST')
             while True:
@@ -79,6 +112,7 @@ class Paths:
                     io.require(not (mask & 4 and not name and wd in self.self_watches), 'PATH_METADATA_EVENT')
                     io.require(name not in self.names.get(wd, set()), 'PATH_RENAME_EVENT')
                     offset += 16+count
+            if self._read_depth and not full:return  # events were NOT deferred
             for name, (fd, before, parent, leaf) in self.rows.items():
                 row = self.d.metadata(fd, staging_ancestor=name == '/opt/tu1nz_repos')
                 current = os.lstat('/') if parent is None else os.stat(leaf, dir_fd=parent, follow_symlinks=False)
@@ -98,6 +132,7 @@ class Paths:
         raise io.Hold('PUBLIC_OPERATOR_OCCUPIED_NO_ADOPTION')
 
     def create_directory(self, path, mode=0o700):
+        io.require(self._read_depth==0,'PATH_EFFECT_DURING_READ_CENSUS')
         p = PurePosixPath(path)
         self.absent(path)
         self.d.new_directory(self.get(str(p.parent)), p.name, mode)
@@ -108,6 +143,7 @@ class Paths:
         return fd
 
     def create_file(self, path, raw, mode=0o600):
+        io.require(self._read_depth==0,'PATH_EFFECT_DURING_READ_CENSUS')
         p = PurePosixPath(path); self.absent(path)
         self.d.new_file(self.get(str(p.parent)), p.name, raw, mode)
         value, row = self.d.stable_file(self.get(str(p.parent)), p.name)
@@ -122,6 +158,7 @@ class Paths:
         return value
 
     def quarantine(self, source, target, expected):
+        io.require(self._read_depth==0,'PATH_EFFECT_DURING_READ_CENSUS')
         s, t = PurePosixPath(source), PurePosixPath(target)
         raw, row = self.read(source)
         io.require(all(row[k] == expected[k] for k in row if k != 'atime_ns'), 'QUARANTINE_IDENTITY_CHANGED')
@@ -138,7 +175,8 @@ class Paths:
         return after
 
     def close(self):
-        errors = []
+        io.require(self._read_depth==0,'PATH_CLOSE_DURING_READ_CENSUS')
+        errors = list(self.census_cleanup)
         try:
             self.check()
         except BaseException as e:
