@@ -55,7 +55,7 @@ def external_dependencies(s,payload,receipt):
 
     The distro Python's closure is insufficient for the different portable
     interpreter and binary wheels. This is fixture construction, not a Host
-    origin assertion or substitution for the production ldd/hash/watch checks.
+    origin assertion or substitution for production loader/hash/watch checks.
     Never create the proposed production root here: the actual installer must
     still prove its create-only transition through the production entry.
     """
@@ -80,9 +80,10 @@ def external_dependencies(s,payload,receipt):
         if magic!=b'\x7fELF':continue
         elf_files.add(name)
     roots=a.loader_context_roots(elf_files);covered=set(roots)
+    _,loader=f.census_loader(s)
     for name in roots:
         path=root/name
-        for line in f.run('/usr/bin/ldd',str(path)).decode().splitlines():
+        for line in f.run(loader,'--list',str(path)).decode().splitlines():
             assert 'not found' not in line
             paths=[w for w in line.split() if w.startswith('/')]
             assert paths or 'linux-vdso.so.' in line or line.strip()=='statically linked'

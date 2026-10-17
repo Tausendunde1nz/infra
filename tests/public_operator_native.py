@@ -576,14 +576,22 @@ def setup(s, *, source_handle=None):
         (APP/'source-handle.bin').chmod(0o555)
 
 
+def census_loader(s):
+    replacement=s.load('replacement')
+    loader,machine=replacement.elf_loader_profile(Path('/usr/bin/busctl').read_bytes())
+    source=str(Path(loader).resolve(strict=True))
+    assert replacement.elf_loader_profile(Path(source).read_bytes(),standalone=True)==machine
+    return loader,source
+
+
 def operator_dependency_names(s):
     # A loader's reported canonical/SONAME spelling need not equal the
     # executable's PT_INTERP spelling. Bind BOTH exact actual names; production
     # must never infer a missing alias/origin from successful ldd output.
     tool='/usr/bin/busctl'
-    loader,_=s.load('replacement').elf_loader_profile(Path(tool).read_bytes())
+    loader,source=census_loader(s)
     names={tool,loader}
-    for line in run('/usr/bin/ldd',tool).decode().splitlines():
+    for line in run(source,'--list',tool).decode().splitlines():
         names.update(w for w in line.split() if w.startswith('/'))
     return names
 

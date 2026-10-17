@@ -38,14 +38,15 @@ class ArtifactBytes(unittest.TestCase):
         from unittest.mock import Mock
         from tests import public_operator_native as fixture
         loader='/lib64/ld-linux-x86-64.so.2'
-        parser=Mock(return_value=(loader,62))
-        source=SimpleNamespace(load=lambda name:SimpleNamespace(elf_loader_profile=parser))
+        parser=Mock(return_value=(loader,'/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2'))
+        source=object()
         output=b'libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x0)\n'
-        with patch.object(fixture.Path,'read_bytes',return_value=b'BOUND_SYNTHETIC_ELF'),\
-             patch.object(fixture,'run',return_value=output):
+        with patch.object(fixture,'census_loader',parser),\
+             patch.object(fixture,'run',return_value=output) as called:
             self.assertEqual(fixture.operator_dependency_names(source),
                 {'/usr/bin/busctl',loader,'/lib/x86_64-linux-gnu/libc.so.6'})
-        parser.assert_called_once_with(b'BOUND_SYNTHETIC_ELF')
+            called.assert_called_once_with('/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2','--list','/usr/bin/busctl')
+        parser.assert_called_once_with(source)
 
     def test_census_loader_elf_profile_rejects_helper_bootstrap_dependencies(self):
         import struct
@@ -421,6 +422,7 @@ class ArtifactBytes(unittest.TestCase):
                     'objects':assembly.manifest(),'expanded_file_bytes':assembly.total}
                 raw=('/usr/bin/true (0x0)\n'+(str(expected/support)+' (0x0)\n' if complete else '')).encode()
                 with patch.object(fixture.f,'ROOT',root),patch.object(a,'ROOT',str(root/'not-created')),\
+                     patch.object(fixture.f,'census_loader',return_value=('/lib/LOADER','/usr/bin/true')),\
                      patch.object(fixture.f,'run',return_value=raw) as queried:
                     if complete:fixture.external_dependencies(SimpleNamespace(load=lambda name:a),payload,receipt)
                     else:
@@ -479,6 +481,7 @@ class ArtifactBytes(unittest.TestCase):
             # external bytes are hashed; no production admission is mocked.
             raw=('/usr/bin/true (0x0)\n'+str(expected/'python/lib/internal.so')+' (0x0)\n').encode()
             with (patch.object(fixture.f,'ROOT',root),patch.object(a,'ROOT',str(root/'production-not-created')),
+                    patch.object(fixture.f,'census_loader',return_value=('/lib/LOADER','/usr/bin/true')),\
                     patch.object(fixture.f,'run',return_value=raw) as called):
                 found=fixture.external_dependencies(SimpleNamespace(load=lambda name:a),payload,receipt)
             self.assertEqual(found,{'/usr/bin/true':{'source':str(Path('/usr/bin/true').resolve()),

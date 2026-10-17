@@ -276,7 +276,10 @@ map: exactly busctl and its observed complete ELF closure, at most128 entries.
 The exact PT_INTERP alias is an explicit separate row even if a closure report
 uses only its canonical/SONAME spelling. No missing alias/origin is inferred
 or silently filled by the production validator. Synthetic baseline construction
-must obtain this name from the actual bound ELF header before serialization.
+must obtain this name from the actual bound ELF header before serialization,
+and use that same actual loader's --list names for the expected observer AND
+artifact closures. ldd spelling is only a native canonical-set cross-check,
+not an interchangeable source of production namespace aliases.
 Each alias has an explicit canonical source, byte hash, UID/GID/mode/ACL-attrs/
 flags and independent origin-receipt hash. All rows must be used; foreign,
 missing or contradictory rows deny. Local package validation checks this schema
