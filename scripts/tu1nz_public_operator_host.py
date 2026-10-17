@@ -302,6 +302,7 @@ class Adapter:
                    getattr(error, '_owner_cleanup', ())]
         cleanup.extend(getattr(error, '_probe_cleanup', ()))
         cleanup.extend(getattr(error, '_runtime_cleanup', ()))
+        cleanup.extend(io.http_cleanup(error))
         return self.r.FlowFailure(primary, cleanup=cleanup)
 
     def observe(self, phase, *, deadline):

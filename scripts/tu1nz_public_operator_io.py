@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 import select
 import stat
+import subprocess
 import sys
 import time
 import types
@@ -73,6 +74,99 @@ def parse(raw):
                       parse_constant=lambda _: (_ for _ in ()).throw(Hold('PUBLIC_OPERATOR_JSON_CONSTANT')))
 
 
+HTTP_READER = r'''import hashlib,json,sys,time,urllib.error,urllib.request
+class RedirectDenied(Exception):pass
+class OutputLimit(Exception):pass
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+ def redirect_request(self,*args,**kwargs):raise RedirectDenied()
+try:
+ value=json.load(sys.stdin);endpoint=value['endpoint'];deadline=value['deadline']
+ if time.monotonic()>=deadline:raise TimeoutError()
+ request=urllib.request.Request(endpoint['url'],method=endpoint['method'],headers={
+  'User-Agent':'TU1NZ-bound-readonly-admission/1',
+  **({'Host':endpoint['host_header']} if endpoint['host_header'] else {})})
+ opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+ try:response=opener.open(request,timeout=min(2,max(.001,deadline-time.monotonic())))
+ except urllib.error.HTTPError as error:response=error
+ with response:
+  raw=response.read(1024*1024+1)
+  if len(raw)>1024*1024:raise OutputLimit()
+  result={'status':response.status,'body_sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
+ print(json.dumps(result,sort_keys=True))
+except BaseException as error:
+ code=('HTTP_REDIRECT_NOT_ADMITTED' if isinstance(error,RedirectDenied) else
+       'HTTP_OUTPUT_LIMIT' if isinstance(error,OutputLimit) else 'HTTP_READ_UNKNOWN')
+ print(json.dumps({'error':code}));sys.exit(3)
+'''
+HTTP_CLEANUP = frozenset(('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_CHILD_KILL_UNKNOWN',
+                         'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_CHILD_END_UNKNOWN',
+                         'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_CHILD_PIPE_CLOSE_UNKNOWN'))
+
+
+def http_cleanup(error):
+    """Keep HTTP cleanup separate even through an owner/adapter exception."""
+    found = []; seen = set(); current = error
+    while current is not None and id(current) not in seen and len(seen) < 32:
+        seen.add(id(current))
+        for code in getattr(current, '_http_cleanup', ()):
+            if code in HTTP_CLEANUP and code not in found: found.append(code)
+        current = current.__cause__ or current.__context__
+    return found
+
+
+def http_child(endpoint, deadline):
+    # Covers DNS/connect/TLS/headers/slow body, not merely socket inactivity.
+    # Only this owned fixed-code child; no shell, credential/proxy environment,
+    # imported Host script, daemon, reconnect or reader retry. Reserve cleanup
+    # time INSIDE the original absolute budget, never a deadline extension.
+    require(time.monotonic() < deadline, 'HTTP_DEADLINE')
+    child = None; primary = None; cleanup = []; measured = None
+    try:
+        child = subprocess.Popen([sys.executable, '-I', '-B', '-S', '-c', HTTP_READER],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd='/', env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}, start_new_session=True)
+        remaining = deadline-time.monotonic()
+        require(remaining > 0, 'HTTP_DEADLINE')
+        reserve = min(.25, remaining/4)
+        raw, _stderr = child.communicate(canonical({'endpoint': endpoint, 'deadline': deadline}),
+                                         timeout=remaining-reserve)
+        require(len(raw) <= 4096 and time.monotonic() < deadline, 'HTTP_OUTPUT_OR_DEADLINE')
+        measured = parse(raw)
+        if type(measured) is dict and set(measured) == {'error'}:
+            require(measured['error'] in ('HTTP_REDIRECT_NOT_ADMITTED', 'HTTP_OUTPUT_LIMIT', 'HTTP_READ_UNKNOWN'),
+                    'HTTP_CHILD_PROTOCOL')
+            raise Hold('PUBLIC_OPERATOR_'+measured['error'])
+        require(child.returncode == 0 and type(measured) is dict and
+                set(measured) == {'status', 'body_sha256', 'bytes'} and
+                type(measured['status']) is int and 100 <= measured['status'] <= 599 and
+                type(measured['bytes']) is int and 0 <= measured['bytes'] <= 1024*1024 and
+                type(measured['body_sha256']) is str and re.fullmatch('[a-f0-9]{64}', measured['body_sha256']),
+                'HTTP_CHILD_PROTOCOL')
+    except subprocess.TimeoutExpired:
+        primary = Hold('PUBLIC_OPERATOR_HTTP_ABSOLUTE_DEADLINE')
+    except BaseException as error: primary = error
+    finally:
+        if child is not None:
+            if child.poll() is None:
+                try: child.kill()
+                except ProcessLookupError: pass
+                except BaseException: cleanup.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_CHILD_KILL_UNKNOWN')
+            try: child.wait(timeout=max(0, deadline-time.monotonic()))
+            except BaseException: cleanup.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_CHILD_END_UNKNOWN')
+            for stream in (child.stdin, child.stdout, child.stderr):
+                try:
+                    if not stream.closed: stream.close()
+                except BaseException:
+                    if not stream.closed: cleanup.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_CHILD_PIPE_CLOSE_UNKNOWN')
+    if cleanup and primary is None: primary = Hold('PUBLIC_OPERATOR_HTTP_CHILD_CLEANUP_UNCONFIRMED')
+    if primary is not None:
+        primary._http_cleanup = tuple(cleanup)
+        primary.client_cleanup = list(getattr(primary, 'client_cleanup', ())) + cleanup
+        raise primary
+    require(time.monotonic() < deadline, 'HTTP_DEADLINE')
+    return measured
+
+
 def measured_http(endpoint, *, deadline, location):
     require(set(endpoint) == {'stage', 'location', 'url', 'method', 'host_header', 'status', 'body_sha256'}
             and endpoint['location'] == location, 'HTTP_EXPECTED_SCHEMA')
@@ -89,22 +183,7 @@ def measured_http(endpoint, *, deadline, location):
     else:
         require(location == 'client' and u.scheme == 'https' and u.hostname in PUBLIC_HOSTS and
                 u.port in (None, 443) and endpoint['host_header'] is None, 'CLIENT_HTTP_SCOPE')
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args, **kwargs):
-            raise Hold('PUBLIC_OPERATOR_HTTP_REDIRECT_NOT_ADMITTED')
-    request = urllib.request.Request(endpoint['url'], method=endpoint['method'],
-        headers={'User-Agent': 'TU1NZ-bound-readonly-admission/1',
-                 **({'Host': endpoint['host_header']} if endpoint['host_header'] else {})})
-    require(deadline > time.monotonic(), 'HTTP_DEADLINE')
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    try:
-        response = opener.open(request, timeout=min(2, deadline-time.monotonic()))
-    except urllib.error.HTTPError as error:
-        response = error
-    with response:
-        raw = response.read(1024*1024+1)
-        require(len(raw) <= 1024*1024 and time.monotonic() < deadline, 'HTTP_OUTPUT_OR_DEADLINE')
-        measured = {'status': response.status, 'body_sha256': sha(raw), 'bytes': len(raw)}
+    measured = http_child(endpoint, deadline)
     require(measured['status'] == endpoint['status'] and measured['body_sha256'] == endpoint['body_sha256'],
             'ACTUAL_HTTP_DIFFERENT_OR_UNKNOWN')
     return measured

@@ -118,8 +118,9 @@ unittest.TestSuite([OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_a
  OperatorBoundary("test_actual_fsgid_not_real_saved_group_controls_other_write"),
  OperatorBoundary("test_actual_nonleader_security_must_match_leader"),
  OperatorBoundary("test_actual_unshared_nonleader_source_descriptor_is_rejected"),
- OperatorBoundary("test_actual_single_leader_start_sample_is_bound_not_another_start")]).run(r)
-if not (r.testsRun==6 and not r.skipped and not r.failures and not r.errors):
+ OperatorBoundary("test_actual_single_leader_start_sample_is_bound_not_another_start"),
+ OperatorBoundary("test_actual_http_reader_absolute_deadline_and_reap")]).run(r)
+if not (r.testsRun==7 and not r.skipped and not r.failures and not r.errors):
  line=1;kind="AssertionError";cause=None;number=0
  if r.error:
   kind=r.error[0].__name__;trace=r.error[2]
@@ -406,7 +407,7 @@ def run(workspace, image):
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
-                  'native_fsuid_tests': 6,
+                  'native_fsuid_tests': 7,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback

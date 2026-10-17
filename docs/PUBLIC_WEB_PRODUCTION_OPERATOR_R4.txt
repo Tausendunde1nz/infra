@@ -273,7 +273,7 @@ their primary cause. These are fixture diagnostics, not new admission facts.
 The mandatory root entry runs the actual fsuid-owner and fsgid/other-write cases,
 a real synthetic mode0 socket failure, per-thread security divergence and an
 unshared non-leader Source descriptor and bound initial-profile acquisition
-(six tests, no skips). The socket failure must retain connect
+(seven tests, no skips). The socket failure must retain connect
 phase/errno13 through cleanup; no case may be skipped or mocked GREEN.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
@@ -330,6 +330,24 @@ permission GREEN: all actual UID/GID/caps/maps/peer/data/root/namespace/exit che
 remain. Its own IPC worker must join AND disappear from procfs before publishing
 the report. Initial transitional credentials cannot become final acceptance;
 the original per-probe/global/action budgets and once-only requests are intact.
+HTTP's socket inactivity timeout is NOT its absolute deadline. Each fixed
+read-only request now uses one owned isolated Python reader with the exact
+reviewed literal code, no shell/Host-script import or credential/proxy/CA
+environment override. Parent supervision bounds DNS/connect/TLS/headers/body
+against the current absolute ceiling, with kill/reap time reserved INSIDE that
+budget. It never retries the request, extends owner/action time or authorizes
+an endpoint not already admitted by the existing URL/method/Host rules.
+The reader emits only actual status/body SHA256/byte count or finite errors;
+no body, URL, exception text or child stderr is published. Timeout/interruption
+stops/reaps only that owned child and closes its pipes. Unconfirmed cleanup
+remains separate from the HTTP primary through client/owner/adapter failures;
+no successful receipt is possible. Normal authority observation resumes only
+after the read child has ended, no new daemon or persistent Host path.
+Mandatory native tests use actual loopback peers in the inspected network-none
+Guest: ordinary response, continuously slow header/body, redirect denial and
+oversize body. Slow reads must HOLD within the absolute bound with actual child
+reap/closed-pipe proof. Full production CI still must exercise the actual TLS/
+HTTP layer; these component tests are not a replacement for the full18 matrix.
 
 Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
 any child. All planned objects must share that device. Only after every exact

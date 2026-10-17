@@ -16,6 +16,7 @@ import select
 import signal
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -43,6 +44,11 @@ def native_trace_capable():
     except (OSError, ValueError, KeyError): return False
 
 
+def native_network_guest():
+    return (sys.platform == 'linux' and os.environ.get('container') == 'docker' and
+            Path('/proc/1/comm').read_text().strip() == 'systemd')
+
+
 class NativeFSUIDFailure(AssertionError):
     def __init__(self, code, number=0):
         self.primary = code; self.native_errno = number
@@ -50,6 +56,81 @@ class NativeFSUIDFailure(AssertionError):
 
 
 class OperatorBoundary(unittest.TestCase):
+    @unittest.skipUnless(native_network_guest(), 'requires the inspected network-none native guest')
+    def test_actual_http_reader_absolute_deadline_and_reap(self):
+        for mode in ('normal', 'slow_header', 'slow_body', 'redirect', 'oversize'):
+            with self.subTest(mode=mode):
+                listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                listener.bind(('127.0.0.1', 0)); listener.listen(1); listener.settimeout(.1)
+                stop = threading.Event(); progress = []; failures = []; children = []
+                body = b'S'*64
+                def serve():
+                    try:
+                        while not stop.is_set():
+                            try: peer, _ = listener.accept(); break
+                            except socket.timeout: pass
+                        else: return
+                        with peer:
+                            peer.settimeout(2); peer.recv(8192)
+                            if mode == 'redirect':
+                                peer.sendall(b'HTTP/1.1 302 Found\r\nLocation: https://tu1nz.com/health\r\nContent-Length: 0\r\n\r\n')
+                            else:
+                                payload = b'S'*(1024*1024+1) if mode == 'oversize' else body
+                                header = b'HTTP/1.1 200 OK\r\nContent-Length: '+str(len(payload)).encode()+b'\r\nConnection: close\r\n\r\n'
+                                if mode == 'slow_header':
+                                    for byte in header:
+                                        if stop.is_set(): return
+                                        peer.sendall(bytes([byte])); progress.append(1); stop.wait(.02)
+                                else: peer.sendall(header)
+                                if mode == 'slow_body':
+                                    for byte in payload:
+                                        if stop.is_set(): return
+                                        peer.sendall(bytes([byte])); progress.append(1); stop.wait(.02)
+                                else: peer.sendall(payload)
+                    except (BrokenPipeError, ConnectionResetError): pass  # own reader was stopped
+                    except BaseException as error: failures.append(type(error).__name__)
+                worker = threading.Thread(target=serve); worker.start()
+                original = subprocess.Popen
+                def actual_child(*args, **kwargs):
+                    child = original(*args, **kwargs); children.append(child)
+                    self.assertEqual(args[0][1:5], ['-I', '-B', '-S', '-c'])
+                    self.assertEqual(args[0][5], io.HTTP_READER)
+                    self.assertEqual(set(kwargs['env']), {'PATH', 'LC_ALL'})
+                    return child
+                endpoint = {'stage': 'internal', 'location': 'host', 'url':
+                    'http://127.0.0.1:'+str(listener.getsockname()[1])+'/health', 'method': 'GET',
+                    'host_header': None, 'status': 200, 'body_sha256': io.sha(body)}
+                began = time.monotonic()
+                try:
+                    with patch.object(io.subprocess, 'Popen', actual_child):
+                        if mode in ('slow_header', 'slow_body'):
+                            with self.assertRaisesRegex(io.Hold, 'HTTP_ABSOLUTE_DEADLINE') as caught:
+                                io.measured_http(endpoint, deadline=began+.35, location='host')
+                            self.assertLess(time.monotonic()-began, .8)
+                            self.assertGreater(len(progress), 1)
+                            self.assertEqual(io.http_cleanup(caught.exception), [])
+                        elif mode in ('redirect', 'oversize'):
+                            with self.assertRaisesRegex(io.Hold, 'HTTP_REDIRECT_NOT_ADMITTED' if mode == 'redirect' else 'HTTP_OUTPUT_LIMIT'):
+                                io.measured_http(endpoint, deadline=began+3, location='host')
+                        else:
+                            value = io.measured_http(endpoint, deadline=began+3, location='host')
+                            self.assertEqual(value, {'status': 200, 'body_sha256': io.sha(body), 'bytes': len(body)})
+                    self.assertEqual(len(children), 1); self.assertIsNotNone(children[0].poll())
+                    self.assertTrue(all(s.closed for s in (children[0].stdin, children[0].stdout, children[0].stderr)))
+                finally:
+                    stop.set(); worker.join(2); listener.close()
+                    self.assertFalse(worker.is_alive()); self.assertFalse(failures, failures)
+
+    def test_http_cleanup_keeps_primary_and_nested_cleanup_separate(self):
+        inner = io.Hold('PUBLIC_OPERATOR_HTTP_ABSOLUTE_DEADLINE')
+        inner._http_cleanup = tuple(io.HTTP_CLEANUP)
+        try:
+            try: raise inner
+            except io.Hold: raise RuntimeError('synthetic owner wrapper') from None
+        except RuntimeError as outer:
+            self.assertEqual(set(io.http_cleanup(outer)), io.HTTP_CLEANUP)
+            self.assertEqual(inner.primary, 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_ABSOLUTE_DEADLINE')
+
     @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_single_leader_start_sample_is_bound_not_another_start(self):
         program = '''import ctypes,signal,sys
