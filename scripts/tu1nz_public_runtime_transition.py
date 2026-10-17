@@ -171,6 +171,8 @@ class ReplacementAdapter(Adapter):
     forbid_legacy_return=True
 
     def pre_stop(self):
+        io.require(os.uname().sysname=='Linux' and os.uname().machine=='x86_64',
+                   'REPLACEMENT_HOST_ARCHITECTURE_BEFORE_STOP')
         self.extra_runtime_fences=[]
         self.replacement_receipt=validate_receipt(self.a.b['source_release']['runtime_reference']['artifact'],
                                                  io.parse(self.source.bytes['runtime_inputs']))

@@ -105,6 +105,19 @@ def baseline_bytes(packet):
     return raw
 
 
+def application_coordinates(reference):
+    """Source coordinates, never a claim that the legacy install has this origin."""
+    replacement=reference.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1'
+    row=reference['artifact']['application'] if replacement else reference
+    require(all(type(row.get(k)) is str and re.fullmatch('[a-f0-9]{40}',row[k])
+                for k in ('commit','tree')) and
+            re.fullmatch('[a-f0-9]{64}',reference.get('origin_sha256','')),'APPLICATION_COORDINATE_BINDING')
+    result={k:row[k] for k in ('commit','tree')}
+    result['origin_sha256']=reference['origin_sha256']
+    if replacement:result['binding_kind']='PROSPECTIVE_REPLACEMENT_NOT_LEGACY_ORIGIN'
+    return result
+
+
 def parse(raw):
     def pairs(items):
         value = {}

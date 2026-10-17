@@ -102,8 +102,8 @@ class Adapter:
                              'targets': self.a.targets, 'units': self.a.initial_units,
                              'site_read_witness_sha256': site_digest,
                              'runtime_files_sha256': self.a.runtime.digest,
-                             'application_reference': {k: self.a.b['source_release']['runtime_reference'][k]
-                                                       for k in ('commit', 'tree', 'origin_sha256')},
+                             'application_reference': io.application_coordinates(
+                                 self.a.b['source_release']['runtime_reference']),
                              'application_host_git_metadata': 'NOT_CHECKED_BY_THIS_OPERATOR',
                              'kind': 'READ_WITNESS_NOT_BACKUP'}
         self.a.check(stop_only=True)

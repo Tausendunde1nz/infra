@@ -23,6 +23,17 @@ import tu1nz_public_runtime_ci as native
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_read_witness_coordinates_do_not_adopt_legacy_origin(self):
+        coordinates={'commit':'1'*40,'tree':'2'*40,'origin_sha256':'3'*64}
+        old={'schema':'TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1','objects':{},**coordinates}
+        self.assertEqual(wire.application_coordinates(old),coordinates)
+        new={'schema':'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1',
+            'origin_sha256':'4'*64,'artifact':{'application':{'commit':'5'*40,'tree':'6'*40}}}
+        self.assertEqual(wire.application_coordinates(new),dict(commit='5'*40,tree='6'*40,
+            origin_sha256='4'*64,binding_kind='PROSPECTIVE_REPLACEMENT_NOT_LEGACY_ORIGIN'))
+        with self.assertRaises((wire.Hold,KeyError)):
+            wire.application_coordinates({**new,'artifact':{'application':{'commit':'5'*40}}})
+
     def test_native_summary_cannot_substitute_wrong_artifact_or_host_acceptance(self):
         receipt={'archive_sha256':'1'*64,'objects':{'synthetic':{}}}
         proof=dict(schema='TU1NZ_PUBLIC_RUNTIME_ACTUAL_NATIVE_R5_V1',artifact_sha256='1'*64,
