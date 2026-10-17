@@ -107,7 +107,7 @@ def safe_actor_diagnostic(value):
 
 def safe_read_cost(value):
     labels = {'authority_check', 'authority_check_files', 'authority_units_check', 'authority_actors_check',
-              'process', 'writer_check', 'paths_check', 'linked_record', 'measured_http',
+              'process', 'writer_check', 'paths_check', 'linked_record', 'measured_http', 'command',
               'owner_check_all', 'owner_apply', 'owner_finish'}
     require(type(value) is dict and 0 < len(value) <= len(labels) and set(value) <= labels, 'READ_COST_SCHEMA')
     require(all(type(v) is dict and set(v) == {'calls', 'inclusive_ns'} and

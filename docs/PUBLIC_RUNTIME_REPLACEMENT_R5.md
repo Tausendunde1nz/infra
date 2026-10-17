@@ -223,6 +223,18 @@ phase and the original transaction/Owner ceiling. An actual failed/expired read
 is latched broken even when its scope unwinds; no reconnect, retry, reset or
 new120s window is created. The original20/120/600s bounds are unchanged.
 
+R5 also issues the SAME fresh GetNameOwner (both authorization-epoch boundaries),
+ListJobs and Manager.UnitPath reads on that existing bound connection. These
+four per-census requests have fixed destinations/methods/subjects, NO_AUTO_START
+and noninteractive flags; no actions or generic RPC/arguments are exposed.
+The unique policy owner, empty typed job array and full ordered UnitPath remain
+strictly validated on EVERY census. The complete existing filesystem search,
+actor, socket, credential, loader, field and Writer checks are unchanged. Legacy
+R4 retains the original CLI reads. No C JSON formatter, new46-field decoder,
+PyDLL decoder or CPU-floor contract was adopted; native production CI already
+has2CPUs/2GiB, not the local1CPU ARM component's resource profile. Component
+timings are NOT an x86 or Host performance guarantee.
+
 Before loading, busctl and EVERY actual loader dependency must match independent
 operator_dependencies origins and the existing exact alias/hash/metadata/writer
 fences. This Source supports exactly the existing libsystemd-shared-255.so

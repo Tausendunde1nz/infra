@@ -156,6 +156,7 @@ def _cost(name,actual):
    row["calls"]+=1;row["inclusive_ns"]+=_cost_time.monotonic_ns()-began
  return invoke
 _observer=s.load("observe")
+_observer.command=_cost("command",_observer.command)
 for _name in ("check","check_files","units_check","actors_check"):
  setattr(_observer.Authority,_name,_cost("authority_"+_name,getattr(_observer.Authority,_name)))
 for _name in ("process","writer_check"):

@@ -139,7 +139,7 @@ class ReadOnlyBus:
     def get(self,path,interface,key,signature):
         manager=path=='/org/freedesktop/systemd1' and interface=='org.freedesktop.systemd1.Manager'
         service=path in {self.unit_path(u) for u in UNITS} and interface=='org.freedesktop.systemd1.Service'
-        io.require((manager and key=='Environment' and signature=='as') or
+        io.require((manager and key in ('Environment','UnitPath') and signature=='as') or
                    (service and self.KEYS.get(key)==signature),'REPLACEMENT_READER_SCOPE')
         message=ctypes.c_void_p();reply=ctypes.c_void_p();L=self.lib
         def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
@@ -268,6 +268,52 @@ class ReadOnlyBus:
 
     def environment(self):
         return {'Environment':self.get('/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager','Environment','as')}
+
+    def manager_paths(self):
+        return self.get('/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager','UnitPath','as')['data']
+
+    def simple(self,kind):
+        # Exactly the two EXISTING read-only CLI requests. No caller-selected
+        # destination, method, policy subject, action or reconnect is exposed.
+        io.require(kind in ('owner','jobs'),'REPLACEMENT_READER_SCOPE')
+        destination,path,interface,member=(
+            (b'org.freedesktop.DBus',b'/org/freedesktop/DBus',b'org.freedesktop.DBus',b'GetNameOwner')
+            if kind=='owner' else (b'org.freedesktop.systemd1',b'/org/freedesktop/systemd1',
+                b'org.freedesktop.systemd1.Manager',b'ListJobs'))
+        message=ctypes.c_void_p();reply=ctypes.c_void_p();L=self.lib
+        def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
+        try:
+            self.check()
+            ok(L.sd_bus_message_new_method_call(self.bus,ctypes.byref(message),destination,path,interface,member))
+            ok(L.sd_bus_message_set_auto_start(message,0))
+            ok(L.sd_bus_message_set_allow_interactive_authorization(message,0))
+            if kind=='owner':
+                ok(L.sd_bus_message_append(message,b's',ctypes.c_char_p(b'org.freedesktop.PolicyKit1')))
+            remaining=min(20,self.deadline-time.monotonic());io.require(remaining>0,'REPLACEMENT_READER_DEADLINE')
+            ok(L.sd_bus_call(self.bus,message,int(remaining*1000000),None,ctypes.byref(reply)))
+            self.check();blob=ctypes.c_void_p();size=ctypes.c_size_t()
+            try:
+                ok(L.bus_message_get_blob(reply,ctypes.byref(blob),ctypes.byref(size)))
+                io.require(blob and 0<size.value<=65536,'REPLACEMENT_READER_OUTPUT_BOUND')
+            finally:
+                if blob:self.libc.free(blob)
+            if kind=='owner':
+                value=ctypes.c_char_p()
+                io.require(ok(L.sd_bus_message_read_basic(reply,b's',ctypes.byref(value)))==1 and
+                    value.value is not None and len(value.value)<=256,'EXISTING_POLICY_DAEMON_UNKNOWN_NO_ACTIVATION')
+                result=value.value.decode()
+                io.require(re.fullmatch(r':\d+\.\d+',result),'EXISTING_POLICY_DAEMON_UNKNOWN_NO_ACTIVATION')
+            else:
+                io.require(ok(L.sd_bus_message_enter_container(reply,b'a',b'(usssoo)'))==1 and
+                    ok(L.sd_bus_message_at_end(reply,0))==1,'QUEUED_MANAGER_JOB_UNKNOWN')
+                ok(L.sd_bus_message_exit_container(reply));result=None
+            io.require(ok(L.sd_bus_message_at_end(reply,1))==1,'REPLACEMENT_READER_EXTRA_VALUE')
+            self.check();return result
+        except BaseException:
+            self.broken=True;raise
+        finally:
+            if reply:L.sd_bus_message_unref(reply)
+            if message:L.sd_bus_message_unref(message)
 
     def close(self):
         if self.bus:
@@ -401,6 +447,12 @@ class ReplacementFence(RuntimeFence):
 
 
 class ReplacementAuthority(Authority):
+    def policy_owner(self):return self.read_bus().simple('owner')
+
+    def manager_jobs_clear(self):self.read_bus().simple('jobs')
+
+    def manager_paths(self):return self.read_bus().manager_paths()
+
     @contextmanager
     def limit(self,deadline):
         # A completed phase's temporary cap must not poison later phases.

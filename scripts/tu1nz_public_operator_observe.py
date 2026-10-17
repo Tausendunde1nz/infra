@@ -838,14 +838,18 @@ class Authority:
             io.require(starttime(row['pid']) == row['starttime'], 'BROKER_PROCESS_CHANGED')
         return sorted(unix), sorted(tcp, key=io.canonical)
 
-    def unit_search(self):
+    def manager_paths(self):
         result = command(['/usr/bin/systemctl', 'show', '--property=UnitPath', '--value'], self.deadline)
-        roots = result.stdout.decode().split()
+        io.require(result.returncode==0,'MANAGER_SEARCH_PATH_UNSUPPORTED_OR_INCOMPLETE')
+        return result.stdout.decode().split()
+
+    def unit_search(self):
+        roots = self.manager_paths()
         allowed = {'/etc/systemd/system.control', '/run/systemd/system.control', '/run/systemd/transient',
                    '/run/systemd/generator.early', '/etc/systemd/system', '/etc/systemd/system.attached',
                    '/run/systemd/system', '/run/systemd/system.attached', '/run/systemd/generator',
                    '/usr/local/lib/systemd/system', '/usr/lib/systemd/system', '/run/systemd/generator.late'}
-        io.require(result.returncode == 0 and len(roots) == len(set(roots)) and set(roots) == allowed,
+        io.require(len(roots) == len(set(roots)) and set(roots) == allowed,
                    'MANAGER_SEARCH_PATH_UNSUPPORTED_OR_INCOMPLETE')
         values = {'manager_search_order': roots}
         for root in roots:
@@ -1122,17 +1126,20 @@ class Authority:
         self.delegation_check(row)
         return row
 
+    def manager_jobs_clear(self):
+        jobs = command(['/usr/bin/busctl', '--system', '--auto-start=no', '--allow-interactive-authorization=no',
+                        '--json=short', 'call', 'org.freedesktop.systemd1', '/org/freedesktop/systemd1',
+                        'org.freedesktop.systemd1.Manager', 'ListJobs'], self.deadline)
+        io.require(jobs.returncode == 0 and io.parse(jobs.stdout) == {'type': 'a(usssoo)', 'data': [[]]},
+                   'QUEUED_MANAGER_JOB_UNKNOWN')
+
     def check(self, *, stop_only=False):
         io.require(time.monotonic() < self.deadline, 'AUTHORITY_DEADLINE')
         io.require(self.runtime is not None, 'RUNTIME_PROVENANCE_UNAVAILABLE')
         self.runtime.check()
         self.paths.check(); self.check_files(); self.policies_check()
         if self.probe_check is not None: self.probe_check()
-        jobs = command(['/usr/bin/busctl', '--system', '--auto-start=no', '--allow-interactive-authorization=no',
-                        '--json=short', 'call', 'org.freedesktop.systemd1', '/org/freedesktop/systemd1',
-                        'org.freedesktop.systemd1.Manager', 'ListJobs'], self.deadline)
-        io.require(jobs.returncode == 0 and io.parse(jobs.stdout) == {'type': 'a(usssoo)', 'data': [[]]},
-                   'QUEUED_MANAGER_JOB_UNKNOWN')
+        self.manager_jobs_clear()
         io.require(self.unit_search() == self.b['unit_search_sha256'], 'FOREIGN_MANAGER_RELOAD_DELTA')
         with self.authorization_epoch():
             self.units_check(stop_only=stop_only); self.actors_check(stop_only=stop_only)

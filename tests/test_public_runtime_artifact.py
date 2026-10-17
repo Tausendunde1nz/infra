@@ -34,6 +34,50 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_fixed_simple_reads_scope_flags_types_and_permanent_failure(self):
+        import ctypes,time
+        from unittest.mock import Mock
+        def reader(owner=b':1.42',pending=False):
+            value=replacement.ReadOnlyBus.__new__(replacement.ReadOnlyBus)
+            value.bus=ctypes.c_void_p(1);value.pid=os.getpid();value.broken=False
+            value.deadline=time.monotonic()+10;value.lib=Mock();value.libc=Mock()
+            def message(bus,pointer,*args):pointer._obj.value=1;return 0
+            def call(bus,message,timeout,error,pointer):pointer._obj.value=2;return 0
+            def blob(message,pointer,size):pointer._obj.value=9;size._obj.value=512;return 0
+            def basic(message,kind,pointer):pointer._obj.value=owner;return 1
+            value.lib.sd_bus_message_new_method_call.side_effect=message
+            value.lib.sd_bus_call.side_effect=call
+            value.lib.bus_message_get_blob.side_effect=blob
+            value.lib.sd_bus_message_read_basic.side_effect=basic
+            for name in ('sd_bus_message_set_auto_start','sd_bus_message_set_allow_interactive_authorization',
+                         'sd_bus_message_append','sd_bus_message_exit_container'):
+                getattr(value.lib,name).return_value=0
+            value.lib.sd_bus_message_enter_container.return_value=1
+            value.lib.sd_bus_message_at_end.return_value=0 if pending else 1
+            return value
+        for kind in ('owner','jobs'):
+            value=reader();self.assertEqual(value.simple(kind),':1.42' if kind=='owner' else None)
+            args=value.lib.sd_bus_message_new_method_call.call_args.args
+            self.assertEqual(args[2:],(b'org.freedesktop.DBus',b'/org/freedesktop/DBus',b'org.freedesktop.DBus',b'GetNameOwner')
+                if kind=='owner' else (b'org.freedesktop.systemd1',b'/org/freedesktop/systemd1',b'org.freedesktop.systemd1.Manager',b'ListJobs'))
+            value.lib.sd_bus_message_set_auto_start.assert_called_once_with(unittest.mock.ANY,0)
+            value.lib.sd_bus_message_set_allow_interactive_authorization.assert_called_once_with(unittest.mock.ANY,0)
+            if kind=='jobs':value.lib.sd_bus_message_append.assert_not_called()
+            else:self.assertEqual(value.lib.sd_bus_message_append.call_args.args[2].value,b'org.freedesktop.PolicyKit1')
+        for value,kind in ((reader(owner=b'org.example.Fake'),'owner'),(reader(pending=True),'jobs')):
+            with self.assertRaises(wire.Hold):value.simple(kind)
+            self.assertTrue(value.broken)
+            calls=value.lib.sd_bus_call.call_count
+            with self.assertRaises(wire.Hold):value.simple(kind)
+            self.assertEqual(value.lib.sd_bus_call.call_count,calls)
+        value=reader()
+        for kind in ('StartUnit','SetEnvironment','unknown',None):
+            with self.assertRaises(wire.Hold):value.simple(kind)
+        value.lib.sd_bus_call.assert_not_called()
+        value.get=Mock(return_value={'type':'as','data':['/etc/systemd/system']})
+        self.assertEqual(value.manager_paths(),['/etc/systemd/system'])
+        value.get.assert_called_once_with('/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager','UnitPath','as')
+
     def test_read_census_closes_fresh_metadata_and_preserves_primary(self):
         from unittest.mock import Mock
         import tu1nz_public_operator_fs as fs
