@@ -133,19 +133,71 @@ class ArtifactBytes(unittest.TestCase):
             with self.assertRaises(wire.Hold):authority.read_bus()
             loaded.assert_not_called();called.assert_not_called()
 
-    def test_direct_reader_deadline_only_decreases_and_samples_are_not_cached(self):
+    def test_direct_reader_temporary_deadline_is_scoped_not_a_new_attempt(self):
+        from contextlib import nullcontext
         from unittest.mock import Mock
+        import ctypes,time
         authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
-        authority.reader=Mock(deadline=999);authority.deadline=123
-        self.assertIs(authority.read_bus(),authority.reader)
-        authority.deadline=999;authority.read_bus()
-        self.assertEqual(authority.reader.deadline,123)
-        self.assertEqual(authority.reader.check.call_count,2)
         reader=replacement.ReadOnlyBus.__new__(replacement.ReadOnlyBus)
+        reader.deadline=600;reader.bus=ctypes.c_void_p(1);reader.pid=os.getpid();reader.broken=False
+        authority.reader=reader;authority.deadline=600;authority.paths=SimpleNamespace(deadline=600)
+        authority.channel=SimpleNamespace(limit=lambda deadline:nullcontext())
+        with patch.object(replacement.time,'monotonic',return_value=0):
+            with authority.limit(20):
+                self.assertIs(authority.read_bus(),reader)
+                self.assertEqual(reader.deadline,20)
+                with authority.limit(10):
+                    authority.read_bus();self.assertEqual(reader.deadline,10)
+                self.assertEqual(reader.deadline,20)
+            self.assertEqual(reader.deadline,600)
+        # Former phase is over; a genuinely new phase still shares the SAME
+        # connection and immutable outer budget, without replaying any action.
+        with patch.object(replacement.time,'monotonic',return_value=30):
+            with authority.limit(150):
+                self.assertIs(authority.read_bus(),reader)
+                self.assertEqual(reader.deadline,150)
+            self.assertEqual(reader.deadline,600)
+            observed=[]
+            def check():
+                bus=authority.read_bus();observed.append(bus.deadline);return bus
+            authority.check=check
+            bound=authority.bounded(120)
+            with authority.limit(500):
+                self.assertIs(bound.check(),reader)
+                self.assertEqual(observed,[120])
+                self.assertEqual(reader.deadline,500)  # restored OUTER phase
+                authority.read_bus();self.assertEqual(reader.deadline,500)
+        self.assertEqual(reader.deadline,600)
         reader.get=Mock(side_effect=lambda p,i,k,s:{'type':s,'data':[]})
         reader.environment();reader.environment()
         self.assertEqual(reader.get.call_count,2)
         self.assertEqual(replacement.BUS_PROVIDER,'libsystemd-shared-255.so')
+
+    def test_direct_reader_expiry_and_interrupt_never_reset_failure_or_owner_bound(self):
+        from contextlib import nullcontext
+        import ctypes
+        authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        reader=replacement.ReadOnlyBus.__new__(replacement.ReadOnlyBus)
+        reader.deadline=600;reader.bus=ctypes.c_void_p(1);reader.pid=os.getpid();reader.broken=False
+        authority.reader=reader;authority.deadline=600;authority.paths=SimpleNamespace(deadline=600)
+        authority.channel=SimpleNamespace(limit=lambda deadline:nullcontext())
+        with patch.object(replacement.time,'monotonic',return_value=0):
+            with self.assertRaises(KeyboardInterrupt):
+                with authority.limit(20):
+                    authority.read_bus();raise KeyboardInterrupt()
+            self.assertEqual(reader.deadline,600)
+            # Restoring a scope after interruption is not an action/start.
+            self.assertFalse(reader.broken)
+            with self.assertRaises(wire.Hold):
+                with authority.limit(120):
+                    authority.read_bus()
+                    with patch.object(replacement.time,'monotonic',return_value=121):
+                        reader.check()
+            self.assertTrue(reader.broken)
+            self.assertEqual(reader.deadline,600)
+            with self.assertRaises(wire.Hold):
+                with authority.limit(500):authority.read_bus()
+            self.assertTrue(reader.broken)
 
     def test_direct_reader_exact_get_flags_type_error_latch_and_no_reconnect(self):
         import ctypes,time

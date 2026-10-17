@@ -8,6 +8,7 @@ No CLI/import mutation. All methods require the surviving production adapter.
 from __future__ import annotations
 
 import base64
+from contextlib import contextmanager
 import ctypes
 import io as memory_io
 import os
@@ -130,8 +131,10 @@ class ReadOnlyBus:
             self.close();raise
 
     def check(self):
-        io.require(not self.broken and self.bus and os.getpid()==self.pid and
-                   time.monotonic()<self.deadline,'REPLACEMENT_READER_LOST')
+        if not (not self.broken and self.bus and os.getpid()==self.pid and
+                time.monotonic()<self.deadline):
+            self.broken=True
+            raise io.Hold('PUBLIC_OPERATOR_REPLACEMENT_READER_LOST')
 
     def get(self,path,interface,key,signature):
         manager=path=='/org/freedesktop/systemd1' and interface=='org.freedesktop.systemd1.Manager'
@@ -398,6 +401,18 @@ class ReplacementFence(RuntimeFence):
 
 
 class ReplacementAuthority(Authority):
+    @contextmanager
+    def limit(self,deadline):
+        # A completed phase's temporary cap must not poison later phases.
+        # Mirror the existing Authority/Paths/Channel scoped restoration; do
+        # NOT extend the transaction/Owner ceiling or unbreak a failed bus.
+        prior=self.reader.deadline if self.reader is not None else self.deadline
+        try:
+            with super().limit(deadline):yield
+        finally:
+            if self.reader is not None:
+                self.reader.deadline=min(prior,self.deadline)
+
     def release_fields(self):
         return super().release_fields()|{'operator_dependencies'}
 

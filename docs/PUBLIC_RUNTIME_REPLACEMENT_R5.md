@@ -216,6 +216,12 @@ The complete GetAll wire body is bounded to64KiB (stricter than the original
 unknown properties. All nine security properties require their exact typed
 representations; missing, duplicate, nonempty-hook or contradictory data denies.
 Transport/type/deadline loss latches the reader; no subprocess fallback exists.
+Temporary phase deadlines follow the SAME scoped lifetime as Authority, Paths
+and Channel: leaving a completed phase restores its outer cap, not a permanently
+expired cap from a previous phase. Nested reads remain capped by the current
+phase and the original transaction/Owner ceiling. An actual failed/expired read
+is latched broken even when its scope unwinds; no reconnect, retry, reset or
+new120s window is created. The original20/120/600s bounds are unchanged.
 
 Before loading, busctl and EVERY actual loader dependency must match independent
 operator_dependencies origins and the existing exact alias/hash/metadata/writer
