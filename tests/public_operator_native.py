@@ -623,10 +623,11 @@ def baseline(s, *, replacement_dependencies=None):
     b['actors'] = list(profiles.values())
     # Pin installed dependency bytes, not a hardcoded "kernel supported" flag.
     dependencies = {}; objects = set(); python = Path('/usr/bin/python3').resolve()
-    for path in [python, *(p for p in Path('/usr/lib/python3.12').rglob('*') if
+    extra=[Path('/usr/bin/busctl')] if getattr(s,'_native_r5',False) else []
+    for path in [python, *extra, *(p for p in Path('/usr/lib/python3.12').rglob('*') if
                             p.is_file() and not p.is_symlink() and p.suffix in ('.py', '.so'))]:
         dependencies[str(path)] = {'source': str(path.resolve()), 'sha256': io.sha(path.read_bytes())}
-        if path == python or path.suffix == '.so':
+        if path == python or path.suffix == '.so' or path in extra:
             for line in run('/usr/bin/ldd', str(path)).decode().splitlines():
                 objects.update(w for w in line.split() if w.startswith('/'))
     for name in objects:

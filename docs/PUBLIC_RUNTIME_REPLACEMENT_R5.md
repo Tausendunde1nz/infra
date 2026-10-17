@@ -193,3 +193,30 @@ storage receives Application bytes. This is not a substitute for the production
 operator/Owner scenarios or fresh Host gates. Local ARM exec-format failure is
 recorded, not converted into native GREEN. Final handoff must name exact commits,
 both mandatory CI results/reviews and post-merge results. No pending job is GREEN.
+
+## Fresh typed manager reads within the unchanged execution budget
+
+R5 reads the same complete Service GetAll and Manager Environment through the
+sd-bus provider in the existing busctl tool's actual ELF closure. This avoids
+thousands of short-lived reader processes, not current checks. Each call is
+fresh, finite, noninteractive and NO_AUTO_START; GetAll remains ONE manager
+dispatch. No action, generic RPC, reconnect, previous-GREEN or value cache exists.
+The complete GetAll wire body is bounded to64KiB (stricter than the original
+2MiB JSON ceiling); the same library consumes/validates every variant, including
+unknown properties. All nine security properties require their exact typed
+representations; missing, duplicate, nonempty-hook or contradictory data denies.
+Transport/type/deadline loss latches the reader; no subprocess fallback exists.
+
+Before loading, busctl and EVERY actual loader dependency must match independent
+probe_dependencies origins and the existing exact alias/hash/metadata/writer
+fences. This Source supports exactly the existing libsystemd-shared-255.so
+provider actually linked by busctl, including its Source-verified read-only
+wire-blob ABI. Another provider/version, missing symbol, origin or ambiguous
+closure denies BEFORE claim/stop; no guessed SONAME, installation or fallback
+exists. Existing global loader/cache and operator-environment gates remain.
+Its ABI and authentic package closure must match later actual Host evidence,
+not be inferred from the255 fixture or current unproven bytes.
+This expands the explicit private dependency binding, not Host write paths or
+privileges. Later Host admission must supply those authentic package bindings;
+native fixture hashes do not manufacture Host provenance. Owner120s/action120s/
+overall600s and all original writer/abort/cleanup contracts remain unchanged.

@@ -117,6 +117,100 @@ class ArtifactBytes(unittest.TestCase):
                     SimpleNamespace(returncode=0,stdout=a.canonical(bad))),self.assertRaises(wire.Hold):
                 replacement.dbus_manager_environment(123)
 
+    def test_direct_reader_never_loads_an_unbound_or_wrong_library(self):
+        from unittest.mock import Mock
+        authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        authority.reader=None;authority.loader_config=Mock()
+        authority.b={'source_release':{'probe_dependencies':{}}}
+        authority.bind_loader_path=Mock(return_value='/usr/bin/FOREIGN')
+        authority.verify_external_libraries=Mock();authority.external_dependencies={};authority.deadline=999
+        with patch.object(replacement,'ReadOnlyBus') as loaded,patch.object(replacement,'command') as called:
+            with self.assertRaises(wire.Hold):authority.read_bus()
+            loaded.assert_not_called();called.assert_not_called()
+            authority.b['source_release']['probe_dependencies']['/usr/bin/busctl']={
+                'source':'/usr/bin/busctl','sha256':'1'*64}
+            with self.assertRaises(wire.Hold):authority.read_bus()
+            loaded.assert_not_called();called.assert_not_called()
+
+    def test_direct_reader_deadline_only_decreases_and_samples_are_not_cached(self):
+        from unittest.mock import Mock
+        authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        authority.reader=Mock(deadline=999);authority.deadline=123
+        self.assertIs(authority.read_bus(),authority.reader)
+        authority.deadline=999;authority.read_bus()
+        self.assertEqual(authority.reader.deadline,123)
+        self.assertEqual(authority.reader.check.call_count,2)
+        reader=replacement.ReadOnlyBus.__new__(replacement.ReadOnlyBus)
+        reader.get=Mock(side_effect=lambda p,i,k,s:{'type':s,'data':[]})
+        reader.environment();reader.environment()
+        self.assertEqual(reader.get.call_count,2)
+        self.assertEqual(replacement.BUS_PROVIDER,'libsystemd-shared-255.so')
+
+    def test_direct_reader_exact_get_flags_type_error_latch_and_no_reconnect(self):
+        import ctypes,time
+        from unittest.mock import Mock
+        def fake_reader(nonempty=False):
+            lib=Mock()
+            def message(bus,pointer,*args):pointer._obj.value=1;return 0
+            def call(bus,message,timeout,error,pointer):pointer._obj.value=2;return 0
+            lib.sd_bus_message_new_method_call.side_effect=message
+            lib.sd_bus_call.side_effect=call
+            def blob(message,pointer,size):pointer._obj.value=9;size._obj.value=4096;return 0
+            lib.bus_message_get_blob.side_effect=blob
+            for name in ('sd_bus_message_set_auto_start','sd_bus_message_set_allow_interactive_authorization',
+                         'sd_bus_message_append','sd_bus_message_exit_container'):
+                getattr(lib,name).return_value=0
+            lib.sd_bus_message_enter_container.return_value=1
+            lib.sd_bus_message_at_end.return_value=0 if nonempty else 1
+            reader=replacement.ReadOnlyBus.__new__(replacement.ReadOnlyBus)
+            reader.bus=ctypes.c_void_p(3);reader.lib=lib;reader.broken=False
+            reader.libc=Mock()
+            reader.pid=os.getpid();reader.deadline=time.monotonic()+10
+            return reader,lib
+        path=replacement.ReadOnlyBus.unit_path(replacement.UNITS[0]);interface='org.freedesktop.systemd1.Service'
+        reader,lib=fake_reader()
+        self.assertEqual(reader.get(path,interface,'ExecStop','a(sasbttttuii)'),
+                         {'type':'a(sasbttttuii)','data':[]})
+        self.assertEqual(lib.sd_bus_message_set_auto_start.call_args.args[1],0)
+        self.assertEqual(lib.sd_bus_message_set_allow_interactive_authorization.call_args.args[1],0)
+        self.assertEqual(lib.sd_bus_message_new_method_call.call_args.args[-2:],
+                         (b'org.freedesktop.DBus.Properties',b'Get'))
+        self.assertLessEqual(lib.sd_bus_call.call_args.args[2],10_000_000)
+        reader,lib=fake_reader(nonempty=True)
+        with self.assertRaises(wire.Hold):reader.get(path,interface,'ExecStop','a(sasbttttuii)')
+        self.assertTrue(reader.broken)
+        with self.assertRaises(wire.Hold):reader.get(path,interface,'ExecStop','a(sasbttttuii)')
+        self.assertEqual(lib.sd_bus_call.call_count,1)
+        reader,lib=fake_reader();lib.sd_bus_message_enter_container.return_value=0
+        with self.assertRaises(wire.Hold):reader.get(path,interface,'Environment','as')
+        self.assertTrue(reader.broken)
+        reader,lib=fake_reader()
+        with self.assertRaises(wire.Hold):reader.get(path,interface,'ExecStart','s')
+        lib.sd_bus_call.assert_not_called()
+        reader,lib=fake_reader()
+        reader.selected_values=Mock(return_value={k:{'type':s,'data':[]} for k,s in reader.KEYS.items()})
+        first=reader.service(replacement.UNITS[0]);reader.service(replacement.UNITS[0])
+        self.assertEqual(len(first['data'][0]),9);self.assertEqual(lib.sd_bus_call.call_count,2)
+        self.assertEqual(reader.selected_values.call_count,2)
+        self.assertEqual(lib.sd_bus_message_new_method_call.call_args.args[-2:],
+                         (b'org.freedesktop.DBus.Properties',b'GetAll'))
+        reader.selected_values.return_value={}
+        with self.assertRaises(wire.Hold):reader.service(replacement.UNITS[0])
+        self.assertTrue(reader.broken)
+        reader,lib=fake_reader();reader.selected_values=Mock()
+        def too_large(message,pointer,size):pointer._obj.value=9;size._obj.value=65537;return 0
+        lib.bus_message_get_blob.side_effect=too_large
+        with self.assertRaises(wire.Hold):reader.service(replacement.UNITS[0])
+        self.assertTrue(reader.broken);reader.selected_values.assert_not_called()
+        reader.libc.free.assert_called_once()
+        reader,lib=fake_reader()
+        def name(message,kind,pointer):pointer._obj.value=b'Unknown';return 1
+        lib.sd_bus_message_read_basic.side_effect=name
+        lib.sd_bus_message_skip.return_value=1
+        lib.sd_bus_message_at_end.side_effect=[0,1,0]
+        with self.assertRaises(wire.Hold):reader.selected_values(ctypes.c_void_p(2))  # duplicate UNKNOWN key
+        self.assertEqual(lib.sd_bus_message_skip.call_count,1)
+
     def test_initial_library_watch_precedes_final_byte_binding(self):
         from unittest.mock import Mock
         raw=b'SYNTHETIC_LIBRARY_BYTES';row={'device':1,'inode':2,'mtime_ns':3,'ctime_ns':4}

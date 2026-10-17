@@ -12,6 +12,7 @@ import ctypes
 import io as memory_io
 import os
 from pathlib import Path, PurePosixPath
+import re
 import stat
 import struct
 import tarfile
@@ -26,6 +27,7 @@ from tu1nz_public_operator_host import Adapter
 OVERLAY = 'zzz-public-runtime-r5.conf'
 CHUNK = 512*1024
 REFERENCE = 'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1'
+BUS_PROVIDER = 'libsystemd-shared-255.so'  # exact ABI covered by native255 tests
 
 
 validate_receipt = artifact.validate_receipt
@@ -74,6 +76,200 @@ def manager_loader_environment(values):
                    name not in unsafe,'REPLACEMENT_MANAGER_LOADER_ENVIRONMENT_UNSAFE')
         names.add(name)
     return io.sha(io.canonical(sorted(env)))  # never disclose values
+
+
+class ReadOnlyBus:
+    """Fresh finite Gets/GetAll through authenticated busctl's SAME provider.
+
+    Caller authenticates/fences the ELF closure BEFORE supplying its FD.
+    Explicit messages preserve NO_AUTO_START/noninteractive flags. No
+    actions, generic call interface, reconnect or cached observation.
+    """
+    KEYS={**{k:'a(sasbttttuii)' for k in EXEC_PROPERTIES},
+          'Environment':'as','PassEnvironment':'as','UnsetEnvironment':'as','EnvironmentFiles':'a(sb)'}
+
+    def __init__(self,fd,deadline):
+        self.deadline=deadline;self.bus=ctypes.c_void_p();self.broken=False;self.pid=os.getpid()
+        io.require('DBUS_SYSTEM_BUS_ADDRESS' not in os.environ and
+                   not any(k in os.environ for k in artifact.LOADER_UNSET),'REPLACEMENT_READER_ENVIRONMENT_UNBOUND')
+        self.lib=ctypes.CDLL('/proc/self/fd/'+str(fd),mode=os.RTLD_LOCAL|os.RTLD_NOW,use_errno=True)
+        P=ctypes.c_void_p;S=ctypes.c_char_p;I=ctypes.c_int;U=ctypes.c_uint64
+        signatures={
+            'sd_bus_new':([ctypes.POINTER(P)],I),
+            'sd_bus_set_address':([P,S],I),'sd_bus_set_bus_client':([P,I],I),
+            'sd_bus_set_method_call_timeout':([P,U],I),'sd_bus_start':([P],I),
+            'sd_bus_close':([P],None),
+            'sd_bus_unref':([P],P),'sd_bus_message_unref':([P],P),
+            'sd_bus_message_new_method_call':([P,ctypes.POINTER(P),S,S,S,S],I),
+            'sd_bus_message_set_auto_start':([P,I],I),
+            'sd_bus_message_set_allow_interactive_authorization':([P,I],I),
+            'sd_bus_message_append':([P,S],I),
+            'sd_bus_call':([P,P,U,P,ctypes.POINTER(P)],I),
+            'sd_bus_message_enter_container':([P,ctypes.c_char,S],I),
+            'sd_bus_message_exit_container':([P],I),
+            'sd_bus_message_at_end':([P,I],I),
+            'sd_bus_message_read_basic':([P,ctypes.c_char,P],I)}
+        signatures['sd_bus_message_skip']=([P,S],I)
+        signatures['bus_message_get_blob']=([P,ctypes.POINTER(P),ctypes.POINTER(ctypes.c_size_t)],I)
+        for name,(args,result) in signatures.items():
+            function=getattr(self.lib,name);function.argtypes=args;function.restype=result
+        self.libc=ctypes.CDLL(None,use_errno=True)
+        self.libc.free.argtypes=[P];self.libc.free.restype=None
+        try:
+            L=self.lib
+            remaining=min(20,self.deadline-time.monotonic())
+            io.require(remaining>0,'REPLACEMENT_READER_DEADLINE')
+            for result in (L.sd_bus_new(ctypes.byref(self.bus)),):
+                io.require(result>=0,'REPLACEMENT_READER_CONNECT_UNKNOWN')
+            io.require(L.sd_bus_set_address(self.bus,b'unix:path=/run/dbus/system_bus_socket')>=0 and
+                       L.sd_bus_set_bus_client(self.bus,1)>=0 and
+                       L.sd_bus_set_method_call_timeout(self.bus,int(remaining*1000000))>=0 and
+                       L.sd_bus_start(self.bus)>=0,'REPLACEMENT_READER_CONNECT_UNKNOWN')
+            self.check()
+        except BaseException:
+            self.close();raise
+
+    def check(self):
+        io.require(not self.broken and self.bus and os.getpid()==self.pid and
+                   time.monotonic()<self.deadline,'REPLACEMENT_READER_LOST')
+
+    def get(self,path,interface,key,signature):
+        manager=path=='/org/freedesktop/systemd1' and interface=='org.freedesktop.systemd1.Manager'
+        service=path in {self.unit_path(u) for u in UNITS} and interface=='org.freedesktop.systemd1.Service'
+        io.require((manager and key=='Environment' and signature=='as') or
+                   (service and self.KEYS.get(key)==signature),'REPLACEMENT_READER_SCOPE')
+        message=ctypes.c_void_p();reply=ctypes.c_void_p();L=self.lib
+        def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
+        try:
+            self.check()
+            ok(L.sd_bus_message_new_method_call(self.bus,ctypes.byref(message),b'org.freedesktop.systemd1',
+                path.encode(),b'org.freedesktop.DBus.Properties',b'Get'))
+            ok(L.sd_bus_message_set_auto_start(message,0))
+            ok(L.sd_bus_message_set_allow_interactive_authorization(message,0))
+            ok(L.sd_bus_message_append(message,b'ss',ctypes.c_char_p(interface.encode()),ctypes.c_char_p(key.encode())))
+            remaining=min(20,self.deadline-time.monotonic());io.require(remaining>0,'REPLACEMENT_READER_DEADLINE')
+            ok(L.sd_bus_call(self.bus,message,int(remaining*1000000),None,ctypes.byref(reply)))
+            self.check()
+            io.require(ok(L.sd_bus_message_enter_container(reply,b'v',signature.encode()))==1,'REPLACEMENT_READER_TYPE')
+            io.require(ok(L.sd_bus_message_enter_container(reply,b'a',signature[1:].encode()))==1,'REPLACEMENT_READER_TYPE')
+            values=[];size=0
+            if signature!='as':
+                # Only EMPTY exec/environment-file arrays are admissible.
+                io.require(ok(L.sd_bus_message_at_end(reply,0))==1,
+                    'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT' if key in EXEC_PROPERTIES else
+                    'REPLACEMENT_UNIT_ENVIRONMENT_FILES_FORBIDDEN')
+            else:
+                while not ok(L.sd_bus_message_at_end(reply,0)):
+                    self.check();value=ctypes.c_char_p()
+                    io.require(ok(L.sd_bus_message_read_basic(reply,b's',ctypes.byref(value)))==1 and
+                               value.value is not None,'REPLACEMENT_READER_TYPE')
+                    raw=value.value;size+=len(raw)
+                    io.require(size<=2*1024*1024 and len(values)<32768,'REPLACEMENT_READER_OUTPUT_BOUND')
+                    values.append(raw.decode())
+            ok(L.sd_bus_message_exit_container(reply))
+            io.require(ok(L.sd_bus_message_at_end(reply,0))==1,'REPLACEMENT_READER_EXTRA_VALUE')
+            ok(L.sd_bus_message_exit_container(reply))
+            io.require(ok(L.sd_bus_message_at_end(reply,1))==1,'REPLACEMENT_READER_EXTRA_VALUE')
+            self.check();return {'type':signature,'data':values}
+        except BaseException:
+            self.broken=True;raise
+        finally:
+            if reply:L.sd_bus_message_unref(reply)
+            if message:L.sd_bus_message_unref(message)
+
+    @staticmethod
+    def unit_path(unit):
+        io.require(unit in UNITS,'REPLACEMENT_READER_SCOPE')
+        return '/org/freedesktop/systemd1/unit/'+''.join(c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
+
+    def service(self,unit):
+        # Preserve the original ONE GetAll manager dispatch, not nine
+        # separately interleavable property requests. Bound the ENTIRE wire
+        # body; the library validates/consumes every unknown variant too.
+        message=ctypes.c_void_p();reply=ctypes.c_void_p();L=self.lib
+        def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
+        try:
+            self.check();path=self.unit_path(unit)
+            ok(L.sd_bus_message_new_method_call(self.bus,ctypes.byref(message),b'org.freedesktop.systemd1',
+                path.encode(),b'org.freedesktop.DBus.Properties',b'GetAll'))
+            ok(L.sd_bus_message_set_auto_start(message,0))
+            ok(L.sd_bus_message_set_allow_interactive_authorization(message,0))
+            ok(L.sd_bus_message_append(message,b's',ctypes.c_char_p(b'org.freedesktop.systemd1.Service')))
+            remaining=min(20,self.deadline-time.monotonic());io.require(remaining>0,'REPLACEMENT_READER_DEADLINE')
+            ok(L.sd_bus_call(self.bus,message,int(remaining*1000000),None,ctypes.byref(reply)))
+            self.check();blob=ctypes.c_void_p();size=ctypes.c_size_t()
+            try:
+                ok(L.bus_message_get_blob(reply,ctypes.byref(blob),ctypes.byref(size)))
+                # Complete wire bytes, including every UNKNOWN variant. This
+                # stricter 64KiB wire ceiling bounds their JSON expansion well
+                # below the original2MiB; never ignore an oversized reply.
+                io.require(blob and 0<size.value<=65536,'REPLACEMENT_READER_OUTPUT_BOUND')
+            finally:
+                if blob:self.libc.free(blob)
+            values=self.selected_values(reply)
+            io.require(ok(L.sd_bus_message_at_end(reply,1))==1,'REPLACEMENT_READER_EXTRA_VALUE')
+            body={'type':'a{sv}','data':[values]}
+            io.require(len(io.canonical(body))<=2*1024*1024 and set(self.KEYS)==set(values),
+                       'REPLACEMENT_READER_OUTPUT_BOUND_OR_MISSING')
+            self.check();return body
+        except BaseException:
+            self.broken=True;raise
+        finally:
+            if reply:L.sd_bus_message_unref(reply)
+            if message:L.sd_bus_message_unref(message)
+
+    def selected_values(self,message):
+        L=self.lib;result={};seen=set()
+        def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
+        io.require(ok(L.sd_bus_message_enter_container(message,b'a',b'{sv}'))==1,'REPLACEMENT_READER_TYPE')
+        while not ok(L.sd_bus_message_at_end(message,0)):
+            self.check()
+            io.require(len(seen)<512 and ok(L.sd_bus_message_enter_container(message,b'e',b'sv'))==1,
+                       'REPLACEMENT_READER_OUTPUT_BOUND')
+            name=ctypes.c_char_p()
+            io.require(ok(L.sd_bus_message_read_basic(message,b's',ctypes.byref(name)))==1 and
+                       name.value is not None,'REPLACEMENT_READER_TYPE')
+            key=name.value.decode()
+            io.require(re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,255}',key) and key not in seen,
+                       'REPLACEMENT_READER_DICTIONARY_UNKNOWN')
+            seen.add(key)
+            if key not in self.KEYS:
+                # Library consumes/validates the complete variant; no current
+                # safety property is skipped and missing required keys deny.
+                io.require(ok(L.sd_bus_message_skip(message,b'v'))==1,'REPLACEMENT_READER_TYPE')
+            else:
+                signature=self.KEYS[key]
+                io.require(ok(L.sd_bus_message_enter_container(message,b'v',signature.encode()))==1 and
+                           ok(L.sd_bus_message_enter_container(message,b'a',signature[1:].encode()))==1,
+                           'REPLACEMENT_READER_TYPE')
+                values=[];size=0
+                if signature!='as':
+                    io.require(ok(L.sd_bus_message_at_end(message,0))==1,
+                        'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT' if key in EXEC_PROPERTIES else
+                        'REPLACEMENT_UNIT_ENVIRONMENT_FILES_FORBIDDEN')
+                else:
+                    while not ok(L.sd_bus_message_at_end(message,0)):
+                        self.check();value=ctypes.c_char_p()
+                        io.require(ok(L.sd_bus_message_read_basic(message,b's',ctypes.byref(value)))==1 and
+                                   value.value is not None,'REPLACEMENT_READER_TYPE')
+                        raw=value.value;size+=len(raw)
+                        io.require(size<=2*1024*1024 and len(values)<32768,'REPLACEMENT_READER_OUTPUT_BOUND')
+                        values.append(raw.decode())
+                ok(L.sd_bus_message_exit_container(message))
+                io.require(ok(L.sd_bus_message_at_end(message,0))==1,'REPLACEMENT_READER_EXTRA_VALUE')
+                ok(L.sd_bus_message_exit_container(message))
+                result[key]={'type':signature,'data':values}
+            io.require(ok(L.sd_bus_message_at_end(message,0))==1,'REPLACEMENT_READER_EXTRA_VALUE')
+            ok(L.sd_bus_message_exit_container(message))
+        ok(L.sd_bus_message_exit_container(message));return result
+
+    def environment(self):
+        return {'Environment':self.get('/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager','Environment','as')}
+
+    def close(self):
+        if self.bus:
+            self.lib.sd_bus_close(self.bus);self.lib.sd_bus_unref(self.bus);self.bus=ctypes.c_void_p()
+        self.broken=True
 
 
 class LoaderConfiguration:
@@ -209,6 +405,7 @@ class ReplacementAuthority(Authority):
         self.loader_config=LoaderConfiguration.__new__(LoaderConfiguration)
         self.loader_config.__init__(paths,baseline,deadline)
         self.manager_environment=None
+        self.reader=None
         legacy=LegacyStopFence(baseline['source_release']['runtime_reference'],paths,
             baseline['source_origin_receipts'],python_binary=baseline['source_release']['python_binary'],deadline=deadline)
         legacy.files.add(self.loader_config.identity[:2])  # existing cache writers are not exempt
@@ -216,9 +413,7 @@ class ReplacementAuthority(Authority):
         return legacy
 
     def extra_unit_contract(self, unit, value, *, stop_only):
-        path='/org/freedesktop/systemd1/unit/'+''.join(
-            c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
-        body=dbus_properties(path,'org.freedesktop.systemd1.Service',self.deadline)
+        body=self.read_bus().service(unit)
         hooks=typed_exec_properties(io.canonical(body),EXEC_PROPERTIES)
         io.require(not any(hooks.values()) and not value['RootDirectory'] and not value['RootImage'],
                    'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT')
@@ -235,6 +430,43 @@ class ReplacementAuthority(Authority):
 
     @staticmethod
     def dropin_path(unit):return '/etc/systemd/system/'+unit+'.d/'+OVERLAY
+
+    def read_bus(self):
+        if self.reader is not None:
+            self.reader.deadline=min(self.reader.deadline,self.deadline)
+            self.reader.check();return self.reader
+        # Authenticate the SAME255 library already used by mandatory busctl and
+        # its COMPLETE actual ELF closure BEFORE dlopen. No SONAME fallback,
+        # new installation, inferred origin or extra administrative right.
+        self.loader_config.check()
+        reference=self.b['source_release']['probe_dependencies'];tool='/usr/bin/busctl'
+        def bind(path):
+            io.require(path in reference and set(reference[path])=={'source','sha256'} and
+                reference[path]['source'].startswith(('/usr/lib/','/usr/bin/')),
+                'REPLACEMENT_READER_LIBRARY_ORIGIN_UNBOUND')
+            io.require(self.bind_loader_path(path)==reference[path]['source'],'REPLACEMENT_READER_LIBRARY_ALIAS')
+            self.external_dependencies[path]=reference[path]
+        bind(tool);self.verify_external_libraries()
+        result=command(['/usr/bin/ldd',tool],self.deadline)
+        io.require(result.returncode==0 and b'not found' not in result.stdout,'REPLACEMENT_READER_LIBRARY_CLOSURE')
+        selected=[]
+        for line in result.stdout.decode().splitlines():
+            words=line.split();names=[w for w in words if w.startswith('/')]
+            io.require(names or 'linux-vdso.so.' in line,'REPLACEMENT_READER_LIBRARY_CLOSURE')
+            for path in names:bind(path)
+            if words and words[0]==BUS_PROVIDER:selected.extend(names)
+        io.require(len(selected)==1,'REPLACEMENT_READER_LIBRARY_CLOSURE')
+        self.verify_external_libraries();path=reference[selected[0]]['source']
+        fd=os.open(path,READ)
+        try:
+            row=os.fstat(fd)
+            io.require((row.st_dev,row.st_ino,row.st_mtime_ns,row.st_ctime_ns)==self.external_identities[selected[0]],
+                       'REPLACEMENT_READER_LIBRARY_CHANGED')
+            reader=ReadOnlyBus(fd,self.deadline)
+            try:self.verify_external_libraries()
+            except BaseException:reader.close();raise
+            self.reader=reader;return reader
+        finally:os.close(fd)
 
     def interpreter_binding(self,row,*,old):
         if old:
@@ -368,7 +600,7 @@ class ReplacementAuthority(Authority):
 
     def check_loader_configuration(self):
         self.loader_config.check()
-        measured=manager_loader_environment(dbus_manager_environment(self.deadline))
+        measured=manager_loader_environment(self.read_bus().environment())
         if self.manager_environment is None:self.manager_environment=measured
         else:io.require(measured==self.manager_environment,'REPLACEMENT_MANAGER_ENVIRONMENT_CHANGED')
         self.loader_config.check()
@@ -424,6 +656,11 @@ class ReplacementAuthority(Authority):
 
     def close(self):
         errors=[]
+        reader=getattr(self,'reader',None)
+        if reader is not None:
+            try:reader.close()
+            except BaseException:errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_READER_CLOSE_UNKNOWN')
+            self.reader=None
         loader=getattr(self,'loader_config',None)
         if loader is not None:
             try:errors.extend(loader.close())
