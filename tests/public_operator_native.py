@@ -849,7 +849,6 @@ def main():
         run('/usr/bin/systemctl','daemon-reload')
     if args.scenario=='r5_legacy_unknown':
         p=APP/'.venv/bin/tu1nz-public-s7';p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_UNKNOWN_OLD_INSTALL_BYTES\n')
-    legacy_bytes={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
     source_read_census_fence(s)
     actual_loader_alias_fence(s)
     actual_read_census_fence(s)
@@ -890,6 +889,11 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         origin=io.sha(io.canonical(runtime_receipt));b['source_origin_receipts'].append(origin)
         b['source_release']['runtime_reference']={'schema':'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1',
             'artifact':runtime_receipt,'origin_sha256':origin}
+    # Component fixtures above deliberately create read-census/a.json and
+    # b.json in APP. Bind the COMPLETE prepared legacy fixture here, before
+    # production starts, not before our own test-only construction. Never
+    # exclude those files or refresh the witness after a production effect.
+    legacy_bytes={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
     raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
     write(ROOT/'baseline.json', baseline_raw, 0o600)
     # Actual PID1 batch and three independent single reads must agree before

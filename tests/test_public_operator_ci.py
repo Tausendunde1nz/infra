@@ -15,6 +15,33 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_legacy_unchanged_witness_follows_fixture_build_but_precedes_production(self):
+        import ast
+        from tests import public_operator_native as native
+        tree=ast.parse(Path(native.__file__).read_bytes())
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        captures=[n for n in ast.walk(main) if isinstance(n,ast.Assign) and
+                  any(isinstance(t,ast.Name) and t.id=='legacy_bytes' for t in n.targets)]
+        self.assertEqual(len(captures),1)
+        capture=captures[0];self.assertIsInstance(capture.value,ast.DictComp)
+        fixture_calls=[n.lineno for n in ast.walk(main) if isinstance(n,ast.Call) and
+            isinstance(n.func,ast.Name) and n.func.id in
+            ('setup','source_read_census_fence','actual_loader_alias_fence','actual_read_census_fence',
+             'actual_loader_configuration_fence','actual_policy_owner_epoch','baseline')]
+        child=next(n for n in main.body if isinstance(n,ast.Assign) and
+                   any(isinstance(t,ast.Name) and t.id=='child' for t in n.targets))
+        self.assertTrue(fixture_calls)
+        self.assertLess(max(fixture_calls),capture.lineno)
+        self.assertLess(capture.lineno,child.lineno)
+        # The final equality remains full inventory + hashes, not an exclusion
+        # for test-created files or an overwritten post-production snapshot.
+        checks=[n for n in ast.walk(main) if isinstance(n,ast.Assert) and
+                isinstance(n.test,ast.Compare) and isinstance(n.test.left,ast.Name) and
+                n.test.left.id=='legacy_bytes']
+        self.assertEqual(len(checks),1)
+        self.assertIsInstance(checks[0].test.comparators[0],ast.DictComp)
+        self.assertGreater(checks[0].lineno,child.lineno)
+
     def test_environment_error_wrapper_follows_actual_flow_exception_context(self):
         import hashlib
         from types import SimpleNamespace
