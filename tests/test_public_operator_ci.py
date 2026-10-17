@@ -15,6 +15,21 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_progress_is_finite_verified_case_only_not_admission_or_raw_output(self):
+        record={'scenario':m.CASES[0],'result_sha256':'b'*64,
+                'unrelated':'PRIVATE_UNRELATED_VALUE_MUST_NOT_LEAVE'}
+        stream=io.StringIO()
+        with contextlib.redirect_stdout(stream):m.progress('a'*40,1,record)
+        value=json.loads(stream.getvalue())
+        self.assertEqual(set(value),{'schema','source_sha','completed_count','scenario','result_sha256','host_acceptance'})
+        self.assertEqual(value['schema'],'TU1NZ_PUBLIC_OPERATOR_NATIVE_PROGRESS_V1')
+        self.assertFalse(value['host_acceptance'])
+        self.assertNotIn('PRIVATE_UNRELATED_VALUE',stream.getvalue())
+        for count in (0,True,len(m.CASES)+1):
+            with self.assertRaises(m.CIError):m.progress('a'*40,count,record)
+        with self.assertRaises(m.CIError):m.progress('not-a-commit',1,record)
+        with self.assertRaises(m.CIError):m.progress('a'*40,2,record)
+
     def test_fixture_policy_wait_is_before_admission_and_never_retries_unknown(self):
         # Unit fixture lifecycle only, not mocked production admission.
         from types import SimpleNamespace

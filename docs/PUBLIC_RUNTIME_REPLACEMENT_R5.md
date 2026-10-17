@@ -235,6 +235,14 @@ PyDLL decoder or CPU-floor contract was adopted; native production CI already
 has2CPUs/2GiB, not the local1CPU ARM component's resource profile. Component
 timings are NOT an x86 or Host performance guarantee.
 
+The CI job has a60-minute aggregate scheduling allowance for all28 sequential
+isolated fixtures, image construction and the existing64 Control cases. This
+does NOT alter any20/120/600s production budget,512FD bound, fixture resource,
+case, check, timeout or retry rule. The former30-minute OUTER cancellation had
+no final adapter report; completed count/last case from that run remain UNKNOWN,
+not GREEN. New finite progress lines identify only actually validated completed
+synthetic cases and proof hashes; only the final full CI report is a source gate.
+
 Before loading, busctl and EVERY actual loader dependency must match independent
 operator_dependencies origins and the existing exact alias/hash/metadata/writer
 fences. This Source supports exactly the existing libsystemd-shared-255.so

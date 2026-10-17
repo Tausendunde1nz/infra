@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Eighteen original plus ten R5 transition cases; no wider Host deadline.
     # The existing 64 recovery cases and every downstream gate remain intact.
-    timeout-minutes: 30
+    timeout-minutes: 60
     # Environment-only credential. Required maintainer approval BEFORE this
     # fresh job starts: actual exact SHA including workflow/scripts/Dockerfile
     # must have independent review; same-repo origin alone is NOT trust.

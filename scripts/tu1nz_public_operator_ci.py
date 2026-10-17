@@ -282,6 +282,22 @@ def validate_report(raw, case, hashes):
             'actual_faults': value['actual_faults']}
 
 
+def progress(sha,count,record):
+    """Finite completed-fixture receipt, never an admission or full CI gate.
+
+    Emit ONLY after validate_report; never child output, argv, metadata, token
+    or private source. An outer job cancellation must not imply all28 passed.
+    """
+    require(type(sha) is str and re.fullmatch('[a-f0-9]{40}',sha) and
+            type(count) is int and 1<=count<=len(CASES) and
+            type(record) is dict and record.get('scenario')==CASES[count-1] and
+            type(record.get('result_sha256')) is str and
+            re.fullmatch('[a-f0-9]{64}',record['result_sha256']),'PROGRESS_SCHEMA')
+    print(json.dumps({'schema':'TU1NZ_PUBLIC_OPERATOR_NATIVE_PROGRESS_V1',
+        'source_sha':sha,'completed_count':count,'scenario':record['scenario'],
+        'result_sha256':record['result_sha256'],'host_acceptance':False},sort_keys=True),flush=True)
+
+
 def failure_location(raw):
     """Finite Source locations only. Never forward child text or private data.
 
@@ -467,6 +483,7 @@ def run(workspace, image):
                 native_process = native_process_diagnostic(code, raw)
             require(code == 0, 'NATIVE_CASE_RED')
             records.append(validate_report(raw, case, hashes))
+            progress(sha,len(records),records[-1])
             boundary.cleanup_container(container, owner); container = None
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
