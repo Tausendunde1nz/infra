@@ -15,6 +15,41 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_environment_error_wrapper_follows_actual_flow_exception_context(self):
+        import hashlib
+        from types import SimpleNamespace
+        from tests import public_operator_native as native
+        code='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED'
+        class FlowFailure(Exception):primary=code
+        class OriginalHold(Exception):primary=code
+        actual={'component':'<authenticated-memory:replacement>','line':1,'type':'Hold'}
+        host=SimpleNamespace(source_fault_location=lambda error:actual)
+        modules={'host':host,'observe':SimpleNamespace(UNITS=native.UNITS)}
+        scope={'s':SimpleNamespace(load=lambda key:modules[key])}
+        exec(compile(native.ENV_DIAGNOSTIC_WRAPPER,'<test-wrapper>','exec'),scope)
+        program='''def interpreter_binding():
+ row={"pid":123,"starttime":"synthetic","initial_env_sha256":empty}
+ normal="NORMAL_HASH";wms="WMS_HASH"
+ raise hold
+def initial_application_ready():
+ unit=unit_name
+ interpreter_binding()
+'''
+        values={'empty':hashlib.sha256(b'').hexdigest(),'hold':OriginalHold(),'unit_name':native.UNITS[0]}
+        exec(compile(program,'<authenticated-memory:replacement>','exec'),values)
+        try:
+            try:values['initial_application_ready']()
+            except OriginalHold:raise FlowFailure()
+        except FlowFailure as error:wrapped=error
+        stream=io.StringIO();stream.fileno=lambda:42
+        with patch.object(Path,'read_bytes',side_effect=FileNotFoundError),\
+             patch.object(os,'open',return_value=42),patch.object(os,'fdopen',return_value=contextlib.nullcontext(stream)),\
+             patch.object(os,'fsync'):
+            self.assertIs(scope['_env_source_fault'](wrapped),actual)
+        found=json.loads(stream.getvalue())
+        self.assertEqual((found['sample'],found['followup'],found['unit']),('EMPTY','GONE','s7'))
+        self.assertNotIn('123',json.dumps(found));self.assertNotIn('synthetic',json.dumps(found))
+
     def test_environment_diagnostic_never_exposes_names_values_or_journal_text(self):
         from tests import public_operator_native as native
         compile(native.ENV_DIAGNOSTIC_WRAPPER,'<synthetic-diagnostic>','exec')

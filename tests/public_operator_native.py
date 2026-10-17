@@ -106,15 +106,18 @@ def _env_source_fault(error):
   import json,hashlib,os
   from pathlib import Path
   if getattr(error,"primary",None)!="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED":return location
-  trace=error.__traceback__;row=None;unit="UNKNOWN";normal=wms=None
-  while trace is not None:
-   frame=trace.tb_frame
-   if frame.f_code.co_filename=="<authenticated-memory:replacement>":
-    if frame.f_code.co_name=="interpreter_binding":
-     row=frame.f_locals.get("row");normal=frame.f_locals.get("normal");wms=frame.f_locals.get("wms")
-    candidate=frame.f_locals.get("unit")
-    if candidate in s.load("observe").UNITS:unit=("s7","s8-landing","wms")[s.load("observe").UNITS.index(candidate)]
-   trace=trace.tb_next
+  current=error;seen=set();row=None;unit="UNKNOWN";normal=wms=None
+  while current is not None and id(current) not in seen and row is None:
+   seen.add(id(current));trace=current.__traceback__
+   while trace is not None:
+    frame=trace.tb_frame
+    if frame.f_code.co_filename=="<authenticated-memory:replacement>":
+     if frame.f_code.co_name=="interpreter_binding":
+      row=frame.f_locals.get("row");normal=frame.f_locals.get("normal");wms=frame.f_locals.get("wms")
+     candidate=frame.f_locals.get("unit")
+     if candidate in s.load("observe").UNITS:unit=("s7","s8-landing","wms")[s.load("observe").UNITS.index(candidate)]
+    trace=trace.tb_next
+   current=current.__cause__ or current.__context__
   def digest(raw):return hashlib.sha256(raw).hexdigest()
   def kind(value):return "NORMAL" if value==normal else "WMS" if value==wms else "EMPTY" if value==digest(b"") else "OTHER"
   record={"unit":unit,"sample":kind(row["initial_env_sha256"]),"followup":"UNKNOWN",
