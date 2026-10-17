@@ -242,6 +242,15 @@ case, check, timeout or retry rule. The former30-minute OUTER cancellation had
 no final adapter report; completed count/last case from that run remain UNKNOWN,
 not GREEN. New finite progress lines identify only actually validated completed
 synthetic cases and proof hashes; only the final full CI report is a source gate.
+Fixture startup monitoring now tolerates only the disappearance of a task
+already actually observed as `pool-polkitd`, with unchanged leader identity,
+absence from a fresh task listing AND absence of that task directory. A live
+task with missing comm, an unknown task/read error, leader replacement, timeout
+or any later strict process/KCMP error still fails. The full production process
+read remains once, after preparation; no production read is caught/retried.
+The original25s fixture,20/5s guest-ready,20/120/600s production budgets and all
+cases/resources remain unchanged. Historical failing task identity/name stays
+UNKNOWN; the list/read race is established, not a historical pool attribution.
 
 Before loading, busctl and EVERY actual loader dependency must match independent
 operator_dependencies origins and the existing exact alias/hash/metadata/writer

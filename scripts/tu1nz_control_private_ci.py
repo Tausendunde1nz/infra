@@ -43,7 +43,10 @@ REPOSITORY='Tausendunde1nz/infra'
 # PR231 is the finite prospective public-runtime replacement Source delta.
 # The token still reads ONLY the same three Control blobs; actual-SHA review
 # and required Environment approval remain mandatory before private input.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231))
+# PR232 is the finite pre-baseline synthetic policy-worker lifecycle fix.
+# Same three pinned blobs, credential scope, exact-SHA review and required
+# Environment approval; no generic PR, Host or production retry permission.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'

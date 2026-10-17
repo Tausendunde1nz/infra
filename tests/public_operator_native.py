@@ -761,13 +761,30 @@ def wait_for_fixture_policy_idle(observer, pid, deadline):
     read once. Unknown/read failures, leader replacement and timeout fail
     the fixture; no caught KCMP error or substituted authorization result.
     """
-    identity=observer.starttime(pid); tasks=Path('/proc')/str(pid)/'task'
+    identity=observer.starttime(pid); tasks=Path('/proc')/str(pid)/'task';known_pool=set()
     while True:
         assert time.monotonic()<deadline, 'FIXTURE_POLICY_STARTUP_NOT_QUIET'
         assert observer.starttime(pid)==identity, 'FIXTURE_POLICY_LEADER_CHANGED'
         names=list(tasks.iterdir())
         assert names and any(p.name==str(pid) for p in names)
-        labels=[(p/'comm').read_text().strip() for p in names]
+        labels=[];retired=False
+        for p in names:
+            try:label=(p/'comm').read_text().strip()
+            except FileNotFoundError:
+                # Only an ALREADY observed startup pool worker may retire
+                # during fixture preparation. Never ignore an unknown task,
+                # a live task with unreadable comm, or any process()/KCMP
+                # failure. This is BEFORE the first production observation.
+                if p.name==str(pid) or p.name not in known_pool:raise
+                assert observer.starttime(pid)==identity, 'FIXTURE_POLICY_LEADER_CHANGED'
+                if any(q.name==p.name for q in tasks.iterdir()):raise
+                try:p.stat()
+                except FileNotFoundError:retired=True;break
+                raise
+            if label=='pool-polkitd':known_pool.add(p.name)
+            else:known_pool.discard(p.name)
+            labels.append(label)
+        if retired:continue  # fresh fixture roster, not a production retry
         if 'pool-polkitd' not in labels:
             row=observer.process(pid)  # all task security + KCMP_FILES, once
             assert row['starttime']==identity, 'FIXTURE_POLICY_LEADER_CHANGED'

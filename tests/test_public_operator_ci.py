@@ -15,6 +15,42 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_only_previously_seen_pool_retirement_can_finish_fixture_preparation(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from tests import public_operator_native as native
+        import time
+        for label,remove_directory in (('pool-polkitd',True),('OTHER',True),('pool-polkitd',False)):
+            with self.subTest(label=label,gone=remove_directory),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);leader=root/'2';leader.mkdir();(leader/'comm').write_text('polkitd\n')
+                worker=root/'3';worker.mkdir();comm=worker/'comm';comm.write_text(label+'\n')
+                observer=SimpleNamespace(starttime=lambda pid:'7',process=Mock(return_value={'starttime':'7'}))
+                class Proc:
+                    def __truediv__(self,part):return self if part=='2' else root
+                original=Path.read_text;reads=0
+                def retire(path,*args,**kwargs):
+                    nonlocal reads
+                    if path==comm:
+                        reads+=1
+                        if reads==2:
+                            comm.unlink()
+                            if remove_directory:worker.rmdir()
+                            raise FileNotFoundError('SYNTHETIC_RETIRED_TASK')
+                    return original(path,*args,**kwargs)
+                with patch.object(native,'Path',return_value=Proc()),patch.object(Path,'read_text',retire),\
+                     patch.object(native.time,'sleep'):
+                    if label=='pool-polkitd' and remove_directory:
+                        native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                        observer.process.assert_called_once_with(2)
+                    else:
+                        # OTHER normally reaches strict observation immediately;
+                        # keep it in preparation with a separately known pool.
+                        if label=='OTHER':
+                            pool=root/'4';pool.mkdir();(pool/'comm').write_text('pool-polkitd\n')
+                        with self.assertRaises(FileNotFoundError):
+                            native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                        observer.process.assert_not_called()
+
     def test_progress_is_finite_verified_case_only_not_admission_or_raw_output(self):
         record={'scenario':m.CASES[0],'result_sha256':'b'*64,
                 'unrelated':'PRIVATE_UNRELATED_VALUE_MUST_NOT_LEAVE'}
