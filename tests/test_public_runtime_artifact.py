@@ -34,6 +34,12 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_every_pinned_asset_matches_actual_source_bytes(self):
+        root=Path(__file__).resolve().parents[1]
+        for name,digest in wire.ASSETS.items():
+            with self.subTest(asset=name):
+                self.assertEqual(a.sha((root/client.INFRA_FILES[name]).read_bytes()),digest)
+
     def test_loader_environment_policy_rejects_unsafe_missing_and_unknown_data(self):
         def values(rows):return {'Environment':{'type':'as','data':rows}}
         self.assertEqual(replacement.manager_loader_environment(values(['LANG=C'])),

@@ -41,7 +41,7 @@ ASSETS = {'runtime': '2884c2531e73480513d533844cab9ac1a906e13fd4fdb104ab1d49759f
           'dropin_s8_landing': '1e84f8904b4ce292e8b002ad373b27ea5d6592ddaaca4c07c68e990452133213',
     'dropin_wms': 'ce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3',
     'runtime_inputs': 'dc60ead4d72111f5d748b4cbc34f724c03e78435fd3a32ac8b323b8a5b2e4b9a',
-    'runtime_overlay': '83cf971408959e110a02f65c8a4d2ed888063c1c62f745e7a3dc2d2455302f5d'}
+    'runtime_overlay': '0fb502c4f6b164e7e5fb9b1209c11c5f8f221f8191a658d6704bf00c41949b83'}
 PUBLIC_HOSTS = frozenset(('tu1nz.com', 'www.tu1nz.com', 'wantmeseen.com', 'www.wantmeseen.com',
                           'lighting.tu1nz.com'))
 
