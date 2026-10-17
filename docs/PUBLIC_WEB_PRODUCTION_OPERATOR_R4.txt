@@ -280,6 +280,10 @@ independently rereads the results and reports sanitized HOLD/exit1, no traceback
 Native CI may additionally disclose an exact literal public IO-Hold terminal
 symbol from private child stderr, never the stderr or traceback. This separately
 identifies terminal wire failure, not an invented underlying owner primary cause.
+The private runner merges stdout/stderr. Exactly one structured native-failure
+line can be parsed through unrelated private warnings, never published verbatim.
+Exit/output-size/SHA256 and finite parser status survive missing/rejected proof;
+an exit code alone is not called OOM, signal provenance or a production cause.
 
 Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
 any child. All planned objects must share that device. Only after every exact

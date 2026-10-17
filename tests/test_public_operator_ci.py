@@ -193,6 +193,21 @@ class PublicOperatorCI(unittest.TestCase):
             self.assertEqual(result['test_line'], 10); self.assertIsNone(result['actor'])
             self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
 
+    def test_mixed_stream_failure_preserves_unique_proof_without_private_text(self):
+        failure = {'native_failure': {'test_line': 123, 'test_type': 'AssertionError', 'production_fault': None}}
+        raw = b'PRIVATE_CANARY github_pat_SYNTHETIC\n'+json.dumps(failure).encode()+b'\nPRIVATE_CANARY\n'
+        self.assertEqual(m.failure_location(raw), failure['native_failure'])
+        value = m.native_process_diagnostic(1, raw)
+        self.assertEqual(value['exit'], 1); self.assertEqual(value['output_bytes'], len(raw))
+        self.assertEqual(value['parser_status'], 'COMPLETE'); self.assertEqual(value['source_line'], 123)
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(value))
+        self.assertIsNone(m.failure_location(json.dumps(failure).encode()+b'\n'+json.dumps(failure).encode()))
+        self.assertEqual(m.native_process_diagnostic(137, b'')['parser_status'], 'NO_STRUCTURED_LINE')
+        failure['native_failure']['production_fault'] = {'message': 'PRIVATE_CANARY'}
+        value = m.native_process_diagnostic(1, json.dumps(failure).encode())
+        self.assertEqual(value['parser_status'], 'STRUCTURED_DATA_REDACTED')
+        self.assertEqual(value['source_line'], 123); self.assertNotIn('PRIVATE_CANARY', json.dumps(value))
+
     def test_native_fsuid_regression_has_exact_root_non_skipped_guest_entry(self):
         argv = m.native_fsuid_argv('owned')
         self.assertEqual(argv[:6], ['/usr/bin/docker', 'exec', 'owned', '/usr/bin/python3', '-I', '-B'])

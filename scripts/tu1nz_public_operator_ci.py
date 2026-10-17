@@ -252,7 +252,16 @@ def failure_location(raw):
     This diagnostic cannot make a failed scenario pass.
     """
     try:
-        value = operator.io.parse(raw.strip())
+        # bounded() merges private stdout/stderr. Warnings must not erase the
+        # one structured failure line or escape through the public diagnostic.
+        candidates = []
+        for line in raw.splitlines():
+            if not line.strip().startswith(b'{"native_failure"'): continue
+            try: item = operator.io.parse(line.strip())
+            except (ValueError, UnicodeError): continue
+            if type(item) is dict and set(item) == {'native_failure'}: candidates.append(item)
+        require(len(candidates) == 1, 'FAILURE_SCHEMA')
+        value = candidates[0]
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
@@ -305,6 +314,27 @@ def failure_location(raw):
         return None
 
 
+def native_process_diagnostic(code, raw):
+    """Finite process facts; not an inferred signal/OOM/production cause."""
+    require(type(code) is int and -128 <= code <= 255 and type(raw) is bytes and
+            len(raw) <= boundary.MAX_OUTPUT, 'NATIVE_PROCESS_DIAGNOSTIC_SCHEMA')
+    parsed = failure_location(raw); lines = []
+    for line in raw.splitlines():
+        if not line.strip().startswith(b'{"native_failure"'): continue
+        try: value = operator.io.parse(line.strip())
+        except (ValueError, UnicodeError): continue
+        if type(value) is dict and set(value) == {'native_failure'} and type(value['native_failure']) is dict:
+            lines.append(value['native_failure'])
+    basic = lines[0] if len(lines) == 1 else {}
+    number = basic.get('test_line'); kind = basic.get('test_type')
+    return {'exit': code, 'output_bytes': len(raw), 'output_sha256': hashlib.sha256(raw).hexdigest(),
+        'structured_lines': len(lines),
+        'source_line': number if type(number) is int and 0 < number < 10000 else None,
+        'failure_type': kind if type(kind) is str and kind in SAFE_FAILURE_TYPES | {'TimeoutExpired', 'CalledProcessError'} else None,
+        'parser_status': 'COMPLETE' if parsed is not None else
+                         'STRUCTURED_DATA_REDACTED' if lines else 'NO_STRUCTURED_LINE'}
+
+
 def cleanup_result(result, container, owner, root, parent):
     """Independent cleanup provenance never replaces an earlier failure."""
     errors = []
@@ -327,7 +357,7 @@ def run(workspace, image):
     root = None; container = None; owner = uuid.uuid4().hex; phase = 'admission'
     parent = Path(os.environ.get('RUNNER_TEMP', '/nonexistent'))
     result = {'schema': SCHEMA, 'green': False, 'code': 'PRIVATE_OPERATOR_CI_RED'}
-    diagnostic = None
+    diagnostic = None; native_process = None
     try:
         token = os.environ.pop('CONTROL_POLICY_READ_TOKEN', None)
         sha = boundary.runtime_binding(os.environ, workspace)
@@ -358,7 +388,9 @@ def run(workspace, image):
             phase = case+'-production'
             code, raw = boundary.bounded(['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
                 '/source/tests/public_operator_native.py', '--scenario', case], timeout=720)
-            if code != 0: diagnostic = failure_location(raw)
+            if code != 0:
+                diagnostic = failure_location(raw)
+                native_process = native_process_diagnostic(code, raw)
             require(code == 0, 'NATIVE_CASE_RED')
             records.append(validate_report(raw, case, hashes))
             boundary.cleanup_container(container, owner); container = None
@@ -373,6 +405,7 @@ def run(workspace, image):
         result = {'schema': SCHEMA, 'green': False, 'stage': phase,
                   'code': str(error) if type(error) is CIError else 'PRIVATE_OPERATOR_CI_RED'}
         if diagnostic is not None: result['failure_location'] = diagnostic
+        if native_process is not None: result['native_process'] = native_process
     finally:
         result = cleanup_result(result, container, owner, root, parent)
     print(json.dumps(result, sort_keys=True))
