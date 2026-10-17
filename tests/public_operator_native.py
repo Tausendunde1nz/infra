@@ -385,6 +385,12 @@ def setup(s, *, source_handle=None):
     write('/etc/polkit-1/rules.d/00-fixture-public-no-admin.rules', s.load('observe').STATIC_SYSTEMD_DENY)
     run('/usr/bin/systemctl', 'start', 'polkit.service')
     run('/usr/bin/pg_ctlcluster', '16', 'main', 'status')
+    # Real value in the fresh fixture cluster, not an accepted actor/health
+    # flag. Automatic maintenance is not part of a deterministic success case.
+    # Production unknown-actor rejection and the explicit extra-process fault
+    # remain untouched. The PID1 fixture initializer sets this before boot.
+    assert run('/usr/sbin/runuser','-u','postgres','--','/usr/bin/psql','-X','-At',
+               '-c','SHOW autovacuum;').strip()==b'off'
     sql = ("CREATE ROLE chatops LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; "
            "CREATE DATABASE r4_probe OWNER chatops;")
     run('/usr/sbin/runuser', '-u', 'postgres', '--', '/usr/bin/psql', '-X', '-v', 'ON_ERROR_STOP=1', data=sql.encode())
