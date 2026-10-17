@@ -177,6 +177,22 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertIsNone(m.terminal_wire_code(valid+b'\ntu1nz_public_operator_io.Hold: PUBLIC_OPERATOR_COMMAND_DEADLINE'))
         self.assertIsNone(m.terminal_wire_code(b'PRIVATE_CANARY /private/source.py github_pat_SYNTHETIC'))
 
+    def test_actor_failure_diagnostic_is_finite_and_cannot_replace_primary(self):
+        actor = {'executable_class': 'postgres', 'matching_executable_profiles': 5,
+                 'different_fields': ['argv_sha256'], 'stable_followup': True,
+                 'title_kind': 'POSTGRES_AUTOVACUUM_WORKER'}
+        self.assertEqual(m.safe_actor_diagnostic(actor), actor)
+        for change in ({'executable_class': 'PRIVATE_CANARY'}, {'matching_executable_profiles': True},
+                       {'different_fields': ['PRIVATE_CANARY']}, {'different_fields': ['uid', 'uid']},
+                       {'title_kind': 'PRIVATE_CANARY'}, {'argv': 'PRIVATE_CANARY'}):
+            malformed = {**actor, **change}
+            self.assertIsNone(m.safe_actor_diagnostic(malformed))
+            failure = {'test_line': 10, 'test_type': 'AssertionError', 'production_fault': None,
+                       'actor': malformed}
+            result = m.failure_location(json.dumps({'native_failure': failure}).encode())
+            self.assertEqual(result['test_line'], 10); self.assertIsNone(result['actor'])
+            self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+
     def test_native_fsuid_regression_has_exact_root_non_skipped_guest_entry(self):
         argv = m.native_fsuid_argv('owned')
         self.assertEqual(argv[:6], ['/usr/bin/docker', 'exec', 'owned', '/usr/bin/python3', '-I', '-B'])

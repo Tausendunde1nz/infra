@@ -198,14 +198,22 @@ Only their synthetic input unit grants that file's initial write access. Actual
 production admission must identify the exact FD/map rejection BEFORE client
 claim, bootstrap or stop, leaving all three services active and owner objects
 unchanged. No observer/credential/authority result is replaced by a test flag.
+One more native case creates a real new unclassified process after the first
+owner ACK and requires the unchanged production actor census to HOLD. An
+error-only test wrapper delegates source_fault_location, returns its result
+unchanged and reads its actual failing frame. Only fixed executable/title enums,
+profile-field NAMES, a count and stable-followup boolean may enter diagnostics;
+never argv, PID, UID, path, namespace values or private Source/Host data. This
+diagnostic grants no admission and cannot change any case's required outcome.
 The SSH executable/real Tailscale/sudo endpoint is NOT exercised by those fixtures;
 actual Host authentication/rights and every fresh Host prerequisite remain gates.
 Required CI uses exact reviewed private Control Source, network-none read-only
 mounts, no token in the guest and no private output/artifact/cache publication.
 The private-CI helper pins Controlf2979863bbb7043261e9177842503a9b47cdb49f,
 fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
-and tests all15 scenarios (the original13 plus both stop-target Source-handle
-regressions) in new finite network-none/read-only/PID1 guests.
+and tests all16 scenarios (the original13 plus both stop-target Source-handle
+regressions and the actual unclassified-process HOLD) in new finite network-none/
+read-only/PID1 guests.
 The two approved private helpers clean their OWN inputs/containers separately;
 neither receives the other's capsule or private tree. Image builds precede all
 private inputs. CI30min is only the enlarged job envelope for added scenarios;

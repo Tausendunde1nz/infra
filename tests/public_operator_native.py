@@ -7,6 +7,9 @@ authorization query, fence, action, backup, supervisor or receipt is replaced.
 The two restart-race cases also delay the caller AFTER the actual start command,
 without substituting a manager response or safety decision. No production entry
 exposes these test bindings/scheduler injections as CLI options.
+Error-only instrumentation delegates the production source-location diagnostic,
+returns it unchanged and captures only finite failure enums from its original
+failing actor frame. It never replaces an observation/action or grants admission.
 """
 from __future__ import annotations
 
@@ -68,9 +71,52 @@ HTTPServer((c['bind_host'],c['bind_port']),Handler).serve_forever()
 '''
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
-             'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping')
+             'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor')
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
+ACTOR_DIAGNOSTIC = None
+
+# Error-only instrumentation: returns the ACTUAL production diagnostic result
+# unchanged. No observation/action/verdict replacement. No argv/PID/path/UID.
+ACTOR_DIAGNOSTIC_WRAPPER = r'''
+_actual_source_fault=s.load("host").source_fault_location
+def _diagnostic_source_fault(error):
+ location=_actual_source_fault(error)
+ try:
+  import json
+  from pathlib import Path
+  seen=set();current=error;captured=False
+  while current is not None and id(current) not in seen and not captured:
+   seen.add(id(current));trace=current.__traceback__
+   while trace is not None and not captured:
+    frame=trace.tb_frame
+    if frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="actors_check":
+     row=frame.f_locals.get("row");authority=frame.f_locals.get("self")
+     if row is not None and authority is not None and not frame.f_locals.get("matched"):
+      candidates=[r for r in authority.b["actors"] if r["exe_sha256"]==row["exe_sha256"]]
+      keys=("uid","gid","groups","caps","nnp","argv_sha256","cgroup","initial_env_sha256","lsm_sha256","namespaces")
+      different=[k for k in keys if candidates and all(row[k]!=r[k] for r in candidates)]
+      executable=Path(row["exe"]).name
+      if executable not in ("postgres","polkitd","systemd","systemd-journald","dbus-daemon","nginx","python3.12","busctl","systemctl","sudo","sleep"):executable="OTHER"
+      stable=False;kind="UNKNOWN"
+      try:
+       raw=Path("/proc",str(row["pid"]),"cmdline").read_bytes()
+       stable=s.load("io").sha(raw)==row["argv_sha256"] and s.load("observe").starttime(row["pid"])==row["starttime"]
+       if stable:
+        kind=("POSTGRES_AUTOVACUUM_WORKER" if executable=="postgres" and candidates and b"autovacuum worker" in raw else
+              "POSTGRES_AUTOVACUUM_LAUNCHER" if executable=="postgres" and candidates and b"autovacuum launcher" in raw else "OTHER")
+      except (FileNotFoundError,ProcessLookupError):pass
+      record={"executable_class":executable,"matching_executable_profiles":len(candidates),"different_fields":different,
+              "stable_followup":stable,"title_kind":kind}
+      fd=os.open("/fixture-r4/actor-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+      with os.fdopen(fd,"w") as f:json.dump(record,f);f.flush();os.fsync(f.fileno())
+      captured=True
+    trace=trace.tb_next
+   current=current.__cause__ or current.__context__
+ except BaseException:pass
+ return location
+s.load("host").source_fault_location=_diagnostic_source_fault
+'''
 
 
 class FaultWire:
@@ -82,6 +128,7 @@ class FaultWire:
     def __init__(self, wire, scenario, child):
         self.wire, self.scenario, self.child = wire, scenario, child
         self.record = None; self.intents = self.acks = 0; self.injected = []
+        self.extra_actor = None
 
     @property
     def deadline(self): return self.wire.deadline
@@ -124,6 +171,9 @@ class FaultWire:
     def send(self, message):
         if message.get('type') == 'persisted' and self.record is not None:
             kind, value = self.record['kind'], self.record['value']
+            if self.scenario == 'unknown_actor' and kind == 'owner_object_ack' and self.acks == 1:
+                self.extra_actor = subprocess.Popen(['/usr/bin/sleep', '120'])
+                self.injected.append('REAL_UNCLASSIFIED_NEW_PROCESS')
             if self.scenario == 'lost_ack' and kind == 'owner_object_ack' and self.acks == 8:
                 message = {**message, 'sha256': '0'*64}; self.injected.append('REAL_INVALID_TRANSPORT_ACK')
             if self.scenario == 'lost_start_ack' and kind == 'host_action_ack' and value['action'] == 'start':
@@ -463,7 +513,7 @@ def actual_policy_owner_epoch(s):
 
 
 def main():
-    global PRODUCTION_FAULT, PRODUCTION_OUTCOME
+    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared'}.get(args.scenario))
@@ -505,6 +555,7 @@ def main():
                           's.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_hash)+'\n')
     target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
         b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
+    target_substitution += ACTOR_DIAGNOSTIC_WRAPPER
     if args.scenario in ('first_restart', 'old_restart'):
         # Deterministic scheduler fault ONLY: execute the ACTUAL start, then
         # delay its caller until the real crash/on-failure replacement exists.
@@ -562,10 +613,14 @@ s.load("host").command=_delay_after_actual_start
     finally:
         child.stdin.close(); supervisor.close()
     stderr = child.stderr.read(); code = child.wait(timeout=10)
+    if fault_wire.extra_actor is not None:
+        fault_wire.extra_actor.terminate(); fault_wire.extra_actor.wait(timeout=5)
     if held_writer is not None: os.close(held_writer)
     write(ROOT/'server-stderr', stderr, 0o600)
     write(ROOT/'result.json', io.canonical(result), 0o600)
     PRODUCTION_FAULT = result.get('source_fault')
+    diagnostic_path = ROOT/'actor-diagnostic.json'
+    if diagnostic_path.exists(): ACTOR_DIAGNOSTIC = io.parse(diagnostic_path.read_bytes())
     if args.scenario in ('first_restart', 'old_restart'):
         proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
         assert proof['initial'] != proof['replacement']['InvocationID'] and int(proof['replacement']['NRestarts']) >= 1
@@ -602,6 +657,10 @@ s.load("host").command=_delay_after_actual_start
         if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
                              'stop_source_fd', 'stop_source_mapping'): assert actual_root == 4
         else: assert 4 < actual_root < 88
+        if args.scenario == 'unknown_actor':
+            assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_UNCLASSIFIED_OR_EXTRA_ACTOR'
+            assert ACTOR_DIAGNOSTIC and ACTOR_DIAGNOSTIC['executable_class'] == 'sleep'
+            assert ACTOR_DIAGNOSTIC['matching_executable_profiles'] == 0 and ACTOR_DIAGNOSTIC['stable_followup'] is True
         if args.scenario in ('runtime_tamper', 'stop_source_fd', 'stop_source_mapping'):
             assert not (r.CUSTODY_PARENT/r.TX).exists()
         if args.scenario in ('stop_source_fd', 'stop_source_mapping'):
@@ -630,5 +689,6 @@ if __name__ == '__main__':
             trace = trace.tb_next
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
+        if ACTOR_DIAGNOSTIC is not None: location['actor'] = ACTOR_DIAGNOSTIC
         print(json.dumps({'native_failure': location}))
         raise SystemExit(1)

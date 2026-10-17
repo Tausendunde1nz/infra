@@ -25,10 +25,11 @@ import tu1nz_public_operator as operator
 CONTROL_COMMIT = 'f2979863bbb7043261e9177842503a9b47cdb49f'
 CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
          'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
-         'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping')
+         'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor')
 FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'stop_source_fd': ['REAL_STOP_TARGET_SOURCE_FD'],
           'stop_source_mapping': ['REAL_STOP_TARGET_SOURCE_SHARED_MAP'],
+          'unknown_actor': ['REAL_UNCLASSIFIED_NEW_PROCESS'],
           'runtime_tamper': ['REAL_RUNTIME_DRIFT_BEFORE_ADMISSION'],
           'namespace_swap': ['REAL_RENAME_AND_RETURN'], 'lost_ack': ['REAL_INVALID_TRANSPORT_ACK'],
           'interrupt': ['OWNED_COORDINATOR_PIDFD_INTERRUPT'],
@@ -71,6 +72,23 @@ def terminal_wire_code(raw):
             value = match[1].decode()
             if value in symbols: candidates.add(value)
     return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def safe_actor_diagnostic(value):
+    # Fixed failure enums/field names only, never an admission observation.
+    if type(value) is not dict or set(value) != {'executable_class', 'matching_executable_profiles',
+            'different_fields', 'stable_followup', 'title_kind'}: return None
+    if value['executable_class'] not in ('postgres', 'polkitd', 'systemd', 'systemd-journald',
+            'dbus-daemon', 'nginx', 'python3.12', 'busctl', 'systemctl', 'sudo', 'sleep', 'OTHER'): return None
+    if value['title_kind'] not in ('UNKNOWN', 'POSTGRES_AUTOVACUUM_WORKER',
+                                  'POSTGRES_AUTOVACUUM_LAUNCHER', 'OTHER'): return None
+    if type(value['matching_executable_profiles']) is not int or not 0 <= value['matching_executable_profiles'] <= 256: return None
+    if type(value['stable_followup']) is not bool or type(value['different_fields']) is not list: return None
+    fields = value['different_fields']
+    if not all(type(k) is str and k in ('uid', 'gid', 'groups', 'caps', 'nnp', 'argv_sha256',
+             'cgroup', 'initial_env_sha256', 'lsm_sha256', 'namespaces') for k in fields): return None
+    if len(fields) != len(set(fields)): return None
+    return value
 
 
 def native_fsuid_argv(name):
@@ -238,7 +256,7 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code', 'errno'}, 'FAILURE_SCHEMA')
+                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code', 'errno', 'actor'}, 'FAILURE_SCHEMA')
         if 'errno' in location:
             require(type(location['errno']) is int and 0 <= location['errno'] < 4096, 'FAILURE_ERRNO_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
@@ -280,6 +298,8 @@ def failure_location(raw):
                 'owner_claim_intent', 'owner_ready', 'owner_object_intent', 'owner_object_ack',
                 'owner_completion', 'owner_cleanup', 'operator_pending_cleanup', 'operator_cleanup') else 'REDACTED'
             location = {**location, 'outcome': outcome}
+        if 'actor' in location:
+            location = {**location, 'actor': safe_actor_diagnostic(location['actor'])}
         return location
     except BaseException:
         return None
