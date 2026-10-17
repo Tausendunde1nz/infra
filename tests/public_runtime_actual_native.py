@@ -50,7 +50,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--receipt-sha256',required=True);args=p.parse_args()
     assert os.geteuid()==0 and sys.platform=='linux' and platform.machine()=='x86_64'
     assert Path('/.dockerenv').is_file() and Path('/proc/1/comm').read_text().strip()=='systemd'
-    assert {q.name for q in Path('/sys/class/net').iterdir()}=={'lo'}
+    assert {q.name for q in Path('/sys/class/net').iterdir() if q.is_dir()}=={'lo'}
     assert not Path('/proc/net/route').read_text().splitlines()[1:]
     for path in ('/source','/artifact'):
         assert 'ro' in run('/usr/bin/findmnt','-n','-o','VFS-OPTIONS','-T',path).decode().strip().split(',')

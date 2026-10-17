@@ -81,6 +81,10 @@ It is not imported, repaired, restarted or declared safe. Stop entry additionall
 rejects ExecStop/StopPost, StartPre/Post, ExecCondition and alternate root hooks.
 This prospective risk boundary must be expressly included in Host approval.
 No observation can silently accept unknown writers or other administrative access.
+Exec hook absence is read from actual, typed D-Bus Service arrays: systemctl show
+omits empty exec arrays even with --all. Missing/wrongly typed/unreadable arrays
+deny; they are never defaulted to empty. Nonempty command arrays are hash-bound
+without copying potentially secret arguments into receipts and deny the R5 stop.
 
 Ordered phases: authentic Source/scope and current Host entry → persistent same-TX
 intent/barriers/reload → controlled WMS→Landing→S7 stop → complete quiet/writer

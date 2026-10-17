@@ -411,10 +411,29 @@ except BaseException as error:
         for counter in ('', '-1', 'True', '00', '4294967296'):
             values = {p: '' for p in observe.PROPERTIES.split(',')}
             values.update(Id=observe.UNITS[0], LoadState='loaded', NRestarts=counter)
-            reply = SimpleNamespace(returncode=0, stdout='\n'.join(k+'='+v for k, v in values.items()).encode())
-            with self.subTest(counter=counter), patch.object(observe, 'command', return_value=reply):
+            reply = SimpleNamespace(returncode=0, stdout='\n'.join(k+'='+v for k, v in values.items()
+                if k not in observe.EXEC_PROPERTIES).encode())
+            bus=SimpleNamespace(returncode=0,stdout=io.canonical({'type':'a{sv}','data':[
+                {k:{'type':'a(sasbttttuii)','data':[]} for k in observe.EXEC_PROPERTIES}]}))
+            with self.subTest(counter=counter), patch.object(observe, 'command',
+                    side_effect=lambda argv,*a,**kw:bus if argv[0]=='/usr/bin/busctl' else reply):
                 with self.assertRaisesRegex(io.Hold, 'UNIT_RESTART_COUNTER_UNKNOWN'):
                     observe.Authority.unit(SimpleNamespace(deadline=time.monotonic()+1), observe.UNITS[0])
+
+    def test_only_typed_present_empty_exec_arrays_mean_no_hook(self):
+        # Parser-only samples. Real manager/D-Bus reads are mandatory native.
+        raw={'type':'a{sv}','data':[{k:{'type':'a(sasbttttuii)','data':[]} for k in observe.EXEC_PROPERTIES}]}
+        self.assertEqual(observe.typed_exec_properties(io.canonical(raw),observe.EXEC_PROPERTIES),
+                         {k:'' for k in observe.EXEC_PROPERTIES})
+        key='ExecStop';row=['/bin/false',['SYNTHETIC_SECRET'],False,0,0,0,0,0,0,0]
+        raw['data'][0][key]['data']=[row]
+        nonempty=observe.typed_exec_properties(io.canonical(raw),observe.EXEC_PROPERTIES)
+        self.assertTrue(nonempty[key]);self.assertNotIn('SYNTHETIC_SECRET',nonempty[key])
+        for bad in ({'type':'a{sv}','data':[{}]}, {'type':'a{sv}','data':[]},
+            {'type':'a{sv}','data':[{key:{'type':'s','data':''}}]},
+            {'type':'a{sv}','data':[{key:{'type':'a(sasbttttuii)','data':[[]]}}]}):
+            with self.subTest(bad=bad),self.assertRaises(io.Hold):
+                observe.typed_exec_properties(io.canonical(bad),{key})
 
     def test_unit_batch_requires_every_exact_individual_block(self):
         # Parser-only protocol cases, not manager/authority GREEN substitutes.

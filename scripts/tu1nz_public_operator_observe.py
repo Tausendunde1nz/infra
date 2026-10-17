@@ -39,6 +39,7 @@ PROPERTIES = ('Id,Names,LoadState,ActiveState,SubState,Result,MainPID,ControlPID
               'OnSuccess,FailureAction,SuccessAction,StartLimitAction,RefuseManualStop,'
               'RefuseManualStart,JobTimeoutAction,StopWhenUnneeded,BusName,Type,Wants,'
               'ExecStop,ExecStopPost,ExecStartPre,ExecStartPost,ExecCondition,RootDirectory,RootImage')
+EXEC_PROPERTIES=frozenset(('ExecStop','ExecStopPost','ExecStartPre','ExecStartPost','ExecCondition'))
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C', 'PYTHONNOUSERSITE': '1'}
 ADMIN_ACTIONS = ('org.freedesktop.systemd1.manage-units',
                  'org.freedesktop.systemd1.manage-unit-files',
@@ -72,6 +73,32 @@ def command(argv, deadline, *, data=None, preexec=None, extra_env=None):
     return result
 
 
+def typed_exec_properties(raw, wanted):
+    """Only an ACTUAL typed empty D-Bus array proves absence of an exec hook.
+
+    systemctl show omits these empty arrays even with --all. Missing fields,
+    unexpected types or unknown data are never filled in as empty. Nonempty
+    commands are hash-bound, not copied (possibly with secrets) into receipts.
+    """
+    body=io.parse(raw)
+    io.require(wanted and set(wanted)<=EXEC_PROPERTIES and type(body) is dict and
+        set(body)=={'type','data'} and body['type']=='a{sv}' and type(body['data']) is list and
+        len(body['data'])==1 and type(body['data'][0]) is dict,'UNIT_TYPED_EXEC_PROFILE_UNKNOWN')
+    values=body['data'][0];result={}
+    for key in wanted:
+        item=values.get(key)
+        io.require(type(item) is dict and set(item)=={'type','data'} and
+            item['type']=='a(sasbttttuii)' and type(item['data']) is list,'UNIT_TYPED_EXEC_PROFILE_UNKNOWN')
+        for row in item['data']:
+            io.require(type(row) is list and len(row)==10 and type(row[0]) is str and
+                type(row[1]) is list and all(type(x) is str for x in row[1]) and type(row[2]) is bool and
+                all(type(x) is int and 0<=x<2**64 for x in row[3:7]) and
+                type(row[7]) is int and 0<=row[7]<2**32 and
+                all(type(x) is int and -2**31<=x<2**31 for x in row[8:]),'UNIT_TYPED_EXEC_PROFILE_UNKNOWN')
+        result[key]='' if not item['data'] else 'NONEMPTY_TYPED_EXEC_SHA256:'+io.sha(io.canonical(item))
+    return result
+
+
 def unit_properties(units, properties, deadline):
     """One fresh bounded manager read, never a cache across checks/actions.
 
@@ -85,8 +112,11 @@ def unit_properties(units, properties, deadline):
                'UNIT_BATCH_SCOPE')
     keys = set(properties.split(',')) | {'Id'}
     io.require(keys <= set(PROPERTIES.split(',')), 'UNIT_PROPERTY_SCOPE')
+    exec_keys=keys & EXEC_PROPERTIES
+    plain_keys=keys-EXEC_PROPERTIES
+    io.require(not exec_keys or set(units)<=set(UNITS),'UNIT_EXEC_PROPERTY_SCOPE')
     r = command(['/usr/bin/systemctl', 'show', *units, '--no-pager',
-                 '--property='+','.join(sorted(keys))], deadline)
+                 '--property='+','.join(sorted(plain_keys))], deadline)
     io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
     result = {}
     for block in r.stdout.decode().strip().split('\n\n'):
@@ -94,13 +124,22 @@ def unit_properties(units, properties, deadline):
         for line in block.splitlines():
             io.require('=' in line, 'UNIT_PROFILE_UNKNOWN')
             name, item = line.split('=', 1)
-            io.require(name in keys and name not in value, 'UNIT_PROFILE_UNKNOWN')
+            io.require(name in plain_keys and name not in value, 'UNIT_PROFILE_UNKNOWN')
             value[name] = item
         identity = value.get('Id')
-        io.require(set(value) == keys and identity in units and identity not in result,
+        io.require(set(value) == plain_keys and identity in units and identity not in result,
                    'UNIT_PROFILE_UNKNOWN')
         result[identity] = value
     io.require(set(result) == set(units), 'UNIT_PROFILE_UNKNOWN')
+    for unit in units if exec_keys else ():
+        path='/org/freedesktop/systemd1/unit/'+''.join(
+            c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
+        row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
+            '--json=short','call','org.freedesktop.systemd1',path,'org.freedesktop.DBus.Properties',
+            'GetAll','s','org.freedesktop.systemd1.Service'],deadline)
+        io.require(row.returncode==0,'UNIT_TYPED_EXEC_READ_UNKNOWN')
+        result[unit].update(typed_exec_properties(row.stdout,exec_keys))
+        io.require(set(result[unit])==keys,'UNIT_PROFILE_UNKNOWN')
     return result
 
 
