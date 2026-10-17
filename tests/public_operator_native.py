@@ -576,6 +576,18 @@ def setup(s, *, source_handle=None):
         (APP/'source-handle.bin').chmod(0o555)
 
 
+def operator_dependency_names(s):
+    # A loader's reported canonical/SONAME spelling need not equal the
+    # executable's PT_INTERP spelling. Bind BOTH exact actual names; production
+    # must never infer a missing alias/origin from successful ldd output.
+    tool='/usr/bin/busctl'
+    loader,_=s.load('replacement').elf_loader_profile(Path(tool).read_bytes())
+    names={tool,loader}
+    for line in run('/usr/bin/ldd',tool).decode().splitlines():
+        names.update(w for w in line.split() if w.startswith('/'))
+    return names
+
+
 def baseline(s, *, replacement_dependencies=None):
     observer = s.load('observe'); entry = s.load('entry'); fs = s.load('fs')
     paths = fs.Paths(entry, deadline=time.monotonic()+120)
@@ -652,9 +664,7 @@ def baseline(s, *, replacement_dependencies=None):
         # Current EXPECTED synthetic package bindings, not observations/flags
         # replacing production checks. Never put the observer tool/closure in
         # the separate RootDirectory probe execution dependency set.
-        names={'/usr/bin/busctl'}
-        for line in run('/usr/bin/ldd','/usr/bin/busctl').decode().splitlines():
-            names.update(w for w in line.split() if w.startswith('/'))
+        names=operator_dependency_names(s)
         operator_dependencies={}
         for name in names:
             source=str(Path(name).resolve(strict=True));raw,m=paths.read(source)
@@ -784,6 +794,7 @@ def actual_census_loader_profile(s):
     """
     replacement=s.load('replacement');tool=Path('/usr/bin/busctl')
     loader,machine=replacement.elf_loader_profile(tool.read_bytes())
+    assert loader in operator_dependency_names(s)
     assert replacement.elf_loader_profile(Path(loader).read_bytes(),standalone=True)==machine
     observed=run(str(Path(loader).resolve(strict=True)),'--list',str(tool))
     comparison=run('/usr/bin/ldd',str(tool))

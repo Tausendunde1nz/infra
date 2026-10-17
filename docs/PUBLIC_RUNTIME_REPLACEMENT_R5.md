@@ -273,6 +273,10 @@ the latter is only a synthetic fixture cross-check, not production authority.
 
 `source_release.operator_dependencies` is a REQUIRED separate R5 observer TCB
 map: exactly busctl and its observed complete ELF closure, at most128 entries.
+The exact PT_INTERP alias is an explicit separate row even if a closure report
+uses only its canonical/SONAME spelling. No missing alias/origin is inferred
+or silently filled by the production validator. Synthetic baseline construction
+must obtain this name from the actual bound ELF header before serialization.
 Each alias has an explicit canonical source, byte hash, UID/GID/mode/ACL-attrs/
 flags and independent origin-receipt hash. All rows must be used; foreign,
 missing or contradictory rows deny. Local package validation checks this schema

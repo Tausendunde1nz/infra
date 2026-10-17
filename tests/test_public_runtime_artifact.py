@@ -34,6 +34,19 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_native_expected_closure_explicitly_binds_interp_even_when_ldd_omits_alias(self):
+        from unittest.mock import Mock
+        from tests import public_operator_native as fixture
+        loader='/lib64/ld-linux-x86-64.so.2'
+        parser=Mock(return_value=(loader,62))
+        source=SimpleNamespace(load=lambda name:SimpleNamespace(elf_loader_profile=parser))
+        output=b'libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x0)\n'
+        with patch.object(fixture.Path,'read_bytes',return_value=b'BOUND_SYNTHETIC_ELF'),\
+             patch.object(fixture,'run',return_value=output):
+            self.assertEqual(fixture.operator_dependency_names(source),
+                {'/usr/bin/busctl',loader,'/lib/x86_64-linux-gnu/libc.so.6'})
+        parser.assert_called_once_with(b'BOUND_SYNTHETIC_ELF')
+
     def test_census_loader_elf_profile_rejects_helper_bootstrap_dependencies(self):
         import struct
         def elf(parts,machine=62):
