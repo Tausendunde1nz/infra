@@ -94,6 +94,18 @@ def safe_actor_diagnostic(value):
     return value
 
 
+def safe_read_cost(value):
+    labels = {'authority_check', 'authority_check_files', 'authority_units_check', 'authority_actors_check',
+              'process', 'writer_check', 'paths_check', 'linked_record', 'measured_http',
+              'owner_check_all', 'owner_apply', 'owner_finish'}
+    require(type(value) is dict and 0 < len(value) <= len(labels) and set(value) <= labels, 'READ_COST_SCHEMA')
+    require(all(type(v) is dict and set(v) == {'calls', 'inclusive_ns'} and
+                type(v['calls']) is int and 0 <= v['calls'] <= 10_000_000 and
+                type(v['inclusive_ns']) is int and 0 <= v['inclusive_ns'] <= 720_000_000_000
+                for v in value.values()), 'READ_COST_SCHEMA')
+    return value
+
+
 def native_fsuid_argv(name):
     program = '''import os,sys,unittest,json
 assert sys.platform=="linux" and os.geteuid()==0
@@ -275,7 +287,7 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code', 'errno', 'actor'}, 'FAILURE_SCHEMA')
+                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost'}, 'FAILURE_SCHEMA')
         if 'errno' in location:
             require(type(location['errno']) is int and 0 <= location['errno'] < 4096, 'FAILURE_ERRNO_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
@@ -319,6 +331,8 @@ def failure_location(raw):
             location = {**location, 'outcome': outcome}
         if 'actor' in location:
             location = {**location, 'actor': safe_actor_diagnostic(location['actor'])}
+        if 'read_cost' in location:
+            location = {**location, 'read_cost': safe_read_cost(location['read_cost'])}
         return location
     except BaseException:
         return None

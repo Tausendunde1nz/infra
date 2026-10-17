@@ -15,6 +15,18 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_read_cost_is_finite_source_labels_not_private_data(self):
+        value = {'process': {'calls': 3, 'inclusive_ns': 1234}}
+        def failure(cost):
+            return json.dumps({'native_failure': {'test_line': 1, 'test_type': 'AssertionError',
+                               'production_fault': None, 'read_cost': cost}}).encode()
+        self.assertEqual(m.failure_location(failure(value))['read_cost'], value)
+        for bad in ({'PRIVATE_CANARY': {'calls': 1, 'inclusive_ns': 2}},
+                    {'process': {'calls': True, 'inclusive_ns': 2}},
+                    {'process': {'calls': 1, 'inclusive_ns': 721_000_000_000}},
+                    {'process': {'calls': 1, 'inclusive_ns': 2, 'path': '/private/CANARY'}}):
+            with self.subTest(bad=bad): self.assertIsNone(m.failure_location(failure(bad)))
+
     def test_pid1_name_does_not_admit_fixture_before_actual_boot_running(self):
         replies = [(0, b'systemd\n'), (1, b'starting\n'), (0, b'systemd\n'), (0, b'running\n')]
         with patch.object(m.boundary, 'bounded', side_effect=replies) as query, patch.object(m.time, 'sleep'):

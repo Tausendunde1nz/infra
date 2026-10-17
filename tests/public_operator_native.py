@@ -90,6 +90,44 @@ SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'ru
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
+READ_COST = None
+
+# Delegating test-only timing of actual Source calls. No safety observation,
+# action, result or deadline is replaced. Inclusive durations overlap; timing
+# overhead exists and must not be called the uninstrumented CI root cause.
+READ_COST_WRAPPER = r'''
+import time as _cost_time
+_read_cost={}
+def _cost(name,actual):
+ def invoke(*args,**kwargs):
+  began=_cost_time.monotonic_ns()
+  try:return actual(*args,**kwargs)
+  finally:
+   row=_read_cost.setdefault(name,{"calls":0,"inclusive_ns":0})
+   row["calls"]+=1;row["inclusive_ns"]+=_cost_time.monotonic_ns()-began
+ return invoke
+_observer=s.load("observe")
+for _name in ("check","check_files","units_check","actors_check"):
+ setattr(_observer.Authority,_name,_cost("authority_"+_name,getattr(_observer.Authority,_name)))
+for _name in ("process","writer_check"):
+ _actual=getattr(_observer,_name);_wrapped=_cost(_name,_actual)
+ setattr(_observer,_name,_wrapped)
+ if _name=="process":
+  for _role in ("host","probes"):
+   if getattr(s.load(_role),_name,None) is _actual:setattr(s.load(_role),_name,_wrapped)
+_paths=s.load("fs").Paths;_paths.check=_cost("paths_check",_paths.check)
+_linked=s.load("io").LinkedRecords;_linked.record=_cost("linked_record",_linked.record)
+_io=s.load("io");_io.measured_http=_cost("measured_http",_io.measured_http)
+_owner=s.load("owner").Supervisor
+for _name in ("check_all","apply","finish"):
+ setattr(_owner,_name,_cost("owner_"+_name,getattr(_owner,_name)))
+def _save_read_cost():
+ import json,os
+ raw=json.dumps(_read_cost,sort_keys=True).encode()
+ fd=os.open("/fixture-r4/read-cost.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+ try:os.write(fd,raw);os.fsync(fd)
+ finally:os.close(fd)
+'''
 
 # Error-only instrumentation: returns the ACTUAL production diagnostic result
 # unchanged. No observation/action/verdict replacement. No argv/PID/path/UID.
@@ -552,7 +590,7 @@ def actual_policy_owner_epoch(s):
 
 
 def main():
-    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC
+    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
@@ -665,7 +703,9 @@ def _delay_after_actual_start(argv, deadline):
  return result
 s.load("host").command=_delay_after_actual_start
 '''
-    program = program.replace('s.load("host").session(s,p,w)', target_substitution+'s.load("host").session(s,p,w)')
+    target_substitution += READ_COST_WRAPPER
+    program = program.replace('s.load("host").session(s,p,w)',
+        target_substitution+'try:\n s.load("host").session(s,p,w)\nfinally:\n _save_read_cost()\n')
     if args.scenario == 'thread_source_fd':
         write(STATE/'native-split-request', b'SPLIT')
         until = time.monotonic()+10
@@ -718,6 +758,8 @@ s.load("host").command=_delay_after_actual_start
     PRODUCTION_FAULT = result.get('source_fault')
     diagnostic_path = ROOT/'actor-diagnostic.json'
     if diagnostic_path.exists(): ACTOR_DIAGNOSTIC = io.parse(diagnostic_path.read_bytes())
+    cost_path = ROOT/'read-cost.json'
+    if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
     if args.scenario in ('first_restart', 'old_restart'):
         proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
         assert proof['initial'] != proof['replacement']['InvocationID'] and int(proof['replacement']['NRestarts']) >= 1
@@ -796,5 +838,6 @@ if __name__ == '__main__':
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
         if ACTOR_DIAGNOSTIC is not None: location['actor'] = ACTOR_DIAGNOSTIC
+        if READ_COST is not None: location['read_cost'] = READ_COST
         print(json.dumps({'native_failure': location}))
         raise SystemExit(1)

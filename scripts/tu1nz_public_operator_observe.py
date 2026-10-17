@@ -180,7 +180,12 @@ def threads_check(pid, leader):
         first = {}
         for name in names:
             shared_files(name)
-            tick, security = thread_security(root/name)
+            # process() has JUST read every leader security field from procfs
+            # in this same no-effect census. That is its first actual sample,
+            # not a cached/input admission flag. Read it again below, not a
+            # redundant third time. Non-leaders still receive both full reads.
+            tick, security = ((leader['starttime'], expected) if name == str(pid)
+                              else thread_security(root/name))
             io.require(len(names) != 1 or security == expected, 'ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE')
             io.require(security == expected, 'ACTOR_THREAD_SECURITY_MISMATCH')
             first[name] = (tick, security)

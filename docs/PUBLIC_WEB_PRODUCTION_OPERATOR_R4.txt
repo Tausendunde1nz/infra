@@ -348,6 +348,18 @@ Guest: ordinary response, continuously slow header/body, redirect denial and
 oversize body. Slow reads must HOLD within the absolute bound with actual child
 reap/closed-pipe proof. Full production CI still must exercise the actual TLS/
 HTTP layer; these component tests are not a replacement for the full18 matrix.
+The leader's first complete security view is the actual status/namespace/maps/
+LSM/cgroup read already performed by process() in that SAME no-effect census.
+Reuse that measured sample, then reread it completely at the census boundary;
+do not read it a redundant third time. Every non-leader retains both full
+samples, stable task/identity checks and both KCMP_FILES checks. No cross-check
+cache, new expected profile, deadline change or read-failure fallback.
+The native driver may also time actual delegated Source calls, returning every
+original value/error unchanged. Only fixed function labels, counts and inclusive
+nanoseconds may leave the private fixture; durations overlap and instrumentation
+has overhead. They neither prove a historical cause nor substitute acceptance.
+These test-only wrappers preserve all original guards/actions and budgets;
+they do not exist in the production package or add a production CLI option.
 
 Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
 any child. All planned objects must share that device. Only after every exact
