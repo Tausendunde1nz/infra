@@ -27,6 +27,22 @@ def source_roles(application_head,application_tree,workflow_head,event_head):
             'application_workflow_head':workflow_head}
 
 
+def git_read(root,*argv):
+    return native.command(['/usr/bin/git','-C',str(root),*argv]).decode().strip()
+
+
+def checkout_roles(infra_source,application_source,workflow_source,expected_infra,event_head):
+    """Three distinct roots: actual tool Source, artifact Source, workflow carrier."""
+    a.require(re.fullmatch('[a-f0-9]{40}',expected_infra) and infra_source!=workflow_source and
+        application_source.resolve()==workflow_source/'canonical-runtime-r5','EXACT_SOURCE_CHECKOUT')
+    actual_infra=git_read(infra_source,'rev-parse','HEAD')
+    a.require(actual_infra==expected_infra and not git_read(infra_source,'status','--porcelain'),
+              'EXACT_INFRA_SOURCE_CHECKOUT')
+    roles=source_roles(git_read(application_source,'rev-parse','HEAD'),
+        git_read(application_source,'rev-parse','HEAD^{tree}'),git_read(workflow_source,'rev-parse','HEAD'),event_head)
+    return actual_infra,roles
+
+
 def validate_proof(raw,receipt):
     a.require(len(raw)<=16384,'ACTUAL_REPORT_BOUND')
     p=a.parse(raw.strip())
@@ -52,7 +68,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--application',type=Path,required=True)
     p.add_argument('--infra-sha',required=True);p.add_argument('--image',required=True)
     p.add_argument('--output',type=Path,required=True);args=p.parse_args()
-    os.umask(0o077);workspace=Path(__file__).resolve().parents[1]
+    os.umask(0o077);infra_source=Path(__file__).resolve().parents[1]
     out=args.output.absolute();created=False;container=None;owner=uuid.uuid4().hex;stage='admission'
     result={'schema':'TU1NZ_PUBLIC_RUNTIME_PRIVATE_CI_R5_V1','green':False,'host_acceptance':False}
     try:
@@ -64,20 +80,13 @@ def main():
         if 'pull_request' in event:
             a.require(event['pull_request']['head']['repo']['full_name']==os.environ['GITHUB_REPOSITORY'],
                       'NO_FORK_PRIVATE_ARTIFACT')
-        def git(root,*argv):return native.command(['/usr/bin/git','-C',str(root),*argv]).decode().strip()
-        workflow=Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
-        a.require(re.fullmatch('[a-f0-9]{40}',args.infra_sha) and
-            git(workspace,'rev-parse','HEAD')==args.infra_sha and
-            not git(workspace,'status','--porcelain') and
-            args.application.resolve()==workflow/'canonical-runtime-r5','EXACT_SOURCE_CHECKOUT')
-        app_head=git(args.application,'rev-parse','HEAD')
-        roles=source_roles(app_head,git(args.application,'rev-parse','HEAD^{tree}'),
-            git(workflow,'rev-parse','HEAD'),event['pull_request']['head']['sha'] if 'pull_request' in event
-            else os.environ['GITHUB_SHA'])
+        workflow_source=Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
+        actual_infra,roles=checkout_roles(infra_source,args.application,workflow_source,args.infra_sha,
+            event['pull_request']['head']['sha'] if 'pull_request' in event else os.environ['GITHUB_SHA'])
         parent=Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
         a.require(out.parent==parent and not out.exists() and not out.is_symlink(),'PRIVATE_CREATE_ONLY_OUTPUT')
         out.mkdir(mode=0o700);created=True;cache=out/'inputs';cache.mkdir(mode=0o700)
-        inputs=a.parse((workspace/'manifests/public-web-runtime-r5-inputs.json').read_bytes())
+        inputs=a.parse((infra_source/'manifests/public-web-runtime-r5-inputs.json').read_bytes())
         a.require(a.sha(a.canonical(inputs))==a.INPUTS_SHA,'REVIEWED_INPUT_LOCK')
         stage='authenticated-inputs'
         for row in [inputs['python'],*inputs['wheels']]:a.exclusive(cache/row['filename'],build.fetch(row))
@@ -98,14 +107,14 @@ def main():
         argv=['/usr/bin/docker','create','--name',container,'--label','tu1nz.private-ci.owner='+owner,
             '--network','none','--privileged','--cgroupns=private','--env','container=docker',
             '--memory','2048m','--cpus','2','--pids-limit','512','--tmpfs','/run','--tmpfs','/run/lock','--tmpfs','/tmp',
-            '--mount','type=bind,src='+str(workspace)+',dst=/source,readonly',
+            '--mount','type=bind,src='+str(infra_source)+',dst=/source,readonly',
             '--mount','type=bind,src='+str(artifact)+',dst=/artifact,readonly',args.image]
         native.command(argv,timeout=30)
         state=json.loads(native.command(['/usr/bin/docker','inspect',container]))[0]
         a.require(state['Image']==image_id and state['HostConfig']['NetworkMode']=='none' and
             state['HostConfig']['CgroupnsMode']=='private' and
             sorted((m['Source'],m['Destination'],m['RW']) for m in state['Mounts'] if m['Type']=='bind')==
-            sorted(((str(workspace),'/source',False),(str(artifact),'/artifact',False))),'ACTUAL_GUEST_BOUNDARY')
+            sorted(((str(infra_source),'/source',False),(str(artifact),'/artifact',False))),'ACTUAL_GUEST_BOUNDARY')
         native.command(['/usr/bin/docker','start',container],timeout=30);native.ready(container)
         code,proof=native.boundary.bounded(['/usr/bin/docker','exec',container,'/usr/bin/python3','-I','-B',
             '/source/tests/public_runtime_actual_native.py','--receipt-sha256',a.sha(a.canonical(receipt))],timeout=180)
@@ -120,7 +129,7 @@ def main():
         a.require(code==0,'ACTUAL_NATIVE_RUNTIME_RED')
         actual=validate_proof(proof,receipt)
         a.exclusive(out/'ACTUAL_NATIVE_PROOF.json',a.canonical(actual))
-        result.update(green=True,infra_sha=args.infra_sha,**roles,
+        result.update(green=True,infra_sha=actual_infra,**roles,
             artifact_sha256=a.sha(raw),receipt_sha256=a.sha(a.canonical(receipt)),
             inputs_sha256=a.INPUTS_SHA,offline_rebuild_byte_equal=True,
             actual_native_proof_sha256=a.sha(a.canonical(actual)))

@@ -25,6 +25,27 @@ import tu1nz_public_runtime_ci as native
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_ci_checks_actual_infra_root_not_application_workflow_carrier(self):
+        with tempfile.TemporaryDirectory() as d:
+            workflow=Path(d).resolve();infra=workflow/'infra';application=workflow/'canonical-runtime-r5'
+            expected='a'*40;carrier='b'*40
+            def read(root,*argv):
+                if root==infra:return '' if argv[0]=='status' else expected
+                if root==application:return a.APP[1] if argv[-1]=='HEAD^{tree}' else a.APP[0]
+                self.assertEqual(root,workflow);return carrier
+            with patch.object(native,'git_read',side_effect=read) as queried:
+                actual,roles=native.checkout_roles(infra,application,workflow,expected,carrier)
+                self.assertEqual(actual,expected);self.assertEqual(roles['application_workflow_head'],carrier)
+                queried.assert_any_call(infra,'rev-parse','HEAD')
+            for bad in ('wrong_infra','dirty_infra','wrong_carrier'):
+                def altered(root,*argv):
+                    if bad=='wrong_infra' and root==infra and argv[0]=='rev-parse':return carrier
+                    if bad=='dirty_infra' and root==infra and argv[0]=='status':return 'M SYNTHETIC'
+                    if bad=='wrong_carrier' and root==workflow:return 'c'*40
+                    return read(root,*argv)
+                with self.subTest(bad=bad),patch.object(native,'git_read',side_effect=altered),self.assertRaises(a.Denied):
+                    native.checkout_roles(infra,application,workflow,expected,carrier)
+
     def test_native_manifest_includes_retained_legacy_writer_failure(self):
         from tests import public_operator_native as fixture
         self.assertEqual(tuple(fixture.SCENARIOS),tuple(native.native.CASES))
