@@ -394,13 +394,16 @@ class Authority:
         io.require(Path('/proc/sys/kernel/random/boot_id').read_text().strip() == baseline['boot_id'], 'WRONG_BOOT')
         io.require(os.readlink('/proc/self/ns/mnt') == os.readlink('/proc/1/ns/mnt') and
                    os.readlink('/proc/self/ns/user') == os.readlink('/proc/1/ns/user'), 'HOST_NAMESPACE_REQUIRED')
-        io.require(set(baseline['source_release']) == {'probe_dependencies', 'python_binary', 'runtime_reference'},
+        io.require(set(baseline['source_release']) == self.release_fields(),
                    'RUNTIME_SOURCE_RELEASE_INCOMPLETE')
         self.runtime = self.open_runtime(baseline, paths, deadline)
         self.check_files()
         io.require(self.unit_search() == baseline['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
         self.initial_units = unit_rows(UNITS, self.deadline)
         self.check(stop_only=True)
+
+    def release_fields(self):
+        return {'probe_dependencies','python_binary','runtime_reference'}
 
     def open_runtime(self, baseline, paths, deadline):
         return RuntimeFence(baseline['source_release']['runtime_reference'], paths,

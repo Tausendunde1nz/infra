@@ -208,7 +208,7 @@ representations; missing, duplicate, nonempty-hook or contradictory data denies.
 Transport/type/deadline loss latches the reader; no subprocess fallback exists.
 
 Before loading, busctl and EVERY actual loader dependency must match independent
-probe_dependencies origins and the existing exact alias/hash/metadata/writer
+operator_dependencies origins and the existing exact alias/hash/metadata/writer
 fences. This Source supports exactly the existing libsystemd-shared-255.so
 provider actually linked by busctl, including its Source-verified read-only
 wire-blob ABI. Another provider/version, missing symbol, origin or ambiguous
@@ -220,3 +220,14 @@ This expands the explicit private dependency binding, not Host write paths or
 privileges. Later Host admission must supply those authentic package bindings;
 native fixture hashes do not manufacture Host provenance. Owner120s/action120s/
 overall600s and all original writer/abort/cleanup contracts remain unchanged.
+
+`source_release.operator_dependencies` is a REQUIRED separate R5 observer TCB
+map: exactly busctl and its observed complete ELF closure, at most128 entries.
+Each alias has an explicit canonical source, byte hash, UID/GID/mode/ACL-attrs/
+flags and independent origin-receipt hash. All rows must be used; foreign,
+missing or contradictory rows deny. Local package validation checks this schema
+too, before SSH. The original R4 release schema stays exactly its three fields.
+The existing `probe_dependencies` set retains its original synthetic-execution
+purpose and scope. Observer tools/libraries are NOT copied to probe roots; the
+unchanged probe scope still rejects `/usr/bin/busctl`. No additional probe path,
+execution, permission, budget or successful Host test is inferred by this split.

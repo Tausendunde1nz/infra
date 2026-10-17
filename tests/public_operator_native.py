@@ -623,11 +623,10 @@ def baseline(s, *, replacement_dependencies=None):
     b['actors'] = list(profiles.values())
     # Pin installed dependency bytes, not a hardcoded "kernel supported" flag.
     dependencies = {}; objects = set(); python = Path('/usr/bin/python3').resolve()
-    extra=[Path('/usr/bin/busctl')] if getattr(s,'_native_r5',False) else []
-    for path in [python, *extra, *(p for p in Path('/usr/lib/python3.12').rglob('*') if
+    for path in [python, *(p for p in Path('/usr/lib/python3.12').rglob('*') if
                             p.is_file() and not p.is_symlink() and p.suffix in ('.py', '.so'))]:
         dependencies[str(path)] = {'source': str(path.resolve()), 'sha256': io.sha(path.read_bytes())}
-        if path == python or path.suffix == '.so' or path in extra:
+        if path == python or path.suffix == '.so':
             for line in run('/usr/bin/ldd', str(path)).decode().splitlines():
                 objects.update(w for w in line.split() if w.startswith('/'))
     for name in objects:
@@ -648,6 +647,19 @@ def baseline(s, *, replacement_dependencies=None):
     b['source_release'] = {'probe_dependencies': dependencies, 'python_binary': str(python),
         'runtime_reference': {'schema': 'TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1', 'commit': origin[:40],
             'tree': io.sha(io.canonical(objects))[:40], 'origin_sha256': origin, 'objects': objects}}
+    if getattr(s,'_native_r5',False):
+        # Current EXPECTED synthetic package bindings, not observations/flags
+        # replacing production checks. Never put the observer tool/closure in
+        # the separate RootDirectory probe execution dependency set.
+        names={'/usr/bin/busctl'}
+        for line in run('/usr/bin/ldd','/usr/bin/busctl').decode().splitlines():
+            names.update(w for w in line.split() if w.startswith('/'))
+        operator_dependencies={}
+        for name in names:
+            source=str(Path(name).resolve(strict=True));raw,m=paths.read(source)
+            operator_dependencies[name]={'source':source,'sha256':io.sha(raw),'origin_sha256':origin,
+                **{k:m[k] for k in ('uid','gid','mode','attrs','flags')}}
+        b['source_release']['operator_dependencies']=operator_dependencies
     b['database'] = {'role': 'chatops', 'database': 'r4_probe', 'credential_sha256': {
         's7_form_secret': io.sha(Path('/etc/tu1nz/adult-commercial-s7-form.secret').read_bytes()),
         's7_database_dsn': io.sha(Path('/etc/tu1nz/adult-commercial-s7-database.dsn').read_bytes())}}

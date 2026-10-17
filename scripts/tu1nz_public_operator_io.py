@@ -67,6 +67,30 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
 
 
+def operator_dependency_reference(release, origins):
+    """R5 observer TCB inputs, NEVER copied into synthetic execution roots."""
+    require(type(release) is dict and set(release)=={'probe_dependencies','python_binary',
+        'runtime_reference','operator_dependencies'},'REPLACEMENT_OPERATOR_RELEASE_SCHEMA')
+    rows=release['operator_dependencies']
+    require(type(rows) is dict and 0<len(rows)<=128 and '/usr/bin/busctl' in rows,
+            'REPLACEMENT_READER_DEPENDENCY_SET')
+    fields={'source','sha256','uid','gid','mode','attrs','flags','origin_sha256'}
+    for path,row in rows.items():
+        require(type(path) is str and path.startswith(('/usr/bin/','/usr/lib/','/lib/','/lib64/')) and
+                '\x00' not in path and '..' not in Path(path).parts and str(Path(path))==path and type(row) is dict and set(row)==fields,
+                'REPLACEMENT_OPERATOR_DEPENDENCY_SCHEMA')
+        require(type(row['source']) is str and row['source'].startswith(('/usr/bin/','/usr/lib/')) and
+                '\x00' not in row['source'] and '..' not in Path(row['source']).parts and str(Path(row['source']))==row['source'] and
+                type(row['sha256']) is str and re.fullmatch('[a-f0-9]{64}',row['sha256']) and
+                row['origin_sha256'] in origins,'REPLACEMENT_READER_LIBRARY_ORIGIN_UNBOUND')
+        require(type(row['uid']) is type(row['gid']) is int and row['uid']==row['gid']==0 and
+                type(row['mode']) is int and 0<=row['mode']<=0o777 and not row['mode']&0o022 and
+                type(row['flags']) is int and 0<=row['flags']<2**32 and type(row['attrs']) is dict and
+                all(type(k) is type(v) is str for k,v in row['attrs'].items()),
+                'REPLACEMENT_OPERATOR_DEPENDENCY_PROFILE')
+    return rows
+
+
 def replacement_scope(scope, baseline):
     fields={'schema','release_sha256','baseline_sha256','administrative_roles_sha256',
             'baseline_origins_sha256','r3_approval_sha256','machine_sha256','transaction','owner_plan_sha256'}
@@ -76,6 +100,7 @@ def replacement_scope(scope, baseline):
             'APPROVED_SCOPE_SCHEMA')
     reference=baseline['source_release']['runtime_reference']
     if replacement:
+        operator_dependency_reference(baseline['source_release'],baseline['source_origin_receipts'])
         require(set(reference)=={'schema','artifact','origin_sha256'} and
                 reference['schema']=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1' and
                 scope['legacy_return'] is False and
@@ -86,6 +111,8 @@ def replacement_scope(scope, baseline):
             p.startswith('/opt/tu1nz_repos/adult-publishing-core/') for p in baseline['files']),
             'REPLACEMENT_BASELINE_CANNOT_ADOPT_UNPROVEN_LEGACY_BYTES')
     else:
+        require(set(baseline['source_release'])=={'probe_dependencies','python_binary','runtime_reference'},
+                'LEGACY_SOURCE_RELEASE_SCHEMA')
         require(reference.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1',
                 'LEGACY_SCOPE_CANNOT_AUTHORIZE_RUNTIME_REPLACEMENT')
     return replacement

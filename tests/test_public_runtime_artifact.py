@@ -121,14 +121,15 @@ class ArtifactBytes(unittest.TestCase):
         from unittest.mock import Mock
         authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
         authority.reader=None;authority.loader_config=Mock()
-        authority.b={'source_release':{'probe_dependencies':{}}}
+        authority.b={'source_release':{'operator_dependencies':{}},'source_origin_receipts':['1'*64]}
         authority.bind_loader_path=Mock(return_value='/usr/bin/FOREIGN')
         authority.verify_external_libraries=Mock();authority.external_dependencies={};authority.deadline=999
         with patch.object(replacement,'ReadOnlyBus') as loaded,patch.object(replacement,'command') as called:
             with self.assertRaises(wire.Hold):authority.read_bus()
             loaded.assert_not_called();called.assert_not_called()
-            authority.b['source_release']['probe_dependencies']['/usr/bin/busctl']={
-                'source':'/usr/bin/busctl','sha256':'1'*64}
+            authority.b['source_release']['operator_dependencies']['/usr/bin/busctl']={
+                'source':'/usr/bin/busctl','sha256':'1'*64,'uid':0,'gid':0,'mode':0o755,
+                'attrs':{},'flags':0,'origin_sha256':'1'*64}
             with self.assertRaises(wire.Hold):authority.read_bus()
             loaded.assert_not_called();called.assert_not_called()
 
@@ -525,6 +526,9 @@ class BoundTransport(unittest.TestCase):
         baseline={'source_release':{'runtime_reference':{
             'schema':'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1','artifact':artifact,'origin_sha256':digest}},
             'source_origin_receipts':[digest],'files':{}}
+        baseline['source_release'].update(probe_dependencies={},python_binary='/usr/bin/python3',
+            operator_dependencies={'/usr/bin/busctl':{'source':'/usr/bin/busctl','sha256':'1'*64,
+                'uid':0,'gid':0,'mode':0o755,'attrs':{},'flags':0,'origin_sha256':digest}})
         fields={'schema','release_sha256','baseline_sha256','administrative_roles_sha256','baseline_origins_sha256',
                 'r3_approval_sha256','machine_sha256','transaction','owner_plan_sha256'}
         scope={k:'UNIT' for k in fields};scope.update(schema='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1',
@@ -536,6 +540,36 @@ class BoundTransport(unittest.TestCase):
         for field,value in [('legacy_return',True),('runtime_artifact_sha256','b'*64),('extra','GREEN')]:
             bad={**scope,field:value}
             with self.subTest(field=field),self.assertRaises(wire.Hold):wire.replacement_scope(bad,b)
+
+    def test_operator_inputs_have_explicit_origin_and_cannot_replace_probe_contract(self):
+        from unittest.mock import Mock
+        import tu1nz_public_operator_observe as observe
+        import tu1nz_public_operator_probes as probes
+        scope,b=self.scope();release=b['source_release']
+        self.assertEqual(observe.Authority.release_fields(None),{'probe_dependencies','python_binary','runtime_reference'})
+        self.assertEqual(replacement.ReplacementAuthority.release_fields(
+            replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)),
+            {'probe_dependencies','python_binary','runtime_reference','operator_dependencies'})
+        self.assertIs(wire.operator_dependency_reference(release,b['source_origin_receipts']),release['operator_dependencies'])
+        for field,value in (('operator_dependencies',{}),('operator_dependencies',None)):
+            bad={**release,field:value}
+            with self.subTest(value=value),self.assertRaises(wire.Hold):
+                wire.operator_dependency_reference(bad,b['source_origin_receipts'])
+        row=release['operator_dependencies']['/usr/bin/busctl']
+        for changes in ({'origin_sha256':'2'*64},{'uid':False},{'mode':0o777},{'source':'/tmp/foreign'}):
+            bad={**release,'operator_dependencies':{'/usr/bin/busctl':{**row,**changes}}}
+            with self.subTest(changes=changes),self.assertRaises(wire.Hold):
+                wire.operator_dependency_reference(bad,b['source_origin_receipts'])
+        bad=dict(release);bad.pop('operator_dependencies')
+        with self.assertRaises(wire.Hold):wire.operator_dependency_reference(bad,b['source_origin_receipts'])
+        # Preserve the actual original scope rejection; never widen it to copy
+        # busctl into a probe RootDirectory. These mocks test pure refusal only.
+        probe=probes.Probes.__new__(probes.Probes);probe.p=Mock();probe.private=probes.ROOT+'/root';probe.handles={}
+        probe.a=SimpleNamespace(b={'source_release':{'probe_dependencies':{
+            '/usr/bin/busctl':{'source':'/usr/bin/busctl','sha256':'1'*64}}}})
+        with self.assertRaises(wire.Hold) as caught:probe.prepare()
+        self.assertEqual(caught.exception.primary,'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_PROBE_DEPENDENCY_SCOPE')
+        probe.p.read.assert_not_called()
 
     def test_old_scope_never_authorizes_replacement(self):
         scope,b=self.scope();scope['schema']='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1'

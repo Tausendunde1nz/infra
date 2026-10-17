@@ -398,7 +398,11 @@ class ReplacementFence(RuntimeFence):
 
 
 class ReplacementAuthority(Authority):
+    def release_fields(self):
+        return super().release_fields()|{'operator_dependencies'}
+
     def open_runtime(self, baseline, paths, deadline):
+        io.operator_dependency_reference(baseline['source_release'],baseline['source_origin_receipts'])
         self.replacement_active=False
         self.external_dependencies={};self.external_identities={}
         self.loader_bindings={};self.loader_aliases={}
@@ -439,13 +443,20 @@ class ReplacementAuthority(Authority):
         # its COMPLETE actual ELF closure BEFORE dlopen. No SONAME fallback,
         # new installation, inferred origin or extra administrative right.
         self.loader_config.check()
-        reference=self.b['source_release']['probe_dependencies'];tool='/usr/bin/busctl'
+        reference=self.b['source_release']['operator_dependencies'];tool='/usr/bin/busctl'
+        used=set()
         def bind(path):
-            io.require(path in reference and set(reference[path])=={'source','sha256'} and
-                reference[path]['source'].startswith(('/usr/lib/','/usr/bin/')),
+            fields={'source','sha256','uid','gid','mode','attrs','flags','origin_sha256'}
+            io.require(path in reference and type(reference[path]) is dict and set(reference[path])==fields and
+                reference[path]['source'].startswith(('/usr/lib/','/usr/bin/')) and
+                reference[path]['origin_sha256'] in self.b['source_origin_receipts'],
                 'REPLACEMENT_READER_LIBRARY_ORIGIN_UNBOUND')
             io.require(self.bind_loader_path(path)==reference[path]['source'],'REPLACEMENT_READER_LIBRARY_ALIAS')
-            self.external_dependencies[path]=reference[path]
+            pp=PurePosixPath(reference[path]['source'])
+            raw,row=self.paths.read(str(pp))
+            io.require(io.sha(raw)==reference[path]['sha256'] and all(row[k]==reference[path][k] for k in
+                       ('uid','gid','mode','attrs','flags')),'REPLACEMENT_READER_LIBRARY_PROFILE')
+            self.external_dependencies[path]={k:reference[path][k] for k in ('source','sha256')};used.add(path)
         bind(tool);self.verify_external_libraries()
         result=command(['/usr/bin/ldd',tool],self.deadline)
         io.require(result.returncode==0 and b'not found' not in result.stdout,'REPLACEMENT_READER_LIBRARY_CLOSURE')
@@ -456,6 +467,7 @@ class ReplacementAuthority(Authority):
             for path in names:bind(path)
             if words and words[0]==BUS_PROVIDER:selected.extend(names)
         io.require(len(selected)==1,'REPLACEMENT_READER_LIBRARY_CLOSURE')
+        io.require(used==set(reference),'REPLACEMENT_READER_FOREIGN_OR_UNUSED_DEPENDENCY')
         self.verify_external_libraries();path=reference[selected[0]]['source']
         fd=os.open(path,READ)
         try:
