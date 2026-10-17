@@ -25,6 +25,15 @@ import tu1nz_public_runtime_ci as native
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_ci_workflow_carrier_cannot_be_reported_as_runtime_source(self):
+        carrier='7'*40
+        self.assertEqual(native.source_roles(*a.APP,carrier,carrier),dict(
+            application_commit=a.APP[0],application_tree=a.APP[1],application_workflow_head=carrier))
+        for head,tree,workflow,event in ((carrier,a.APP[1],carrier,carrier),
+            (a.APP[0],'8'*40,carrier,carrier),(*a.APP,carrier,'9'*40)):
+            with self.subTest(head=head,tree=tree,workflow=workflow),self.assertRaises(a.Denied):
+                native.source_roles(head,tree,workflow,event)
+
     def test_native_tamper_fault_waits_for_actual_artifact_verified_record(self):
         from tests.public_operator_native import FaultWire
         class Peer:

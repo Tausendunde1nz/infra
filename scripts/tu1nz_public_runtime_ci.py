@@ -19,6 +19,14 @@ import tu1nz_public_runtime_build as build
 import tu1nz_public_operator_ci as native
 
 
+def source_roles(application_head,application_tree,workflow_head,event_head):
+    a.require((application_head,application_tree)==a.APP,'ARTIFACT_CHECKOUT_COMMIT_TREE')
+    a.require(type(workflow_head) is str and re.fullmatch('[a-f0-9]{40}',workflow_head) and
+              workflow_head==event_head,'WORKFLOW_CARRIER_HEAD_BINDING')
+    return {'application_commit':application_head,'application_tree':application_tree,
+            'application_workflow_head':workflow_head}
+
+
 def validate_proof(raw,receipt):
     a.require(len(raw)<=16384,'ACTUAL_REPORT_BOUND')
     p=a.parse(raw.strip())
@@ -57,13 +65,15 @@ def main():
             a.require(event['pull_request']['head']['repo']['full_name']==os.environ['GITHUB_REPOSITORY'],
                       'NO_FORK_PRIVATE_ARTIFACT')
         def git(root,*argv):return native.command(['/usr/bin/git','-C',str(root),*argv]).decode().strip()
+        workflow=Path(os.environ['GITHUB_WORKSPACE']).resolve(strict=True)
         a.require(re.fullmatch('[a-f0-9]{40}',args.infra_sha) and
             git(workspace,'rev-parse','HEAD')==args.infra_sha and
             not git(workspace,'status','--porcelain') and
-            args.application.resolve()==Path(os.environ['GITHUB_WORKSPACE']).resolve(),'EXACT_SOURCE_CHECKOUT')
+            args.application.resolve()==workflow/'canonical-runtime-r5','EXACT_SOURCE_CHECKOUT')
         app_head=git(args.application,'rev-parse','HEAD')
-        a.require(app_head==(event['pull_request']['head']['sha'] if 'pull_request' in event else os.environ['GITHUB_SHA']),
-                  'APPLICATION_CI_HEAD_BINDING')
+        roles=source_roles(app_head,git(args.application,'rev-parse','HEAD^{tree}'),
+            git(workflow,'rev-parse','HEAD'),event['pull_request']['head']['sha'] if 'pull_request' in event
+            else os.environ['GITHUB_SHA'])
         parent=Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
         a.require(out.parent==parent and not out.exists() and not out.is_symlink(),'PRIVATE_CREATE_ONLY_OUTPUT')
         out.mkdir(mode=0o700);created=True;cache=out/'inputs';cache.mkdir(mode=0o700)
@@ -110,7 +120,7 @@ def main():
         a.require(code==0,'ACTUAL_NATIVE_RUNTIME_RED')
         actual=validate_proof(proof,receipt)
         a.exclusive(out/'ACTUAL_NATIVE_PROOF.json',a.canonical(actual))
-        result.update(green=True,infra_sha=args.infra_sha,application_ci_head=app_head,
+        result.update(green=True,infra_sha=args.infra_sha,**roles,
             artifact_sha256=a.sha(raw),receipt_sha256=a.sha(a.canonical(receipt)),
             inputs_sha256=a.INPUTS_SHA,offline_rebuild_byte_equal=True,
             actual_native_proof_sha256=a.sha(a.canonical(actual)))

@@ -132,7 +132,9 @@ artifact tamper, forbidden old return, first restart and conditional Owner retur
 Private Application CI separately builds the actual canonical650-file artifact
 twice and tests real3.12.15 imports/binary PostgreSQL driver+read-only SQL and
 the three unchanged helper invocations, HTTP, kernel credentials and actual
-read-only views in a fresh x86_64 network-none systemd guest. Only private artifact
+read-only views in a fresh x86_64 network-none systemd guest. A separate checkout's
+actual HEAD and tree MUST be93555/1e8; the CI-workflow carrier head is recorded
+under a different field and never called the tested runtime revision. Only private artifact
 storage receives Application bytes. This is not a substitute for the production
 operator/Owner scenarios or fresh Host gates. Local ARM exec-format failure is
 recorded, not converted into native GREEN. Final handoff must name exact commits,
