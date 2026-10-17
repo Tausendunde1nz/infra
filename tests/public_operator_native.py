@@ -143,11 +143,29 @@ def _diagnostic_source_fault(error):
  try:
   import json
   from pathlib import Path
-  seen=set();current=error;captured=False
+  seen=set();current=error;captured=False;thread_leader=None
   while current is not None and id(current) not in seen and not captured:
    seen.add(id(current));trace=current.__traceback__
    while trace is not None and not captured:
     frame=trace.tb_frame
+    if frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="threads_check":
+     thread_leader=frame.f_locals.get("leader")
+    if (getattr(current,"primary",None)=="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN" and
+        frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="shared_files"):
+     record={"fault":{"component":frame.f_code.co_filename,"line":trace.tb_lineno,"type":type(current).__name__},
+             "errno":getattr(current,"native_errno",0)}
+     try:
+      row=thread_leader;pid=frame.f_locals["pid"];name=frame.f_locals["name"]
+      candidates=[r for r in p["baseline"]["actors"] if r["exe_sha256"]==row["exe_sha256"]]
+      executable=Path(row["exe"]).name
+      if executable not in ("postgres","polkitd","systemd","systemd-journald","dbus-daemon","nginx","python3.12","busctl","systemctl","sudo","sleep"):executable="OTHER"
+      stable=(s.load("observe").starttime(pid)==row["starttime"] and Path("/proc",str(pid),"task",name).exists())
+      record["actor"]={"executable_class":executable,"matching_executable_profiles":len(candidates),
+                       "different_fields":[],"stable_followup":stable,"title_kind":"UNKNOWN"}
+     except BaseException:pass
+     fd=os.open("/fixture-r4/thread-file-table-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+     with os.fdopen(fd,"w") as stream:json.dump(record,stream);stream.flush();os.fsync(stream.fileno())
+     captured=True
     if (getattr(current,"primary",None) in
         ("PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_SECURITY_MISMATCH",
          "PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE") and
@@ -953,9 +971,13 @@ s.load("host").command=_delay_after_actual_start
     diagnostic_path = ROOT/'actor-diagnostic.json'
     if diagnostic_path.exists(): ACTOR_DIAGNOSTIC = io.parse(diagnostic_path.read_bytes())
     writer_path=ROOT/'writer-diagnostic.json'
-    if writer_path.exists():
+    if writer_path.exists() and result.get('primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WRITER_VIEW_UNKNOWN':
         writer=io.parse(writer_path.read_bytes());PRIMARY_WRITER_FAULT=writer['fault'];NATIVE_ERRNO=writer['errno']
         if ACTOR_DIAGNOSTIC is None:ACTOR_DIAGNOSTIC=writer.get('actor')
+    thread_path=ROOT/'thread-file-table-diagnostic.json'
+    if thread_path.exists() and result.get('primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN':
+        thread=io.parse(thread_path.read_bytes());PRIMARY_WRITER_FAULT=thread['fault'];NATIVE_ERRNO=thread['errno']
+        if ACTOR_DIAGNOSTIC is None:ACTOR_DIAGNOSTIC=thread.get('actor')
     cost_path = ROOT/'read-cost.json'
     if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
     PRODUCTION_OUTCOME,acknowledgments,actual_root=production_outcome(result,code,r,fault_wire,stderr)

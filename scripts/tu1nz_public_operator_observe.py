@@ -238,7 +238,13 @@ def threads_check(pid, leader):
             # that independent guard. KCMP_FILES is read-only, no fallback.
             if int(name) != pid:
                 comparison = libc.syscall(number, pid, int(name), 2, 0, 0)
-                io.require(comparison >= 0, 'ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+                if comparison<0:
+                    # Capture the ACTUAL errno immediately; later journal or
+                    # cleanup syscalls must not replace its provenance. No
+                    # fallback, skipped task or changed admission decision.
+                    error=io.Hold('PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+                    error.native_errno=ctypes.get_errno()
+                    raise error
                 io.require(comparison == 0, 'ACTOR_THREAD_FILE_TABLE_NOT_SHARED')
         first = {}
         for name in names:

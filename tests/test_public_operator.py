@@ -57,6 +57,20 @@ class NativeFSUIDFailure(AssertionError):
 
 
 class OperatorBoundary(unittest.TestCase):
+    def test_kcmp_failure_preserves_immediate_errno_and_never_skips_task(self):
+        # Negative syscall adapter unit test only, not a native admission.
+        leader={k:None for k in ('uid','gid','groups','caps','nnp','cgroup','namespaces',
+            'uid_map','gid_map','setgroups','lsm_sha256')};leader['starttime']='7'
+        library=SimpleNamespace(syscall=lambda *args:-1)
+        for number in (1,3,13):
+            with (self.subTest(errno=number),patch.object(observe.os,'listdir',return_value=['1','2']),
+                  patch.object(observe.os,'uname',return_value=SimpleNamespace(machine='x86_64')),
+                  patch.object(observe.ctypes,'CDLL',return_value=library),
+                  patch.object(observe.ctypes,'get_errno',return_value=number)):
+                with self.assertRaises(io.Hold) as held:observe.threads_check(1,leader)
+                self.assertEqual(held.exception.primary,'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+                self.assertEqual(held.exception.native_errno,number)
+
     def test_fresh_proc_read_helpers_never_cache_values_or_hide_read_errors(self):
         with tempfile.TemporaryDirectory(prefix='r4-owned-read-helper-') as folder:
             path = Path(folder)/'synthetic-field'
