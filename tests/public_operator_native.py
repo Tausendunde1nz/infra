@@ -71,7 +71,7 @@ HTTPServer((c['bind_host'],c['bind_port']),Handler).serve_forever()
 '''
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
-             'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor')
+             'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority')
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
@@ -519,6 +519,30 @@ def main():
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared'}.get(args.scenario))
     source_read_census_fence(s)
     actual_policy_owner_epoch(s)
+    if args.scenario == 'thread_authority':
+        # Exact profile first, then a real per-task fsuid change. A worker
+        # retains root filesystem authority while the leader no longer does.
+        # Only this synthetic Guest service is created; no Host actor is used.
+        program = '''import ctypes,os,threading,time
+from pathlib import Path
+ready=threading.Event()
+def worker():ready.set();time.sleep(120)
+threading.Thread(target=worker).start();assert ready.wait(5)
+root=Path('/fixture-r4');(root/'threads-ready').write_bytes(b'READY')
+while not (root/'threads-change').exists():time.sleep(.01)
+fd=os.open(root/'threads-changed',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+assert ctypes.CDLL(None).setfsuid(1001)==0
+os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
+'''
+        write(ROOT/'thread-actor.py', program.encode(), 0o555)
+        write('/etc/systemd/system/r4-thread-actor.service',
+              b'[Service]\nType=simple\nExecStart=/usr/bin/python3 -I -B /fixture-r4/thread-actor.py\n')
+        run('/usr/bin/systemctl', 'daemon-reload')
+        run('/usr/bin/systemctl', 'start', 'r4-thread-actor.service')
+        until = time.monotonic()+10
+        while not (ROOT/'threads-ready').exists():
+            assert time.monotonic() < until
+            time.sleep(.01)
     b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
     write(ROOT/'baseline.json', baseline_raw, 0o600)
     # Actual PID1 batch and three independent single reads must agree before
@@ -543,6 +567,17 @@ def main():
               'owner_plan': base64.b64encode(raw_plan).decode(), 'scope': scope,
               'scope_raw': base64.b64encode(raw_scope).decode(), 'scope_sha256': io.sha(raw_scope), 'binding': io.sha(raw_scope)}
     held_writer = None
+    if args.scenario == 'thread_authority':
+        write(ROOT/'threads-change', b'CHANGE')
+        until = time.monotonic()+10
+        while not (ROOT/'threads-changed').exists():
+            assert time.monotonic() < until
+            time.sleep(.01)
+        pid = int(run('/usr/bin/systemctl', 'show', 'r4-thread-actor.service', '--property=MainPID', '--value'))
+        tasks = Path('/proc')/str(pid)/'task'
+        leader = s.load('observe').thread_security(tasks/str(pid))[1]
+        other = [s.load('observe').thread_security(p)[1] for p in tasks.iterdir() if p.name != str(pid)]
+        assert leader['uid'][3] == 1001 and len(other) == 1 and other[0]['uid'][3] == 0
     if args.scenario == 'writer': held_writer = os.open(WEB/'dir0/file5', os.O_WRONLY | os.O_CLOEXEC)
     if args.scenario == 'runtime_tamper':
         p = APP/'.venv/bin/tu1nz-public-s7'; p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_REFERENCE_MISMATCH\n')
@@ -628,6 +663,7 @@ s.load("host").command=_delay_after_actual_start
         assert result.get('primary') == expected or expected in result.get('abort', []), result
         fault_wire.injected.append('REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION')
     from tu1nz_public_operator_ci import FAULTS
+    if args.scenario == 'thread_authority': fault_wire.injected.append('REAL_NONLEADER_RETAINS_FILESYSTEM_UID')
     assert fault_wire.injected == FAULTS[args.scenario], 'INTENDED_REAL_FAULT_NOT_INJECTED'
     acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
     actual_root = sum(p.stat().st_uid == 0 for p in [WEB, *WEB.rglob('*')])
@@ -655,14 +691,18 @@ s.load("host").command=_delay_after_actual_start
     else:
         assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
         if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
-                             'stop_source_fd', 'stop_source_mapping'): assert actual_root == 4
+                             'stop_source_fd', 'stop_source_mapping', 'thread_authority'): assert actual_root == 4
         else: assert 4 < actual_root < 88
         if args.scenario == 'unknown_actor':
             assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_UNCLASSIFIED_OR_EXTRA_ACTOR'
             assert ACTOR_DIAGNOSTIC and ACTOR_DIAGNOSTIC['executable_class'] == 'sleep'
             assert ACTOR_DIAGNOSTIC['matching_executable_profiles'] == 0 and ACTOR_DIAGNOSTIC['stable_followup'] is True
-        if args.scenario in ('runtime_tamper', 'stop_source_fd', 'stop_source_mapping'):
+        if args.scenario in ('runtime_tamper', 'stop_source_fd', 'stop_source_mapping', 'thread_authority'):
             assert not (r.CUSTODY_PARENT/r.TX).exists()
+        if args.scenario == 'thread_authority':
+            assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_SECURITY_MISMATCH', result
+            assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'active'
+                       for u in UNITS)
         if args.scenario in ('stop_source_fd', 'stop_source_mapping'):
             expected = 'EXISTING_SOURCE_WRITABLE_FD' if args.scenario == 'stop_source_fd' else 'EXISTING_SOURCE_SHARED_WRITABLE_MAPPING'
             assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_'+expected, result

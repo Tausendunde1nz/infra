@@ -13,6 +13,7 @@ from pathlib import Path
 import subprocess
 import socket
 import select
+import signal
 import sys
 import tempfile
 import time
@@ -49,6 +50,76 @@ class NativeFSUIDFailure(AssertionError):
 
 
 class OperatorBoundary(unittest.TestCase):
+    @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
+    def test_actual_nonleader_security_must_match_leader(self):
+        # Real per-task changes, not glibc's process-wide credential broadcast.
+        # The observer never changes its own rights and touches no Host service.
+        program = '''import ctypes,json,os,signal,sys,threading
+from pathlib import Path
+libc=ctypes.CDLL(None,use_errno=True)
+mode=sys.argv[1];ready=threading.Event();done=threading.Event()
+def worker():
+ if mode=="nnp":assert libc.prctl(38,1,0,0,0)==0
+ ready.set();done.wait(10)
+t=threading.Thread(target=worker);t.start();assert ready.wait(5)
+def retire(_number,_frame):
+ done.set();t.join(5);assert not t.is_alive();print("ACTUAL_THREAD_EXITED",flush=True)
+signal.signal(signal.SIGUSR1,retire)
+if mode=="fsuid":assert libc.setfsuid(1001)==0
+if mode=="fsgid":assert libc.setfsgid(1001)==0
+if mode=="caps":
+ class H(ctypes.Structure):_fields_=[("version",ctypes.c_uint32),("pid",ctypes.c_int)]
+ class D(ctypes.Structure):_fields_=[("effective",ctypes.c_uint32),("permitted",ctypes.c_uint32),("inheritable",ctypes.c_uint32)]
+ assert libc.capset(ctypes.byref(H(0x20080522,0)),(D*2)())==0
+print("ACTUAL_THREADS_READY",flush=True)
+assert sys.stdin.buffer.readline()==b"DONE\\n"
+done.set();t.join(5);assert not t.is_alive()
+'''
+        for mode in ('same', 'fsuid', 'fsgid', 'caps', 'nnp'):
+            with self.subTest(mode=mode):
+                child = subprocess.Popen([sys.executable, '-I', '-B', '-c', program, mode],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                try:
+                    self.assertTrue(select.select([child.stdout], [], [], 10)[0])
+                    self.assertEqual(child.stdout.readline(128), b'ACTUAL_THREADS_READY\n')
+                    tasks = Path('/proc')/str(child.pid)/'task'
+                    self.assertEqual(len(os.listdir(tasks)), 2)
+                    if mode == 'same':
+                        row = observe.process(child.pid)
+                        self.assertRegex(row['threads_sha256'], '[a-f0-9]{64}')
+                        with patch.object(observe, 'thread_security', side_effect=PermissionError):
+                            with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_VIEW_UNKNOWN'):
+                                observe.threads_check(child.pid, row)
+                        original = observe.thread_security; retired = False
+                        def retire_after_real_read(path):
+                            nonlocal retired
+                            measured = original(path)
+                            if not retired:
+                                retired = True; child.send_signal(signal.SIGUSR1)
+                                self.assertTrue(select.select([child.stdout], [], [], 5)[0])
+                                self.assertEqual(child.stdout.readline(128), b'ACTUAL_THREAD_EXITED\n')
+                                # Python's join acknowledgement can precede
+                                # final kernel task removal. Wait for the real
+                                # synthetic exit, not a substituted census.
+                                until = time.monotonic()+5
+                                while len(os.listdir(tasks)) != 1:
+                                    self.assertLess(time.monotonic(), until)
+                                    time.sleep(.001)
+                                self.assertEqual(len(os.listdir(tasks)), 1)
+                            return measured
+                        with patch.object(observe, 'thread_security', retire_after_real_read):
+                            with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_(VIEW_UNKNOWN|SET_CHANGED)'):
+                                observe.threads_check(child.pid, row)
+                    else:
+                        first = observe.thread_security(tasks/str(child.pid))[1]
+                        other = observe.thread_security(next(p for p in tasks.iterdir() if p.name != str(child.pid)))[1]
+                        self.assertNotEqual(first, other)
+                        with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_SECURITY_MISMATCH'):
+                            observe.process(child.pid)
+                finally:
+                    output, errors = child.communicate(b'DONE\n', timeout=10)
+                    self.assertEqual(child.returncode, 0, errors)
+
     @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_child_dac_failure_is_not_replaced_by_fixture_cleanup(self):
         original = Path.chmod

@@ -211,8 +211,8 @@ Required CI uses exact reviewed private Control Source, network-none read-only
 mounts, no token in the guest and no private output/artifact/cache publication.
 The private-CI helper pins Controlf2979863bbb7043261e9177842503a9b47cdb49f,
 fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
-and tests all16 scenarios (the original13 plus both stop-target Source-handle
-regressions and the actual unclassified-process HOLD) in new finite network-none/
+and tests all17 scenarios (the original13 plus both stop-target Source-handle
+regressions, actual unclassified-process HOLD and per-thread authority rejection) in new finite network-none/
 read-only/PID1 guests.
 The two approved private helpers clean their OWN inputs/containers separately;
 neither receives the other's capsule or private tree. Image builds precede all
@@ -269,8 +269,8 @@ The synthetic child reports a finite setup/UID-view/connect/handshake code and
 bounded errno, never exception text. Parent cleanup cannot replace that child's
 actual failure with a generic exit assertion. Other observer failures retain
 their primary cause. These are fixture diagnostics, not new admission facts.
-The mandatory root entry runs the actual fsuid-owner and fsgid/other-write cases
-plus a real synthetic mode0 socket failure. The latter must retain connect
+The mandatory root entry runs the actual fsuid-owner and fsgid/other-write cases,
+a real synthetic mode0 socket failure and per-thread security divergence. The socket failure must retain connect
 phase/errno13 through cleanup; no case may be skipped or mocked GREEN.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
@@ -284,6 +284,20 @@ The private runner merges stdout/stderr. Exactly one structured native-failure
 line can be parsed through unrelated private warnings, never published verbatim.
 Exit/output-size/SHA256 and finite parser status survive missing/rejected proof;
 an exit code alone is not called OOM, signal provenance or a production cause.
+Every userspace actor now includes every /proc/TGID/task/TID security profile,
+not just the leader: all four UIDs/GIDs, groups, five capability sets, NNP,
+namespaces, cgroup, UID/GID maps, setgroups and LSM. Mixed profiles (even narrower ones),
+unreadable/disappearing tasks and changing task sets/identities deny. Two complete
+reads must agree; their fingerprint also binds cached negative authorization.
+This is a measured census, not an atomic kernel freeze or proof of future
+stability. Existing action-boundary checks, writer fences and limits remain.
+The native component tests real fsuid/fsgid/capability/NNP divergence and a real
+homogeneous two-thread process, unreadable task data and actual worker exit
+during its census. The seventeenth full production scenario starts
+with an exact synthetic administrative service profile, then actually lowers
+only its leader's fsuid while a worker retains root fsuid. The real production
+admission must HOLD before client claim or service stop; no accepted observer
+result is substituted. No Host process or original blocked investigation is used.
 
 Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
 any child. All planned objects must share that device. Only after every exact

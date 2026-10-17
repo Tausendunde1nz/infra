@@ -12,7 +12,7 @@ jobs:
   control-private-provenance:
     name: control-private-provenance
     runs-on: ubuntu-24.04
-    # Adds thirteen real production-entry scenarios, not a wider Host deadline.
+    # Original thirteen plus four defensive regressions; no wider Host deadline.
     # The existing 64 recovery cases and every downstream gate remain intact.
     timeout-minutes: 30
     # Environment-only credential. Required maintainer approval BEFORE this
@@ -42,7 +42,7 @@ jobs:
         run: >-
           python3 -I -B scripts/tu1nz_control_private_ci.py
           --image "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-      - name: Complete production adapter (thirteen actual isolated cases; private pinned Control source)
+      - name: Complete production adapter (seventeen actual isolated cases; private pinned Control source)
         env:
           CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
           CONTROL_PRIVATE_ENVIRONMENT: control-private-ci

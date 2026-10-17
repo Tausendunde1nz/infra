@@ -118,7 +118,8 @@ def starttime(pid):
 
 
 def task_label(pid):
-    try: return (Path('/proc')/str(pid)/'attr/current').read_bytes().strip()
+    root = pid if isinstance(pid, Path) else Path('/proc')/str(pid)
+    try: return (root/'attr/current').read_bytes().strip()
     except OSError as error:
         io.require(error.errno == errno.EINVAL, 'TASK_LABEL_VIEW_UNKNOWN')
         # EINVAL alone proves nothing. Require the actual active LSM list and
@@ -129,6 +130,55 @@ def task_label(pid):
                    {'capability', 'landlock', 'lockdown', 'yama', 'bpf', 'integrity'},
                    'TASK_LABEL_PROVIDER_UNKNOWN')
         return b'NO_PER_TASK_LABEL_PROVIDER:'+','.join(active).encode()
+
+
+def thread_security(root):
+    """Read a real task, not the thread-group leader's credential projection."""
+    value = (root/'stat').read_text()
+    tick = value[value.rfind(')')+2:].split()[19]
+    status = dict(x.split(':', 1) for x in (root/'status').read_text().splitlines() if ':' in x)
+    security = {'uid': list(map(int, status['Uid'].split())),
+                'gid': list(map(int, status['Gid'].split())),
+                'groups': list(map(int, status['Groups'].split())),
+                'caps': {k: int(status[k].strip(), 16) for k in CAPS},
+                'nnp': int(status['NoNewPrivs'].strip()),
+                'cgroup': (root/'cgroup').read_text().strip(),
+                'namespaces': {n: os.readlink(root/'ns'/n) for n in ('pid', 'mnt', 'user', 'net')},
+                'uid_map': (root/'uid_map').read_text().split(),
+                'gid_map': (root/'gid_map').read_text().split(),
+                'setgroups': (root/'setgroups').read_text().strip(),
+                'lsm_sha256': io.sha(task_label(root))}
+    again = (root/'stat').read_text()
+    io.require(again[again.rfind(')')+2:].split()[19] == tick, 'ACTOR_THREAD_IDENTITY_CHANGED')
+    return tick, security
+
+
+def threads_check(pid, leader):
+    # Every extant task must have the SAME applicable security profile. A
+    # narrower, mixed, unreadable or racing profile is not silently admitted.
+    # Two complete reads bind task IDs/start times and all compared values;
+    # their fingerprint also binds negative-authorization cache subjects.
+    root = Path('/proc')/str(pid)/'task'
+    try:
+        names = sorted(os.listdir(root))
+        io.require(str(pid) in names and 1 <= len(names) <= 8192 and
+                   all(n.isdecimal() for n in names), 'ACTOR_THREAD_SET_UNKNOWN')
+        expected = {k: leader[k] for k in ('uid', 'gid', 'groups', 'caps', 'nnp',
+                    'cgroup', 'namespaces', 'uid_map', 'gid_map', 'setgroups', 'lsm_sha256')}
+        first = {}
+        for name in names:
+            tick, security = thread_security(root/name)
+            io.require(security == expected, 'ACTOR_THREAD_SECURITY_MISMATCH')
+            first[name] = (tick, security)
+        io.require(sorted(os.listdir(root)) == names, 'ACTOR_THREAD_SET_CHANGED')
+        for name in names:
+            io.require(thread_security(root/name) == first[name], 'ACTOR_THREAD_SECURITY_CHANGED')
+        io.require(sorted(os.listdir(root)) == names, 'ACTOR_THREAD_SET_CHANGED')
+        return io.sha(io.canonical(first))
+    except (OSError, KeyError, ValueError, IndexError) as error:
+        # A disappearing non-leader is not permission to skip its still-live
+        # thread group in actors_check's ordinary process-exit handling.
+        raise io.Hold('PUBLIC_OPERATOR_ACTOR_THREAD_VIEW_UNKNOWN') from error
 
 
 def process(pid):
@@ -167,6 +217,7 @@ def process(pid):
     io.require(len(initial_env) <= 1024*1024, 'ACTOR_ENVIRONMENT_BOUND')
     out['initial_env_sha256'] = io.sha(initial_env)
     out['lsm_sha256'] = io.sha(task_label(pid))
+    out['threads_sha256'] = threads_check(pid, out)
     io.require(starttime(pid) == before, 'ACTOR_IDENTITY_CHANGED')
     return out
 
