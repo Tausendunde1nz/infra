@@ -93,6 +93,12 @@ hash must be exactly that three-variable environment or its WMS PYTHONPATH
 variant. This is not a broad trust exception for a privileged file writer.
 Loader selection documentation: https://man7.org/linux/man-pages/man8/ld.so.8.html
 This does not promise a wholly static or Host-independent runtime.
+The pinned wheel's auditwheel support DSOs are resolved in the real extension
+RPATH context, not falsely treated as independent executables. All other ELFs
+remain resolution roots. Every single ELF, including every support DSO, MUST
+appear in the roots or their actual transitive closure; missing coverage denies.
+Resolved internal identities and all external origins/paths/hashes remain bound.
+No LD_LIBRARY_PATH is injected and no library/artifact is rewritten.
 
 ## Transition, protection and failure
 

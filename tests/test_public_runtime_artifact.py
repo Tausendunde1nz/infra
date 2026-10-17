@@ -34,6 +34,40 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_all_elfs_remain_covered_through_actual_loader_context_roots(self):
+        support='app/.venv/lib/python3.12/site-packages/psycopg_binary.libs/libsupport.so'
+        extension='app/.venv/lib/python3.12/site-packages/psycopg_binary/pq.so'
+        unknown='app/.venv/lib/python3.12/site-packages/OTHER.libs/libother.so'
+        elfs={support,extension,'python/bin/python3.12',unknown}
+        roots=a.loader_context_roots(elfs)
+        self.assertEqual(set(roots),elfs-{support})
+        for covered in (set(roots),elfs|{'EXTRA'},set()):
+            with self.subTest(covered=covered),self.assertRaises(a.Denied):a.require_elf_coverage(elfs,covered)
+        a.require_elf_coverage(elfs,set(roots)|{support})
+        with self.assertRaises(a.Denied):a.loader_context_roots({support})
+        with self.assertRaises(a.Denied):a.loader_context_roots({'../unbound'})
+
+    def test_fixture_never_drops_unresolved_support_library_from_coverage(self):
+        from tests import public_runtime_fixture as fixture
+        support='app/.venv/lib/python3.12/site-packages/psycopg_binary.libs/libsupport.so'
+        for complete in (True,False):
+            with self.subTest(complete=complete),tempfile.TemporaryDirectory() as d:
+                root=Path(d).resolve();expected=root/'runtime-dependency-reference'
+                assembly=a.Assembly()
+                for name in ('python/bin/python3.12',support):
+                    assembly.add(name,raw=b'\x7fELF_SYNTHETIC_NOT_EXECUTED')
+                payload=assembly.archive()
+                receipt={'archive_bytes':len(payload),'archive_sha256':a.sha(payload),
+                    'objects':assembly.manifest(),'expanded_file_bytes':assembly.total}
+                raw=('/usr/bin/true (0x0)\n'+(str(expected/support)+' (0x0)\n' if complete else '')).encode()
+                with patch.object(fixture.f,'ROOT',root),patch.object(a,'ROOT',str(root/'not-created')),\
+                     patch.object(fixture.f,'run',return_value=raw) as queried:
+                    if complete:fixture.external_dependencies(SimpleNamespace(load=lambda name:a),payload,receipt)
+                    else:
+                        with self.assertRaises(a.Denied):fixture.external_dependencies(SimpleNamespace(load=lambda name:a),payload,receipt)
+                self.assertEqual(queried.call_count,1)
+                self.assertNotEqual(queried.call_args.args[-1],str(expected/support))
+
     def test_every_pinned_asset_matches_actual_source_bytes(self):
         root=Path(__file__).resolve().parents[1]
         for name,digest in wire.ASSETS.items():

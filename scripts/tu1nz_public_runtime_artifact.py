@@ -85,6 +85,26 @@ def relative(name):
     return p
 
 
+def loader_context_roots(elf_files):
+    """Inspect wheel support DSOs through their actual extension RPATH.
+
+    The pinned auditwheel .libs objects are dependencies, not independent
+    program entrypoints. No file is exempt from binding: callers must prove
+    exact coverage of EVERY ELF by these roots and their real ldd closure.
+    No LD_LIBRARY_PATH, synthetic resolver or changed artifact bytes.
+    """
+    require(type(elf_files) is set and 0<len(elf_files)<=256,'ELF_CONTEXT_SET')
+    for name in elf_files:relative(name)
+    support='app/.venv/lib/python3.12/site-packages/psycopg_binary.libs'
+    roots=sorted(n for n in elf_files if str(PurePosixPath(n).parent)!=support)
+    require(roots,'ELF_CONTEXT_ROOTS_MISSING')
+    return roots
+
+
+def require_elf_coverage(elf_files,covered):
+    require(type(covered) is set and covered==elf_files,'ELF_CONTEXT_COVERAGE_INCOMPLETE')
+
+
 def private_read(path, *, limit=MAX_INPUT):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     try:

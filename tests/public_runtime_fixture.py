@@ -72,13 +72,16 @@ def external_dependencies(s,payload,receipt):
             else:
                 fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,member.mode)
                 with os.fdopen(fd,'wb') as output:output.write(archive.extractfile(member).read())
-    dependencies={};elf_count=0
+    dependencies={};elf_files=set()
     for name,row in receipt['objects'].items():
         if row['kind']!='file':continue
         path=root/name
         with path.open('rb') as stream:magic=stream.read(4)
         if magic!=b'\x7fELF':continue
-        elf_count+=1
+        elf_files.add(name)
+    roots=a.loader_context_roots(elf_files);covered=set(roots)
+    for name in roots:
+        path=root/name
         for line in f.run('/usr/bin/ldd',str(path)).decode().splitlines():
             assert 'not found' not in line
             paths=[w for w in line.split() if w.startswith('/')]
@@ -86,10 +89,13 @@ def external_dependencies(s,payload,receipt):
             for candidate in paths:
                 resolved=Path(candidate).resolve(strict=True)
                 if resolved.is_relative_to(root):
-                    assert receipt['objects'].get(str(resolved.relative_to(root)),{}).get('kind')=='file'
+                    key=str(resolved.relative_to(root))
+                    assert receipt['objects'].get(key,{}).get('kind')=='file' and key in elf_files
+                    covered.add(key)
                 else:
                     assert str(resolved).startswith(('/usr/lib/','/usr/bin/'))
                     dependencies[candidate]={'source':str(resolved),'sha256':a.sha(resolved.read_bytes())}
-    assert 0<elf_count<=256 and dependencies
+    a.require_elf_coverage(elf_files,covered)
+    assert dependencies
     assert not Path(a.ROOT).exists()  # no premature production installation
     return dependencies

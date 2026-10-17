@@ -329,7 +329,9 @@ class ReplacementAuthority(Authority):
                    'REPLACEMENT_NOT_CURRENT')
         io.require(0<len(self.runtime.elf_files)<=256,'REPLACEMENT_ELF_COUNT')
         reference=self.b['source_release']['probe_dependencies']
-        for name in sorted(self.runtime.elf_files):
+        roots=artifact.loader_context_roots(self.runtime.elf_files)
+        covered=set(roots)
+        for name in roots:
             result=command(['/usr/bin/ldd',artifact.ROOT+'/'+name],self.deadline)
             io.require(result.returncode==0 and b'not found' not in result.stdout,'REPLACEMENT_LOADER_UNKNOWN')
             for line in result.stdout.decode().splitlines():
@@ -342,11 +344,14 @@ class ReplacementAuthority(Authority):
                         key=str(resolved.relative_to(artifact.ROOT))
                         io.require(self.runtime.expected.get(key,{}).get('kind')=='file',
                                    'REPLACEMENT_LOADER_ESCAPED_ARTIFACT')
+                        io.require(key in self.runtime.elf_files,'REPLACEMENT_LOADER_NON_ELF_TARGET')
+                        covered.add(key)
                     else:
                         io.require(path in reference and set(reference[path])=={'source','sha256'} and
                             reference[path]['source'].startswith(('/usr/lib/','/usr/bin/')),
                             'REPLACEMENT_EXTERNAL_LIBRARY_ORIGIN_UNBOUND')
                         self.external_dependencies[path]=reference[path]
+        artifact.require_elf_coverage(self.runtime.elf_files,covered)
         self.verify_external_libraries()
 
     def check_loader_configuration(self):
