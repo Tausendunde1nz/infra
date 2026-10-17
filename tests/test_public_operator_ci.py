@@ -213,8 +213,10 @@ class PublicOperatorCI(unittest.TestCase):
         self.assertEqual(argv[:6], ['/usr/bin/docker', 'exec', 'owned', '/usr/bin/python3', '-I', '-B'])
         self.assertIn('os.geteuid()==0', argv[-1]); self.assertIn('not r.skipped', argv[-1])
         self.assertIn('test_actual_fsuid_socket_owner_', argv[-1])
-        self.assertIn('test_actual_child_dac_failure_', argv[-1]); self.assertIn('r.testsRun==4', argv[-1])
+        self.assertIn('test_actual_child_dac_failure_', argv[-1]); self.assertIn('r.testsRun==6', argv[-1])
         self.assertIn('test_actual_nonleader_security_must_match_leader', argv[-1])
+        self.assertIn('test_actual_unshared_nonleader_source_descriptor_is_rejected', argv[-1])
+        self.assertIn('test_actual_single_leader_start_sample_is_bound_not_another_start', argv[-1])
         self.assertIn('test_actual_fsgid_not_real_saved_group_', argv[-1])
         self.assertLess(argv[-1].index('prepare_guest_kernel_view()'), argv[-1].index('r=Result()'))
 

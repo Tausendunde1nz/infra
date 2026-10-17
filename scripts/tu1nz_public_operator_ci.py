@@ -25,12 +25,14 @@ import tu1nz_public_operator as operator
 CONTROL_COMMIT = 'f2979863bbb7043261e9177842503a9b47cdb49f'
 CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
          'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
-         'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority')
+         'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
+         'thread_source_fd')
 FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'stop_source_fd': ['REAL_STOP_TARGET_SOURCE_FD'],
           'stop_source_mapping': ['REAL_STOP_TARGET_SOURCE_SHARED_MAP'],
           'unknown_actor': ['REAL_UNCLASSIFIED_NEW_PROCESS'],
           'thread_authority': ['REAL_NONLEADER_RETAINS_FILESYSTEM_UID'],
+          'thread_source_fd': ['REAL_NONLEADER_SOURCE_FD_WITH_UNSHARED_TABLE', 'REAL_WRITER_TASK_CENSUS_REJECTED'],
           'runtime_tamper': ['REAL_RUNTIME_DRIFT_BEFORE_ADMISSION'],
           'namespace_swap': ['REAL_RENAME_AND_RETURN'], 'lost_ack': ['REAL_INVALID_TRANSPORT_ACK'],
           'interrupt': ['OWNED_COORDINATOR_PIDFD_INTERRUPT'],
@@ -107,12 +109,17 @@ class Result(unittest.TestResult):
  def addFailure(self,test,error):
   if self.error is None:self.error=error
   super().addFailure(test,error)
+ def addSubTest(self,test,subtest,error):
+  if error is not None and self.error is None:self.error=error
+  super().addSubTest(test,subtest,error)
 r=Result()
 unittest.TestSuite([OperatorBoundary("test_actual_fsuid_socket_owner_cannot_be_admitted_as_other_effective_uid"),
  OperatorBoundary("test_actual_child_dac_failure_is_not_replaced_by_fixture_cleanup"),
  OperatorBoundary("test_actual_fsgid_not_real_saved_group_controls_other_write"),
- OperatorBoundary("test_actual_nonleader_security_must_match_leader")]).run(r)
-if not (r.testsRun==4 and not r.skipped and not r.failures and not r.errors):
+ OperatorBoundary("test_actual_nonleader_security_must_match_leader"),
+ OperatorBoundary("test_actual_unshared_nonleader_source_descriptor_is_rejected"),
+ OperatorBoundary("test_actual_single_leader_start_sample_is_bound_not_another_start")]).run(r)
+if not (r.testsRun==6 and not r.skipped and not r.failures and not r.errors):
  line=1;kind="AssertionError";cause=None;number=0
  if r.error:
   kind=r.error[0].__name__;trace=r.error[2]
@@ -238,7 +245,7 @@ def validate_report(raw, case, hashes):
     else:
         require(value['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), 'FAULT_NOT_HELD')
         if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
-                    'stop_source_fd', 'stop_source_mapping', 'thread_authority'):
+                    'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'):
             require(value['actual_root_objects'] == 4, 'UNAUTHORIZED_OWNER_EFFECT')
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')
@@ -399,7 +406,7 @@ def run(workspace, image):
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
-                  'native_fsuid_tests': 4,
+                  'native_fsuid_tests': 6,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback

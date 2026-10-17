@@ -40,7 +40,7 @@ WEB = Path('/var/www/lighting.tu1nz.com')
 UNITS = ('tu1nz-adult-public-s7.service', 'tu1nz-adult-public-s8-landing.service', 'tu1nz-adult-public-s10-wms.service')
 CONFIGS = ('adult-commercial-s7-public.json', 'adult-commercial-s8-landing.json', 'adult-commercial-s10-wms.json')
 PROFILES = ('s7', 's8-landing', 'wms')
-SERVER = r'''import argparse,ctypes,json,mmap,os,sys
+SERVER = r'''import argparse,ctypes,json,mmap,os,sys,threading,time
 from http.server import BaseHTTPRequestHandler,HTTPServer
 from pathlib import Path
 p=argparse.ArgumentParser();p.add_argument('--contract');args,_=p.parse_known_args()
@@ -55,7 +55,15 @@ if c['profile']=='s7' and handle_kind.exists():
   assert held_map not in (None,ctypes.c_void_p(-1).value)
   os.close(held_fd)
   ctypes.memmove(held_map,b'READY',5)
- else:os.pwrite(held_fd,b'READY',0);os.fsync(held_fd)
+ else:
+  os.pwrite(held_fd,b'READY',0);os.fsync(held_fd)
+  if handle_kind.read_text()=='thread_fd':
+   split_done=threading.Event()
+   def split_source_table():
+    while not Path('/var/lib/tu1nz-adult-public-s9/native-split-request').exists():time.sleep(.01)
+    assert ctypes.CDLL(None).unshare(0x400)==0
+    split_done.set();threading.Event().wait(120)
+   threading.Thread(target=split_source_table).start()
 if c['profile']=='s7' and Path('/var/lib/tu1nz-adult-public-s9/native-crash-request').exists():os._exit(72)
 if c['profile']!='s7':
  root=Path('/var/lib/tu1nz-adult-public-s9')
@@ -67,11 +75,18 @@ class Handler(BaseHTTPRequestHandler):
   self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
  def do_HEAD(self):self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers()
  def log_message(self,*a):pass
-HTTPServer((c['bind_host'],c['bind_port']),Handler).serve_forever()
+server=HTTPServer((c['bind_host'],c['bind_port']),Handler)
+if c['profile']=='s7' and handle_kind.exists() and handle_kind.read_text()=='thread_fd':
+ server.timeout=.01
+ while not split_done.is_set():server.handle_request()
+ os.close(held_fd)
+ Path('/var/lib/tu1nz-adult-public-s9/native-split-ready').write_bytes(b'READY')
+server.serve_forever()
 '''
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
-             'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority')
+             'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
+             'thread_source_fd')
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
@@ -90,7 +105,24 @@ def _diagnostic_source_fault(error):
    seen.add(id(current));trace=current.__traceback__
    while trace is not None and not captured:
     frame=trace.tb_frame
-    if frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="actors_check":
+    if (getattr(current,"primary",None) in
+        ("PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_SECURITY_MISMATCH",
+         "PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE") and
+        frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="threads_check"):
+     state=frame.f_locals
+     measured=state.get("security",{});expected=state.get("expected",{});leader=state.get("leader",{})
+     executable=Path(leader.get("exe","UNKNOWN")).name
+     if executable not in ("postgres","polkitd","systemd","systemd-journald","dbus-daemon","nginx","python3.12"):executable="OTHER"
+     record={"executable_class":executable,"task_count":len(state.get("names",[])),
+             "task_is_leader":state.get("name")==str(state.get("pid")),
+             "different_fields":[k for k in ("uid","gid","groups","caps","nnp","cgroup","namespaces","uid_map","gid_map","setgroups","lsm_sha256") if measured.get(k)!=expected.get(k)]}
+     raw=json.dumps(record,sort_keys=True).encode()
+     fd=os.open("/fixture-r4/thread-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+     try:os.write(fd,raw);os.fsync(fd)
+     finally:os.close(fd)
+     captured=True
+    if (getattr(current,"primary",None)=="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_UNCLASSIFIED_OR_EXTRA_ACTOR" and
+        frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="actors_check"):
      row=frame.f_locals.get("row");authority=frame.f_locals.get("self")
      if row is not None and authority is not None and not frame.f_locals.get("matched"):
       candidates=[r for r in authority.b["actors"] if r["exe_sha256"]==row["exe_sha256"]]
@@ -325,12 +357,19 @@ def setup(s, *, source_handle=None):
         # Synthetic INPUT fault before admission: a real service opens a file
         # while writable, then root restores read-only metadata. Existing FD /
         # shared map authority survives chmod and must still deny the stop.
-        assert source_handle in ('fd', 'shared')
+        assert source_handle in ('fd', 'shared', 'thread_fd')
         write(APP/'source-handle.bin', b'SYNTHETIC-SOURCE-HANDLE\n'*128, 0o666)
         (APP/'source-handle.bin').chmod(0o666)  # real fixture access, not subject to creator umask
         write(STATE/'native-source-handle-kind', source_handle.encode())
         write('/etc/systemd/system/'+UNITS[0]+'.d/fixture-source-handle.conf',
-              b'[Service]\nReadWritePaths=/opt/tu1nz_repos/adult-publishing-core/source-handle.bin\n')
+              b'[Service]\nReadWritePaths=/opt/tu1nz_repos/adult-publishing-core/source-handle.bin\n'+
+              (b'ReadWritePaths=/var/lib/tu1nz-adult-public-s9/native-split-ready\n'
+               if source_handle == 'thread_fd' else b''))
+        if source_handle == 'thread_fd':
+            # Only this synthetic acknowledgement file, not a writable State
+            # directory or a changed production permission/drop-in contract.
+            write(STATE/'native-split-ready', b'', 0o600)
+            os.chown(STATE/'native-split-ready', 1001, 1001)
     # Synthetic public edge: real nginx UID33 reads, real TLS validation and
     # real proxy requests. DNS/TLS trust are fixture data confined to this guest.
     run('/usr/bin/openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
@@ -516,7 +555,8 @@ def main():
     global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
-    setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared'}.get(args.scenario))
+    setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
+                           'thread_source_fd': 'thread_fd'}.get(args.scenario))
     source_read_census_fence(s)
     actual_policy_owner_epoch(s)
     if args.scenario == 'thread_authority':
@@ -626,6 +666,26 @@ def _delay_after_actual_start(argv, deadline):
 s.load("host").command=_delay_after_actual_start
 '''
     program = program.replace('s.load("host").session(s,p,w)', target_substitution+'s.load("host").session(s,p,w)')
+    if args.scenario == 'thread_source_fd':
+        write(STATE/'native-split-request', b'SPLIT')
+        until = time.monotonic()+10
+        while (STATE/'native-split-ready').read_bytes() != b'READY':
+            assert time.monotonic() < until
+            time.sleep(.01)
+        pid = int(run('/usr/bin/systemctl', 'show', UNITS[0], '--property=MainPID', '--value'))
+        target = (APP/'source-handle.bin').stat(); identity = (target.st_dev, target.st_ino)
+        tasks = Path('/proc')/str(pid)/'task'
+        def holds(root):
+            return any((p.stat().st_dev, p.stat().st_ino) == identity for p in (root/'fd').iterdir())
+        assert not holds(tasks/str(pid))
+        others = [p for p in tasks.iterdir() if p.name != str(pid)]
+        assert len(others) == 1 and holds(others[0])
+        rejected = False
+        try: s.load('runtime_guard').writer_check({identity}, time.monotonic()+10)
+        except s.load('io').Hold as error:
+            assert error.primary == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_EXISTING_SOURCE_WRITABLE_FD'
+            rejected = True
+        assert rejected
     child = subprocess.Popen(['/usr/bin/python3', '-I', '-B', '-S', '-c', program],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     wire = io.Wire(child.stdout.fileno(), child.stdin.fileno(), deadline=time.monotonic()+600)
@@ -636,6 +696,8 @@ s.load("host").command=_delay_after_actual_start
     fault_wire = FaultWire(wire, args.scenario, child)
     if args.scenario == 'writer': fault_wire.injected.append('REAL_PREEXISTING_WRITABLE_FD')
     if args.scenario == 'runtime_tamper': fault_wire.injected.append('REAL_RUNTIME_DRIFT_BEFORE_ADMISSION')
+    if args.scenario == 'thread_source_fd':
+        fault_wire.injected.extend(['REAL_NONLEADER_SOURCE_FD_WITH_UNSHARED_TABLE', 'REAL_WRITER_TASK_CENSUS_REJECTED'])
     if args.scenario in ('stop_source_fd', 'stop_source_mapping'):
         fault_wire.injected.append('REAL_STOP_TARGET_SOURCE_FD' if args.scenario == 'stop_source_fd'
                                    else 'REAL_STOP_TARGET_SOURCE_SHARED_MAP')
@@ -691,14 +753,18 @@ s.load("host").command=_delay_after_actual_start
     else:
         assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
         if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
-                             'stop_source_fd', 'stop_source_mapping', 'thread_authority'): assert actual_root == 4
+                             'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'): assert actual_root == 4
         else: assert 4 < actual_root < 88
         if args.scenario == 'unknown_actor':
             assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_UNCLASSIFIED_OR_EXTRA_ACTOR'
             assert ACTOR_DIAGNOSTIC and ACTOR_DIAGNOSTIC['executable_class'] == 'sleep'
             assert ACTOR_DIAGNOSTIC['matching_executable_profiles'] == 0 and ACTOR_DIAGNOSTIC['stable_followup'] is True
-        if args.scenario in ('runtime_tamper', 'stop_source_fd', 'stop_source_mapping', 'thread_authority'):
+        if args.scenario in ('runtime_tamper', 'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'):
             assert not (r.CUSTODY_PARENT/r.TX).exists()
+        if args.scenario == 'thread_source_fd':
+            assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_NOT_SHARED', result
+            assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'active'
+                       for u in UNITS)
         if args.scenario == 'thread_authority':
             assert result.get('primary') == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_SECURITY_MISMATCH', result
             assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'active'

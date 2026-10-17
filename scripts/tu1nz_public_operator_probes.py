@@ -15,7 +15,7 @@ import threading
 import time
 
 import tu1nz_public_operator_io as io
-from tu1nz_public_operator_observe import command, process, starttime, UNITS
+from tu1nz_public_operator_observe import command, process, starttime, initial_profile, UNITS
 
 ROOT = '/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe'
 APP = '/opt/tu1nz_repos/adult-publishing-core'
@@ -33,9 +33,13 @@ def serve():
   c.recv(16);pid,uid,gid=struct.unpack('3i',c.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
   c.sendall((str(uid)+':'+str(gid)).encode())
  listener.close()
-threading.Thread(target=serve,daemon=True).start()
+peer_thread=threading.Thread(target=serve,daemon=True);peer_thread.start()
 with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as s:
  s.settimeout(2);s.connect('/run/reports/peer-'+profile);s.sendall(b'PING');peer=s.recv(128).decode()
+peer_end=time.monotonic()+2;peer_thread.join(2)
+while peer_thread.is_alive() or len(list(Path('/proc/self/task').iterdir()))!=1:
+ if time.monotonic()>=peer_end:raise RuntimeError('SYNTHETIC_PEER_THREAD_EXIT_UNKNOWN')
+ time.sleep(.001)
 try:
  fd=os.open('/run/p-admin-file',os.O_RDONLY);os.close(fd)
 except PermissionError:admin='DENIED'
@@ -224,19 +228,27 @@ class Probes:
         while time.monotonic() < end:
             value = self.show(unit); pid = int(value.get('MainPID', '0'))
             if pid:
-                row = process(pid)
+                tick = starttime(pid)
                 if self.owned[unit]['invocation'] is not None:
-                    io.require((pid, row['starttime'], value['InvocationID']) ==
+                    io.require((pid, tick, value['InvocationID']) ==
                                (self.owned[unit]['pid'], self.owned[unit]['start'], self.owned[unit]['invocation']),
                                'PROBE_FIRST_INVOCATION_CHANGED')
-                self.owned[unit].update(pid=pid, start=row['starttime'], invocation=value['InvocationID'],
+                self.owned[unit].update(pid=pid, start=tick, invocation=value['InvocationID'],
                                         cgroup=value['ControlGroup'])
                 self.unconfirmed.discard(unit)
-                if row['uid'] == row['gid'] == [1001]*4:
+                report = Path('/proc')/str(pid)/'root/run/reports'/(profile+'.json')
+                # Not an admission flag: wait for the controlled producer's
+                # bounded completion point, then measure ALL real rights.
+                # Its own IPC worker has actually exited before this file.
+                if report.exists():
+                    row = initial_profile(pid, tick, end)
+                    after = self.show(unit)
+                    io.require((int(after.get('MainPID', '0')), row['starttime'], after['InvocationID']) ==
+                               (pid, tick, value['InvocationID']), 'PROBE_FIRST_INVOCATION_CHANGED')
+                    io.require(row['uid'] == row['gid'] == [1001]*4, 'PROBE_KERNEL_RIGHTS_RED')
                     io.require(not row['groups'] and not any(row['caps'].values()) and row['nnp'] == 1 and
                                row['uid_map'] == row['gid_map'] == ['0', '0', '1', '1001', '1001', '1'] and
                                row['setgroups'] == 'deny', 'PROBE_KERNEL_RIGHTS_RED')
-                    report = Path('/proc')/str(pid)/'root/run/reports'/(profile+'.json')
                     if report.exists():
                         measurement = io.parse(report.read_bytes())
                         io.require(measurement == {'profile': profile, 'peer': '1001:1001', 'admin': 'DENIED'},

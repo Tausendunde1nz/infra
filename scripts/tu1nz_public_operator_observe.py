@@ -165,14 +165,32 @@ def threads_check(pid, leader):
                    all(n.isdecimal() for n in names), 'ACTOR_THREAD_SET_UNKNOWN')
         expected = {k: leader[k] for k in ('uid', 'gid', 'groups', 'caps', 'nnp',
                     'cgroup', 'namespaces', 'uid_map', 'gid_map', 'setgroups', 'lsm_sha256')}
+        number = {'x86_64': 312, 'aarch64': 272}.get(os.uname().machine)
+        io.require(number is not None, 'ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+        libc = ctypes.CDLL(None, use_errno=True)
+        def shared_files(name):
+            # pidfd_getfd below addresses the leader. Prove every task shares
+            # that exact kernel file table, not just equal numbered FD names.
+            # Otherwise a private inherited administrative socket could escape
+            # that independent guard. KCMP_FILES is read-only, no fallback.
+            if int(name) != pid:
+                comparison = libc.syscall(number, pid, int(name), 2, 0, 0)
+                io.require(comparison >= 0, 'ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+                io.require(comparison == 0, 'ACTOR_THREAD_FILE_TABLE_NOT_SHARED')
         first = {}
         for name in names:
+            shared_files(name)
             tick, security = thread_security(root/name)
+            io.require(len(names) != 1 or security == expected, 'ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE')
             io.require(security == expected, 'ACTOR_THREAD_SECURITY_MISMATCH')
             first[name] = (tick, security)
         io.require(sorted(os.listdir(root)) == names, 'ACTOR_THREAD_SET_CHANGED')
         for name in names:
-            io.require(thread_security(root/name) == first[name], 'ACTOR_THREAD_SECURITY_CHANGED')
+            shared_files(name)
+            again = thread_security(root/name)
+            io.require(again[0] == first[name][0], 'ACTOR_THREAD_IDENTITY_CHANGED')
+            io.require(len(names) != 1 or again == first[name], 'ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE')
+            io.require(again == first[name], 'ACTOR_THREAD_SECURITY_CHANGED')
         io.require(sorted(os.listdir(root)) == names, 'ACTOR_THREAD_SET_CHANGED')
         return io.sha(io.canonical(first))
     except (OSError, KeyError, ValueError, IndexError) as error:
@@ -220,6 +238,29 @@ def process(pid):
     out['threads_sha256'] = threads_check(pid, out)
     io.require(starttime(pid) == before, 'ACTOR_IDENTITY_CHANGED')
     return out
+
+
+def initial_profile(pid, tick, deadline):
+    """Read ONE already-requested, identity-bound start while setup settles.
+
+    No action, start, counter reset or authority admission. Only a changing
+    SINGLE leader sample may be read again, inside the caller's original
+    deadline. All stable-thread differences/unknown views fail immediately.
+    Ordinary Authority observations continue to use strict process().
+    """
+    while True:
+        io.require(time.monotonic() < deadline, 'INITIAL_PROFILE_DEADLINE')
+        io.require(starttime(pid) == tick, 'INITIAL_PROFILE_INVOCATION_CHANGED')
+        try: row = process(pid)
+        except io.Hold as error:
+            if error.primary != 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE': raise
+            io.require(starttime(pid) == tick, 'INITIAL_PROFILE_INVOCATION_CHANGED')
+            io.require(time.monotonic()+.01 < deadline, 'INITIAL_PROFILE_DEADLINE')
+            time.sleep(.01)
+            continue
+        io.require(row['starttime'] == tick and time.monotonic() < deadline,
+                   'INITIAL_PROFILE_INVOCATION_CHANGED_OR_DEADLINE')
+        return row
 
 
 def exact_actor(row, expected):

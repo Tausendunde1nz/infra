@@ -51,6 +51,83 @@ class NativeFSUIDFailure(AssertionError):
 
 class OperatorBoundary(unittest.TestCase):
     @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
+    def test_actual_single_leader_start_sample_is_bound_not_another_start(self):
+        program = '''import ctypes,signal,sys
+libc=ctypes.CDLL(None)
+def change(_number,_frame):
+ assert libc.setfsuid(1001)==0;print("ACTUAL_START_PROFILE_CHANGED",flush=True)
+signal.signal(signal.SIGUSR1,change)
+print("ACTUAL_START_PROFILE_READY",flush=True)
+assert sys.stdin.buffer.readline()==b"DONE\\n"
+'''
+        for initial in (False, True):
+            with self.subTest(initial=initial):
+                child = subprocess.Popen([sys.executable, '-I', '-B', '-c', program],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                try:
+                    self.assertTrue(select.select([child.stdout], [], [], 5)[0])
+                    self.assertEqual(child.stdout.readline(128), b'ACTUAL_START_PROFILE_READY\n')
+                    tick = observe.starttime(child.pid); original = observe.thread_security; changed = False
+                    def change_after_actual_leader_status(path):
+                        nonlocal changed
+                        if not changed:
+                            changed = True; child.send_signal(signal.SIGUSR1)
+                            self.assertTrue(select.select([child.stdout], [], [], 5)[0])
+                            self.assertEqual(child.stdout.readline(128), b'ACTUAL_START_PROFILE_CHANGED\n')
+                        return original(path)
+                    with patch.object(observe, 'thread_security', change_after_actual_leader_status):
+                        if initial:
+                            row = observe.initial_profile(child.pid, tick, time.monotonic()+5)
+                            self.assertEqual((row['pid'], row['starttime'], row['uid'][3]), (child.pid, tick, 1001))
+                        else:
+                            with self.assertRaisesRegex(io.Hold, 'ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE'):
+                                observe.process(child.pid)
+                    self.assertTrue(changed); self.assertEqual(observe.starttime(child.pid), tick)
+                    with self.assertRaisesRegex(io.Hold, 'INITIAL_PROFILE_INVOCATION_CHANGED'):
+                        observe.initial_profile(child.pid, 'NOT-THE-BOUND-TICK', time.monotonic()+1)
+                    with self.assertRaisesRegex(io.Hold, 'INITIAL_PROFILE_DEADLINE'):
+                        observe.initial_profile(child.pid, tick, time.monotonic()-1)
+                finally:
+                    _out, errors = child.communicate(b'DONE\n', timeout=5)
+                    self.assertEqual(child.returncode, 0, errors)
+
+    @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
+    def test_actual_unshared_nonleader_source_descriptor_is_rejected(self):
+        program = '''import ctypes,os,sys,threading
+fd=os.open(sys.argv[1],os.O_RDWR);ready=threading.Event();done=threading.Event()
+def worker():
+ assert ctypes.CDLL(None).unshare(0x400)==0
+ ready.set();done.wait(10)
+t=threading.Thread(target=worker);t.start();assert ready.wait(5)
+os.close(fd);print("ACTUAL_UNSHARED_SOURCE_FD",flush=True)
+assert sys.stdin.buffer.readline()==b"DONE\\n"
+done.set();t.join(5);assert not t.is_alive()
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'synthetic-source'; path.write_bytes(b'SYNTHETIC SOURCE')
+            s = path.stat(); target = (s.st_dev, s.st_ino)
+            child = subprocess.Popen([sys.executable, '-I', '-B', '-c', program, str(path)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                self.assertTrue(select.select([child.stdout], [], [], 10)[0])
+                self.assertEqual(child.stdout.readline(128), b'ACTUAL_UNSHARED_SOURCE_FD\n')
+                tasks = Path('/proc')/str(child.pid)/'task'
+                def holds(root):
+                    return any((p.stat().st_dev, p.stat().st_ino) == target for p in (root/'fd').iterdir())
+                self.assertFalse(holds(tasks/str(child.pid)))
+                others = [p for p in tasks.iterdir() if p.name != str(child.pid)]
+                self.assertEqual(len(others), 1); self.assertTrue(holds(others[0]))
+                with self.assertRaisesRegex(io.Hold, 'EXISTING_SOURCE_WRITABLE_FD'):
+                    observe.writer_check({target}, time.monotonic()+10)
+                with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_FILE_TABLE_NOT_SHARED'):
+                    observe.process(child.pid)
+                with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_FILE_TABLE_NOT_SHARED'):
+                    observe.initial_profile(child.pid, observe.starttime(child.pid), time.monotonic()+5)
+            finally:
+                _out, errors = child.communicate(b'DONE\n', timeout=10)
+                self.assertEqual(child.returncode, 0, errors)
+
+    @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_nonleader_security_must_match_leader(self):
         # Real per-task changes, not glibc's process-wide credential broadcast.
         # The observer never changes its own rights and touches no Host service.
@@ -108,7 +185,7 @@ done.set();t.join(5);assert not t.is_alive()
                                 self.assertEqual(len(os.listdir(tasks)), 1)
                             return measured
                         with patch.object(observe, 'thread_security', retire_after_real_read):
-                            with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_(VIEW_UNKNOWN|SET_CHANGED)'):
+                            with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_(VIEW_UNKNOWN|SET_CHANGED|FILE_TABLE_VIEW_UNKNOWN)'):
                                 observe.threads_check(child.pid, row)
                     else:
                         first = observe.thread_security(tasks/str(child.pid))[1]
@@ -116,6 +193,8 @@ done.set();t.join(5);assert not t.is_alive()
                         self.assertNotEqual(first, other)
                         with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_SECURITY_MISMATCH'):
                             observe.process(child.pid)
+                        with self.assertRaisesRegex(io.Hold, 'ACTOR_THREAD_SECURITY_MISMATCH'):
+                            observe.initial_profile(child.pid, observe.starttime(child.pid), time.monotonic()+5)
                 finally:
                     output, errors = child.communicate(b'DONE\n', timeout=10)
                     self.assertEqual(child.returncode, 0, errors)

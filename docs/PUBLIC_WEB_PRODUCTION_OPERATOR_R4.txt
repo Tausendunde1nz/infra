@@ -211,8 +211,9 @@ Required CI uses exact reviewed private Control Source, network-none read-only
 mounts, no token in the guest and no private output/artifact/cache publication.
 The private-CI helper pins Controlf2979863bbb7043261e9177842503a9b47cdb49f,
 fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
-and tests all17 scenarios (the original13 plus both stop-target Source-handle
-regressions, actual unclassified-process HOLD and per-thread authority rejection) in new finite network-none/
+and tests all18 scenarios (the original13 plus both stop-target Source-handle
+regressions, actual unclassified-process HOLD, per-thread authority and unshared
+non-leader Source-descriptor rejection) in new finite network-none/
 read-only/PID1 guests.
 The two approved private helpers clean their OWN inputs/containers separately;
 neither receives the other's capsule or private tree. Image builds precede all
@@ -270,7 +271,9 @@ bounded errno, never exception text. Parent cleanup cannot replace that child's
 actual failure with a generic exit assertion. Other observer failures retain
 their primary cause. These are fixture diagnostics, not new admission facts.
 The mandatory root entry runs the actual fsuid-owner and fsgid/other-write cases,
-a real synthetic mode0 socket failure and per-thread security divergence. The socket failure must retain connect
+a real synthetic mode0 socket failure, per-thread security divergence and an
+unshared non-leader Source descriptor and bound initial-profile acquisition
+(six tests, no skips). The socket failure must retain connect
 phase/errno13 through cleanup; no case may be skipped or mocked GREEN.
 Container and private-input cleanup errors are independent ordered fields. They
 cannot replace an earlier native failure/location or each other; cleanup failure
@@ -298,6 +301,35 @@ with an exact synthetic administrative service profile, then actually lowers
 only its leader's fsuid while a worker retains root fsuid. The real production
 admission must HOLD before client claim or service stop; no accepted observer
 result is substituted. No Host process or original blocked investigation is used.
+The writer census independently scans EVERY task's own fd/fdinfo/maps twice,
+including unshared tables and TCB actors. Stable task sets/identities and relevant
+descriptor/mapping views are required. Unknown reads or changing captures deny;
+scandir stays open during its entry reads so the observer's own directory FD is
+not misclassified as a disappeared foreign descriptor. No task is excluded.
+The inherited-socket guard additionally requires actual KCMP_FILES equality
+between leader and each other task at both security-census passes. Equal FD
+numbers are not shared-table proof. Unsupported architecture/kernel or missing
+read authority denies, no new Host right or kernel fallback. Fresh Host syscall/
+LSM support remains unproved. This uses the already required ptrace read rights.
+The eighteenth production scenario uses a real legacy S7 worker's CLONE_FILES
+unshare, retains its existing Source FD after the leader closes its copy, and
+requires both the actual writer census and actual production admission to deny
+before claim/stop. Credentials remain identical: this is not the prior UID case.
+The controlled startup is not yet authority admission: an already-requested
+first InvocationID/PID/starttime is bound BEFORE profile acquisition. Only an
+actually changing SINGLE-leader security sample may be read again within the
+same existing deadline. No second start, reset, replacement invocation or retry
+of unknown/mixed-thread/read-failure evidence. Ordinary Authority.process reads
+still deny immediately. Forward/old starts check exact manager identity and
+NRestarts0 both before AND after that acquisition; final full rights still gate
+the next action. The native regression causes a real single-leader fsuid change
+during a read: ordinary process denies, bound initial_profile rereads that same
+live identity; wrong identity/deadline and stable nonleader differences deny.
+Probe sampling waits for the reviewed synthetic producer's report point, NOT a
+permission GREEN: all actual UID/GID/caps/maps/peer/data/root/namespace/exit checks
+remain. Its own IPC worker must join AND disappear from procfs before publishing
+the report. Initial transitional credentials cannot become final acceptance;
+the original per-probe/global/action budgets and once-only requests are intact.
 
 Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
 any child. All planned objects must share that device. Only after every exact

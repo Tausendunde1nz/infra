@@ -15,7 +15,7 @@ import time
 
 import tu1nz_public_operator_io as io
 from tu1nz_public_operator_fs import Paths, Backup
-from tu1nz_public_operator_observe import Authority, command, process, starttime, UNITS
+from tu1nz_public_operator_observe import Authority, command, process, starttime, initial_profile, UNITS
 from tu1nz_public_operator_probes import Probes
 
 STAGING = '/opt/tu1nz_repos/public-web-isolation-r1/20261014-1'
@@ -531,14 +531,20 @@ class Adapter:
             # Counter semantics: systemd v255 src/core/service.c service_start /
             # service_enter_restart. No reset/restart-rule mutation is used.
             io.require(value['NRestarts'] == '0', 'FIRST_START_AUTORESTART_DETECTED')
-            row = process(int(value['MainPID']))
             io.require(value['ActiveState'] == 'active' and not value['Job'], 'START_OUTCOME_UNKNOWN_NO_RETRY')
-            first = (value['InvocationID'], row['pid'], row['starttime'])
+            first = (value['InvocationID'], int(value['MainPID']), starttime(int(value['MainPID'])))
             while True:
-                value = self.a.unit(unit); row = process(int(value['MainPID']))
-                io.require((value['InvocationID'], row['pid'], row['starttime']) == first and
+                value = self.a.unit(unit)
+                io.require((value['InvocationID'], int(value['MainPID']), starttime(int(value['MainPID']))) == first and
                            value['NRestarts'] == '0' and
                            value['ActiveState'] == 'active' and not value['Job'], 'FIRST_START_INVOCATION_CHANGED')
+                row = initial_profile(first[1], first[2], deadline)
+                # No replacement/counter change during profile acquisition may
+                # become acceptance of the original requested start.
+                after = self.a.unit(unit)
+                io.require((after['InvocationID'], int(after['MainPID']), row['starttime']) == first and
+                           after['NRestarts'] == '0' and after['ActiveState'] == 'active' and not after['Job'],
+                           'FIRST_START_INVOCATION_CHANGED')
                 if old:
                     if all(row[k] == v for k, v in self.a.original_profiles[unit].items()):
                         self.a.delegation_check(row, known_stop=True)
