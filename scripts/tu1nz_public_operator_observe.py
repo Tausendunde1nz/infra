@@ -99,6 +99,17 @@ def typed_exec_properties(raw, wanted):
     return result
 
 
+def unit_exec_properties(unit, deadline):
+    io.require(unit in UNITS,'UNIT_EXEC_PROPERTY_SCOPE')
+    path='/org/freedesktop/systemd1/unit/'+''.join(
+        c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
+    row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
+        '--json=short','call','org.freedesktop.systemd1',path,'org.freedesktop.DBus.Properties',
+        'GetAll','s','org.freedesktop.systemd1.Service'],deadline)
+    io.require(row.returncode==0,'UNIT_TYPED_EXEC_READ_UNKNOWN')
+    return typed_exec_properties(row.stdout,EXEC_PROPERTIES)
+
+
 def unit_properties(units, properties, deadline):
     """One fresh bounded manager read, never a cache across checks/actions.
 
@@ -132,19 +143,17 @@ def unit_properties(units, properties, deadline):
         result[identity] = value
     io.require(set(result) == set(units), 'UNIT_PROFILE_UNKNOWN')
     for unit in units if exec_keys else ():
-        path='/org/freedesktop/systemd1/unit/'+''.join(
-            c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
-        row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
-            '--json=short','call','org.freedesktop.systemd1',path,'org.freedesktop.DBus.Properties',
-            'GetAll','s','org.freedesktop.systemd1.Service'],deadline)
-        io.require(row.returncode==0,'UNIT_TYPED_EXEC_READ_UNKNOWN')
-        result[unit].update(typed_exec_properties(row.stdout,exec_keys))
+        observed=unit_exec_properties(unit,deadline)
+        result[unit].update({k:observed[k] for k in exec_keys})
         io.require(set(result[unit])==keys,'UNIT_PROFILE_UNKNOWN')
     return result
 
 
 def unit_rows(units, deadline):
-    result = unit_properties(units, PROPERTIES, deadline)
+    # Legacy/actor reads do not make a no-hook admission decision. R5's
+    # actual extra_unit_contract reads the five typed arrays once per fresh
+    # unit protection check, not again in each unrelated actor census.
+    result = unit_properties(units, ','.join(p for p in PROPERTIES.split(',') if p not in EXEC_PROPERTIES), deadline)
     for value in result.values():
         io.require(value['LoadState'] == 'loaded', 'UNIT_PROFILE_UNKNOWN')
         io.require(re.fullmatch('0|[1-9][0-9]{0,9}', value['NRestarts']) and

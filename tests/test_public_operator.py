@@ -435,6 +435,17 @@ except BaseException as error:
             with self.subTest(bad=bad),self.assertRaises(io.Hold):
                 observe.typed_exec_properties(io.canonical(bad),{key})
 
+    def test_legacy_unit_census_does_not_request_new_r5_exec_admission(self):
+        # Parser transport only. Native R5 must still measure actual arrays.
+        unit=observe.UNITS[0]
+        values={p:'' for p in observe.PROPERTIES.split(',') if p not in observe.EXEC_PROPERTIES}
+        values.update(Id=unit,LoadState='loaded',NRestarts='0')
+        reply=SimpleNamespace(returncode=0,stdout='\n'.join(k+'='+v for k,v in values.items()).encode())
+        with patch.object(observe,'command',return_value=reply) as queried:
+            self.assertEqual(observe.unit_rows((unit,),time.monotonic()+1)[unit],values)
+            self.assertEqual(queried.call_count,1)
+            self.assertEqual(queried.call_args[0][0][0],'/usr/bin/systemctl')
+
     def test_unit_batch_requires_every_exact_individual_block(self):
         # Parser-only protocol cases, not manager/authority GREEN substitutes.
         units = observe.UNITS[:2]

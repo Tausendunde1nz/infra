@@ -18,7 +18,7 @@ import time
 import tu1nz_public_operator_io as io
 import tu1nz_public_runtime_artifact as artifact
 from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ
-from tu1nz_public_operator_observe import Authority, UNITS, process, command
+from tu1nz_public_operator_observe import Authority, UNITS, process, command, unit_exec_properties
 from tu1nz_public_operator_host import Adapter
 
 OVERLAY = 'zzz-public-runtime-r5.conf'
@@ -83,8 +83,9 @@ class ReplacementAuthority(Authority):
         return legacy
 
     def extra_unit_contract(self, unit, value, *, stop_only):
-        io.require(not any(value[k] for k in ('ExecStop','ExecStopPost','ExecStartPre','ExecStartPost','ExecCondition',
-                                            'RootDirectory','RootImage')), 'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT')
+        hooks=unit_exec_properties(unit,self.deadline)
+        io.require(not any(hooks.values()) and not value['RootDirectory'] and not value['RootImage'],
+                   'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT')
 
     def interpreter_binding(self,row,*,old):
         if old:
