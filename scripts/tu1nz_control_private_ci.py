@@ -37,7 +37,10 @@ REPOSITORY='Tausendunde1nz/infra'
 # SHA review and environment reviewer approval still precede ANY private input.
 # PR229 is the finite production-adapter/owner-supervisor integration delta.
 # It neither widens credential scope nor removes exact-SHA Environment review.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229))
+# PR230 is only its authorized post-CI fresh-read implementation correction.
+# Membership is finite; independent review and Environment approval still bind
+# EVERY actual SHA before any private input. No generic same-repo exception.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'

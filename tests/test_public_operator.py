@@ -27,6 +27,7 @@ sys.path.insert(0, str(SCRIPTS))
 import tu1nz_public_operator as client
 import tu1nz_public_operator_io as io
 import tu1nz_public_operator_observe as observe
+import tu1nz_public_operator_runtime_guard as runtime_guard
 
 
 class Reply:
@@ -56,6 +57,19 @@ class NativeFSUIDFailure(AssertionError):
 
 
 class OperatorBoundary(unittest.TestCase):
+    def test_fresh_proc_read_helpers_never_cache_values_or_hide_read_errors(self):
+        with tempfile.TemporaryDirectory(prefix='r4-owned-read-helper-') as folder:
+            path = Path(folder)/'synthetic-field'
+            for helper in (observe.proc_text, observe.proc_bytes, runtime_guard.proc_text):
+                binary = helper is observe.proc_bytes
+                path.write_bytes(b'FIRST\n')
+                self.assertEqual(helper(str(path)), b'FIRST\n' if binary else 'FIRST\n')
+                path.write_bytes(b'CHANGED\n')
+                self.assertEqual(helper(path), b'CHANGED\n' if binary else 'CHANGED\n')
+                path.unlink()
+                with self.assertRaises(FileNotFoundError): helper(path)
+                with self.assertRaises(IsADirectoryError): helper(folder)
+
     @unittest.skipUnless(native_network_guest(), 'requires the inspected network-none native guest')
     def test_actual_http_reader_absolute_deadline_and_reap(self):
         for mode in ('normal', 'slow_header', 'slow_body', 'redirect', 'oversize'):
@@ -133,6 +147,23 @@ class OperatorBoundary(unittest.TestCase):
 
     @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_single_leader_start_sample_is_bound_not_another_start(self):
+        # The faster pathname implementation must still perform BOTH complete
+        # live samples. Instrumentation delegates every real read unchanged.
+        text_reads = []; byte_reads = []
+        text, binary = observe.proc_text, observe.proc_bytes
+        def actual_text(path):
+            text_reads.append(str(path)); return text(path)
+        def actual_bytes(path):
+            byte_reads.append(str(path)); return binary(path)
+        with patch.object(observe, 'proc_text', actual_text), patch.object(observe, 'proc_bytes', actual_bytes):
+            row = observe.process(os.getpid())
+        self.assertEqual(row['pid'], os.getpid())
+        for name in ('status', 'cgroup', 'uid_map', 'gid_map', 'setgroups'):
+            self.assertEqual(sum(p.endswith('/'+name) for p in text_reads), 2)
+        self.assertEqual(sum(p.endswith('/stat') for p in text_reads), 4)
+        self.assertEqual(sum(p.endswith('/attr/current') for p in byte_reads), 2)
+        self.assertEqual(sum(p.endswith('/cmdline') for p in byte_reads), 1)
+        self.assertEqual(sum(p.endswith('/environ') for p in byte_reads), 1)
         program = '''import ctypes,signal,sys
 libc=ctypes.CDLL(None)
 def change(_number,_frame):

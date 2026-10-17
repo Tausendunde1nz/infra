@@ -112,20 +112,33 @@ def unit_rows(units, deadline):
     return result
 
 
+def proc_text(path):
+    # Same fresh open/read/close as Path.read_text, without constructing a new
+    # hierarchy of PurePath objects for every field in every task census.
+    # No observation, FD, value or authorization is cached by this helper.
+    with open(path) as stream:
+        return stream.read()
+
+
+def proc_bytes(path):
+    with open(path, 'rb') as stream:
+        return stream.read()
+
+
 def starttime(pid):
-    value = Path('/proc', str(pid), 'stat').read_text()
+    value = proc_text('/proc/'+str(pid)+'/stat')
     return value[value.rfind(')')+2:].split()[19]
 
 
 def task_label(pid):
-    root = pid if isinstance(pid, Path) else Path('/proc')/str(pid)
-    try: return (root/'attr/current').read_bytes().strip()
+    root = str(pid) if isinstance(pid, Path) or str(pid).startswith('/proc/') else '/proc/'+str(pid)
+    try: return proc_bytes(root+'/attr/current').strip()
     except OSError as error:
         io.require(error.errno == errno.EINVAL, 'TASK_LABEL_VIEW_UNKNOWN')
         # EINVAL alone proves nothing. Require the actual active LSM list and
         # distinguish kernels without a per-task LABEL provider from an unread
         # AppArmor/SELinux/etc context. This does not claim no kernel policy.
-        active = Path('/sys/kernel/security/lsm').read_text().strip().split(',')
+        active = proc_text('/sys/kernel/security/lsm').strip().split(',')
         io.require(active and len(active) == len(set(active)) and set(active) <=
                    {'capability', 'landlock', 'lockdown', 'yama', 'bpf', 'integrity'},
                    'TASK_LABEL_PROVIDER_UNKNOWN')
@@ -134,21 +147,22 @@ def task_label(pid):
 
 def thread_security(root):
     """Read a real task, not the thread-group leader's credential projection."""
-    value = (root/'stat').read_text()
+    root = str(root)
+    value = proc_text(root+'/stat')
     tick = value[value.rfind(')')+2:].split()[19]
-    status = dict(x.split(':', 1) for x in (root/'status').read_text().splitlines() if ':' in x)
+    status = dict(x.split(':', 1) for x in proc_text(root+'/status').splitlines() if ':' in x)
     security = {'uid': list(map(int, status['Uid'].split())),
                 'gid': list(map(int, status['Gid'].split())),
                 'groups': list(map(int, status['Groups'].split())),
                 'caps': {k: int(status[k].strip(), 16) for k in CAPS},
                 'nnp': int(status['NoNewPrivs'].strip()),
-                'cgroup': (root/'cgroup').read_text().strip(),
-                'namespaces': {n: os.readlink(root/'ns'/n) for n in ('pid', 'mnt', 'user', 'net')},
-                'uid_map': (root/'uid_map').read_text().split(),
-                'gid_map': (root/'gid_map').read_text().split(),
-                'setgroups': (root/'setgroups').read_text().strip(),
+                'cgroup': proc_text(root+'/cgroup').strip(),
+                'namespaces': {n: os.readlink(root+'/ns/'+n) for n in ('pid', 'mnt', 'user', 'net')},
+                'uid_map': proc_text(root+'/uid_map').split(),
+                'gid_map': proc_text(root+'/gid_map').split(),
+                'setgroups': proc_text(root+'/setgroups').strip(),
                 'lsm_sha256': io.sha(task_label(root))}
-    again = (root/'stat').read_text()
+    again = proc_text(root+'/stat')
     io.require(again[again.rfind(')')+2:].split()[19] == tick, 'ACTOR_THREAD_IDENTITY_CHANGED')
     return tick, security
 
@@ -158,7 +172,7 @@ def threads_check(pid, leader):
     # narrower, mixed, unreadable or racing profile is not silently admitted.
     # Two complete reads bind task IDs/start times and all compared values;
     # their fingerprint also binds negative-authorization cache subjects.
-    root = Path('/proc')/str(pid)/'task'
+    root = '/proc/'+str(pid)+'/task'
     try:
         names = sorted(os.listdir(root))
         io.require(str(pid) in names and 1 <= len(names) <= 8192 and
@@ -185,14 +199,14 @@ def threads_check(pid, leader):
             # not a cached/input admission flag. Read it again below, not a
             # redundant third time. Non-leaders still receive both full reads.
             tick, security = ((leader['starttime'], expected) if name == str(pid)
-                              else thread_security(root/name))
+                              else thread_security(root+'/'+name))
             io.require(len(names) != 1 or security == expected, 'ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE')
             io.require(security == expected, 'ACTOR_THREAD_SECURITY_MISMATCH')
             first[name] = (tick, security)
         io.require(sorted(os.listdir(root)) == names, 'ACTOR_THREAD_SET_CHANGED')
         for name in names:
             shared_files(name)
-            again = thread_security(root/name)
+            again = thread_security(root+'/'+name)
             io.require(again[0] == first[name][0], 'ACTOR_THREAD_IDENTITY_CHANGED')
             io.require(len(names) != 1 or again == first[name], 'ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE')
             io.require(again == first[name], 'ACTOR_THREAD_SECURITY_CHANGED')
@@ -205,13 +219,13 @@ def threads_check(pid, leader):
 
 
 def process(pid):
-    root = Path('/proc')/str(pid); before = starttime(pid)
-    s = dict(x.split(':', 1) for x in (root/'status').read_text().splitlines() if ':' in x)
+    root = '/proc/'+str(pid); before = starttime(pid)
+    s = dict(x.split(':', 1) for x in proc_text(root+'/status').splitlines() if ':' in x)
     if s.get('Kthread', '').strip() == '1':
         io.require(starttime(pid) == before, 'KERNEL_TASK_CHANGED')
         return {'pid': pid, 'starttime': before, 'kernel_thread': 1}
-    exe = os.readlink(root/'exe')
-    fd = os.open(root/'exe', os.O_RDONLY | os.O_CLOEXEC | os.O_NOATIME)
+    exe = os.readlink(root+'/exe')
+    fd = os.open(root+'/exe', os.O_RDONLY | os.O_CLOEXEC | os.O_NOATIME)
     try:
         a = os.fstat(fd)
         key = (a.st_dev, a.st_ino, a.st_uid, a.st_gid, a.st_mode, a.st_nlink,
@@ -230,13 +244,13 @@ def process(pid):
            'uid': list(map(int, s['Uid'].split())), 'gid': list(map(int, s['Gid'].split())),
            'groups': list(map(int, s['Groups'].split())), 'caps': {k: int(s[k].strip(), 16) for k in CAPS},
            'nnp': int(s['NoNewPrivs'].strip()), 'ppid': int(s['PPid'].strip()),
-           'argv_sha256': io.sha((root/'cmdline').read_bytes()),
-           'cgroup': (root/'cgroup').read_text().strip(),
-           'namespaces': {n: os.readlink(root/'ns'/n) for n in ('pid', 'mnt', 'user', 'net')},
-           'uid_map': (root/'uid_map').read_text().split(),
-           'gid_map': (root/'gid_map').read_text().split(),
-           'setgroups': (root/'setgroups').read_text().strip()}
-    initial_env = (root/'environ').read_bytes()
+           'argv_sha256': io.sha(proc_bytes(root+'/cmdline')),
+           'cgroup': proc_text(root+'/cgroup').strip(),
+           'namespaces': {n: os.readlink(root+'/ns/'+n) for n in ('pid', 'mnt', 'user', 'net')},
+           'uid_map': proc_text(root+'/uid_map').split(),
+           'gid_map': proc_text(root+'/gid_map').split(),
+           'setgroups': proc_text(root+'/setgroups').strip()}
+    initial_env = proc_bytes(root+'/environ')
     io.require(len(initial_env) <= 1024*1024, 'ACTOR_ENVIRONMENT_BOUND')
     out['initial_env_sha256'] = io.sha(initial_env)
     out['lsm_sha256'] = io.sha(task_label(pid))

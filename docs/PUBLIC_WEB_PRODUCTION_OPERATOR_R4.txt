@@ -1,5 +1,26 @@
 PUBLIC R3 PRODUCTION ADAPTER / OWNER SUPERVISOR — R4 SOURCE CONTRACT
 
+POST-MERGE DEADLINE CORRECTION (R4 FOLLOWUP)
+Original PR229's reviewed/pre-CI GREEN tree subsequently failed its actual
+post-CI38999128840 after84 owner confirmations, before confirmed cleanup.
+It remains RED, not CLOSED/retriable. Actual inclusive overlapping timing
+recorded783 authority checks/117.36s and26689 process samples/29.10s; it does
+not prove a specific hidden Root primary. The120s owner TOTAL is unchanged.
+Only fresh /proc pathname construction is optimized: direct string paths and
+open/read/close instead of repeated PurePath hierarchy construction. Both
+full per-task security samples, every actual field, KCMP_FILES comparisons,
+task sets/starttimes, descriptor/mapping views, errors, fences and deadlines
+remain. No observation/result/permission cache, new library, Host path/right,
+process exception or skipped check. A real isolated component compares complete
+values and the exact actual proc-open path/count multisets against PR229; it
+is not a full production or timing guarantee. Mandatory full final CI remains
+required, and unchanged prior GREEN is not acceptance of this correction.
+The private-CI helper additionally names ONLY this authorized followup PR230
+in its finite eligibility set. Exact-SHA independent review and Environment
+reviewer approval remain mandatory; PR231/arbitrary PRs, numeric strings and
+forks still deny. The earlier CI_UNTRUSTED_PR_RED admission is retained, not
+reclassified as a production scenario or retried after private execution.
+
 DELTA, NOT HOST AUTHORITY
 Completes the separately required operator from PUBLIC_WEB_BOOTSTRAP_R3_HOST_PLAN.
 The R3 ordering module, four runtime artifacts, Control entry/primitive, original

@@ -45,34 +45,42 @@ def metadata(entry, fd):
             s.st_size, s.st_mtime_ns, s.st_ctime_ns, attrs, flags)
 
 
+def proc_text(path):
+    # Fresh read/close, identical data and errors; only pathname construction
+    # overhead is removed. No cached task, descriptor or mapping observation.
+    with open(path) as stream:
+        return stream.read()
+
+
 def writer_task(root, targets, deadline):
     """Measure one task's own file table, including unshared non-leaders."""
-    raw = (root/'stat').read_text(); tick = raw[raw.rfind(')')+2:].split()[19]
+    root = str(root)
+    raw = proc_text(root+'/stat'); tick = raw[raw.rfind(')')+2:].split()[19]
     descriptors = {}; count = 0
     # Keep the directory stream alive while reading its entries. In our own
     # task that stream is itself an FD; closing it before stat would fabricate
     # an unreadable descriptor. No disappearing foreign FD is silently skipped.
-    with os.scandir(root/'fd') as entries:
+    with os.scandir(root+'/fd') as entries:
         for entry in entries:
             count += 1
             io.require(count <= 8192 and time.monotonic() < deadline, 'WRITER_DESCRIPTOR_BOUND_OR_DEADLINE')
             s = entry.stat(follow_symlinks=True)
             if (s.st_dev, s.st_ino) in targets:
-                info = dict(x.split(':', 1) for x in (root/'fdinfo'/entry.name).read_text().splitlines() if ':' in x)
+                info = dict(x.split(':', 1) for x in proc_text(root+'/fdinfo/'+entry.name).splitlines() if ':' in x)
                 access = int(info['flags'].strip(), 8) & os.O_ACCMODE
                 io.require(access == os.O_RDONLY, 'EXISTING_SOURCE_WRITABLE_FD')
-                again = (root/'fd'/entry.name).stat()  # not DirEntry's cached stat
+                again = os.stat(root+'/fd/'+entry.name)  # not DirEntry's cached stat
                 io.require((s.st_dev, s.st_ino) == (again.st_dev, again.st_ino), 'WRITER_DESCRIPTOR_CHANGED')
                 descriptors[entry.name] = (s.st_dev, s.st_ino, access)
     mappings = []
-    with (root/'maps').open() as source: raw = source.read(8*1024*1024+1)
+    with open(root+'/maps') as source: raw = source.read(8*1024*1024+1)
     io.require(len(raw) <= 8*1024*1024, 'WRITER_MAPPING_BOUND')
     for line in raw.splitlines():
         v = line.split(None, 5); major, minor = (int(n, 16) for n in v[3].split(':'))
         if (os.makedev(major, minor), int(v[4])) in targets:
             io.require(not (v[1][1] == 'w' and v[1][3] == 's'), 'EXISTING_SOURCE_SHARED_WRITABLE_MAPPING')
             mappings.append(tuple(v[:5]))
-    again = (root/'stat').read_text()
+    again = proc_text(root+'/stat')
     io.require(again[again.rfind(')')+2:].split()[19] == tick, 'WRITER_SUBJECT_CHANGED')
     return tick, descriptors, mappings
 
@@ -89,24 +97,24 @@ def writer_check(targets, deadline):
     tasks_seen = 0
     for name in pids:
         io.require(time.monotonic() < deadline, 'WRITER_SCAN_DEADLINE')
-        root = Path('/proc')/name
+        root = '/proc/'+name
         try:
-            fields = dict(x.split(':', 1) for x in (root/'status').read_text().splitlines() if ':' in x)
-            raw = (root/'stat').read_text(); tick = raw[raw.rfind(')')+2:].split()[19]
+            fields = dict(x.split(':', 1) for x in proc_text(root+'/status').splitlines() if ':' in x)
+            raw = proc_text(root+'/stat'); tick = raw[raw.rfind(')')+2:].split()[19]
         except (FileNotFoundError, ProcessLookupError): continue  # exited before admission
         except PermissionError: raise io.Hold('PUBLIC_OPERATOR_WRITER_VIEW_UNKNOWN') from None
         try:
             if fields.get('Kthread', '').strip() == '1': continue
-            task_root = root/'task'; names = sorted(os.listdir(task_root))
+            task_root = root+'/task'; names = sorted(os.listdir(task_root))
             tasks_seen += len(names)
             io.require(name in names and 1 <= len(names) <= 8192 and tasks_seen <= 32768 and
                        all(n.isdecimal() for n in names), 'WRITER_THREAD_BOUND_OR_SET_UNKNOWN')
-            before = {n: writer_task(task_root/n, targets, deadline) for n in names}
+            before = {n: writer_task(task_root+'/'+n, targets, deadline) for n in names}
             io.require(sorted(os.listdir(task_root)) == names, 'WRITER_THREAD_SET_CHANGED')
             for n in names:
-                io.require(writer_task(task_root/n, targets, deadline) == before[n], 'WRITER_THREAD_VIEW_CHANGED')
+                io.require(writer_task(task_root+'/'+n, targets, deadline) == before[n], 'WRITER_THREAD_VIEW_CHANGED')
             io.require(sorted(os.listdir(task_root)) == names, 'WRITER_THREAD_SET_CHANGED')
-            again = (root/'stat').read_text()
+            again = proc_text(root+'/stat')
             io.require(again[again.rfind(')')+2:].split()[19] == tick, 'WRITER_SUBJECT_CHANGED')
         except (OSError, ValueError, KeyError, IndexError):
             raise io.Hold('PUBLIC_OPERATOR_WRITER_VIEW_UNKNOWN') from None
