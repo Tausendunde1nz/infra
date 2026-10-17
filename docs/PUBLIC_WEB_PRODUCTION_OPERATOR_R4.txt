@@ -15,6 +15,11 @@ process exception or skipped check. A real isolated component compares complete
 values and the exact actual proc-open path/count multisets against PR229; it
 is not a full production or timing guarantee. Mandatory full final CI remains
 required, and unchanged prior GREEN is not acceptance of this correction.
+The private-CI helper additionally names ONLY this authorized followup PR230
+in its finite eligibility set. Exact-SHA independent review and Environment
+reviewer approval remain mandatory; PR231/arbitrary PRs, numeric strings and
+forks still deny. The earlier CI_UNTRUSTED_PR_RED admission is retained, not
+reclassified as a production scenario or retried after private execution.
 
 DELTA, NOT HOST AUTHORITY
 Completes the separately required operator from PUBLIC_WEB_BOOTSTRAP_R3_HOST_PLAN.
