@@ -37,15 +37,16 @@ class ArtifactBytes(unittest.TestCase):
     def test_read_census_closes_fresh_metadata_and_preserves_primary(self):
         from unittest.mock import Mock
         import tu1nz_public_operator_fs as fs
-        import stat,time
+        import stat,time,struct
         before={'device':1,'inode':2,'uid':0,'gid':0,'mode':0o700,'type':stat.S_IFDIR,'attrs':{},'flags':0}
         def fixture():
             p=fs.Paths.__new__(fs.Paths);p._read_depth=0;p.census_cleanup=[];p.failed=False
             p.events=99;p.deadline=time.monotonic()+10;p.names={};p.self_watches=set()
-            p.rows={'/synthetic':(7,before,8,'synthetic')};p.d=SimpleNamespace(metadata=Mock(return_value=before))
+            p.rows={'/synthetic':(7,before,8,'synthetic')};p.d=SimpleNamespace(metadata=Mock(return_value=before),F_GETFLAGS=0x80086601)
             return p
         named=SimpleNamespace(st_dev=1,st_ino=2)
-        with patch.object(fs.os,'read',side_effect=BlockingIOError),patch.object(fs.os,'stat',return_value=named):
+        with patch.object(fs.os,'read',side_effect=BlockingIOError),patch.object(fs.os,'stat',return_value=named),\
+             patch.object(fs.fcntl,'ioctl',return_value=struct.pack('I',0)):
             p=fixture()
             with p.read_census():
                 for _ in range(20):p.check()
@@ -66,6 +67,11 @@ class ArtifactBytes(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 with p.read_census():raise KeyboardInterrupt()
             self.assertEqual(p._read_depth,0);self.assertEqual(p.d.metadata.call_count,2)
+            p=fixture()
+            with self.assertRaises(wire.Hold):
+                with p.read_census(),patch.object(fs.fcntl,'ioctl',return_value=struct.pack('I',0x40)):
+                    p.check()  # flags stay fresh even WITHOUT an event
+            self.assertTrue(p.failed);self.assertEqual(p._read_depth,0)
             for effect in ('create_directory','create_file','quarantine','close'):
                 p=fixture()
                 with self.subTest(effect=effect),p.read_census(),self.assertRaises(wire.Hold):

@@ -107,7 +107,8 @@ batch's fresh sample; no sample survives a check. Manager reads select exactly
 Environment rather than unrelated GetAll properties. Deadlines are unchanged.
 The R5 Authority's complete no-effect census also brackets all current reads
 with full ancestor metadata/name checks. Nested path checks STILL drain and
-latch every event and enforce deadlines; only redundant metadata rescans are
+latch every event, read current inode flags and enforce deadlines. Flag ioctl
+changes are never inferred absent from an empty notification queue. Only redundant metadata rescans are
 deferred to that same census's closing full check. New name admissions always
 force full checks. Path mutation/close APIs reject inside a census. No census
 spans an action, durable record or Owner effect; no GREEN survives its return.

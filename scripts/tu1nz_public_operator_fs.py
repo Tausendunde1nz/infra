@@ -112,7 +112,15 @@ class Paths:
                     io.require(not (mask & 4 and not name and wd in self.self_watches), 'PATH_METADATA_EVENT')
                     io.require(name not in self.names.get(wd, set()), 'PATH_RENAME_EVENT')
                     offset += 16+count
-            if self._read_depth and not full:return  # events were NOT deferred
+            if self._read_depth and not full:
+                # inode flag ioctls do not have the same notification contract
+                # as chmod/chown/ACL/xattr and rename. Retain their fresh
+                # point checks too; never infer flags from an empty queue.
+                for fd,before,*_ in self.rows.values():
+                    flags=struct.unpack('I',fcntl.ioctl(fd,self.d.F_GETFLAGS,struct.pack('I',0)))[0]
+                    if before['type']==stat.S_IFDIR:flags&=~(0x1000|0x80000)
+                    io.require(flags==security(before)['flags'],'PATH_FLAGS_CHANGED')
+                return  # events and flags were NOT deferred
             for name, (fd, before, parent, leaf) in self.rows.items():
                 row = self.d.metadata(fd, staging_ancestor=name == '/opt/tu1nz_repos')
                 current = os.lstat('/') if parent is None else os.stat(leaf, dir_fd=parent, follow_symlinks=False)
