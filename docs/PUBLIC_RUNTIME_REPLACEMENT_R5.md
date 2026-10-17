@@ -99,6 +99,12 @@ remain resolution roots. Every single ELF, including every support DSO, MUST
 appear in the roots or their actual transitive closure; missing coverage denies.
 Resolved internal identities and all external origins/paths/hashes remain bound.
 No LD_LIBRARY_PATH is injected and no library/artifact is rewritten.
+Repeated acceptance still reads fresh library bytes/hashes/metadata and the
+complete typed Manager Environment. A current no-effect library batch checks
+all retained path/name fences before and after, instead of rescanning the same
+parent set after each file. Aliases of one canonical source share only that
+batch's fresh sample; no sample survives a check. Manager reads select exactly
+Environment rather than unrelated GetAll properties. Deadlines are unchanged.
 
 ## Transition, protection and failure
 

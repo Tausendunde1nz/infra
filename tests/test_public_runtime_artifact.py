@@ -34,6 +34,64 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_external_read_batch_is_fresh_and_closes_all_name_fences(self):
+        from unittest.mock import Mock
+        raw=b'SYNTHETIC_LIBRARY_BYTES';row={'device':1,'inode':2,'mtime_ns':3,'ctime_ns':4}
+        source='/usr/lib/SYNTHETIC.so';aliases=('/lib/SYNTHETIC.so','/usr/lib/SYNTHETIC.so')
+        authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        read=Mock(return_value=(raw,row));get=Mock(return_value=99)
+        authority.paths=SimpleNamespace(d=SimpleNamespace(stable_file=read),get=get)
+        authority.check_loader_paths=Mock()
+        authority.external_dependencies={p:{'source':source,'sha256':a.sha(raw)} for p in aliases}
+        authority.loader_bindings=dict.fromkeys(aliases,source)
+        authority.external_identities=dict.fromkeys(aliases,(1,2,3,4));authority.replacement_active=False
+        authority.verify_external_libraries()
+        read.assert_called_once_with(99,'SYNTHETIC.so')
+        self.assertEqual(authority.check_loader_paths.call_count,2)
+        authority.verify_external_libraries();self.assertEqual(read.call_count,2)
+        read.return_value=(b'CHANGED',row)
+        with self.assertRaises(wire.Hold):authority.verify_external_libraries()
+        read.return_value=(raw,row);authority.check_loader_paths.side_effect=[None,wire.Hold('NAME_CHANGED')]
+        with self.assertRaises(wire.Hold):authority.verify_external_libraries()
+
+    def test_manager_environment_gets_exact_fresh_typed_property(self):
+        value={'type':'as','data':['LANG=C']}
+        response=SimpleNamespace(returncode=0,stdout=a.canonical(value))
+        with patch.object(replacement,'command',return_value=response) as called:
+            actual=replacement.dbus_manager_environment(123)
+        self.assertEqual(actual,{'Environment':value})
+        argv,deadline=called.call_args.args
+        self.assertEqual(deadline,123)
+        self.assertEqual(argv[-5:],['get-property','org.freedesktop.systemd1',
+            '/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager','Environment'])
+        self.assertNotIn('GetAll',argv)
+        for bad in ({'type':'s','data':['LANG=C']},{'type':'as','data':None},
+                    {'type':'as','data':[],'extra':'PRIVATE_CANARY'}):
+            with self.subTest(bad=bad),patch.object(replacement,'command',return_value=
+                    SimpleNamespace(returncode=0,stdout=a.canonical(bad))),self.assertRaises(wire.Hold):
+                replacement.dbus_manager_environment(123)
+
+    def test_initial_library_watch_precedes_final_byte_binding(self):
+        from unittest.mock import Mock
+        raw=b'SYNTHETIC_LIBRARY_BYTES';row={'device':1,'inode':2,'mtime_ns':3,'ctime_ns':4}
+        source='/usr/lib/SYNTHETIC.so'
+        authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        events=[]
+        def read(*args):
+            events.append('read')
+            return (raw if len(events)==1 else b'CHANGED',row)
+        authority.paths=SimpleNamespace(d=SimpleNamespace(stable_file=read),get=lambda name:99)
+        authority.check_loader_paths=lambda:None;authority.replacement_active=False
+        authority.external_dependencies={source:{'source':source,'sha256':a.sha(raw)}}
+        authority.loader_bindings={source:source};authority.external_identities={}
+        authority.runtime=SimpleNamespace(_watch=lambda fd:events.append('watch'),files=set())
+        statrow=SimpleNamespace(st_dev=1,st_ino=2,st_mtime_ns=3,st_ctime_ns=4)
+        with patch.object(replacement.os,'open',return_value=7),\
+             patch.object(replacement.os,'fstat',return_value=statrow),\
+             patch.object(replacement.os,'close') as close,self.assertRaises(wire.Hold):
+            authority.verify_external_libraries()
+        self.assertEqual(events,['read','watch','read']);close.assert_called_once_with(7)
+
     def test_all_elfs_remain_covered_through_actual_loader_context_roots(self):
         support='app/.venv/lib/python3.12/site-packages/psycopg_binary.libs/libsupport.so'
         extension='app/.venv/lib/python3.12/site-packages/psycopg_binary/pq.so'

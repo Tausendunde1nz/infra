@@ -44,6 +44,18 @@ def dbus_properties(path,interface,deadline):
     return body
 
 
+def dbus_manager_environment(deadline):
+    # Read the SAME complete typed Environment, not all unrelated Manager
+    # properties, on EVERY check. No previous GREEN or value is reused.
+    row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
+        '--json=short','get-property','org.freedesktop.systemd1','/org/freedesktop/systemd1',
+        'org.freedesktop.systemd1.Manager','Environment'],deadline)
+    io.require(row.returncode==0,'REPLACEMENT_LOADER_ENVIRONMENT_READ_UNKNOWN')
+    values={'Environment':io.parse(row.stdout)}
+    string_array(values,'Environment')
+    return values
+
+
 def string_array(values,key):
     row=values.get(key)
     io.require(type(row) is dict and set(row)=={'type','data'} and row['type']=='as' and
@@ -356,18 +368,26 @@ class ReplacementAuthority(Authority):
 
     def check_loader_configuration(self):
         self.loader_config.check()
-        values=dbus_properties('/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager',self.deadline)
-        measured=manager_loader_environment(values['data'][0])
+        measured=manager_loader_environment(dbus_manager_environment(self.deadline))
         if self.manager_environment is None:self.manager_environment=measured
         else:io.require(measured==self.manager_environment,'REPLACEMENT_MANAGER_ENVIRONMENT_CHANGED')
         self.loader_config.check()
 
     def verify_external_libraries(self):
         self.check_loader_paths()
+        samples={}  # ONE current batch only; discarded on every call.
         for path,expected in self.external_dependencies.items():
             io.require(self.loader_bindings[path]==expected['source'],'REPLACEMENT_LOADER_LIBRARY_REPLACED')
-            raw,row=self.paths.read(expected['source'])
-            io.require(io.sha(raw)==expected['sha256'],'REPLACEMENT_EXTERNAL_LIBRARY_DRIFT')
+            source=expected['source']
+            if source not in samples:
+                p=PurePosixPath(source)
+                # Same secure stable-file primitive and fresh bytes/metadata.
+                # Retained parent/name fences are checked before AND after the
+                # complete no-effect batch, not redundantly after each file.
+                raw,row=self.paths.d.stable_file(self.paths.get(str(p.parent)),p.name)
+                samples[source]=(io.sha(raw),row)
+            digest,row=samples[source]
+            io.require(digest==expected['sha256'],'REPLACEMENT_EXTERNAL_LIBRARY_DRIFT')
             identity=tuple(row[k] for k in ('device','inode','mtime_ns','ctime_ns'))
             if path not in self.external_identities:
                 fd=os.open(expected['source'],READ)
@@ -376,6 +396,14 @@ class ReplacementAuthority(Authority):
                     io.require((observed.st_dev,observed.st_ino,observed.st_mtime_ns,observed.st_ctime_ns)==identity,
                                'REPLACEMENT_EXTERNAL_LIBRARY_CHANGED')
                     self.runtime._watch(fd)
+                    # Establish the initial byte binding AFTER installing the
+                    # watch too; a write between the first sample and watch
+                    # cannot be hidden by a later alias sharing that sample.
+                    again,after=self.paths.d.stable_file(self.paths.get(str(PurePosixPath(source).parent)),
+                                                        PurePosixPath(source).name)
+                    io.require(io.sha(again)==digest and tuple(after[k] for k in
+                        ('device','inode','mtime_ns','ctime_ns'))==identity,
+                        'REPLACEMENT_EXTERNAL_LIBRARY_CHANGED')
                 finally:os.close(fd)
                 self.external_identities[path]=identity
                 self.runtime.files.add(identity[:2])
