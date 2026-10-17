@@ -96,6 +96,47 @@ ACTOR_DIAGNOSTIC = None
 READ_COST = None
 PRIMARY_WRITER_FAULT = None
 NATIVE_ERRNO = None
+ENV_DIAGNOSTIC = None
+
+ENV_DIAGNOSTIC_WRAPPER = r'''
+_env_previous_fault=s.load("host").source_fault_location
+def _env_source_fault(error):
+ location=_env_previous_fault(error)
+ try:
+  import json,hashlib,os
+  from pathlib import Path
+  if getattr(error,"primary",None)!="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED":return location
+  trace=error.__traceback__;row=None;unit="UNKNOWN";normal=wms=None
+  while trace is not None:
+   frame=trace.tb_frame
+   if frame.f_code.co_filename=="<authenticated-memory:replacement>":
+    if frame.f_code.co_name=="interpreter_binding":
+     row=frame.f_locals.get("row");normal=frame.f_locals.get("normal");wms=frame.f_locals.get("wms")
+    candidate=frame.f_locals.get("unit")
+    if candidate in s.load("observe").UNITS:unit=("s7","s8-landing","wms")[s.load("observe").UNITS.index(candidate)]
+   trace=trace.tb_next
+  def digest(raw):return hashlib.sha256(raw).hexdigest()
+  def kind(value):return "NORMAL" if value==normal else "WMS" if value==wms else "EMPTY" if value==digest(b"") else "OTHER"
+  record={"unit":unit,"sample":kind(row["initial_env_sha256"]),"followup":"UNKNOWN",
+   "identity":"UNKNOWN","same_environment":"UNKNOWN","executable":"UNKNOWN","state":"UNKNOWN","followup_expected_items":False}
+  try:
+   root=Path("/proc")/str(row["pid"]);raw=(root/"environ").read_bytes();record["followup"]=kind(digest(raw))
+   record["same_environment"]="SAME" if digest(raw)==row["initial_env_sha256"] else "DIFFERENT"
+   record["identity"]="SAME" if s.load("observe").starttime(row["pid"])==row["starttime"] else "DIFFERENT"
+   value=(root/"stat").read_text();state=value[value.rfind(")")+2:].split()[0]
+   record["state"]=state if state in ("R","S","D","Z","T","t","X","I") else "UNKNOWN"
+   expected=b"PATH=/usr/bin:/bin\0LC_ALL=C\0PYTHONDONTWRITEBYTECODE=1\0"
+   record["followup_expected_items"]=sorted(raw.split(b"\0")) in (sorted(expected.split(b"\0")),
+       sorted((expected+b"PYTHONPATH="+s.load("artifact").VIEW.encode()+b"/src\0").split(b"\0")))
+   record["executable"]="EXPECTED" if os.readlink(root/"exe")==s.load("artifact").ROOT+"/python/bin/python3.12" else "OTHER"
+  except (FileNotFoundError,ProcessLookupError):record["followup"]="GONE"
+  except BaseException:pass
+  fd=os.open("/fixture-r4/environment-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+  with os.fdopen(fd,"w") as stream:json.dump(record,stream);stream.flush();os.fsync(stream.fileno())
+ except BaseException:pass
+ return location
+s.load("host").source_fault_location=_env_source_fault
+'''
 
 # Delegating test-only timing of actual Source calls. No safety observation,
 # action, result or deadline is replaced. Inclusive durations overlap; timing
@@ -770,7 +811,7 @@ def production_outcome(result,code,r,fault_wire,stderr):
 
 
 def main():
-    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, PRIMARY_WRITER_FAULT, NATIVE_ERRNO
+    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, PRIMARY_WRITER_FAULT, NATIVE_ERRNO, ENV_DIAGNOSTIC
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
@@ -879,6 +920,7 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
             b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
     target_substitution += ACTOR_DIAGNOSTIC_WRAPPER
     target_substitution += WRITER_DIAGNOSTIC_WRAPPER
+    target_substitution += ENV_DIAGNOSTIC_WRAPPER
     if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         # Deterministic scheduler fault ONLY: execute the ACTUAL start, then
         # delay its caller until the real crash/on-failure replacement exists.
@@ -978,6 +1020,10 @@ s.load("host").command=_delay_after_actual_start
     if thread_path.exists() and result.get('primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN':
         thread=io.parse(thread_path.read_bytes());PRIMARY_WRITER_FAULT=thread['fault'];NATIVE_ERRNO=thread['errno']
         if ACTOR_DIAGNOSTIC is None:ACTOR_DIAGNOSTIC=thread.get('actor')
+    env_path=ROOT/'environment-diagnostic.json'
+    if env_path.exists() and result.get('primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED':
+        ENV_DIAGNOSTIC=io.parse(env_path.read_bytes())
+        ENV_DIAGNOSTIC['service']=service_failure_diagnostic(ENV_DIAGNOSTIC['unit'])
     cost_path = ROOT/'read-cost.json'
     if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
     PRODUCTION_OUTCOME,acknowledgments,actual_root=production_outcome(result,code,r,fault_wire,stderr)
@@ -1057,6 +1103,31 @@ s.load("host").command=_delay_after_actual_start
     print(json.dumps(report))
 
 
+def service_failure_diagnostic(label):
+    """Synthetic Guest error metadata only; never forward journal text."""
+    from tu1nz_public_operator_ci import SAFE_FAILURE_TYPES
+    value={'active':'UNKNOWN','result':'UNKNOWN','exit_status':-1,'restarts':-1,'error_types':[],'invocation_bound':False}
+    if label not in PROFILES:return value
+    unit=UNITS[PROFILES.index(label)]
+    try:
+        fields=dict(line.split('=',1) for line in run('/usr/bin/systemctl','show',unit,
+            '--property=ActiveState,Result,ExecMainStatus,NRestarts,InvocationID','--no-pager').decode().splitlines())
+        for key,allowed in (('ActiveState',{'active','inactive','failed','activating','deactivating'}),
+                            ('Result',{'success','exit-code','signal','core-dump','timeout','oom-kill','resources','start-limit-hit'})):
+            value['active' if key=='ActiveState' else 'result']=fields[key] if fields[key] in allowed else 'UNKNOWN'
+        for key,out,limit in (('ExecMainStatus','exit_status',255),('NRestarts','restarts',10000)):
+            number=int(fields[key]);value[out]=number if 0<=number<=limit else -1
+        invocation=fields.get('InvocationID','')
+        if len(invocation)!=32 or any(c not in '0123456789abcdef' for c in invocation):return value
+        value['invocation_bound']=True
+        journal=run('/usr/bin/journalctl','--quiet','--unit='+unit,'_SYSTEMD_INVOCATION_ID='+invocation,
+                    '--lines=24','--no-pager','--output=cat')
+        value['error_types']=sorted({line.split(b':',1)[0].decode() for line in journal.splitlines()
+            if line.split(b':',1)[0].decode(errors='replace') in SAFE_FAILURE_TYPES})
+    except BaseException:pass
+    return value
+
+
 def fixture_fault_location(error):
     """Only the reviewed fixture's innermost Source line, never its data."""
     target=str(Path(__file__).with_name('public_runtime_fixture.py'))
@@ -1085,5 +1156,6 @@ if __name__ == '__main__':
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
         if ACTOR_DIAGNOSTIC is not None: location['actor'] = ACTOR_DIAGNOSTIC
         if READ_COST: location['read_cost'] = READ_COST  # strict reader forbids an empty cost object
+        if ENV_DIAGNOSTIC is not None:location['environment']=ENV_DIAGNOSTIC
         print(json.dumps({'native_failure': location}))
         raise SystemExit(1)

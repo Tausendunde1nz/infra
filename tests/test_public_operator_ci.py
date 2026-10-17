@@ -15,6 +15,28 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_environment_diagnostic_never_exposes_names_values_or_journal_text(self):
+        from tests import public_operator_native as native
+        compile(native.ENV_DIAGNOSTIC_WRAPPER,'<synthetic-diagnostic>','exec')
+        replies=[b'ActiveState=failed\nResult=exit-code\nExecMainStatus=1\nNRestarts=0\nInvocationID='+b'1'*32+b'\n',
+                 b'PRIVATE_CANARY: uservalue\nTypeError: PRIVATE_CANARY\n']
+        with patch.object(native,'run',side_effect=replies):service=native.service_failure_diagnostic('s7')
+        self.assertEqual(service['error_types'],['TypeError'])
+        self.assertTrue(service['invocation_bound'])
+        with patch.object(native,'run',return_value=b'ActiveState=failed\nResult=exit-code\nExecMainStatus=1\nNRestarts=0\nInvocationID=\n') as called:
+            unbound=native.service_failure_diagnostic('s7')
+        self.assertFalse(unbound['invocation_bound']);self.assertEqual(unbound['error_types'],[])
+        self.assertEqual(called.call_count,1)
+        env={'unit':'s7','sample':'EMPTY','followup':'GONE','identity':'UNKNOWN',
+             'same_environment':'UNKNOWN','executable':'UNKNOWN','state':'Z','followup_expected_items':False,'service':service}
+        value={'test_line':1,'test_type':'AssertionError','production_fault':None,'environment':env}
+        def read(x):return m.failure_location(json.dumps({'native_failure':x}).encode())
+        self.assertEqual(read(value),value);self.assertNotIn('PRIVATE_CANARY',json.dumps(read(value)))
+        for bad in ({**env,'sample':'PRIVATE_CANARY'},{**env,'raw':'PRIVATE_CANARY'},
+                    {**env,'service':{**service,'message':'PRIVATE_CANARY'}},
+                    {**env,'service':{**service,'error_types':['PRIVATE_CANARY']}}):
+            with self.subTest(bad=bad):self.assertIsNone(read({**value,'environment':bad}))
+
     def test_fixture_fault_retains_only_exact_public_source_location(self):
         from tests import public_operator_native as native
         target=str(Path(native.__file__).with_name('public_runtime_fixture.py'))

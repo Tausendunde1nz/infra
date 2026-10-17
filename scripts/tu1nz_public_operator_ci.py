@@ -303,7 +303,25 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost'}, 'FAILURE_SCHEMA')
+                {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost', 'environment'}, 'FAILURE_SCHEMA')
+        if 'environment' in location:
+            env=location['environment']
+            require(type(env) is dict and set(env)=={'unit','sample','followup','identity','same_environment','executable','state','followup_expected_items','service'},'FAILURE_SCHEMA')
+            for key,allowed in {'unit':{'s7','s8-landing','wms','UNKNOWN'},'sample':{'NORMAL','WMS','EMPTY','OTHER'},
+                    'followup':{'NORMAL','WMS','EMPTY','OTHER','GONE','UNKNOWN'},'identity':{'SAME','DIFFERENT','UNKNOWN'},
+                    'same_environment':{'SAME','DIFFERENT','UNKNOWN'},'executable':{'EXPECTED','OTHER','UNKNOWN'},
+                    'state':{'R','S','D','Z','T','t','X','I','UNKNOWN'}}.items():
+                require(type(env[key]) is str and env[key] in allowed,'FAILURE_SCHEMA')
+            require(type(env['followup_expected_items']) is bool,'FAILURE_SCHEMA')
+            service=env['service']
+            require(type(service) is dict and set(service)=={'active','result','exit_status','restarts','error_types','invocation_bound'} and
+                service['active'] in {'UNKNOWN','active','inactive','failed','activating','deactivating'} and
+                service['result'] in {'UNKNOWN','success','exit-code','signal','core-dump','timeout','oom-kill','resources','start-limit-hit'} and
+                type(service['exit_status']) is int and -1<=service['exit_status']<=255 and
+                type(service['restarts']) is int and -1<=service['restarts']<=10000 and
+                type(service['invocation_bound']) is bool and
+                type(service['error_types']) is list and len(service['error_types'])<=32 and
+                all(type(t) is str and t in SAFE_FAILURE_TYPES for t in service['error_types']),'FAILURE_SCHEMA')
         if 'fixture_fault' in location:
             fault=location['fixture_fault']
             require(type(fault) is dict and set(fault)=={'component','line','type'} and
