@@ -94,6 +94,8 @@ PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
 READ_COST = None
+PRIMARY_WRITER_FAULT = None
+NATIVE_ERRNO = None
 
 # Delegating test-only timing of actual Source calls. No safety observation,
 # action, result or deadline is replaced. Inclusive durations overlap; timing
@@ -189,6 +191,49 @@ def _diagnostic_source_fault(error):
  except BaseException:pass
  return location
 s.load("host").source_fault_location=_diagnostic_source_fault
+'''
+
+# Error-only provenance of the first underlying writer-view exception. The
+# later once-return can itself fail; neither location may overwrite the other.
+WRITER_DIAGNOSTIC_WRAPPER = r'''
+_previous_source_fault=s.load("host").source_fault_location
+def _writer_source_fault(error):
+ location=_previous_source_fault(error)
+ if getattr(error,"primary",None)!="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WRITER_VIEW_UNKNOWN":return location
+ try:
+  import json,os
+  from pathlib import Path
+  seen=set();current=error;fault=None;number=0;subject=None;tick=None
+  while current is not None and id(current) not in seen:
+   seen.add(id(current));trace=current.__traceback__
+   while trace is not None:
+    frame=trace.tb_frame
+    if frame.f_code.co_filename=="<authenticated-memory:runtime_guard>":
+     if frame.f_code.co_name=="writer_check":
+      subject=frame.f_locals.get("root");tick=frame.f_locals.get("tick")
+     if isinstance(current,(OSError,ValueError,KeyError,IndexError)):
+      fault={"component":frame.f_code.co_filename,"line":trace.tb_lineno,"type":type(current).__name__}
+      number=getattr(current,"errno",None) or 0
+    trace=trace.tb_next
+   current=current.__cause__ or current.__context__
+  if fault is not None:
+   record={"fault":fault,"errno":number}
+   try:
+    assert type(subject) is str and subject.startswith("/proc/")
+    row=s.load("observe").process(int(subject.split("/")[2]))
+    candidates=[r for r in p["baseline"]["actors"] if r["exe_sha256"]==row["exe_sha256"]]
+    executable=Path(row["exe"]).name
+    if executable not in ("postgres","polkitd","systemd","systemd-journald","dbus-daemon","nginx","python3.12","busctl","systemctl","sudo","sleep"):executable="OTHER"
+    keys=("uid","gid","groups","caps","nnp","argv_sha256","cgroup","initial_env_sha256","lsm_sha256","namespaces")
+    record["actor"]={"executable_class":executable,"matching_executable_profiles":len(candidates),
+      "different_fields":[k for k in keys if candidates and all(row[k]!=r[k] for r in candidates)],
+      "stable_followup":str(row["starttime"])==str(tick),"title_kind":"UNKNOWN"}
+   except BaseException:pass  # missing process remains UNKNOWN; no invented actor
+   fd=os.open("/fixture-r4/writer-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+   with os.fdopen(fd,"w") as stream:json.dump(record,stream);stream.flush();os.fsync(stream.fileno())
+ except BaseException:pass
+ return location
+s.load("host").source_fault_location=_writer_source_fault
 '''
 
 
@@ -667,7 +712,7 @@ def production_outcome(result,code,r,fault_wire,stderr):
 
 
 def main():
-    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST
+    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, PRIMARY_WRITER_FAULT, NATIVE_ERRNO
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
@@ -773,6 +818,7 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
             b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
     target_substitution += ACTOR_DIAGNOSTIC_WRAPPER
+    target_substitution += WRITER_DIAGNOSTIC_WRAPPER
     if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         # Deterministic scheduler fault ONLY: execute the ACTUAL start, then
         # delay its caller until the real crash/on-failure replacement exists.
@@ -864,6 +910,10 @@ s.load("host").command=_delay_after_actual_start
     PRODUCTION_FAULT = result.get('source_fault')
     diagnostic_path = ROOT/'actor-diagnostic.json'
     if diagnostic_path.exists(): ACTOR_DIAGNOSTIC = io.parse(diagnostic_path.read_bytes())
+    writer_path=ROOT/'writer-diagnostic.json'
+    if writer_path.exists():
+        writer=io.parse(writer_path.read_bytes());PRIMARY_WRITER_FAULT=writer['fault'];NATIVE_ERRNO=writer['errno']
+        if ACTOR_DIAGNOSTIC is None:ACTOR_DIAGNOSTIC=writer.get('actor')
     cost_path = ROOT/'read-cost.json'
     if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
     PRODUCTION_OUTCOME,acknowledgments,actual_root=production_outcome(result,code,r,fault_wire,stderr)
@@ -952,6 +1002,8 @@ if __name__ == '__main__':
             if trace.tb_frame.f_code.co_filename == __file__: line = trace.tb_lineno
             trace = trace.tb_next
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
+        if PRIMARY_WRITER_FAULT is not None:location['primary_fault']=PRIMARY_WRITER_FAULT
+        if NATIVE_ERRNO is not None:location['errno']=NATIVE_ERRNO
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
         if ACTOR_DIAGNOSTIC is not None: location['actor'] = ACTOR_DIAGNOSTIC
         if READ_COST: location['read_cost'] = READ_COST  # strict reader forbids an empty cost object

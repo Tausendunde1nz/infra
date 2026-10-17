@@ -15,6 +15,16 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_primary_writer_fault_cannot_be_erased_by_later_abort_or_leak_text(self):
+        first={'component':'<authenticated-memory:runtime_guard>','line':61,'type':'FileNotFoundError'}
+        abort={'component':'<authenticated-memory:host>','line':535,'type':'Hold'}
+        value={'test_line':1,'test_type':'AssertionError','production_fault':abort,'primary_fault':first,'errno':2}
+        def read(v):return m.failure_location(json.dumps({'native_failure':v}).encode())
+        self.assertEqual(read(value)['primary_fault'],first);self.assertEqual(read(value)['production_fault'],abort)
+        for bad in ({**first,'component':'/private/CANARY'}, {**first,'line':True},
+                    {**first,'type':'PRIVATE_CANARY'}, {**first,'message':'PRIVATE_CANARY'}):
+            with self.subTest(bad=bad):self.assertIsNone(read({**value,'primary_fault':bad}))
+
     def test_read_cost_is_finite_source_labels_not_private_data(self):
         value = {'process': {'calls': 3, 'inclusive_ns': 1234}}
         def failure(cost):
