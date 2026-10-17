@@ -8,6 +8,7 @@ import copy
 import gzip
 import io
 import json
+import subprocess
 from pathlib import Path
 import sys
 import tarfile
@@ -30,21 +31,37 @@ class ArtifactBytes(unittest.TestCase):
             workflow=Path(d).resolve();infra=workflow/'infra';application=workflow/'canonical-runtime-r5'
             expected='a'*40;carrier='b'*40
             def read(root,*argv):
-                if root==infra:return '' if argv[0]=='status' else expected
+                if root==infra:return '' if argv[0] in ('status','ls-files') else expected
                 if root==application:return a.APP[1] if argv[-1]=='HEAD^{tree}' else a.APP[0]
                 self.assertEqual(root,workflow);return carrier
             with patch.object(native,'git_read',side_effect=read) as queried:
                 actual,roles=native.checkout_roles(infra,application,workflow,expected,carrier)
                 self.assertEqual(actual,expected);self.assertEqual(roles['application_workflow_head'],carrier)
                 queried.assert_any_call(infra,'rev-parse','HEAD')
-            for bad in ('wrong_infra','dirty_infra','wrong_carrier'):
+            for bad in ('wrong_infra','dirty_infra','ignored_infra','wrong_carrier'):
                 def altered(root,*argv):
                     if bad=='wrong_infra' and root==infra and argv[0]=='rev-parse':return carrier
                     if bad=='dirty_infra' and root==infra and argv[0]=='status':return 'M SYNTHETIC'
+                    if bad=='ignored_infra' and root==infra and argv[0]=='ls-files':return 'SYNTHETIC.so'
                     if bad=='wrong_carrier' and root==workflow:return 'c'*40
                     return read(root,*argv)
                 with self.subTest(bad=bad),patch.object(native,'git_read',side_effect=altered),self.assertRaises(a.Denied):
                     native.checkout_roles(infra,application,workflow,expected,carrier)
+
+    def test_preimport_gate_rejects_ignored_shadow_before_any_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d).resolve()
+            def git(*argv):return subprocess.check_output(['/usr/bin/git','-C',str(root),*argv],stderr=subprocess.DEVNULL)
+            git('init','-q');(root/'.gitignore').write_text('*\n');(root/'tracked').write_bytes(b'SYNTHETIC')
+            git('add','-f','.gitignore','tracked')
+            git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-qm','fixture')
+            head=git('rev-parse','HEAD').decode().strip()
+            self.assertEqual(native.preimport_source(root,head),head)
+            (root/'scripts').mkdir();(root/'scripts/tu1nz_public_runtime_artifact.so').write_bytes(b'NOT_EXECUTABLE')
+            with self.assertRaisesRegex(RuntimeError,'UNREVIEWED_WORKING_SET'):
+                native.preimport_source(root,head)
+            with self.assertRaisesRegex(RuntimeError,'SOURCE_SHA'):
+                native.preimport_source(root,'0'*40)
 
     def test_native_manifest_includes_retained_legacy_writer_failure(self):
         from tests import public_operator_native as fixture

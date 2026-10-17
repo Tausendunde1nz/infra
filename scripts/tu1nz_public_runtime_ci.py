@@ -4,15 +4,51 @@ The public operator's full execution/Owner path is a separate mandatory gate.
 Only the exact checked-out private Application and reviewed public Infra enter;
 the guest has no network, Host systemd, Docker socket, or credentials mounted.
 """
+import sys
+if __name__=='__main__' and (not sys.flags.isolated or not sys.dont_write_bytecode):
+    sys.stderr.write('PRIVATE_RUNTIME_ISOLATED_NO_BYTECODE_ENTRY_REQUIRED\n')
+    raise SystemExit(2)
+
 import argparse
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import uuid
 
+
+def preimport_source(root,expected):
+    """No repository module may run before the actual Source working-set gate."""
+    if not re.fullmatch('[a-f0-9]{40}',expected):raise RuntimeError('PRIVATE_RUNTIME_SOURCE_SHA_RED')
+    env={'PATH':'/usr/bin:/bin','LC_ALL':'C','GIT_CONFIG_GLOBAL':'/dev/null',
+         'GIT_CONFIG_SYSTEM':'/dev/null','GIT_OPTIONAL_LOCKS':'0','GIT_TERMINAL_PROMPT':'0'}
+    def git(*args):
+        r=subprocess.run(['/usr/bin/git','--no-optional-locks','--no-replace-objects',
+            '-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-C',str(root),*args],
+            capture_output=True,timeout=10,env=env)
+        if r.returncode:raise RuntimeError('PRIVATE_RUNTIME_SOURCE_GIT_RED')
+        return r.stdout
+    if git('rev-parse','HEAD').decode().strip()!=expected:raise RuntimeError('PRIVATE_RUNTIME_SOURCE_SHA_RED')
+    for args in (('status','--porcelain=v1','--untracked-files=all'),
+                 ('ls-files','--others','--ignored','--exclude-standard','-z')):
+        if git(*args):raise RuntimeError('PRIVATE_RUNTIME_UNREVIEWED_WORKING_SET_RED')
+    return expected
+
+
+PREIMPORT_BOUND_SHA=None
+if __name__=='__main__':
+    bootstrap=argparse.ArgumentParser(add_help=False)
+    bootstrap.add_argument('--infra-sha',required=True)
+    selected,_=bootstrap.parse_known_args()
+    try:PREIMPORT_BOUND_SHA=preimport_source(Path(__file__).resolve().parents[1],selected.infra_sha)
+    except (OSError,ValueError,RuntimeError,subprocess.SubprocessError):
+        print(json.dumps({'green':False,'code':'PRIVATE_RUNTIME_SOURCE_PREIMPORT_RED','host_acceptance':False}))
+        raise SystemExit(1)
+
+# Imports below are reached by the receipt-producing CLI ONLY after the exact
+# SHA/clean tracked, untracked AND ignored working-set check. Unit-test import
+# is not a receipt-producing entry; main() rejects an unbound imported call.
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import tu1nz_public_runtime_artifact as a
 import tu1nz_public_runtime_build as build
@@ -36,7 +72,8 @@ def checkout_roles(infra_source,application_source,workflow_source,expected_infr
     a.require(re.fullmatch('[a-f0-9]{40}',expected_infra) and infra_source!=workflow_source and
         application_source.resolve()==workflow_source/'canonical-runtime-r5','EXACT_SOURCE_CHECKOUT')
     actual_infra=git_read(infra_source,'rev-parse','HEAD')
-    a.require(actual_infra==expected_infra and not git_read(infra_source,'status','--porcelain'),
+    a.require(actual_infra==expected_infra and not git_read(infra_source,'status','--porcelain') and
+        not git_read(infra_source,'ls-files','--others','--ignored','--exclude-standard','-z'),
               'EXACT_INFRA_SOURCE_CHECKOUT')
     roles=source_roles(git_read(application_source,'rev-parse','HEAD'),
         git_read(application_source,'rev-parse','HEAD^{tree}'),git_read(workflow_source,'rev-parse','HEAD'),event_head)
@@ -68,6 +105,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--application',type=Path,required=True)
     p.add_argument('--infra-sha',required=True);p.add_argument('--image',required=True)
     p.add_argument('--output',type=Path,required=True);args=p.parse_args()
+    a.require(PREIMPORT_BOUND_SHA==args.infra_sha,'RECEIPT_REQUIRES_PREIMPORT_SOURCE_GATE')
     os.umask(0o077);infra_source=Path(__file__).resolve().parents[1]
     out=args.output.absolute();created=False;container=None;owner=uuid.uuid4().hex;stage='admission'
     result={'schema':'TU1NZ_PUBLIC_RUNTIME_PRIVATE_CI_R5_V1','green':False,'host_acceptance':False}
