@@ -625,6 +625,24 @@ def actual_policy_owner_epoch(s):
     assert rejected and authority._authorization_owner is None
 
 
+def production_outcome(result,code,r,fault_wire,stderr):
+    """Retain the actual result BEFORE a later test-only proof can fail.
+
+    Missing fault-injection evidence must fail the test, not erase a prior
+    admission rejection or be misreported as the production cause.
+    """
+    acknowledgments=list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
+    actual_root=sum(p.stat().st_uid==0 for p in [WEB,*WEB.rglob('*')])
+    value={k:result.get(k) for k in ('status','primary','abort','cleanup')}
+    value.update(abort=result.get('abort',[]),cleanup=result.get('cleanup',[]),
+        client_error_type=result.get('error_type'),server_exit=code,owner_confirmations=len(acknowledgments),
+        actual_root_objects=actual_root,last_record_kind=fault_wire.record.get('kind') if fault_wire.record else None,
+        last_record_sequence=fault_wire.record.get('sequence',0) if fault_wire.record else 0)
+    from tu1nz_public_operator_ci import terminal_wire_code
+    value['server_terminal_code']=terminal_wire_code(stderr)
+    return value,acknowledgments,actual_root
+
+
 def main():
     global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
@@ -824,6 +842,7 @@ s.load("host").command=_delay_after_actual_start
     if diagnostic_path.exists(): ACTOR_DIAGNOSTIC = io.parse(diagnostic_path.read_bytes())
     cost_path = ROOT/'read-cost.json'
     if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
+    PRODUCTION_OUTCOME,acknowledgments,actual_root=production_outcome(result,code,r,fault_wire,stderr)
     if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
         assert proof['initial'] != proof['replacement']['InvocationID'] and int(proof['replacement']['NRestarts']) >= 1
@@ -833,15 +852,6 @@ s.load("host").command=_delay_after_actual_start
     from tu1nz_public_operator_ci import FAULTS
     if args.scenario == 'thread_authority': fault_wire.injected.append('REAL_NONLEADER_RETAINS_FILESYSTEM_UID')
     assert fault_wire.injected == FAULTS[args.scenario], 'INTENDED_REAL_FAULT_NOT_INJECTED'
-    acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
-    actual_root = sum(p.stat().st_uid == 0 for p in [WEB, *WEB.rglob('*')])
-    PRODUCTION_OUTCOME = {k: result.get(k) for k in ('status', 'primary', 'abort', 'cleanup')}
-    PRODUCTION_OUTCOME.update(abort=result.get('abort', []), cleanup=result.get('cleanup', []),
-        client_error_type=result.get('error_type'), server_exit=code, owner_confirmations=len(acknowledgments),
-        actual_root_objects=actual_root, last_record_kind=fault_wire.record.get('kind') if fault_wire.record else None,
-        last_record_sequence=fault_wire.record.get('sequence', 0) if fault_wire.record else 0)
-    from tu1nz_public_operator_ci import terminal_wire_code
-    PRODUCTION_OUTCOME['server_terminal_code'] = terminal_wire_code(stderr)
     report = {'scenario': args.scenario, 'status': result['status'], 'server_exit': code,
                       'proof': io.sha(io.canonical(result)), 'source_files': hashes,
                       'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,
@@ -920,6 +930,6 @@ if __name__ == '__main__':
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
         if ACTOR_DIAGNOSTIC is not None: location['actor'] = ACTOR_DIAGNOSTIC
-        if READ_COST is not None: location['read_cost'] = READ_COST
+        if READ_COST: location['read_cost'] = READ_COST  # strict reader forbids an empty cost object
         print(json.dumps({'native_failure': location}))
         raise SystemExit(1)

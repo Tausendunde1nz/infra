@@ -26,6 +26,26 @@ import tu1nz_public_runtime_ci as native
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_native_primary_result_survives_missing_test_restart_proof(self):
+        from tests import public_operator_native as fixture
+        from tu1nz_public_operator_ci import failure_location
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);web=root/'web';web.mkdir();(web/'synthetic').write_bytes(b'SYNTHETIC')
+            journal=root/'custody'/'fixed-test-only'/'operator-records';journal.mkdir(parents=True)
+            (journal/'001-owner_object_ack.json').write_bytes(b'{}')
+            r=SimpleNamespace(CUSTODY_PARENT=root/'custody',TX='fixed-test-only')
+            peer=SimpleNamespace(record={'kind':'operator_cleanup','sequence':9})
+            result={'status':'HOLD','primary':'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_UNCLASSIFIED_OR_EXTRA_ACTOR',
+                    'abort':[],'cleanup':[]}
+            with patch.object(fixture,'WEB',web):
+                outcome,acknowledgments,count=fixture.production_outcome(result,0,r,peer,b'')
+            self.assertEqual(outcome['primary'],result['primary']);self.assertEqual(len(acknowledgments),1)
+            self.assertEqual(count,sum(p.stat().st_uid==0 for p in [web,*web.rglob('*')]))
+            self.assertFalse((root/'actual-restart-proof.json').exists())
+            failure={'native_failure':{'test_line':1,'test_type':'FileNotFoundError',
+                'production_fault':None,'outcome':outcome}}
+            self.assertEqual(failure_location(json.dumps(failure).encode())['outcome']['primary'],result['primary'])
+
     def test_fixture_uses_replacement_elf_closure_not_distro_python_assumption(self):
         from tests import public_runtime_fixture as fixture
         with tempfile.TemporaryDirectory() as d:
