@@ -15,6 +15,32 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_fixture_policy_wait_is_before_admission_and_never_retries_unknown(self):
+        # Unit fixture lifecycle only, not mocked production admission.
+        from types import SimpleNamespace
+        from tests import public_operator_native as native
+        import time
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder); task=root/'2';task.mkdir();comm=task/'comm'
+            comm.write_text('pool-polkitd\n')
+            observer=SimpleNamespace(starttime=lambda pid:'7',process=lambda pid:{'starttime':'7'})
+            class Proc:
+                def __truediv__(self,part):return self if part=='2' else root
+            with patch.object(native,'Path',return_value=Proc()):
+                with self.assertRaisesRegex(AssertionError,'FIXTURE_POLICY_STARTUP_NOT_QUIET'):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()-1)
+                with patch.object(native.time,'sleep',side_effect=lambda value:comm.write_text('gmain\n')):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                observer.process=lambda pid:(_ for _ in ()).throw(RuntimeError('STRICT_CENSUS_UNKNOWN'))
+                with self.assertRaisesRegex(RuntimeError,'STRICT_CENSUS_UNKNOWN'):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                observer.process=lambda pid:{'starttime':'8'}
+                with self.assertRaisesRegex(AssertionError,'FIXTURE_POLICY_LEADER_CHANGED'):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                comm.unlink()
+                with self.assertRaises(FileNotFoundError):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+
     def test_legacy_unchanged_witness_follows_fixture_build_but_precedes_production(self):
         import ast
         from tests import public_operator_native as native

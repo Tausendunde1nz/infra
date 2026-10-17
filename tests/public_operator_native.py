@@ -732,6 +732,30 @@ def source_read_census_fence(s):
         assert paths.close()  # the failed namespace fence stays latched
 
 
+def wait_for_fixture_policy_idle(observer, pid, deadline):
+    """Fixture preparation only; never retry a failed production observation.
+
+    The owner-epoch component deliberately restarts the synthetic daemon.
+    Its short-lived GLib pool worker can otherwise retire in the middle of
+    the later production census. Wait for that known startup worker BEFORE
+    the first baseline/claim, then require the unmodified strict process()
+    read once. Unknown/read failures, leader replacement and timeout fail
+    the fixture; no caught KCMP error or substituted authorization result.
+    """
+    identity=observer.starttime(pid); tasks=Path('/proc')/str(pid)/'task'
+    while True:
+        assert time.monotonic()<deadline, 'FIXTURE_POLICY_STARTUP_NOT_QUIET'
+        assert observer.starttime(pid)==identity, 'FIXTURE_POLICY_LEADER_CHANGED'
+        names=list(tasks.iterdir())
+        assert names and any(p.name==str(pid) for p in names)
+        labels=[(p/'comm').read_text().strip() for p in names]
+        if 'pool-polkitd' not in labels:
+            row=observer.process(pid)  # all task security + KCMP_FILES, once
+            assert row['starttime']==identity, 'FIXTURE_POLICY_LEADER_CHANGED'
+            return
+        time.sleep(.05)
+
+
 def actual_policy_owner_epoch(s):
     # The same actual D-Bus reads as production. Restart ONLY the synthetic
     # Guest's own policy daemon, BEFORE taking the fixture baseline. This is
@@ -746,6 +770,9 @@ def actual_policy_owner_epoch(s):
         assert error.primary == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_AUTHORIZATION_OWNER_CHANGED'
         rejected = True
     assert rejected and authority._authorization_owner is None
+    pid=int(run('/usr/bin/systemctl','show','polkit.service','--property=MainPID','--value'))
+    assert pid>1
+    wait_for_fixture_policy_idle(observer,pid,time.monotonic()+25)
 
 
 def actual_loader_alias_fence(s):

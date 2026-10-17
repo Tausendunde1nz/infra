@@ -5,6 +5,16 @@ The closed archive search did not establish its complete original interpreter,
 venv and installation provenance. Archive differences are not current live drift.
 Do not repeat that search or normalize the historical checkout.
 
+The native fixture's owner-epoch negative component restarts only its own
+synthetic polkit service. Before its first baseline it now waits, at most25s,
+for that daemon's known startup pool worker to retire, with the same leader
+identity, and then invokes the unchanged full task/KCMP census once. A32s
+network-none ARM observation saw that worker retire at15.5s; this does not
+prove the cause of the earlier x64 ESRCH or current Host readiness. This is
+test input preparation, not a production retry, deadline increase, daemon
+restart permission or exception for disappearing threads. A failed actual
+census still fails closed; the native full execution gates remain required.
+
 ## Why this route
 
 Control `managed/bin/tu1nz-lighting-halloween-deploy-r1` publishes eleven static
