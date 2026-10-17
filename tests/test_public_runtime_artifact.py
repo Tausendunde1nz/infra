@@ -34,6 +34,58 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_census_loader_elf_profile_rejects_helper_bootstrap_dependencies(self):
+        import struct
+        def elf(parts,machine=62):
+            raw=bytearray(64+56*len(parts));raw[:7]=b'\x7fELF\x02\x01\x01'
+            struct.pack_into('<HHIQQQIHHH',raw,16,3,machine,1,0,64,0,0,64,56,len(parts))
+            for i,(tag,body) in enumerate(parts):
+                offset=len(raw)
+                struct.pack_into('<IIQQQQQQ',raw,64+56*i,tag,4,offset,0,0,len(body),len(body),1)
+                raw.extend(body)
+            return bytes(raw)
+        interp=b'/lib64/ld-linux-x86-64.so.2\0'
+        self.assertEqual(replacement.elf_loader_profile(elf([(3,interp)])),(interp[:-1].decode(),62))
+        self.assertEqual(replacement.elf_loader_profile(elf([(2,b'\0'*16)]),standalone=True),62)
+        for raw in (b'#!/bin/sh\n',elf([(3,interp),(3,interp)]),elf([(3,b'/lib/fake\0TRAIL')]),
+                    elf([(3,b'/tmp/unbound\0')]),elf([(3,b'/lib/../tmp/fake\0')]),elf([(3,interp)],machine=3)):
+            with self.subTest(raw=raw[:64]),self.assertRaises(wire.Hold):replacement.elf_loader_profile(raw)
+        for raw in (elf([(3,interp)]),elf([(2,struct.pack('<qQ',1,7)+b'\0'*16)]),
+                    elf([(2,struct.pack('<qQ',0x6ffffefb,7)+b'\0'*16)]),
+                    elf([(2,struct.pack('<qQ',0x6ffffefc,7)+b'\0'*16)]),elf([(2,b'X')])):
+            with self.subTest(raw=raw[:64]),self.assertRaises(wire.Hold):
+                replacement.elf_loader_profile(raw,standalone=True)
+
+    def test_dependency_census_never_executes_ldd_or_an_unbound_loader(self):
+        from unittest.mock import Mock
+        import time
+        authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        loader='/lib64/ld-linux-x86-64.so.2';source='/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2'
+        authority.census_loader=loader;authority.external_identities={loader:(1,2,3,4)}
+        authority.loader_bindings={loader:source};authority.loader_config=Mock()
+        authority.verify_external_libraries=Mock();authority.deadline=time.monotonic()+30
+        authority.runtime=SimpleNamespace(elf_files={'python/bin/python3.12'})
+        result=SimpleNamespace(returncode=0,stdout=b'BOUND REAL LOADER',stderr=b'')
+        for target in ('/usr/bin/busctl',a.ROOT+'/python/bin/python3.12'):
+            with patch.object(replacement.subprocess,'run',return_value=result) as called:
+                self.assertIs(authority.dependency_census(target),result)
+                self.assertEqual(called.call_args.args[0],[source,'--list',target])
+                self.assertEqual(called.call_args.kwargs['env'],replacement.ENV)
+                self.assertLessEqual(called.call_args.kwargs['timeout'],20)
+        self.assertEqual(authority.verify_external_libraries.call_count,4)
+        for target in ('/usr/bin/ldd','/tmp/unbound',a.ROOT+'/NOT_ELF'):
+            with self.subTest(target=target),patch.object(replacement.subprocess,'run') as called,\
+                 self.assertRaises(wire.Hold):authority.dependency_census(target)
+            called.assert_not_called()
+        for broken in ('identity','fence'):
+            with self.subTest(broken=broken),patch.object(replacement.subprocess,'run') as called:
+                if broken=='identity':authority.external_identities={}
+                else:
+                    authority.external_identities={loader:(1,2,3,4)}
+                    authority.verify_external_libraries.side_effect=wire.Hold('CHANGED')
+                with self.assertRaises(wire.Hold):authority.dependency_census('/usr/bin/busctl')
+                called.assert_not_called()
+
     def test_fixed_simple_reads_scope_flags_types_and_permanent_failure(self):
         import ctypes,time
         from unittest.mock import Mock

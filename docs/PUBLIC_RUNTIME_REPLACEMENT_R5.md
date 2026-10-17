@@ -257,6 +257,20 @@ privileges. Later Host admission must supply those authentic package bindings;
 native fixture hashes do not manufacture Host provenance. Owner120s/action120s/
 overall600s and all original writer/abort/cleanup contracts remain unchanged.
 
+Neither production census invokes `ldd`: its unauthenticated shell/helper
+closure could otherwise falsify both dependency lists. The bound busctl ELF64
+PT_INTERP selects the separately originated, hashed, metadata-checked and
+name/object-fenced actual loader. Its bounded ELF headers must show no further
+interpreter, NEEDED, audit, filter or auxiliary dependencies; architecture must
+match. Only that exact canonical loader's `--list` is invoked for busctl and
+the manifest-bound artifact ELF roots, under the existing sterile environment
+and20s/active-phase limits. Hashes/events/cache/preload are checked before and
+after each invocation. No shell, arbitrary executable, generic command-scope
+extension or ldd-based production fallback is admitted. Missing origin, helper
+binding or standalone-loader proof denies before the first census/dlopen.
+Native fixtures additionally compare actual bound-loader/ldd dependency sets;
+the latter is only a synthetic fixture cross-check, not production authority.
+
 `source_release.operator_dependencies` is a REQUIRED separate R5 observer TCB
 map: exactly busctl and its observed complete ELF closure, at most128 entries.
 Each alias has an explicit canonical source, byte hash, UID/GID/mode/ACL-attrs/

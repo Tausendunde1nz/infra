@@ -16,19 +16,59 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import struct
+import subprocess
 import tarfile
 import time
 
 import tu1nz_public_operator_io as io
 import tu1nz_public_runtime_artifact as artifact
 from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ
-from tu1nz_public_operator_observe import Authority, UNITS, process, command, typed_exec_properties, EXEC_PROPERTIES
+from tu1nz_public_operator_observe import Authority, UNITS, ENV, process, command, typed_exec_properties, EXEC_PROPERTIES
 from tu1nz_public_operator_host import Adapter
 
 OVERLAY = 'zzz-public-runtime-r5.conf'
 CHUNK = 512*1024
 REFERENCE = 'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1'
 BUS_PROVIDER = 'libsystemd-shared-255.so'  # exact ABI covered by native255 tests
+
+
+def elf_loader_profile(raw, *, standalone=False):
+    """Read bounded ELF64 headers, never run an unbound census helper.
+
+    The independently originated busctl chooses its PT_INTERP. The loader
+    itself must be independently bound AND have no interpreter/DT_NEEDED or
+    audit dependencies. This is not a replacement ELF dependency resolver.
+    """
+    io.require(type(raw) is bytes and 64<=len(raw)<=32*1024*1024 and
+        raw[:7]==b'\x7fELF\x02\x01\x01','REPLACEMENT_CENSUS_ELF_PROFILE')
+    kind,machine,version,_,offset,_,_,size,stride,count=struct.unpack_from('<HHIQQQIHHH',raw,16)
+    io.require(kind in (2,3) and machine in (62,183) and version==1 and size==64 and
+        stride==56 and 0<count<=256 and offset>=64 and offset+count*stride<=len(raw),
+        'REPLACEMENT_CENSUS_ELF_PROFILE')
+    interpreters=[];dynamic=[]
+    for index in range(count):
+        tag,_,start,_,_,length,_,_=struct.unpack_from('<IIQQQQQQ',raw,offset+index*stride)
+        io.require(start<=len(raw) and length<=len(raw)-start,'REPLACEMENT_CENSUS_ELF_BOUNDS')
+        if tag==3:interpreters.append(raw[start:start+length])
+        if tag==2:dynamic.append(raw[start:start+length])
+    if standalone:
+        io.require(not interpreters and len(dynamic)<=1,'REPLACEMENT_CENSUS_LOADER_NOT_STANDALONE')
+        for body in dynamic:
+            io.require(0<len(body)<=65536 and len(body)%16==0,'REPLACEMENT_CENSUS_ELF_DYNAMIC')
+            tags=[struct.unpack_from('<qQ',body,i)[0] for i in range(0,len(body),16)]
+            io.require(0 in tags and not set(tags[:tags.index(0)]) &
+                {1,0x6ffffefb,0x6ffffefc,0x7ffffffd,0x7fffffff},
+                'REPLACEMENT_CENSUS_LOADER_NOT_STANDALONE')
+        return machine
+    io.require(len(interpreters)==1 and 1<len(interpreters[0])<=4096 and
+        interpreters[0][-1:]==b'\0' and b'\0' not in interpreters[0][:-1],
+        'REPLACEMENT_CENSUS_INTERPRETER')
+    try:path=interpreters[0][:-1].decode('ascii')
+    except UnicodeError:raise io.Hold('PUBLIC_OPERATOR_REPLACEMENT_CENSUS_INTERPRETER')
+    io.require(path.startswith(('/lib/','/lib64/','/usr/lib/')) and
+        '..' not in PurePosixPath(path).parts and str(PurePosixPath(path))==path,
+        'REPLACEMENT_CENSUS_INTERPRETER')
+    return path,machine
 
 
 validate_receipt = artifact.validate_receipt
@@ -476,6 +516,7 @@ class ReplacementAuthority(Authority):
         self.loader_config=LoaderConfiguration.__new__(LoaderConfiguration)
         self.loader_config.__init__(paths,baseline,deadline)
         self.manager_environment=None
+        self.census_loader=None
         self.reader=None
         legacy=LegacyStopFence(baseline['source_release']['runtime_reference'],paths,
             baseline['source_origin_receipts'],python_binary=baseline['source_release']['python_binary'],deadline=deadline)
@@ -513,19 +554,14 @@ class ReplacementAuthority(Authority):
         reference=self.b['source_release']['operator_dependencies'];tool='/usr/bin/busctl'
         used=set()
         def bind(path):
-            fields={'source','sha256','uid','gid','mode','attrs','flags','origin_sha256'}
-            io.require(path in reference and type(reference[path]) is dict and set(reference[path])==fields and
-                reference[path]['source'].startswith(('/usr/lib/','/usr/bin/')) and
-                reference[path]['origin_sha256'] in self.b['source_origin_receipts'],
-                'REPLACEMENT_READER_LIBRARY_ORIGIN_UNBOUND')
-            io.require(self.bind_loader_path(path)==reference[path]['source'],'REPLACEMENT_READER_LIBRARY_ALIAS')
-            pp=PurePosixPath(reference[path]['source'])
-            raw,row=self.paths.read(str(pp))
-            io.require(io.sha(raw)==reference[path]['sha256'] and all(row[k]==reference[path][k] for k in
-                       ('uid','gid','mode','attrs','flags')),'REPLACEMENT_READER_LIBRARY_PROFILE')
-            self.external_dependencies[path]={k:reference[path][k] for k in ('source','sha256')};used.add(path)
-        bind(tool);self.verify_external_libraries()
-        result=command(['/usr/bin/ldd',tool],self.deadline)
+            raw=self.bind_operator_dependency(path);used.add(path);return raw
+        binary=bind(tool)
+        loader,machine=elf_loader_profile(binary)
+        io.require(elf_loader_profile(bind(loader),standalone=True)==machine,
+                   'REPLACEMENT_CENSUS_LOADER_ARCHITECTURE')
+        self.census_loader=loader
+        self.verify_external_libraries()
+        result=self.dependency_census(tool)
         io.require(result.returncode==0 and b'not found' not in result.stdout,'REPLACEMENT_READER_LIBRARY_CLOSURE')
         selected=[]
         for line in result.stdout.decode().splitlines():
@@ -546,6 +582,39 @@ class ReplacementAuthority(Authority):
             except BaseException:reader.close();raise
             self.reader=reader;return reader
         finally:os.close(fd)
+
+    def bind_operator_dependency(self,path):
+        reference=self.b['source_release']['operator_dependencies']
+        fields={'source','sha256','uid','gid','mode','attrs','flags','origin_sha256'}
+        io.require(path in reference and type(reference[path]) is dict and set(reference[path])==fields and
+            reference[path]['source'].startswith(('/usr/lib/','/usr/bin/')) and
+            reference[path]['origin_sha256'] in self.b['source_origin_receipts'],
+            'REPLACEMENT_READER_LIBRARY_ORIGIN_UNBOUND')
+        io.require(self.bind_loader_path(path)==reference[path]['source'],'REPLACEMENT_READER_LIBRARY_ALIAS')
+        raw,row=self.paths.read(reference[path]['source'])
+        io.require(io.sha(raw)==reference[path]['sha256'] and all(row[k]==reference[path][k] for k in
+                   ('uid','gid','mode','attrs','flags')),'REPLACEMENT_READER_LIBRARY_PROFILE')
+        self.external_dependencies[path]={k:reference[path][k] for k in ('source','sha256')}
+        return raw
+
+    def dependency_census(self,target):
+        # Execute ONLY the independently authenticated, self-contained loader
+        # selected by bound busctl. No ldd/shell/helper or guessed SONAME, no
+        # generic command-scope expansion. Both census sites use this path.
+        loader=self.census_loader
+        io.require(loader is not None and loader in self.external_identities and
+            (target=='/usr/bin/busctl' or target.startswith(artifact.ROOT+'/') and
+             target[len(artifact.ROOT)+1:] in self.runtime.elf_files),
+            'REPLACEMENT_CENSUS_SCOPE')
+        self.loader_config.check();self.verify_external_libraries()
+        remaining=min(20,self.deadline-time.monotonic())
+        io.require(remaining>0,'REPLACEMENT_CENSUS_DEADLINE')
+        result=subprocess.run([self.loader_bindings[loader],'--list',target],capture_output=True,
+            timeout=remaining,env=dict(ENV),cwd='/')
+        io.require(time.monotonic()<self.deadline and len(result.stdout)<=2*1024*1024 and
+            len(result.stderr)<=2*1024*1024,'REPLACEMENT_CENSUS_TIME_OR_OUTPUT_BOUND')
+        self.loader_config.check();self.verify_external_libraries()
+        return result
 
     def interpreter_binding(self,row,*,old):
         if old:
@@ -655,7 +724,7 @@ class ReplacementAuthority(Authority):
         roots=artifact.loader_context_roots(self.runtime.elf_files)
         covered=set(roots)
         for name in roots:
-            result=command(['/usr/bin/ldd',artifact.ROOT+'/'+name],self.deadline)
+            result=self.dependency_census(artifact.ROOT+'/'+name)
             io.require(result.returncode==0 and b'not found' not in result.stdout,'REPLACEMENT_LOADER_UNKNOWN')
             for line in result.stdout.decode().splitlines():
                 words=line.split();paths=[w for w in words if w.startswith('/')]

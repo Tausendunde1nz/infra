@@ -776,6 +776,24 @@ def actual_policy_owner_epoch(s):
     wait_for_fixture_policy_idle(observer,pid,time.monotonic()+25)
 
 
+def actual_census_loader_profile(s):
+    """Native ELF/--list parity only, not historical origin/Host admission.
+
+    ldd is a fixture comparison, NEVER a production decision/helper. Both
+    the observer and artifact census use the authenticated loader directly.
+    """
+    replacement=s.load('replacement');tool=Path('/usr/bin/busctl')
+    loader,machine=replacement.elf_loader_profile(tool.read_bytes())
+    assert replacement.elf_loader_profile(Path(loader).read_bytes(),standalone=True)==machine
+    observed=run(str(Path(loader).resolve(strict=True)),'--list',str(tool))
+    comparison=run('/usr/bin/ldd',str(tool))
+    def names(raw):
+        assert b'not found' not in raw
+        return {str(Path(word).resolve(strict=True)) for line in raw.decode().splitlines()
+                for word in line.split() if word.startswith('/')}
+    assert names(observed)==names(comparison) and names(observed)
+
+
 def actual_loader_alias_fence(s):
     """Own synthetic library names only; no systemd ancestor/reload experiment."""
     replacement=s.load('replacement');entry=s.load('entry');fs=s.load('fs')
@@ -891,6 +909,7 @@ def main():
     if args.scenario=='r5_legacy_unknown':
         p=APP/'.venv/bin/tu1nz-public-s7';p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_UNKNOWN_OLD_INSTALL_BYTES\n')
     source_read_census_fence(s)
+    actual_census_loader_profile(s)
     actual_loader_alias_fence(s)
     actual_read_census_fence(s)
     actual_loader_configuration_fence(s)
