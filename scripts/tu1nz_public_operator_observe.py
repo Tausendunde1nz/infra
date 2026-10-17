@@ -37,7 +37,8 @@ PROPERTIES = ('Id,Names,LoadState,ActiveState,SubState,Result,MainPID,ControlPID
               'StopPropagatedFrom,Triggers,TriggeredBy,OnFailure,KillMode,Restart,'
               'TimeoutStopUSec,User,Group,SupplementaryGroups,NoNewPrivileges,'
               'OnSuccess,FailureAction,SuccessAction,StartLimitAction,RefuseManualStop,'
-              'RefuseManualStart,JobTimeoutAction,StopWhenUnneeded,BusName,Type,Wants')
+              'RefuseManualStart,JobTimeoutAction,StopWhenUnneeded,BusName,Type,Wants,'
+              'ExecStop,ExecStopPost,ExecStartPre,ExecStartPost,ExecCondition,RootDirectory,RootImage')
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C', 'PYTHONNOUSERSITE': '1'}
 ADMIN_ACTIONS = ('org.freedesktop.systemd1.manage-units',
                  'org.freedesktop.systemd1.manage-unit-files',
@@ -341,21 +342,33 @@ class Authority:
                    os.readlink('/proc/self/ns/user') == os.readlink('/proc/1/ns/user'), 'HOST_NAMESPACE_REQUIRED')
         io.require(set(baseline['source_release']) == {'probe_dependencies', 'python_binary', 'runtime_reference'},
                    'RUNTIME_SOURCE_RELEASE_INCOMPLETE')
-        self.runtime = RuntimeFence(baseline['source_release']['runtime_reference'], paths,
-            baseline['source_origin_receipts'], python_binary=baseline['source_release']['python_binary'], deadline=deadline)
+        self.runtime = self.open_runtime(baseline, paths, deadline)
         self.check_files()
         io.require(self.unit_search() == baseline['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
         self.initial_units = unit_rows(UNITS, self.deadline)
         self.check(stop_only=True)
 
-    def function(self, unit, *, old):
-        io.require(unit in UNITS, 'FUNCTION_UNIT_SCOPE')
-        before = self.unit(unit); row = process(int(before['MainPID']))
-        io.require(before['ActiveState'] == 'active' and not before['Job'], 'FUNCTION_INVOCATION_UNKNOWN')
+    def open_runtime(self, baseline, paths, deadline):
+        return RuntimeFence(baseline['source_release']['runtime_reference'], paths,
+            baseline['source_origin_receipts'], python_binary=baseline['source_release']['python_binary'], deadline=deadline)
+
+    def interpreter_binding(self, row, *, old):
         binary = self.b['source_release']['python_binary']
         io.require(row['exe'] == binary and row['exe_sha256'] ==
                    self.b['source_release']['probe_dependencies'][binary]['sha256'],
                    'RUNTIME_INTERPRETER_NOT_AUTHENTIC_REFERENCE')
+
+    def extra_unit_contract(self, unit, value, *, stop_only):
+        pass  # Legacy R4 contracts retain their original admission requirements.
+
+    def initial_application_ready(self,unit,row):
+        return True  # Legacy first-invocation behavior is unchanged.
+
+    def function(self, unit, *, old):
+        io.require(unit in UNITS, 'FUNCTION_UNIT_SCOPE')
+        before = self.unit(unit); row = process(int(before['MainPID']))
+        io.require(before['ActiveState'] == 'active' and not before['Job'], 'FUNCTION_INVOCATION_UNKNOWN')
+        self.interpreter_binding(row, old=old)
         label = task_label(row['pid'])
         io.require(row['namespaces']['net'] == os.readlink('/proc/self/ns/net') and
                    label == task_label(os.getpid()) and (label == b'unconfined' or
@@ -485,7 +498,7 @@ class Authority:
                    starttime(row['pid']) == row['starttime'], 'FUNCTION_INVOCATION_CHANGED')
         return proof
 
-    def listener_binding(self, row, contract):
+    def listener_binding(self, row, contract, *, allow_initial_unbound=False):
         host, port = contract['bind_host'], contract['bind_port']
         io.require(host in ('127.0.0.1', '::1') and type(port) is int and 1024 <= port <= 65535,
                    'FUNCTION_LISTENER_SCOPE')
@@ -503,6 +516,9 @@ class Authority:
                 raw = bytes.fromhex(address)
                 raw = raw[::-1] if name == 'tcp' else b''.join(raw[n:n+4][::-1] for n in range(0, 16, 4))
                 bound.append(socket.inet_ntop(socket.AF_INET if name == 'tcp' else socket.AF_INET6, raw))
+        if allow_initial_unbound and not bound:
+            io.require(starttime(row['pid'])==row['starttime'],'INITIAL_LISTENER_PROCESS_CHANGED')
+            return None  # Only monitor the SAME first invocation, never admission.
         io.require(bound == [host] and starttime(row['pid']) == row['starttime'],
                    'HTTP_LISTENER_NOT_OWNED_BY_EXPECTED_INVOCATION')
         return {'pid': row['pid'], 'starttime': row['starttime'], 'address': bound[0], 'port': port}
@@ -579,6 +595,7 @@ class Authority:
             'LoadState,StopWhenUnneeded,ActiveState,Job', self.deadline) if dependency_names else {})
         for unit in UNITS:
             value = rows[unit]
+            self.extra_unit_contract(unit, value, stop_only=stop_only)
             expected = self.b['unit_files'][unit]
             io.require(value['FragmentPath'] == expected['fragment'] and
                        not value['Job'] and value['NeedDaemonReload'] == 'no' and

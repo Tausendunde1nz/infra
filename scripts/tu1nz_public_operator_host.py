@@ -26,13 +26,14 @@ ASSET_NAMES = ('dropin_s7', 'dropin_s8_landing', 'dropin_wms')
 
 
 class Adapter:
+    authority_type = Authority
     def __init__(self, source, baseline, plan_raw, channel, binding, *, deadline):
         self.source, self.r = source, source.load('r3')
         self.channel, self.binding, self.deadline = channel, binding, deadline
         io.require(io.sha(plan_raw) == self.r.OWNER_PLAN, 'ORIGINAL_OWNER_PLAN_REQUIRED')
         self.plan_raw = plan_raw
         self.p = Paths(source.load('entry'), deadline=deadline)
-        self.a = Authority.__new__(Authority)
+        self.a = self.authority_type.__new__(self.authority_type)
         self.a.__init__(baseline, self.p, channel, machine=self.r.MACHINE, deadline=deadline)
         self.barriers = {}; self.return_barriers = {}; self.installed = {}
         self.barrier_places = {}; self.barrier_history = []
@@ -550,7 +551,8 @@ class Adapter:
                     if all(row[k] == v for k, v in self.a.original_profiles[unit].items()):
                         self.a.delegation_check(row, known_stop=True)
                         break
-                elif row['uid'] == row['gid'] == [1001]*4 and not row['groups'] and not any(row['caps'].values()):
+                elif (row['uid'] == row['gid'] == [1001]*4 and not row['groups'] and not any(row['caps'].values()) and
+                      self.a.initial_application_ready(unit,row)):
                     self.a.rights_check(unit, row)
                     break
                 io.require(time.monotonic()+.01 < deadline, 'FIRST_START_KERNEL_PROFILE_DEADLINE')
@@ -644,18 +646,19 @@ def session(source, packet, wire):
     def interrupted(_number, _frame): raise KeyboardInterrupt()
     for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(number, interrupted)
+    replacing=packet['scope'].get('schema')=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
     io.require(set(packet) == {'source', 'hashes', 'baseline', 'baseline_raw', 'scope_raw',
-                               'owner_plan', 'scope', 'scope_sha256', 'binding'},
+                               'owner_plan', 'scope', 'scope_sha256', 'binding'} |
+                               ({'baseline_encoding'} if replacing else set()),
                'SESSION_PACKET_SCHEMA')
     scope = packet['scope']; plan = base64.b64decode(packet['owner_plan'], validate=True)
-    io.require(set(scope) == {'schema', 'release_sha256', 'baseline_sha256', 'administrative_roles_sha256',
-               'baseline_origins_sha256', 'r3_approval_sha256', 'machine_sha256', 'transaction', 'owner_plan_sha256'}
-               and scope['schema'] == 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1' and
+    replacement=io.replacement_scope(scope,packet['baseline'])
+    io.require(
                scope['r3_approval_sha256'] == '7032ae9a4baf5c358e81050cd3fd675386c2f33100ab9932f504c053eaa10a7d',
                'SESSION_SCOPE_AUTHORITY_SCHEMA')
     io.require(io.parse(plan)['host'] == r.MACHINE, 'OWNER_PLAN_HOST_NOT_SESSION_HOST')
     scope_raw = base64.b64decode(packet['scope_raw'], validate=True)
-    baseline_raw = base64.b64decode(packet['baseline_raw'], validate=True)
+    baseline_raw = io.baseline_bytes(packet)
     io.require(io.parse(scope_raw) == scope and io.parse(baseline_raw) == packet['baseline'] and
                io.sha(scope_raw) == packet['scope_sha256'] and io.sha(io.canonical(scope)) == packet['binding'] and
                scope['machine_sha256'] == r.MACHINE and scope['transaction'] == r.TX and
@@ -671,7 +674,9 @@ def session(source, packet, wire):
     try:
         # Retain ownership of a partially initialized adapter too. Read-only
         # admission can fail after opening fences, before __init__ returns.
-        adapter = Adapter.__new__(Adapter)
+        if replacement:source.load('artifact')
+        adapter_type=source.load('replacement').ReplacementAdapter if replacement else Adapter
+        adapter = adapter_type.__new__(adapter_type)
         adapter.__init__(source, packet['baseline'], plan, channel, packet['binding'], deadline=wire.deadline)
         wire.send({'type': 'prepared', 'binding': packet['binding']})
         io.require(wire.receive() == {'type': 'client_custody_created', 'binding': packet['binding']},
@@ -689,12 +694,13 @@ def session(source, packet, wire):
             # No mutation from a decision file. Only the still-live explicit
             # client response can request the already confirmed once-return.
             wire.send({'type': 'held', 'primary': primary, 'abort': abort, 'cleanup': cleanup,
-                       'return_available': not adapter.owner_admission_started,
+                       'return_available': not adapter.owner_admission_started and not getattr(adapter, 'forbid_legacy_return', False),
                        'owner_return_available': adapter.owner is not None and adapter.owner.attempted,
                        'decision_seconds': max(0, min(20, channel.ceiling-time.monotonic()))})
             decision = wire.receive()
             io.require(set(decision) == {'type', 'value'} and decision['type'] == 'decision', 'RETURN_DECISION_SCHEMA')
             if decision['value'] == 'RETURN_OLD':
+                io.require(not getattr(adapter, 'forbid_legacy_return', False), 'LEGACY_RETURN_NOT_AUTHENTICATED')
                 channel.return_confirmed = True
                 final_status = flow.return_old()
             elif decision['value'] == 'OWNER_RETURN':

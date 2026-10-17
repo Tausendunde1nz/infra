@@ -1,0 +1,139 @@
+# R5: public-service runtime replacement — Source contract, not Host acceptance
+
+This is a prospective artifact, not a claim about the origin of the old install.
+The closed archive search did not establish its complete original interpreter,
+venv and installation provenance. Archive differences are not current live drift.
+Do not repeat that search or normalize the historical checkout.
+
+## Why this route
+
+Control `managed/bin/tu1nz-lighting-halloween-deploy-r1` publishes eleven static
+files without importing Application. It nevertheless requires the original R2
+proof and current writer closure. A different nginx root cannot remove the
+administrative Docker authority of the three public service contexts. Replacing
+both admissions would be a larger, different security contract, not a shortcut.
+
+Keep Rights → Owner → original R2 → separately approved Lighting publication.
+Only the runtime of S7, S8-Landing and WMS changes. No bot, S8 recovery, R15,
+provider, product or publication authority is added. The existing fixed logical
+transaction and custody are reused; a new Source revision/root is not a new try.
+
+## Authenticated prospective bytes
+
+`manifests/public-web-runtime-r5-inputs.json` binds canonical Application
+93555d8a141caf8ace33522f9340d30bfc47d2bb, tree
+1e8a644115127818f394b6f9d24f31826e04ecba, all650 Git blobs, the official
+Astral python-build-standalone CPython3.12.15 GNU x86_64 distribution and seven
+exact Linux wheels already allowed by that Source's hash locks. Distribution
+version, platform, URL, byte size and whole-file SHA256 are fixed; no pip index,
+source build, dependency resolution or supplied code is executed during assembly.
+This is an explicit new interpreter vendor/distribution, not the historical one.
+
+The builder reads exact Git objects, rejects links/paths/types outside its finite
+profile and assembles the portable interpreter, isolated venv,650 Source files
+and two generated console wrappers. WMS uses its unchanged `python -m` entry.
+Mode/uid/gid normalization applies ONLY to these newly assembled bytes. Two
+offline assemblies must be byte-identical. The local operator independently
+rebuilds and compares the full archive AND canonical receipt before SSH. A new
+hash alone cannot authenticate arbitrary old bytes. A changed recipe requires
+new Source review and exact artifact/scope binding.
+
+## Exact proposed Host delta — NOT authorized by Source approval
+
+Create-only root (including its previously absent dedicated parent):
+
+`/opt/tu1nz_repos/public-web-runtime-r5/93555d8a141caf8ace33522f9340d30bfc47d2bb`
+
+Private0700 while incomplete; after full construction root/directories0555,
+files0444 or0555,uid/gid0:0, no ACLs/security attributes. Only three exact venv
+interpreter links and vetted internal Python links are admitted. Failure leaves
+partial objects and persistent HOLD, never an apparently fresh retry. No automatic
+deletion, reset, replacement root or adoption of an existing directory.
+
+Keep the four R4 runtime assets byte-for-byte unchanged (isolation helper and
+three `zz-public-isolation-r1.conf` files). Additionally install exactly
+`zzz-public-runtime-r5.conf` in each existing approved public service drop-in
+directory under `/etc/systemd/system/`:
+
+* tu1nz-adult-public-s7.service.d
+* tu1nz-adult-public-s8-landing.service.d
+* tu1nz-adult-public-s10-wms.service.d
+
+Each fixed overlay binds the new `app/` read-only over
+`/opt/tu1nz_repos/adult-publishing-core` INSIDE THAT SERVICE ONLY. The historical
+Host tree and Git locks remain untouched. The unchanged helper resolves its fixed
+entrypoints through that view and executes the artifact's absolute interpreter.
+Check the actual mount identity/read-only flag, executable hash, first invocation,
+kernel credentials, groups, capabilities, listeners and HTTP, not just config text.
+External ELF dependencies must resolve to separately authenticated Host package
+bytes and remain fenced; missing origin/library/ABI/architecture evidence denies.
+This does not promise a wholly static or Host-independent runtime.
+
+## Transition, protection and failure
+
+R5 scope explicitly sets `legacy_return:false` and binds the exact artifact receipt
+hash. Old Application paths cannot be smuggled into baseline `files` as trusted
+origin. Existing Host administrative TCB, manager/transport, credentials,
+configuration, database, writer and namespace requirements remain mandatory.
+
+The old runtime is admitted ONLY as a stable, fenced, untrusted stop witness.
+It is not imported, repaired, restarted or declared safe. Stop entry additionally
+rejects ExecStop/StopPost, StartPre/Post, ExecCondition and alternate root hooks.
+This prospective risk boundary must be expressly included in Host approval.
+No observation can silently accept unknown writers or other administrative access.
+
+Ordered phases: authentic Source/scope and current Host entry → persistent same-TX
+intent/barriers/reload → controlled WMS→Landing→S7 stop → complete quiet/writer
+check → protected backup, independent readback and isolated restore → three bounded
+probes → streamed bound artifact and7 runtime assets → S7→Landing→WMS acceptance
+one at a time → unchanged84-object Owner operation → durable receipts and cleanup.
+Every next barrier release requires its predecessor's actual durable acceptance.
+Existing20s start/stop,120s action and600s overall deadlines are NOT enlarged.
+Artifact upload/construction has finite object/byte/chunk limits. Lost acknowledgement,
+partial install, interruption, drift or expired limit denies continuation/retry.
+
+Backup still protects the existing exact configuration/data/metadata and old
+read witness, with the existing consistency/restore requirements; it does not
+manufacture old runtime provenance. This release FORBIDS old-operation return,
+including after backup, restore or probe failure. A longer stopped HOLD is the
+realistic fallback. No newly installed interpreter may be called through an
+unconfirmed Host state. Owner's independently guarded once-only conditional
+Owner return remains unchanged and cannot certify security or allow R2.
+
+## Invocation and remaining private admission
+
+From the exact reviewed Infra checkout, use ONLY `scripts/tu1nz_public_operator.py`.
+Its existing private Source release, Host baseline, immutable Owner plan,
+canonical Application reference and independently confirmed scope hash remain
+required. R5 adds `--runtime-archive /PRIVATE/runtime.tar.gz` and
+`--runtime-input-cache /PRIVATE/pinned-inputs`.
+Run the complete command WITHOUT `--execute` first. Success means local package
+validation only; no SSH/claim/slot. The exact same inputs plus `--execute` require
+a separately approved Host delta and secure local TTY sudo input. Never put a
+password in arguments, files, logs or chat. No automatic reconnect/resume.
+
+No generic baseline or invented authority profile is distributed. Fresh permitted
+read-only Host collection and an independently approved exact private execution
+scope are still needed. Authentic historical config/tool/manager/administrative
+bindings remain required where the contract has not explicitly changed. A
+remaining missing binding must be named, not filled with a current hash.
+R2 has its original freeze, gates and logical slot; this adapter cannot sign or
+dispatch R2. Current remote slot/service status remains UNKNOWN until freshly read.
+
+## Required evidence
+
+Portable tests are byte/protocol tests, not native acceptance. Public Infra CI
+retains all18 previous production scenarios and adds9 actual R5 production-entry
+scenarios with synthetic650-file Application EXPECTED catalog and real pinned
+interpreter/wheels. No admission observation/action is substituted. These cover
+success, unknown old bytes, hooks, transport loss, partial install interruption,
+artifact tamper, forbidden old return, first restart and conditional Owner return.
+
+Private Application CI separately builds the actual canonical650-file artifact
+twice and tests real3.12.15 imports/binary PostgreSQL driver+read-only SQL and
+the three unchanged helper invocations, HTTP, kernel credentials and actual
+read-only views in a fresh x86_64 network-none systemd guest. Only private artifact
+storage receives Application bytes. This is not a substitute for the production
+operator/Owner scenarios or fresh Host gates. Local ARM exec-format failure is
+recorded, not converted into native GREEN. Final handoff must name exact commits,
+both mandatory CI results/reviews and post-merge results. No pending job is GREEN.

@@ -1,7 +1,8 @@
 """Real production session/Client/adapter in a fresh network-none PID1 guest.
 
 Only synthetic application, SQL, TLS, policy and website data. The sole test
-substitutions are EXPECTED target machine/owner-plan/custody/legacy-context bindings, because
+substitutions are EXPECTED target machine/owner-plan/custody/legacy-context bindings and,
+for R5, the explicitly synthetic expected Application catalog/input bindings, because
 real Host data and its immutable plan are forbidden here. No observation,
 authorization query, fence, action, backup, supervisor or receipt is replaced.
 The two restart-race cases also delay the caller AFTER the actual start command,
@@ -30,6 +31,7 @@ import sys
 import time
 
 sys.path.insert(0, '/source/scripts')
+sys.path.insert(0, '/source')
 import tu1nz_public_operator as client
 import tu1nz_public_operator_io as io
 
@@ -86,7 +88,8 @@ server.serve_forever()
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
              'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
-             'thread_source_fd')
+             'thread_source_fd', 'r5_success', 'r5_legacy_unknown', 'r5_hooks', 'r5_chunk_loss',
+             'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
@@ -208,7 +211,7 @@ class FaultWire:
         if message.get('type') != 'durable_record': return message
         self.record = message['record']; kind, value = self.record['kind'], self.record['value']
         wanted = 'start_old' if self.scenario == 'old_restart' else 'start'
-        if (self.scenario in ('first_restart', 'old_restart') and kind == 'host_action_intent' and
+        if (self.scenario in ('first_restart', 'old_restart', 'r5_first_restart') and kind == 'host_action_intent' and
                 value['action'] == wanted and value.get('unit') == UNITS[0]):
             marker = STATE/'native-crash-request'
             write(marker, b'SYNTHETIC_INITIAL_INVOCATION_CRASH_ONLY', 0o600); os.chown(marker, 1001, 1001)
@@ -236,9 +239,25 @@ class FaultWire:
             p = Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe/inputs/s7_form_secret')
             p.write_bytes(b'SYNTHETIC-ONLY-DIFFERENT-00000000000000000000000000000000')
             self.injected.append('REAL_SYNTHETIC_CREDENTIAL_DRIFT')
+        if kind=='replacement_install_progress' and not self.injected and self.scenario=='r5_partial_interrupt':
+            fd=os.pidfd_open(self.child.pid)
+            try:signal.pidfd_send_signal(fd,signal.SIGINT)
+            finally:os.close(fd)
+            self.injected.append('REAL_R5_PARTIAL_INSTALL_INTERRUPT')
+        if kind=='host_action_intent' and value['action']=='install_four_artifacts' and not self.injected and self.scenario=='r5_artifact_tamper':
+            import tu1nz_public_runtime_artifact as artifact
+            p=Path(artifact.ROOT)/'python/bin/python3.12';p.write_bytes(b'SYNTHETIC_TAMPER')
+            self.injected.append('REAL_R5_ARTIFACT_WRITE_AFTER_FENCE')
+        if kind=='probe_start_intent' and not self.injected and self.scenario=='r5_old_return_denied':
+            p=Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe/inputs/s7_form_secret')
+            p.write_bytes(b'SYNTHETIC-ONLY-DIFFERENT-00000000000000000000000000000000')
+            self.injected.append('REAL_SYNTHETIC_CREDENTIAL_DRIFT')
         return message
 
     def send(self, message):
+        if message.get('type')=='runtime_chunk' and not self.injected and self.scenario=='r5_chunk_loss':
+            message={**message,'index':message['index']+1}
+            self.injected.append('REAL_R5_WRONG_CHUNK_SEQUENCE')
         if message.get('type') == 'persisted' and self.record is not None:
             kind, value = self.record['kind'], self.record['value']
             if self.scenario == 'unknown_actor' and kind == 'owner_object_ack' and self.acks == 1:
@@ -248,13 +267,14 @@ class FaultWire:
                 message = {**message, 'sha256': '0'*64}; self.injected.append('REAL_INVALID_TRANSPORT_ACK')
             if self.scenario == 'lost_start_ack' and kind == 'host_action_ack' and value['action'] == 'start':
                 message = {**message, 'sha256': '0'*64}; self.injected.append('REAL_INVALID_START_ACK')
-            if self.scenario == 'owner_return' and kind == 'owner_object_intent' and self.intents == 8:
+            if self.scenario in ('owner_return','r5_owner_return') and kind == 'owner_object_intent' and self.intents == 8:
                 message = {**message, 'control': 'HOLD_BEFORE_OWNER_EFFECT'}
                 self.injected.append('EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT')
         if message.get('type') == 'decision':
-            if self.scenario in ('restore_fail_return', 'probe_fail_return', 'denied_return', 'lost_start_ack', 'old_restart'):
+            if self.scenario in ('restore_fail_return', 'probe_fail_return', 'denied_return', 'lost_start_ack', 'old_restart', 'r5_old_return_denied'):
                 message = {'type': 'decision', 'value': 'RETURN_OLD'}
-            elif self.scenario in ('owner_return', 'namespace_swap', 'lost_ack'):
+                if self.scenario=='r5_old_return_denied':self.injected.append('REAL_R5_FORBIDDEN_OLD_RETURN_REQUEST')
+            elif self.scenario in ('owner_return', 'r5_owner_return', 'namespace_swap', 'lost_ack'):
                 message = {'type': 'decision', 'value': 'OWNER_RETURN'}
         self.wire.send(message)
 
@@ -595,6 +615,13 @@ def main():
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
                            'thread_source_fd': 'thread_fd'}.get(args.scenario))
+    replacing=args.scenario.startswith('r5_');runtime_payload=runtime_receipt=runtime_inputs=None
+    if args.scenario=='r5_hooks':
+        write('/etc/systemd/system/'+UNITS[0]+'.d/12-r5-native-hook.conf',b'[Service]\nExecStop=/usr/bin/false\n')
+        run('/usr/bin/systemctl','daemon-reload')
+    if args.scenario=='r5_legacy_unknown':
+        p=APP/'.venv/bin/tu1nz-public-s7';p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_UNKNOWN_OLD_INSTALL_BYTES\n')
+    legacy_bytes={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
     source_read_census_fence(s)
     actual_policy_owner_epoch(s)
     if args.scenario == 'thread_authority':
@@ -621,7 +648,15 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         while not (ROOT/'threads-ready').exists():
             assert time.monotonic() < until
             time.sleep(.01)
-    b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
+    if replacing:
+        from tests.public_runtime_fixture import runtime
+        runtime_payload,runtime_receipt,runtime_inputs=runtime(s)
+    b = baseline(s)
+    if replacing:
+        origin=io.sha(io.canonical(runtime_receipt));b['source_origin_receipts'].append(origin)
+        b['source_release']['runtime_reference']={'schema':'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1',
+            'artifact':runtime_receipt,'origin_sha256':origin}
+    raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
     write(ROOT/'baseline.json', baseline_raw, 0o600)
     # Actual PID1 batch and three independent single reads must agree before
     # fault injection. Not a synthetic success response for an observer.
@@ -640,10 +675,15 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         'baseline_origins_sha256': io.sha(io.canonical(b['source_origin_receipts'])), 'r3_approval_sha256': client.APPROVAL,
         'machine_sha256': b['machine_sha256'], 'transaction': 'public-rights-20261014-1',
         'owner_plan_sha256': io.sha(raw_plan)}
+    if replacing:scope.update(schema='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1',
+        runtime_artifact_sha256=io.sha(io.canonical(runtime_receipt)),legacy_return=False)
     raw_scope = io.canonical(scope)
     packet = {'source': encoded, 'hashes': hashes, 'baseline': b, 'baseline_raw': base64.b64encode(baseline_raw).decode(),
               'owner_plan': base64.b64encode(raw_plan).decode(), 'scope': scope,
               'scope_raw': base64.b64encode(raw_scope).decode(), 'scope_sha256': io.sha(raw_scope), 'binding': io.sha(raw_scope)}
+    if replacing:
+        import zlib
+        packet['baseline_encoding']='zlib_R5';packet['baseline_raw']=base64.b64encode(zlib.compress(baseline_raw,9)).decode()
     held_writer = None
     if args.scenario == 'thread_authority':
         write(ROOT/'threads-change', b'CHANGE')
@@ -666,10 +706,14 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
                           's.load("entry").MACHINE='+repr(r.MACHINE)+'\n'+
                           's.load("r3").OWNER_PLAN='+repr(r.OWNER_PLAN)+'\n'+
                           's.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_hash)+'\n')
-    target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
-        b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
+    if replacing:
+        from tests.public_runtime_fixture import substitutions
+        target_substitution+=substitutions(s,runtime_inputs)
+    else:
+        target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
+            b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
     target_substitution += ACTOR_DIAGNOSTIC_WRAPPER
-    if args.scenario in ('first_restart', 'old_restart'):
+    if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         # Deterministic scheduler fault ONLY: execute the ACTUAL start, then
         # delay its caller until the real crash/on-failure replacement exists.
         # No observation/action result is replaced or returned as GREEN.
@@ -735,13 +779,15 @@ s.load("host").command=_delay_after_actual_start
                  if e['location'] == 'client']
     fault_wire = FaultWire(wire, args.scenario, child)
     if args.scenario == 'writer': fault_wire.injected.append('REAL_PREEXISTING_WRITABLE_FD')
+    if args.scenario=='r5_legacy_unknown':fault_wire.injected.append('REAL_R5_LEGACY_BYTES_NOT_ADOPTED')
+    if args.scenario=='r5_hooks':fault_wire.injected.append('REAL_R5_EXECSTOP_HOOK')
     if args.scenario == 'runtime_tamper': fault_wire.injected.append('REAL_RUNTIME_DRIFT_BEFORE_ADMISSION')
     if args.scenario == 'thread_source_fd':
         fault_wire.injected.extend(['REAL_NONLEADER_SOURCE_FD_WITH_UNSHARED_TABLE', 'REAL_WRITER_TASK_CENSUS_REJECTED'])
     if args.scenario in ('stop_source_fd', 'stop_source_mapping'):
         fault_wire.injected.append('REAL_STOP_TARGET_SOURCE_FD' if args.scenario == 'stop_source_fd'
                                    else 'REAL_STOP_TARGET_SOURCE_SHARED_MAP')
-    supervisor = client.Client(fault_wire, r, packet['binding'], http_expectations=endpoints)
+    supervisor = client.Client(fault_wire, r, packet['binding'], http_expectations=endpoints,runtime_payload=runtime_payload)
     result = {'status': 'UNKNOWN_TEST_PROTOCOL_HOLD'}
     try:
         result = supervisor.serve()
@@ -760,7 +806,7 @@ s.load("host").command=_delay_after_actual_start
     if diagnostic_path.exists(): ACTOR_DIAGNOSTIC = io.parse(diagnostic_path.read_bytes())
     cost_path = ROOT/'read-cost.json'
     if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
-    if args.scenario in ('first_restart', 'old_restart'):
+    if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
         assert proof['initial'] != proof['replacement']['InvocationID'] and int(proof['replacement']['NRestarts']) >= 1
         expected = 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_FIRST_START_AUTORESTART_DETECTED'
@@ -783,18 +829,20 @@ s.load("host").command=_delay_after_actual_start
                       'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,
                       'actual_faults': fault_wire.injected,
                       'fixture_only_no_host_acceptance': True}
-    if args.scenario == 'success':
+    if args.scenario in ('success','r5_success','r5_legacy_unknown'):
         assert code == 0 and result['status'] == 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', result
         assert actual_root == 88 and len(acknowledgments) == 84
     elif args.scenario in ('restore_fail_return', 'probe_fail_return'):
         assert code == 0 and result['status'] == 'OLD_OPERATION_RESTORED_SECURITY_RED', result
         assert actual_root == 4 and not acknowledgments
-    elif args.scenario == 'owner_return':
+    elif args.scenario in ('owner_return','r5_owner_return'):
         assert code == 0 and result['status'] == 'OWNER_RETURNED_SECURITY_RED', result
         assert actual_root == 4 and len(acknowledgments) == 7
     else:
         assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
         if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
+                             'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper',
+                             'r5_old_return_denied','r5_first_restart',
                              'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'): assert actual_root == 4
         else: assert 4 < actual_root < 88
         if args.scenario == 'unknown_actor':
@@ -819,6 +867,20 @@ s.load("host").command=_delay_after_actual_start
         if args.scenario == 'denied_return':
             assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'inactive'
                        for u in UNITS)
+    if replacing:
+        assert legacy_bytes=={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
+        if args.scenario=='r5_hooks':
+            assert not (r.CUSTODY_PARENT/r.TX).exists()
+            assert all(run('/usr/bin/systemctl','show',u,'--property=ActiveState','--value').strip()==b'active' for u in UNITS)
+        if args.scenario in ('r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_old_return_denied'):
+            assert all(run('/usr/bin/systemctl','show',u,'--property=ActiveState','--value').strip()==b'inactive' for u in UNITS)
+        if args.scenario=='r5_partial_interrupt':
+            import tu1nz_public_runtime_artifact as artifact
+            prefix=Path(artifact.ROOT);assert prefix.is_dir() and 0<len(list(prefix.rglob('*')))<len(runtime_receipt['objects'])
+            assert stat.S_IMODE(prefix.stat().st_mode)==0o700
+        if args.scenario=='r5_old_return_denied':
+            records=list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*.json'))
+            assert not any(io.parse(p.read_bytes()).get('value',{}).get('action')=='start_old' for p in records)
     if (r.CUSTODY_PARENT/r.TX).exists():
         try: repeated = r.Journal(r.CUSTODY_PARENT, packet['binding'])
         except r.Denied: pass

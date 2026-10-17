@@ -26,7 +26,8 @@ CONTROL_COMMIT = 'f2979863bbb7043261e9177842503a9b47cdb49f'
 CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
          'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
          'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
-         'thread_source_fd')
+         'thread_source_fd', 'r5_success', 'r5_legacy_unknown', 'r5_hooks', 'r5_chunk_loss',
+         'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
 FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'stop_source_fd': ['REAL_STOP_TARGET_SOURCE_FD'],
           'stop_source_mapping': ['REAL_STOP_TARGET_SOURCE_SHARED_MAP'],
@@ -43,7 +44,15 @@ FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'lost_start_ack': ['REAL_INVALID_START_ACK'],
           'first_restart': ['REAL_INITIAL_FAILURE_ARMED', 'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
           'old_restart': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT', 'REAL_INITIAL_FAILURE_ARMED',
-                          'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION']}
+                          'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
+          'r5_success': [], 'r5_legacy_unknown': ['REAL_R5_LEGACY_BYTES_NOT_ADOPTED'],
+          'r5_hooks': ['REAL_R5_EXECSTOP_HOOK'],
+          'r5_chunk_loss': ['REAL_R5_WRONG_CHUNK_SEQUENCE'],
+          'r5_partial_interrupt': ['REAL_R5_PARTIAL_INSTALL_INTERRUPT'],
+          'r5_artifact_tamper': ['REAL_R5_ARTIFACT_WRITE_AFTER_FENCE'],
+          'r5_old_return_denied': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT','REAL_R5_FORBIDDEN_OLD_RETURN_REQUEST'],
+          'r5_first_restart': ['REAL_INITIAL_FAILURE_ARMED','REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
+          'r5_owner_return': ['EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT']}
 SCHEMA = 'TU1NZ_PUBLIC_OPERATOR_NATIVE_CI_V1'
 SAFE_FAILURE_TYPES = frozenset(n for n, v in vars(builtins).items()
     if isinstance(v, type) and issubclass(v, BaseException)) | {'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
@@ -62,7 +71,8 @@ def diagnostic_codes():
             if isinstance(node, ast.Constant) and type(node.value) is str and re.fullmatch('[A-Z][A-Z0-9_]{1,160}', node.value):
                 symbols.add(node.value)
     return symbols | SAFE_NATIVE_CODES | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
-                                              'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_') for x in symbols}
+        'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_', 'PUBLIC_RUNTIME_', 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_RUNTIME_')
+        for x in symbols}
 
 
 def terminal_wire_code(raw):
@@ -200,24 +210,28 @@ def fetch_control(private, token):
     return root, hashes
 
 
-def native_argv(workspace, control, image, name, owner):
-    return ['/usr/bin/docker', 'create', '--name', name, '--label', 'tu1nz.private-ci.owner='+owner,
+def native_argv(workspace, control, image, name, owner, *, runtime_inputs=None):
+    argv=['/usr/bin/docker', 'create', '--name', name, '--label', 'tu1nz.private-ci.owner='+owner,
         '--network', 'none', '--privileged', '--cgroupns=private', '--env', 'container=docker',
         '--memory', '2048m', '--cpus', '2', '--pids-limit', '512',
         '--tmpfs', '/run', '--tmpfs', '/run/lock', '--tmpfs', '/tmp',
         '--mount', 'type=bind,src='+str(workspace)+',dst=/source,readonly',
         '--mount', 'type=bind,src='+str(control)+',dst=/control-source,readonly',
-        '--workdir', '/source', image]
+        '--workdir', '/source']
+    if runtime_inputs is not None:
+        argv+=['--mount','type=bind,src='+str(runtime_inputs)+',dst=/runtime-inputs,readonly']
+    return [*argv,image]
 
 
-def inspect_guest(name, owner, workspace, control, image_id):
+def inspect_guest(name, owner, workspace, control, image_id, *, runtime_inputs=None):
     value = json.loads(command(['/usr/bin/docker', 'inspect', name], timeout=15))[0]
     require(value['Image'] == image_id and value['Config']['Labels'].get('tu1nz.private-ci.owner') == owner and
             value['HostConfig']['NetworkMode'] == 'none' and value['HostConfig']['CgroupnsMode'] == 'private',
             'GUEST_BOUNDARY_RED')
     mounts = [(m['Source'], m['Destination'], m['RW']) for m in value['Mounts'] if m['Type'] == 'bind']
-    require(sorted(mounts) == sorted([(str(workspace), '/source', False),
-                                      (str(control), '/control-source', False)]), 'GUEST_MOUNTS_RED')
+    expected=[(str(workspace),'/source',False),(str(control),'/control-source',False)]
+    if runtime_inputs is not None:expected.append((str(runtime_inputs),'/runtime-inputs',False))
+    require(sorted(mounts)==sorted(expected),'GUEST_MOUNTS_RED')
 
 
 def ready(name):
@@ -248,17 +262,18 @@ def validate_report(raw, case, hashes):
             value['fixture_only_no_host_acceptance'] is True and
             re.fullmatch('[a-f0-9]{64}', value['proof'] or ''), 'REPORT_SOURCE_OR_SCHEMA_RED')
     require(value['actual_faults'] == FAULTS[case], 'INTENDED_FAULT_NOT_WITNESSED')
-    if case == 'success':
+    if case in ('success','r5_success','r5_legacy_unknown'):
         require((value['status'], value['server_exit'], value['owner_confirmations'], value['actual_root_objects']) ==
                 ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', 0, 84, 88), 'FORWARD_RED')
-    elif case in ('restore_fail_return', 'probe_fail_return', 'owner_return'):
-        status = 'OWNER_RETURNED_SECURITY_RED' if case == 'owner_return' else 'OLD_OPERATION_RESTORED_SECURITY_RED'
+    elif case in ('restore_fail_return', 'probe_fail_return', 'owner_return','r5_owner_return'):
+        status = 'OWNER_RETURNED_SECURITY_RED' if case in ('owner_return','r5_owner_return') else 'OLD_OPERATION_RESTORED_SECURITY_RED'
         require((value['status'], value['server_exit'], value['owner_confirmations'], value['actual_root_objects']) ==
-                (status, 0, 7 if case == 'owner_return' else 0, 4), 'RETURN_RED')
+                (status, 0, 7 if case in ('owner_return','r5_owner_return') else 0, 4), 'RETURN_RED')
     else:
         require(value['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), 'FAULT_NOT_HELD')
         if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
-                    'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'):
+                    'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd',
+                    'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_old_return_denied','r5_first_restart'):
             require(value['actual_root_objects'] == 4, 'UNAUTHORIZED_OWNER_EFFECT')
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')
@@ -396,11 +411,20 @@ def run(workspace, image):
         hashes.update({n: hashlib.sha256((workspace/p).read_bytes()).hexdigest()
                        for n, p in operator.INFRA_FILES.items()})
         records = []
+        # Public upstream artifacts only. No additional private repository or
+        # credential scope; exact digests remain the reviewed Source lock.
+        import tu1nz_public_runtime_build as build
+        phase='runtime-public-inputs'
+        inputs=json.loads((workspace/'manifests/public-web-runtime-r5-inputs.json').read_bytes())
+        runtime_inputs=root/'runtime-inputs';runtime_inputs.mkdir(mode=0o700)
+        for row in [inputs['python'],*inputs['wheels']]:
+            save(runtime_inputs/row['filename'],build.fetch(row))
         for case in CASES:
             phase = case+'-create'
             container = 'tu1nz-public-operator-private-'+owner+'-'+case.replace('_', '-')
-            command(native_argv(workspace, control, image, container, owner), timeout=30)
-            phase = case+'-inspect'; inspect_guest(container, owner, workspace, control, image_id)
+            runtime=runtime_inputs if case.startswith('r5_') else None
+            command(native_argv(workspace, control, image, container, owner,runtime_inputs=runtime), timeout=30)
+            phase = case+'-inspect'; inspect_guest(container, owner, workspace, control, image_id,runtime_inputs=runtime)
             phase = case+'-start'; command(['/usr/bin/docker', 'start', container], timeout=30)
             phase = case+'-ready'; ready(container)
             if case == 'success':

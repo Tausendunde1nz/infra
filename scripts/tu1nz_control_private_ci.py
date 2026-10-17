@@ -40,7 +40,10 @@ REPOSITORY='Tausendunde1nz/infra'
 # PR230 is only its authorized post-CI fresh-read implementation correction.
 # Membership is finite; independent review and Environment approval still bind
 # EVERY actual SHA before any private input. No generic same-repo exception.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230))
+# PR231 is the finite prospective public-runtime replacement Source delta.
+# The token still reads ONLY the same three Control blobs; actual-SHA review
+# and required Environment approval remain mandatory before private input.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'

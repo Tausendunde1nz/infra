@@ -95,7 +95,7 @@ class PublicOperatorCI(unittest.TestCase):
     def test_every_fault_requires_its_own_actual_marker(self):
         self.assertEqual(set(m.FAULTS), set(m.CASES))
         for case in m.CASES:
-            if case == 'success': continue
+            if case in ('success','r5_success'): continue
             value = {'scenario': case, 'status': 'HOLD', 'server_exit': 0, 'proof': 'a'*64,
                      'source_files': {}, 'owner_confirmations': 0, 'actual_root_objects': 4,
                      'actual_faults': [], 'fixture_only_no_host_acceptance': True}

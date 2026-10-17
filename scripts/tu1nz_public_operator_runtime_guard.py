@@ -121,18 +121,34 @@ def writer_check(targets, deadline):
 
 
 class RuntimeFence:
-    def __init__(self, reference, paths, origins, *, python_binary, deadline):
-        io.require(sys.platform == 'linux' and hasattr(os, 'O_NOATIME'), 'RUNTIME_NATIVE_LINUX_REQUIRED')
+    root = ROOT
+    required_objects = {'.', 'src', '.venv', '.venv/bin/tu1nz-public-s7', '.venv/bin/tu1nz-public-s8-landing',
+                        '.venv/bin/python', 'src/tu1nz_exposure_s10/runtime.py'}
+    snapshot_only = False
+
+    def profile_match(self, key, metadata_row):
+        pass  # Historical eligibility retains its existing metadata contract.
+
+    def link_profile_match(self, key, metadata_row):
+        pass
+
+    def content_match(self, key, raw):
+        pass
+
+    def reference(self, reference, origins):
         io.require(set(reference) == {'schema', 'commit', 'tree', 'origin_sha256', 'objects'} and
                    reference['schema'] == 'TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1' and
                    (reference['commit'], reference['tree']) == APP_PIN and reference['origin_sha256'] in origins,
                    'AUTHENTIC_RUNTIME_REFERENCE_REQUIRED')
-        self.expected, self.paths, self.deadline = reference['objects'], paths, deadline
+        return reference['objects']
+
+    def __init__(self, reference, paths, origins, *, python_binary, deadline):
+        io.require(sys.platform == 'linux' and hasattr(os, 'O_NOATIME'), 'RUNTIME_NATIVE_LINUX_REQUIRED')
+        self.expected, self.paths, self.deadline = self.reference(reference, origins), paths, deadline
         self.events = self.fd = self.root_before = None; self.identities = {}; self.files = set(); self.broken = False
         self.bytes = 0; self.python = python_binary
         io.require(type(self.expected) is dict and 0 < len(self.expected) <= 32768 and
-                   {'.', 'src', '.venv', '.venv/bin/tu1nz-public-s7', '.venv/bin/tu1nz-public-s8-landing',
-                    '.venv/bin/python', 'src/tu1nz_exposure_s10/runtime.py'} <= set(self.expected),
+                   (self.snapshot_only or self.required_objects <= set(self.expected)),
                    'RUNTIME_INVENTORY_INCOMPLETE')
         for rel in self.expected:
             p = PurePosixPath(rel)
@@ -142,13 +158,16 @@ class RuntimeFence:
         try:
             self.events = self.libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
             io.require(self.events >= 0, 'RUNTIME_WATCH_UNAVAILABLE')
-            self.parent = paths.get('/opt/tu1nz_repos')
-            self.fd = os.open('adult-publishing-core', READ | os.O_DIRECTORY, dir_fd=self.parent)
+            self.parent = paths.get(str(Path(self.root).parent))
+            self.fd = os.open(Path(self.root).name, READ | os.O_DIRECTORY, dir_fd=self.parent)
             self.root_before = metadata(paths.d, self.fd)
             self._watch(self.fd)
             observed = {'.': {'kind': 'directory'}}
             self._walk(self.fd, '.', observed, 0)
-            io.require(observed == self.expected, 'RUNTIME_CONTENT_OR_NAMESPACE_DRIFT')
+            if self.snapshot_only:
+                self.expected = observed  # Untrusted read witness; NEVER an origin/start grant.
+            else:
+                io.require(observed == self.expected, 'RUNTIME_CONTENT_OR_NAMESPACE_DRIFT')
             self.digest = io.sha(io.canonical(observed)); self.check()
         except BaseException as error:
             error._runtime_cleanup = tuple(self.close())
@@ -161,17 +180,19 @@ class RuntimeFence:
     def _walk(self, fd, rel, result, depth):
         io.require(depth < 32 and time.monotonic() < self.deadline, 'RUNTIME_CAPTURE_BOUND')
         before = metadata(self.paths.d, fd)
+        self.profile_match(rel, before)
         for name in sorted(os.listdir(fd)):
             if rel == '.' and name in EXCLUDED: continue
             key = name if rel == '.' else rel+'/'+name
-            io.require(key in self.expected and len(result) < 32768, 'UNBOUND_RUNTIME_OBJECT')
+            io.require((self.snapshot_only or key in self.expected) and len(result) < 32768, 'UNBOUND_RUNTIME_OBJECT')
             s = os.stat(name, dir_fd=fd, follow_symlinks=False)
             if stat.S_ISLNK(s.st_mode):
+                self.link_profile_match(key, s)
                 io.require(s.st_uid == 0 and not os.listxattr('/proc/self/fd/'+str(fd)+'/'+name,
                            follow_symlinks=False), 'RUNTIME_SYMLINK_OWNER_OR_ATTRIBUTE')
                 target = os.readlink(name, dir_fd=fd)
-                resolved = (Path(ROOT)/key).resolve(strict=True)
-                io.require(resolved.is_relative_to(ROOT) or
+                resolved = (Path(self.root)/key).resolve(strict=True)
+                io.require(resolved.is_relative_to(self.root) or
                            str(resolved) == self.python and PurePosixPath(key).name in ('python', 'python3', 'python3.12'),
                            'RUNTIME_LINK_ESCAPE')
                 result[key] = {'kind': 'link', 'target': target}
@@ -180,6 +201,7 @@ class RuntimeFence:
             child = os.open(name, READ | (os.O_DIRECTORY if stat.S_ISDIR(s.st_mode) else 0), dir_fd=fd)
             try:
                 m = metadata(self.paths.d, child); self._watch(child)
+                self.profile_match(key, m)
                 io.require((s.st_dev, s.st_ino) == m[:2], 'RUNTIME_OBJECT_CHANGED')
                 if stat.S_ISDIR(s.st_mode):
                     result[key] = {'kind': 'directory'}; self._walk(child, key, result, depth+1)
@@ -189,6 +211,7 @@ class RuntimeFence:
                     self.bytes += s.st_size; io.require(self.bytes <= 512*1024*1024, 'RUNTIME_BYTES_BOUND')
                     raw = os.pread(child, s.st_size+1, 0)
                     io.require(len(raw) == s.st_size, 'RUNTIME_SHORT_READ')
+                    self.content_match(key, raw)
                     result[key] = {'kind': 'file', 'sha256': io.sha(raw)}
                     self.files.add((s.st_dev, s.st_ino))
                 io.require(metadata(self.paths.d, child) == m, 'RUNTIME_CHANGED_DURING_READ')
@@ -208,7 +231,7 @@ class RuntimeFence:
             self.broken = True; raise
         try:
             io.require(not raw, 'RUNTIME_WRITE_METADATA_OR_NAMESPACE_EVENT')
-            current = os.stat('adult-publishing-core', dir_fd=self.parent, follow_symlinks=False)
+            current = os.stat(Path(self.root).name, dir_fd=self.parent, follow_symlinks=False)
             io.require((current.st_dev, current.st_ino) == self.root_before[:2] and
                        metadata(self.paths.d, self.fd) == self.root_before, 'RUNTIME_ROOT_REPLACED')
             self.paths.check()
@@ -217,11 +240,12 @@ class RuntimeFence:
 
     def close(self):
         errors = []
-        if self.fd is not None and self.events is not None and self.root_before is not None:
+        if (getattr(self, 'fd', None) is not None and getattr(self, 'events', None) is not None and
+                getattr(self, 'root_before', None) is not None):
             try: self.check()
             except BaseException as error: errors.append(getattr(error, 'primary', 'PUBLIC_BOOTSTRAP_RUNTIME_CLOSE_UNKNOWN'))
         for name in ('fd', 'events'):
-            fd = getattr(self, name)
+            fd = getattr(self, name, None)
             if fd is not None:
                 try: os.close(fd)
                 except OSError: errors.append('PUBLIC_BOOTSTRAP_RUNTIME_DESCRIPTOR_CLOSE_UNKNOWN')

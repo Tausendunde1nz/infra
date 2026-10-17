@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import types
+import zlib
 from contextlib import contextmanager
 import urllib.error
 import urllib.parse
@@ -31,13 +32,16 @@ MODULES = {'io': 'tu1nz_public_operator_io', 'fs': 'tu1nz_public_operator_fs',
            'client': 'tu1nz_public_operator',
            'observe': 'tu1nz_public_operator_observe', 'probes': 'tu1nz_public_operator_probes',
            'runtime_guard': 'tu1nz_public_operator_runtime_guard',
+           'artifact': 'tu1nz_public_runtime_artifact', 'replacement': 'tu1nz_public_runtime_transition',
            'host': 'tu1nz_public_operator_host', 'r3': 'tu1nz_public_bootstrap_r3',
            'owner': 'tu1nz_bound_owner_supervisor', 'entry': 'tu1nz_bound_lighting_entry',
            'guard': 'tu1nz_bound_writer_guard'}
 ASSETS = {'runtime': '2884c2531e73480513d533844cab9ac1a906e13fd4fdb104ab1d49759f3e9b01',
           'dropin_s7': 'df605ffec37e59d1c3c535a93879e7e155447967c6cd97a2f83ca866f841c16b',
           'dropin_s8_landing': '1e84f8904b4ce292e8b002ad373b27ea5d6592ddaaca4c07c68e990452133213',
-    'dropin_wms': 'ce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3'}
+    'dropin_wms': 'ce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3',
+    'runtime_inputs': 'dc60ead4d72111f5d748b4cbc34f724c03e78435fd3a32ac8b323b8a5b2e4b9a',
+    'runtime_overlay': '83cf971408959e110a02f65c8a4d2ed888063c1c62f745e7a3dc2d2455302f5d'}
 PUBLIC_HOSTS = frozenset(('tu1nz.com', 'www.tu1nz.com', 'wantmeseen.com', 'www.wantmeseen.com',
                           'lighting.tu1nz.com'))
 
@@ -61,6 +65,44 @@ def sha(raw):
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+
+
+def replacement_scope(scope, baseline):
+    fields={'schema','release_sha256','baseline_sha256','administrative_roles_sha256',
+            'baseline_origins_sha256','r3_approval_sha256','machine_sha256','transaction','owner_plan_sha256'}
+    replacement=scope.get('schema')=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
+    require(set(scope)==fields | ({'runtime_artifact_sha256','legacy_return'} if replacement else set()) and
+            scope['schema'] in ('TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1','TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'),
+            'APPROVED_SCOPE_SCHEMA')
+    reference=baseline['source_release']['runtime_reference']
+    if replacement:
+        require(set(reference)=={'schema','artifact','origin_sha256'} and
+                reference['schema']=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1' and
+                scope['legacy_return'] is False and
+                sha(canonical(reference['artifact']))==scope['runtime_artifact_sha256']==reference['origin_sha256'] and
+                reference['origin_sha256'] in baseline['source_origin_receipts'],
+                'INDEPENDENT_REPLACEMENT_SCOPE_BINDING')
+        require(not any(p=='/opt/tu1nz_repos/adult-publishing-core' or
+            p.startswith('/opt/tu1nz_repos/adult-publishing-core/') for p in baseline['files']),
+            'REPLACEMENT_BASELINE_CANNOT_ADOPT_UNPROVEN_LEGACY_BYTES')
+    else:
+        require(reference.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1',
+                'LEGACY_SCOPE_CANNOT_AUTHORIZE_RUNTIME_REPLACEMENT')
+    return replacement
+
+
+def baseline_bytes(packet):
+    raw=base64.b64decode(packet['baseline_raw'],validate=True)
+    if packet.get('baseline_encoding')=='zlib_R5':
+        require(packet['scope']['schema']=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1',
+                'COMPRESSED_BASELINE_NOT_LEGACY_SCOPE')
+        decoder=zlib.decompressobj();raw=decoder.decompress(raw,MAX_FRAME+1)
+        require(len(raw)<=MAX_FRAME and decoder.eof and not decoder.unconsumed_tail and
+                not decoder.unused_data,'BASELINE_DECOMPRESSION_BOUND')
+    else:
+        require('baseline_encoding' not in packet,'UNKNOWN_BASELINE_ENCODING')
+    require(len(raw)<=MAX_FRAME,'BASELINE_SIZE_BOUND')
+    return raw
 
 
 def parse(raw):
