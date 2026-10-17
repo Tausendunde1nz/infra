@@ -8,4 +8,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 STOPSIGNAL SIGRTMIN+3
 COPY tests/s8_native_init.py /s8_native_init.py
-CMD ["/usr/bin/python3", "-I", "-B", "/s8_native_init.py"]
+COPY tests/public_operator_native_init.py /public_operator_native_init.py
+CMD ["/usr/bin/python3", "-I", "-B", "/public_operator_native_init.py"]

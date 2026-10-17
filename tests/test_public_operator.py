@@ -57,6 +57,20 @@ class NativeFSUIDFailure(AssertionError):
 
 
 class OperatorBoundary(unittest.TestCase):
+    def test_kcmp_failure_preserves_immediate_errno_and_never_skips_task(self):
+        # Negative syscall adapter unit test only, not a native admission.
+        leader={k:None for k in ('uid','gid','groups','caps','nnp','cgroup','namespaces',
+            'uid_map','gid_map','setgroups','lsm_sha256')};leader['starttime']='7'
+        library=SimpleNamespace(syscall=lambda *args:-1)
+        for number in (1,3,13):
+            with (self.subTest(errno=number),patch.object(observe.os,'listdir',return_value=['1','2']),
+                  patch.object(observe.os,'uname',return_value=SimpleNamespace(machine='x86_64')),
+                  patch.object(observe.ctypes,'CDLL',return_value=library),
+                  patch.object(observe.ctypes,'get_errno',return_value=number)):
+                with self.assertRaises(io.Hold) as held:observe.threads_check(1,leader)
+                self.assertEqual(held.exception.primary,'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+                self.assertEqual(held.exception.native_errno,number)
+
     def test_fresh_proc_read_helpers_never_cache_values_or_hide_read_errors(self):
         with tempfile.TemporaryDirectory(prefix='r4-owned-read-helper-') as folder:
             path = Path(folder)/'synthetic-field'
@@ -411,10 +425,40 @@ except BaseException as error:
         for counter in ('', '-1', 'True', '00', '4294967296'):
             values = {p: '' for p in observe.PROPERTIES.split(',')}
             values.update(Id=observe.UNITS[0], LoadState='loaded', NRestarts=counter)
-            reply = SimpleNamespace(returncode=0, stdout='\n'.join(k+'='+v for k, v in values.items()).encode())
-            with self.subTest(counter=counter), patch.object(observe, 'command', return_value=reply):
+            reply = SimpleNamespace(returncode=0, stdout='\n'.join(k+'='+v for k, v in values.items()
+                if k not in observe.EXEC_PROPERTIES).encode())
+            bus=SimpleNamespace(returncode=0,stdout=io.canonical({'type':'a{sv}','data':[
+                {k:{'type':'a(sasbttttuii)','data':[]} for k in observe.EXEC_PROPERTIES}]}))
+            with self.subTest(counter=counter), patch.object(observe, 'command',
+                    side_effect=lambda argv,*a,**kw:bus if argv[0]=='/usr/bin/busctl' else reply):
                 with self.assertRaisesRegex(io.Hold, 'UNIT_RESTART_COUNTER_UNKNOWN'):
                     observe.Authority.unit(SimpleNamespace(deadline=time.monotonic()+1), observe.UNITS[0])
+
+    def test_only_typed_present_empty_exec_arrays_mean_no_hook(self):
+        # Parser-only samples. Real manager/D-Bus reads are mandatory native.
+        raw={'type':'a{sv}','data':[{k:{'type':'a(sasbttttuii)','data':[]} for k in observe.EXEC_PROPERTIES}]}
+        self.assertEqual(observe.typed_exec_properties(io.canonical(raw),observe.EXEC_PROPERTIES),
+                         {k:'' for k in observe.EXEC_PROPERTIES})
+        key='ExecStop';row=['/bin/false',['SYNTHETIC_SECRET'],False,0,0,0,0,0,0,0]
+        raw['data'][0][key]['data']=[row]
+        nonempty=observe.typed_exec_properties(io.canonical(raw),observe.EXEC_PROPERTIES)
+        self.assertTrue(nonempty[key]);self.assertNotIn('SYNTHETIC_SECRET',nonempty[key])
+        for bad in ({'type':'a{sv}','data':[{}]}, {'type':'a{sv}','data':[]},
+            {'type':'a{sv}','data':[{key:{'type':'s','data':''}}]},
+            {'type':'a{sv}','data':[{key:{'type':'a(sasbttttuii)','data':[[]]}}]}):
+            with self.subTest(bad=bad),self.assertRaises(io.Hold):
+                observe.typed_exec_properties(io.canonical(bad),{key})
+
+    def test_legacy_unit_census_does_not_request_new_r5_exec_admission(self):
+        # Parser transport only. Native R5 must still measure actual arrays.
+        unit=observe.UNITS[0]
+        values={p:'' for p in observe.PROPERTIES.split(',') if p not in observe.EXEC_PROPERTIES}
+        values.update(Id=unit,LoadState='loaded',NRestarts='0')
+        reply=SimpleNamespace(returncode=0,stdout='\n'.join(k+'='+v for k,v in values.items()).encode())
+        with patch.object(observe,'command',return_value=reply) as queried:
+            self.assertEqual(observe.unit_rows((unit,),time.monotonic()+1)[unit],values)
+            self.assertEqual(queried.call_count,1)
+            self.assertEqual(queried.call_args[0][0][0],'/usr/bin/systemctl')
 
     def test_unit_batch_requires_every_exact_individual_block(self):
         # Parser-only protocol cases, not manager/authority GREEN substitutes.

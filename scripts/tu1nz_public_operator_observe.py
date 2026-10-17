@@ -37,7 +37,9 @@ PROPERTIES = ('Id,Names,LoadState,ActiveState,SubState,Result,MainPID,ControlPID
               'StopPropagatedFrom,Triggers,TriggeredBy,OnFailure,KillMode,Restart,'
               'TimeoutStopUSec,User,Group,SupplementaryGroups,NoNewPrivileges,'
               'OnSuccess,FailureAction,SuccessAction,StartLimitAction,RefuseManualStop,'
-              'RefuseManualStart,JobTimeoutAction,StopWhenUnneeded,BusName,Type,Wants')
+              'RefuseManualStart,JobTimeoutAction,StopWhenUnneeded,BusName,Type,Wants,'
+              'ExecStop,ExecStopPost,ExecStartPre,ExecStartPost,ExecCondition,RootDirectory,RootImage')
+EXEC_PROPERTIES=frozenset(('ExecStop','ExecStopPost','ExecStartPre','ExecStartPost','ExecCondition'))
 ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C', 'PYTHONNOUSERSITE': '1'}
 ADMIN_ACTIONS = ('org.freedesktop.systemd1.manage-units',
                  'org.freedesktop.systemd1.manage-unit-files',
@@ -71,6 +73,43 @@ def command(argv, deadline, *, data=None, preexec=None, extra_env=None):
     return result
 
 
+def typed_exec_properties(raw, wanted):
+    """Only an ACTUAL typed empty D-Bus array proves absence of an exec hook.
+
+    systemctl show omits these empty arrays even with --all. Missing fields,
+    unexpected types or unknown data are never filled in as empty. Nonempty
+    commands are hash-bound, not copied (possibly with secrets) into receipts.
+    """
+    body=io.parse(raw)
+    io.require(wanted and set(wanted)<=EXEC_PROPERTIES and type(body) is dict and
+        set(body)=={'type','data'} and body['type']=='a{sv}' and type(body['data']) is list and
+        len(body['data'])==1 and type(body['data'][0]) is dict,'UNIT_TYPED_EXEC_PROFILE_UNKNOWN')
+    values=body['data'][0];result={}
+    for key in wanted:
+        item=values.get(key)
+        io.require(type(item) is dict and set(item)=={'type','data'} and
+            item['type']=='a(sasbttttuii)' and type(item['data']) is list,'UNIT_TYPED_EXEC_PROFILE_UNKNOWN')
+        for row in item['data']:
+            io.require(type(row) is list and len(row)==10 and type(row[0]) is str and
+                type(row[1]) is list and all(type(x) is str for x in row[1]) and type(row[2]) is bool and
+                all(type(x) is int and 0<=x<2**64 for x in row[3:7]) and
+                type(row[7]) is int and 0<=row[7]<2**32 and
+                all(type(x) is int and -2**31<=x<2**31 for x in row[8:]),'UNIT_TYPED_EXEC_PROFILE_UNKNOWN')
+        result[key]='' if not item['data'] else 'NONEMPTY_TYPED_EXEC_SHA256:'+io.sha(io.canonical(item))
+    return result
+
+
+def unit_exec_properties(unit, deadline):
+    io.require(unit in UNITS,'UNIT_EXEC_PROPERTY_SCOPE')
+    path='/org/freedesktop/systemd1/unit/'+''.join(
+        c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
+    row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
+        '--json=short','call','org.freedesktop.systemd1',path,'org.freedesktop.DBus.Properties',
+        'GetAll','s','org.freedesktop.systemd1.Service'],deadline)
+    io.require(row.returncode==0,'UNIT_TYPED_EXEC_READ_UNKNOWN')
+    return typed_exec_properties(row.stdout,EXEC_PROPERTIES)
+
+
 def unit_properties(units, properties, deadline):
     """One fresh bounded manager read, never a cache across checks/actions.
 
@@ -84,8 +123,11 @@ def unit_properties(units, properties, deadline):
                'UNIT_BATCH_SCOPE')
     keys = set(properties.split(',')) | {'Id'}
     io.require(keys <= set(PROPERTIES.split(',')), 'UNIT_PROPERTY_SCOPE')
+    exec_keys=keys & EXEC_PROPERTIES
+    plain_keys=keys-EXEC_PROPERTIES
+    io.require(not exec_keys or set(units)<=set(UNITS),'UNIT_EXEC_PROPERTY_SCOPE')
     r = command(['/usr/bin/systemctl', 'show', *units, '--no-pager',
-                 '--property='+','.join(sorted(keys))], deadline)
+                 '--property='+','.join(sorted(plain_keys))], deadline)
     io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
     result = {}
     for block in r.stdout.decode().strip().split('\n\n'):
@@ -93,18 +135,25 @@ def unit_properties(units, properties, deadline):
         for line in block.splitlines():
             io.require('=' in line, 'UNIT_PROFILE_UNKNOWN')
             name, item = line.split('=', 1)
-            io.require(name in keys and name not in value, 'UNIT_PROFILE_UNKNOWN')
+            io.require(name in plain_keys and name not in value, 'UNIT_PROFILE_UNKNOWN')
             value[name] = item
         identity = value.get('Id')
-        io.require(set(value) == keys and identity in units and identity not in result,
+        io.require(set(value) == plain_keys and identity in units and identity not in result,
                    'UNIT_PROFILE_UNKNOWN')
         result[identity] = value
     io.require(set(result) == set(units), 'UNIT_PROFILE_UNKNOWN')
+    for unit in units if exec_keys else ():
+        observed=unit_exec_properties(unit,deadline)
+        result[unit].update({k:observed[k] for k in exec_keys})
+        io.require(set(result[unit])==keys,'UNIT_PROFILE_UNKNOWN')
     return result
 
 
 def unit_rows(units, deadline):
-    result = unit_properties(units, PROPERTIES, deadline)
+    # Legacy/actor reads do not make a no-hook admission decision. R5's
+    # actual extra_unit_contract reads the five typed arrays once per fresh
+    # unit protection check, not again in each unrelated actor census.
+    result = unit_properties(units, ','.join(p for p in PROPERTIES.split(',') if p not in EXEC_PROPERTIES), deadline)
     for value in result.values():
         io.require(value['LoadState'] == 'loaded', 'UNIT_PROFILE_UNKNOWN')
         io.require(re.fullmatch('0|[1-9][0-9]{0,9}', value['NRestarts']) and
@@ -189,7 +238,13 @@ def threads_check(pid, leader):
             # that independent guard. KCMP_FILES is read-only, no fallback.
             if int(name) != pid:
                 comparison = libc.syscall(number, pid, int(name), 2, 0, 0)
-                io.require(comparison >= 0, 'ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+                if comparison<0:
+                    # Capture the ACTUAL errno immediately; later journal or
+                    # cleanup syscalls must not replace its provenance. No
+                    # fallback, skipped task or changed admission decision.
+                    error=io.Hold('PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN')
+                    error.native_errno=ctypes.get_errno()
+                    raise error
                 io.require(comparison == 0, 'ACTOR_THREAD_FILE_TABLE_NOT_SHARED')
         first = {}
         for name in names:
@@ -339,23 +394,38 @@ class Authority:
         io.require(Path('/proc/sys/kernel/random/boot_id').read_text().strip() == baseline['boot_id'], 'WRONG_BOOT')
         io.require(os.readlink('/proc/self/ns/mnt') == os.readlink('/proc/1/ns/mnt') and
                    os.readlink('/proc/self/ns/user') == os.readlink('/proc/1/ns/user'), 'HOST_NAMESPACE_REQUIRED')
-        io.require(set(baseline['source_release']) == {'probe_dependencies', 'python_binary', 'runtime_reference'},
+        io.require(set(baseline['source_release']) == self.release_fields(),
                    'RUNTIME_SOURCE_RELEASE_INCOMPLETE')
-        self.runtime = RuntimeFence(baseline['source_release']['runtime_reference'], paths,
-            baseline['source_origin_receipts'], python_binary=baseline['source_release']['python_binary'], deadline=deadline)
+        self.runtime = self.open_runtime(baseline, paths, deadline)
         self.check_files()
         io.require(self.unit_search() == baseline['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
         self.initial_units = unit_rows(UNITS, self.deadline)
         self.check(stop_only=True)
 
-    def function(self, unit, *, old):
-        io.require(unit in UNITS, 'FUNCTION_UNIT_SCOPE')
-        before = self.unit(unit); row = process(int(before['MainPID']))
-        io.require(before['ActiveState'] == 'active' and not before['Job'], 'FUNCTION_INVOCATION_UNKNOWN')
+    def release_fields(self):
+        return {'probe_dependencies','python_binary','runtime_reference'}
+
+    def open_runtime(self, baseline, paths, deadline):
+        return RuntimeFence(baseline['source_release']['runtime_reference'], paths,
+            baseline['source_origin_receipts'], python_binary=baseline['source_release']['python_binary'], deadline=deadline)
+
+    def interpreter_binding(self, row, *, old):
         binary = self.b['source_release']['python_binary']
         io.require(row['exe'] == binary and row['exe_sha256'] ==
                    self.b['source_release']['probe_dependencies'][binary]['sha256'],
                    'RUNTIME_INTERPRETER_NOT_AUTHENTIC_REFERENCE')
+
+    def extra_unit_contract(self, unit, value, *, stop_only):
+        pass  # Legacy R4 contracts retain their original admission requirements.
+
+    def initial_application_ready(self,unit,row):
+        return True  # Legacy first-invocation behavior is unchanged.
+
+    def function(self, unit, *, old):
+        io.require(unit in UNITS, 'FUNCTION_UNIT_SCOPE')
+        before = self.unit(unit); row = process(int(before['MainPID']))
+        io.require(before['ActiveState'] == 'active' and not before['Job'], 'FUNCTION_INVOCATION_UNKNOWN')
+        self.interpreter_binding(row, old=old)
         label = task_label(row['pid'])
         io.require(row['namespaces']['net'] == os.readlink('/proc/self/ns/net') and
                    label == task_label(os.getpid()) and (label == b'unconfined' or
@@ -485,7 +555,7 @@ class Authority:
                    starttime(row['pid']) == row['starttime'], 'FUNCTION_INVOCATION_CHANGED')
         return proof
 
-    def listener_binding(self, row, contract):
+    def listener_binding(self, row, contract, *, allow_initial_unbound=False):
         host, port = contract['bind_host'], contract['bind_port']
         io.require(host in ('127.0.0.1', '::1') and type(port) is int and 1024 <= port <= 65535,
                    'FUNCTION_LISTENER_SCOPE')
@@ -503,6 +573,9 @@ class Authority:
                 raw = bytes.fromhex(address)
                 raw = raw[::-1] if name == 'tcp' else b''.join(raw[n:n+4][::-1] for n in range(0, 16, 4))
                 bound.append(socket.inet_ntop(socket.AF_INET if name == 'tcp' else socket.AF_INET6, raw))
+        if allow_initial_unbound and not bound:
+            io.require(starttime(row['pid'])==row['starttime'],'INITIAL_LISTENER_PROCESS_CHANGED')
+            return None  # Only monitor the SAME first invocation, never admission.
         io.require(bound == [host] and starttime(row['pid']) == row['starttime'],
                    'HTTP_LISTENER_NOT_OWNED_BY_EXPECTED_INVOCATION')
         return {'pid': row['pid'], 'starttime': row['starttime'], 'address': bound[0], 'port': port}
@@ -579,6 +652,7 @@ class Authority:
             'LoadState,StopWhenUnneeded,ActiveState,Job', self.deadline) if dependency_names else {})
         for unit in UNITS:
             value = rows[unit]
+            self.extra_unit_contract(unit, value, stop_only=stop_only)
             expected = self.b['unit_files'][unit]
             io.require(value['FragmentPath'] == expected['fragment'] and
                        not value['Job'] and value['NeedDaemonReload'] == 'no' and
@@ -764,14 +838,18 @@ class Authority:
             io.require(starttime(row['pid']) == row['starttime'], 'BROKER_PROCESS_CHANGED')
         return sorted(unix), sorted(tcp, key=io.canonical)
 
-    def unit_search(self):
+    def manager_paths(self):
         result = command(['/usr/bin/systemctl', 'show', '--property=UnitPath', '--value'], self.deadline)
-        roots = result.stdout.decode().split()
+        io.require(result.returncode==0,'MANAGER_SEARCH_PATH_UNSUPPORTED_OR_INCOMPLETE')
+        return result.stdout.decode().split()
+
+    def unit_search(self):
+        roots = self.manager_paths()
         allowed = {'/etc/systemd/system.control', '/run/systemd/system.control', '/run/systemd/transient',
                    '/run/systemd/generator.early', '/etc/systemd/system', '/etc/systemd/system.attached',
                    '/run/systemd/system', '/run/systemd/system.attached', '/run/systemd/generator',
                    '/usr/local/lib/systemd/system', '/usr/lib/systemd/system', '/run/systemd/generator.late'}
-        io.require(result.returncode == 0 and len(roots) == len(set(roots)) and set(roots) == allowed,
+        io.require(len(roots) == len(set(roots)) and set(roots) == allowed,
                    'MANAGER_SEARCH_PATH_UNSUPPORTED_OR_INCOMPLETE')
         values = {'manager_search_order': roots}
         for root in roots:
@@ -1048,17 +1126,20 @@ class Authority:
         self.delegation_check(row)
         return row
 
+    def manager_jobs_clear(self):
+        jobs = command(['/usr/bin/busctl', '--system', '--auto-start=no', '--allow-interactive-authorization=no',
+                        '--json=short', 'call', 'org.freedesktop.systemd1', '/org/freedesktop/systemd1',
+                        'org.freedesktop.systemd1.Manager', 'ListJobs'], self.deadline)
+        io.require(jobs.returncode == 0 and io.parse(jobs.stdout) == {'type': 'a(usssoo)', 'data': [[]]},
+                   'QUEUED_MANAGER_JOB_UNKNOWN')
+
     def check(self, *, stop_only=False):
         io.require(time.monotonic() < self.deadline, 'AUTHORITY_DEADLINE')
         io.require(self.runtime is not None, 'RUNTIME_PROVENANCE_UNAVAILABLE')
         self.runtime.check()
         self.paths.check(); self.check_files(); self.policies_check()
         if self.probe_check is not None: self.probe_check()
-        jobs = command(['/usr/bin/busctl', '--system', '--auto-start=no', '--allow-interactive-authorization=no',
-                        '--json=short', 'call', 'org.freedesktop.systemd1', '/org/freedesktop/systemd1',
-                        'org.freedesktop.systemd1.Manager', 'ListJobs'], self.deadline)
-        io.require(jobs.returncode == 0 and io.parse(jobs.stdout) == {'type': 'a(usssoo)', 'data': [[]]},
-                   'QUEUED_MANAGER_JOB_UNKNOWN')
+        self.manager_jobs_clear()
         io.require(self.unit_search() == self.b['unit_search_sha256'], 'FOREIGN_MANAGER_RELOAD_DELTA')
         with self.authorization_epoch():
             self.units_check(stop_only=stop_only); self.actors_check(stop_only=stop_only)

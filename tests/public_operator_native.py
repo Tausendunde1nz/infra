@@ -1,7 +1,8 @@
 """Real production session/Client/adapter in a fresh network-none PID1 guest.
 
 Only synthetic application, SQL, TLS, policy and website data. The sole test
-substitutions are EXPECTED target machine/owner-plan/custody/legacy-context bindings, because
+substitutions are EXPECTED target machine/owner-plan/custody/legacy-context bindings and,
+for R5, the explicitly synthetic expected Application catalog/input bindings, because
 real Host data and its immutable plan are forbidden here. No observation,
 authorization query, fence, action, backup, supervisor or receipt is replaced.
 The two restart-race cases also delay the caller AFTER the actual start command,
@@ -30,6 +31,7 @@ import sys
 import time
 
 sys.path.insert(0, '/source/scripts')
+sys.path.insert(0, '/source')
 import tu1nz_public_operator as client
 import tu1nz_public_operator_io as io
 
@@ -86,11 +88,58 @@ server.serve_forever()
 SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
              'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
-             'thread_source_fd')
+             'thread_source_fd', 'r5_success', 'r5_legacy_unknown', 'r5_hooks', 'r5_chunk_loss',
+             'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_legacy_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
 READ_COST = None
+PRIMARY_WRITER_FAULT = None
+NATIVE_ERRNO = None
+ENV_DIAGNOSTIC = None
+
+ENV_DIAGNOSTIC_WRAPPER = r'''
+_env_previous_fault=s.load("host").source_fault_location
+def _env_source_fault(error):
+ location=_env_previous_fault(error)
+ try:
+  import json,hashlib,os
+  from pathlib import Path
+  if getattr(error,"primary",None)!="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED":return location
+  current=error;seen=set();row=None;unit="UNKNOWN";normal=wms=None
+  while current is not None and id(current) not in seen and row is None:
+   seen.add(id(current));trace=current.__traceback__
+   while trace is not None:
+    frame=trace.tb_frame
+    if frame.f_code.co_filename=="<authenticated-memory:replacement>":
+     if frame.f_code.co_name=="interpreter_binding":
+      row=frame.f_locals.get("row");normal=frame.f_locals.get("normal");wms=frame.f_locals.get("wms")
+     candidate=frame.f_locals.get("unit")
+     if candidate in s.load("observe").UNITS:unit=("s7","s8-landing","wms")[s.load("observe").UNITS.index(candidate)]
+    trace=trace.tb_next
+   current=current.__cause__ or current.__context__
+  def digest(raw):return hashlib.sha256(raw).hexdigest()
+  def kind(value):return "NORMAL" if value==normal else "WMS" if value==wms else "EMPTY" if value==digest(b"") else "OTHER"
+  record={"unit":unit,"sample":kind(row["initial_env_sha256"]),"followup":"UNKNOWN",
+   "identity":"UNKNOWN","same_environment":"UNKNOWN","executable":"UNKNOWN","state":"UNKNOWN","followup_expected_items":False}
+  try:
+   root=Path("/proc")/str(row["pid"]);raw=(root/"environ").read_bytes();record["followup"]=kind(digest(raw))
+   record["same_environment"]="SAME" if digest(raw)==row["initial_env_sha256"] else "DIFFERENT"
+   record["identity"]="SAME" if s.load("observe").starttime(row["pid"])==row["starttime"] else "DIFFERENT"
+   value=(root/"stat").read_text();state=value[value.rfind(")")+2:].split()[0]
+   record["state"]=state if state in ("R","S","D","Z","T","t","X","I") else "UNKNOWN"
+   expected=b"PATH=/usr/bin:/bin\0LC_ALL=C\0PYTHONDONTWRITEBYTECODE=1\0"
+   record["followup_expected_items"]=sorted(raw.split(b"\0")) in (sorted(expected.split(b"\0")),
+       sorted((expected+b"PYTHONPATH="+s.load("artifact").VIEW.encode()+b"/src\0").split(b"\0")))
+   record["executable"]="EXPECTED" if os.readlink(root/"exe")==s.load("artifact").ROOT+"/python/bin/python3.12" else "OTHER"
+  except (FileNotFoundError,ProcessLookupError):record["followup"]="GONE"
+  except BaseException:pass
+  fd=os.open("/fixture-r4/environment-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+  with os.fdopen(fd,"w") as stream:json.dump(record,stream);stream.flush();os.fsync(stream.fileno())
+ except BaseException:pass
+ return location
+s.load("host").source_fault_location=_env_source_fault
+'''
 
 # Delegating test-only timing of actual Source calls. No safety observation,
 # action, result or deadline is replaced. Inclusive durations overlap; timing
@@ -107,6 +156,7 @@ def _cost(name,actual):
    row["calls"]+=1;row["inclusive_ns"]+=_cost_time.monotonic_ns()-began
  return invoke
 _observer=s.load("observe")
+_observer.command=_cost("command",_observer.command)
 for _name in ("check","check_files","units_check","actors_check"):
  setattr(_observer.Authority,_name,_cost("authority_"+_name,getattr(_observer.Authority,_name)))
 for _name in ("process","writer_check"):
@@ -138,11 +188,29 @@ def _diagnostic_source_fault(error):
  try:
   import json
   from pathlib import Path
-  seen=set();current=error;captured=False
+  seen=set();current=error;captured=False;thread_leader=None
   while current is not None and id(current) not in seen and not captured:
    seen.add(id(current));trace=current.__traceback__
    while trace is not None and not captured:
     frame=trace.tb_frame
+    if frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="threads_check":
+     thread_leader=frame.f_locals.get("leader")
+    if (getattr(current,"primary",None)=="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN" and
+        frame.f_code.co_filename=="<authenticated-memory:observe>" and frame.f_code.co_name=="shared_files"):
+     record={"fault":{"component":frame.f_code.co_filename,"line":trace.tb_lineno,"type":type(current).__name__},
+             "errno":getattr(current,"native_errno",0)}
+     try:
+      row=thread_leader;pid=frame.f_locals["pid"];name=frame.f_locals["name"]
+      candidates=[r for r in p["baseline"]["actors"] if r["exe_sha256"]==row["exe_sha256"]]
+      executable=Path(row["exe"]).name
+      if executable not in ("postgres","polkitd","systemd","systemd-journald","dbus-daemon","nginx","python3.12","busctl","systemctl","sudo","sleep"):executable="OTHER"
+      stable=(s.load("observe").starttime(pid)==row["starttime"] and Path("/proc",str(pid),"task",name).exists())
+      record["actor"]={"executable_class":executable,"matching_executable_profiles":len(candidates),
+                       "different_fields":[],"stable_followup":stable,"title_kind":"UNKNOWN"}
+     except BaseException:pass
+     fd=os.open("/fixture-r4/thread-file-table-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+     with os.fdopen(fd,"w") as stream:json.dump(record,stream);stream.flush();os.fsync(stream.fileno())
+     captured=True
     if (getattr(current,"primary",None) in
         ("PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_SECURITY_MISMATCH",
          "PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_LEADER_SECURITY_CHANGED_DURING_SAMPLE") and
@@ -188,6 +256,49 @@ def _diagnostic_source_fault(error):
 s.load("host").source_fault_location=_diagnostic_source_fault
 '''
 
+# Error-only provenance of the first underlying writer-view exception. The
+# later once-return can itself fail; neither location may overwrite the other.
+WRITER_DIAGNOSTIC_WRAPPER = r'''
+_previous_source_fault=s.load("host").source_fault_location
+def _writer_source_fault(error):
+ location=_previous_source_fault(error)
+ if getattr(error,"primary",None)!="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WRITER_VIEW_UNKNOWN":return location
+ try:
+  import json,os
+  from pathlib import Path
+  seen=set();current=error;fault=None;number=0;subject=None;tick=None
+  while current is not None and id(current) not in seen:
+   seen.add(id(current));trace=current.__traceback__
+   while trace is not None:
+    frame=trace.tb_frame
+    if frame.f_code.co_filename=="<authenticated-memory:runtime_guard>":
+     if frame.f_code.co_name=="writer_check":
+      subject=frame.f_locals.get("root");tick=frame.f_locals.get("tick")
+     if isinstance(current,(OSError,ValueError,KeyError,IndexError)):
+      fault={"component":frame.f_code.co_filename,"line":trace.tb_lineno,"type":type(current).__name__}
+      number=getattr(current,"errno",None) or 0
+    trace=trace.tb_next
+   current=current.__cause__ or current.__context__
+  if fault is not None:
+   record={"fault":fault,"errno":number}
+   try:
+    assert type(subject) is str and subject.startswith("/proc/")
+    row=s.load("observe").process(int(subject.split("/")[2]))
+    candidates=[r for r in p["baseline"]["actors"] if r["exe_sha256"]==row["exe_sha256"]]
+    executable=Path(row["exe"]).name
+    if executable not in ("postgres","polkitd","systemd","systemd-journald","dbus-daemon","nginx","python3.12","busctl","systemctl","sudo","sleep"):executable="OTHER"
+    keys=("uid","gid","groups","caps","nnp","argv_sha256","cgroup","initial_env_sha256","lsm_sha256","namespaces")
+    record["actor"]={"executable_class":executable,"matching_executable_profiles":len(candidates),
+      "different_fields":[k for k in keys if candidates and all(row[k]!=r[k] for r in candidates)],
+      "stable_followup":str(row["starttime"])==str(tick),"title_kind":"UNKNOWN"}
+   except BaseException:pass  # missing process remains UNKNOWN; no invented actor
+   fd=os.open("/fixture-r4/writer-diagnostic.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+   with os.fdopen(fd,"w") as stream:json.dump(record,stream);stream.flush();os.fsync(stream.fileno())
+ except BaseException:pass
+ return location
+s.load("host").source_fault_location=_writer_source_fault
+'''
+
 
 class FaultWire:
     """Test faults are real Guest files/signals/transport, never observations.
@@ -208,7 +319,7 @@ class FaultWire:
         if message.get('type') != 'durable_record': return message
         self.record = message['record']; kind, value = self.record['kind'], self.record['value']
         wanted = 'start_old' if self.scenario == 'old_restart' else 'start'
-        if (self.scenario in ('first_restart', 'old_restart') and kind == 'host_action_intent' and
+        if (self.scenario in ('first_restart', 'old_restart', 'r5_first_restart') and kind == 'host_action_intent' and
                 value['action'] == wanted and value.get('unit') == UNITS[0]):
             marker = STATE/'native-crash-request'
             write(marker, b'SYNTHETIC_INITIAL_INVOCATION_CRASH_ONLY', 0o600); os.chown(marker, 1001, 1001)
@@ -236,9 +347,28 @@ class FaultWire:
             p = Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe/inputs/s7_form_secret')
             p.write_bytes(b'SYNTHETIC-ONLY-DIFFERENT-00000000000000000000000000000000')
             self.injected.append('REAL_SYNTHETIC_CREDENTIAL_DRIFT')
+        if kind=='replacement_install_progress' and not self.injected and self.scenario=='r5_partial_interrupt':
+            fd=os.pidfd_open(self.child.pid)
+            try:signal.pidfd_send_signal(fd,signal.SIGINT)
+            finally:os.close(fd)
+            self.injected.append('REAL_R5_PARTIAL_INSTALL_INTERRUPT')
+        if kind=='replacement_artifact_verified' and not self.injected and self.scenario=='r5_artifact_tamper':
+            import tu1nz_public_runtime_artifact as artifact
+            p=Path(artifact.ROOT)/'python/bin/python3.12';p.write_bytes(b'SYNTHETIC_TAMPER')
+            self.injected.append('REAL_R5_ARTIFACT_WRITE_AFTER_FENCE')
+        if kind=='replacement_artifact_verified' and not self.injected and self.scenario=='r5_legacy_tamper':
+            p=APP/'.venv/bin/tu1nz-public-s7';p.write_bytes(b'SYNTHETIC_LEGACY_TAMPER')
+            self.injected.append('REAL_R5_LEGACY_WRITE_AFTER_REPLACEMENT')
+        if kind=='probe_start_intent' and not self.injected and self.scenario=='r5_old_return_denied':
+            p=Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe/inputs/s7_form_secret')
+            p.write_bytes(b'SYNTHETIC-ONLY-DIFFERENT-00000000000000000000000000000000')
+            self.injected.append('REAL_SYNTHETIC_CREDENTIAL_DRIFT')
         return message
 
     def send(self, message):
+        if message.get('type')=='runtime_chunk' and not self.injected and self.scenario=='r5_chunk_loss':
+            message={**message,'index':message['index']+1}
+            self.injected.append('REAL_R5_WRONG_CHUNK_SEQUENCE')
         if message.get('type') == 'persisted' and self.record is not None:
             kind, value = self.record['kind'], self.record['value']
             if self.scenario == 'unknown_actor' and kind == 'owner_object_ack' and self.acks == 1:
@@ -248,13 +378,14 @@ class FaultWire:
                 message = {**message, 'sha256': '0'*64}; self.injected.append('REAL_INVALID_TRANSPORT_ACK')
             if self.scenario == 'lost_start_ack' and kind == 'host_action_ack' and value['action'] == 'start':
                 message = {**message, 'sha256': '0'*64}; self.injected.append('REAL_INVALID_START_ACK')
-            if self.scenario == 'owner_return' and kind == 'owner_object_intent' and self.intents == 8:
+            if self.scenario in ('owner_return','r5_owner_return') and kind == 'owner_object_intent' and self.intents == 8:
                 message = {**message, 'control': 'HOLD_BEFORE_OWNER_EFFECT'}
                 self.injected.append('EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT')
         if message.get('type') == 'decision':
-            if self.scenario in ('restore_fail_return', 'probe_fail_return', 'denied_return', 'lost_start_ack', 'old_restart'):
+            if self.scenario in ('restore_fail_return', 'probe_fail_return', 'denied_return', 'lost_start_ack', 'old_restart', 'r5_old_return_denied'):
                 message = {'type': 'decision', 'value': 'RETURN_OLD'}
-            elif self.scenario in ('owner_return', 'namespace_swap', 'lost_ack'):
+                if self.scenario=='r5_old_return_denied':self.injected.append('REAL_R5_FORBIDDEN_OLD_RETURN_REQUEST')
+            elif self.scenario in ('owner_return', 'r5_owner_return', 'namespace_swap', 'lost_ack'):
                 message = {'type': 'decision', 'value': 'OWNER_RETURN'}
         self.wire.send(message)
 
@@ -362,6 +493,12 @@ def setup(s, *, source_handle=None):
     write('/etc/polkit-1/rules.d/00-fixture-public-no-admin.rules', s.load('observe').STATIC_SYSTEMD_DENY)
     run('/usr/bin/systemctl', 'start', 'polkit.service')
     run('/usr/bin/pg_ctlcluster', '16', 'main', 'status')
+    # Real value in the fresh fixture cluster, not an accepted actor/health
+    # flag. Automatic maintenance is not part of a deterministic success case.
+    # Production unknown-actor rejection and the explicit extra-process fault
+    # remain untouched. The PID1 fixture initializer sets this before boot.
+    assert run('/usr/sbin/runuser','-u','postgres','--','/usr/bin/psql','-X','-At',
+               '-c','SHOW autovacuum;').strip()==b'off'
     sql = ("CREATE ROLE chatops LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; "
            "CREATE DATABASE r4_probe OWNER chatops;")
     run('/usr/sbin/runuser', '-u', 'postgres', '--', '/usr/bin/psql', '-X', '-v', 'ON_ERROR_STOP=1', data=sql.encode())
@@ -439,7 +576,27 @@ def setup(s, *, source_handle=None):
         (APP/'source-handle.bin').chmod(0o555)
 
 
-def baseline(s):
+def census_loader(s):
+    replacement=s.load('replacement')
+    loader,machine=replacement.elf_loader_profile(Path('/usr/bin/busctl').read_bytes())
+    source=str(Path(loader).resolve(strict=True))
+    assert replacement.elf_loader_profile(Path(source).read_bytes(),standalone=True)==machine
+    return loader,source
+
+
+def operator_dependency_names(s):
+    # A loader's reported canonical/SONAME spelling need not equal the
+    # executable's PT_INTERP spelling. Bind BOTH exact actual names; production
+    # must never infer a missing alias/origin from successful ldd output.
+    tool='/usr/bin/busctl'
+    loader,source=census_loader(s)
+    names={tool,loader}
+    for line in run(source,'--list',tool).decode().splitlines():
+        names.update(w for w in line.split() if w.startswith('/'))
+    return names
+
+
+def baseline(s, *, replacement_dependencies=None):
     observer = s.load('observe'); entry = s.load('entry'); fs = s.load('fs')
     paths = fs.Paths(entry, deadline=time.monotonic()+120)
     pseudo = observer.Authority.__new__(observer.Authority)
@@ -454,6 +611,9 @@ def baseline(s):
          'unit_search_sha256': pseudo.unit_search()}
     files = {str(p) for p in Path('/etc/tu1nz').iterdir()} | {
         '/etc/passwd', '/etc/group', '/etc/nsswitch.conf', '/etc/sudoers', '/etc/hosts'}
+    # This fresh fixture's generated loader cache is an explicit current TCB
+    # input. Production requires its independent private origin binding too.
+    if getattr(s,'_native_r5',False):files.add('/etc/ld.so.cache')
     for unit in UNITS:
         v = observer.Authority.unit(pseudo, unit)
         b['unit_files'][unit] = {'fragment': v['FragmentPath'], 'dropins': v['DropInPaths'].split(),
@@ -493,6 +653,13 @@ def baseline(s):
     for name in objects:
         path = Path(name); dependencies[name] = {'source': str(path.resolve()), 'sha256': io.sha(path.read_bytes())}
     dependencies['/usr/bin/python3'] = {'source': str(python), 'sha256': io.sha(python.read_bytes())}
+    for name,row in (replacement_dependencies or {}).items():
+        path=Path(name)
+        # Fresh actual synthetic package bytes, not an accepted GREEN flag.
+        assert row=={'source':str(path.resolve(strict=True)),'sha256':io.sha(path.read_bytes())}
+        assert str(path.resolve()).startswith(('/usr/lib/','/usr/bin/'))
+        if name in dependencies:assert dependencies[name]==row
+        dependencies[name]=row
     objects = {'.': {'kind': 'directory'}}
     for p in sorted(APP.rglob('*')):
         rel = str(p.relative_to(APP))
@@ -501,6 +668,17 @@ def baseline(s):
     b['source_release'] = {'probe_dependencies': dependencies, 'python_binary': str(python),
         'runtime_reference': {'schema': 'TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1', 'commit': origin[:40],
             'tree': io.sha(io.canonical(objects))[:40], 'origin_sha256': origin, 'objects': objects}}
+    if getattr(s,'_native_r5',False):
+        # Current EXPECTED synthetic package bindings, not observations/flags
+        # replacing production checks. Never put the observer tool/closure in
+        # the separate RootDirectory probe execution dependency set.
+        names=operator_dependency_names(s)
+        operator_dependencies={}
+        for name in names:
+            source=str(Path(name).resolve(strict=True));raw,m=paths.read(source)
+            operator_dependencies[name]={'source':source,'sha256':io.sha(raw),'origin_sha256':origin,
+                **{k:m[k] for k in ('uid','gid','mode','attrs','flags')}}
+        b['source_release']['operator_dependencies']=operator_dependencies
     b['database'] = {'role': 'chatops', 'database': 'r4_probe', 'credential_sha256': {
         's7_form_secret': io.sha(Path('/etc/tu1nz/adult-commercial-s7-form.secret').read_bytes()),
         's7_database_dsn': io.sha(Path('/etc/tu1nz/adult-commercial-s7-database.dsn').read_bytes())}}
@@ -573,6 +751,30 @@ def source_read_census_fence(s):
         assert paths.close()  # the failed namespace fence stays latched
 
 
+def wait_for_fixture_policy_idle(observer, pid, deadline):
+    """Fixture preparation only; never retry a failed production observation.
+
+    The owner-epoch component deliberately restarts the synthetic daemon.
+    Its short-lived GLib pool worker can otherwise retire in the middle of
+    the later production census. Wait for that known startup worker BEFORE
+    the first baseline/claim, then require the unmodified strict process()
+    read once. Unknown/read failures, leader replacement and timeout fail
+    the fixture; no caught KCMP error or substituted authorization result.
+    """
+    identity=observer.starttime(pid); tasks=Path('/proc')/str(pid)/'task'
+    while True:
+        assert time.monotonic()<deadline, 'FIXTURE_POLICY_STARTUP_NOT_QUIET'
+        assert observer.starttime(pid)==identity, 'FIXTURE_POLICY_LEADER_CHANGED'
+        names=list(tasks.iterdir())
+        assert names and any(p.name==str(pid) for p in names)
+        labels=[(p/'comm').read_text().strip() for p in names]
+        if 'pool-polkitd' not in labels:
+            row=observer.process(pid)  # all task security + KCMP_FILES, once
+            assert row['starttime']==identity, 'FIXTURE_POLICY_LEADER_CHANGED'
+            return
+        time.sleep(.05)
+
+
 def actual_policy_owner_epoch(s):
     # The same actual D-Bus reads as production. Restart ONLY the synthetic
     # Guest's own policy daemon, BEFORE taking the fixture baseline. This is
@@ -587,15 +789,149 @@ def actual_policy_owner_epoch(s):
         assert error.primary == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_AUTHORIZATION_OWNER_CHANGED'
         rejected = True
     assert rejected and authority._authorization_owner is None
+    pid=int(run('/usr/bin/systemctl','show','polkit.service','--property=MainPID','--value'))
+    assert pid>1
+    wait_for_fixture_policy_idle(observer,pid,time.monotonic()+25)
+
+
+def actual_census_loader_profile(s):
+    """Native ELF/--list parity only, not historical origin/Host admission.
+
+    ldd is a fixture comparison, NEVER a production decision/helper. Both
+    the observer and artifact census use the authenticated loader directly.
+    """
+    replacement=s.load('replacement');tool=Path('/usr/bin/busctl')
+    loader,machine=replacement.elf_loader_profile(tool.read_bytes())
+    assert loader in operator_dependency_names(s)
+    assert replacement.elf_loader_profile(Path(loader).read_bytes(),standalone=True)==machine
+    observed=run(str(Path(loader).resolve(strict=True)),'--list',str(tool))
+    comparison=run('/usr/bin/ldd',str(tool))
+    def names(raw):
+        assert b'not found' not in raw
+        return {str(Path(word).resolve(strict=True)) for line in raw.decode().splitlines()
+                for word in line.split() if word.startswith('/')}
+    assert names(observed)==names(comparison) and names(observed)
+
+
+def actual_loader_alias_fence(s):
+    """Own synthetic library names only; no systemd ancestor/reload experiment."""
+    replacement=s.load('replacement');entry=s.load('entry');fs=s.load('fs')
+    for case in ('ancestor','leaf','file'):
+        root=ROOT/('loader-name-'+case);root.mkdir(mode=0o700)
+        real=root/'real';real.mkdir(mode=0o755);write(real/'library.bin',b'SYNTHETIC_LIBRARY_BYTES',0o444)
+        (root/'top').symlink_to('real');(root/'loader').symlink_to('top')
+        (real/'leaf.so').symlink_to('library.bin')
+        paths=fs.Paths(entry,deadline=time.monotonic()+20)
+        reader=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        reader.paths=paths;reader.deadline=paths.deadline;reader.loader_bindings={};reader.loader_aliases={}
+        try:
+            assert reader.bind_loader_path(str(root/'loader/leaf.so'))==str(real/'library.bin')
+            reader.check_loader_paths()
+            changed=root/'top' if case=='ancestor' else real/('leaf.so' if case=='leaf' else 'library.bin')
+            saved=changed.with_name('saved-object');changed.rename(saved);saved.rename(changed)
+            rejected=False
+            try:reader.check_loader_paths()
+            except s.load('io').Hold:rejected=True
+            assert rejected
+        finally:assert paths.close()  # failed namespace binding remains latched
+
+
+def actual_read_census_fence(s):
+    fs=s.load('fs');entry=s.load('entry')
+    for case in ('rename_return','metadata_return','effect_refusal'):
+        root=ROOT/('read-census-'+case);root.mkdir(mode=0o700);child=root/'bound';child.mkdir(mode=0o700)
+        paths=fs.Paths(entry,deadline=time.monotonic()+20);paths.get(str(child));denied=False
+        try:
+            try:
+                with paths.read_census():
+                    with paths.read_census():paths.check()
+                    if case=='rename_return':
+                        saved=root/'saved';child.rename(saved);saved.rename(child)
+                    elif case=='metadata_return':child.chmod(0o755);child.chmod(0o700)
+                    else:paths.create_file(str(child/'MUST_NOT_BE_CREATED'),b'NO')
+                    paths.check()  # events still fail INSIDE the census
+            except s.load('io').Hold:denied=True
+            assert denied and paths._read_depth==0 and not (child/'MUST_NOT_BE_CREATED').exists()
+            if case!='effect_refusal':
+                assert paths.failed
+                try:paths.check()
+                except s.load('io').Hold:pass
+                else:raise AssertionError('CENSUS_EVENT_NOT_LATCHED')
+        finally:paths.close()
+
+
+def actual_loader_configuration_fence(s):
+    replacement=s.load('replacement');fs=s.load('fs');entry=s.load('entry')
+    for case in ('cache_write_return','preload_create_return','cache_open_writer'):
+        root=ROOT/('loader-config-'+case);root.mkdir(mode=0o700)
+        cache=root/'ld.so.cache';write(cache,b'SYNTHETIC_CACHE_BYTES',0o644)
+        paths=fs.Paths(entry,deadline=time.monotonic()+20)
+        raw,row=paths.read(str(cache));origin=io.sha(b'SYNTHETIC_CONFIG_INPUT_ORIGIN')
+        expected={k:row[k] for k in ('uid','gid','mode','attrs','flags')}
+        expected.update(sha256=io.sha(raw),origin_sha256=origin)
+        class SyntheticConfiguration(replacement.LoaderConfiguration):
+            CACHE=str(cache);PRELOAD=str(root/'ld.so.preload')
+        fence=SyntheticConfiguration(paths,{'files':{str(cache):expected},
+            'source_origin_receipts':[origin]},paths.deadline)
+        try:
+            fence.check()
+            if case=='cache_write_return':cache.write_bytes(b'CHANGED');cache.write_bytes(raw)
+            elif case=='preload_create_return':
+                preload=root/'ld.so.preload';preload.write_bytes(b'');preload.unlink()
+            else:
+                fd=os.open(cache,os.O_WRONLY|os.O_CLOEXEC)
+                try:
+                    denied=False
+                    try:s.load('runtime_guard').writer_check({fence.identity[:2]},paths.deadline)
+                    except s.load('io').Hold as error:
+                        assert error.primary=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_EXISTING_SOURCE_WRITABLE_FD'
+                        denied=True
+                    assert denied
+                finally:os.close(fd)
+            rejected=False
+            try:fence.check()
+            except s.load('io').Hold:rejected=True
+            assert rejected
+        finally:
+            assert fence.close()  # prior event stays latched even after restoration
+            assert not paths.close()
+
+
+def production_outcome(result,code,r,fault_wire,stderr):
+    """Retain the actual result BEFORE a later test-only proof can fail.
+
+    Missing fault-injection evidence must fail the test, not erase a prior
+    admission rejection or be misreported as the production cause.
+    """
+    acknowledgments=list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
+    actual_root=sum(p.stat().st_uid==0 for p in [WEB,*WEB.rglob('*')])
+    value={k:result.get(k) for k in ('status','primary','abort','cleanup')}
+    value.update(abort=result.get('abort',[]),cleanup=result.get('cleanup',[]),
+        client_error_type=result.get('error_type'),server_exit=code,owner_confirmations=len(acknowledgments),
+        actual_root_objects=actual_root,last_record_kind=fault_wire.record.get('kind') if fault_wire.record else None,
+        last_record_sequence=fault_wire.record.get('sequence',0) if fault_wire.record else 0)
+    from tu1nz_public_operator_ci import terminal_wire_code
+    value['server_terminal_code']=terminal_wire_code(stderr)
+    return value,acknowledgments,actual_root
 
 
 def main():
-    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST
+    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, PRIMARY_WRITER_FAULT, NATIVE_ERRNO, ENV_DIAGNOSTIC
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
                            'thread_source_fd': 'thread_fd'}.get(args.scenario))
+    replacing=args.scenario.startswith('r5_');runtime_payload=runtime_receipt=runtime_inputs=None
+    if args.scenario=='r5_hooks':
+        write('/etc/systemd/system/'+UNITS[0]+'.d/12-r5-native-hook.conf',b'[Service]\nExecStop=/usr/bin/false\n')
+        run('/usr/bin/systemctl','daemon-reload')
+    if args.scenario=='r5_legacy_unknown':
+        p=APP/'.venv/bin/tu1nz-public-s7';p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_UNKNOWN_OLD_INSTALL_BYTES\n')
     source_read_census_fence(s)
+    actual_census_loader_profile(s)
+    actual_loader_alias_fence(s)
+    actual_read_census_fence(s)
+    actual_loader_configuration_fence(s)
     actual_policy_owner_epoch(s)
     if args.scenario == 'thread_authority':
         # Exact profile first, then a real per-task fsuid change. A worker
@@ -621,7 +957,23 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         while not (ROOT/'threads-ready').exists():
             assert time.monotonic() < until
             time.sleep(.01)
-    b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
+    replacement_dependencies=None
+    if replacing:
+        from tests.public_runtime_fixture import runtime,external_dependencies
+        runtime_payload,runtime_receipt,runtime_inputs=runtime(s)
+        replacement_dependencies=external_dependencies(s,runtime_payload,runtime_receipt)
+    s._native_r5=replacing
+    b = baseline(s,replacement_dependencies=replacement_dependencies)
+    if replacing:
+        origin=io.sha(io.canonical(runtime_receipt));b['source_origin_receipts'].append(origin)
+        b['source_release']['runtime_reference']={'schema':'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1',
+            'artifact':runtime_receipt,'origin_sha256':origin}
+    # Component fixtures above deliberately create read-census/a.json and
+    # b.json in APP. Bind the COMPLETE prepared legacy fixture here, before
+    # production starts, not before our own test-only construction. Never
+    # exclude those files or refresh the witness after a production effect.
+    legacy_bytes={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
+    raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
     write(ROOT/'baseline.json', baseline_raw, 0o600)
     # Actual PID1 batch and three independent single reads must agree before
     # fault injection. Not a synthetic success response for an observer.
@@ -640,10 +992,15 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         'baseline_origins_sha256': io.sha(io.canonical(b['source_origin_receipts'])), 'r3_approval_sha256': client.APPROVAL,
         'machine_sha256': b['machine_sha256'], 'transaction': 'public-rights-20261014-1',
         'owner_plan_sha256': io.sha(raw_plan)}
+    if replacing:scope.update(schema='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1',
+        runtime_artifact_sha256=io.sha(io.canonical(runtime_receipt)),legacy_return=False)
     raw_scope = io.canonical(scope)
     packet = {'source': encoded, 'hashes': hashes, 'baseline': b, 'baseline_raw': base64.b64encode(baseline_raw).decode(),
               'owner_plan': base64.b64encode(raw_plan).decode(), 'scope': scope,
               'scope_raw': base64.b64encode(raw_scope).decode(), 'scope_sha256': io.sha(raw_scope), 'binding': io.sha(raw_scope)}
+    if replacing:
+        import zlib
+        packet['baseline_encoding']='zlib_R5';packet['baseline_raw']=base64.b64encode(zlib.compress(baseline_raw,9)).decode()
     held_writer = None
     if args.scenario == 'thread_authority':
         write(ROOT/'threads-change', b'CHANGE')
@@ -666,10 +1023,16 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
                           's.load("entry").MACHINE='+repr(r.MACHINE)+'\n'+
                           's.load("r3").OWNER_PLAN='+repr(r.OWNER_PLAN)+'\n'+
                           's.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_hash)+'\n')
-    target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
-        b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
+    if replacing:
+        from tests.public_runtime_fixture import substitutions
+        target_substitution+=substitutions(s,runtime_inputs)
+    else:
+        target_substitution += ('s.load("runtime_guard").APP_PIN='+repr((
+            b['source_release']['runtime_reference']['commit'], b['source_release']['runtime_reference']['tree']))+'\n')
     target_substitution += ACTOR_DIAGNOSTIC_WRAPPER
-    if args.scenario in ('first_restart', 'old_restart'):
+    target_substitution += WRITER_DIAGNOSTIC_WRAPPER
+    target_substitution += ENV_DIAGNOSTIC_WRAPPER
+    if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         # Deterministic scheduler fault ONLY: execute the ACTUAL start, then
         # delay its caller until the real crash/on-failure replacement exists.
         # No observation/action result is replaced or returned as GREEN.
@@ -735,13 +1098,15 @@ s.load("host").command=_delay_after_actual_start
                  if e['location'] == 'client']
     fault_wire = FaultWire(wire, args.scenario, child)
     if args.scenario == 'writer': fault_wire.injected.append('REAL_PREEXISTING_WRITABLE_FD')
+    if args.scenario=='r5_legacy_unknown':fault_wire.injected.append('REAL_R5_LEGACY_BYTES_NOT_ADOPTED')
+    if args.scenario=='r5_hooks':fault_wire.injected.append('REAL_R5_EXECSTOP_HOOK')
     if args.scenario == 'runtime_tamper': fault_wire.injected.append('REAL_RUNTIME_DRIFT_BEFORE_ADMISSION')
     if args.scenario == 'thread_source_fd':
         fault_wire.injected.extend(['REAL_NONLEADER_SOURCE_FD_WITH_UNSHARED_TABLE', 'REAL_WRITER_TASK_CENSUS_REJECTED'])
     if args.scenario in ('stop_source_fd', 'stop_source_mapping'):
         fault_wire.injected.append('REAL_STOP_TARGET_SOURCE_FD' if args.scenario == 'stop_source_fd'
                                    else 'REAL_STOP_TARGET_SOURCE_SHARED_MAP')
-    supervisor = client.Client(fault_wire, r, packet['binding'], http_expectations=endpoints)
+    supervisor = client.Client(fault_wire, r, packet['binding'], http_expectations=endpoints,runtime_payload=runtime_payload)
     result = {'status': 'UNKNOWN_TEST_PROTOCOL_HOLD'}
     try:
         result = supervisor.serve()
@@ -758,9 +1123,22 @@ s.load("host").command=_delay_after_actual_start
     PRODUCTION_FAULT = result.get('source_fault')
     diagnostic_path = ROOT/'actor-diagnostic.json'
     if diagnostic_path.exists(): ACTOR_DIAGNOSTIC = io.parse(diagnostic_path.read_bytes())
+    writer_path=ROOT/'writer-diagnostic.json'
+    if writer_path.exists() and result.get('primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WRITER_VIEW_UNKNOWN':
+        writer=io.parse(writer_path.read_bytes());PRIMARY_WRITER_FAULT=writer['fault'];NATIVE_ERRNO=writer['errno']
+        if ACTOR_DIAGNOSTIC is None:ACTOR_DIAGNOSTIC=writer.get('actor')
+    thread_path=ROOT/'thread-file-table-diagnostic.json'
+    if thread_path.exists() and result.get('primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTOR_THREAD_FILE_TABLE_VIEW_UNKNOWN':
+        thread=io.parse(thread_path.read_bytes());PRIMARY_WRITER_FAULT=thread['fault'];NATIVE_ERRNO=thread['errno']
+        if ACTOR_DIAGNOSTIC is None:ACTOR_DIAGNOSTIC=thread.get('actor')
+    env_path=ROOT/'environment-diagnostic.json'
+    if env_path.exists() and result.get('primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED':
+        ENV_DIAGNOSTIC=io.parse(env_path.read_bytes())
+        ENV_DIAGNOSTIC['service']=service_failure_diagnostic(ENV_DIAGNOSTIC['unit'])
     cost_path = ROOT/'read-cost.json'
     if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
-    if args.scenario in ('first_restart', 'old_restart'):
+    PRODUCTION_OUTCOME,acknowledgments,actual_root=production_outcome(result,code,r,fault_wire,stderr)
+    if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
         assert proof['initial'] != proof['replacement']['InvocationID'] and int(proof['replacement']['NRestarts']) >= 1
         expected = 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_FIRST_START_AUTORESTART_DETECTED'
@@ -769,32 +1147,25 @@ s.load("host").command=_delay_after_actual_start
     from tu1nz_public_operator_ci import FAULTS
     if args.scenario == 'thread_authority': fault_wire.injected.append('REAL_NONLEADER_RETAINS_FILESYSTEM_UID')
     assert fault_wire.injected == FAULTS[args.scenario], 'INTENDED_REAL_FAULT_NOT_INJECTED'
-    acknowledgments = list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*-owner_object_ack.json'))
-    actual_root = sum(p.stat().st_uid == 0 for p in [WEB, *WEB.rglob('*')])
-    PRODUCTION_OUTCOME = {k: result.get(k) for k in ('status', 'primary', 'abort', 'cleanup')}
-    PRODUCTION_OUTCOME.update(abort=result.get('abort', []), cleanup=result.get('cleanup', []),
-        client_error_type=result.get('error_type'), server_exit=code, owner_confirmations=len(acknowledgments),
-        actual_root_objects=actual_root, last_record_kind=fault_wire.record.get('kind') if fault_wire.record else None,
-        last_record_sequence=fault_wire.record.get('sequence', 0) if fault_wire.record else 0)
-    from tu1nz_public_operator_ci import terminal_wire_code
-    PRODUCTION_OUTCOME['server_terminal_code'] = terminal_wire_code(stderr)
     report = {'scenario': args.scenario, 'status': result['status'], 'server_exit': code,
                       'proof': io.sha(io.canonical(result)), 'source_files': hashes,
                       'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,
                       'actual_faults': fault_wire.injected,
                       'fixture_only_no_host_acceptance': True}
-    if args.scenario == 'success':
+    if args.scenario in ('success','r5_success','r5_legacy_unknown'):
         assert code == 0 and result['status'] == 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', result
         assert actual_root == 88 and len(acknowledgments) == 84
     elif args.scenario in ('restore_fail_return', 'probe_fail_return'):
         assert code == 0 and result['status'] == 'OLD_OPERATION_RESTORED_SECURITY_RED', result
         assert actual_root == 4 and not acknowledgments
-    elif args.scenario == 'owner_return':
+    elif args.scenario in ('owner_return','r5_owner_return'):
         assert code == 0 and result['status'] == 'OWNER_RETURNED_SECURITY_RED', result
         assert actual_root == 4 and len(acknowledgments) == 7
     else:
         assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
         if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
+                             'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_legacy_tamper',
+                             'r5_old_return_denied','r5_first_restart',
                              'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'): assert actual_root == 4
         else: assert 4 < actual_root < 88
         if args.scenario == 'unknown_actor':
@@ -819,12 +1190,65 @@ s.load("host").command=_delay_after_actual_start
         if args.scenario == 'denied_return':
             assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'inactive'
                        for u in UNITS)
+    if replacing:
+        if args.scenario=='r5_legacy_tamper':
+            legacy_bytes['.venv/bin/tu1nz-public-s7']=io.sha(b'SYNTHETIC_LEGACY_TAMPER')
+        assert legacy_bytes=={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
+        if args.scenario=='r5_hooks':
+            assert not (r.CUSTODY_PARENT/r.TX).exists()
+            assert all(run('/usr/bin/systemctl','show',u,'--property=ActiveState','--value').strip()==b'active' for u in UNITS)
+        if args.scenario in ('r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_legacy_tamper','r5_old_return_denied'):
+            assert all(run('/usr/bin/systemctl','show',u,'--property=ActiveState','--value').strip()==b'inactive' for u in UNITS)
+        if args.scenario=='r5_partial_interrupt':
+            import tu1nz_public_runtime_artifact as artifact
+            prefix=Path(artifact.ROOT);assert prefix.is_dir() and 0<len(list(prefix.rglob('*')))<len(runtime_receipt['objects'])
+            assert stat.S_IMODE(prefix.stat().st_mode)==0o700
+        if args.scenario=='r5_old_return_denied':
+            records=list((r.CUSTODY_PARENT/r.TX/'operator-records').glob('*.json'))
+            assert not any(io.parse(p.read_bytes()).get('value',{}).get('action')=='start_old' for p in records)
     if (r.CUSTODY_PARENT/r.TX).exists():
         try: repeated = r.Journal(r.CUSTODY_PARENT, packet['binding'])
         except r.Denied: pass
         else:
             repeated.close(); raise AssertionError('FIXED_TRANSACTION_REPLAY_NOT_DENIED')
     print(json.dumps(report))
+
+
+def service_failure_diagnostic(label):
+    """Synthetic Guest error metadata only; never forward journal text."""
+    from tu1nz_public_operator_ci import SAFE_FAILURE_TYPES
+    value={'active':'UNKNOWN','result':'UNKNOWN','exit_status':-1,'restarts':-1,'error_types':[],'invocation_bound':False}
+    if label not in PROFILES:return value
+    unit=UNITS[PROFILES.index(label)]
+    try:
+        fields=dict(line.split('=',1) for line in run('/usr/bin/systemctl','show',unit,
+            '--property=ActiveState,Result,ExecMainStatus,NRestarts,InvocationID','--no-pager').decode().splitlines())
+        for key,allowed in (('ActiveState',{'active','inactive','failed','activating','deactivating'}),
+                            ('Result',{'success','exit-code','signal','core-dump','timeout','oom-kill','resources','start-limit-hit'})):
+            value['active' if key=='ActiveState' else 'result']=fields[key] if fields[key] in allowed else 'UNKNOWN'
+        for key,out,limit in (('ExecMainStatus','exit_status',255),('NRestarts','restarts',10000)):
+            number=int(fields[key]);value[out]=number if 0<=number<=limit else -1
+        invocation=fields.get('InvocationID','')
+        if len(invocation)!=32 or any(c not in '0123456789abcdef' for c in invocation):return value
+        value['invocation_bound']=True
+        journal=run('/usr/bin/journalctl','--quiet','--unit='+unit,'_SYSTEMD_INVOCATION_ID='+invocation,
+                    '--lines=24','--no-pager','--output=cat')
+        value['error_types']=sorted({line.split(b':',1)[0].decode() for line in journal.splitlines()
+            if line.split(b':',1)[0].decode(errors='replace') in SAFE_FAILURE_TYPES})
+    except BaseException:pass
+    return value
+
+
+def fixture_fault_location(error):
+    """Only the reviewed fixture's innermost Source line, never its data."""
+    target=str(Path(__file__).with_name('public_runtime_fixture.py'))
+    trace=error.__traceback__;found=None
+    while trace is not None:
+        if trace.tb_frame.f_code.co_filename==target:
+            found={'component':'tests/public_runtime_fixture.py','line':trace.tb_lineno,
+                   'type':type(error).__name__}
+        trace=trace.tb_next
+    return found
 
 
 if __name__ == '__main__':
@@ -836,8 +1260,13 @@ if __name__ == '__main__':
             if trace.tb_frame.f_code.co_filename == __file__: line = trace.tb_lineno
             trace = trace.tb_next
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
+        fixture=fixture_fault_location(error)
+        if fixture is not None:location['fixture_fault']=fixture
+        if PRIMARY_WRITER_FAULT is not None:location['primary_fault']=PRIMARY_WRITER_FAULT
+        if NATIVE_ERRNO is not None:location['errno']=NATIVE_ERRNO
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
         if ACTOR_DIAGNOSTIC is not None: location['actor'] = ACTOR_DIAGNOSTIC
-        if READ_COST is not None: location['read_cost'] = READ_COST
+        if READ_COST: location['read_cost'] = READ_COST  # strict reader forbids an empty cost object
+        if ENV_DIAGNOSTIC is not None:location['environment']=ENV_DIAGNOSTIC
         print(json.dumps({'native_failure': location}))
         raise SystemExit(1)

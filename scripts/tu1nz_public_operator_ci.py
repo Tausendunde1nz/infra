@@ -26,7 +26,8 @@ CONTROL_COMMIT = 'f2979863bbb7043261e9177842503a9b47cdb49f'
 CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtime_tamper',
          'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
          'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
-         'thread_source_fd')
+         'thread_source_fd', 'r5_success', 'r5_legacy_unknown', 'r5_hooks', 'r5_chunk_loss',
+         'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_legacy_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
 FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'stop_source_fd': ['REAL_STOP_TARGET_SOURCE_FD'],
           'stop_source_mapping': ['REAL_STOP_TARGET_SOURCE_SHARED_MAP'],
@@ -43,7 +44,16 @@ FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'lost_start_ack': ['REAL_INVALID_START_ACK'],
           'first_restart': ['REAL_INITIAL_FAILURE_ARMED', 'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
           'old_restart': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT', 'REAL_INITIAL_FAILURE_ARMED',
-                          'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION']}
+                          'REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
+          'r5_success': [], 'r5_legacy_unknown': ['REAL_R5_LEGACY_BYTES_NOT_ADOPTED'],
+          'r5_hooks': ['REAL_R5_EXECSTOP_HOOK'],
+          'r5_chunk_loss': ['REAL_R5_WRONG_CHUNK_SEQUENCE'],
+          'r5_partial_interrupt': ['REAL_R5_PARTIAL_INSTALL_INTERRUPT'],
+          'r5_artifact_tamper': ['REAL_R5_ARTIFACT_WRITE_AFTER_FENCE'],
+          'r5_legacy_tamper': ['REAL_R5_LEGACY_WRITE_AFTER_REPLACEMENT'],
+          'r5_old_return_denied': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT','REAL_R5_FORBIDDEN_OLD_RETURN_REQUEST'],
+          'r5_first_restart': ['REAL_INITIAL_FAILURE_ARMED','REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
+          'r5_owner_return': ['EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT']}
 SCHEMA = 'TU1NZ_PUBLIC_OPERATOR_NATIVE_CI_V1'
 SAFE_FAILURE_TYPES = frozenset(n for n, v in vars(builtins).items()
     if isinstance(v, type) and issubclass(v, BaseException)) | {'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
@@ -62,7 +72,8 @@ def diagnostic_codes():
             if isinstance(node, ast.Constant) and type(node.value) is str and re.fullmatch('[A-Z][A-Z0-9_]{1,160}', node.value):
                 symbols.add(node.value)
     return symbols | SAFE_NATIVE_CODES | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
-                                              'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_') for x in symbols}
+        'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_', 'PUBLIC_RUNTIME_', 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_RUNTIME_')
+        for x in symbols}
 
 
 def terminal_wire_code(raw):
@@ -96,7 +107,7 @@ def safe_actor_diagnostic(value):
 
 def safe_read_cost(value):
     labels = {'authority_check', 'authority_check_files', 'authority_units_check', 'authority_actors_check',
-              'process', 'writer_check', 'paths_check', 'linked_record', 'measured_http',
+              'process', 'writer_check', 'paths_check', 'linked_record', 'measured_http', 'command',
               'owner_check_all', 'owner_apply', 'owner_finish'}
     require(type(value) is dict and 0 < len(value) <= len(labels) and set(value) <= labels, 'READ_COST_SCHEMA')
     require(all(type(v) is dict and set(v) == {'calls', 'inclusive_ns'} and
@@ -200,24 +211,28 @@ def fetch_control(private, token):
     return root, hashes
 
 
-def native_argv(workspace, control, image, name, owner):
-    return ['/usr/bin/docker', 'create', '--name', name, '--label', 'tu1nz.private-ci.owner='+owner,
+def native_argv(workspace, control, image, name, owner, *, runtime_inputs=None):
+    argv=['/usr/bin/docker', 'create', '--name', name, '--label', 'tu1nz.private-ci.owner='+owner,
         '--network', 'none', '--privileged', '--cgroupns=private', '--env', 'container=docker',
         '--memory', '2048m', '--cpus', '2', '--pids-limit', '512',
         '--tmpfs', '/run', '--tmpfs', '/run/lock', '--tmpfs', '/tmp',
         '--mount', 'type=bind,src='+str(workspace)+',dst=/source,readonly',
         '--mount', 'type=bind,src='+str(control)+',dst=/control-source,readonly',
-        '--workdir', '/source', image]
+        '--workdir', '/source']
+    if runtime_inputs is not None:
+        argv+=['--mount','type=bind,src='+str(runtime_inputs)+',dst=/runtime-inputs,readonly']
+    return [*argv,image]
 
 
-def inspect_guest(name, owner, workspace, control, image_id):
+def inspect_guest(name, owner, workspace, control, image_id, *, runtime_inputs=None):
     value = json.loads(command(['/usr/bin/docker', 'inspect', name], timeout=15))[0]
     require(value['Image'] == image_id and value['Config']['Labels'].get('tu1nz.private-ci.owner') == owner and
             value['HostConfig']['NetworkMode'] == 'none' and value['HostConfig']['CgroupnsMode'] == 'private',
             'GUEST_BOUNDARY_RED')
     mounts = [(m['Source'], m['Destination'], m['RW']) for m in value['Mounts'] if m['Type'] == 'bind']
-    require(sorted(mounts) == sorted([(str(workspace), '/source', False),
-                                      (str(control), '/control-source', False)]), 'GUEST_MOUNTS_RED')
+    expected=[(str(workspace),'/source',False),(str(control),'/control-source',False)]
+    if runtime_inputs is not None:expected.append((str(runtime_inputs),'/runtime-inputs',False))
+    require(sorted(mounts)==sorted(expected),'GUEST_MOUNTS_RED')
 
 
 def ready(name):
@@ -248,22 +263,39 @@ def validate_report(raw, case, hashes):
             value['fixture_only_no_host_acceptance'] is True and
             re.fullmatch('[a-f0-9]{64}', value['proof'] or ''), 'REPORT_SOURCE_OR_SCHEMA_RED')
     require(value['actual_faults'] == FAULTS[case], 'INTENDED_FAULT_NOT_WITNESSED')
-    if case == 'success':
+    if case in ('success','r5_success','r5_legacy_unknown'):
         require((value['status'], value['server_exit'], value['owner_confirmations'], value['actual_root_objects']) ==
                 ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', 0, 84, 88), 'FORWARD_RED')
-    elif case in ('restore_fail_return', 'probe_fail_return', 'owner_return'):
-        status = 'OWNER_RETURNED_SECURITY_RED' if case == 'owner_return' else 'OLD_OPERATION_RESTORED_SECURITY_RED'
+    elif case in ('restore_fail_return', 'probe_fail_return', 'owner_return','r5_owner_return'):
+        status = 'OWNER_RETURNED_SECURITY_RED' if case in ('owner_return','r5_owner_return') else 'OLD_OPERATION_RESTORED_SECURITY_RED'
         require((value['status'], value['server_exit'], value['owner_confirmations'], value['actual_root_objects']) ==
-                (status, 0, 7 if case == 'owner_return' else 0, 4), 'RETURN_RED')
+                (status, 0, 7 if case in ('owner_return','r5_owner_return') else 0, 4), 'RETURN_RED')
     else:
         require(value['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), 'FAULT_NOT_HELD')
         if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
-                    'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'):
+                    'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd',
+                    'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_legacy_tamper','r5_old_return_denied','r5_first_restart'):
             require(value['actual_root_objects'] == 4, 'UNAUTHORIZED_OWNER_EFFECT')
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')
     return {'scenario': case, 'result_sha256': value['proof'], 'status': value['status'],
             'actual_faults': value['actual_faults']}
+
+
+def progress(sha,count,record):
+    """Finite completed-fixture receipt, never an admission or full CI gate.
+
+    Emit ONLY after validate_report; never child output, argv, metadata, token
+    or private source. An outer job cancellation must not imply all28 passed.
+    """
+    require(type(sha) is str and re.fullmatch('[a-f0-9]{40}',sha) and
+            type(count) is int and 1<=count<=len(CASES) and
+            type(record) is dict and record.get('scenario')==CASES[count-1] and
+            type(record.get('result_sha256')) is str and
+            re.fullmatch('[a-f0-9]{64}',record['result_sha256']),'PROGRESS_SCHEMA')
+    print(json.dumps({'schema':'TU1NZ_PUBLIC_OPERATOR_NATIVE_PROGRESS_V1',
+        'source_sha':sha,'completed_count':count,'scenario':record['scenario'],
+        'result_sha256':record['result_sha256'],'host_acceptance':False},sort_keys=True),flush=True)
 
 
 def failure_location(raw):
@@ -287,18 +319,43 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost'}, 'FAILURE_SCHEMA')
+                {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost', 'environment'}, 'FAILURE_SCHEMA')
+        if 'environment' in location:
+            env=location['environment']
+            require(type(env) is dict and set(env)=={'unit','sample','followup','identity','same_environment','executable','state','followup_expected_items','service'},'FAILURE_SCHEMA')
+            for key,allowed in {'unit':{'s7','s8-landing','wms','UNKNOWN'},'sample':{'NORMAL','WMS','EMPTY','OTHER'},
+                    'followup':{'NORMAL','WMS','EMPTY','OTHER','GONE','UNKNOWN'},'identity':{'SAME','DIFFERENT','UNKNOWN'},
+                    'same_environment':{'SAME','DIFFERENT','UNKNOWN'},'executable':{'EXPECTED','OTHER','UNKNOWN'},
+                    'state':{'R','S','D','Z','T','t','X','I','UNKNOWN'}}.items():
+                require(type(env[key]) is str and env[key] in allowed,'FAILURE_SCHEMA')
+            require(type(env['followup_expected_items']) is bool,'FAILURE_SCHEMA')
+            service=env['service']
+            require(type(service) is dict and set(service)=={'active','result','exit_status','restarts','error_types','invocation_bound'} and
+                service['active'] in {'UNKNOWN','active','inactive','failed','activating','deactivating'} and
+                service['result'] in {'UNKNOWN','success','exit-code','signal','core-dump','timeout','oom-kill','resources','start-limit-hit'} and
+                type(service['exit_status']) is int and -1<=service['exit_status']<=255 and
+                type(service['restarts']) is int and -1<=service['restarts']<=10000 and
+                type(service['invocation_bound']) is bool and
+                type(service['error_types']) is list and len(service['error_types'])<=32 and
+                all(type(t) is str and t in SAFE_FAILURE_TYPES for t in service['error_types']),'FAILURE_SCHEMA')
+        if 'fixture_fault' in location:
+            fault=location['fixture_fault']
+            require(type(fault) is dict and set(fault)=={'component','line','type'} and
+                    fault['component']=='tests/public_runtime_fixture.py' and
+                    type(fault['line']) is int and 0<fault['line']<10000 and
+                    fault['type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'},'FAILURE_SCHEMA')
         if 'errno' in location:
             require(type(location['errno']) is int and 0 <= location['errno'] < 4096, 'FAILURE_ERRNO_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and
                 location['test_type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}, 'FAILURE_SCHEMA')
-        fault = location['production_fault']
-        if fault is not None:
-            require(set(fault) == {'component', 'line', 'type'} and
-                    fault['component'] in {'<authenticated-memory:'+n+'>' for n in
-                        (*operator.INFRA_FILES, *operator.CONTROL_FILES)} and
-                    type(fault['line']) is int and 0 < fault['line'] < 10000 and
-                    fault['type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}, 'FAILURE_SCHEMA')
+        for key in ('production_fault','primary_fault'):
+            fault = location.get(key)
+            if fault is not None:
+                require(set(fault) == {'component', 'line', 'type'} and
+                        fault['component'] in {'<authenticated-memory:'+n+'>' for n in
+                            (*operator.INFRA_FILES, *operator.CONTROL_FILES)} and
+                        type(fault['line']) is int and 0 < fault['line'] < 10000 and
+                        fault['type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}, 'FAILURE_SCHEMA')
         if 'cause_code' in location:
             value = location['cause_code']
             location = {**location, 'cause_code': value if type(value) is str and value in diagnostic_codes()
@@ -396,11 +453,20 @@ def run(workspace, image):
         hashes.update({n: hashlib.sha256((workspace/p).read_bytes()).hexdigest()
                        for n, p in operator.INFRA_FILES.items()})
         records = []
+        # Public upstream artifacts only. No additional private repository or
+        # credential scope; exact digests remain the reviewed Source lock.
+        import tu1nz_public_runtime_build as build
+        phase='runtime-public-inputs'
+        inputs=json.loads((workspace/'manifests/public-web-runtime-r5-inputs.json').read_bytes())
+        runtime_inputs=root/'runtime-inputs';runtime_inputs.mkdir(mode=0o700)
+        for row in [inputs['python'],*inputs['wheels']]:
+            save(runtime_inputs/row['filename'],build.fetch(row))
         for case in CASES:
             phase = case+'-create'
             container = 'tu1nz-public-operator-private-'+owner+'-'+case.replace('_', '-')
-            command(native_argv(workspace, control, image, container, owner), timeout=30)
-            phase = case+'-inspect'; inspect_guest(container, owner, workspace, control, image_id)
+            runtime=runtime_inputs if case.startswith('r5_') else None
+            command(native_argv(workspace, control, image, container, owner,runtime_inputs=runtime), timeout=30)
+            phase = case+'-inspect'; inspect_guest(container, owner, workspace, control, image_id,runtime_inputs=runtime)
             phase = case+'-start'; command(['/usr/bin/docker', 'start', container], timeout=30)
             phase = case+'-ready'; ready(container)
             if case == 'success':
@@ -417,6 +483,7 @@ def run(workspace, image):
                 native_process = native_process_diagnostic(code, raw)
             require(code == 0, 'NATIVE_CASE_RED')
             records.append(validate_report(raw, case, hashes))
+            progress(sha,len(records),records[-1])
             boundary.cleanup_container(container, owner); container = None
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,

@@ -12,9 +12,9 @@ jobs:
   control-private-provenance:
     name: control-private-provenance
     runs-on: ubuntu-24.04
-    # Original thirteen plus five defensive regressions; no wider Host deadline.
+    # Eighteen original plus ten R5 transition cases; no wider Host deadline.
     # The existing 64 recovery cases and every downstream gate remain intact.
-    timeout-minutes: 30
+    timeout-minutes: 60
     # Environment-only credential. Required maintainer approval BEFORE this
     # fresh job starts: actual exact SHA including workflow/scripts/Dockerfile
     # must have independent review; same-repo origin alone is NOT trust.
@@ -29,7 +29,7 @@ jobs:
           fetch-tags: true
           persist-credentials: false
       - name: Private CI boundary regression tests (no private input or credential)
-        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci
+        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci tests.test_public_runtime_artifact
       - name: Build fresh approved native image before private input (no reused artifact)
         run: docker build --file tests/s8-native.Dockerfile --tag "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
       - name: Build fresh production-entry image before private input
@@ -42,7 +42,7 @@ jobs:
         run: >-
           python3 -I -B scripts/tu1nz_control_private_ci.py
           --image "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-      - name: Complete production adapter (eighteen actual isolated cases; private pinned Control source)
+      - name: Complete production adapter (eighteen original and ten R5 isolated cases; private pinned Control source)
         env:
           CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
           CONTROL_PRIVATE_ENVIRONMENT: control-private-ci

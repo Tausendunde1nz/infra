@@ -21,6 +21,7 @@ import shlex
 import subprocess
 import sys
 import time
+import zlib
 
 
 def load_io():
@@ -34,6 +35,10 @@ def load_io():
 io = load_io()
 INFRA_FILES = {n: 'scripts/tu1nz_public_operator_'+n+'.py' for n in ('io', 'fs', 'runtime_guard', 'observe', 'probes', 'host')}
 INFRA_FILES['client'] = 'scripts/tu1nz_public_operator.py'
+INFRA_FILES.update(artifact='scripts/tu1nz_public_runtime_artifact.py',
+                   replacement='scripts/tu1nz_public_runtime_transition.py',
+                   runtime_inputs='manifests/public-web-runtime-r5-inputs.json',
+                   runtime_overlay='systemd/public-web-runtime-r5.conf')
 INFRA_FILES.update(r3='scripts/tu1nz_public_bootstrap_r3.py', runtime='scripts/tu1nz_public_web_isolate_r1.py')
 INFRA_FILES.update({n: 'systemd/'+u+'.d/zz-public-isolation-r1.conf' for n, u in zip(
     ('dropin_s7', 'dropin_s8_landing', 'dropin_wms'),
@@ -110,6 +115,13 @@ def application_reference(root, baseline):
     This function never creates that origin from current server bytes.
     """
     reference = baseline['source_release']['runtime_reference']
+    replacing=reference.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1'
+    if replacing:
+        value=reference['artifact']
+        reference={'commit':value['application']['commit'],'tree':value['application']['tree'],
+                   'origin_sha256':reference['origin_sha256'],
+                   'objects':{k[4:]:{f:v for f,v in row.items() if f in ('kind','sha256','target')}
+                              for k,row in value['objects'].items() if k.startswith('app/')}}
     commit = '93555d8a141caf8ace33522f9340d30bfc47d2bb'
     tree = '1e8a644115127818f394b6f9d24f31826e04ecba'
     io.require((reference['commit'], reference['tree']) == (commit, tree) and
@@ -145,6 +157,9 @@ def reference_origins(paths, baseline):
     io.require(set(actual) == set(baseline['source_origin_receipts']), 'REFERENCE_ORIGIN_EVIDENCE_MISSING')
     runtime = baseline['source_release']['runtime_reference']
     origin = io.parse(actual[runtime['origin_sha256']])
+    if runtime.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1':
+        io.require(origin==runtime['artifact'],'REPLACEMENT_ARTIFACT_ORIGIN_BYTES')
+        return  # New prospective artifact, never relabel an old installation receipt.
     io.require(set(origin) == {'schema', 'application_commit', 'application_tree', 'runtime_objects_sha256',
                               'prior_evidence_sha256'} and origin['schema'] == 'TU1NZ_PUBLIC_RUNTIME_ORIGIN_V1' and
                (origin['application_commit'], origin['application_tree']) == (runtime['commit'], runtime['tree']) and
@@ -155,9 +170,7 @@ def reference_origins(paths, baseline):
 
 
 def validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw):
-    io.require(set(scope) == {'schema', 'release_sha256', 'baseline_sha256', 'administrative_roles_sha256',
-               'baseline_origins_sha256', 'r3_approval_sha256', 'machine_sha256', 'transaction', 'owner_plan_sha256'}
-               and scope['schema'] == 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1', 'APPROVED_SCOPE_SCHEMA')
+    io.replacement_scope(scope,baseline)
     io.require(scope['release_sha256'] == io.sha(release_raw) and
                scope['baseline_sha256'] == io.sha(baseline_raw) and
                scope['administrative_roles_sha256'] == io.sha(io.canonical(baseline['actors'])) and
@@ -171,11 +184,13 @@ def validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw):
 
 
 class Client:
-    def __init__(self, wire, r3, binding, *, http_expectations, owner_hold_before=None):
+    def __init__(self, wire, r3, binding, *, http_expectations, owner_hold_before=None, runtime_payload=None):
         self.wire, self.r, self.binding = wire, r3, binding
         self.journal = None; self.fd = None; self.records = {}; self.last = binding; self.sequence = 0
         self.http_expectations = http_expectations
         self.owner_hold_before = owner_hold_before
+        self.runtime_payload=runtime_payload;self.runtime_next=0
+        self.runtime_payload_sha256=io.sha(runtime_payload) if runtime_payload is not None else None
 
     def initialize(self):
         parent = self.r.CUSTODY_PARENT
@@ -231,6 +246,9 @@ class Client:
                 endpoint = message['endpoint']
                 io.require(endpoint in self.http_expectations, 'HTTP_NOT_IN_APPROVED_BASELINE')
                 self.wire.send(io.measured_http(endpoint, deadline=self.wire.deadline, location='client'))
+            elif kind == 'runtime_chunk_request':
+                self.check()
+                self.send_runtime_chunk(message)
             elif kind == 'held':
                 # Explicit surviving-session decision only. EOF, no TTY, lost
                 # confirmation, interruption or deadline defaults to HOLD.
@@ -254,6 +272,20 @@ class Client:
                 return message
             else:
                 raise io.Hold('PUBLIC_OPERATOR_PROTOCOL_MESSAGE_UNKNOWN')
+
+    def send_runtime_chunk(self,message):
+        # The session calls check() before this pure bounded transport step.
+        # Supplying bytes is not an admission, effect, claim or ACK repair.
+        io.require(self.runtime_payload is not None and
+            set(message)=={'type','index','archive_sha256'} and type(message['index']) is int and
+            message['index']==self.runtime_next and message['archive_sha256']==self.runtime_payload_sha256,
+            'RUNTIME_CHUNK_NOT_BOUND_OR_REPLAY')
+        offset=self.runtime_next*512*1024
+        data=self.runtime_payload[offset:offset+512*1024]
+        io.require(data,'RUNTIME_CHUNK_OUTSIDE_BOUND')
+        self.runtime_next+=1  # Consume before send; lost output cannot be retried.
+        self.wire.send({'type':'runtime_chunk','index':message['index'],
+                        'data':base64.b64encode(data).decode()})
 
     def close(self):
         if self.fd is not None: os.close(self.fd); self.fd = None
@@ -324,6 +356,8 @@ def main():
     parser.add_argument('--origin', type=Path, action='append', required=True,
                         help='private pre-existing reference evidence, one file for EACH bound origin hash')
     parser.add_argument('--execute', action='store_true', help='explicit Host execution; absent = LOCAL validation only')
+    parser.add_argument('--runtime-archive',type=Path,help='R5 private artifact; old scopes cannot use this option')
+    parser.add_argument('--runtime-input-cache',type=Path,help='R5 pinned upstream bytes for deterministic local verification')
     parser.add_argument('--hold-owner-before', help='DENY before this exact owner object; no extra permission or retry')
     args = parser.parse_args()
     io.require(Path.cwd().resolve() == args.infra.resolve(), 'ACTUAL_INFRA_CWD_REQUIRED')
@@ -344,6 +378,23 @@ def main():
     application_reference(args.application_reference, baseline)
     encoded, hashes = source_package(args.infra, args.control, io.parse(release_raw))
     source = io.Source(encoded, hashes); r3 = source.load('r3')
+    replacing=io.replacement_scope(scope,baseline);runtime_payload=None
+    if replacing:
+        io.require(args.runtime_archive is not None and args.runtime_input_cache is not None,
+                   'REPLACEMENT_MATERIAL_REQUIRED')
+        builder=source.load('artifact')
+        inputs=io.parse(source.bytes['runtime_inputs'])
+        runtime=baseline['source_release']['runtime_reference']['artifact']
+        builder.validate_receipt(runtime,inputs)
+        runtime_payload=builder.private_read(args.runtime_archive)
+        python_raw=builder.private_read(args.runtime_input_cache/inputs['python']['filename'])
+        wheels={w['filename']:builder.private_read(args.runtime_input_cache/w['filename']) for w in inputs['wheels']}
+        rebuilt,receipt=builder.assemble(builder.git_source(args.application_reference),python_raw,wheels,inputs)
+        io.require(rebuilt==runtime_payload and builder.canonical(receipt)==builder.canonical(runtime),
+                   'REPLACEMENT_OFFLINE_REBUILD_BINDING')
+        builder.inspect_archive(runtime_payload,runtime)
+    else:
+        io.require(args.runtime_archive is None and args.runtime_input_cache is None,'REPLACEMENT_NOT_AUTHORIZED_BY_OLD_SCOPE')
     io.require(args.hold_owner_before is None or args.hold_owner_before in
                {a['relative'] for a in io.parse(plan_raw)['actions']}, 'OWNER_DENIAL_BOUNDARY_NOT_IN_PLAN')
     io.require(io.sha(plan_raw) == r3.OWNER_PLAN and scope['machine_sha256'] == r3.MACHINE, 'FIXED_HOST_OR_OWNER_PLAN')
@@ -352,14 +403,20 @@ def main():
               'scope_raw': base64.b64encode(scope_raw).decode(),
               'owner_plan': base64.b64encode(plan_raw).decode(), 'scope': scope,
               'scope_sha256': args.approved_scope_sha256, 'binding': io.sha(io.canonical(scope))}
+    if replacing:
+        packet['baseline_encoding']='zlib_R5'
+        packet['baseline_raw']=base64.b64encode(zlib.compress(baseline_raw,9)).decode()
+    io.require(io.baseline_bytes(packet)==baseline_raw,'BASELINE_PACKET_READBACK')
+    io.require(len(io.canonical(packet))<=io.MAX_FRAME,'LOCAL_PACKET_BOUND_BEFORE_HOST')
     if not args.execute:
         print(json.dumps({'status': 'LOCAL_PACKAGE_VALIDATED_NO_HOST_ACCESS', 'binding': packet['binding'],
                           'host_dispatched': False, 'slot_consumed': False})); return
     io.require(sys.stdin.isatty(), 'HUMAN_TTY_REQUIRED_NO_CHAT_PASSWORD')
-    return execute(packet, encoded, hashes, baseline, r3, owner_hold_before=args.hold_owner_before)
+    return execute(packet, encoded, hashes, baseline, r3, owner_hold_before=args.hold_owner_before,
+                   runtime_payload=runtime_payload)
 
 
-def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None):
+def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None, runtime_payload=None):
     """Actual owned transport/custody lifecycle; no Host gate substitutions."""
     program = bootstrap(base64.b64decode(encoded['io']))
     remote = 'LC_ALL=C '+shlex.join(['/usr/bin/sudo', '-S', '-k', '-p', '', '--',
@@ -385,7 +442,8 @@ def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None):
         wire.send(packet)
         http = [e for u in (*r3.UNITS, 'lighting') for e in
                 (baseline['http'][u] if u != 'lighting' else [baseline['http'][u]]) if e['location'] == 'client']
-        client = Client(wire, r3, packet['binding'], http_expectations=http, owner_hold_before=owner_hold_before)
+        client = Client(wire, r3, packet['binding'], http_expectations=http, owner_hold_before=owner_hold_before,
+                        runtime_payload=runtime_payload)
         result = client.serve(); child.stdin.close()
         io.require(child.wait(timeout=5) == 0, 'SSH_END_UNKNOWN')
     except BaseException as error:

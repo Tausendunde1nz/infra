@@ -15,6 +15,155 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_progress_is_finite_verified_case_only_not_admission_or_raw_output(self):
+        record={'scenario':m.CASES[0],'result_sha256':'b'*64,
+                'unrelated':'PRIVATE_UNRELATED_VALUE_MUST_NOT_LEAVE'}
+        stream=io.StringIO()
+        with contextlib.redirect_stdout(stream):m.progress('a'*40,1,record)
+        value=json.loads(stream.getvalue())
+        self.assertEqual(set(value),{'schema','source_sha','completed_count','scenario','result_sha256','host_acceptance'})
+        self.assertEqual(value['schema'],'TU1NZ_PUBLIC_OPERATOR_NATIVE_PROGRESS_V1')
+        self.assertFalse(value['host_acceptance'])
+        self.assertNotIn('PRIVATE_UNRELATED_VALUE',stream.getvalue())
+        for count in (0,True,len(m.CASES)+1):
+            with self.assertRaises(m.CIError):m.progress('a'*40,count,record)
+        with self.assertRaises(m.CIError):m.progress('not-a-commit',1,record)
+        with self.assertRaises(m.CIError):m.progress('a'*40,2,record)
+
+    def test_fixture_policy_wait_is_before_admission_and_never_retries_unknown(self):
+        # Unit fixture lifecycle only, not mocked production admission.
+        from types import SimpleNamespace
+        from tests import public_operator_native as native
+        import time
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder); task=root/'2';task.mkdir();comm=task/'comm'
+            comm.write_text('pool-polkitd\n')
+            observer=SimpleNamespace(starttime=lambda pid:'7',process=lambda pid:{'starttime':'7'})
+            class Proc:
+                def __truediv__(self,part):return self if part=='2' else root
+            with patch.object(native,'Path',return_value=Proc()):
+                with self.assertRaisesRegex(AssertionError,'FIXTURE_POLICY_STARTUP_NOT_QUIET'):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()-1)
+                with patch.object(native.time,'sleep',side_effect=lambda value:comm.write_text('gmain\n')):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                observer.process=lambda pid:(_ for _ in ()).throw(RuntimeError('STRICT_CENSUS_UNKNOWN'))
+                with self.assertRaisesRegex(RuntimeError,'STRICT_CENSUS_UNKNOWN'):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                observer.process=lambda pid:{'starttime':'8'}
+                with self.assertRaisesRegex(AssertionError,'FIXTURE_POLICY_LEADER_CHANGED'):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                comm.unlink()
+                with self.assertRaises(FileNotFoundError):
+                    native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+
+    def test_legacy_unchanged_witness_follows_fixture_build_but_precedes_production(self):
+        import ast
+        from tests import public_operator_native as native
+        tree=ast.parse(Path(native.__file__).read_bytes())
+        main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+        captures=[n for n in ast.walk(main) if isinstance(n,ast.Assign) and
+                  any(isinstance(t,ast.Name) and t.id=='legacy_bytes' for t in n.targets)]
+        self.assertEqual(len(captures),1)
+        capture=captures[0];self.assertIsInstance(capture.value,ast.DictComp)
+        fixture_calls=[n.lineno for n in ast.walk(main) if isinstance(n,ast.Call) and
+            isinstance(n.func,ast.Name) and n.func.id in
+            ('setup','source_read_census_fence','actual_loader_alias_fence','actual_read_census_fence',
+             'actual_loader_configuration_fence','actual_policy_owner_epoch','baseline')]
+        child=next(n for n in main.body if isinstance(n,ast.Assign) and
+                   any(isinstance(t,ast.Name) and t.id=='child' for t in n.targets))
+        self.assertTrue(fixture_calls)
+        self.assertLess(max(fixture_calls),capture.lineno)
+        self.assertLess(capture.lineno,child.lineno)
+        # The final equality remains full inventory + hashes, not an exclusion
+        # for test-created files or an overwritten post-production snapshot.
+        checks=[n for n in ast.walk(main) if isinstance(n,ast.Assert) and
+                isinstance(n.test,ast.Compare) and isinstance(n.test.left,ast.Name) and
+                n.test.left.id=='legacy_bytes']
+        self.assertEqual(len(checks),1)
+        self.assertIsInstance(checks[0].test.comparators[0],ast.DictComp)
+        self.assertGreater(checks[0].lineno,child.lineno)
+
+    def test_environment_error_wrapper_follows_actual_flow_exception_context(self):
+        import hashlib
+        from types import SimpleNamespace
+        from tests import public_operator_native as native
+        code='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED'
+        class FlowFailure(Exception):primary=code
+        class OriginalHold(Exception):primary=code
+        actual={'component':'<authenticated-memory:replacement>','line':1,'type':'Hold'}
+        host=SimpleNamespace(source_fault_location=lambda error:actual)
+        modules={'host':host,'observe':SimpleNamespace(UNITS=native.UNITS)}
+        scope={'s':SimpleNamespace(load=lambda key:modules[key])}
+        exec(compile(native.ENV_DIAGNOSTIC_WRAPPER,'<test-wrapper>','exec'),scope)
+        program='''def interpreter_binding():
+ row={"pid":123,"starttime":"synthetic","initial_env_sha256":empty}
+ normal="NORMAL_HASH";wms="WMS_HASH"
+ raise hold
+def initial_application_ready():
+ unit=unit_name
+ interpreter_binding()
+'''
+        values={'empty':hashlib.sha256(b'').hexdigest(),'hold':OriginalHold(),'unit_name':native.UNITS[0]}
+        exec(compile(program,'<authenticated-memory:replacement>','exec'),values)
+        try:
+            try:values['initial_application_ready']()
+            except OriginalHold:raise FlowFailure()
+        except FlowFailure as error:wrapped=error
+        stream=io.StringIO();stream.fileno=lambda:42
+        with patch.object(Path,'read_bytes',side_effect=FileNotFoundError),\
+             patch.object(os,'open',return_value=42),patch.object(os,'fdopen',return_value=contextlib.nullcontext(stream)),\
+             patch.object(os,'fsync'):
+            self.assertIs(scope['_env_source_fault'](wrapped),actual)
+        found=json.loads(stream.getvalue())
+        self.assertEqual((found['sample'],found['followup'],found['unit']),('EMPTY','GONE','s7'))
+        self.assertNotIn('123',json.dumps(found));self.assertNotIn('synthetic',json.dumps(found))
+
+    def test_environment_diagnostic_never_exposes_names_values_or_journal_text(self):
+        from tests import public_operator_native as native
+        compile(native.ENV_DIAGNOSTIC_WRAPPER,'<synthetic-diagnostic>','exec')
+        replies=[b'ActiveState=failed\nResult=exit-code\nExecMainStatus=1\nNRestarts=0\nInvocationID='+b'1'*32+b'\n',
+                 b'PRIVATE_CANARY: uservalue\nTypeError: PRIVATE_CANARY\n']
+        with patch.object(native,'run',side_effect=replies):service=native.service_failure_diagnostic('s7')
+        self.assertEqual(service['error_types'],['TypeError'])
+        self.assertTrue(service['invocation_bound'])
+        with patch.object(native,'run',return_value=b'ActiveState=failed\nResult=exit-code\nExecMainStatus=1\nNRestarts=0\nInvocationID=\n') as called:
+            unbound=native.service_failure_diagnostic('s7')
+        self.assertFalse(unbound['invocation_bound']);self.assertEqual(unbound['error_types'],[])
+        self.assertEqual(called.call_count,1)
+        env={'unit':'s7','sample':'EMPTY','followup':'GONE','identity':'UNKNOWN',
+             'same_environment':'UNKNOWN','executable':'UNKNOWN','state':'Z','followup_expected_items':False,'service':service}
+        value={'test_line':1,'test_type':'AssertionError','production_fault':None,'environment':env}
+        def read(x):return m.failure_location(json.dumps({'native_failure':x}).encode())
+        self.assertEqual(read(value),value);self.assertNotIn('PRIVATE_CANARY',json.dumps(read(value)))
+        for bad in ({**env,'sample':'PRIVATE_CANARY'},{**env,'raw':'PRIVATE_CANARY'},
+                    {**env,'service':{**service,'message':'PRIVATE_CANARY'}},
+                    {**env,'service':{**service,'error_types':['PRIVATE_CANARY']}}):
+            with self.subTest(bad=bad):self.assertIsNone(read({**value,'environment':bad}))
+
+    def test_fixture_fault_retains_only_exact_public_source_location(self):
+        from tests import public_operator_native as native
+        target=str(Path(native.__file__).with_name('public_runtime_fixture.py'))
+        try:exec(compile("raise AssertionError('PRIVATE_CANARY')",target,'exec'),{})
+        except AssertionError as error:fault=native.fixture_fault_location(error)
+        self.assertEqual(fault,{'component':'tests/public_runtime_fixture.py','line':1,'type':'AssertionError'})
+        base={'test_line':817,'test_type':'AssertionError','production_fault':None,'fixture_fault':fault}
+        def read(x):return m.failure_location(json.dumps({'native_failure':x}).encode())
+        self.assertEqual(read(base),base)
+        self.assertNotIn('PRIVATE_CANARY',json.dumps(read(base)))
+        for bad in ({**fault,'component':'/private/CANARY'}, {**fault,'line':True},
+                    {**fault,'type':'PRIVATE_CANARY'}, {**fault,'message':'PRIVATE_CANARY'}):
+            with self.subTest(bad=bad):self.assertIsNone(read({**base,'fixture_fault':bad}))
+
+    def test_primary_writer_fault_cannot_be_erased_by_later_abort_or_leak_text(self):
+        first={'component':'<authenticated-memory:runtime_guard>','line':61,'type':'FileNotFoundError'}
+        abort={'component':'<authenticated-memory:host>','line':535,'type':'Hold'}
+        value={'test_line':1,'test_type':'AssertionError','production_fault':abort,'primary_fault':first,'errno':2}
+        def read(v):return m.failure_location(json.dumps({'native_failure':v}).encode())
+        self.assertEqual(read(value)['primary_fault'],first);self.assertEqual(read(value)['production_fault'],abort)
+        for bad in ({**first,'component':'/private/CANARY'}, {**first,'line':True},
+                    {**first,'type':'PRIVATE_CANARY'}, {**first,'message':'PRIVATE_CANARY'}):
+            with self.subTest(bad=bad):self.assertIsNone(read({**value,'primary_fault':bad}))
+
     def test_read_cost_is_finite_source_labels_not_private_data(self):
         value = {'process': {'calls': 3, 'inclusive_ns': 1234}}
         def failure(cost):
@@ -95,7 +244,7 @@ class PublicOperatorCI(unittest.TestCase):
     def test_every_fault_requires_its_own_actual_marker(self):
         self.assertEqual(set(m.FAULTS), set(m.CASES))
         for case in m.CASES:
-            if case == 'success': continue
+            if case in ('success','r5_success'): continue
             value = {'scenario': case, 'status': 'HOLD', 'server_exit': 0, 'proof': 'a'*64,
                      'source_files': {}, 'owner_confirmations': 0, 'actual_root_objects': 4,
                      'actual_faults': [], 'fixture_only_no_host_acceptance': True}

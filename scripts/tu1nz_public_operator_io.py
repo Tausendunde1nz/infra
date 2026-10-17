@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import types
+import zlib
 from contextlib import contextmanager
 import urllib.error
 import urllib.parse
@@ -31,13 +32,16 @@ MODULES = {'io': 'tu1nz_public_operator_io', 'fs': 'tu1nz_public_operator_fs',
            'client': 'tu1nz_public_operator',
            'observe': 'tu1nz_public_operator_observe', 'probes': 'tu1nz_public_operator_probes',
            'runtime_guard': 'tu1nz_public_operator_runtime_guard',
+           'artifact': 'tu1nz_public_runtime_artifact', 'replacement': 'tu1nz_public_runtime_transition',
            'host': 'tu1nz_public_operator_host', 'r3': 'tu1nz_public_bootstrap_r3',
            'owner': 'tu1nz_bound_owner_supervisor', 'entry': 'tu1nz_bound_lighting_entry',
            'guard': 'tu1nz_bound_writer_guard'}
 ASSETS = {'runtime': '2884c2531e73480513d533844cab9ac1a906e13fd4fdb104ab1d49759f3e9b01',
           'dropin_s7': 'df605ffec37e59d1c3c535a93879e7e155447967c6cd97a2f83ca866f841c16b',
           'dropin_s8_landing': '1e84f8904b4ce292e8b002ad373b27ea5d6592ddaaca4c07c68e990452133213',
-    'dropin_wms': 'ce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3'}
+    'dropin_wms': 'ce23c6382e50b740fb22f5a085d15fb0f96cd7fc15afcc1deaf23e04aff8bcf3',
+    'runtime_inputs': 'dc60ead4d72111f5d748b4cbc34f724c03e78435fd3a32ac8b323b8a5b2e4b9a',
+    'runtime_overlay': '0fb502c4f6b164e7e5fb9b1209c11c5f8f221f8191a658d6704bf00c41949b83'}
 PUBLIC_HOSTS = frozenset(('tu1nz.com', 'www.tu1nz.com', 'wantmeseen.com', 'www.wantmeseen.com',
                           'lighting.tu1nz.com'))
 
@@ -61,6 +65,84 @@ def sha(raw):
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+
+
+def operator_dependency_reference(release, origins):
+    """R5 observer TCB inputs, NEVER copied into synthetic execution roots."""
+    require(type(release) is dict and set(release)=={'probe_dependencies','python_binary',
+        'runtime_reference','operator_dependencies'},'REPLACEMENT_OPERATOR_RELEASE_SCHEMA')
+    rows=release['operator_dependencies']
+    require(type(rows) is dict and 0<len(rows)<=128 and '/usr/bin/busctl' in rows,
+            'REPLACEMENT_READER_DEPENDENCY_SET')
+    fields={'source','sha256','uid','gid','mode','attrs','flags','origin_sha256'}
+    for path,row in rows.items():
+        require(type(path) is str and path.startswith(('/usr/bin/','/usr/lib/','/lib/','/lib64/')) and
+                '\x00' not in path and '..' not in Path(path).parts and str(Path(path))==path and type(row) is dict and set(row)==fields,
+                'REPLACEMENT_OPERATOR_DEPENDENCY_SCHEMA')
+        require(type(row['source']) is str and row['source'].startswith(('/usr/bin/','/usr/lib/')) and
+                '\x00' not in row['source'] and '..' not in Path(row['source']).parts and str(Path(row['source']))==row['source'] and
+                type(row['sha256']) is str and re.fullmatch('[a-f0-9]{64}',row['sha256']) and
+                row['origin_sha256'] in origins,'REPLACEMENT_READER_LIBRARY_ORIGIN_UNBOUND')
+        require(type(row['uid']) is type(row['gid']) is int and row['uid']==row['gid']==0 and
+                type(row['mode']) is int and 0<=row['mode']<=0o777 and not row['mode']&0o022 and
+                type(row['flags']) is int and 0<=row['flags']<2**32 and type(row['attrs']) is dict and
+                all(type(k) is type(v) is str for k,v in row['attrs'].items()),
+                'REPLACEMENT_OPERATOR_DEPENDENCY_PROFILE')
+    return rows
+
+
+def replacement_scope(scope, baseline):
+    fields={'schema','release_sha256','baseline_sha256','administrative_roles_sha256',
+            'baseline_origins_sha256','r3_approval_sha256','machine_sha256','transaction','owner_plan_sha256'}
+    replacement=scope.get('schema')=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
+    require(set(scope)==fields | ({'runtime_artifact_sha256','legacy_return'} if replacement else set()) and
+            scope['schema'] in ('TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1','TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'),
+            'APPROVED_SCOPE_SCHEMA')
+    reference=baseline['source_release']['runtime_reference']
+    if replacement:
+        operator_dependency_reference(baseline['source_release'],baseline['source_origin_receipts'])
+        require(set(reference)=={'schema','artifact','origin_sha256'} and
+                reference['schema']=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1' and
+                scope['legacy_return'] is False and
+                sha(canonical(reference['artifact']))==scope['runtime_artifact_sha256']==reference['origin_sha256'] and
+                reference['origin_sha256'] in baseline['source_origin_receipts'],
+                'INDEPENDENT_REPLACEMENT_SCOPE_BINDING')
+        require(not any(p=='/opt/tu1nz_repos/adult-publishing-core' or
+            p.startswith('/opt/tu1nz_repos/adult-publishing-core/') for p in baseline['files']),
+            'REPLACEMENT_BASELINE_CANNOT_ADOPT_UNPROVEN_LEGACY_BYTES')
+    else:
+        require(set(baseline['source_release'])=={'probe_dependencies','python_binary','runtime_reference'},
+                'LEGACY_SOURCE_RELEASE_SCHEMA')
+        require(reference.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1',
+                'LEGACY_SCOPE_CANNOT_AUTHORIZE_RUNTIME_REPLACEMENT')
+    return replacement
+
+
+def baseline_bytes(packet):
+    raw=base64.b64decode(packet['baseline_raw'],validate=True)
+    if packet.get('baseline_encoding')=='zlib_R5':
+        require(packet['scope']['schema']=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1',
+                'COMPRESSED_BASELINE_NOT_LEGACY_SCOPE')
+        decoder=zlib.decompressobj();raw=decoder.decompress(raw,MAX_FRAME+1)
+        require(len(raw)<=MAX_FRAME and decoder.eof and not decoder.unconsumed_tail and
+                not decoder.unused_data,'BASELINE_DECOMPRESSION_BOUND')
+    else:
+        require('baseline_encoding' not in packet,'UNKNOWN_BASELINE_ENCODING')
+    require(len(raw)<=MAX_FRAME,'BASELINE_SIZE_BOUND')
+    return raw
+
+
+def application_coordinates(reference):
+    """Source coordinates, never a claim that the legacy install has this origin."""
+    replacement=reference.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1'
+    row=reference['artifact']['application'] if replacement else reference
+    require(all(type(row.get(k)) is str and re.fullmatch('[a-f0-9]{40}',row[k])
+                for k in ('commit','tree')) and
+            re.fullmatch('[a-f0-9]{64}',reference.get('origin_sha256','')),'APPLICATION_COORDINATE_BINDING')
+    result={k:row[k] for k in ('commit','tree')}
+    result['origin_sha256']=reference['origin_sha256']
+    if replacement:result['binding_kind']='PROSPECTIVE_REPLACEMENT_NOT_LEGACY_ORIGIN'
+    return result
 
 
 def parse(raw):
