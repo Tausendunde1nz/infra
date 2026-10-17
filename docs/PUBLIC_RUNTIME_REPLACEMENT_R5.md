@@ -92,9 +92,11 @@ Existing20s start/stop,120s action and600s overall deadlines are NOT enlarged.
 Artifact upload/construction has finite object/byte/chunk limits. Lost acknowledgement,
 partial install, interruption, drift or expired limit denies continuation/retry.
 
-Backup still protects the existing exact configuration/data/metadata and old
-read witness, with the existing consistency/restore requirements; it does not
-manufacture old runtime provenance. This release FORBIDS old-operation return,
+Backup still protects the existing exact configuration/data/metadata with its
+existing consistency/restore requirements. The retained read witness is NOT a
+copied, provenance-verified old runtime. Its fences and existing-writer targets
+remain active until final cleanup; the original installation is neither
+overwritten nor used as rollback authority. This release FORBIDS old-operation return,
 including after backup, restore or probe failure. A longer stopped HOLD is the
 realistic fallback. No newly installed interpreter may be called through an
 unconfirmed Host state. Owner's independently guarded once-only conditional
@@ -123,11 +125,12 @@ dispatch R2. Current remote slot/service status remains UNKNOWN until freshly re
 ## Required evidence
 
 Portable tests are byte/protocol tests, not native acceptance. Public Infra CI
-retains all18 previous production scenarios and adds9 actual R5 production-entry
+retains all18 previous production scenarios and adds10 actual R5 production-entry
 scenarios with synthetic650-file Application EXPECTED catalog and real pinned
 interpreter/wheels. No admission observation/action is substituted. These cover
 success, unknown old bytes, hooks, transport loss, partial install interruption,
-artifact tamper, forbidden old return, first restart and conditional Owner return.
+artifact tamper, old-runtime tamper after replacement, forbidden old return,
+first restart and conditional Owner return.
 
 Private Application CI separately builds the actual canonical650-file artifact
 twice and tests real3.12.15 imports/binary PostgreSQL driver+read-only SQL and

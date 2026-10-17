@@ -77,8 +77,10 @@ class ReplacementAuthority(Authority):
     def open_runtime(self, baseline, paths, deadline):
         self.replacement_active=False
         self.external_dependencies={};self.external_identities={}
-        return LegacyStopFence(baseline['source_release']['runtime_reference'],paths,
+        legacy=LegacyStopFence(baseline['source_release']['runtime_reference'],paths,
             baseline['source_origin_receipts'],python_binary=baseline['source_release']['python_binary'],deadline=deadline)
+        self.legacy_runtime=legacy
+        return legacy
 
     def extra_unit_contract(self, unit, value, *, stop_only):
         io.require(not any(value[k] for k in ('ExecStop','ExecStopPost','ExecStartPre','ExecStartPost','ExecCondition',
@@ -159,6 +161,7 @@ class ReplacementAuthority(Authority):
 
     def check(self,*,stop_only=False):
         super().check(stop_only=stop_only)
+        if self.legacy_runtime is not self.runtime:self.legacy_runtime.check()
         self.verify_external_libraries()
 
 
@@ -240,10 +243,11 @@ class ReplacementAdapter(Adapter):
             self.a.b['source_origin_receipts'],python_binary=artifact.ROOT+'/python/bin/python3.12',deadline=self.deadline)
         previous=self.a.runtime
         self.extra_runtime_fences.append(previous)
+        # Retain the old witness AND writer targets until final cleanup.
+        # A successful new runtime cannot prove unchanged historical bytes.
+        next_fence.files |= previous.files
         self.a.runtime=next_fence;self.a.replacement_active=True
-        errors=previous.close()
-        if errors:
-            raise io.Hold('PUBLIC_OPERATOR_LEGACY_WITNESS_CLEANUP_UNCONFIRMED')
+        previous.check()
         self.a.bind_external_libraries()
 
     def _perform(self,action,unit=None,*,deadline):
@@ -267,6 +271,7 @@ class ReplacementAdapter(Adapter):
             io.require(self.source.bytes['runtime_overlay']==overlay(),'REPLACEMENT_OVERLAY_SOURCE')
             self.replacement_ready=True
             result=super()._perform(action,unit,deadline=deadline)
+            self.a.legacy_runtime.check()
             self.channel.record('replacement_artifact_verified',{
                 'runtime_sha256':self.a.runtime.digest,'receipt_sha256':io.sha(io.canonical(self.replacement_receipt)),
                 'legacy_root_unchanged':True,'old_return':False})

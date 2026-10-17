@@ -25,6 +25,13 @@ import tu1nz_public_runtime_ci as native
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_native_manifest_includes_retained_legacy_writer_failure(self):
+        from tests import public_operator_native as fixture
+        self.assertEqual(tuple(fixture.SCENARIOS),tuple(native.native.CASES))
+        self.assertEqual(len(fixture.SCENARIOS),28)
+        self.assertEqual(native.native.FAULTS['r5_legacy_tamper'],
+                         ['REAL_R5_LEGACY_WRITE_AFTER_REPLACEMENT'])
+
     def test_ci_workflow_carrier_cannot_be_reported_as_runtime_source(self):
         carrier='7'*40
         self.assertEqual(native.source_roles(*a.APP,carrier,carrier),dict(

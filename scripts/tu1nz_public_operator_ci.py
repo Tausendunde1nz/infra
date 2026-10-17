@@ -27,7 +27,7 @@ CASES = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'runtim
          'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
          'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
          'thread_source_fd', 'r5_success', 'r5_legacy_unknown', 'r5_hooks', 'r5_chunk_loss',
-         'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
+         'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_legacy_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
 FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'stop_source_fd': ['REAL_STOP_TARGET_SOURCE_FD'],
           'stop_source_mapping': ['REAL_STOP_TARGET_SOURCE_SHARED_MAP'],
@@ -50,6 +50,7 @@ FAULTS = {'success': [], 'writer': ['REAL_PREEXISTING_WRITABLE_FD'],
           'r5_chunk_loss': ['REAL_R5_WRONG_CHUNK_SEQUENCE'],
           'r5_partial_interrupt': ['REAL_R5_PARTIAL_INSTALL_INTERRUPT'],
           'r5_artifact_tamper': ['REAL_R5_ARTIFACT_WRITE_AFTER_FENCE'],
+          'r5_legacy_tamper': ['REAL_R5_LEGACY_WRITE_AFTER_REPLACEMENT'],
           'r5_old_return_denied': ['REAL_SYNTHETIC_CREDENTIAL_DRIFT','REAL_R5_FORBIDDEN_OLD_RETURN_REQUEST'],
           'r5_first_restart': ['REAL_INITIAL_FAILURE_ARMED','REAL_REPLACEMENT_BEFORE_FIRST_OBSERVATION'],
           'r5_owner_return': ['EXPLICIT_DURABLE_OWNER_DENIAL_BEFORE_EFFECT']}
@@ -273,7 +274,7 @@ def validate_report(raw, case, hashes):
         require(value['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), 'FAULT_NOT_HELD')
         if case in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
                     'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd',
-                    'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_old_return_denied','r5_first_restart'):
+                    'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_legacy_tamper','r5_old_return_denied','r5_first_restart'):
             require(value['actual_root_objects'] == 4, 'UNAUTHORIZED_OWNER_EFFECT')
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')

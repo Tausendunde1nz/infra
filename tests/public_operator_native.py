@@ -89,7 +89,7 @@ SCENARIOS = ('success', 'writer', 'namespace_swap', 'lost_ack', 'interrupt', 'ru
              'restore_fail_return', 'probe_fail_return', 'denied_return', 'owner_return', 'lost_start_ack',
              'first_restart', 'old_restart', 'stop_source_fd', 'stop_source_mapping', 'unknown_actor', 'thread_authority',
              'thread_source_fd', 'r5_success', 'r5_legacy_unknown', 'r5_hooks', 'r5_chunk_loss',
-             'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
+             'r5_partial_interrupt', 'r5_artifact_tamper', 'r5_legacy_tamper', 'r5_old_return_denied', 'r5_first_restart', 'r5_owner_return')
 PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
@@ -248,6 +248,9 @@ class FaultWire:
             import tu1nz_public_runtime_artifact as artifact
             p=Path(artifact.ROOT)/'python/bin/python3.12';p.write_bytes(b'SYNTHETIC_TAMPER')
             self.injected.append('REAL_R5_ARTIFACT_WRITE_AFTER_FENCE')
+        if kind=='replacement_artifact_verified' and not self.injected and self.scenario=='r5_legacy_tamper':
+            p=APP/'.venv/bin/tu1nz-public-s7';p.write_bytes(b'SYNTHETIC_LEGACY_TAMPER')
+            self.injected.append('REAL_R5_LEGACY_WRITE_AFTER_REPLACEMENT')
         if kind=='probe_start_intent' and not self.injected and self.scenario=='r5_old_return_denied':
             p=Path('/opt/tu1nz_repos/public-web-isolation-r1/20261014-1/probe/inputs/s7_form_secret')
             p.write_bytes(b'SYNTHETIC-ONLY-DIFFERENT-00000000000000000000000000000000')
@@ -841,7 +844,7 @@ s.load("host").command=_delay_after_actual_start
     else:
         assert result['status'] in ('HOLD', 'UNKNOWN_TEST_PROTOCOL_HOLD'), result
         if args.scenario in ('writer', 'runtime_tamper', 'denied_return', 'lost_start_ack', 'first_restart', 'old_restart',
-                             'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper',
+                             'r5_hooks','r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_legacy_tamper',
                              'r5_old_return_denied','r5_first_restart',
                              'stop_source_fd', 'stop_source_mapping', 'thread_authority', 'thread_source_fd'): assert actual_root == 4
         else: assert 4 < actual_root < 88
@@ -868,11 +871,13 @@ s.load("host").command=_delay_after_actual_start
             assert all(run('/usr/bin/systemctl', 'show', u, '--property=ActiveState', '--value').strip() == b'inactive'
                        for u in UNITS)
     if replacing:
+        if args.scenario=='r5_legacy_tamper':
+            legacy_bytes['.venv/bin/tu1nz-public-s7']=io.sha(b'SYNTHETIC_LEGACY_TAMPER')
         assert legacy_bytes=={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
         if args.scenario=='r5_hooks':
             assert not (r.CUSTODY_PARENT/r.TX).exists()
             assert all(run('/usr/bin/systemctl','show',u,'--property=ActiveState','--value').strip()==b'active' for u in UNITS)
-        if args.scenario in ('r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_old_return_denied'):
+        if args.scenario in ('r5_chunk_loss','r5_partial_interrupt','r5_artifact_tamper','r5_legacy_tamper','r5_old_return_denied'):
             assert all(run('/usr/bin/systemctl','show',u,'--property=ActiveState','--value').strip()==b'inactive' for u in UNITS)
         if args.scenario=='r5_partial_interrupt':
             import tu1nz_public_runtime_artifact as artifact
