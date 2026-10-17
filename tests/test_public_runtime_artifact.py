@@ -26,6 +26,27 @@ import tu1nz_public_runtime_ci as native
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_fixture_uses_replacement_elf_closure_not_distro_python_assumption(self):
+        from tests import public_runtime_fixture as fixture
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d).resolve();expected=root/'runtime-dependency-reference'
+            assembly=a.Assembly()
+            assembly.add('python/bin/python3.12',raw=b'\x7fELF_SYNTHETIC_NOT_EXECUTED',executable=True)
+            assembly.add('python/lib/internal.so',raw=b'\x7fELF_SYNTHETIC_INTERNAL_NOT_EXECUTED')
+            payload=assembly.archive()
+            receipt={'archive_bytes':len(payload),'archive_sha256':a.sha(payload),
+                'objects':assembly.manifest(),'expanded_file_bytes':assembly.total}
+            # Only fixture-construction ldd output is synthetic. Real local
+            # external bytes are hashed; no production admission is mocked.
+            raw=('/usr/bin/true (0x0)\n'+str(expected/'python/lib/internal.so')+' (0x0)\n').encode()
+            with (patch.object(fixture.f,'ROOT',root),patch.object(a,'ROOT',str(root/'production-not-created')),
+                    patch.object(fixture.f,'run',return_value=raw) as called):
+                found=fixture.external_dependencies(SimpleNamespace(load=lambda name:a),payload,receipt)
+            self.assertEqual(found,{'/usr/bin/true':{'source':str(Path('/usr/bin/true').resolve()),
+                'sha256':a.sha(Path('/usr/bin/true').read_bytes())}})
+            self.assertEqual(called.call_count,2)
+            self.assertFalse((root/'production-not-created').exists())
+
     def test_ci_checks_actual_infra_root_not_application_workflow_carrier(self):
         with tempfile.TemporaryDirectory() as d:
             workflow=Path(d).resolve();infra=workflow/'infra';application=workflow/'canonical-runtime-r5'

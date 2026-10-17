@@ -468,7 +468,7 @@ def setup(s, *, source_handle=None):
         (APP/'source-handle.bin').chmod(0o555)
 
 
-def baseline(s):
+def baseline(s, *, replacement_dependencies=None):
     observer = s.load('observe'); entry = s.load('entry'); fs = s.load('fs')
     paths = fs.Paths(entry, deadline=time.monotonic()+120)
     pseudo = observer.Authority.__new__(observer.Authority)
@@ -522,6 +522,13 @@ def baseline(s):
     for name in objects:
         path = Path(name); dependencies[name] = {'source': str(path.resolve()), 'sha256': io.sha(path.read_bytes())}
     dependencies['/usr/bin/python3'] = {'source': str(python), 'sha256': io.sha(python.read_bytes())}
+    for name,row in (replacement_dependencies or {}).items():
+        path=Path(name)
+        # Fresh actual synthetic package bytes, not an accepted GREEN flag.
+        assert row=={'source':str(path.resolve(strict=True)),'sha256':io.sha(path.read_bytes())}
+        assert str(path.resolve()).startswith(('/usr/lib/','/usr/bin/'))
+        if name in dependencies:assert dependencies[name]==row
+        dependencies[name]=row
     objects = {'.': {'kind': 'directory'}}
     for p in sorted(APP.rglob('*')):
         rel = str(p.relative_to(APP))
@@ -657,10 +664,12 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         while not (ROOT/'threads-ready').exists():
             assert time.monotonic() < until
             time.sleep(.01)
+    replacement_dependencies=None
     if replacing:
-        from tests.public_runtime_fixture import runtime
+        from tests.public_runtime_fixture import runtime,external_dependencies
         runtime_payload,runtime_receipt,runtime_inputs=runtime(s)
-    b = baseline(s)
+        replacement_dependencies=external_dependencies(s,runtime_payload,runtime_receipt)
+    b = baseline(s,replacement_dependencies=replacement_dependencies)
     if replacing:
         origin=io.sha(io.canonical(runtime_receipt));b['source_origin_receipts'].append(origin)
         b['source_release']['runtime_reference']={'schema':'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1',
