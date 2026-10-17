@@ -12,7 +12,9 @@ jobs:
   control-private-provenance:
     name: control-private-provenance
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Original thirteen plus five defensive regressions; no wider Host deadline.
+    # The existing 64 recovery cases and every downstream gate remain intact.
+    timeout-minutes: 30
     # Environment-only credential. Required maintainer approval BEFORE this
     # fresh job starts: actual exact SHA including workflow/scripts/Dockerfile
     # must have independent review; same-repo origin alone is NOT trust.
@@ -27,9 +29,11 @@ jobs:
           fetch-tags: true
           persist-credentials: false
       - name: Private CI boundary regression tests (no private input or credential)
-        run: python3 -B -m unittest -v tests.test_control_private_ci
+        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci
       - name: Build fresh approved native image before private input (no reused artifact)
         run: docker build --file tests/s8-native.Dockerfile --tag "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
+      - name: Build fresh production-entry image before private input
+        run: docker build --file tests/public-operator-native.Dockerfile --tag "tu1nz-public-operator-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
       - name: Control-only create-only recovery (approved private provenance; sanitized output; cleanup)
         env:
           CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
@@ -38,6 +42,14 @@ jobs:
         run: >-
           python3 -I -B scripts/tu1nz_control_private_ci.py
           --image "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Complete production adapter (eighteen actual isolated cases; private pinned Control source)
+        env:
+          CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
+          CONTROL_PRIVATE_ENVIRONMENT: control-private-ci
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          python3 -I -B scripts/tu1nz_public_operator_ci.py
+          --image "tu1nz-public-operator-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
       # No later job step, artifact, cache or summary receives private data.
       # Helper catches failures/signals and deletes ONLY its owned inputs and
       # labeled container. Hosted VM destruction is the SIGKILL/crash boundary.

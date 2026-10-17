@@ -1,0 +1,378 @@
+PUBLIC R3 PRODUCTION ADAPTER / OWNER SUPERVISOR — R4 SOURCE CONTRACT
+
+DELTA, NOT HOST AUTHORITY
+Completes the separately required operator from PUBLIC_WEB_BOOTSTRAP_R3_HOST_PLAN.
+The R3 ordering module, four runtime artifacts, Control entry/primitive, original
+e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36 ownerplan,
+public-rights-20261014-1 transaction and original frozen R2 target/capsule/slot
+are unchanged. Historical R3 "component, not full executor" descriptions remain
+true for that historical component; the new operator is the explicit missing
+implementation. No signature, fresh Host GREEN, global health, publication,
+S8 Telegram activation, R15 or Runtime permission is created by this document.
+
+PRODUCTION ENTRY / ALL COMPONENTS
+scripts/tu1nz_public_operator.py is the ONLY production CLI. Without --execute
+it validates LOCAL data/Source only. --help has no effects. It runs the canonical
+Mac preflight in the ACTUAL Infra CWD, then verifies clean exact reviewed merges,
+trees, old component pins, private release/scope hashes and material origins.
+The private final Source receipt records both actual merge/review/CI bindings;
+it must never be assembled from assumed GREEN fields or an old SHA's checks.
+
+Required arguments: --infra, --control, --release, --release-sha256, --scope,
+--approved-scope-sha256, --baseline, --owner-plan, --origin (repeat for EACH bound
+origin file). --application-reference defaults to the permanent canonical local
+Application reference. There is NO Host/TX/plan/skip/retry/adapter override.
+--hold-owner-before can only DENY at an exact original-plan object, never permit
+an additional effect. Normal execution does not require or use that option.
+The private final handoff supplies the exact release-file hash and permanent
+paths. Fresh baseline/scope material is still required, not a placeholder
+approval/hash generated later and automatically accepted by this program.
+
+Code package, authenticated in memory:
+  io: strict framing, duplicate/nonfinite rejection, bounded durable hash chain;
+  fs: no-follow descriptor/name/profile witnesses, create-only objects, copies;
+  runtime_guard: exact reference inventory, read eligibility, all-file events;
+  observe: real PID1/proc/policy/broker/namespace/rights/function observations;
+  probes: exactly three synthetic StartTransientUnit calls and owned cleanup;
+  host: real R3 actions, typed observations, conditional returns and receipts;
+  original R3 ordering component; unchanged four runtime bytes;
+  Control owner_supervisor plus exact unchanged entry and writer_guard primitive.
+No import from the locked historical Control tree, HOME/PYTHONPATH policy fallback
+or test adapter. The original frozen R2 dispatcher is separate and NOT invoked.
+
+Transport: fixed chatops@100.121.130.51, strict existing SSH Host key, no agent or
+multiplexing/forwarding; sudo password from the local secure TTY only, never argv,
+environment, chat or logs. Root's reviewed ready frame must precede the private
+packet. Same-process EOF/interruption/deadline gives HOLD, no reconnect/resume.
+OpenSSH uses -F /dev/null: neither user nor global ssh_config may redirect the
+endpoint, execute a proxy/local/known-host command or select another trust store.
+HostName/User/Port and HostKeyAlias are fixed; only the existing
+/Users/daniel/.ssh/known_hosts and /Users/daniel/.ssh/id_ed25519 are selected.
+No agent, certificate, password/keyboard-interactive fallback or enrollment.
+Missing key/trust/authentication fails closed; no new key or Host permission.
+The regular boundary suite also runs actual OpenSSH -G (no connection) and
+checks the effective endpoint/trust/key/options; production never uses -G output
+as a remote ready/admission or auth proof. No production credential is tested.
+Only the owned LOCAL SSH child may be closed/terminated during channel cleanup;
+no numeric remote-PID fallback. Local preparation records are not a transaction
+permit; only the unchanged fixed client Journal claim precedes Host mutation.
+
+AUTHENTIC REFERENCE != CURRENT READ WITNESS
+Expected code/config/policy/actor identities come from independently authenticated
+references and explicitly bound existing TCB assumptions. The scope independently
+binds their raw hashes, actor roles, Host, current boot, transaction and old plan.
+--origin material must be private, unique, independently reread and hash-exact;
+runtime origin schema TU1NZ_PUBLIC_RUNTIME_ORIGIN_V1 binds commit/tree, complete
+runtime-object manifest digest and pre-existing evidence hashes also supplied.
+Hash identity alone does NOT validate historical assertions in a receipt.
+Do not produce those assertions from a current server inventory or call them
+historical Soll. Missing authentic dependency origin remains UNKNOWN and denies
+BEFORE the stop/claim, not a reason to normalize the Host or waive a guard.
+
+Client additionally verifies ALL tracked Application bytes against canonical
+Git93555d8a141caf8ace33522f9340d30bfc47d2bb/tree1e8a644115127818f394b6f9d24f31826e04ecba,
+without replace refs, hooks, working-copy adoption or Git writes. Installed and
+untracked runtime bytes require the independently authenticated prior artifact
+origin, not only a current wheel RECORD or current hash. The Root adapter checks
+the entire declared live Application inventory (only the two historical .git
+stocks excluded), bytes/links, current effective read integrity and event fence.
+This verifies consumed files, NOT current Host Git HEAD/tree/index/history; those
+unchanged original R2 historical gates remain separately mandatory.
+
+Runtime default ACLs are read-only eligibility: exact known inherited default
+bytes only, root owner, every effective nonowner access-write denied, masks and
+security attributes/flags checked. Never a creation policy, owner/inode history
+claim, metadata normalization or generic GID/ACL exception. Source/namespace events,
+open writable FDs and shared writable mappings deny. Private COW data pages do
+not write the source inode; the stricter separate Site owner mapping guard is
+unchanged. A live proc/policy/broker/LSM view that cannot be read denies.
+
+ACTUAL ADMISSION, NOT INPUT GREEN
+All present actors require exact Source/context/numeric/initial-env/LSM/namespace
+bindings to an individually declared role. No arbitrary UID0/UID1001 app exception.
+Only kernel/PID1, this authenticated operator ancestry and individually evidenced
+administration are the existing TCB. The EXACT old three contexts alone retain
+their approved stop-only delegation exception; full closure follows their stop.
+It does NOT exempt their existing Source/config FDs or shared writable mappings.
+The writer scan has no caller-supplied process-exclusion parameter, including
+for TCB actors and the three original service processes before the first stop.
+Sudo parser/unknown-subject errors are not denial; polkit is a noninteractive
+query to an EXISTING unique owner, no daemon activation or auth attempt. Challenge,
+grant, dynamic unknown policy or missing evidence denies. Existing exact static
+NO can cache an actually observed negative only with current actor/policy/owner
+identities; this code NEVER installs that rule.
+For each no-effect authority census, the actual already-running unique policy
+owner is read at entry AND exit; any change/read failure denies before return.
+Each subject, rule, permission and inherited FD check remains actual. Standalone
+subject checks still query their own fresh owner. No epoch survives success,
+failure, interruption or reentry; no owner value is cached across checks/actions.
+Native tests restart only the synthetic Guest policy daemon before its baseline
+and require the real unique-owner change to deny. No real Host daemon is tested.
+Inherited Unix FDs are inspected with GET syscalls only, not inferred safe from
+current DAC or a nonzero UID.
+Unix-socket pathname ownership is evaluated using the captured filesystem UID,
+not the effective UID. A native synthetic socket test actually changes fsuid,
+proves kernel connect access with a different effective UID and demands rejection
+before inherited-descriptor inspection. No administrative broker is contacted.
+
+Actual complete PID1 UnitPath, dependencies, empty jobs, effective typed false
+conditions, source/ancestors and no foreign deltas precede each relevant effect.
+PID1's regenerated OUTPUT directories may change inode on the authorized reload;
+their complete byte/namespace/profile outputs must still match. Original config,
+inputs, Source and owner identities are NOT rebound. Newly created own parents
+are traversed too: foreign contents are not hidden by the parent exclusion.
+
+ACTUAL SEQUENCE / FAILURE
+R3 exact sequence and budgets unchanged: client claim; persistent barriers;
+WMS->Landing->S7 one stop each; full closure; two approved opt roots; actual full
+rights backup, independent read/restore/rename-return rehearsal; three probes;
+four unchanged create-only artifacts; ONLY S7 release/start/actual/durable acceptance,
+then Landing, then WMS; actual rights/function; complete owner operation/cleanup.
+Outer600s, each start/stop20s, other actions<=120s; owner TOTAL120s/512FD, no widening.
+Fresh manager reads of all three units and their same allowed dependencies are
+batched within each individual check. Every exact Id/property/block is required;
+duplicates, missing/foreign objects, malformed output and read failure deny.
+The actor census obtains its own NEW unit batch; no observation is cached across
+checks or effects. The manager read is not claimed atomic or future-stable.
+This removes thousands of duplicate systemctl process launches, not conditions
+or fences. The native production entry compares actual batched/single PID1
+reads; parser negatives cover missing/duplicate/foreign blocks and fresh changes.
+The read-only expected-file census similarly brackets the complete held-ancestor
+set with actual fence checks, with no effects inside. Each leaf still uses the
+same stable FD/name/metadata/content/origin/identity validation and a deadline.
+All watches remain active; new parents still receive full admission checks.
+A native real ancestor rename/return BETWEEN actual leaf reads must deny before
+return; a failed read never authorizes an effect. No cross-census caching.
+First invocation is tracked through kernel credential setup; a later automatic
+restart cannot be substituted for that requested start. Current listener belongs
+to the actual unit process. Actual internal/proxy/public HTTP, credential view,
+SELECT-only DB peer and bounded current state reads are recorded privately with
+kernel identities and hashes, never secret/message/row contents or user IDs.
+The actual manager uint32 NRestarts is required, not an input reference flag.
+Before a requested start the unit must be fully inactive/no PID/job; its prior
+counter/InvocationID are recorded without rewriting history. After that manual
+start NRestarts must be0 BEFORE even naming the first observed invocation, and
+remain0 alongside the exact InvocationID/PID/starttime in forward AND old-return
+acceptance. Any automatic replacement already before the first sample denies.
+No reset-failed, manual second start, Restart setting change or relaxed deadline.
+Counter semantics/source: systemd v255 service_start/service_enter_restart,
+https://github.com/systemd/systemd/blob/v255/src/core/service.c
+The manager/approved controllers remain the existing explicit TCB; this is not
+a claim to resist a malicious fully trusted controller resetting manager state.
+
+Probes use only synthetic RootDirectory data/credentials/NSS and private network,
+the approved names/paths/limits, effective kernel rights/maps, real Unix peer and
+GID987 denial. Type=oneshot RuntimeMax is NOT claimed as the effective timeout;
+TimeoutStart20s/stop5s/outer120s are enforced. Own stopped failed transient units
+may remain: retain exact file/invocation/config and empty cgroup/job proof. A
+reload's zero per-Exec statistics do not replace that binding. No reset-failed,
+second probe start, foreign stop or deletion is used for cleanup.
+
+Any failed/late/lost result leaves durable intent and HOLD. A later separate
+surviving-session RETURN_OLD requires fresh READ-ONLY classification, exact own
+barriers/quarantine, original code/config/inputs and all existing matrix gates.
+Only known private backup/restore/probe or bound partial-install outcomes can be
+classified; no forward ACK is invented. Unknown stop/start, lost chain, unsafe
+Source or unconfirmed cleanup denies. Once owner admission begins NO configuration
+return. OWNER_RETURN has its own once-consumed intent, current leases/names/actual
+post-states/ACKs and original ordering. Both returns mean SECURITY_RED, no R2.
+No TTY/lost confirmation/deadline defaults HOLD. A durable DENIAL before an owner
+effect can stop forward work but cannot repair a lost operation ACK.
+
+SOURCE TESTS / REMAINING HOST GATES
+Native tests enter the production bootstrap/session/Client/adapter/supervisor over
+real bounded stdio, Linux PID1, ext4 leases/events, PostgreSQL and synthetic TLS/
+nginx. Only expected fixture Host/plan/custody/old-context/Application bindings
+are substituted; no safety observation or action is mocked GREEN. Real filesystem,
+signal and ACK faults cover success, extra writers, code/object drift, partial
+changes, interruption, lost confirmations, explicit and denied returns, and replay.
+Two additional native cases cause a real exit72 and the unchanged15s on-failure
+restart before the caller's first sample, both forward and old-return. A test-only
+scheduler wrapper delays the caller after executing the ACTUAL start; it returns
+the real command result and all manager/counter observations are real. Actual
+distinct InvocationIDs, restart counter>=1 and HOLD provenance must be proved.
+This is disclosed fault scheduling, not a safety-observation GREEN substitution.
+Two further native cases make the original synthetic S7 process retain a real
+writable Source FD or shared writable mapping after read-only modes are restored.
+Only their synthetic input unit grants that file's initial write access. Actual
+production admission must identify the exact FD/map rejection BEFORE client
+claim, bootstrap or stop, leaving all three services active and owner objects
+unchanged. No observer/credential/authority result is replaced by a test flag.
+One more native case creates a real new unclassified process after the first
+owner ACK and requires the unchanged production actor census to HOLD. An
+error-only test wrapper delegates source_fault_location, returns its result
+unchanged and reads its actual failing frame. Only fixed executable/title enums,
+profile-field NAMES, a count and stable-followup boolean may enter diagnostics;
+never argv, PID, UID, path, namespace values or private Source/Host data. This
+diagnostic grants no admission and cannot change any case's required outcome.
+The SSH executable/real Tailscale/sudo endpoint is NOT exercised by those fixtures;
+actual Host authentication/rights and every fresh Host prerequisite remain gates.
+Required CI uses exact reviewed private Control Source, network-none read-only
+mounts, no token in the guest and no private output/artifact/cache publication.
+The private-CI helper pins Controlf2979863bbb7043261e9177842503a9b47cdb49f,
+fetches ONLY entry/guard/owner blobs from canonical Control, verifies old pins,
+and tests all18 scenarios (the original13 plus both stop-target Source-handle
+regressions, actual unclassified-process HOLD, per-thread authority and unshared
+non-leader Source-descriptor rejection) in new finite network-none/
+read-only/PID1 guests.
+The two approved private helpers clean their OWN inputs/containers separately;
+neither receives the other's capsule or private tree. Image builds precede all
+private inputs. CI30min is only the enlarged job envelope for added scenarios;
+owner120s/start-stop20s/outer600s and the original downstream75min gate remain
+unchanged. Forks, arbitrary same-repo PRs and unreviewed Environment admission
+remain denied. Every actual SHA including CI helper/workflow/image must have
+independent review before the required Environment reviewer authorizes the job.
+Every fault case must also supply its exact real injection marker; generic HOLD
+or the right object count alone cannot prove the intended path was exercised.
+Socket group-class selection uses ONLY filesystem GID plus supplementary groups,
+not real/effective/saved GIDs. A third mandatory native root case proves real
+GID/savedGID1001, filesystemGID1002, no supplementary groups and filesystemUID1003
+can actually connect to a UID/GID1001 socket with mode0002 (other-write only).
+The production broker calculation must deny that authority; treating it as a
+non-writable group member would hide the actual other-write permission.
+On failure CI emits only schema-checked Source component/line/type locations;
+never child stderr, exception values, assertions, private Source or observations.
+Unknown/malformed diagnostic data is omitted, and the scenario remains RED.
+Failure outcomes additionally retain bounded actual confirmation/object counts
+and last-record kind/sequence. Only literal PUBLIC Source error symbols (including
+their defined prefixes) are published; arbitrary exception/Host values are
+redacted even if they look like uppercase codes. No observation payload leaves
+private CI memory. The actual fsuid/socket regression also runs explicitly as
+root in the first network-none CI guest, with skips/errors/failures forbidden;
+the unprivileged runner's boundary-test skip is NOT its native proof.
+Before any fixture socket/input, the CI guest must have actual PID1 systemd AND
+actual is-system-running=running, not only an early PID1 name. This reuses the
+existing native-suite readiness requirement within the SAME20s budget. A
+starting/degraded/unreadable guest is not admitted. No reset or unit-state fix.
+Earlier ENOENT at synthetic child connect proves missing path at that point;
+the precise historical remover/mount event remains UNKNOWN. Source readiness
+does not reclassify that missing path as an application permission failure.
+The early native component must also establish the SAME actual read-only
+securityfs view previously established only later by the full Guest fixture.
+The shared fixture-only initializer checks container/PID1/private-root before
+that isolated mount and reads the actual LSM list. It supplies no observation
+GREEN or Host repair. A fresh local Guest proved that the prior order left
+this view missing before process identity inspection, independently of boot.
+Missing/unreadable securityfs on a real Host still denies; no production mount
+or extra Host right/path is introduced by this test setup correction.
+That regression keeps the production-style privileged observer in the parent;
+only the observed synthetic child changes fsuid and actually connects. The
+parent reads its real proc identity and requires the actual broker-DAC denial.
+CI distinguishes create/inspect/start/PID1-ready/fsuid/production phases. A root
+regression failure retains its public Source location and, if available, only
+an allowlisted cause code, not a formatted unittest traceback or child stderr.
+The component's ordinary-container predicate requires actual CAP_SYS_PTRACE:
+UID0 alone cannot inspect the fsuid-changed nondumpable synthetic child. Missing
+capability skips this component in an ordinary boundary environment, NOT GREEN
+native proof. The required privileged CI guest still forbids skips and must
+produce the actual native marker. No Host capability installation is supplied.
+The synthetic child reports a finite setup/UID-view/connect/handshake code and
+bounded errno, never exception text. Parent cleanup cannot replace that child's
+actual failure with a generic exit assertion. Other observer failures retain
+their primary cause. These are fixture diagnostics, not new admission facts.
+The mandatory root entry runs the actual fsuid-owner and fsgid/other-write cases,
+a real synthetic mode0 socket failure, per-thread security divergence and an
+unshared non-leader Source descriptor and bound initial-profile acquisition
+(seven tests, no skips). The socket failure must retain connect
+phase/errno13 through cleanup; no case may be skipped or mocked GREEN.
+Container and private-input cleanup errors are independent ordered fields. They
+cannot replace an earlier native failure/location or each other; cleanup failure
+after a successful matrix still makes the job RED, without discarding its proof.
+CLI transport failure still writes BOTH private results, closes owned resources,
+independently rereads the results and reports sanitized HOLD/exit1, no traceback.
+Native CI may additionally disclose an exact literal public IO-Hold terminal
+symbol from private child stderr, never the stderr or traceback. This separately
+identifies terminal wire failure, not an invented underlying owner primary cause.
+The private runner merges stdout/stderr. Exactly one structured native-failure
+line can be parsed through unrelated private warnings, never published verbatim.
+Exit/output-size/SHA256 and finite parser status survive missing/rejected proof;
+an exit code alone is not called OOM, signal provenance or a production cause.
+Every userspace actor now includes every /proc/TGID/task/TID security profile,
+not just the leader: all four UIDs/GIDs, groups, five capability sets, NNP,
+namespaces, cgroup, UID/GID maps, setgroups and LSM. Mixed profiles (even narrower ones),
+unreadable/disappearing tasks and changing task sets/identities deny. Two complete
+reads must agree; their fingerprint also binds cached negative authorization.
+This is a measured census, not an atomic kernel freeze or proof of future
+stability. Existing action-boundary checks, writer fences and limits remain.
+The native component tests real fsuid/fsgid/capability/NNP divergence and a real
+homogeneous two-thread process, unreadable task data and actual worker exit
+during its census. The seventeenth full production scenario starts
+with an exact synthetic administrative service profile, then actually lowers
+only its leader's fsuid while a worker retains root fsuid. The real production
+admission must HOLD before client claim or service stop; no accepted observer
+result is substituted. No Host process or original blocked investigation is used.
+The writer census independently scans EVERY task's own fd/fdinfo/maps twice,
+including unshared tables and TCB actors. Stable task sets/identities and relevant
+descriptor/mapping views are required. Unknown reads or changing captures deny;
+scandir stays open during its entry reads so the observer's own directory FD is
+not misclassified as a disappeared foreign descriptor. No task is excluded.
+The inherited-socket guard additionally requires actual KCMP_FILES equality
+between leader and each other task at both security-census passes. Equal FD
+numbers are not shared-table proof. Unsupported architecture/kernel or missing
+read authority denies, no new Host right or kernel fallback. Fresh Host syscall/
+LSM support remains unproved. This uses the already required ptrace read rights.
+The eighteenth production scenario uses a real legacy S7 worker's CLONE_FILES
+unshare, retains its existing Source FD after the leader closes its copy, and
+requires both the actual writer census and actual production admission to deny
+before claim/stop. Credentials remain identical: this is not the prior UID case.
+The controlled startup is not yet authority admission: an already-requested
+first InvocationID/PID/starttime is bound BEFORE profile acquisition. Only an
+actually changing SINGLE-leader security sample may be read again within the
+same existing deadline. No second start, reset, replacement invocation or retry
+of unknown/mixed-thread/read-failure evidence. Ordinary Authority.process reads
+still deny immediately. Forward/old starts check exact manager identity and
+NRestarts0 both before AND after that acquisition; final full rights still gate
+the next action. The native regression causes a real single-leader fsuid change
+during a read: ordinary process denies, bound initial_profile rereads that same
+live identity; wrong identity/deadline and stable nonleader differences deny.
+Probe sampling waits for the reviewed synthetic producer's report point, NOT a
+permission GREEN: all actual UID/GID/caps/maps/peer/data/root/namespace/exit checks
+remain. Its own IPC worker must join AND disappear from procfs before publishing
+the report. Initial transitional credentials cannot become final acceptance;
+the original per-probe/global/action budgets and once-only requests are intact.
+HTTP's socket inactivity timeout is NOT its absolute deadline. Each fixed
+read-only request now uses one owned isolated Python reader with the exact
+reviewed literal code, no shell/Host-script import or credential/proxy/CA
+environment override. Parent supervision bounds DNS/connect/TLS/headers/body
+against the current absolute ceiling, with kill/reap time reserved INSIDE that
+budget. It never retries the request, extends owner/action time or authorizes
+an endpoint not already admitted by the existing URL/method/Host rules.
+The reader emits only actual status/body SHA256/byte count or finite errors;
+no body, URL, exception text or child stderr is published. Timeout/interruption
+stops/reaps only that owned child and closes its pipes. Unconfirmed cleanup
+remains separate from the HTTP primary through client/owner/adapter failures;
+no successful receipt is possible. Normal authority observation resumes only
+after the read child has ended, no new daemon or persistent Host path.
+Mandatory native tests use actual loopback peers in the inspected network-none
+Guest: ordinary response, continuously slow header/body, redirect denial and
+oversize body. Slow reads must HOLD within the absolute bound with actual child
+reap/closed-pipe proof. Full production CI still must exercise the actual TLS/
+HTTP layer; these component tests are not a replacement for the full18 matrix.
+The leader's first complete security view is the actual status/namespace/maps/
+LSM/cgroup read already performed by process() in that SAME no-effect census.
+Reuse that measured sample, then reread it completely at the census boundary;
+do not read it a redundant third time. Every non-leader retains both full
+samples, stable task/identity checks and both KCMP_FILES checks. No cross-check
+cache, new expected profile, deadline change or read-failure fallback.
+The native driver may also time actual delegated Source calls, returning every
+original value/error unchanged. Only fixed function labels, counts and inclusive
+nanoseconds may leave the private fixture; durations overlap and instrumentation
+has overhead. They neither prove a historical cause nor substitute acceptance.
+These test-only wrappers preserve all original guards/actions and budgets;
+they do not exist in the production package or add a production CLI option.
+
+Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
+any child. All planned objects must share that device. Only after every exact
+per-object/name/ancestor watch is active and setup queues have been checked is
+the temporary broad mark closed. ANY mutation during that small setup interval
+is unclassified and denies, including unrelated filesystem work; not a proven
+Site drift. A busy Host can therefore conservatively HOLD. No retry or broader
+deadline follows. FAN_MARK_FILESYSTEM support and the operator's existing
+CAP_SYS_ADMIN are fresh Host gates; no rights installation/fallback is supplied.
+
+Source GREEN never supplies fresh Host authority, role closure, safe ancestry,
+space/quota/LSM/kernel proof, current exact e9ac7f census, protected backup/restore,
+live health, clean cleanup or remote R2 slot. Those must be measured at their
+actual phases under the existing permissions. Existing S9/S10/S11 RED and S8/R15/
+product NO-GO remain unchanged. Final code/source-receipt binding is the only
+unavoidable additional confirmation, not a new general recovery permission.
