@@ -303,7 +303,13 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'primary_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost'}, 'FAILURE_SCHEMA')
+                {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost'}, 'FAILURE_SCHEMA')
+        if 'fixture_fault' in location:
+            fault=location['fixture_fault']
+            require(type(fault) is dict and set(fault)=={'component','line','type'} and
+                    fault['component']=='tests/public_runtime_fixture.py' and
+                    type(fault['line']) is int and 0<fault['line']<10000 and
+                    fault['type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'},'FAILURE_SCHEMA')
         if 'errno' in location:
             require(type(location['errno']) is int and 0 <= location['errno'] < 4096, 'FAILURE_ERRNO_SCHEMA')
         require(type(location['test_line']) is int and 0 < location['test_line'] < 10000 and

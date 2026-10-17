@@ -1057,6 +1057,18 @@ s.load("host").command=_delay_after_actual_start
     print(json.dumps(report))
 
 
+def fixture_fault_location(error):
+    """Only the reviewed fixture's innermost Source line, never its data."""
+    target=str(Path(__file__).with_name('public_runtime_fixture.py'))
+    trace=error.__traceback__;found=None
+    while trace is not None:
+        if trace.tb_frame.f_code.co_filename==target:
+            found={'component':'tests/public_runtime_fixture.py','line':trace.tb_lineno,
+                   'type':type(error).__name__}
+        trace=trace.tb_next
+    return found
+
+
 if __name__ == '__main__':
     try: main()
     except BaseException as error:
@@ -1066,6 +1078,8 @@ if __name__ == '__main__':
             if trace.tb_frame.f_code.co_filename == __file__: line = trace.tb_lineno
             trace = trace.tb_next
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
+        fixture=fixture_fault_location(error)
+        if fixture is not None:location['fixture_fault']=fixture
         if PRIMARY_WRITER_FAULT is not None:location['primary_fault']=PRIMARY_WRITER_FAULT
         if NATIVE_ERRNO is not None:location['errno']=NATIVE_ERRNO
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME

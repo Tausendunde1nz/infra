@@ -15,6 +15,20 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_fixture_fault_retains_only_exact_public_source_location(self):
+        from tests import public_operator_native as native
+        target=str(Path(native.__file__).with_name('public_runtime_fixture.py'))
+        try:exec(compile("raise AssertionError('PRIVATE_CANARY')",target,'exec'),{})
+        except AssertionError as error:fault=native.fixture_fault_location(error)
+        self.assertEqual(fault,{'component':'tests/public_runtime_fixture.py','line':1,'type':'AssertionError'})
+        base={'test_line':817,'test_type':'AssertionError','production_fault':None,'fixture_fault':fault}
+        def read(x):return m.failure_location(json.dumps({'native_failure':x}).encode())
+        self.assertEqual(read(base),base)
+        self.assertNotIn('PRIVATE_CANARY',json.dumps(read(base)))
+        for bad in ({**fault,'component':'/private/CANARY'}, {**fault,'line':True},
+                    {**fault,'type':'PRIVATE_CANARY'}, {**fault,'message':'PRIVATE_CANARY'}):
+            with self.subTest(bad=bad):self.assertIsNone(read({**base,'fixture_fault':bad}))
+
     def test_primary_writer_fault_cannot_be_erased_by_later_abort_or_leak_text(self):
         first={'component':'<authenticated-memory:runtime_guard>','line':61,'type':'FileNotFoundError'}
         abort={'component':'<authenticated-memory:host>','line':535,'type':'Hold'}
