@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 import sys
 import tarfile
+import tempfile
+from types import SimpleNamespace
 import unittest
 import zlib
 from unittest.mock import patch
@@ -23,6 +25,24 @@ import tu1nz_public_runtime_ci as native
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_native_tamper_fault_waits_for_actual_artifact_verified_record(self):
+        from tests.public_operator_native import FaultWire
+        class Peer:
+            message=None
+            def receive(self):return self.message
+        peer=Peer();fault=FaultWire(peer,'r5_artifact_tamper',SimpleNamespace(pid=0))
+        with tempfile.TemporaryDirectory() as d,patch.object(a,'ROOT',d+'/not-created'):
+            peer.message={'type':'durable_record','record':{'kind':'host_action_intent',
+                'value':{'action':'install_four_artifacts'}}}
+            fault.receive();self.assertEqual(fault.injected,[])
+            self.assertFalse(Path(a.ROOT).exists())
+            binary=Path(a.ROOT)/'python/bin/python3.12';binary.parent.mkdir(parents=True)
+            binary.write_bytes(b'SYNTHETIC_PINNED_INPUT')
+            peer.message={'type':'durable_record','record':{'kind':'replacement_artifact_verified','value':{}}}
+            fault.receive()
+            self.assertEqual(fault.injected,['REAL_R5_ARTIFACT_WRITE_AFTER_FENCE'])
+            self.assertEqual(binary.read_bytes(),b'SYNTHETIC_TAMPER')
+
     def test_read_witness_coordinates_do_not_adopt_legacy_origin(self):
         coordinates={'commit':'1'*40,'tree':'2'*40,'origin_sha256':'3'*64}
         old={'schema':'TU1NZ_PUBLIC_RUNTIME_REFERENCE_V1','objects':{},**coordinates}

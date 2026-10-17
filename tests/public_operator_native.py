@@ -244,7 +244,7 @@ class FaultWire:
             try:signal.pidfd_send_signal(fd,signal.SIGINT)
             finally:os.close(fd)
             self.injected.append('REAL_R5_PARTIAL_INSTALL_INTERRUPT')
-        if kind=='host_action_intent' and value['action']=='install_four_artifacts' and not self.injected and self.scenario=='r5_artifact_tamper':
+        if kind=='replacement_artifact_verified' and not self.injected and self.scenario=='r5_artifact_tamper':
             import tu1nz_public_runtime_artifact as artifact
             p=Path(artifact.ROOT)/'python/bin/python3.12';p.write_bytes(b'SYNTHETIC_TAMPER')
             self.injected.append('REAL_R5_ARTIFACT_WRITE_AFTER_FENCE')
