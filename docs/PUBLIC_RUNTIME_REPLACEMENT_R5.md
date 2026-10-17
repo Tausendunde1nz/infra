@@ -67,6 +67,13 @@ Check the actual mount identity/read-only flag, executable hash, first invocatio
 kernel credentials, groups, capabilities, listeners and HTTP, not just config text.
 External ELF dependencies must resolve to separately authenticated Host package
 bytes and remain fenced; missing origin/library/ABI/architecture evidence denies.
+Every loader-visible path component (including /lib or /lib64 aliases, intermediate
+and leaf symlinks) is bound before following it, with secure no-follow directory
+profiles, exact root-owned attribute-free link identities/targets and latched name
+events. A rename-and-return cannot be accepted merely because the final canonical
+target hash is unchanged. Internal artifact paths receive the same loader-name
+binding in addition to their existing full artifact fence. No alias is normalized
+or rewritten and no new Host write path is introduced.
 This does not promise a wholly static or Host-independent runtime.
 
 ## Transition, protection and failure

@@ -77,6 +77,7 @@ class ReplacementAuthority(Authority):
     def open_runtime(self, baseline, paths, deadline):
         self.replacement_active=False
         self.external_dependencies={};self.external_identities={}
+        self.loader_bindings={};self.loader_aliases={}
         legacy=LegacyStopFence(baseline['source_release']['runtime_reference'],paths,
             baseline['source_origin_receipts'],python_binary=baseline['source_release']['python_binary'],deadline=deadline)
         self.legacy_runtime=legacy
@@ -115,6 +116,72 @@ class ReplacementAuthority(Authority):
         raw,_=self.paths.read('/etc/tu1nz/'+name)
         return self.listener_binding(row,io.parse(raw),allow_initial_unbound=True) is not None
 
+    @staticmethod
+    def loader_link_identity(row):
+        return tuple(getattr(row,k) for k in ('st_dev','st_ino','st_uid','st_gid','st_mode',
+                                             'st_nlink','st_mtime_ns','st_ctime_ns'))
+
+    def check_loader_paths(self):
+        self.paths.check()
+        for (parent,leaf),(identity,target) in self.loader_aliases.items():
+            fd=self.paths.get(parent)
+            row=os.stat(leaf,dir_fd=fd,follow_symlinks=False)
+            io.require(self.loader_link_identity(row)==identity and
+                os.readlink(leaf,dir_fd=fd)==target and
+                not os.listxattr('/proc/self/fd/'+str(fd)+'/'+leaf,follow_symlinks=False),
+                'REPLACEMENT_LOADER_ALIAS_CHANGED')
+        self.paths.check()  # rename-and-return is latched, not just final identity
+
+    def bind_loader_path(self,path):
+        """Fence EVERY loader-visible component before following any symlink.
+
+        Canonical-target hashes alone do not bind /lib -> /usr/lib, a leaf
+        alias or a name restored after replacement. Existing no-follow secure
+        directory bindings and their latched named inotify events are retained
+        through final cleanup. This adds no Host write or broad root exception.
+        """
+        self.check_loader_paths()
+        if path in self.loader_bindings:return self.loader_bindings[path]
+        io.require(type(path) is str and path.startswith('/') and '\0' not in path and
+                   len(path)<=4096 and len(self.loader_bindings)<512,'REPLACEMENT_LOADER_PATH_BOUND')
+        pending=path.split('/')[1:];current=PurePosixPath('/');links=steps=0
+        while pending:
+            steps+=1
+            io.require(steps<=512 and len(pending)<=256 and time.monotonic()<self.deadline,
+                       'REPLACEMENT_LOADER_PATH_BOUND')
+            leaf=pending.pop(0)
+            if leaf in ('','.'):continue
+            if leaf=='..':current=current.parent;continue
+            parent=str(current);fd=self.paths.get(parent)
+            # Install the exact name watch BEFORE the first lstat/readlink.
+            wd=self.paths.libc.inotify_add_watch(self.paths.events,
+                os.fsencode('/proc/self/fd/'+str(fd)),0x2ec4)
+            io.require(wd>=0,'REPLACEMENT_LOADER_NAME_WATCH_UNAVAILABLE')
+            self.paths.names.setdefault(wd,set()).add(leaf)
+            self.paths.check()
+            row=os.stat(leaf,dir_fd=fd,follow_symlinks=False)
+            if stat.S_ISLNK(row.st_mode):
+                links+=1;identity=self.loader_link_identity(row)
+                target=os.readlink(leaf,dir_fd=fd)
+                io.require(links<=40 and row.st_uid==0 and row.st_nlink==1 and target and
+                    len(target)<=4096 and not os.listxattr('/proc/self/fd/'+str(fd)+'/'+leaf,
+                    follow_symlinks=False),'REPLACEMENT_LOADER_ALIAS_PROFILE')
+                io.require(self.loader_link_identity(os.stat(leaf,dir_fd=fd,follow_symlinks=False))==identity,
+                           'REPLACEMENT_LOADER_ALIAS_CHANGED')
+                key=(parent,leaf);before=self.loader_aliases.setdefault(key,(identity,target))
+                io.require(before==(identity,target),'REPLACEMENT_LOADER_ALIAS_CHANGED')
+                if target.startswith('/'):current=PurePosixPath('/')
+                pending=target.split('/')+pending
+            elif stat.S_ISDIR(row.st_mode):
+                current=current/leaf;self.paths.get(str(current))
+            else:
+                io.require(stat.S_ISREG(row.st_mode) and not pending,'REPLACEMENT_LOADER_PATH_TYPE')
+                resolved=str(current/leaf)
+                self.loader_bindings[path]=resolved
+                self.check_loader_paths()
+                return resolved
+        raise io.Hold('PUBLIC_OPERATOR_REPLACEMENT_LOADER_PATH_TYPE')
+
     def bind_external_libraries(self):
         io.require(self.replacement_active and isinstance(self.runtime,ReplacementFence),
                    'REPLACEMENT_NOT_CURRENT')
@@ -128,7 +195,7 @@ class ReplacementAuthority(Authority):
                 io.require(paths or 'linux-vdso.so.' in line or line.strip()=='statically linked',
                            'REPLACEMENT_LOADER_OUTPUT_UNKNOWN')
                 for path in paths:
-                    resolved=Path(path).resolve(strict=True)
+                    resolved=Path(self.bind_loader_path(path))
                     if resolved.is_relative_to(artifact.ROOT):
                         key=str(resolved.relative_to(artifact.ROOT))
                         io.require(self.runtime.expected.get(key,{}).get('kind')=='file',
@@ -141,9 +208,9 @@ class ReplacementAuthority(Authority):
         self.verify_external_libraries()
 
     def verify_external_libraries(self):
+        self.check_loader_paths()
         for path,expected in self.external_dependencies.items():
-            resolved=Path(path).resolve(strict=True)
-            io.require(str(resolved)==expected['source'],'REPLACEMENT_LOADER_LIBRARY_REPLACED')
+            io.require(self.loader_bindings[path]==expected['source'],'REPLACEMENT_LOADER_LIBRARY_REPLACED')
             raw,row=self.paths.read(expected['source'])
             io.require(io.sha(raw)==expected['sha256'],'REPLACEMENT_EXTERNAL_LIBRARY_DRIFT')
             identity=tuple(row[k] for k in ('device','inode','mtime_ns','ctime_ns'))
@@ -159,6 +226,7 @@ class ReplacementAuthority(Authority):
                 self.runtime.files.add(identity[:2])
             else:io.require(self.external_identities[path]==identity,'REPLACEMENT_EXTERNAL_LIBRARY_REPLACED')
         if self.replacement_active:self.runtime.check()
+        self.check_loader_paths()
 
     def check(self,*,stop_only=False):
         super().check(stop_only=stop_only)

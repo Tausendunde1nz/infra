@@ -625,6 +625,29 @@ def actual_policy_owner_epoch(s):
     assert rejected and authority._authorization_owner is None
 
 
+def actual_loader_alias_fence(s):
+    """Own synthetic library names only; no systemd ancestor/reload experiment."""
+    replacement=s.load('replacement');entry=s.load('entry');fs=s.load('fs')
+    for case in ('ancestor','leaf','file'):
+        root=ROOT/('loader-name-'+case);root.mkdir(mode=0o700)
+        real=root/'real';real.mkdir(mode=0o755);write(real/'library.bin',b'SYNTHETIC_LIBRARY_BYTES',0o444)
+        (root/'top').symlink_to('real');(root/'loader').symlink_to('top')
+        (real/'leaf.so').symlink_to('library.bin')
+        paths=fs.Paths(entry,deadline=time.monotonic()+20)
+        reader=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        reader.paths=paths;reader.deadline=paths.deadline;reader.loader_bindings={};reader.loader_aliases={}
+        try:
+            assert reader.bind_loader_path(str(root/'loader/leaf.so'))==str(real/'library.bin')
+            reader.check_loader_paths()
+            changed=root/'top' if case=='ancestor' else real/('leaf.so' if case=='leaf' else 'library.bin')
+            saved=changed.with_name('saved-object');changed.rename(saved);saved.rename(changed)
+            rejected=False
+            try:reader.check_loader_paths()
+            except s.load('io').Hold:rejected=True
+            assert rejected
+        finally:assert paths.close()  # failed namespace binding remains latched
+
+
 def production_outcome(result,code,r,fault_wire,stderr):
     """Retain the actual result BEFORE a later test-only proof can fail.
 
@@ -657,6 +680,7 @@ def main():
         p=APP/'.venv/bin/tu1nz-public-s7';p.write_bytes(p.read_bytes()+b'\n# SYNTHETIC_UNKNOWN_OLD_INSTALL_BYTES\n')
     legacy_bytes={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
     source_read_census_fence(s)
+    actual_loader_alias_fence(s)
     actual_policy_owner_epoch(s)
     if args.scenario == 'thread_authority':
         # Exact profile first, then a real per-task fsuid change. A worker
