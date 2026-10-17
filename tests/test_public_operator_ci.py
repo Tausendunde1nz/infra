@@ -156,7 +156,8 @@ class PublicOperatorCI(unittest.TestCase):
         outcome = {'status': 'HOLD', 'primary': 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_DEADLINE',
             'abort': ['PRIVATE_CANARY'], 'cleanup': [], 'client_error_type': 'PRIVATE_CANARY',
             'server_exit': 1, 'owner_confirmations': 7, 'actual_root_objects': 11,
-            'last_record_kind': 'owner_object_intent', 'last_record_sequence': 123}
+            'last_record_kind': 'owner_object_intent', 'last_record_sequence': 123,
+            'server_terminal_code': 'PRIVATE_CANARY'}
         value = {'native_failure': {'test_line': 476, 'test_type': 'AssertionError',
                  'production_fault': None, 'outcome': outcome}}
         result = m.failure_location(json.dumps(value).encode())
@@ -167,6 +168,14 @@ class PublicOperatorCI(unittest.TestCase):
             with self.subTest(key=key):
                 value['native_failure']['outcome'] = {**outcome, key: changed}
                 self.assertIsNone(m.failure_location(json.dumps(value).encode()))
+
+    def test_terminal_stderr_cannot_export_private_or_ambiguous_exception_text(self):
+        valid = b'tu1nz_public_operator_io.Hold: PUBLIC_OPERATOR_WIRE_DEADLINE'
+        self.assertEqual(m.terminal_wire_code(valid), 'PUBLIC_OPERATOR_WIRE_DEADLINE')
+        self.assertIsNone(m.terminal_wire_code(b'tu1nz_public_operator_io.Hold: PUBLIC_OPERATOR_PRIVATE_CANARY'))
+        self.assertIsNone(m.terminal_wire_code(valid+b' PRIVATE_CANARY'))
+        self.assertIsNone(m.terminal_wire_code(valid+b'\ntu1nz_public_operator_io.Hold: PUBLIC_OPERATOR_COMMAND_DEADLINE'))
+        self.assertIsNone(m.terminal_wire_code(b'PRIVATE_CANARY /private/source.py github_pat_SYNTHETIC'))
 
     def test_native_fsuid_regression_has_exact_root_non_skipped_guest_entry(self):
         argv = m.native_fsuid_argv('owned')

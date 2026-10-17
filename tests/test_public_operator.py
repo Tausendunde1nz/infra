@@ -183,6 +183,25 @@ except BaseException as error:
                 observe.unit_properties((unit,), 'LoadState', deadline)
             self.assertEqual(queried.call_count, 3)
 
+    def test_owner_epoch_never_survives_success_failure_change_or_reentry(self):
+        # Protocol/lifetime test ONLY, not a Host authorization observation.
+        authority = observe.Authority.__new__(observe.Authority)
+        authority._authorization_owner = None
+        with patch.object(authority, 'policy_owner', side_effect=(':1.1', ':1.1', ':1.2', ':1.3')) as read:
+            with authority.authorization_epoch(): self.assertEqual(authority._authorization_owner, ':1.1')
+            self.assertIsNone(authority._authorization_owner)
+            with self.assertRaisesRegex(io.Hold, 'AUTHORIZATION_OWNER_CHANGED'):
+                with authority.authorization_epoch(): self.assertEqual(authority._authorization_owner, ':1.2')
+            self.assertIsNone(authority._authorization_owner); self.assertEqual(read.call_count, 4)
+        with patch.object(authority, 'policy_owner', return_value=':1.4') as read:
+            with self.assertRaisesRegex(RuntimeError, 'SYNTHETIC_PRIMARY'):
+                with authority.authorization_epoch(): raise RuntimeError('SYNTHETIC_PRIMARY')
+            self.assertIsNone(authority._authorization_owner); self.assertEqual(read.call_count, 1)
+            with self.assertRaisesRegex(io.Hold, 'AUTHORIZATION_EPOCH_REENTRY'):
+                with authority.authorization_epoch():
+                    with authority.authorization_epoch(): pass
+            self.assertIsNone(authority._authorization_owner)
+
     def test_entry_sanitizes_private_input_error_without_traceback(self):
         output = text_io.StringIO()
         with patch.object(client, 'main', side_effect=OSError('PRIVATE_CANARY_PATH')), contextlib.redirect_stdout(output):

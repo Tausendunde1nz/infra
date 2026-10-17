@@ -405,11 +405,70 @@ def plan(s, machine):
     return io.canonical(guard.ownership_plan(capture))
 
 
+def source_read_census_fence(s):
+    """Actual parent rename/return during the real compiled read census.
+
+    Fixture input mutation only; the stable reader and all safety checks run
+    unchanged. No synthetic GREEN or Host observation is substituted.
+    """
+    folder = APP/'read-census'; folder.mkdir()
+    for name in ('a.json', 'b.json'): write(folder/name, b'SYNTHETIC-READ-CENSUS\n')
+    d = s.load('entry'); observer = s.load('observe')
+    paths = s.load('fs').Paths(d, deadline=time.monotonic()+20)
+    reader = observer.Authority.__new__(observer.Authority)
+    reader.paths = paths; reader.deadline = paths.deadline; reader.initial = {}
+    origin = io.sha(Path(__file__).read_bytes()); files = {}
+    for name in ('a.json', 'b.json'):
+        raw, row = paths.read(str(folder/name))
+        files[str(folder/name)] = {k: row[k] for k in ('uid', 'gid', 'mode', 'attrs', 'flags')}
+        files[str(folder/name)].update(sha256=io.sha(raw), origin_sha256=origin)
+    reader.b = {'files': files, 'source_origin_receipts': [origin]}
+    reader.check_files()  # real positive census, including current NSS checks
+    original = d.stable_file; swapped = False; rejected = False
+    def rename_after_actual_read(parent, name, *args, **kwargs):
+        nonlocal swapped
+        result = original(parent, name, *args, **kwargs)
+        if name == 'a.json' and not swapped:
+            swapped = True
+            moved = folder.with_name('read-census-moved')
+            folder.rename(moved); moved.rename(folder)
+        return result
+    d.stable_file = rename_after_actual_read
+    try:
+        try: reader.check_files()
+        except s.load('io').Hold as error:
+            assert error.primary in ('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_PATH_RENAME_EVENT',
+                                     'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_PATH_WATCH_LOST')
+            rejected = True
+        assert swapped and rejected
+    finally:
+        d.stable_file = original
+        assert paths.close()  # the failed namespace fence stays latched
+
+
+def actual_policy_owner_epoch(s):
+    # The same actual D-Bus reads as production. Restart ONLY the synthetic
+    # Guest's own policy daemon, BEFORE taking the fixture baseline. This is
+    # not a Host operation or a substituted authorization/owner response.
+    observer = s.load('observe'); authority = observer.Authority.__new__(observer.Authority)
+    authority.deadline = time.monotonic()+20; authority._authorization_owner = None
+    with authority.authorization_epoch(): pass
+    rejected = False
+    try:
+        with authority.authorization_epoch(): run('/usr/bin/systemctl', 'restart', 'polkit.service')
+    except s.load('io').Hold as error:
+        assert error.primary == 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_AUTHORIZATION_OWNER_CHANGED'
+        rejected = True
+    assert rejected and authority._authorization_owner is None
+
+
 def main():
     global PRODUCTION_FAULT, PRODUCTION_OUTCOME
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared'}.get(args.scenario))
+    source_read_census_fence(s)
+    actual_policy_owner_epoch(s)
     b = baseline(s); raw_plan = plan(s, b['machine_sha256']); baseline_raw = io.canonical(b)
     write(ROOT/'baseline.json', baseline_raw, 0o600)
     # Actual PID1 batch and three independent single reads must agree before
@@ -522,6 +581,8 @@ s.load("host").command=_delay_after_actual_start
         client_error_type=result.get('error_type'), server_exit=code, owner_confirmations=len(acknowledgments),
         actual_root_objects=actual_root, last_record_kind=fault_wire.record.get('kind') if fault_wire.record else None,
         last_record_sequence=fault_wire.record.get('sequence', 0) if fault_wire.record else 0)
+    from tu1nz_public_operator_ci import terminal_wire_code
+    PRODUCTION_OUTCOME['server_terminal_code'] = terminal_wire_code(stderr)
     report = {'scenario': args.scenario, 'status': result['status'], 'server_exit': code,
                       'proof': io.sha(io.canonical(result)), 'source_files': hashes,
                       'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,

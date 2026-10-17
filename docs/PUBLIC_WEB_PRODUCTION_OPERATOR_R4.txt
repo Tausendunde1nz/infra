@@ -100,8 +100,16 @@ Sudo parser/unknown-subject errors are not denial; polkit is a noninteractive
 query to an EXISTING unique owner, no daemon activation or auth attempt. Challenge,
 grant, dynamic unknown policy or missing evidence denies. Existing exact static
 NO can cache an actually observed negative only with current actor/policy/owner
-identities; this code NEVER installs that rule. Inherited Unix FDs are inspected
-with GET syscalls only, not inferred safe from current DAC or a nonzero UID.
+identities; this code NEVER installs that rule.
+For each no-effect authority census, the actual already-running unique policy
+owner is read at entry AND exit; any change/read failure denies before return.
+Each subject, rule, permission and inherited FD check remains actual. Standalone
+subject checks still query their own fresh owner. No epoch survives success,
+failure, interruption or reentry; no owner value is cached across checks/actions.
+Native tests restart only the synthetic Guest policy daemon before its baseline
+and require the real unique-owner change to deny. No real Host daemon is tested.
+Inherited Unix FDs are inspected with GET syscalls only, not inferred safe from
+current DAC or a nonzero UID.
 Unix-socket pathname ownership is evaluated using the captured filesystem UID,
 not the effective UID. A native synthetic socket test actually changes fsuid,
 proves kernel connect access with a different effective UID and demands rejection
@@ -129,6 +137,12 @@ checks or effects. The manager read is not claimed atomic or future-stable.
 This removes thousands of duplicate systemctl process launches, not conditions
 or fences. The native production entry compares actual batched/single PID1
 reads; parser negatives cover missing/duplicate/foreign blocks and fresh changes.
+The read-only expected-file census similarly brackets the complete held-ancestor
+set with actual fence checks, with no effects inside. Each leaf still uses the
+same stable FD/name/metadata/content/origin/identity validation and a deadline.
+All watches remain active; new parents still receive full admission checks.
+A native real ancestor rename/return BETWEEN actual leaf reads must deny before
+return; a failed read never authorizes an effect. No cross-census caching.
 First invocation is tracked through kernel credential setup; a later automatic
 restart cannot be substituted for that requested start. Current listener belongs
 to the actual unit process. Actual internal/proxy/public HTTP, credential view,
@@ -255,6 +269,9 @@ cannot replace an earlier native failure/location or each other; cleanup failure
 after a successful matrix still makes the job RED, without discarding its proof.
 CLI transport failure still writes BOTH private results, closes owned resources,
 independently rereads the results and reports sanitized HOLD/exit1, no traceback.
+Native CI may additionally disclose an exact literal public IO-Hold terminal
+symbol from private child stderr, never the stderr or traceback. This separately
+identifies terminal wire failure, not an invented underlying owner primary cause.
 
 Owner setup now covers the descriptor-bound backing filesystem BEFORE visiting
 any child. All planned objects must share that device. Only after every exact

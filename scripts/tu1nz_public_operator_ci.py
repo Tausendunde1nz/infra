@@ -61,6 +61,18 @@ def diagnostic_codes():
                                               'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_') for x in symbols}
 
 
+def terminal_wire_code(raw):
+    # Only an exact, literal PUBLIC Source Hold symbol may leave private child
+    # stderr. No traceback, path, argv, exception text or regex-shaped secret.
+    symbols = diagnostic_codes(); candidates = set()
+    for line in raw.splitlines():
+        match = re.fullmatch(rb'tu1nz_public_operator_io\.Hold: (PUBLIC_OPERATOR_[A-Z0-9_]{1,96})', line)
+        if match:
+            value = match[1].decode()
+            if value in symbols: candidates.add(value)
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
 def native_fsuid_argv(name):
     program = '''import os,sys,unittest,json
 assert sys.platform=="linux" and os.geteuid()==0
@@ -244,9 +256,11 @@ def failure_location(raw):
                         else (None if value is None else 'UNCLASSIFIED_CODE_REDACTED')}
         if 'outcome' in location:
             outcome = location['outcome']
-            require(type(outcome) is dict and set(outcome) == {'status', 'primary', 'abort', 'cleanup',
+            required_outcome = {'status', 'primary', 'abort', 'cleanup',
                 'client_error_type', 'server_exit', 'owner_confirmations', 'actual_root_objects',
-                'last_record_kind', 'last_record_sequence'}, 'OUTCOME_SCHEMA')
+                'last_record_kind', 'last_record_sequence'}
+            require(type(outcome) is dict and required_outcome <= set(outcome) <=
+                    required_outcome | {'server_terminal_code'}, 'OUTCOME_SCHEMA')
             require(type(outcome['server_exit']) is int and -128 <= outcome['server_exit'] <= 255 and
                     type(outcome['owner_confirmations']) is int and 0 <= outcome['owner_confirmations'] <= 84 and
                     type(outcome['actual_root_objects']) is int and 0 <= outcome['actual_root_objects'] <= 88 and
@@ -257,6 +271,8 @@ def failure_location(raw):
             def code(value): return value if type(value) is str and value in symbols else ('UNCLASSIFIED_CODE_REDACTED' if value is not None else None)
             outcome = {**outcome, **{k: code(outcome[k]) for k in ('status', 'primary')},
                        **{k: [code(x) for x in outcome[k]] for k in ('abort', 'cleanup')}}
+            if 'server_terminal_code' in outcome:
+                outcome['server_terminal_code'] = code(outcome['server_terminal_code'])
             outcome['client_error_type'] = outcome['client_error_type'] if outcome['client_error_type'] is None or (
                 type(outcome['client_error_type']) is str and outcome['client_error_type'] in SAFE_FAILURE_TYPES | {'TimeoutExpired'}) else 'REDACTED'
             outcome['last_record_kind'] = outcome['last_record_kind'] if outcome['last_record_kind'] in (

@@ -211,6 +211,7 @@ class Authority:
         self.own_dropins = {u: set() for u in UNITS}
         self.own_config_paths = set(); self.new_parent_paths = set()
         self.negative_authorizations = {}; self.static_systemd_deny = False
+        self._authorization_owner = None
         io.require(set(baseline['policy_roots']) == {'/etc/polkit-1/rules.d', '/usr/share/polkit-1/rules.d',
                    '/etc/sudoers.d', '/etc/dbus-1/system.d', '/usr/share/dbus-1/system.d'},
                    'INCOMPLETE_POLICY_ROOTS')
@@ -417,12 +418,19 @@ class Authority:
 
     def check_files(self):
         io.require(time.monotonic() < self.deadline and len(self.b['files']) <= 256, 'BASELINE_FILE_BOUND')
+        # This is a read-only census: no action/authorization/effect occurs
+        # between its leaves. Keep all inotify/held-parent bindings active and
+        # verify the COMPLETE ancestor set at both boundaries, rather than
+        # redoing it O(files*ancestors) after each otherwise identical read.
+        # New parent admissions still run Paths.get's full before/after check.
+        self.paths.check()
         for path, expected in self.b['files'].items():
             pp = PurePosixPath(path)
             io.require(pp.is_absolute() and '..' not in pp.parts and
                        path.startswith(('/etc/', '/usr/', '/opt/tu1nz_repos/adult-publishing-core/')),
                        'BASELINE_READ_SCOPE')
-            raw, row = self.paths.read(path)
+            io.require(time.monotonic() < self.deadline, 'BASELINE_READ_DEADLINE')
+            raw, row = self.paths.d.stable_file(self.paths.get(str(pp.parent)), pp.name)
             io.require(set(expected) == {'sha256', 'uid', 'gid', 'mode', 'attrs', 'flags', 'origin_sha256'} and
                        re.fullmatch('[a-f0-9]{64}', expected['origin_sha256']) and
                        expected['origin_sha256'] in self.b['source_origin_receipts'], 'FILE_ORIGIN_UNBOUND')
@@ -442,6 +450,7 @@ class Authority:
             io.require(len(matches) == 1 and matches[0][0] == name and
                        len([r for r in records if len(r) == 7 and r[0] == name]) == 1,
                        'NUMERIC_NSS_SUBJECT_BINDING_UNKNOWN')
+        self.paths.check()  # no successful return with queued loss/swap/drift
 
     def unit(self, unit):
         io.require(unit in UNITS, 'UNIT_SCOPE')
@@ -731,6 +740,28 @@ class Authority:
                    (after.st_dev, after.st_ino, after.st_mtime_ns, after.st_ctime_ns),
                    'MANAGER_SEARCH_DIRECTORY_CHANGED')
 
+    def policy_owner(self):
+        # Read only the already-running owner, with activation/interaction OFF.
+        r = command(['/usr/bin/busctl', '--system', '--auto-start=no', '--allow-interactive-authorization=no',
+                     '--', 'call', 'org.freedesktop.DBus', '/org/freedesktop/DBus',
+                     'org.freedesktop.DBus', 'GetNameOwner', 's', 'org.freedesktop.PolicyKit1'], self.deadline)
+        words = shlex.split(r.stdout.decode())
+        io.require(r.returncode == 0 and len(words) == 2 and words[0] == 's' and
+                   re.fullmatch(r':\d+\.\d+', words[1]), 'EXISTING_POLICY_DAEMON_UNKNOWN_NO_ACTIVATION')
+        return words[1]
+
+    @contextmanager
+    def authorization_epoch(self):
+        # A single READ-ONLY census: real subject/policy/FD checks still run
+        # for each actor, against this actual existing unique owner. Verify it
+        # again BEFORE the check can return. No action or cross-check cache.
+        io.require(self._authorization_owner is None, 'AUTHORIZATION_EPOCH_REENTRY')
+        owner = self.policy_owner(); self._authorization_owner = owner
+        try: yield
+        finally: self._authorization_owner = None
+        # On a failed body preserve its primary; no successful admission exists.
+        io.require(self.policy_owner() == owner, 'AUTHORIZATION_OWNER_CHANGED')
+
     def delegation_check(self, row, *, known_stop=False):
         # Noninteractive protected POLICY QUERIES only: no sudo authentication,
         # systemd/broker operation or provider call is attempted.
@@ -752,18 +783,13 @@ class Authority:
                        'SUDO_AUTHORITY_OR_UNKNOWN')
         # Never let a nominally read-only authorization query activate a daemon.
         # Address the already-running unique owner, with D-Bus auto-start OFF.
-        r = command(['/usr/bin/busctl', '--system', '--auto-start=no', '--allow-interactive-authorization=no',
-                     '--', 'call', 'org.freedesktop.DBus', '/org/freedesktop/DBus',
-                     'org.freedesktop.DBus', 'GetNameOwner', 's', 'org.freedesktop.PolicyKit1'], self.deadline)
-        words = shlex.split(r.stdout.decode())
-        io.require(r.returncode == 0 and len(words) == 2 and words[0] == 's' and
-                   re.fullmatch(r':\d+\.\d+', words[1]), 'EXISTING_POLICY_DAEMON_UNKNOWN_NO_ACTIVATION')
-        owner = words[1]
+        owner = self._authorization_owner if self._authorization_owner is not None else self.policy_owner()
         cache_key = (pid, tick, uid, owner, io.sha(io.canonical(row)))
         # Only an actually measured negative under the recognized unconditional
         # NO rule is stable across session/cache activity. Generic negative or
-        # challenge decisions are NEVER cached. Every call still revalidates
-        # actual actor/policy identities and this already-running unique owner.
+        # challenge decisions are NEVER cached. Each subject remains actual;
+        # the unique owner is freshly read individually or at BOTH boundaries
+        # of the same no-effect census. Nothing survives as an owner cache.
         cached = self.static_systemd_deny and cache_key in self.negative_authorizations
         if cached:
             io.require(starttime(pid) == tick, 'AUTHORIZATION_SUBJECT_CHANGED')
@@ -923,7 +949,8 @@ class Authority:
         io.require(jobs.returncode == 0 and io.parse(jobs.stdout) == {'type': 'a(usssoo)', 'data': [[]]},
                    'QUEUED_MANAGER_JOB_UNKNOWN')
         io.require(self.unit_search() == self.b['unit_search_sha256'], 'FOREIGN_MANAGER_RELOAD_DELTA')
-        self.units_check(stop_only=stop_only); self.actors_check(stop_only=stop_only)
+        with self.authorization_epoch():
+            self.units_check(stop_only=stop_only); self.actors_check(stop_only=stop_only)
         # The three bound delegation exceptions authorize only their stop.
         # They never waive existing writable Source/config FDs or shared maps.
         writer_check(self.runtime.files | {v[:2] for v in self.initial.values()}, self.deadline)
