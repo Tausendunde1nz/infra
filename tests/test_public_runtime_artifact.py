@@ -8,6 +8,7 @@ import copy
 import gzip
 import io
 import json
+import os
 import subprocess
 from pathlib import Path
 import sys
@@ -23,9 +24,27 @@ import tu1nz_public_runtime_artifact as a
 import tu1nz_public_operator as client
 import tu1nz_public_operator_io as wire
 import tu1nz_public_runtime_ci as native
+# Pure policy checks may import on macOS; no runtime/fence constructor runs.
+# The actual Linux flag remains untouched on Linux/native tests.
+if hasattr(os,'O_NOATIME'):
+    import tu1nz_public_runtime_transition as replacement
+else:
+    with patch.object(os,'O_NOATIME',0,create=True):
+        import tu1nz_public_runtime_transition as replacement
 
 
 class ArtifactBytes(unittest.TestCase):
+    def test_loader_environment_policy_rejects_unsafe_missing_and_unknown_data(self):
+        def values(rows):return {'Environment':{'type':'as','data':rows}}
+        self.assertEqual(replacement.manager_loader_environment(values(['LANG=C'])),
+                         a.sha(a.canonical(['LANG=C'])))
+        for bad in ({}, {'Environment':{'type':'s','data':[]}},values(['LD_PRELOAD=PRIVATE_CANARY']),
+                    values(['LD_LIBRARY_PATH=/unbound']),values(['GLIBC_TUNABLES=PRIVATE_CANARY']),
+                    values(['GCONV_PATH=/unbound']),values(['LANG=C','LANG=C']),values(['NO_EQUALS'])):
+            with self.subTest(bad=bad),self.assertRaises(wire.Hold):replacement.manager_loader_environment(bad)
+        self.assertEqual(a.overlay(),(Path(__file__).resolve().parents[1]/'systemd/public-web-runtime-r5.conf').read_bytes())
+        self.assertTrue({'LD_PRELOAD','LD_LIBRARY_PATH','LD_AUDIT','GLIBC_TUNABLES'}<=set(a.LOADER_UNSET))
+
     def test_native_primary_result_survives_missing_test_restart_proof(self):
         from tests import public_operator_native as fixture
         from tu1nz_public_operator_ci import failure_location

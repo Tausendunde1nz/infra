@@ -8,17 +8,19 @@ No CLI/import mutation. All methods require the surviving production adapter.
 from __future__ import annotations
 
 import base64
+import ctypes
 import io as memory_io
 import os
 from pathlib import Path, PurePosixPath
 import stat
+import struct
 import tarfile
 import time
 
 import tu1nz_public_operator_io as io
 import tu1nz_public_runtime_artifact as artifact
 from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ
-from tu1nz_public_operator_observe import Authority, UNITS, process, command, unit_exec_properties
+from tu1nz_public_operator_observe import Authority, UNITS, process, command, typed_exec_properties, EXEC_PROPERTIES
 from tu1nz_public_operator_host import Adapter
 
 OVERLAY = 'zzz-public-runtime-r5.conf'
@@ -28,6 +30,120 @@ REFERENCE = 'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1'
 
 validate_receipt = artifact.validate_receipt
 inspect_archive = artifact.inspect_archive
+
+
+def dbus_properties(path,interface,deadline):
+    row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
+        '--json=short','call','org.freedesktop.systemd1',path,'org.freedesktop.DBus.Properties',
+        'GetAll','s',interface],deadline)
+    io.require(row.returncode==0,'REPLACEMENT_LOADER_ENVIRONMENT_READ_UNKNOWN')
+    body=io.parse(row.stdout)
+    io.require(type(body) is dict and set(body)=={'type','data'} and body['type']=='a{sv}' and
+        type(body['data']) is list and len(body['data'])==1 and type(body['data'][0]) is dict,
+        'REPLACEMENT_LOADER_ENVIRONMENT_TYPE_UNKNOWN')
+    return body
+
+
+def string_array(values,key):
+    row=values.get(key)
+    io.require(type(row) is dict and set(row)=={'type','data'} and row['type']=='as' and
+        type(row['data']) is list and all(type(x) is str for x in row['data']),
+        'REPLACEMENT_LOADER_ENVIRONMENT_TYPE_UNKNOWN')
+    return row['data']
+
+
+def manager_loader_environment(values):
+    env=string_array(values,'Environment');names=set()
+    unsafe={'GLIBC_TUNABLES','GCONV_PATH','GETCONF_DIR','HOSTALIASES','LOCALDOMAIN','LOCPATH',
+        'MALLOC_TRACE','NIS_PATH','NLSPATH','RESOLV_HOST_CONF','RES_OPTIONS','TMPDIR','TZDIR'}
+    for item in env:
+        name,separator,_=item.partition('=')
+        io.require(separator and name and name not in names and not name.startswith(('LD_','MALLOC_')) and
+                   name not in unsafe,'REPLACEMENT_MANAGER_LOADER_ENVIRONMENT_UNSAFE')
+        names.add(name)
+    return io.sha(io.canonical(sorted(env)))  # never disclose values
+
+
+class LoaderConfiguration:
+    """Exact authenticated cache + absent preload, fenced through cleanup.
+
+    Separate inotify instance: later ordinary Paths watches cannot remove the
+    creation bit needed to bind an ABSENT preload name. No normalization or
+    cache generation; an occupied preload (even empty) is rejected.
+    """
+    CACHE='/etc/ld.so.cache';PRELOAD='/etc/ld.so.preload'
+
+    def __init__(self,paths,baseline,deadline):
+        self.paths=paths;self.deadline=deadline;self.events=self.fd=None;self.ready=False;self.broken=False
+        self.cache_path=self.CACHE;self.preload_path=self.PRELOAD
+        io.require(Path(self.cache_path).parent==Path(self.preload_path).parent,
+                   'REPLACEMENT_LOADER_CONFIGURATION_SCOPE')
+        self.parent=paths.get(str(Path(self.cache_path).parent))
+        self.libc=ctypes.CDLL(None,use_errno=True)
+        self.events=self.libc.inotify_init1(os.O_NONBLOCK|os.O_CLOEXEC)
+        io.require(self.events>=0,'REPLACEMENT_LOADER_CONFIGURATION_WATCH_UNKNOWN')
+        self.parent_watch=self.libc.inotify_add_watch(self.events,
+            os.fsencode('/proc/self/fd/'+str(self.parent)),0x2fce)
+        io.require(self.parent_watch>=0,'REPLACEMENT_LOADER_CONFIGURATION_WATCH_UNKNOWN')
+        self.expected=baseline['files'].get(self.cache_path)
+        io.require(type(self.expected) is dict and self.expected.get('origin_sha256') in
+            baseline['source_origin_receipts'],'REPLACEMENT_LOADER_CACHE_ORIGIN_UNBOUND')
+        raw,row=paths.read(self.cache_path)
+        io.require(0<len(raw)<=4*1024*1024 and io.sha(raw)==self.expected.get('sha256') and
+            all(row[k]==self.expected.get(k) for k in ('uid','gid','mode','attrs','flags')),
+            'REPLACEMENT_LOADER_CACHE_BINDING')
+        self.identity=tuple(row[k] for k in ('device','inode','mtime_ns','ctime_ns'))
+        self.fd=os.open(Path(self.cache_path).name,READ,dir_fd=self.parent)
+        before=os.fstat(self.fd)
+        io.require(stat.S_ISREG(before.st_mode) and before.st_nlink==1 and
+            (before.st_dev,before.st_ino,before.st_mtime_ns,before.st_ctime_ns)==self.identity,
+            'REPLACEMENT_LOADER_CACHE_CHANGED')
+        self.file_watch=self.libc.inotify_add_watch(self.events,
+            os.fsencode('/proc/self/fd/'+str(self.fd)),0x2fce)
+        io.require(self.file_watch>=0,'REPLACEMENT_LOADER_CONFIGURATION_WATCH_UNKNOWN')
+        self.ready=True;self.check()
+
+    def check(self):
+        try:self._check()
+        except BaseException:self.broken=True;raise
+
+    def _check(self):
+        io.require(self.ready and not self.broken and time.monotonic()<self.deadline,'REPLACEMENT_LOADER_CONFIGURATION_LOST')
+        self.paths.check()
+        while True:
+            try:raw=os.read(self.events,65536)
+            except BlockingIOError:break
+            offset=0
+            while offset<len(raw):
+                wd,mask,_,count=struct.unpack_from('iIII',raw,offset)
+                name=raw[offset+16:offset+16+count].split(b'\0',1)[0].decode()
+                io.require(not mask&(0x4000|0x2000|0x400|0x800|0x8000) and wd!=self.file_watch and
+                    not(wd==self.parent_watch and name in (Path(self.cache_path).name,Path(self.preload_path).name)),
+                    'REPLACEMENT_LOADER_CONFIGURATION_EVENT')
+                offset+=16+count
+        try:os.stat(Path(self.preload_path).name,dir_fd=self.parent,follow_symlinks=False)
+        except FileNotFoundError:pass
+        else:raise io.Hold('PUBLIC_OPERATOR_REPLACEMENT_GLOBAL_PRELOAD_FORBIDDEN')
+        raw,row=self.paths.read(self.cache_path)
+        io.require(io.sha(raw)==self.expected['sha256'] and tuple(row[k] for k in
+            ('device','inode','mtime_ns','ctime_ns'))==self.identity and
+            all(row[k]==self.expected[k] for k in ('uid','gid','mode','attrs','flags')),
+            'REPLACEMENT_LOADER_CACHE_CHANGED')
+
+    def close(self):
+        errors=[]
+        if self.ready:
+            try:self.check()
+            except BaseException as error:errors.append(getattr(error,'primary',
+                'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_LOADER_CONFIG_CLOSE_UNKNOWN'))
+        for name in ('fd','events'):
+            fd=getattr(self,name,None)
+            if fd is not None:
+                try:os.close(fd)
+                except OSError:errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_LOADER_CONFIG_FD_CLOSE_UNKNOWN')
+                setattr(self,name,None)
+        self.ready=False
+        return errors
 
 
 class LegacyStopFence(RuntimeFence):
@@ -78,15 +194,35 @@ class ReplacementAuthority(Authority):
         self.replacement_active=False
         self.external_dependencies={};self.external_identities={}
         self.loader_bindings={};self.loader_aliases={}
+        self.loader_config=LoaderConfiguration.__new__(LoaderConfiguration)
+        self.loader_config.__init__(paths,baseline,deadline)
+        self.manager_environment=None
         legacy=LegacyStopFence(baseline['source_release']['runtime_reference'],paths,
             baseline['source_origin_receipts'],python_binary=baseline['source_release']['python_binary'],deadline=deadline)
+        legacy.files.add(self.loader_config.identity[:2])  # existing cache writers are not exempt
         self.legacy_runtime=legacy
         return legacy
 
     def extra_unit_contract(self, unit, value, *, stop_only):
-        hooks=unit_exec_properties(unit,self.deadline)
+        path='/org/freedesktop/systemd1/unit/'+''.join(
+            c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
+        body=dbus_properties(path,'org.freedesktop.systemd1.Service',self.deadline)
+        hooks=typed_exec_properties(io.canonical(body),EXEC_PROPERTIES)
         io.require(not any(hooks.values()) and not value['RootDirectory'] and not value['RootImage'],
                    'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT')
+        values=body['data'][0]
+        for key in ('Environment','PassEnvironment'):
+            io.require(not string_array(values,key),'REPLACEMENT_UNIT_LOADER_ENVIRONMENT_OVERRIDE')
+        loaded=self.dropin_path(unit) in value['DropInPaths'].split()
+        unset=string_array(values,'UnsetEnvironment');wanted=list(artifact.LOADER_UNSET) if loaded else []
+        io.require(len(unset)==len(wanted) and set(unset)==set(wanted),
+                   'REPLACEMENT_UNIT_LOADER_UNSET_PROFILE')
+        files=values.get('EnvironmentFiles')
+        io.require(type(files) is dict and set(files)=={'type','data'} and files['type']=='a(sb)' and
+                   files['data']==[],'REPLACEMENT_UNIT_ENVIRONMENT_FILES_FORBIDDEN')
+
+    @staticmethod
+    def dropin_path(unit):return '/etc/systemd/system/'+unit+'.d/'+OVERLAY
 
     def interpreter_binding(self,row,*,old):
         if old:
@@ -97,6 +233,11 @@ class ReplacementAuthority(Authority):
         binary=artifact.ROOT+'/python/bin/python3.12'
         expected=self.b['source_release']['runtime_reference']['artifact']['objects']['python/bin/python3.12']['sha256']
         io.require(row['exe']==binary and row['exe_sha256']==expected,'REPLACEMENT_INTERPRETER_BINDING')
+        env={'PATH':'/usr/bin:/bin','LC_ALL':'C','PYTHONDONTWRITEBYTECODE':'1'}
+        normal=io.sha(b''.join((k+'='+v).encode()+b'\0' for k,v in env.items()))
+        env['PYTHONPATH']=artifact.VIEW+'/src'
+        wms=io.sha(b''.join((k+'='+v).encode()+b'\0' for k,v in env.items()))
+        io.require(row['initial_env_sha256'] in (normal,wms),'REPLACEMENT_ACTUAL_LOADER_ENVIRONMENT_CHANGED')
         current=Path('/proc')/str(row['pid'])/'root'/artifact.VIEW.lstrip('/')
         actual=os.stat(current);wanted=os.stat(artifact.ROOT+'/app',follow_symlinks=False)
         io.require((actual.st_dev,actual.st_ino)==(wanted.st_dev,wanted.st_ino) and
@@ -183,6 +324,7 @@ class ReplacementAuthority(Authority):
         raise io.Hold('PUBLIC_OPERATOR_REPLACEMENT_LOADER_PATH_TYPE')
 
     def bind_external_libraries(self):
+        self.check_loader_configuration()
         io.require(self.replacement_active and isinstance(self.runtime,ReplacementFence),
                    'REPLACEMENT_NOT_CURRENT')
         io.require(0<len(self.runtime.elf_files)<=256,'REPLACEMENT_ELF_COUNT')
@@ -207,6 +349,14 @@ class ReplacementAuthority(Authority):
                         self.external_dependencies[path]=reference[path]
         self.verify_external_libraries()
 
+    def check_loader_configuration(self):
+        self.loader_config.check()
+        values=dbus_properties('/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager',self.deadline)
+        measured=manager_loader_environment(values['data'][0])
+        if self.manager_environment is None:self.manager_environment=measured
+        else:io.require(measured==self.manager_environment,'REPLACEMENT_MANAGER_ENVIRONMENT_CHANGED')
+        self.loader_config.check()
+
     def verify_external_libraries(self):
         self.check_loader_paths()
         for path,expected in self.external_dependencies.items():
@@ -229,9 +379,19 @@ class ReplacementAuthority(Authority):
         self.check_loader_paths()
 
     def check(self,*,stop_only=False):
+        self.check_loader_configuration()
         super().check(stop_only=stop_only)
         if self.legacy_runtime is not self.runtime:self.legacy_runtime.check()
         self.verify_external_libraries()
+
+    def close(self):
+        errors=[]
+        loader=getattr(self,'loader_config',None)
+        if loader is not None:
+            try:errors.extend(loader.close())
+            except BaseException:errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_LOADER_CONFIG_CLOSE_UNKNOWN')
+        errors.extend(super().close())
+        return errors
 
 
 def overlay():

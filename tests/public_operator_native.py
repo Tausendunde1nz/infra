@@ -528,6 +528,9 @@ def baseline(s, *, replacement_dependencies=None):
          'unit_search_sha256': pseudo.unit_search()}
     files = {str(p) for p in Path('/etc/tu1nz').iterdir()} | {
         '/etc/passwd', '/etc/group', '/etc/nsswitch.conf', '/etc/sudoers', '/etc/hosts'}
+    # This fresh fixture's generated loader cache is an explicit current TCB
+    # input. Production requires its independent private origin binding too.
+    if getattr(s,'_native_r5',False):files.add('/etc/ld.so.cache')
     for unit in UNITS:
         v = observer.Authority.unit(pseudo, unit)
         b['unit_files'][unit] = {'fragment': v['FragmentPath'], 'dropins': v['DropInPaths'].split(),
@@ -693,6 +696,43 @@ def actual_loader_alias_fence(s):
         finally:assert paths.close()  # failed namespace binding remains latched
 
 
+def actual_loader_configuration_fence(s):
+    replacement=s.load('replacement');fs=s.load('fs');entry=s.load('entry')
+    for case in ('cache_write_return','preload_create_return','cache_open_writer'):
+        root=ROOT/('loader-config-'+case);root.mkdir(mode=0o700)
+        cache=root/'ld.so.cache';write(cache,b'SYNTHETIC_CACHE_BYTES',0o644)
+        paths=fs.Paths(entry,deadline=time.monotonic()+20)
+        raw,row=paths.read(str(cache));origin=io.sha(b'SYNTHETIC_CONFIG_INPUT_ORIGIN')
+        expected={k:row[k] for k in ('uid','gid','mode','attrs','flags')}
+        expected.update(sha256=io.sha(raw),origin_sha256=origin)
+        class SyntheticConfiguration(replacement.LoaderConfiguration):
+            CACHE=str(cache);PRELOAD=str(root/'ld.so.preload')
+        fence=SyntheticConfiguration(paths,{'files':{str(cache):expected},
+            'source_origin_receipts':[origin]},paths.deadline)
+        try:
+            fence.check()
+            if case=='cache_write_return':cache.write_bytes(b'CHANGED');cache.write_bytes(raw)
+            elif case=='preload_create_return':
+                preload=root/'ld.so.preload';preload.write_bytes(b'');preload.unlink()
+            else:
+                fd=os.open(cache,os.O_WRONLY|os.O_CLOEXEC)
+                try:
+                    denied=False
+                    try:s.load('runtime_guard').writer_check({fence.identity[:2]},paths.deadline)
+                    except s.load('io').Hold as error:
+                        assert error.primary=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_EXISTING_SOURCE_WRITABLE_FD'
+                        denied=True
+                    assert denied
+                finally:os.close(fd)
+            rejected=False
+            try:fence.check()
+            except s.load('io').Hold:rejected=True
+            assert rejected
+        finally:
+            assert fence.close()  # prior event stays latched even after restoration
+            assert not paths.close()
+
+
 def production_outcome(result,code,r,fault_wire,stderr):
     """Retain the actual result BEFORE a later test-only proof can fail.
 
@@ -726,6 +766,7 @@ def main():
     legacy_bytes={str(p.relative_to(APP)):io.sha(p.read_bytes()) for p in APP.rglob('*') if p.is_file() and not p.is_symlink()}
     source_read_census_fence(s)
     actual_loader_alias_fence(s)
+    actual_loader_configuration_fence(s)
     actual_policy_owner_epoch(s)
     if args.scenario == 'thread_authority':
         # Exact profile first, then a real per-task fsuid change. A worker
@@ -756,6 +797,7 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
         from tests.public_runtime_fixture import runtime,external_dependencies
         runtime_payload,runtime_receipt,runtime_inputs=runtime(s)
         replacement_dependencies=external_dependencies(s,runtime_payload,runtime_receipt)
+    s._native_r5=replacing
     b = baseline(s,replacement_dependencies=replacement_dependencies)
     if replacing:
         origin=io.sha(io.canonical(runtime_receipt));b['source_origin_receipts'].append(origin)

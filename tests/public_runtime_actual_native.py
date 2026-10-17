@@ -143,6 +143,10 @@ def main():
         assert health is not None and len(health)<=1024*1024
         pid=int(first['MainPID']);proc=Path('/proc')/str(pid)
         status=dict(x.split(':',1) for x in (proc/'status').read_text().splitlines() if ':' in x)
+        expected_environment={'PATH':'/usr/bin:/bin','LC_ALL':'C','PYTHONDONTWRITEBYTECODE':'1'}
+        if i==2:expected_environment['PYTHONPATH']=a.VIEW+'/src'
+        assert (proc/'environ').read_bytes()==b''.join((k+'='+v).encode()+b'\0'
+            for k,v in expected_environment.items())
         assert list(map(int,status['Uid'].split()))==[1001]*4 and list(map(int,status['Gid'].split()))==[1001]*4
         assert not status['Groups'].split() and status['NoNewPrivs'].strip()=='1'
         assert all(int(status[k],16)==0 for k in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb'))

@@ -53,9 +53,18 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
 
 
+LOADER_UNSET = ('LD_ASSUME_KERNEL','LD_AUDIT','LD_BIND_NOT','LD_BIND_NOW','LD_DEBUG','LD_DEBUG_OUTPUT',
+    'LD_DYNAMIC_WEAK','LD_HWCAP_MASK','LD_LIBRARY_PATH','LD_ORIGIN_PATH','LD_POINTER_GUARD','LD_PREFER_MAP_32BIT_EXEC',
+    'LD_PRELOAD','LD_PROFILE','LD_PROFILE_OUTPUT','LD_SHOW_AUXV','LD_TRACE_LOADED_OBJECTS','LD_TRACE_PRELINKING',
+    'LD_USE_LOAD_BIAS','LD_VERBOSE','LD_WARN','GLIBC_TUNABLES','GCONV_PATH','GETCONF_DIR','HOSTALIASES',
+    'LOCALDOMAIN','LOCPATH','MALLOC_TRACE','MALLOC_CHECK_','MALLOC_PERTURB_','NIS_PATH','NLSPATH',
+    'RESOLV_HOST_CONF','RES_OPTIONS','TMPDIR','TZDIR')
+
+
 def overlay():
     return ('[Service]\n# R5: private read-only service view; historical Host checkout unchanged.\n'
-        'BindReadOnlyPaths='+ROOT+'/app:'+VIEW+'\nReadOnlyPaths='+ROOT+'\n').encode()
+        'BindReadOnlyPaths='+ROOT+'/app:'+VIEW+'\nReadOnlyPaths='+ROOT+'\n'
+        'UnsetEnvironment='+' '.join(LOADER_UNSET)+'\n').encode()
 
 
 def parse(raw):

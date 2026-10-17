@@ -74,6 +74,24 @@ events. A rename-and-return cannot be accepted merely because the final canonica
 target hash is unchanged. Internal artifact paths receive the same loader-name
 binding in addition to their existing full artifact fence. No alias is normalized
 or rewritten and no new Host write path is introduced.
+The independently authenticated private baseline must additionally bind
+`/etc/ld.so.cache` bytes/metadata/origin. Its file and parent name are watched
+before inspection; `/etc/ld.so.preload` must be absent (even an empty present
+file denies), and a separate latched creation watch remains active through
+cleanup. Neither file is generated, normalized or changed. Cache rewrite-and-
+restore and preload create-and-remove are real synthetic native regressions.
+Missing cache origin remains a Host gate, not a current hash relabeled as origin.
+
+The three new overlays also explicitly unset the fixed loader-sensitive names
+declared in `LOADER_UNSET`, before even the initial privileged helper exec.
+Actual typed unit Environment/EnvironmentFiles/PassEnvironment must be empty;
+the loaded overlay's complete UnsetEnvironment must match exactly. Manager
+Environment is read fresh, unsafe selectors deny and any change from the
+initial full hash denies. Values are not logged. The unchanged helper then
+execs with its fixed minimal environment; actual `/proc` initial-environment
+hash must be exactly that three-variable environment or its WMS PYTHONPATH
+variant. This is not a broad trust exception for a privileged file writer.
+Loader selection documentation: https://man7.org/linux/man-pages/man8/ld.so.8.html
 This does not promise a wholly static or Host-independent runtime.
 
 ## Transition, protection and failure
