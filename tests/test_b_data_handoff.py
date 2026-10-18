@@ -23,9 +23,10 @@ def encoded(value):
 
 
 def chosen():
-    return {'schema': 'TU1NZ_B_DATA_SELECTION_V1', 'source_app': CATALOG['source_app'],
+    return {'schema': 'TU1NZ_B_DATA_SELECTION_V2', 'source_app': CATALOG['source_app'],
             'database': 'tu1nz_adult_commercial_s3', 'host_inventory_sha256': '1' * 64,
             'relations': [{'name': n, 'disposition': 'export'} for n in CATALOG['tables']],
+            'retained_dependencies': {n: 'retain_old' for n in CATALOG['retained_dependency_relations']},
             'file_dispositions': {p: ('export' if kind in ('aggregate', 'traffic') else 'retain_old')
                                   for p, kind in CATALOG['fixed_files'].items()},
             'files': [{'source': '/var/lib/tu1nz-adult-public-s9/landing-aggregates.json',
@@ -37,7 +38,7 @@ def chosen():
 class Selection(unittest.TestCase):
     def test_explicit_source_relations(self):
         value = b.selection(encoded(chosen()), CATALOG)
-        self.assertEqual(len(value['relations']), 33)
+        self.assertEqual(len(value['relations']), 34)
 
     def test_unknown_missing_duplicate_and_injection(self):
         for change in ('unknown', 'missing', 'duplicate', 'injection'):
@@ -59,8 +60,28 @@ class Selection(unittest.TestCase):
         v = chosen()
         for r in v['relations']:
             if r['name'] not in CATALOG['required_tables']: r['disposition'] = 'absent'
-        self.assertEqual(len(b.selection(encoded(v), CATALOG)['relations']), 33)
+        self.assertEqual(len(b.selection(encoded(v), CATALOG)['relations']), 34)
         # This records an externally evidenced disposition, NOT proof of absence.
+
+    def test_s11_guard_dependencies_cannot_be_omitted(self):
+        for name in CATALOG['guard_dependencies']:
+            v = chosen()
+            next(r for r in v['relations'] if r['name'] == name)['disposition'] = 'retain_old'
+            with self.subTest(name=name), self.assertRaisesRegex(b.Denied, 'GUARD_DEPENDENCY_CLOSURE'):
+                b.selection(encoded(v), CATALOG)
+
+    def test_incoming_fk_and_admission_history_remain_at_old_authority(self):
+        for name in CATALOG['retained_dependency_relations']:
+            for disposition in ('export', 'absent'):
+                v = chosen(); v['retained_dependencies'][name] = disposition
+                with self.subTest(name=name, disposition=disposition), self.assertRaises(b.Denied):
+                    b.selection(encoded(v), CATALOG)
+        v = chosen(); del v['retained_dependencies']['commercial_s11_experience_sessions']
+        with self.assertRaises(b.Denied): b.selection(encoded(v), CATALOG)
+
+    def test_legacy_selection_cannot_silently_omit_new_boundary(self):
+        v = chosen(); v['schema'] = 'TU1NZ_B_DATA_SELECTION_V1'
+        with self.assertRaises(b.Denied): b.selection(encoded(v), CATALOG)
 
     def test_no_secret_git_runtime_or_traversal_selection(self):
         for source in ('/etc/tu1nz/adult-commercial-s7-form.secret',
@@ -100,7 +121,7 @@ class Selection(unittest.TestCase):
         argv = b.dump_argv(v, '00000003-0000001B-1')
         self.assertIn('--data-only', argv)
         self.assertIn('--strict-names', argv)
-        self.assertEqual(sum(a.startswith('--table=public.') for a in argv), 33)
+        self.assertEqual(sum(a.startswith('--table=public.') for a in argv), 34)
         self.assertFalse(any('*' in a or 'password' in a for a in argv))
         for bad in ('service=evil', '1;DELETE', '000-0-1 --schema=x', '', None):
             with self.assertRaises(b.Denied): b.dump_argv(v, bad)

@@ -1,0 +1,111 @@
+B DATA / WRITER — MINIMAL S11 DEPENDENCY DELTA R2
+Source only. Extends B_DATA_WRITER_HANDOFF_R1.txt, never Host authority.
+Previous B source freeze remains immutable. No S11 activation or full move.
+
+1. EXACT DATA BOUNDARY
+The catalogue V2 has the previous33 names plus exactly
+commercial_s11_runtime_control. A selection V2 explicitly classifies all34.
+Exporting either commercial_s10_2d_runtime_control or
+commercial_s10_2d_latency_samples requires BOTH plus S11 runtime_control in the
+SAME MVCC snapshot. Exporting S11 runtime_control also requires both S10 tables.
+This preserves the two S10 guard lookups and the S11 control guard's S10
+evidence reads, not just the existence of a similarly named empty table.
+No singleton/config/admission field may be reset, seeded or reinterpreted on
+the restore target. All original offsets/revisions/epochs/flags survive.
+Restoring enabled data does not authorize an S11 runtime/transition/provider.
+Target services/credentials/roles/network remain separately quarantined.
+
+The incoming FK from commercial_s11_experience_sessions to S8 users does NOT
+force copying all S11 sessions. Source parents are copied, not moved/deleted.
+The old FK and child remain at the OLD authority, with unchanged parent IDs.
+Four explicit retain_old boundaries are mandatory and cannot be exported by
+this selector: S11 experience_sessions, product_events, canary_admission_counters,
+canary_epoch_history. No new empty counterparts are created. retain_old is not
+proof of existence/absence, an independent Host receipt or writer closure.
+Actual old FK integrity and the selected-parent/old-child relationship must
+be bound in the real inventory. All writers/activation paths that could affect
+this boundary must be fenced for FINAL; old S11 is never activated by B.
+A later S11 move/activation requires its retained histories and original gates;
+missing new-host histories confer no new slot/attempt.
+
+2. EXACT PRIVATE SOURCE SCHEMA RECIPE
+Application93555d8a141caf8ace33522f9340d30bfc47d2bb remains unchanged.
+scripts/tu1nz_b_dependency_schema.py verifies the full SHA256 of15 authentic
+private migration files and selects only explicitly pinned definition ranges.
+No private SQL is vendored or printed into public Source/CI. The source paths,
+hashes and inclusive ranges are public provenance metadata, not SQL permission.
+The recipe is for an EMPTY, isolated, private builder, NEVER the restore target
+or an existing database. It performs no SQL/network/Host execution.
+
+Existing common append-only function only (0001 lines3–10), then authentic
+0021–0030 builds the prior33 tables. The new dependency recipe adds:
+* full S11 runtime_control table/columns/checks from0031/0033/0035;
+* S10 latency columns/index/constraints from0032/0033, including generated
+  recorded_at and historical provenance classification, without data rewrites;
+* latest0035 S11 runtime-control guard/function and its0033 trigger;
+* exact0033 S10 release-binding and canary-latency SECURITY DEFINER functions,
+  their search_path=pg_catalog, PUBLIC revocations and triggers.
+It omits S11 seed/reset UPDATEs, session/product/history/counter tables,
+transition/rearm entrypoints and their grants. The two excluded historical
+tables that count admission/epochs remain authoritative only on the old host.
+
+Exact private-builder command on authenticated tools, no Host authorization:
+python3 -I -B scripts/tu1nz_b_dependency_schema.py --source AUTHENTIC_APP_ROOT
+  --empty-builder --output EXISTING_PRIVATE_DIRECTORY/new-builder.sql
+The existing output directory must be0700/current owner/no unsupported attrs;
+all path ancestors opened no-follow, output create-only0600/fsync. Linux output
+metadata support required, otherwise HOLD. Never print/upload the private SQL.
+No automatic retry/deletion on existing/partial output. The JSON result binds
+source files/ranges/SQL hash and explicitly is NOT Host admission.
+On the fresh private builder, run this trusted SQL before deriving EMPTY
+schema artifacts. Source seeds in this disposable builder are NOT target data.
+Inspect exact34-table/object/function closure; no unrelated DDL accepted.
+
+3. RESTORE ORDER AND RIGHTS (UNCHANGED SAFETY, EXPLICIT DELTA)
+Derive authentic pre-data/post-data schema from that builder using the original
+approved pg_dump schema-only procedure. No observed production DDL is executed.
+New empty inaccessible restore target: trusted pre-data -> snapshot data for
+exact selected relations -> complete trusted post-data -> target role mapping
+-> actual FK/constraint/content/fingerprint/guard/ACL acceptance. No runtime
+client before this succeeds. No trigger disabling/TRUNCATE/upsert/replica mode.
+No new seed rows replace the captured S11 singleton. Missing or contradictory
+dependencies/Host definitions/columns/functions/rights are HOLD, not migration.
+
+Use a separately approved non-superuser restore owner, not a production Root/
+postgres-superuser mapping. Two SECURITY DEFINER guards have a dedicated
+NOLOGIN, non-superuser owner, no membership granted to runtime, no external
+function/network/Host authority. It needs USAGE(public), SELECT on S10 control
+and S11 control and UPDATE(singleton) on those two tables: PostgreSQL FOR SHARE/
+KEY SHARE requires an UPDATE privilege even for a locking SELECT. It receives
+no UPDATE of release/enablement fields, schema CREATE or activation entrypoint.
+Retain exact source function bodies/search_path; no public function ownership.
+Revoke PUBLIC execution of the two functions and CREATE on public, then verify
+actual owners/proconfig/ACLs. pg_dump --no-privileges does not install these
+target mappings: they are an EXPLICIT mandatory post-restore gate.
+Runtime has at most SELECT on the S11 dependency, no INSERT/UPDATE/DELETE/
+TRUNCATE/REFERENCES/TRIGGER/SET ROLE/ownership there and no S11 transition API.
+Grant only separately approved S7/S10 runtime rights; no blanket table grants.
+The S11 control guard remains present. No additional privilege reaches apps.
+
+4. NATIVE SOURCE EVIDENCE / NOT HOST ACCEPTANCE
+Public selection/recipe tests and native synthetic PostgreSQL tests use no
+private input. Local explicit tests/b_dependency_source_native.py reads only
+the pinned private originals into an EXISTING no-network PostgreSQL17.11 test
+image, synthetic data, no Host mounts/credentials. It checks actual34-table
+pre/data/post restore, both exact S10 guards, missing dependency denial,
+retained-FK boundary, no transition/history construction and restricted owner.
+Private Source SQL/error bytes never enter public CI/logs/artifacts. Its exact
+final-SHA receipt is retained privately; do not count public fixture tests as
+the actual private-source proof or a real-data restore acceptance.
+No new private repository/token scope is inferred for mandatory existing CI.
+
+5. CURRENT HOST AND LATER GATES
+Before export: separately bind actual new table/columns/functions/ACLs and
+retained FK/TCB to the authentic recipe. New metadata may show further actual
+dependencies; classify narrowly or HOLD, never silently include more tables.
+Existing verified PostgreSQL17.11 and old33 metadata are reused, not re-invented.
+All original tool/loader/transport/rights/storage/secrets/export approval,
+independent scope, PRECOPY/FINAL, actual restore, final writer-fence/authority/
+cutover/return conditions remain. No R5 call, cache waiver or old-runtime return.
+Account/project/quota/booking permissions and private transfers remain separate.
+Nothing here deploys, stops writers, consumes slots or publishes Lighting.

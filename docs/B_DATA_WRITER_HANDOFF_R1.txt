@@ -1,5 +1,10 @@
 B DATA / WRITER HANDOFF R1 — SOURCE CONTRACT, NOT HOST AUTHORITY
 
+R2 DEPENDENCY DELTA: docs/B_DATA_WRITER_DEPENDENCIES_R2.txt supersedes only the
+33-name boundary with34 explicit names (one S11 control dependency), V2 selection,
+four retained-old S11 custody boundaries and the authentic minimal schema recipe.
+No full S11 move/activation, old attempt histories or tool/Host gates change.
+
 SOURCE-CI READINESS CORRECTION (18.10.2026)
 The mandatory existing R5 synthetic integration exposed an early exec sample:
 target executable visible, environment not yet populated, followed by the
@@ -29,7 +34,7 @@ is created. Existing administrative systemd trust boundary remains unchanged.
 Source catalogue: manifests/b-data-writer-handoff-r1.json, Application
 93555d8a141caf8ace33522f9340d30bfc47d2bb / tree
 1e8a644115127818f394b6f9d24f31826e04ecba, migrations0021 through0030.
-The33 relation names are a REVIEW CATALOGUE, not an automatic export list.
+The34 relation names are a REVIEW CATALOGUE, not an automatic export list.
 Every relation requires an explicit export/retain_old/absent disposition,
 backed by the actual bounded schema/role/writer inventory. The5 S7 relations
 are required. Known FK parents of exported children must also be exported.
@@ -38,7 +43,8 @@ every export must have exactly one individual file entry. These are claims
 bound to the inventory, not verified absence or permission to omit needed data.
 An SFW restore needs all actually required configs/counters; a deliberately
 partial PRECOPY is never treated as the complete final dataset.
-Actual extra relations, FK/partition/sequence/extension/trigger dependencies
+The narrowly bound S11 dependencies/retained boundary are specified in R2.
+Further actual extra relations, FK/partition/sequence/extension/trigger dependencies
 or different DB identity are HOLD until classified, not implicit additions.
 Source default DB is tu1nz_adult_commercial_s3, NOT commercial_s0.
 
@@ -193,6 +199,9 @@ Use a fresh empty private target, a non-superuser restore owner with no external
 function/extension/network/Host authority. Review TOC against exact selected
 TABLE DATA and expected sequence entries; list-only is NOT restore acceptance.
 No unexpected SQL/functions/large objects/triggers/extension allowed by default.
+The R2 minimal S11 guard/dependency recipe and target ACL mapping are mandatory
+when those selected S10 control/latency tables are exported. Do not restore only
+the older0030 shape or seed/reset the captured S11 control state.
 1. psql -X --set=ON_ERROR_STOP=1 --single-transaction
    --dbname=service=tu1nz_b_restore --file=trusted.pre-data.sql
 2. Restore data, retaining historical revisions/timestamps/consumption exactly:

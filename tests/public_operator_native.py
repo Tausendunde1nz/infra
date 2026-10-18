@@ -770,16 +770,19 @@ def wait_for_fixture_policy_idle(observer, pid, deadline):
         labels=[];retired=False
         for p in names:
             try:label=(p/'comm').read_text().strip()
-            except FileNotFoundError:
+            except (FileNotFoundError,ProcessLookupError):
                 # Only an ALREADY observed startup pool worker may retire
-                # during fixture preparation. Never ignore an unknown task,
+                # during fixture preparation. An already-open proc comm FD
+                # returns ESRCH after task exit; lookup can instead be ENOENT.
+                # Both require the same disappearance/leader checks below.
+                # Never ignore an unknown task,
                 # a live task with unreadable comm, or any process()/KCMP
                 # failure. This is BEFORE the first production observation.
                 if p.name==str(pid) or p.name not in known_pool:raise
                 assert observer.starttime(pid)==identity, 'FIXTURE_POLICY_LEADER_CHANGED'
                 if any(q.name==p.name for q in tasks.iterdir()):raise
                 try:p.stat()
-                except FileNotFoundError:retired=True;break
+                except (FileNotFoundError,ProcessLookupError):retired=True;break
                 raise
             if label=='pool-polkitd':known_pool.add(p.name)
             else:known_pool.discard(p.name)

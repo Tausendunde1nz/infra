@@ -50,7 +50,10 @@ REPOSITORY='Tausendunde1nz/infra'
 # the same pinned Control inputs, exact-SHA independent review and external
 # Environment protection/approval remain required. This list cannot grant
 # private transfer permission or relax an Environment branch restriction.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233))
+# PR234 is only the bounded B S11 dependency/schema recipe. Same private
+# Control blobs/credential scope, final-SHA review and Environment protections.
+# It grants no Application-Source fetch, Host action or generic PR admission.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'

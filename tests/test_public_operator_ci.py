@@ -20,8 +20,10 @@ class PublicOperatorCI(unittest.TestCase):
         from unittest.mock import Mock
         from tests import public_operator_native as native
         import time
-        for label,remove_directory in (('pool-polkitd',True),('OTHER',True),('pool-polkitd',False)):
-            with self.subTest(label=label,gone=remove_directory),tempfile.TemporaryDirectory() as folder:
+        cases=((error,label,gone) for error in (FileNotFoundError,ProcessLookupError)
+               for label,gone in (('pool-polkitd',True),('OTHER',True),('pool-polkitd',False)))
+        for error_type,label,remove_directory in cases:
+            with self.subTest(error=error_type,label=label,gone=remove_directory),tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);leader=root/'2';leader.mkdir();(leader/'comm').write_text('polkitd\n')
                 worker=root/'3';worker.mkdir();comm=worker/'comm';comm.write_text(label+'\n')
                 observer=SimpleNamespace(starttime=lambda pid:'7',process=Mock(return_value={'starttime':'7'}))
@@ -35,7 +37,7 @@ class PublicOperatorCI(unittest.TestCase):
                         if reads==2:
                             comm.unlink()
                             if remove_directory:worker.rmdir()
-                            raise FileNotFoundError('SYNTHETIC_RETIRED_TASK')
+                            raise error_type('SYNTHETIC_RETIRED_TASK')
                     return original(path,*args,**kwargs)
                 with patch.object(native,'Path',return_value=Proc()),patch.object(Path,'read_text',retire),\
                      patch.object(native.time,'sleep'):
@@ -47,9 +49,107 @@ class PublicOperatorCI(unittest.TestCase):
                         # keep it in preparation with a separately known pool.
                         if label=='OTHER':
                             pool=root/'4';pool.mkdir();(pool/'comm').write_text('pool-polkitd\n')
-                        with self.assertRaises(FileNotFoundError):
+                        with self.assertRaises(error_type):
                             native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
                         observer.process.assert_not_called()
+
+    def test_fixture_pool_retirement_cannot_hide_dead_or_replaced_leader(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from tests import public_operator_native as native
+        import time
+        for failure in ('gone','replaced'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);leader=root/'2';leader.mkdir();(leader/'comm').write_text('polkitd\n')
+                worker=root/'3';worker.mkdir();comm=worker/'comm';comm.write_text('pool-polkitd\n')
+                original=Path.read_text;reads=0;retired=False
+                def identity(pid):
+                    if retired and failure=='gone':raise ProcessLookupError('SYNTHETIC_LEADER_EXIT')
+                    return '8' if retired else '7'
+                observer=SimpleNamespace(starttime=identity,process=Mock(return_value={'starttime':'7'}))
+                class Proc:
+                    def __truediv__(self,part):return self if part=='2' else root
+                def retire(path,*args,**kwargs):
+                    nonlocal reads,retired
+                    if path==comm:
+                        reads+=1
+                        if reads==2:
+                            comm.unlink();worker.rmdir();retired=True
+                            raise ProcessLookupError('SYNTHETIC_RETIRED_TASK')
+                    return original(path,*args,**kwargs)
+                with patch.object(native,'Path',return_value=Proc()),patch.object(Path,'read_text',retire),\
+                     patch.object(native.time,'sleep'):
+                    if failure=='gone':
+                        with self.assertRaises(ProcessLookupError):
+                            native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                    else:
+                        with self.assertRaisesRegex(AssertionError,'FIXTURE_POLICY_LEADER_CHANGED'):
+                            native.wait_for_fixture_policy_idle(observer,2,time.monotonic()+1)
+                observer.process.assert_not_called()
+
+    @unittest.skipUnless(sys.platform=='linux','actual Linux /proc task-fd semantics required')
+    def test_native_open_comm_retirement_is_esrch_and_only_known_worker_is_allowed(self):
+        # Own synthetic thread only, no Host process/credential. Force the
+        # real kernel read-after-open race; never substitute an ESRCH result.
+        import ctypes
+        import errno
+        import threading
+        import time
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from tests import public_operator_native as native
+        for retire_on_read in (2,1):
+            with self.subTest(retire_on_read=retire_on_read):
+                ready=threading.Event();release=threading.Event();outcome=[]
+                def worker():
+                    libc=ctypes.CDLL(None,use_errno=True)
+                    if libc.prctl(15,ctypes.c_char_p(b'pool-polkitd'),0,0,0)!=0:
+                        outcome.append('PRCTL_FAILED');ready.set();return
+                    ready.set()
+                    outcome.append('NORMAL_RETURN' if release.wait(5) else 'UNEXPECTED_TIMEOUT')
+                thread=threading.Thread(target=worker);thread.start()
+                try:
+                    self.assertTrue(ready.wait(1));self.assertFalse(outcome)
+                    pid=os.getpid();comm=Path('/proc')/str(pid)/'task'/str(thread.native_id)/'comm'
+                    original=Path.read_text;reads=0;actual_errors=[]
+                    def starttime(pid):
+                        return original(Path('/proc')/str(pid)/'stat').rsplit(') ',1)[1].split()[19]
+                    initial=starttime(pid)
+                    observer=SimpleNamespace(starttime=starttime,process=Mock(return_value={'starttime':initial}))
+                    def retire(path,*args,**kwargs):
+                        nonlocal reads
+                        if path==comm:
+                            reads+=1
+                            if reads==retire_on_read:
+                                with path.open() as stream:
+                                    release.set();thread.join(1)
+                                    self.assertFalse(thread.is_alive())
+                                    self.assertEqual(outcome,['NORMAL_RETURN'])
+                                    # Python join observes its completion lock,
+                                    # not necessarily the kernel TID's final
+                                    # disappearance. Wait on that exact fact.
+                                    exit_deadline=time.monotonic()+1
+                                    while path.parent.exists():
+                                        self.assertLess(time.monotonic(),exit_deadline,
+                                                        'SYNTHETIC_WORKER_KERNEL_EXIT_MISSING')
+                                        os.sched_yield()
+                                    self.assertEqual(starttime(pid),initial)
+                                    try:return stream.read()
+                                    except ProcessLookupError as error:
+                                        actual_errors.append(error.errno);raise
+                        return original(path,*args,**kwargs)
+                    with patch.object(Path,'read_text',retire):
+                        if retire_on_read==2:
+                            native.wait_for_fixture_policy_idle(observer,pid,time.monotonic()+3)
+                            observer.process.assert_called_once_with(pid)
+                        else:
+                            with self.assertRaises(ProcessLookupError):
+                                native.wait_for_fixture_policy_idle(observer,pid,time.monotonic()+3)
+                            observer.process.assert_not_called()
+                    self.assertEqual(actual_errors,[errno.ESRCH])
+                finally:
+                    release.set();thread.join(1)
+                    self.assertFalse(thread.is_alive())
 
     def test_progress_is_finite_verified_case_only_not_admission_or_raw_output(self):
         record={'scenario':m.CASES[0],'result_sha256':'b'*64,
