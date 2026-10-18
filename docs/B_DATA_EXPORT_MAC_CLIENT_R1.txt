@@ -76,7 +76,7 @@ Only the local helper and native libpq/psql at that identity get it; no PGPASSWO
 or password argv. Its Source DSN/Secret stays unchanged. User's precise cleanup
 exception permits deleting ONLY this newly created passfile. Capture its inode
 before writing; interruption/failure always attempts owned-process cleanup and
-same-inode passfile removal. SIGKILL cannot run finally: durable intent records
+same-inode passfile removal, including SIGTERM/terminal SIGHUP. SIGKILL cannot run finally: durable intent records
 PID/file identity for exact owner cleanup, HOLD/no retry. Leave empty directories
 and synthetic test data, no general No-Delete exception. No automatic replay.
 

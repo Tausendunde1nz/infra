@@ -5,7 +5,11 @@ import json
 import os
 from pathlib import Path
 import stat
+import signal
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 from types import SimpleNamespace
@@ -189,6 +193,39 @@ class ReaderAdmission(unittest.TestCase):
             self.assertEqual(reader.run(args), 2)
         result = json.loads(args.output.read_bytes())
         self.assertEqual(result['cleanup_code'], 'PASSFILE_CLEANUP_REQUIRES_OWNER')
+
+    @unittest.skipUnless(hasattr(signal, 'SIGHUP'), 'POSIX signal regression')
+    def test_real_term_and_terminal_hangup_exit_hold(self):
+        code = '''import importlib.util,pathlib,sys,time
+spec=importlib.util.spec_from_file_location('reader',sys.argv[1]);r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
+directory=pathlib.Path(sys.argv[2]);sys.stdin=type('TTY',(),{'isatty':lambda self:True})()
+def waiting(*args):
+ (directory/'ready').touch()
+ while True: time.sleep(.05)
+r.verify_client=waiting
+sys.argv=['reader','--read-only-check','--client-root','/synthetic','--client-manifest','/synthetic.json','--client-manifest-sha256','0'*64,'--transport','/synthetic','--catalog','/synthetic','--output',str(directory/'result.json')]
+sys.exit(r.main())
+'''
+        for number in (signal.SIGTERM, signal.SIGHUP):
+            directory = Path(tempfile.mkdtemp(prefix='tu1nz-b-synthetic-signal-'))
+            child = subprocess.Popen([sys.executable, '-I', '-B', '-S', '-c', code,
+                                      str(ROOT/'scripts/tu1nz_b_mac_reader.py'), str(directory)],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                deadline = time.monotonic()+5
+                while not (directory/'ready').exists():
+                    self.assertIsNone(child.poll())
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(.01)
+                child.send_signal(number)
+                stdout, stderr = child.communicate(timeout=5)
+                self.assertEqual(child.returncode, 2)
+                self.assertEqual(stderr, b'')
+                self.assertEqual(json.loads(stdout)['status'], 'HOLD')
+                self.assertEqual(json.loads((directory/'result.json').read_bytes())['failure_code'], 'UNEXPECTED_InterruptedError')
+            finally:
+                if child.poll() is None:
+                    child.terminate(); child.wait(timeout=5)
 
 
 if __name__ == '__main__': unittest.main()

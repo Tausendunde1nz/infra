@@ -396,7 +396,8 @@ def main():
     args = parser.parse_args()
     def interrupted(_number, _frame):
         raise InterruptedError('SIGNAL')
-    signal.signal(signal.SIGTERM, interrupted)
+    for number in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, interrupted)
     try:
         return run(args)
     except BaseException as exc:
