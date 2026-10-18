@@ -46,7 +46,11 @@ REPOSITORY='Tausendunde1nz/infra'
 # PR232 is the finite pre-baseline synthetic policy-worker lifecycle fix.
 # Same three pinned blobs, credential scope, exact-SHA review and required
 # Environment approval; no generic PR, Host or production retry permission.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232))
+# PR233 is only the B data/Writer Source contract. No new private data scope:
+# the same pinned Control inputs, exact-SHA independent review and external
+# Environment protection/approval remain required. This list cannot grant
+# private transfer permission or relax an Environment branch restriction.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'
