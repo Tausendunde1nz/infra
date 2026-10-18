@@ -214,13 +214,36 @@ class NativePostgres(unittest.TestCase):
         self.assertNotEqual(self.dump(token, env=env, check=False).returncode, 0)
 
     def test_closing_one_role_does_not_close_an_additional_writer(self):
-        self.sql("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='b_extra') "
-                 "THEN CREATE ROLE b_extra LOGIN; END IF; END $$;")
-        self.sql('GRANT USAGE ON SCHEMA public TO b_extra;'
-                 'GRANT INSERT ON commercial_s7_waitlist TO b_extra;', 'tu1nz_adult_commercial_s3')
-        env = {**self.env, 'PGUSER': 'b_extra'}
+        connections = {}
+        for role in ('b_closed', 'b_extra'):
+            self.sql("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='" + role + "') "
+                     "THEN CREATE ROLE " + role + " LOGIN; END IF; END $$; ALTER ROLE " + role + " LOGIN;")
+            self.sql('GRANT USAGE ON SCHEMA public TO ' + role + ';'
+                     'GRANT INSERT ON commercial_s7_waitlist TO ' + role + ';', 'tu1nz_adult_commercial_s3')
+            service = self.root / (role + '.conf')
+            service.write_text(self.service.read_text().replace('user=b_admin', 'user=' + role))
+            service.chmod(0o600)
+            # Select the service explicitly, not only its file. Plain dbname
+            # + PGUSER also works, but never assume which role was selected.
+            connections[role] = {**self.env, 'PGUSER': role, 'PGSERVICE': 'tu1nz_b_export',
+                                 'PGSERVICEFILE': str(service)}
+            self.assertEqual(self.sql('SELECT session_user,current_user;', 'tu1nz_adult_commercial_s3',
+                                      env=connections[role]).stdout.strip(), (role + '|' + role).encode())
+        self.sql('ALTER ROLE b_closed NOLOGIN;')
+        closed = self.sql("INSERT INTO commercial_s7_waitlist VALUES(3,'CLOSED_SYNTHETIC');",
+                          'tu1nz_adult_commercial_s3', env=connections['b_closed'], check=False)
+        self.assertNotEqual(closed.returncode, 0)
+        self.assertIn(b'not permitted to log in', closed.stderr)
+        env = connections['b_extra']
         self.sql("INSERT INTO commercial_s7_waitlist VALUES(2,'EXTRA_SYNTHETIC');",
                  'tu1nz_adult_commercial_s3', env=env)
+        self.assertEqual(self.sql('SELECT count(*) FROM commercial_s7_waitlist;',
+                                  'tu1nz_adult_commercial_s3').stdout.strip(), b'2')
+        self.sql('REVOKE INSERT ON commercial_s7_waitlist FROM b_extra;', 'tu1nz_adult_commercial_s3')
+        denied = self.sql("INSERT INTO commercial_s7_waitlist VALUES(3,'DENIED_SYNTHETIC');",
+                          'tu1nz_adult_commercial_s3', env=env, check=False)
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn(b'permission denied for table commercial_s7_waitlist', denied.stderr)
         self.assertEqual(self.sql('SELECT count(*) FROM commercial_s7_waitlist;',
                                   'tu1nz_adult_commercial_s3').stdout.strip(), b'2')
 
