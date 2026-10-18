@@ -158,6 +158,43 @@ class NativePostgres(unittest.TestCase):
         self.assertNotEqual(b.sha(self.sql(query, 'tu1nz_adult_commercial_s3').stdout),
                             b.sha(self.sql(query, 'restored').stdout))
 
+    def test_progressed_insert_guard_predata_data_postdata(self):
+        # Synthetic reproduction of the bound0030 INSERT invariant, not an
+        # execution/import of private application Source or real polling data.
+        table = 'commercial_s10_2d_bot_polling_state'
+        self.sql('ALTER TABLE ' + table + ' ADD COLUMN revision int NOT NULL DEFAULT 0;'
+                 'ALTER TABLE ' + table + ' ADD COLUMN created_at int NOT NULL DEFAULT 0;'
+                 'ALTER TABLE ' + table + ' ADD COLUMN updated_at int NOT NULL DEFAULT 0;'
+                 'UPDATE ' + table + ' SET revision=7, updated_at=8;'
+                 "CREATE FUNCTION synthetic_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                 "IF NEW.revision<>0 OR NEW.updated_at<>NEW.created_at THEN RAISE EXCEPTION 'SYNTHETIC_INSERT_GUARD'; "
+                 "END IF; RETURN NEW; END $$;"
+                 'CREATE TRIGGER synthetic_insert_guard BEFORE INSERT ON ' + table +
+                 ' FOR EACH ROW EXECUTE FUNCTION synthetic_guard();', 'tu1nz_adult_commercial_s3')
+        pre = self.command('pg_dump', '--dbname=tu1nz_adult_commercial_s3', '--schema-only',
+                           '--section=pre-data', '--no-owner', '--no-privileges').stdout
+        post = self.command('pg_dump', '--dbname=tu1nz_adult_commercial_s3', '--schema-only',
+                            '--section=post-data', '--no-owner', '--no-privileges').stdout
+        _, token = self.snapshot()
+        data = self.dump(token).stdout
+        self.sql('CREATE DATABASE staged;')
+        try:
+            self.command('psql', '-X', '--set=ON_ERROR_STOP=1', '--single-transaction',
+                         '--dbname=staged', input=pre)
+            self.command('pg_restore', '--dbname=staged', '--data-only', '--no-owner',
+                         '--no-privileges', '--single-transaction', '--exit-on-error', input=data)
+            self.command('psql', '-X', '--set=ON_ERROR_STOP=1', '--single-transaction',
+                         '--dbname=staged', input=post)
+            self.assertEqual(self.sql('SELECT revision,updated_at,created_at FROM ' + table + ';',
+                                      'staged').stdout.strip(), b'7|8|0')
+            denied = self.sql('INSERT INTO ' + table +
+                              " VALUES(2,'SYNTHETIC',7,0,8);", 'staged', check=False)
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertIn(b'SYNTHETIC_INSERT_GUARD', denied.stderr)
+        finally:
+            # Only this newly created isolated test database, not Host data.
+            self.sql('DROP DATABASE staged;')
+
     def test_insufficient_role_and_rls_are_not_empty_success(self):
         self.sql("DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='b_reader') "
                  "THEN CREATE ROLE b_reader LOGIN; END IF; END $$;")

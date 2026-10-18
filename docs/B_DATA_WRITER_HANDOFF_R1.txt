@@ -159,9 +159,14 @@ Do NOT restore schema.observed.sql or trust arbitrary archive SQL. Build the
 empty target schema from authentic pinned migration dependencies in a clean
 private builder, without application/provider credentials. Migrations seed
 singleton/config rows: a data-only restore on those seeded rows would collide.
-Derive an empty schema-only artifact from this authentic build (pg_dump
---schema-only --no-owner --no-privileges), independently bind/review it and its
-functions/extensions/types/collations and selected-object dependency closure.
+Derive authentic EMPTY pre-data and post-data artifacts from this build:
+pg_dump --schema-only --section=pre-data --no-owner --no-privileges and
+pg_dump --schema-only --section=post-data --no-owner --no-privileges.
+Independently bind/review both and all functions/extensions/types/collations
+and selected-object dependency closure. Do NOT install the full schema before
+data: migration0030's INSERT guard rejects historical progressed polling
+revisions. The fresh target is deliberately incomplete and inaccessible to
+runtime clients until ALL post-data protection has been installed/accepted.
 Do not TRUNCATE historical or target business state as a workaround. A fresh
 restore target must be empty and remain quarantined on any error.
 
@@ -169,9 +174,22 @@ Use a fresh empty private target, a non-superuser restore owner with no external
 function/extension/network/Host authority. Review TOC against exact selected
 TABLE DATA and expected sequence entries; list-only is NOT restore acceptance.
 No unexpected SQL/functions/large objects/triggers/extension allowed by default.
+1. psql -X --set=ON_ERROR_STOP=1 --single-transaction
+   --dbname=service=tu1nz_b_restore --file=trusted.pre-data.sql
+2. Restore data, retaining historical revisions/timestamps/consumption exactly:
 pg_restore --dbname=service=tu1nz_b_restore --data-only --no-owner
 --no-privileges --single-transaction --exit-on-error < postgres.data.dump
+3. psql -X --set=ON_ERROR_STOP=1 --single-transaction
+   --dbname=service=tu1nz_b_restore --file=trusted.post-data.sql
+4. Validate every FK/check/unique/index and exact trigger/function enablement,
+   source-bound definition/owner/security settings and role/ACL profile. Use
+   synthetic copies to test guard enforcement, never destructive tests on
+   restored business rows. No acceptance before complete post-data success.
 No --disable-triggers, session_replication_role=replica, --clean or broad grants.
+No protection is removed from a pre-existing or accepted target; the staged
+target has no live clients or product credentials. Any stage failure retains
+quarantine/HOLD, not an automatic resume/repair/retry. This is not a generic
+permission to restore arbitrary code or bypass historical INSERT protection.
 Compare all selected rowcounts AND deterministic content fingerprints, validated
 constraints/FKs, required sequence state (none in Source33; new ones block),
 SQLite integrity/FK/content/key linkage, file contents and intended target
