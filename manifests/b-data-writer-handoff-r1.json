@@ -1,5 +1,5 @@
 {
-  "schema": "TU1NZ_B_DATA_CATALOG_V1",
+  "schema": "TU1NZ_B_DATA_CATALOG_V2",
   "source_app": "93555d8a141caf8ace33522f9340d30bfc47d2bb",
   "source_tree": "1e8a644115127818f394b6f9d24f31826e04ecba",
   "database_source_default_not_live_attestation": "tu1nz_adult_commercial_s3",
@@ -20,13 +20,25 @@
     "commercial_s10_2d_community_events", "commercial_s10_2d_moderation_events",
     "commercial_s10_2d_moderation_outbox", "commercial_s10_2d_community_rate_limits",
     "commercial_s10_2d_latency_samples", "commercial_s10_2d_runtime_control",
-    "commercial_s10_2d_bot_polling_state"
+    "commercial_s10_2d_bot_polling_state", "commercial_s11_runtime_control"
   ],
   "required_tables": [
     "commercial_s7_waitlist", "commercial_s7_analytics_events",
     "commercial_s7_content_templates", "commercial_s7_channel_state",
     "commercial_s7_publication_queue"
   ],
+  "guard_dependencies": {
+    "commercial_s10_2d_runtime_control": ["commercial_s11_runtime_control", "commercial_s10_2d_latency_samples"],
+    "commercial_s10_2d_latency_samples": ["commercial_s10_2d_runtime_control", "commercial_s11_runtime_control"],
+    "commercial_s11_runtime_control": ["commercial_s10_2d_runtime_control", "commercial_s10_2d_latency_samples"]
+  },
+  "retained_dependency_relations": [
+    "commercial_s11_experience_sessions", "commercial_s11_product_events",
+    "commercial_s11_canary_admission_counters", "commercial_s11_canary_epoch_history"
+  ],
+  "retained_incoming_foreign_keys": {
+    "commercial_s11_experience_sessions": ["commercial_s8_users"]
+  },
   "foreign_keys": {
     "commercial_s7_analytics_events": ["commercial_s7_waitlist"],
     "commercial_s7_publication_queue": ["commercial_s7_content_templates", "commercial_s7_channel_state"],

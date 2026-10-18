@@ -105,7 +105,7 @@ class NativePostgres(unittest.TestCase):
 
     def assert_rows(self, count):
         actual = self.sql(b.counts_sql(chosen()), 'restored').stdout.decode().splitlines()
-        self.assertEqual(len(actual), 33)
+        self.assertEqual(len(actual), len(CATALOG['tables']))
         self.assertTrue(all(line.rsplit('|', 1)[1] == str(count) for line in actual))
 
     def test_mvcc_snapshot_with_concurrent_committed_writer(self):

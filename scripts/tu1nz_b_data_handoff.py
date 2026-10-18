@@ -76,8 +76,8 @@ def fields(value, expected):
 def selection(raw, catalog):
     value = parse(raw)
     fields(value, ('schema', 'source_app', 'database', 'host_inventory_sha256',
-                   'relations', 'file_dispositions', 'files'))
-    need(value['schema'] == 'TU1NZ_B_DATA_SELECTION_V1' and
+                   'relations', 'retained_dependencies', 'file_dispositions', 'files'))
+    need(value['schema'] == 'TU1NZ_B_DATA_SELECTION_V2' and
          value['source_app'] == catalog['source_app'] and
          value['database'] == catalog['database_source_default_not_live_attestation'], 'SOURCE_BINDING')
     digest(value['host_inventory_sha256'])
@@ -94,6 +94,14 @@ def selection(raw, catalog):
     need(all(seen[n] == 'export' for n in catalog['required_tables']), 'REQUIRED_TABLE')
     for child, parents in catalog['foreign_keys'].items():
         need(seen[child] != 'export' or all(seen[p] == 'export' for p in parents), 'FOREIGN_KEY_CLOSURE')
+    for child, parents in catalog['guard_dependencies'].items():
+        need(seen[child] != 'export' or all(seen[p] == 'export' for p in parents),
+             'GUARD_DEPENDENCY_CLOSURE')
+    retained = value['retained_dependencies']
+    fields(retained, catalog['retained_dependency_relations'])
+    # Explicit custody boundary, NOT a claim of absence, writer freedom or
+    # permission to create empty admission/audit histories on the new basis.
+    need(all(v == 'retain_old' for v in retained.values()), 'RETAINED_DEPENDENCY_BOUNDARY')
     files = value['files']
     need(isinstance(files, list) and len(files) <= MAX_FILES - 3, 'FILE_LIMIT')
     sources, names = set(), set()

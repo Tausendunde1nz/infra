@@ -17,7 +17,8 @@ SELECT n.nspname, c.relname, c.relkind, c.relowner::regrole AS owner,
        c.relpersistence, c.relrowsecurity, c.relforcerowsecurity, c.relispartition,
        c.relacl, pg_total_relation_size(c.oid) AS bytes
 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-WHERE n.nspname='public' AND c.relname ~ '^commercial_s(7_|8_|9_|10_)'
+WHERE n.nspname='public' AND (c.relname ~ '^commercial_s(7_|8_|9_|10_)'
+                             OR c.relname='commercial_s11_runtime_control')
   AND c.relkind IN ('r','p','S','v','m','f') ORDER BY 1,2;
 
 SELECT c.conname, c.contype, c.conrelid::regclass AS relation,
@@ -25,20 +26,20 @@ SELECT c.conname, c.contype, c.conrelid::regclass AS relation,
        pg_get_constraintdef(c.oid, true) AS definition
 FROM pg_constraint c
 WHERE c.conrelid IN (SELECT oid FROM pg_class WHERE relnamespace='public'::regnamespace
-                    AND relname ~ '^commercial_s(7_|8_|9_|10_)')
+                    AND (relname ~ '^commercial_s(7_|8_|9_|10_)' OR relname='commercial_s11_runtime_control'))
    OR c.confrelid IN (SELECT oid FROM pg_class WHERE relnamespace='public'::regnamespace
-                     AND relname ~ '^commercial_s(7_|8_|9_|10_)') ORDER BY 3,1;
+                     AND (relname ~ '^commercial_s(7_|8_|9_|10_)' OR relname='commercial_s11_runtime_control')) ORDER BY 3,1;
 
 SELECT i.inhrelid::regclass AS child, i.inhparent::regclass AS parent
 FROM pg_inherits i
-WHERE i.inhrelid IN (SELECT oid FROM pg_class WHERE relname ~ '^commercial_s(7_|8_|9_|10_)')
-   OR i.inhparent IN (SELECT oid FROM pg_class WHERE relname ~ '^commercial_s(7_|8_|9_|10_)');
+WHERE i.inhrelid IN (SELECT oid FROM pg_class WHERE relname ~ '^commercial_s(7_|8_|9_|10_)' OR relname='commercial_s11_runtime_control')
+   OR i.inhparent IN (SELECT oid FROM pg_class WHERE relname ~ '^commercial_s(7_|8_|9_|10_)' OR relname='commercial_s11_runtime_control');
 
 SELECT t.tgrelid::regclass AS relation, t.tgname, t.tgenabled, p.oid::regprocedure AS function,
        p.proowner::regrole AS function_owner, p.prosecdef AS security_definer
 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
 WHERE t.tgrelid IN (SELECT oid FROM pg_class WHERE relnamespace='public'::regnamespace
-                   AND relname ~ '^commercial_s(7_|8_|9_|10_)') ORDER BY 1,2;
+                   AND (relname ~ '^commercial_s(7_|8_|9_|10_)' OR relname='commercial_s11_runtime_control')) ORDER BY 1,2;
 
 SELECT r.rolname, r.rolsuper, r.rolcreaterole, r.rolcreatedb, r.rolreplication,
        r.rolbypassrls, r.rolcanlogin, c.oid::regclass AS relation,
@@ -46,7 +47,8 @@ SELECT r.rolname, r.rolsuper, r.rolcreaterole, r.rolcreatedb, r.rolreplication,
        (has_table_privilege(r.oid,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         OR has_any_column_privilege(r.oid,c.oid,'INSERT,UPDATE,REFERENCES')) AS can_change
 FROM pg_roles r CROSS JOIN pg_class c
-WHERE c.relnamespace='public'::regnamespace AND c.relname ~ '^commercial_s(7_|8_|9_|10_)'
+WHERE c.relnamespace='public'::regnamespace AND (c.relname ~ '^commercial_s(7_|8_|9_|10_)'
+                                             OR c.relname='commercial_s11_runtime_control')
   AND c.relkind IN ('r','p')
   AND (r.rolsuper OR r.rolcreaterole OR r.oid=c.relowner
        OR has_table_privilege(r.oid,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
