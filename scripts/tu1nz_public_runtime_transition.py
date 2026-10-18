@@ -643,7 +643,15 @@ class ReplacementAuthority(Authority):
                 self.b['source_release']['probe_dependencies'][old]['sha256'],
                 'REPLACEMENT_FIRST_EXECUTABLE_UNKNOWN')
             return False  # Bound helper AFTER drop, BEFORE its one exec.
-        self.interpreter_binding(row,old=False)
+        # exe may already name the new image while its exec is still filling
+        # /proc/environ. This is ONLY a not-yet-admitted readiness observation.
+        # Never defer a concrete, nonempty bad profile. The caller takes a
+        # fresh full profile AFTER the PID-owned listener and applies the
+        # unchanged strict interpreter_binding, including rejection of EMPTY.
+        digest=self.b['source_release']['runtime_reference']['artifact']['objects']['python/bin/python3.12']['sha256']
+        io.require(row['exe_sha256']==digest,'REPLACEMENT_INTERPRETER_BINDING')
+        if row['initial_env_sha256']!=io.sha(b''):
+            self.interpreter_binding(row,old=False)
         name=('adult-commercial-s7-public.json','adult-commercial-s8-landing.json',
               'adult-commercial-s10-wms.json')[UNITS.index(unit)]
         raw,_=self.paths.read('/etc/tu1nz/'+name)

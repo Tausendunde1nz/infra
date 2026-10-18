@@ -1,5 +1,24 @@
 B DATA / WRITER HANDOFF R1 — SOURCE CONTRACT, NOT HOST AUTHORITY
 
+SOURCE-CI READINESS CORRECTION (18.10.2026)
+The mandatory existing R5 synthetic integration exposed an early exec sample:
+target executable visible, environment not yet populated, followed by the
+expected environment in the same PID/start identity. A controlled local
+component reproduction confirms this mechanism, not the historical CI cause.
+The B data/export logic did not change that pre-existing acquisition path.
+Fixture-only synchronization would conceal the same production ordering gap.
+The narrowly corrected first-start path now uses the existing PID-owned
+loopback listener as readiness, then acquires a FRESH complete profile with
+the same InvocationID/PID/startticks, zero automatic restarts and original
+deadline, rechecks the listener, and applies unchanged interpreter/environment
+and rights checks. EMPTY is never an accepted profile. A concrete nonempty
+bad initial environment still fails immediately; empty/wrong after readiness,
+identity changes, lost readiness or deadline remain HOLD, without another
+start or automatic retry. Legacy return semantics and Host authorizations do
+not expand. Portable branch tests and native synthetic socket/proc components
+are not full Host acceptance; the complete production/native CI remains a
+mandatory Source gate. No R5 Host repair is resumed by this correction.
+
 1. SCOPE / TRUST / EXACT DELTA
 This contract describes one data-only transition to a separate common basis.
 It does not invoke, modify or partly execute the R5/R3/Owner/R2 operator. No

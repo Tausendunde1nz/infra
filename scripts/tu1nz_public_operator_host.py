@@ -553,7 +553,22 @@ class Adapter:
                         break
                 elif (row['uid'] == row['gid'] == [1001]*4 and not row['groups'] and not any(row['caps'].values()) and
                       self.a.initial_application_ready(unit,row)):
+                    # Readiness is not a profile or admission. An exec can
+                    # expose the target exe before its environment is filled.
+                    # Do not pass that earlier row to rights acceptance.
+                    row = initial_profile(first[1], first[2], deadline)
+                    after = self.a.unit(unit)
+                    io.require((after['InvocationID'], int(after['MainPID']), row['starttime']) == first and
+                               after['NRestarts'] == '0' and after['ActiveState'] == 'active' and not after['Job'],
+                               'FIRST_START_INVOCATION_CHANGED')
+                    self.a.interpreter_binding(row, old=False)
+                    io.require(self.a.initial_application_ready(unit,row), 'FIRST_START_READINESS_LOST')
                     self.a.rights_check(unit, row)
+                    final = self.a.unit(unit)
+                    io.require((final['InvocationID'], int(final['MainPID']), starttime(row['pid'])) == first and
+                               row['pid'] == first[1] and final['NRestarts'] == '0' and
+                               final['ActiveState'] == 'active' and not final['Job'],
+                               'FIRST_START_INVOCATION_CHANGED')
                     break
                 io.require(time.monotonic()+.01 < deadline, 'FIRST_START_KERNEL_PROFILE_DEADLINE')
                 time.sleep(.01)
