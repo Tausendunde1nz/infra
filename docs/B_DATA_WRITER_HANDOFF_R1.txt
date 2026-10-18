@@ -67,6 +67,10 @@ loader/remote broker to escape it. Loaded kernel/PID1/SSH/admin TCB is individua
 evidenced, not all UID0, UID1001, DB-superusers or Docker clients. Missing baseline,
 extra administrative authority or a stronger required trust model blocks entry.
 
+The separately authorized native Mac client admission profile is defined only
+in B_DATA_EXPORT_MAC_CLIENT_R1.txt. It changes client/credential-check order,
+not any origin/cache/TCB/Writer/FINAL gate or export authority in this contract.
+
 2. DATA / WRITER / MEASURE MAP (SOURCE POTENTIAL, NOT CURRENT HOST STATUS)
 Data | source writers/activators to check | final measure / evidence boundary
 S7 tables/queues/channel/templates | S7 web, publication/admin paths; /etc/tu1nz/adult-commercial-s7-database.dsn; DB grants/owners/sessions | drain and fence all actual writers, not only web requests; readonly snapshot can precede stop
@@ -90,6 +94,8 @@ only the individually approved concrete objects. Root ownership or no sample
 activity is not writer exclusion. Three web units stopping cannot close all.
 
 3. PHASE P — PRECOPY (NO FINAL AUTHORITY)
+The Mac profile may first admit a secret-free native client, then check the
+separately authorized credential/Reader login. It never authorizes PRECOPY.
 Before execution: exact private data/selection/tool/transport/storage scope,
 authentic tool closure, source host/database/schema/rights, adequate space and
 deadline, secret-separated custody, independent scope review and explicit

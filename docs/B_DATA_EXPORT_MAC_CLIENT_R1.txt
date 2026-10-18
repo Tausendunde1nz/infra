@@ -1,0 +1,117 @@
+B DATA — NATIVE MAC PG17 ADMISSION PROFILE R1
+Extends B_DATA_WRITER_HANDOFF_R1 and DEPENDENCIES_R2, no Host/export approval.
+Previous Source freezes and R5/Owner/R2/Lighting bindings remain unchanged.
+
+1. EXACT SUBSTITUTE / ORDER
+Only client-side PostgreSQL17 tools move to the existing Mac. No Source Host
+pg_dump, wrapper, remote broker or replacement loader is installed/executed by
+the eventual export. Existing SSH direct-tcpip alone transports Source reads.
+User-authorized order: SECRET-FREE artifact/client admission -> separately
+approved protected DSN use -> actual Reader metadata login -> independent
+complete export-scope admission. Actual login is not required before admitting
+the secret-free client. It remains mandatory before an export approval.
+This removes no R1 tool/origin, Source kernel/PID1/SSH/admin/DB TCB, old-cache,
+writer, private-custody, snapshot, restore or FINAL gate. Unknown remains HOLD.
+
+2. AUTHENTIC CLIENT / LOCAL PLATFORM
+Fixed vendor candidate: Postgres.app2.9.6, PostgreSQL17.11, native arm64 slice.
+https://postgresapp.com/downloads.html
+https://github.com/PostgresApp/PostgresApp/releases/tag/v2.9.6
+Asset https://github.com/PostgresApp/PostgresApp/releases/download/v2.9.6/Postgres-2.9.6-17.dmg
+Observed asset SHA256 b38bb00b8c8702a568270aab85995c550f7f93d1503b818efdc5ff9a519b7168.
+DMG checksum integrity alone is not origin: the container is unsigned. Require
+authentic vendor HTTPS binding AND the actual contained/copied App's strict
+CMS/resource verification, Apple notarized assessment and Developer ID anchor:
+anchor apple generic and certificate leaf[subject.OU] = ZF84SJ5A3G (Jakob Egger).
+Verify every actually loaded vendor member, not merely the App GUI/version.
+Clients psql/pg_dump/pg_restore17.11 are hardened native executables. Their
+exact transitive @loader_path closure is libpq5, libssl3, libcrypto3, lz4,
+zstd; individual dylibs need valid same-publisher signatures, not CS_RUNTIME
+executable flags. Reject unbound RPATH/other external code. Public vendor bytes
+remain outside Source Git; private manifests bind actual paths/SHAs/CDHashes.
+
+Use current Apple trust for the explicitly used Mac platform, not a historical
+Mac audit or a current hash masquerading as origin: verified SIP/Authenticated
+Root, Apple OS build, Apple-signed SSH/loader/system libraries and actual sealed
+Apple CommandLineTools Python3.framework including stdlib. /usr/bin/python3 is
+only a shim: bind its actual interpreter/framework. Run -I -B -S and explicit
+absolute executables in a clean environment. Local operator/admin authority
+and tool custody are explicit scope assumptions, not claims that every UID0
+or same-UID process is safe. Independently review that concrete scope.
+This Apple platform mechanism does not prove anything about Linux ld.so.cache.
+No global PATH/package-manager change, GUI/auto-start or permanent local DB.
+tests/b_mac_client_native.py is an explicit disposable SYNTHETIC fixture:
+private data/socket and loopback35432 only, owned PG17 process always stopped,
+test data retained under No-Delete; no Host input or permanent launch service.
+
+3. CREDENTIAL ADMISSION HELPER / NO EXPORT CAPABILITY
+scripts/tu1nz_b_mac_reader.py is only a once-only metadata admission reader.
+Import/help are inert; --read-only-check needs secure local TTY and create-only
+intent/output. No dump/table rows, arbitrary SQL, role/HBA/password/Host changes.
+It rechecks actual client bytes/signatures/notarization and uses the authenticated
+libpq grammar to parse, without connecting/expanding service defaults, exactly
+the separately approved source /etc/tu1nz/adult-commercial-s7-database.dsn.
+An administrator uses existing chatops SSH/sudo in a secure local TTY. The
+bounded privileged diagnostic reader checks fixed machine identity, no-follow
+regular root:root0600 and stable <=16KiB bytes, reads only this file, leaves it
+unchanged and returns it solely through a private encrypted SSH stdout PIPE.
+No raw DSN, password, parse error or child stderr reaches a tool/log/traceback.
+Source shell/sudo/Python here are the explicitly approved administrator-mediated
+credential diagnostic, NOT a Source export path or claimed origin/cache waiver.
+Any still-required unadmitted actual Source execution/loaded TCB blocks the
+FINAL export scope under R1; success of this reader never supplies that admission.
+
+Only DBtu1nz_adult_commercial_s3/rolletu1nz_adult_commercial_s3_runtime and
+existing Source localhost:5432/Unix equivalent are accepted. Wrong identity,
+indirection/extra options, stronger unbound TLS/GSS requirements => HOLD, no
+fallback to postgres/admin or another secret. No credential search/rotation.
+Role must not be superuser/bypass-RLS/role-creator/DB-creator/replication. Existing
+application write permissions are NOT revoked or called a dedicated read-only
+role: explicit connection defaults and actual REPEATABLE READ READ ONLY protect
+this reader. Recheck all34 table/column SELECT/RLS and any owned sequences.
+
+At most one new temporary0600 PGPASSFILE under an owned0700 nonsynchronized
+/private/tmp/tu1nz-b-reader-* directory, never in Source/package/backup paths.
+Only the local helper and native libpq/psql at that identity get it; no PGPASSWORD
+or password argv. Its Source DSN/Secret stays unchanged. User's precise cleanup
+exception permits deleting ONLY this newly created passfile. Capture its inode
+before writing; interruption/failure always attempts owned-process cleanup and
+same-inode passfile removal. SIGKILL cannot run finally: durable intent records
+PID/file identity for exact owner cleanup, HOLD/no retry. Leave empty directories
+and synthetic test data, no general No-Delete exception. No automatic replay.
+
+4. EXACT METADATA TRANSPORT / FRESH CHECK
+Existing fixed SSH_OPTIONS are read as AST, never import/call the R5 operator.
+Same strict known hostkey, chatops@100.121.130.51:22; no agent, proxy, multiplex
+or Hostkey enrollment. Change only in-memory ClearAllForwardings=no for:
+ssh [fixed options] -N -T -o ExitOnForwardFailure=yes
+ -L 127.0.0.1:15432:127.0.0.1:5432 chatops@100.121.130.51
+No remote command on the tunnel; separate privileged credential diagnostic is
+only its already approved exact purpose. Port busy/refusal/timeout => HOLD.
+psql -X --no-password --quiet --tuples-only --no-align
+ --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate
+ --host=127.0.0.1 --port=15432 --username=tu1nz_adult_commercial_s3_runtime
+ --dbname=tu1nz_adult_commercial_s3 --file=-
+Input is only the helper's hash-bound metadata SQL. Connection enforces TLS
+require plus channel_binding=require/SCRAM-PLUS, no GSS alternative; SSH hostkey
+binds the endpoint. Explicit absent private TLS-file paths prevent arbitrary
+~/.postgresql certificate/key config, OPENSSL_CONF=/dev/null, no inherited PG/
+DYLD/Python config. Do not downgrade a stronger original DSN TLS binding.
+Actual DB/session role/version/loopback:5432/postmaster identity and TLS/read-only
+state must match fresh evidence. Successful SSH/HBA file text is not login proof.
+No real pg_export_snapshot call here; the actual held snapshot remains export-
+time evidence. Stop own tunnel and remove own passfile; cleanup failure is HOLD.
+
+5. EXPORT STILL SEPARATE
+Only a complete independently admitted private Source/client/platform/transport/
+data/custody scope and explicit subsequent export approval can invoke the
+unchanged R1 standard pg_dump/canonical-fingerprint recipe. Absolute admitted
+native binaries replace only client executable paths, no other boundary.
+First proposed scope is DB-only34 explicit exports, mandatory coupled S10/S11
+triple, four S11 histories retain_old, all9 fixed files retain_old/files=[].
+No all-database dump, old runtime, protected Git or secrets in the package.
+An actual snapshot capture, inventory/schema comparison, two protected copies,
+independent byte readback and later real isolated restore are not replaced by
+synthetic/native/client/login success. FINAL writer fence includes the known
+S11-canary activators and all other original gates; no stop/activation implied.
+R5, infrastructure build/migration, R2/claim/slot and publications remain paused.
