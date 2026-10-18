@@ -174,7 +174,7 @@ def clean_environment(passfile, base, private_dir):
             'PGSSLKEY': str(private_dir/'absent-client.key'),
             'PGSSLCRL': str(private_dir/'absent-crl'),
             'PGSSLCRLDIR': str(private_dir/'absent-crldir'),
-            'PGOPTIONS': '-c default_transaction_read_only=on -c statement_timeout=10000 -c lock_timeout=2000',
+            'PGOPTIONS': '-c default_transaction_read_only=on -c statement_timeout=10000 -c lock_timeout=2000 -c search_path=pg_catalog',
             'OPENSSL_CONF': '/dev/null', 'OPENSSL_MODULES': str(base/'lib/ossl-modules')}
 
 
@@ -185,11 +185,13 @@ def metadata_sql(catalog):
     values = ','.join("('%s')" % n for n in names)
     return (r"""\set ON_ERROR_STOP on
 BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL search_path=pg_catalog;
 SET LOCAL statement_timeout='10s'; SET LOCAL lock_timeout='2s'; SET LOCAL TimeZone='UTC';
 SELECT json_build_object('kind','identity','database',current_database(),'role',current_user,
  'session_role',session_user,'version',current_setting('server_version_num'),
  'address',inet_server_addr(),'port',inet_server_port(),
  'postmaster_start',pg_postmaster_start_time(),'transaction_read_only',current_setting('transaction_read_only'),
+ 'search_path',current_setting('search_path'),
  'ssl',(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()));
 SELECT json_build_object('kind','role','superuser',rolsuper,'bypass_rls',rolbypassrls,
  'create_role',rolcreaterole,'create_db',rolcreatedb,'replication',rolreplication,
@@ -222,7 +224,8 @@ def validate_observation(data, catalog):
     row = identity[0]
     need((row['database'], row['role'], row['session_role'], row['version'], row['port']) ==
          (DATABASE, ROLE, ROLE, '170011', 5432), 'WRONG_SOURCE_IDENTITY')
-    need(row['address'] in ('127.0.0.1', '::1') and row['transaction_read_only'] == 'on' and row['ssl'] is True,
+    need(row['address'] in ('127.0.0.1', '::1') and row['transaction_read_only'] == 'on' and row['ssl'] is True
+         and row['search_path'] == 'pg_catalog',
          'CONNECTION_NOT_EXPECTED_READONLY_TLS')
     need(datetime.fromisoformat(row['postmaster_start']) == datetime.fromisoformat('2026-08-27T19:59:20.500309+00:00'),
          'POSTMASTER_IDENTITY_CHANGED')
@@ -271,6 +274,13 @@ def remove_owned_passfile(path, identity):
          and stat.S_ISREG(current.st_mode), 'PASSFILE_REPLACED_NO_DELETE')
     os.unlink(path)  # Explicit user exception: ONLY this newly created file.
     need(not os.path.lexists(path), 'PASSFILE_CLEANUP_FAILED')
+
+
+def result_exit_code(result):
+    return 0 if (result.get('status') == 'READER_METADATA_PASS_NOT_EXPORT_ADMISSION'
+                 and result.get('own_processes_ended') is True
+                 and result.get('temporary_passfile_removed_or_not_created') is True
+                 and result.get('listener_absent_after') is True) else 2
 
 
 def run(args):
@@ -374,6 +384,7 @@ def run(args):
         os.close(event_fd)
         private_write(args.output, (json.dumps(result, indent=2)+'\n').encode())
     print(json.dumps({k: result[k] for k in ('status', 'failure_code', 'cleanup_code') if k in result}))
+    return result_exit_code(result)
 
 
 def main():
@@ -387,12 +398,11 @@ def main():
         raise InterruptedError('SIGNAL')
     signal.signal(signal.SIGTERM, interrupted)
     try:
-        run(args)
+        return run(args)
     except BaseException as exc:
         # No traceback/subprocess error object/DSN may leave this CLI.
         print(json.dumps({'status': 'HOLD', 'failure_code': 'CLI_'+type(exc).__name__}))
         return 2
-    return 0
 
 
 if __name__ == '__main__':

@@ -99,8 +99,13 @@ binds the endpoint. Explicit absent private TLS-file paths prevent arbitrary
 DYLD/Python config. Do not downgrade a stronger original DSN TLS binding.
 Actual DB/session role/version/loopback:5432/postmaster identity and TLS/read-only
 state must match fresh evidence. Successful SSH/HBA file text is not login proof.
+Pin search_path=pg_catalog at connection and SET LOCAL before any metadata
+query; require its observed value. Server role/database defaults cannot select
+shadow catalogs/functions from writable schemas. No empty/partial success.
 No real pg_export_snapshot call here; the actual held snapshot remains export-
 time evidence. Stop own tunnel and remove own passfile; cleanup failure is HOLD.
+Every HOLD/interruption/cleanup failure has nonzero CLI exit. Zero requires
+complete metadata PASS and confirmed process, listener and passfile cleanup.
 
 5. EXPORT STILL SEPARATE
 Only a complete independently admitted private Source/client/platform/transport/

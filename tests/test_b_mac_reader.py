@@ -7,6 +7,8 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest import mock
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('b_mac_reader', ROOT/'scripts/tu1nz_b_mac_reader.py')
@@ -24,6 +26,7 @@ class ReaderAdmission(unittest.TestCase):
         return [dict(kind='identity', database=reader.DATABASE, role=reader.ROLE,
                      session_role=reader.ROLE, version='170011', port=5432,
                      address='127.0.0.1', transaction_read_only='on', ssl=True,
+                     search_path='pg_catalog',
                      postmaster_start='2026-08-27T19:59:20.500309+00:00'),
                 dict(kind='role', superuser=False, bypass_rls=False, create_role=False,
                      create_db=False, replication=False, schema_usage=True, snapshot_execute=True)] + [
@@ -76,10 +79,12 @@ class ReaderAdmission(unittest.TestCase):
         self.assertEqual(env['PGCHANNELBINDING'], 'require')
         self.assertEqual(env['PGSSLMODE'], 'require')
         self.assertIn('default_transaction_read_only=on', env['PGOPTIONS'])
+        self.assertIn('search_path=pg_catalog', env['PGOPTIONS'])
 
     def test_metadata_is_not_export_or_snapshot_claim(self):
         sql = reader.metadata_sql(CATALOG).decode()
         self.assertIn('REPEATABLE READ READ ONLY', sql)
+        self.assertIn('SET LOCAL search_path=pg_catalog;', sql)
         self.assertNotIn('SELECT pg_export_snapshot()', sql)
         self.assertNotIn('COPY ', sql)
         self.assertNotIn('pg_authid', sql)
@@ -100,7 +105,7 @@ class ReaderAdmission(unittest.TestCase):
                 reader.validate_observation(data, CATALOG)
 
     def test_writable_or_cleartext_connection_denied(self):
-        for key, value in (('ssl', False), ('transaction_read_only', 'off')):
+        for key, value in (('ssl', False), ('transaction_read_only', 'off'), ('search_path', 'public, pg_catalog')):
             data = self.observation(); data[0][key] = value
             with self.assertRaises(reader.Denied): reader.validate_observation(data, CATALOG)
 
@@ -150,6 +155,40 @@ class ReaderAdmission(unittest.TestCase):
         self.assertNotIn('chown', reader.REMOTE_READ)
         self.assertNotIn('/run/credentials', reader.REMOTE_READ)
         self.assertNotIn('subprocess', reader.REMOTE_READ)
+
+    def test_only_complete_success_exits_zero(self):
+        success = dict(status='READER_METADATA_PASS_NOT_EXPORT_ADMISSION', own_processes_ended=True,
+                       temporary_passfile_removed_or_not_created=True, listener_absent_after=True)
+        self.assertEqual(reader.result_exit_code(success), 0)
+        for key, value in (('status', 'HOLD'), ('own_processes_ended', False),
+                           ('temporary_passfile_removed_or_not_created', False), ('listener_absent_after', False)):
+            failed = dict(success); failed[key] = value
+            self.assertEqual(reader.result_exit_code(failed), 2)
+        self.assertEqual(reader.result_exit_code({}), 2)
+
+    def test_denial_and_signal_exit_nonzero_without_secret_output(self):
+        for failure in (reader.Denied('SYNTHETIC_DENIAL'), InterruptedError('SIGNAL')):
+            directory = Path(tempfile.mkdtemp(prefix='tu1nz-b-synthetic-hold-'))
+            args = SimpleNamespace(read_only_check=True, output=directory/'result.json',
+                                   client_root=Path('/synthetic'), client_manifest=Path('/synthetic.json'),
+                                   client_manifest_sha256='0'*64)
+            with mock.patch.object(reader.sys.stdin, 'isatty', return_value=True), \
+                 mock.patch.object(reader, 'verify_client', side_effect=failure), mock.patch('builtins.print'):
+                self.assertEqual(reader.run(args), 2)
+            self.assertEqual(json.loads(args.output.read_bytes())['status'], 'HOLD')
+
+    def test_cleanup_failure_exit_nonzero(self):
+        directory = Path(tempfile.mkdtemp(prefix='tu1nz-b-synthetic-cleanup-hold-'))
+        args = SimpleNamespace(read_only_check=True, output=directory/'result.json',
+                               client_root=Path('/synthetic'), client_manifest=Path('/synthetic.json'),
+                               client_manifest_sha256='0'*64)
+        with mock.patch.object(reader.sys.stdin, 'isatty', return_value=True), \
+             mock.patch.object(reader, 'verify_client', side_effect=reader.Denied('SYNTHETIC_DENIAL')), \
+             mock.patch.object(reader, 'remove_owned_passfile', side_effect=OSError('SYNTHETIC')), \
+             mock.patch('builtins.print'):
+            self.assertEqual(reader.run(args), 2)
+        result = json.loads(args.output.read_bytes())
+        self.assertEqual(result['cleanup_code'], 'PASSFILE_CLEANUP_REQUIRES_OWNER')
 
 
 if __name__ == '__main__': unittest.main()

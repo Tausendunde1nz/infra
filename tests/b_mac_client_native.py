@@ -77,6 +77,13 @@ def main():
         check = query("BEGIN READ ONLY; SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid(); SELECT current_setting('transaction_read_only'); COMMIT;", reader_env)
         assert check.stdout.splitlines() == [b't', b'on']
         cases.append('native_scram_plus_tls_readonly')
+        query("CREATE SCHEMA b_shadow; CREATE VIEW b_shadow.pg_stat_ssl AS SELECT pg_backend_pid() AS pid, false AS ssl; GRANT USAGE ON SCHEMA b_shadow TO b_fixture_reader; GRANT SELECT ON b_shadow.pg_stat_ssl TO b_fixture_reader; ALTER ROLE b_fixture_reader SET search_path=b_shadow,pg_catalog;")
+        shadowed = query('SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid();', reader_env)
+        assert shadowed.stdout.strip() == b'f', 'SHADOW_FIXTURE_NOT_EFFECTIVE'
+        pinned = query('BEGIN READ ONLY; SET LOCAL search_path=pg_catalog; SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid(); SELECT current_setting(\'search_path\'); COMMIT;', reader_env)
+        assert pinned.stdout.splitlines() == [b't', b'pg_catalog'], 'PINNED_CATALOG_NOT_AUTHENTIC'
+        query('ALTER ROLE b_fixture_reader RESET search_path;')
+        cases.append('shadowed_catalog_default_rejected_by_fixed_search_path')
         owner = subprocess.Popen(['/usr/bin/arch', '-arm64', str(base/'bin/psql'), '-X', '-qAt', '--no-password', '--set=ON_ERROR_STOP=1'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=reader_env)
         owner.stdin.write(b'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();\n')
         owner.stdin.flush()
