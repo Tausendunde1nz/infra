@@ -34,6 +34,141 @@ else:
 
 
 class ArtifactBytes(unittest.TestCase):
+    def readiness_authority(self):
+        from unittest.mock import Mock
+        authority=replacement.ReplacementAuthority.__new__(replacement.ReplacementAuthority)
+        authority.replacement_active=True
+        authority.runtime=replacement.ReplacementFence.__new__(replacement.ReplacementFence)
+        authority.b={'source_release':{'python_binary':'/usr/bin/python3.12',
+            'probe_dependencies':{'/usr/bin/python3.12':{'sha256':'a'*64}},
+            'runtime_reference':{'artifact':{'objects':{'python/bin/python3.12':{'sha256':'b'*64}}}}}}
+        authority.paths=Mock();authority.paths.read.return_value=(wire.canonical({'bind_host':'127.0.0.1','bind_port':20000}),None)
+        authority.listener_binding=Mock(return_value=None)
+        row={'pid':123,'starttime':'7','exe':a.ROOT+'/python/bin/python3.12','exe_sha256':'b'*64,
+             'initial_env_sha256':wire.sha(b''),'uid':[1001]*4,'gid':[1001]*4,'groups':[],
+             'caps':{'CapEff':0}}
+        env=b'PATH=/usr/bin:/bin\0LC_ALL=C\0PYTHONDONTWRITEBYTECODE=1\0'
+        return authority,row,wire.sha(env)
+
+    def test_initial_empty_exec_sample_is_readiness_only_not_profile_admission(self):
+        authority,row,valid=self.readiness_authority()
+        self.assertFalse(authority.initial_application_ready(replacement.UNITS[0],row))
+        # Even a present listener does NOT make EMPTY a valid interpreter profile.
+        authority.listener_binding.return_value={'pid':123,'starttime':'7'}
+        self.assertTrue(authority.initial_application_ready(replacement.UNITS[0],row))
+        with self.assertRaisesRegex(wire.Hold,'ACTUAL_LOADER_ENVIRONMENT_CHANGED'):
+            authority.interpreter_binding(row,old=False)
+        for bad in ('foreign environment', 'wrong binary'):
+            changed=dict(row)
+            if bad=='foreign environment':changed['initial_env_sha256']=wire.sha(b'FOREIGN=1\0')
+            else:changed['exe_sha256']='c'*64
+            authority.listener_binding.reset_mock()
+            with self.subTest(bad=bad),self.assertRaises(wire.Hold):
+                authority.initial_application_ready(replacement.UNITS[0],changed)
+            authority.listener_binding.assert_not_called()
+
+    def test_first_start_fresh_strict_profile_after_readiness_and_same_invocation(self):
+        # Deterministic orchestration tests, NOT simulated Host acceptance.
+        # Full real systemd/proc/rights proofs remain mandatory native CI.
+        from unittest.mock import Mock
+        from tu1nz_public_operator_host import Adapter
+        import tu1nz_public_operator_host as host
+        for case in ('early_then_ready','empty_after_ready','wrong_after_ready',
+                     'never_ready','invocation_changed','pid_changed','tick_changed',
+                     'autorestart','listener_lost','rights_changed','final_invocation_changed'):
+            with self.subTest(case=case):
+                authority,early,valid=self.readiness_authority()
+                good={**early,'initial_env_sha256':valid}
+                ready=dict(good)
+                if case=='empty_after_ready':ready['initial_env_sha256']=wire.sha(b'')
+                if case=='wrong_after_ready':ready['initial_env_sha256']=wire.sha(b'FOREIGN=1\0')
+                if case=='tick_changed':ready['starttime']='8'
+                if case=='rights_changed':ready['uid']=[0]*4
+                authority.empty=Mock(return_value=True);authority.stopped={replacement.UNITS[0]}
+                authority.rights=set();authority.runtime_invocations={}
+                def rights(_unit,row):
+                    wire.require(row['uid']==row['gid']==[1001]*4,'ACTUAL_RUNTIME_RIGHTS_RED')
+                authority.rights_check=Mock(side_effect=rights)
+                def unit(_unit):
+                    n=authority.unit.call_count
+                    value={'InvocationID':'same','MainPID':'123','NRestarts':'0',
+                           'ActiveState':'active','Job':''}
+                    if n==1:value.update(ActiveState='inactive',MainPID='0')
+                    if n==7:
+                        if case=='invocation_changed':value['InvocationID']='other'
+                        if case=='pid_changed':value['MainPID']='124'
+                        if case=='autorestart':value['NRestarts']='1'
+                    if n==8 and case=='final_invocation_changed':value['InvocationID']='other'
+                    return value
+                authority.unit=Mock(side_effect=unit)
+                authority.listener_binding.side_effect=[None,{'pid':123,'starttime':'7'},{'pid':123,'starttime':'7'}]
+                if case=='listener_lost':authority.listener_binding.side_effect=[None,{'pid':123},None]
+                adapter=Adapter.__new__(Adapter);adapter.a=authority
+                adapter.pending=None;adapter.deadline=100
+                adapter.channel=Mock();adapter.condition=Mock()
+                adapter.start_requested=set();adapter.started={}
+                # First EMPTY is pre-listener. Second is deliberately stale
+                # EMPTY while listener appears. Only the THIRD, fresh profile
+                # may be accepted; EMPTY/faults there must HOLD, never retry.
+                clock=[0,0,0,101] if case=='never_ready' else [0]*20
+                rows=[early,early,ready]
+                if case=='never_ready':authority.listener_binding.side_effect=None;authority.listener_binding.return_value=None
+                inode=SimpleNamespace(st_dev=1,st_ino=2)
+                with patch.object(host,'command',return_value=SimpleNamespace(returncode=0)) as command,\
+                     patch.object(host,'starttime',return_value='7'),\
+                     patch.object(host,'initial_profile',side_effect=rows) as sample,\
+                     patch.object(host.time,'monotonic',side_effect=clock),patch.object(host.time,'sleep'),\
+                     patch.object(replacement.os,'stat',return_value=inode),\
+                     patch.object(replacement.os,'statvfs',return_value=SimpleNamespace(f_flag=os.ST_RDONLY)):
+                    if case=='early_then_ready':
+                        adapter._perform('start',replacement.UNITS[0],deadline=100)
+                        self.assertEqual(sample.call_count,3)
+                        self.assertIs(authority.rights_check.call_args.args[1],ready)
+                        self.assertEqual(authority.runtime_invocations[replacement.UNITS[0]],('same',123,'7'))
+                    else:
+                        with self.assertRaises(wire.Hold):adapter._perform('start',replacement.UNITS[0],deadline=100)
+                        self.assertFalse(adapter.started);self.assertFalse(authority.rights)
+                    self.assertEqual(command.call_count,1)
+                    self.assertEqual(command.call_args.args[0],['/usr/bin/systemctl','start',replacement.UNITS[0]])
+
+    @unittest.skipUnless(sys.platform=='linux','actual synthetic proc/socket component requires Linux')
+    def test_actual_owned_listener_then_fresh_environment_same_child(self):
+        import select,socket
+        from tu1nz_public_operator_observe import Authority,starttime,proc_bytes
+        # No Host sockets or credentials. Child stays alive until DONE; no
+        # polling until green, injected proc rows or arbitrary readiness sleep.
+        program='''import socket,sys
+print("INITIALIZED",flush=True)
+assert sys.stdin.buffer.readline()==b"GO\\n"
+s=socket.socket();s.bind(("127.0.0.1",0));s.listen(1)
+print(s.getsockname()[1],flush=True)
+assert sys.stdin.buffer.readline()==b"DONE\\n"
+s.close()
+'''
+        env={'PATH':'/usr/bin:/bin','LC_ALL':'C','PYTHONDONTWRITEBYTECODE':'1'}
+        child=subprocess.Popen([sys.executable,'-I','-B','-c',program],env=env,
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        try:
+            self.assertTrue(select.select([child.stdout],[],[],5)[0])
+            self.assertEqual(child.stdout.readline(64),b'INITIALIZED\n')
+            row={'pid':child.pid,'starttime':starttime(child.pid)}
+            authority=Authority.__new__(Authority)
+            self.assertIsNone(authority.listener_binding(row,{'bind_host':'127.0.0.1','bind_port':20000},
+                                                       allow_initial_unbound=True))
+            child.stdin.write(b'GO\n');child.stdin.flush()
+            self.assertTrue(select.select([child.stdout],[],[],5)[0]);port=int(child.stdout.readline(64))
+            contract={'bind_host':'127.0.0.1','bind_port':port}
+            self.assertEqual(authority.listener_binding(row,contract)['pid'],child.pid)
+            raw=proc_bytes('/proc/'+str(child.pid)+'/environ')
+            self.assertEqual(raw,b''.join((k+'='+v).encode()+b'\0' for k,v in env.items()))
+            self.assertEqual(starttime(child.pid),row['starttime'])
+            for changed in ({**row,'starttime':'foreign'},
+                            {'pid':os.getpid(),'starttime':starttime(os.getpid())}):
+                with self.assertRaises(wire.Hold):authority.listener_binding(changed,contract)
+        finally:
+            _out,errors=child.communicate(b'DONE\n',timeout=5)
+            self.assertEqual(child.returncode,0,errors)
+
     def test_native_expected_closure_explicitly_binds_interp_even_when_ldd_omits_alias(self):
         from unittest.mock import Mock
         from tests import public_operator_native as fixture

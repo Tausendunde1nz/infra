@@ -1,0 +1,296 @@
+B DATA / WRITER HANDOFF R1 — SOURCE CONTRACT, NOT HOST AUTHORITY
+
+SOURCE-CI READINESS CORRECTION (18.10.2026)
+The mandatory existing R5 synthetic integration exposed an early exec sample:
+target executable visible, environment not yet populated, followed by the
+expected environment in the same PID/start identity. A controlled local
+component reproduction confirms this mechanism, not the historical CI cause.
+The B data/export logic did not change that pre-existing acquisition path.
+Fixture-only synchronization would conceal the same production ordering gap.
+The narrowly corrected first-start path now uses the existing PID-owned
+loopback listener as readiness, then acquires a FRESH complete profile with
+the same InvocationID/PID/startticks, zero automatic restarts and original
+deadline, rechecks the listener, and applies unchanged interpreter/environment
+and rights checks. EMPTY is never an accepted profile. A concrete nonempty
+bad initial environment still fails immediately; empty/wrong after readiness,
+identity changes, lost readiness or deadline remain HOLD, without another
+start or automatic retry. Legacy return semantics and Host authorizations do
+not expand. Portable branch tests and native synthetic socket/proc components
+are not full Host acceptance; the complete production/native CI remains a
+mandatory Source gate. No R5 Host repair is resumed by this correction.
+
+1. SCOPE / TRUST / EXACT DELTA
+This contract describes one data-only transition to a separate common basis.
+It does not invoke, modify or partly execute the R5/R3/Owner/R2 operator. No
+existing three-service stop approval authorizes additional writers. No new
+claim, slot, retry, Root exception, old-runtime return or product activation
+is created. Existing administrative systemd trust boundary remains unchanged.
+
+Source catalogue: manifests/b-data-writer-handoff-r1.json, Application
+93555d8a141caf8ace33522f9340d30bfc47d2bb / tree
+1e8a644115127818f394b6f9d24f31826e04ecba, migrations0021 through0030.
+The33 relation names are a REVIEW CATALOGUE, not an automatic export list.
+Every relation requires an explicit export/retain_old/absent disposition,
+backed by the actual bounded schema/role/writer inventory. The5 S7 relations
+are required. Known FK parents of exported children must also be exported.
+Each of the9 fixed file paths also needs export/retain_old/absent disposition;
+every export must have exactly one individual file entry. These are claims
+bound to the inventory, not verified absence or permission to omit needed data.
+An SFW restore needs all actually required configs/counters; a deliberately
+partial PRECOPY is never treated as the complete final dataset.
+Actual extra relations, FK/partition/sequence/extension/trigger dependencies
+or different DB identity are HOLD until classified, not implicit additions.
+Source default DB is tu1nz_adult_commercial_s3, NOT commercial_s0.
+
+R5 Infra eba3874abf8f52ad45df966ff8016d27fe6b6c55, R5 Control
+2491e1ca0ecd21c4ce00c579447c5eab3a21bd07 and Lighting Control
+dc3fadad98fa08e1685de012da82656717b97345 keep their distinct compatible roles.
+Runtime archive3ed375a38f87f9f4fc04f337bf4af77cc1e49fd057c6e4a5b61406775050c9c9
+and its fixed path, candidate05ce81be4e607d1e86fc487419c8510ef0c505f8 and the
+19-file release, Ownerplan e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36
+and historical tags/evidence remain unchanged. No repackaging/pin replacement.
+
+R5 independence is LIMITED, not a blanket admission: MVCC/data-only tools do
+not inherently call R5.LoaderConfiguration. A new data/stop procedure needs its
+own authenticated actual tool/interpreter/loader/config/transport closure and
+independent scope BEFORE effects. A version string/current hash is not origin.
+Using old dynamic tools may still depend on the old cache; this contract neither
+waives cache evidence nor asserts a proven cache-independent Host stop path.
+If actual closure again needs the unproven cache, HOLD; do not implement another
+loader/remote broker to escape it. Loaded kernel/PID1/SSH/admin TCB is individually
+evidenced, not all UID0, UID1001, DB-superusers or Docker clients. Missing baseline,
+extra administrative authority or a stronger required trust model blocks entry.
+
+2. DATA / WRITER / MEASURE MAP (SOURCE POTENTIAL, NOT CURRENT HOST STATUS)
+Data | source writers/activators to check | final measure / evidence boundary
+S7 tables/queues/channel/templates | S7 web, publication/admin paths; /etc/tu1nz/adult-commercial-s7-database.dsn; DB grants/owners/sessions | drain and fence all actual writers, not only web requests; readonly snapshot can precede stop
+S8 users/offset/rate/lease/control/notification state | tu1nz-adult-public-s8-telegram.service, health/probe, administrative callers; shared DB role | preserve offsets/consumption/pending states; no second poller/notification dispatcher; actual unit/role activity UNKNOWN
+S9 content/nurture/audience/report state | s9-seed, s9-nurture, s9-audience, s9-report plus health; matching timers and s10-2d-rotate | fence actual associated timer/oneshot/manual/remote activations and DB sessions, including Persistent=true catch-up; disabled timer alone does not stop an active service
+S10 community/moderation/outbox/polling | S8/S10 handlers, administrative/health/reconcile paths using shared DB | retain queued and uncertain external effects without resend/reset; quarantined, no provider credential or job on target
+landing-aggregates.json | Landing, WMS; report reads it and writes DB | stop/fence both producers and any file/admin writer; process-local lock or atomic rename is not a global fence
+wms-traffic-quality.json | WMS including selected GETs | same fence; do not use GET/report/health as a supposedly read-only inspection
+Lighting full tree | publisher/deploy/admin and effective filesystem writers incl UID33 owner authority | individual current file+directory graph, namespace/ACL/FD/mapping protections;19 files alone insufficient; no reuse of old88 as today's count
+Selected public JSON configs | exact fixed catalogue paths, admin/deployer | separate authentic Source defaults from observed instance deltas; no wildcard /etc/tu1nz or nginx archive
+Managed RC5 DB/key/audit/lock context | managed private-alpha service, phase/start/backup/restore controllers | keep inactive; consistent SQLite snapshot if present and approved; preserve old authority/lock/owner evidence, no prototype import, no second owner/first start
+Other S11/S12/R15/bots/n8n/DBs | outside this transition | preserve old state and gates; if they influence selected data/activation, HOLD and present exact extra scope, never stop them by inference
+
+The chosen stop scope is NOT all the above service names. A later inventory
+must classify each actor as confirmed writer, possible/unexamined, read-only
+or individually evidenced administrative TCB, with exact rights and targets.
+For each actual writer bind unit/cgroup/InvocationID/StartTime/descendants,
+activation sources/dependencies, DB role/session/DDL permissions, writable
+FD/mapping and namespace/broker/remote authority. Stop/revoke/mask/quarantine
+only the individually approved concrete objects. Root ownership or no sample
+activity is not writer exclusion. Three web units stopping cannot close all.
+
+3. PHASE P — PRECOPY (NO FINAL AUTHORITY)
+Before execution: exact private data/selection/tool/transport/storage scope,
+authentic tool closure, source host/database/schema/rights, adequate space and
+deadline, secret-separated custody, independent scope review and explicit
+transfer/export approval. No grants, role creation, install or Host staging
+are implicit in a read permission. RLS/permission failures are errors, not
+empty datasets. Any new permission has its own concrete approval.
+
+Standard PostgreSQL procedure (commands below are NOT run by the plan tool):
+Use private PGSERVICEFILE/PGPASSFILE outside the package, chmod0600 under an
+approved private parent; never DSN/password in argv/logs/chat. Service name
+tu1nz_b_export binds the actual source DB, identity and approved endpoint.
+Set shell pipefail/umask077; create-only client destination, no overwrites.
+An authentic psql -X --set=ON_ERROR_STOP=1 source connection holds:
+  BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+  SET LOCAL statement_timeout = '60s';
+  SET LOCAL lock_timeout = '5s';
+  SELECT pg_export_snapshot();
+Keep this connection/transaction alive until dump AND source counts/content
+digests/catalog capture are complete. One total capture deadline300s; timeout,
+lost connection, import failure or changed schema = retained partial/HOLD, no
+automatic retry. Client permissions must not silently bypass RLS.
+
+python3 -I -B scripts/tu1nz_b_data_handoff.py --selection SELECTION --selection-sha256 HASH
+render --snapshot ACTUAL_TOKEN returns an argv array, never executes it:
+  pg_dump --dbname=service=tu1nz_b_export --format=custom --data-only
+  --no-owner --no-privileges --strict-names --lock-wait-timeout=5000
+  --snapshot=ACTUAL_TOKEN --table=public.EXACT_NAME ...
+Run the array directly, not eval. Stream stdout only to a create-only private
+postgres.data.dump.partial. Require exit0 before classifying a complete dump;
+errors remain private, dataminimized safe-code report only. No -j, --enable-row-
+security, --disable-triggers, --clean, full database archive or wildcard tables.
+No source writes or connections to a production target. pg_dump locks/schema
+reads are operational DB effects and need explicit export approval, although
+they do not modify application rows. Do not call this tool-free read inspection.
+
+In the same snapshot capture selected-table rowcounts and per-table canonical
+row-content SHA256: session UTC, ISO DateStyle, fixed bytea/float encoding and
+same approved PG major/encoding/collation on restore; COPY ordered row_to_json
+text COLLATE "C" into a streaming hash, preserving duplicate rows, no raw rows
+in logs. Imported-snapshot readers must SET TRANSACTION SNAPSHOT before queries.
+The compiler's counts_sql is count-only, NOT a content/integrity certificate.
+Capture actual dependent objects/RLS/schema, without executing an observed SQL
+dump. Unknown dependencies cause HOLD, not catalogue expansion.
+
+File selection is individual: source path, archive-relative name, kind and
+pre/post object+ancestor identity, uid/gid/mode/ACL mask/default ACL, relevant
+attrs/flags, size, content hash, capture interval in filesystem.capture.json.
+An approved metadata-preserving file copy/tar may use ONLY an explicit NUL list,
+--no-recursion/--verbatim-files-from and no dereference. List every directory
+as metadata separately. Never run find...tar over live config/runtime/Git.
+Per-file instability, link/special object or unsafe source namespace = HOLD.
+While JSON producers run, stable individual reads remain PRECOPY only, not a
+shared DB/files business instant. Exact bytes/JSON semantics must validate.
+
+SQLite: existing authenticated SQLite backup API/CLI, bounded busy/total time,
+consistent committed WAL-aware snapshot; source remains unchanged. On the
+private copied DB verify PRAGMA integrity_check and foreign_key_check plus
+expected schema/row/key/audit bindings. No executing app, extensions, archived
+code, VACUUM on source or raw .db copy ignoring WAL. No source plaintext secrets.
+S7 form HMAC secret and RC5 encryption keys have separate approved custody;
+preserve form/digest/ciphertext continuity, do not silently rotate or omit.
+
+Package manifest TU1NZ_B_DATA_PACKAGE_V1 records phase, selection hash and an
+external capture-receipt hash plus exact artifact names/sizes/SHA256. Include
+postgres.data.dump, postgres.capture.json, schema.observed.sql and every
+individually selected file. The capture receipt must additionally bind the
+filesystem metadata/intervals, tool/Host/schema/snapshot identity, fingerprint
+results and source limitations. Keep receipt and its independent reference
+outside payload; hash it in the manifest, not a self-asserted approval bit.
+No unexpected payload bytes, Git, .venv, provider credential or unrelated data.
+Two approved private create-only copies, fsync, independent full reread.
+No-Delete retention; immutable complete/partial labels, no automatic cleanup.
+
+The local verifier has NO export/restore/stop/network functionality. Its exact
+CLI: python3 -I -B scripts/tu1nz_b_data_handoff.py --selection SELECTION
+--selection-sha256 HASH verify --directory DIR
+--manifest MANIFEST --manifest-sha256 HASH. Expected hashes come from separate
+custody/approval, not from the same unchecked package. Exit0 means only
+BYTES_CHECKED_NOT_ADMITTED. Even phase=final gives writer/consistency/restore
+UNPROVEN. It does not inspect SQL safety, certify metadata/ACL custody, prove
+origin, authorize transfer or manufacture a Host receipt.
+
+4. PHASE Q — PRIVATE RESTORE / PREPARATION
+New basis/bootstrap/tools and private transfer require separate concrete approval.
+No old OS/cache/.venv/Control checkout clone. New target is isolated: no public
+routing, no old production DB address, deny provider/production egress before
+data or credentials; S8/RC5/notification/moderation/publisher/timers disabled,
+no imported enablement, no service starts or queue draining. Copy data does
+not confer permission to use personal data, send messages or consume slots.
+
+Do NOT restore schema.observed.sql or trust arbitrary archive SQL. Build the
+empty target schema from authentic pinned migration dependencies in a clean
+private builder, without application/provider credentials. Migrations seed
+singleton/config rows: a data-only restore on those seeded rows would collide.
+Derive authentic EMPTY pre-data and post-data artifacts from this build:
+pg_dump --schema-only --section=pre-data --no-owner --no-privileges and
+pg_dump --schema-only --section=post-data --no-owner --no-privileges.
+Independently bind/review both and all functions/extensions/types/collations
+and selected-object dependency closure. Do NOT install the full schema before
+data: migration0030's INSERT guard rejects historical progressed polling
+revisions. The fresh target is deliberately incomplete and inaccessible to
+runtime clients until ALL post-data protection has been installed/accepted.
+Do not TRUNCATE historical or target business state as a workaround. A fresh
+restore target must be empty and remain quarantined on any error.
+
+Use a fresh empty private target, a non-superuser restore owner with no external
+function/extension/network/Host authority. Review TOC against exact selected
+TABLE DATA and expected sequence entries; list-only is NOT restore acceptance.
+No unexpected SQL/functions/large objects/triggers/extension allowed by default.
+1. psql -X --set=ON_ERROR_STOP=1 --single-transaction
+   --dbname=service=tu1nz_b_restore --file=trusted.pre-data.sql
+2. Restore data, retaining historical revisions/timestamps/consumption exactly:
+pg_restore --dbname=service=tu1nz_b_restore --data-only --no-owner
+--no-privileges --single-transaction --exit-on-error < postgres.data.dump
+3. psql -X --set=ON_ERROR_STOP=1 --single-transaction
+   --dbname=service=tu1nz_b_restore --file=trusted.post-data.sql
+4. Validate every FK/check/unique/index and exact trigger/function enablement,
+   source-bound definition/owner/security settings and role/ACL profile. Use
+   synthetic copies to test guard enforcement, never destructive tests on
+   restored business rows. No acceptance before complete post-data success.
+No --disable-triggers, session_replication_role=replica, --clean or broad grants.
+No protection is removed from a pre-existing or accepted target; the staged
+target has no live clients or product credentials. Any stage failure retains
+quarantine/HOLD, not an automatic resume/repair/retry. This is not a generic
+permission to restore arbitrary code or bypass historical INSERT protection.
+Compare all selected rowcounts AND deterministic content fingerprints, validated
+constraints/FKs, required sequence state (none in Source33; new ones block),
+SQLite integrity/FK/content/key linkage, file contents and intended target
+reader/writer profiles. Do not apply old privileged ACL/xattr/security labels
+as target permissions. Record separately preserved source metadata and the
+new approved least-privilege mapping. Actual restore, not hashes/list alone.
+
+5. PHASE F — FINAL WRITER CLOSE / FINALSYNC
+Not executable under today's old3-unit approval. Before first effect bind a
+complete new concrete stop/fence/dependency/TCB/tool scope, failure/outage plan,
+independent review and explicit Host approval. PRECOPY is not its prerequisite
+backup surrogate. Capture trustworthy original state/read witness and exact
+permitted return BEFORE stop; a source data snapshot is not a restorable old
+runtime proof. No unconditional old restart is promised.
+
+Within the actual approved set: block further activation/ingress to relevant
+writers and drain pending work. Stop WMS -> Landing -> S7 as their known order;
+additional DB/file jobs and their scheduler/remote callers require individual
+order from actual dependencies, not a global kill/stop wildcard. Persistent
+start barriers/caller fences must survive restart and be actually verified;
+do not assume systemd mask, timer-disable or a stopped PID closes aliases,
+manual callers, existing sessions, inherited authority or escaped descendants.
+If such an exact safe fence cannot be obtained within approved objects, HOLD.
+No blanket Root/DBowner exemption and no disputed systemd investigation here.
+
+Require all actual cgroups/descendants/jobs closed, no in-flight relevant DB
+transaction/prepared transaction or DDL, no effective extra writer/authority,
+and file/namespace exclusion with an individually trusted remaining TCB.
+Keep the entire final capture/restore/authority interval fenced. Revoking one
+role or holding an advisory lock is insufficient. No pause/termination of
+foreign database/application actors without new specific approval.
+
+After this fence: fresh FINAL snapshot using PhaseP tools, all selected JSON/
+SQLite/Lighting/config objects and full metadata, fresh schema+row/content
+fingerprints. Verify they all lie inside the SAME quiescent epoch and each
+still matches at the end; source DB+files immutable throughout. This provides
+a common final state without inventing a distributed transaction or numerical
+equality between unrelated counter/analytics retention semantics. Preserve
+pre-existing discrepancies and pending/unknown external outcomes; do not
+repair/reset/replay them. If an existing contract's semantic invariant fails,
+HOLD for that exact issue. Final dump is NOT a delta over an old PRECOPY:
+restore a fresh empty target; no ad hoc merge/upsert, no implied CDC.
+Repeat the actual PhaseQ restore/integrity acceptance on this final package.
+
+6. CUTOVER / EXCLUSIVE AUTHORITY / RETURN MATRIX
+Only after final fence+restored final dataset+independent scope and target
+rights/backup/restore acceptance: separately approved routing/DNS/TLS switch.
+Bind loaded nginx WHOLE configuration, all affected A/AAAA/routing/old clients,
+not only one vHost text. Old writers remain fenced even after TTL. New public
+writers start only after exclusive authority is durably accepted; first real
+GET may write WMS counters, so track it as a new write, not a reversible read.
+No simultaneous old/new DB writers. S8/RC5/Telegram/other products stay blocked.
+Lighting publication remains a separate decision for19 plus preserved tree.
+
+Failure | allowed disposition (no automatic retry/return)
+Before old stop/cutover | private partial/restore target quarantined; old operation unchanged, no new activation
+After old stop, before new productive write | HOLD; routing-only return only if old writer stayed safe/quiescent and its authentic old execution path/current data/original exact rights are independently proven and return explicitly authorized. Otherwise remain stopped; old .venv is not a safe fallback
+After any new productive write or unknown first-write outcome | no simple DNS/data rollback. Fence new writers, preserve newest authority, reconcile all acknowledged/in-flight writes under explicit new plan; tested restore on new basis from bound point with stated recovery-point loss only if accepted
+Partial stop, extra writer, failed export/restore, drift, timeout, lost ACK, process/Host restart | HOLD, preserve separate primary/abort/cleanup records and once-only evidence; no repeat, automatic reconnect continuation, marker reset or replacement transaction
+
+Longer stopped HOLD may be necessary. Capture deadline300s is not an outage
+bound. No new write/return is inferred from missing marker or absent process.
+Historical admission/lease/offset/claim/ABORTED evidence remains bound; excluded
+S11/S12/R15 histories never become empty fresh permissions on the new basis.
+
+7. NEXT GATE / WHAT IS AND IS NOT IMPLEMENTED
+The local catalogue/selector/argv generator/byte checker and synthetic tests
+are complete Source components. Standard tools perform actual snapshots and
+restores; actual observation, explicit Host scope and independent acceptance
+remain human/operational gates, not JSON GREENs or missing automation adapters.
+This is not a new generic production operator. It grants no Host execution.
+
+Next concrete step is the bounded protected READ-ONLY inventory specified in
+the private handoff: actual data/object/role/schema/writer/activation and actual
+tool dependencies/origin references; no exports, provider calls or mutation.
+scripts/tu1nz_b_data_inventory.sql is the actual bounded PostgreSQL metadata
+query set, tested on synthetic PostgreSQL. It reads no business rows/query
+bodies/passwords; it is NOT a complete actor/privilege proof (e.g. indirect
+SET ROLE/delegation/SECURITY DEFINER must be classified from its leads). Its
+Source-family metadata selector is not used to select export bytes. Unknown
+dependencies/rights require analysis, never an automatic pass or scope addition.
+Only then can a real selection/capture/storage/stop scope be hash-bound. No
+placeholder-filled export approval and no booking/transfer until it exists.
+If the tool/stop admission again reduces to the unresolved R5/cache requirement,
+report that precise boundary and end; no new repair chain automatically.

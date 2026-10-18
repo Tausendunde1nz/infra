@@ -9,6 +9,25 @@ permissions:
   contents: read
 
 jobs:
+  b-data-handoff:
+    name: b-data-handoff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    # Synthetic only. No environment, token, private Source/data, cache,
+    # artifact upload, deployment or access to a production database.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: B selection and package regressions (synthetic)
+        run: python3 -B -m unittest -v tests.test_b_data_handoff tests.test_control_private_ci
+      - name: B actual PostgreSQL snapshot and restore (private synthetic Unix socket)
+        run: >-
+          env PYTHONPATH="$PWD" TU1NZ_B_PG_BIN=/usr/lib/postgresql/16/bin
+          python3 -B -m unittest -v tests.test_b_data_postgres_native
   control-private-provenance:
     name: control-private-provenance
     runs-on: ubuntu-24.04
