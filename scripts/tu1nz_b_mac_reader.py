@@ -283,6 +283,19 @@ def result_exit_code(result):
                  and result.get('listener_absent_after') is True) else 2
 
 
+def vpn_status_environment():
+    # The existing macOS CLI invokes Apple lsof by basename to discover its
+    # configured GUI daemon. Without /usr/sbin it can inspect another daemon.
+    return {'PATH': '/usr/bin:/bin:/usr/sbin', 'LC_ALL': 'C'}
+
+
+def expected_vpn_online(vpn):
+    return (vpn.get('BackendState') == 'Running'
+            and (vpn.get('Self') or {}).get('Online') is True
+            and any(p.get('Online') is True and '100.121.130.51' in p.get('TailscaleIPs', [])
+                    for p in (vpn.get('Peer') or {}).values()))
+
+
 def run(args):
     need(args.read_only_check and sys.stdin.isatty(), 'SECURE_LOCAL_TTY_REQUIRED')
     need(not args.output.exists(), 'ONCE_ONLY_OUTPUT_EXISTS')
@@ -304,8 +317,12 @@ def run(args):
         catalog = args.catalog.read_bytes()
         sql = metadata_sql(catalog)
         event('SOURCE_BOUND', catalog_sha256=sha(catalog), sql_sha256=sha(sql), remote_reader_sha256=sha(REMOTE_READ.encode()))
-        vpn = json.loads(subprocess.check_output(['/opt/homebrew/bin/tailscale', 'status', '--json'], stderr=subprocess.DEVNULL, timeout=8))
-        need(vpn['BackendState'] == 'Running' and any(p.get('Online') and '100.121.130.51' in p.get('TailscaleIPs', []) for p in vpn.get('Peer', {}).values()), 'VPN_NOT_CONFIRMED')
+        vpn = json.loads(subprocess.check_output(['/opt/homebrew/bin/tailscale', 'status', '--json'],
+                                              stderr=subprocess.DEVNULL, timeout=8, env=vpn_status_environment()))
+        state = vpn.get('BackendState')
+        event('VPN_CHECK', backend_state=state if state in ('Running', 'NeedsLogin', 'Stopped', 'Starting', 'NeedsMachineAuth', 'NoState') else 'UNCLASSIFIED',
+              expected_online=bool(expected_vpn_online(vpn)))
+        need(expected_vpn_online(vpn), 'VPN_NOT_CONFIRMED')
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 15432))
         warnings.simplefilter('error', getpass.GetPassWarning)

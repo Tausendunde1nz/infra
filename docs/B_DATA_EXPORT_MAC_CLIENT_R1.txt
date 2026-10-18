@@ -60,6 +60,11 @@ Source shell/sudo/Python here are the explicitly approved administrator-mediated
 credential diagnostic, NOT a Source export path or claimed origin/cache waiver.
 Any still-required unadmitted actual Source execution/loaded TCB blocks the
 FINAL export scope under R1; success of this reader never supplies that admission.
+The existing Mac Tailscale CLI status check gets only fixed system PATH
+/usr/bin:/bin:/usr/sbin and LC_ALL=C. Apple lsof in /usr/sbin is required by
+its standard GUI-daemon discovery; no manual token/credential extraction.
+No alternate daemon/socket, VPN login/configuration or account is selected.
+Record only known BackendState/expected-node-online, never the raw status.
 
 Only DBtu1nz_adult_commercial_s3/rolletu1nz_adult_commercial_s3_runtime and
 existing Source localhost:5432/Unix equivalent are accepted. Wrong identity,

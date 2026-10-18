@@ -97,6 +97,17 @@ class ReaderAdmission(unittest.TestCase):
     def test_catalog_tamper_denied(self):
         with self.assertRaises(reader.Denied): reader.metadata_sql(CATALOG+b' ')
 
+    def test_vpn_cli_has_only_fixed_system_lsof_lookup(self):
+        self.assertEqual(reader.vpn_status_environment(), {'PATH': '/usr/bin:/bin:/usr/sbin', 'LC_ALL': 'C'})
+        good = {'BackendState': 'Running', 'Self': {'Online': True},
+                'Peer': {'synthetic': {'Online': True, 'TailscaleIPs': ['100.121.130.51']}}}
+        self.assertTrue(reader.expected_vpn_online(good))
+        for value in ({'BackendState': 'NeedsLogin', 'Self': None, 'Peer': None},
+                      dict(good, Self={'Online': False}), dict(good, Peer={}),
+                      dict(good, Peer={'synthetic': {'Online': False, 'TailscaleIPs': ['100.121.130.51']}}),
+                      dict(good, Peer={'synthetic': {'Online': True, 'TailscaleIPs': ['192.0.2.1']}})):
+            self.assertFalse(reader.expected_vpn_online(value))
+
     def test_valid_metadata(self):
         reader.validate_observation(self.observation(), CATALOG)
 
