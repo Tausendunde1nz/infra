@@ -412,3 +412,6 @@
 !tests/test_s8_path_policy.py
 !tests/s8_parent_rebind_counterexample.py
 !tests/s8_anchor_native.sh
+!scripts/tu1nz_b_mac_reader.py
+!tests/test_b_mac_reader.py
+!tests/b_mac_client_native.py
