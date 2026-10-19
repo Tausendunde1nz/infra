@@ -9,6 +9,7 @@ import sys
 import struct
 import tempfile
 import unittest
+from tests.s8_fork_child import child_failure_boundary
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from tu1nz_s8_execution_contract import ContractError
@@ -89,8 +90,9 @@ class NewStockTests(unittest.TestCase):
     def test_interrupted_new_stock_is_never_adopted(self):
         pid = os.fork()
         if pid == 0:
-            NewStock(self.root, self.plan)
-            os._exit(0)
+            with child_failure_boundary():
+                NewStock(self.root, self.plan)
+                os._exit(0)
         self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]), 0)
         with self.assertRaisesRegex(ContractError, "NO_ADOPTION"): NewStock(self.root, self.plan)
         self.assertEqual(set(p.name for p in self.root.iterdir()), {"stock-plan.json"})
