@@ -56,6 +56,25 @@ and its fixed path, candidate05ce81be4e607d1e86fc487419c8510ef0c505f8 and the
 19-file release, Ownerplan e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36
 and historical tags/evidence remain unchanged. No repackaging/pin replacement.
 
+ONE-CAPTURE ACQUISITION EXCEPTION (user risk decision19.10.2026): solely
+B-PRECOPY-20261019-1, DB-only34 PRECOPY from chatops@100.121.130.51 / database
+tu1nz_adult_commercial_s3, may treat the existing Source platform AND its
+administrative data authority as an OBSERVED DATA SUPPLIER, not individually
+origin-proven execution. This supersedes the individually evidenced Source
+kernel/PID1/SSH/admin/backend/cache prerequisite below ONLY for this acquisition,
+including the already separately approved fixed DSN diagnostic. Accepts possible
+undetected Source kernel/program/admin manipulation and unproven internal cache
+origin. Hashes/byte comparison prove copying, NOT historical data truth. No
+Source provenance claim, arbitrary privileged reader, new rights or R5 admission.
+The admitted native Mac client/Apple execution/SSH hostkey/TLS/role/read-only/
+schema-selection/custody/review requirements remain. docs/B_PRECOPY_ONCE_R1.txt
+is the complete fixed implementation/runbook. One create-only attempt marker,
+later EXPLICIT human approval of its exact Source and window, no retry or marker
+reset. Authorization ends at terminal success/abort or window end, including a
+partial attempt. No FINAL, restore, subsequent capture, Writer or other profile
+inherits this exception. Outside this exact acquisition the strict paragraph
+below applies unchanged. Current Source authorization does NOT authorize data.
+
 R5 independence is LIMITED, not a blanket admission: MVCC/data-only tools do
 not inherently call R5.LoaderConfiguration. A new data/stop procedure needs its
 own authenticated actual tool/interpreter/loader/config/transport closure and
@@ -69,7 +88,8 @@ extra administrative authority or a stronger required trust model blocks entry.
 
 The separately authorized native Mac client admission profile is defined only
 in B_DATA_EXPORT_MAC_CLIENT_R1.txt. It changes client/credential-check order,
-not any origin/cache/TCB/Writer/FINAL gate or export authority in this contract.
+not any origin/cache/TCB/Writer/FINAL gate or export authority except the explicit
+one-capture Source assumption above; it never grants execution authority itself.
 
 2. DATA / WRITER / MEASURE MAP (SOURCE POTENTIAL, NOT CURRENT HOST STATUS)
 Data | source writers/activators to check | final measure / evidence boundary
@@ -125,6 +145,11 @@ render --snapshot ACTUAL_TOKEN returns an argv array, never executes it:
   --snapshot=ACTUAL_TOKEN --table=public.EXACT_NAME ...
 Run the array directly, not eval. Stream stdout only to a create-only private
 postgres.data.dump.partial. Require exit0 before classifying a complete dump;
+The fixed B-PRECOPY-20261019-1 coordinator instead retains create-only final
+basenames inside its new ID directories, externally labelled PARTIAL_HOLD until
+ALL checks, both full rereads and cleanup succeed. A basename/exit0 alone is
+never completion. This narrowly supersedes only the .partial naming convention;
+no rename, replacement, deletion or retry is introduced.
 errors remain private, dataminimized safe-code report only. No -j, --enable-row-
 security, --disable-triggers, --clean, full database archive or wildcard tables.
 No source writes or connections to a production target. pg_dump locks/schema

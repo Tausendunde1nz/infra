@@ -12,6 +12,10 @@ complete export-scope admission. Actual login is not required before admitting
 the secret-free client. It remains mandatory before an export approval.
 This removes no R1 tool/origin, Source kernel/PID1/SSH/admin/DB TCB, old-cache,
 writer, private-custody, snapshot, restore or FINAL gate. Unknown remains HOLD.
+Only the later explicit user risk decision19.10.2026 in R1 section1 and
+B_PRECOPY_ONCE_R1.txt substitutes observed Source data authority for individually
+proven Source platform/admin/backend/cache origin, for B-PRECOPY-20261019-1 only.
+This is NOT a client trust waiver or a general allowance for unknown evidence.
 
 2. AUTHENTIC CLIENT / LOCAL PLATFORM
 Fixed vendor candidate: Postgres.app2.9.6, PostgreSQL17.11, native arm64 slice.
@@ -60,6 +64,8 @@ Source shell/sudo/Python here are the explicitly approved administrator-mediated
 credential diagnostic, NOT a Source export path or claimed origin/cache waiver.
 Any still-required unadmitted actual Source execution/loaded TCB blocks the
 FINAL export scope under R1; success of this reader never supplies that admission.
+The single PRECOPY acquisition has the explicit bounded Source assumption above;
+FINAL and all other captures still require their own admissible trust scope.
 The existing Mac Tailscale CLI status check gets only fixed system PATH
 /usr/bin:/bin:/usr/sbin and LC_ALL=C. Apple lsof in /usr/sbin is required by
 its standard GUI-daemon discovery; no manual token/credential extraction.
@@ -126,7 +132,10 @@ unchanged R1 standard pg_dump/canonical-fingerprint recipe. Absolute admitted
 native binaries replace only client executable paths, no other boundary.
 First proposed scope is DB-only34 explicit exports, mandatory coupled S10/S11
 triple, four S11 histories retain_old, all9 fixed files retain_old/files=[].
-No all-database dump, old runtime, protected Git or secrets in the package.
+No all-database dump, old runtime, protected Git, credential files or known
+excluded stocks in the package. Business data/text/JSONb are NOT thereby proven
+secret-free: treat all payload as confidential, private and quarantined. No new
+content inspection or scanner is authorized or implied.
 An actual snapshot capture, inventory/schema comparison, two protected copies,
 independent byte readback and later real isolated restore are not replaced by
 synthetic/native/client/login success. FINAL writer fence includes the known
