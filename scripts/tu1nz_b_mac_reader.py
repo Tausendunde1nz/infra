@@ -304,7 +304,7 @@ def run(args):
     event_fd = os.open(event_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     def event(name, **fields):
         raw = (json.dumps({'utc': datetime.now(timezone.utc).isoformat(), 'event': name, **fields})+'\n').encode()
-        os.write(event_fd, raw)
+        need(os.write(event_fd, raw) == len(raw), 'INTENT_SHORT_WRITE')
         os.fsync(event_fd)
     event('START', helper_sha256=sha(Path(__file__).read_bytes()), manifest_sha256=args.client_manifest_sha256)
     result = {'schema': 'TU1NZ_B_MAC_READER_CHECK_V1', 'status': 'HOLD', 'productive_rows_or_export': False}

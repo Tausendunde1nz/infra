@@ -243,6 +243,50 @@ class ReaderAdmission(unittest.TestCase):
         self.assertEqual(result['failure_code'], 'SOURCE_CREDENTIAL_READ_FAILED')
         self.assertTrue(result['own_processes_ended'])
 
+    def test_source_intent_short_write_or_fsync_failure_sends_no_secret(self):
+        for failure in ('short_write', 'fsync'):
+            directory = Path(tempfile.mkdtemp(prefix='tu1nz-b-synthetic-intent-fault-'))
+            args = SimpleNamespace(read_only_check=True, output=directory/'result.json',
+                                   client_root=Path('/synthetic'), client_manifest=Path('/synthetic.json'),
+                                   client_manifest_sha256='0'*64, transport=Path('/synthetic'),
+                                   catalog=ROOT/'manifests/b-data-writer-handoff-r1.json')
+            child = mock.Mock(pid=424242)
+            child.poll.side_effect = [None, 71]
+            good_vpn = {'BackendState': 'Running', 'Self': {'Online': True},
+                        'Peer': {'synthetic': {'Online': True, 'TailscaleIPs': ['100.121.130.51']}}}
+            original_write, original_fsync = os.write, os.fsync
+            fired = []
+            def faulty_write(fd, raw):
+                if failure == 'short_write' and json.loads(raw)['event'] == 'SOURCE_READER_STARTED':
+                    fired.append(True)
+                    return original_write(fd, raw[:len(raw)//2])
+                return original_write(fd, raw)
+            def faulty_fsync(fd):
+                raw = args.output.with_suffix('.intent.jsonl').read_bytes()
+                if failure == 'fsync' and not fired and b'"event": "SOURCE_READER_STARTED"' in raw:
+                    fired.append(True)
+                    raise OSError('SYNTHETIC_FSYNC_FAILURE')
+                return original_fsync(fd)
+            with self.subTest(failure=failure), \
+                 mock.patch.object(reader.sys.stdin, 'isatty', return_value=True), \
+                 mock.patch.object(reader, 'verify_client'), mock.patch.object(reader, 'transport', return_value=()), \
+                 mock.patch.object(reader.subprocess, 'check_output', return_value=json.dumps(good_vpn).encode()), \
+                 mock.patch.object(reader.subprocess, 'Popen', return_value=child), \
+                 mock.patch.object(reader.socket, 'socket'), \
+                 mock.patch.object(reader.getpass, 'getpass', return_value='SYNTHETIC-sudo'), \
+                 mock.patch.object(reader.os, 'write', side_effect=faulty_write), \
+                 mock.patch.object(reader.os, 'fsync', side_effect=faulty_fsync), mock.patch('builtins.print'):
+                self.assertEqual(reader.run(args), 2)
+            self.assertTrue(fired)
+            child.stdin.write.assert_not_called()
+            child.communicate.assert_not_called()
+            child.terminate.assert_called_once()
+            child.wait.assert_called_once_with(timeout=5)
+            result = json.loads(args.output.read_bytes())
+            self.assertEqual(result['status'], 'HOLD')
+            self.assertTrue(result['own_processes_ended'])
+            self.assertNotIn('SYNTHETIC-sudo', args.output.read_text())
+
     @unittest.skipUnless(hasattr(signal, 'SIGHUP'), 'POSIX signal regression')
     def test_real_term_and_terminal_hangup_exit_hold(self):
         code = '''import importlib.util,pathlib,sys,time
