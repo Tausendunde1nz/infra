@@ -84,20 +84,21 @@ class Once(unittest.TestCase):
         at=Mock();at.children=[Mock(),Mock()]
         for p in at.children:p.poll.return_value=0
         with patch.object(c.m,'stop_owned',side_effect=[OSError('synthetic'),None]) as stop,\
-             patch.object(c.m,'remove_owned_passfile') as remove:
+             patch.object(c.m,'remove_owned_passfile') as remove,patch.object(c.os,'close'):
             with self.assertRaisesRegex(c.m.Denied,'CLEANUP_HOLD'):
                 c.cleanup(at,Path('/synthetic/pgpass'),(1,2,3),None,'PRECOPY_BYTES_CHECKED_NOT_RESTORED')
         self.assertEqual(stop.call_count,2);remove.assert_called_once()
-        self.assertEqual(at.event.call_args.kwargs['status'],'PARTIAL_HOLD');at.close.assert_called_once()
+        self.assertEqual(at.event.call_args.kwargs['status'],'PARTIAL_HOLD');at.close_children.assert_called_once()
     def test_failed_credential_or_listener_cleanup_cannot_pass(self):
         for fault in ('credential','listener','deadline','journal','close'):
             at=Mock();at.children=[]
             if fault=='deadline':at.left.side_effect=c.m.Denied('DEADLINE')
             if fault=='journal':at.event.side_effect=OSError('synthetic')
-            if fault=='close':at.close.side_effect=OSError('synthetic')
+            if fault=='close':at.close_children.side_effect=OSError('synthetic')
             with patch.object(c.m,'remove_owned_passfile',side_effect=OSError('synthetic') if fault=='credential' else None) as remove,\
-                 patch.object(c.subprocess,'run',return_value=subprocess.CompletedProcess([],0,b'unexpected listener',b'')):
+                 patch.object(c.subprocess,'run',return_value=subprocess.CompletedProcess([],0,b'unexpected listener',b'')),patch.object(c.os,'close'):
                 with self.subTest(fault=fault),self.assertRaisesRegex(c.m.Denied,'CLEANUP_HOLD'):
                     c.cleanup(at,None,None,object() if fault=='listener' else None,'PRECOPY_BYTES_CHECKED_NOT_RESTORED')
-            remove.assert_called_once();at.close.assert_called_once()
+            remove.assert_called_once();at.close_children.assert_called_once()
+            if fault!='journal':self.assertEqual(at.event.call_args.kwargs['status'],'PARTIAL_HOLD')
 if __name__=='__main__':unittest.main()

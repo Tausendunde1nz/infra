@@ -152,13 +152,14 @@ class Attempt:
             m.stop_owned(p)
             for stream in (p.stdin,p.stdout,p.stderr):
                 if stream is not None and not stream.closed:stream.close()
-    def close(self):
+    def close_children(self):
         failed=False
-        try:
-            for p in self.children:
-                try:m.stop_owned(p)
-                except BaseException:failed=True
-            need(not failed and all(p.poll() is not None for p in self.children),'CHILD_CLEANUP')
+        for p in self.children:
+            try:m.stop_owned(p)
+            except BaseException:failed=True
+        need(not failed and all(p.poll() is not None for p in self.children),'CHILD_CLEANUP')
+    def close(self):
+        try:self.close_children()
         finally:os.close(self.fd)
 
 def cleanup(at,credential,identity,tunnel,status):
@@ -180,14 +181,16 @@ def cleanup(at,credential,identity,tunnel,status):
     try:
         if status=='PRECOPY_BYTES_CHECKED_NOT_RESTORED':at.left()
     except BaseException:errors.append('DEADLINE')
+    try:at.close_children()
+    except BaseException:errors.append('FINAL_CHILD_CLEANUP')
     try:
         at.event('FINISH',status='PARTIAL_HOLD' if errors else status,
                  own_children_ended=not any(e.startswith('CHILD') for e in errors),
                  temporary_credential_removed='CREDENTIAL_CLEANUP' not in errors,
                  cleanup_errors=errors)
     except BaseException:errors.append('JOURNAL_CLEANUP')
-    try:at.close()
-    except BaseException:errors.append('FINAL_CHILD_CLEANUP')
+    try:os.close(at.fd)
+    except BaseException:errors.append('JOURNAL_FD_CLEANUP')
     need(not errors,'CLEANUP_HOLD')
 
 SETTINGS="SET LOCAL search_path=pg_catalog; SET LOCAL TimeZone='UTC'; SET LOCAL DateStyle='ISO,YMD'; SET LOCAL bytea_output='hex'; SET LOCAL extra_float_digits=3; SET LOCAL statement_timeout='60s'; SET LOCAL lock_timeout='5s';"
