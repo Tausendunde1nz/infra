@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch,Mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 import tu1nz_b_precopy_once as c
 
@@ -80,4 +80,24 @@ class Once(unittest.TestCase):
     def test_default_cli_inert(self):
         p=subprocess.run([sys.executable,'-I','-B','-S',str(Path(c.__file__))],capture_output=True,timeout=5)
         self.assertEqual(p.returncode,0);self.assertEqual(json.loads(p.stdout)['status'],'PLAN_ONLY_NOT_AUTHORIZED')
+    def test_first_child_failure_still_removes_credential_and_no_success(self):
+        at=Mock();at.children=[Mock(),Mock()]
+        for p in at.children:p.poll.return_value=0
+        with patch.object(c.m,'stop_owned',side_effect=[OSError('synthetic'),None]) as stop,\
+             patch.object(c.m,'remove_owned_passfile') as remove:
+            with self.assertRaisesRegex(c.m.Denied,'CLEANUP_HOLD'):
+                c.cleanup(at,Path('/synthetic/pgpass'),(1,2,3),None,'PRECOPY_BYTES_CHECKED_NOT_RESTORED')
+        self.assertEqual(stop.call_count,2);remove.assert_called_once()
+        self.assertEqual(at.event.call_args.kwargs['status'],'PARTIAL_HOLD');at.close.assert_called_once()
+    def test_failed_credential_or_listener_cleanup_cannot_pass(self):
+        for fault in ('credential','listener','deadline','journal','close'):
+            at=Mock();at.children=[]
+            if fault=='deadline':at.left.side_effect=c.m.Denied('DEADLINE')
+            if fault=='journal':at.event.side_effect=OSError('synthetic')
+            if fault=='close':at.close.side_effect=OSError('synthetic')
+            with patch.object(c.m,'remove_owned_passfile',side_effect=OSError('synthetic') if fault=='credential' else None) as remove,\
+                 patch.object(c.subprocess,'run',return_value=subprocess.CompletedProcess([],0,b'unexpected listener',b'')):
+                with self.subTest(fault=fault),self.assertRaisesRegex(c.m.Denied,'CLEANUP_HOLD'):
+                    c.cleanup(at,None,None,object() if fault=='listener' else None,'PRECOPY_BYTES_CHECKED_NOT_RESTORED')
+            remove.assert_called_once();at.close.assert_called_once()
 if __name__=='__main__':unittest.main()

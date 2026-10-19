@@ -153,9 +153,42 @@ class Attempt:
             for stream in (p.stdin,p.stdout,p.stderr):
                 if stream is not None and not stream.closed:stream.close()
     def close(self):
-        for p in self.children:m.stop_owned(p)
-        need(all(p.poll() is not None for p in self.children),'CHILD_CLEANUP')
-        os.close(self.fd)
+        failed=False
+        try:
+            for p in self.children:
+                try:m.stop_owned(p)
+                except BaseException:failed=True
+            need(not failed and all(p.poll() is not None for p in self.children),'CHILD_CLEANUP')
+        finally:os.close(self.fd)
+
+def cleanup(at,credential,identity,tunnel,status):
+    # Independent best-effort actions: one child failure must never skip the
+    # precisely authorized credential removal or other owned-child attempts.
+    errors=[]
+    for child in at.children:
+        try:m.stop_owned(child)
+        except BaseException:errors.append('CHILD_STOP')
+    try:m.remove_owned_passfile(credential,identity)
+    except BaseException:errors.append('CREDENTIAL_CLEANUP')
+    if tunnel is not None:
+        try:
+            p=subprocess.run(['/usr/sbin/lsof','-nP','-iTCP:15432','-sTCP:LISTEN'],capture_output=True,timeout=5)
+            need(p.returncode==1 and not p.stdout,'LISTENER_CLEANUP')
+        except BaseException:errors.append('LISTENER_CLEANUP')
+    try:need(all(p.poll() is not None for p in at.children),'CHILD_CLEANUP')
+    except BaseException:errors.append('CHILD_CLEANUP')
+    try:
+        if status=='PRECOPY_BYTES_CHECKED_NOT_RESTORED':at.left()
+    except BaseException:errors.append('DEADLINE')
+    try:
+        at.event('FINISH',status='PARTIAL_HOLD' if errors else status,
+                 own_children_ended=not any(e.startswith('CHILD') for e in errors),
+                 temporary_credential_removed='CREDENTIAL_CLEANUP' not in errors,
+                 cleanup_errors=errors)
+    except BaseException:errors.append('JOURNAL_CLEANUP')
+    try:at.close()
+    except BaseException:errors.append('FINAL_CHILD_CLEANUP')
+    need(not errors,'CLEANUP_HOLD')
 
 SETTINGS="SET LOCAL search_path=pg_catalog; SET LOCAL TimeZone='UTC'; SET LOCAL DateStyle='ISO,YMD'; SET LOCAL bytea_output='hex'; SET LOCAL extra_float_digits=3; SET LOCAL statement_timeout='60s'; SET LOCAL lock_timeout='5s';"
 
@@ -307,15 +340,7 @@ def execute(args):
         at.room();status='PRECOPY_BYTES_CHECKED_NOT_RESTORED';return 0
     finally:
         secret=None
-        try:
-            for child in at.children:m.stop_owned(child)
-            m.remove_owned_passfile(credential,identity)
-            if tunnel is not None:
-                p=subprocess.run(['/usr/sbin/lsof','-nP','-iTCP:15432','-sTCP:LISTEN'],capture_output=True,timeout=5)
-                need(p.returncode==1 and not p.stdout,'LISTENER_CLEANUP')
-            if status=='PRECOPY_BYTES_CHECKED_NOT_RESTORED':at.left()
-            at.event('FINISH',status=status,own_children_ended=all(p.poll() is not None for p in at.children),temporary_credential_removed=True)
-        finally:at.close()
+        cleanup(at,credential,identity,tunnel,status)
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
