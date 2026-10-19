@@ -205,6 +205,44 @@ class ReaderAdmission(unittest.TestCase):
         result = json.loads(args.output.read_bytes())
         self.assertEqual(result['cleanup_code'], 'PASSFILE_CLEANUP_REQUIRES_OWNER')
 
+    def test_source_child_durably_recorded_before_sudo_secret(self):
+        directory = Path(tempfile.mkdtemp(prefix='tu1nz-b-synthetic-source-intent-'))
+        args = SimpleNamespace(read_only_check=True, output=directory/'result.json',
+                               client_root=Path('/synthetic'), client_manifest=Path('/synthetic.json'),
+                               client_manifest_sha256='0'*64, transport=Path('/synthetic'),
+                               catalog=ROOT/'manifests/b-data-writer-handoff-r1.json')
+        child = mock.Mock(pid=424242, returncode=71)
+        child.poll.return_value = 71
+        child.communicate.return_value = (b'', b'')
+        good_vpn = {'BackendState': 'Running', 'Self': {'Online': True},
+                    'Peer': {'synthetic': {'Online': True, 'TailscaleIPs': ['100.121.130.51']}}}
+        original_fsync = os.fsync
+        with mock.patch.object(reader.sys.stdin, 'isatty', return_value=True), \
+             mock.patch.object(reader, 'verify_client'), \
+             mock.patch.object(reader, 'transport', return_value=()), \
+             mock.patch.object(reader.subprocess, 'check_output', return_value=json.dumps(good_vpn).encode()), \
+             mock.patch.object(reader.subprocess, 'Popen', return_value=child) as spawned, \
+             mock.patch.object(reader.socket, 'socket'), \
+             mock.patch.object(reader.getpass, 'getpass', return_value='SYNTHETIC-sudo'), \
+             mock.patch.object(reader.os, 'fsync', wraps=original_fsync) as synced, \
+             mock.patch('builtins.print'):
+            def before_secret(data):
+                self.assertEqual(data, b'SYNTHETIC-sudo\n')
+                events = [json.loads(line) for line in args.output.with_suffix('.intent.jsonl').read_text().splitlines()]
+                self.assertGreaterEqual(synced.call_count, 4)
+                source_event = events[-1]
+                self.assertEqual(source_event['event'], 'SOURCE_READER_STARTED')
+                self.assertEqual(source_event['pid'], child.pid)
+                self.assertEqual(source_event['parent_pid'], os.getpid())
+                self.assertEqual(source_event['argv_sha256'], reader.sha(json.dumps(spawned.call_args.args[0], separators=(',', ':')).encode()))
+                self.assertNotIn('SYNTHETIC-sudo', json.dumps(events))
+            child.stdin.write.side_effect = before_secret
+            self.assertEqual(reader.run(args), 2)
+        child.stdin.write.assert_called_once()
+        result = json.loads(args.output.read_bytes())
+        self.assertEqual(result['failure_code'], 'SOURCE_CREDENTIAL_READ_FAILED')
+        self.assertTrue(result['own_processes_ended'])
+
     @unittest.skipUnless(hasattr(signal, 'SIGHUP'), 'POSIX signal regression')
     def test_real_term_and_terminal_hangup_exit_hold(self):
         code = '''import importlib.util,pathlib,sys,time

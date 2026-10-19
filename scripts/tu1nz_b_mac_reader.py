@@ -329,7 +329,12 @@ def run(args):
         secret = getpass.getpass('chatops sudo — nur lokal verdeckt, genau vorhandene DB-DSN: ').encode()
         need(secret and not any(c in secret for c in (b'\n', b'\r')), 'LOCAL_AUTH_INPUT_INVALID')
         remote = 'LC_ALL=C '+shlex.join(['/usr/bin/sudo', '-S', '-k', '-p', '', '--', '/usr/bin/timeout', '--kill-after=3s', '10s', '/usr/bin/python3', '-I', '-B', '-S', '-c', REMOTE_READ])
-        source = subprocess.Popen(ssh(options)+[remote], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        source_command = ssh(options)+[remote]
+        source = subprocess.Popen(source_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Durable identity lead BEFORE this owned child receives any secret.
+        # Manual recovery must still verify the live identity, never kill by PID alone.
+        event('SOURCE_READER_STARTED', pid=source.pid, parent_pid=os.getpid(),
+              argv_sha256=sha(json.dumps(source_command, separators=(',', ':')).encode()))
         source.stdin.write(secret+b'\n')
         source.stdin.flush()
         secret = None

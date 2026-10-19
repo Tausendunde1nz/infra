@@ -84,6 +84,11 @@ before writing; interruption/failure always attempts owned-process cleanup and
 same-inode passfile removal, including SIGTERM/terminal SIGHUP. SIGKILL cannot run finally: durable intent records
 PID/file identity for exact owner cleanup, HOLD/no retry. Leave empty directories
 and synthetic test data, no general No-Delete exception. No automatic replay.
+Immediately after spawning the credential SSH child and BEFORE writing any
+sudo secret, fsync its PID/parent/time/secret-free argv hash into the intent.
+Event failure reaches cleanup without giving the child a secret. The stored
+PID is a recovery lead, not proof against later PID reuse: an owner must verify
+the current process identity before manual termination; uncertainty stays HOLD.
 
 4. EXACT METADATA TRANSPORT / FRESH CHECK
 Existing fixed SSH_OPTIONS are read as AST, never import/call the R5 operator.
