@@ -24,4 +24,3 @@ def catalog_sql():
         selected + "SELECT json_build_object('kind','owner_role_meta','name',r.rolname,'superuser',r.rolsuper,'login',r.rolcanlogin,'bypass_rls',r.rolbypassrls,'create_role',r.rolcreaterole) FROM pg_roles r WHERE r.oid IN(SELECT relowner FROM rel UNION SELECT datdba FROM pg_database WHERE datname=current_database() UNION SELECT p.proowner FROM rel c JOIN pg_trigger t ON t.tgrelid=c.oid JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal) ORDER BY r.rolname;",
     ]
     return ('\n'.join(queries)+'\n').encode()
-
