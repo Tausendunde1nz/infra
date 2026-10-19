@@ -115,6 +115,7 @@ class Attempt:
         self.event('CHILD_STARTED',pid=child.pid,parent_pid=os.getpid(),argv_sha256=m.sha(json.dumps(argv).encode()))
         return child
     def pump(self,argv,env,sql,limit,path=None):
+        self.room()
         p=self.spawn(argv,env)
         result=bytearray();h=hashlib.sha256();size=0;fd=None
         try:
