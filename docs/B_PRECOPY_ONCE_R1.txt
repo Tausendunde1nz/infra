@@ -38,6 +38,14 @@ unchanged. Historical optional canary index stays observed on Source, not added
 to recipe or run as observed DDL. Fresh catalogs must exactly match the bound
 728-observation reference (except physical size); role/ACL/guard/constraint/
 column/index differences HOLD. Metadata hashes are not an SQL safety certificate.
+All five queried safe settings stay in each reference comparison. jit and
+local_preload_libraries must be present with value/source. The bound Reader
+could not see shared_preload_libraries/session_preload_libraries/dynamic_library_path:
+only their absence is explicitly UNKNOWN_NOT_VISIBLE, never empty or proof of
+unchanged hidden values. Visibility changes and changed visible value/source,
+duplicates or malformed/missing required setting metadata HOLD. Capture metadata
+preserves the explicit settings_observation states; the Source risk assumption
+does not turn hidden settings into independently verified execution settings.
 Known active S11 Canary timer and its service/manual/Persistent activators stay
 in the later FINAL Writer fence; never stopped by this capture.
 
@@ -101,6 +109,11 @@ all outputs remain PARTIAL_HOLD, including a pg_dump exit0. Files fsync then
 bounded copy to B with independent hash/size and source identity stability;
 both dirs fsync. External create-only receipt and manifest outside both payloads
 bind artifacts/hashes/sizes, Source/selection/approval; manifest pins receiptSHA.
+After both binding files are file-fsynced, fsync their parent STAGE. After copying,
+fsync both payload directories AND their parents containing the new directory
+names. Bind directory descriptors to the unchanged path inode, no-follow, with
+deadline checks; sync/open/identity/close failure leaves PARTIAL_HOLD and cannot
+produce successful FINISH. No deletion, retry or replacement of partial outputs.
 Two fresh admitted Apple Python processes independently reopen and fully read
 ALL bytes of A and B with the frozen R1 byte verifier and externally pinned
 manifest hash. Require both BYTES_CHECKED_NOT_ADMITTED, then complete cleanup

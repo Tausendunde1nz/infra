@@ -43,6 +43,12 @@ RESERVE=1024*1024*1024
 WIRE_CAP=512*1024*1024
 SCHEMA_CAP=4*1024*1024
 CAPTURE_CAP=8*1024*1024
+SETTING_NAMES=frozenset(('jit','local_preload_libraries','shared_preload_libraries',
+                         'session_preload_libraries','dynamic_library_path'))
+# Only these three were explicitly not visible in the bound Reader reference.
+# Unknown is an observation state, never an empty or proven-unchanged value.
+UNKNOWN_SETTINGS=frozenset(('shared_preload_libraries','session_preload_libraries',
+                           'dynamic_library_path'))
 
 def need(x,code):
     if not x:raise m.Denied(code)
@@ -50,14 +56,49 @@ def need(x,code):
 def new_file(path,raw):
     m.private_write(path,raw)
 
+def setting_observations(rows):
+    settings={}
+    for row in rows:
+        if row.get('kind')!='safe_setting_meta':continue
+        need(set(row)=={'kind','name','value','source'} and row['name'] in SETTING_NAMES
+             and row['name'] not in settings,'SETTING_METADATA_SHAPE')
+        need(type(row['value']) is str and type(row['source']) is str
+             and bool(row['source']),'SETTING_METADATA_MISSING')
+        settings[row['name']]=dict(row)
+    need(SETTING_NAMES-UNKNOWN_SETTINGS<=settings.keys(),'REQUIRED_SETTING_MISSING')
+    return [settings[name] if name in settings else
+            {'kind':'safe_setting_meta','name':name,'observation':'UNKNOWN_NOT_VISIBLE'}
+            for name in sorted(SETTING_NAMES)]
+
 def normalized(rows):
-    # Physical sizes/settings/identity are observed separately, never pretend
-    # absent settings are empty. Structural/rights/owner/ACL rows stay bound.
+    # Identity is checked separately; only physical size is omitted from the
+    # bound metadata. Preserve settings, including explicit unknown visibility.
     keep={'database_meta','column_meta','constraint_meta','index_meta','trigger_meta',
           'function_meta','relation_meta','incoming_fk_meta','attached_extension_meta',
           'owner_role_meta','relation','role','sequence'}
     out=[{k:v for k,v in r.items() if k!='total_bytes'} for r in rows if r.get('kind') in keep]
+    out.extend(setting_observations(rows))
     return sorted(out,key=lambda r:json.dumps(r,sort_keys=True,separators=(',',':')))
+
+def sync_directories(at,paths):
+    for path in dict.fromkeys(paths):
+        at.left()
+        fd=os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:
+            bound=os.fstat(fd);current=path.lstat()
+            need(stat.S_ISDIR(current.st_mode) and (bound.st_dev,bound.st_ino)==
+                 (current.st_dev,current.st_ino),'SYNC_DIRECTORY_REBOUND')
+            os.fsync(fd)
+            current=path.lstat()
+            need((bound.st_dev,bound.st_ino)==(current.st_dev,current.st_ino),
+                 'SYNC_DIRECTORY_REBOUND')
+        finally:os.close(fd)
+        at.left()
+
+def persist_bindings(at,receiptpath,receipt_raw,manifestpath,manifest_raw):
+    new_file(receiptpath,receipt_raw)
+    new_file(manifestpath,manifest_raw)
+    sync_directories(at,(receiptpath.parent,manifestpath.parent))
 
 def approval(raw,now):
     a=b.parse(raw)
@@ -255,7 +296,7 @@ def capture(at,base,env,names,reference,selected,selection_sha,validate=m.valida
     end=[json.loads(l) for l in end_raw.splitlines()];validate(end,b.read_small(b.CATALOG))
     need(normalized(end)==normalized(reference) and keeper.poll() is None,'FINAL_SCHEMA_OR_HOLDER_DRIFT')
     keeper.stdin.write(b'ROLLBACK;\n\\q\n');keeper.stdin.flush();keeper.communicate(timeout=at.left());need(keeper.returncode==0,'HOLDER_CLOSE_FAILED')
-    observed={'capture_id':ID,'phase':'precopy','snapshot':token,'source_identity':[r for r in rows if r['kind']=='identity'],'schema_metadata':rows,'fingerprints':fingerprints,'selection_sha256':selection_sha,'writer_freedom':'UNPROVEN','restore':'UNPROVEN','source_historical_truth':'NOT_PROVEN'}
+    observed={'capture_id':ID,'phase':'precopy','snapshot':token,'source_identity':[r for r in rows if r['kind']=='identity'],'schema_metadata':rows,'settings_observation':setting_observations(rows),'fingerprints':fingerprints,'selection_sha256':selection_sha,'writer_freedom':'UNPROVEN','restore':'UNPROVEN','source_historical_truth':'NOT_PROVEN'}
     raw=(json.dumps(observed,sort_keys=True,indent=2)+'\n').encode();need(len(raw)<=CAPTURE_CAP,'CAPTURE_JSON_LIMIT')
     at.room();need(at.written+len(raw)<=PACKAGE_CAP,'PACKAGE_LIMIT');new_file(at.targets[0]/'postgres.capture.json',raw);at.written+=len(raw);at.room()
     artifacts=[{'name':'postgres.data.dump','sha256':dump_hash,'size':dump_size},{'name':'schema.observed.sql','sha256':schema_hash,'size':schema_size},{'name':'postgres.capture.json','sha256':m.sha(raw),'size':len(raw)}]
@@ -278,8 +319,8 @@ def duplicate(at,artifacts):
         finally:
             os.close(f)
             if out is not None:os.close(out)
-    for target in at.targets:
-        fd=os.open(target,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW);os.fsync(fd);os.close(fd)
+    # Persist both file entries and the newly created payload-directory names.
+    sync_directories(at,(*at.targets,*(target.parent for target in at.targets)))
 
 def execute(args):
     need(sys.platform=='darwin' and sys.stdin.isatty(),'SECURE_NATIVE_MAC_TTY')
@@ -333,9 +374,10 @@ def execute(args):
         at.deadline=min(at.deadline,time.monotonic()+300);at.event('CAPTURE_300S_STARTED')
         artifacts,observed=capture(at,base,env,names,reference,selected,SELECTION_SHA)
         receipt={'capture_id':ID,'source_commit':a['source_commit'],'approval_sha256':args.approval_sha256,'selection_sha256':SELECTION_SHA,'artifacts':artifacts,'source_historical_truth':'NOT_PROVEN','writer_freedom':'UNPROVEN','restore':'UNPROVEN','phase':'precopy'}
-        receipt_raw=(json.dumps(receipt,sort_keys=True)+'\n').encode();receiptpath=STAGE/(ID+'.receipt.json');new_file(receiptpath,receipt_raw)
+        receipt_raw=(json.dumps(receipt,sort_keys=True)+'\n').encode();receiptpath=STAGE/(ID+'.receipt.json')
         manifest={'schema':'TU1NZ_B_DATA_PACKAGE_V1','phase':'precopy','selection_sha256':SELECTION_SHA,'capture_receipt_sha256':m.sha(receipt_raw),'artifacts':artifacts}
-        mr=(json.dumps(manifest,sort_keys=True)+'\n').encode();mp=STAGE/(ID+'.manifest.json');new_file(mp,mr)
+        mr=(json.dumps(manifest,sort_keys=True)+'\n').encode();mp=STAGE/(ID+'.manifest.json')
+        persist_bindings(at,receiptpath,receipt_raw,mp,mr)
         duplicate(at,artifacts)
         for target in TARGETS:
             verifier=['/usr/bin/python3','-I','-B','-S',str(repo/'scripts/tu1nz_b_data_handoff.py'),'--selection',str(STAGE/'B_EXPORT_SELECTION_CANDIDATE-20261019.json'),'--selection-sha256',SELECTION_SHA,'verify','--directory',str(target),'--manifest',str(mp),'--manifest-sha256',m.sha(mr)]
