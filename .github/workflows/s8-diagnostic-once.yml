@@ -1,0 +1,33 @@
+name: S8 one-shot synthetic measurement
+
+on:
+  push:
+    branches: [codex/b-precopy-once-r1]
+    paths: [tests/s8_diagnostic_once.py]
+
+permissions:
+  contents: read
+
+jobs:
+  s8-measure-once:
+    # Exactly one planned push; reruns and later ordinary pushes do not measure.
+    if: >-
+      github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'S8: one synthetic measurement s8-measure-20261019-1')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Bind source and runner profile (non-secret metadata only)
+        env:
+          BOUND_SOURCE: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$BOUND_SOURCE"
+          printf 'S8_DIAG_SOURCE %s\n' "$BOUND_SOURCE"
+          printf 'S8_DIAG_RUNNER %s %s %s %s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion"
+      - name: Fixture and observer regressions (synthetic only)
+        run: python3 -B -m unittest -v tests.test_s8_fork_child tests.test_s8_diagnostic_observer
+      - name: One bounded native sequence (original failures remain failures)
+        run: bash tests/s8_diagnostic_native.sh

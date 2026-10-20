@@ -1,0 +1,166 @@
+B-PRECOPY-20261019-1 — FIXED PRIVATE ACQUISITION, NOT EXECUTION AUTHORITY
+
+1. EXACT EXCEPTION / LIMIT
+Implements the user's19.10.2026 risk decision and ONLY the R1 section1 exception.
+Source platform, transport-side Linux/kernel/admin/backend/cache and the fixed
+already approved DSN reader are accepted as an observed data supplier. Neither
+individual platform origin nor historical data truth is proved. A malicious
+Source/admin can fabricate mutually consistent rows/catalogs/hashes. Accepting
+that risk is not a R5 cache admission, general Source trust, FINAL, stop, restore,
+migration or publication approval. All other R1/Mac-profile protections remain.
+
+Capture ID B-PRECOPY-20261019-1; exactly ONE create-only attempt marker, including
+authentication/early failure. Its approval ends on completion/abort or window
+end. No repeat after partial failure, credential failure, crash or SIGKILL; no
+marker reset/new window for this ID. A future different attempt needs its own
+explicit decision. Source authorization alone does not grant this attempt.
+
+2. SOURCE / SELECTION / TOOLS
+SSH chatops@100.121.130.51:22, existing strict Hostkey/Tailscale path; only a
+temporary loopback127.0.0.1:15432 -> Source127.0.0.1:5432 tunnel, no remote command.
+Separate existing fixed sudo diagnostic reads only
+/etc/tu1nz/adult-commercial-s7-database.dsn root:root0600 unchanged, private PIPE,
+secure local TTY, same existing authorization; no additional privileged readers.
+DB tu1nz_adult_commercial_s3; user=session_user
+tu1nz_adult_commercial_s3_runtime; PG170011; postmaster start
+2026-08-27T19:59:20.500309+00:00; TLS/channel-binding require. Reject different
+DB/role/Source, stronger unbound connection requirements, SUPER/BYPASSRLS/
+CREATEROLE/CREATEDB/REPLICATION, any missing34-table/column SELECT or RLS change.
+Existing app write grants are NOT dedicated-Reader grants: each connection and
+transaction is explicitly read-only. No Source SQL writes or Writer freedom.
+
+Use scripts/tu1nz_b_precopy_once.py, tu1nz_b_precopy_catalog.py and unchanged
+Mac reader/data-handoff compiler/verifier from the SAME explicitly approved
+clean Source commit/tree. Frozen9f494575c3a36c73412c3ee4197919a8e6f23a30/r3
+remains prior evidence, not a claim that this delta was already reviewed/merged.
+App93555d8a141caf8ace33522f9340d30bfc47d2bb; authentic15-file R2 schema recipe
+unchanged. Historical optional canary index stays observed on Source, not added
+to recipe or run as observed DDL. Fresh catalogs must exactly match the bound
+728-observation reference (except physical size); role/ACL/guard/constraint/
+column/index differences HOLD. Metadata hashes are not an SQL safety certificate.
+All five queried safe settings stay in each reference comparison. jit and
+local_preload_libraries must be present with value/source. The bound Reader
+could not see shared_preload_libraries/session_preload_libraries/dynamic_library_path:
+only their absence is explicitly UNKNOWN_NOT_VISIBLE, never empty or proof of
+unchanged hidden values. Visibility changes and changed visible value/source,
+duplicates or malformed/missing required setting metadata HOLD. Capture metadata
+preserves the explicit settings_observation states; the Source risk assumption
+does not turn hidden settings into independently verified execution settings.
+Known active S11 Canary timer and its service/manual/Persistent activators stay
+in the later FINAL Writer fence; never stopped by this capture.
+
+Postgres.app2.9.6/build380, nativePG17.11arm64; admitted8-member actual closure,
+vendorCMS/Apple notarization and signed Apple/CLT execution remain mandatory.
+DMG b38bb00b8c8702a568270aab85995c550f7f93d1503b818efdc5ff9a519b7168
+Clientmanifest03436d097cbca3b80f7599f00a9681bbae803ecfd49ec39d029e6a5569a57f9f
+Selection0088b148a7f9207c3d7d008dddbef98252ea7bc0ca996c7e86bf93b56a8ca01d
+Reference5b2a6bf3760c8bdd69d08bc2835700862b0fabb5033aef92bdacd8cdb10aeca4
+Catalog8e5d57c4c45af3402da6328289ba511aa9a9fad9cafe109249d31d9cf7f27877
+These are independently preserved inputs, not hashes supplied by a new payload.
+Exactly34 explicit relation names in selection; all4 S11 histories and9 fixed
+file paths retain_old, files=[]. No wildcard, fullDB, oldruntime, protected Git,
+credentials or known excluded files. Business text/JSONb has NOT been inspected
+or proved secret-free. Entire payload confidential/quarantined; no new scanner.
+
+3. EXACT LOCAL TARGETS / BOUNDS
+A /Users/daniel/Developer/tu1nz/public-production-host-r4-20261017/b-data-writer-source-20261018/dependency-extension-20261018T131302Z/fixture-fix-20261018T141735Z/B-PG17-MAC-ADMISSION-1/export-data/B-PRECOPY-20261019-1
+B /Users/daniel/.codex/backups/public-production-host-r4-20261017/b-data-writer-source-20261018/dependency-extension-20261018T131302Z/fixture-fix-20261018T141735Z/B-PG17-MAC-ADMISSION-1/export-data/B-PRECOPY-20261019-1
+Same FileVault Mac/APFS ECFACD2D-F578-438F-858D-C555E109DCF1; NOT independent
+failure domains or sufficient future operational backup. User accepted this
+for quarantined PRECOPY only. Local UID501/root/admin custody is an explicit
+assumption, not proof that arbitrary same-UID/admin processes are harmless.
+Fresh no-symlink/foreign-write/positive-ACL ancestor checks; parent0700; new
+payload dirs0700/files0600, O_EXCL/NOFOLLOW, never overwrite or automatic delete.
+Each package <=268435456B, dump<=251658240B, observed schema<=4194304B,
+capture metadata<=8388608B. Live stdout accounting <=536870912B total across
+tools/count/fingerprint reads; not a claim about SSH/TLS protocol overhead.
+Free-space checks before/after chunks reserve1073741824B PLUS remaining BOTH
+package budgets once on the shared filesystem. Reject insufficient observed
+space/ENOSPC; no atomic disk reservation against unrelated writers is claimed.
+An external actor can still consume space between checks: HOLD, retain partial.
+
+4. SNAPSHOT / CAPTURE / COPY / FULL REREAD
+Coordinator has no network/effects on import/help/default invocation. Executes
+only --execute with an externally human-approved exact SHA-bound window JSON.
+After fresh clean Source/client/VPN/parent/capacity and secure credential setup,
+one owner connection BEGIN REPEATABLE READ READ ONLY; fixed pg_catalog/UTC/ISO/
+bytea hex/float encoding, statement60s/lock5s; identity checked before snapshot;
+locks all34 ACCESS SHARE and SELECT pg_export_snapshot(). Hold this same owner
+until all dump, metadata and34 rowcounts/canonical content digests are complete.
+Every dependent connection imports that snapshot BEFORE queries. Native pg_dump
+uses R1's exact data-only custom strict-name/no-owner/no-ACL/no-trigger-disable
+argv; separate same-selection schema-only dump is OBSERVED, NEVER executable.
+Fresh fixed catalog checks before/inside/after capture; Source metadata drift,
+snapshot loss/import error, permissions/RLS/identity drift => HOLD. Read-only
+locks may delay DDL; no simultaneous schema deployment is assumed/authorized.
+For each34 table count and sorted row_to_json text COLLATE C -> SHA256 stream
+with no raw row logging/storage outside intended dump. No count-only admission.
+
+Total300s from CAPTURE_300S_STARTED immediately before first Source query through
+copy AND both full rereads, additionally bounded by the explicitly approved
+wall-clock window. No arbitrary sleep/retry. OS fsync/I/O are not hard realtime;
+deadline is checked around bounded operations and observed overrun cannot PASS.
+Human authentication occurs before300s but inside the window and consumed
+attempt. Failure/timeout => own children stopped, partial/HOLD, never retry.
+
+Three payload files: postgres.data.dump, schema.observed.sql, postgres.capture.json.
+No successful-basename inference: until external FINISH success AND cleanup,
+all outputs remain PARTIAL_HOLD, including a pg_dump exit0. Files fsync then
+bounded copy to B with independent hash/size and source identity stability;
+both dirs fsync. External create-only receipt and manifest outside both payloads
+bind artifacts/hashes/sizes, Source/selection/approval; manifest pins receiptSHA.
+After both binding files are file-fsynced, fsync their parent STAGE. After copying,
+fsync both payload directories AND their parents containing the new directory
+names. Bind directory descriptors to the unchanged path inode, no-follow, with
+deadline checks; sync/open/identity/close failure leaves PARTIAL_HOLD and cannot
+produce successful FINISH. No deletion, retry or replacement of partial outputs.
+Two fresh admitted Apple Python processes independently reopen and fully read
+ALL bytes of A and B with the frozen R1 byte verifier and externally pinned
+manifest hash. Require both BYTES_CHECKED_NOT_ADMITTED, then complete cleanup
+before FINISH PRECOPY_BYTES_CHECKED_NOT_RESTORED. Hashes mean copied bytes only.
+No actual production rows/counts/snapshot/dump have been obtained by Source tests.
+
+5. APPROVAL FORMAT / EXECUTION / FAILURE / CUSTODY
+Window proposal ONLY:20.10.2026 10:00–10:15MESZ (08:00–08:15UTC), no current
+execution authority. Later user must explicitly approve this ID, final Source
+commit/tree, scope and concrete window; machine JSON is not self-authorization.
+Keep approval JSON outside payload, exact fields only:
+schema=TU1NZ_B_PRECOPY_EXECUTION_WINDOW_V1, capture_id=B-PRECOPY-20261019-1,
+window_start/end ISO8601 with timezone, duration300..900s; source_commit/tree
+exact final reviewed/released40hex; selection_sha256/schema_reference_sha256/
+client_manifest_sha256 as above; targets=[A,B], same_volume_risk_accepted=true.
+Its separate SHA256 is part of user's later approval. Without final Source/CI
+closure and actual human export approval: HOLD, not conditionally authorized.
+Exact later entry from approved clean repository:
+/usr/bin/python3 -I -B -S scripts/tu1nz_b_precopy_once.py --execute
+ --approval /ABSOLUTE/APPROVED-EXTERNAL-WINDOW.json --approval-sha256 EXACT_SHA256
+The approval filename/hash are fixed in the final private execution decision,
+not embedded as fake pre-approved values in this Source-only contract.
+Generated .attempt.jsonl/.receipt.json/.manifest.json are create-only siblings
+under STAGE (the A path without /export-data/ID); no self-replacing complete label.
+Attempt journal fsyncs owned child PID/parent/time/argv hash BEFORE any secret.
+Only own new temporary /private/tmp/tu1nz-b-precopy-*/pgpass0600 inode may be
+removed (explicit precise exception); Source DSN/rights unchanged. Stop only own
+children/tunnel, require listener gone/passfile absent. No directories, payload,
+receipts, markers or synthetic evidence deleted. No cloud/CI/artifact upload.
+
+Any cap/reserve/schema/identity/rights/snapshot/child/timeout/copy/hash/fsync/
+reread/cleanup error => nonzero HOLD, keep partial outputs and consumed marker,
+no independent claimed backup, no auto-retry/resume. SIGKILL/power loss cannot
+run finally: marker persists, success absent; owner verifies live process
+identities against journal before stopping anything and removes ONLY own exact
+temporary credential inode. No generic PID kill or No-Delete exception.
+Retain complete/partial confidential package and external receipts privately
+until explicit retention decision; indefinite quarantine, not active services.
+Later isolated authentic-schema restore/guard/ACL/integrity/count+digest tests,
+adequate independent operational backup, full datasets/files/final synchronization,
+actual Writer fencing and publication acceptance remain OPEN and separate.
+
+6. SOURCE ACCEPTANCE
+Portable synthetic safety tests plus actual native synthetic34-table capture,
+copy, full reread and deliberate drift rejection; no real credentials/Host data.
+Final SAME-BYTES independent security review (full judgement/reservations in
+private handoff), required private SourceCI and postmergeCI and new Sourcefreeze.
+Previous freezes remain unchanged. New finite PR admission grants no generic
+PR/secret/Environment bypass; any new Selected-refs exception needs its exact
+new PR/head/base/testmerge separate authorization, then only own rule cleanup.

@@ -18,6 +18,7 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 from datetime import datetime, timedelta, timezone
+from tests.s8_fork_child import child_failure_boundary
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"scripts"))
 import tu1nz_s8_anchor as anchor
@@ -182,11 +183,12 @@ class AnchorNativeTests(unittest.TestCase):
     def test_foreign_process_cannot_reuse_live_owner_grant_even_with_absent_anchor(self):
         pid = os.fork()
         if pid == 0:
-            try:
-                bootstrap.Anchor(binding=self.binding, grant=self.authority)
-            except c.ContractError as error:
-                os._exit(0 if "GRANT_OTHER_PROCESS" in str(error) else 1)
-            os._exit(2)
+            with child_failure_boundary():
+                try:
+                    bootstrap.Anchor(binding=self.binding, grant=self.authority)
+                except c.ContractError as error:
+                    os._exit(0 if "GRANT_OTHER_PROCESS" in str(error) else 1)
+                os._exit(2)
         self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid,0)[1]), 0)
         self.assertFalse(anchor.ROOT.exists())
 
@@ -195,25 +197,26 @@ class AnchorNativeTests(unittest.TestCase):
         operation.bind_objects(dict(synthetic=True)); operation.close()
         pid = os.fork()
         if pid == 0:
-            class Header(ctypes.Structure): _fields_ = [("version",ctypes.c_uint32),("pid",ctypes.c_int)]
-            class Data(ctypes.Structure):
-                _fields_ = [("effective",ctypes.c_uint32),("permitted",ctypes.c_uint32),("inheritable",ctypes.c_uint32)]
-            libc = ctypes.CDLL(None, use_errno=True)
-            assert libc.capset(ctypes.byref(Header(0x20080522,0)),(Data*2)()) == 0
-            fields = dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
-            assert all(int(fields[k],16)==0 for k in ("CapEff","CapPrm","CapInh","CapAmb"))
-            actions = [lambda: anchor.ROOT.rename(anchor.ROOT.with_name("forbidden-rebind")),
-                       lambda: (anchor.ROOT/"state"/c.SLOT).rename(anchor.ROOT/"state/forbidden-rebind"),
-                       lambda: (anchor.ROOT/"anchor.json").write_bytes(b"foreign"),
-                       lambda: anchor.ROOT.chmod(0o777)]
-            descriptor = os.open(anchor.ROOT,os.O_RDONLY|os.O_DIRECTORY)
-            actions.append(lambda: fcntl.ioctl(descriptor,0x40086602,array.array("L",[0])))
-            for action in actions:
-                try: action()
-                except OSError as error: assert error.errno == errno.EPERM
-                else: os._exit(3)
-            os.close(descriptor)
-            os._exit(0)
+            with child_failure_boundary():
+                class Header(ctypes.Structure): _fields_ = [("version",ctypes.c_uint32),("pid",ctypes.c_int)]
+                class Data(ctypes.Structure):
+                    _fields_ = [("effective",ctypes.c_uint32),("permitted",ctypes.c_uint32),("inheritable",ctypes.c_uint32)]
+                libc = ctypes.CDLL(None, use_errno=True)
+                assert libc.capset(ctypes.byref(Header(0x20080522,0)),(Data*2)()) == 0
+                fields = dict(line.split(":",1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
+                assert all(int(fields[k],16)==0 for k in ("CapEff","CapPrm","CapInh","CapAmb"))
+                actions = [lambda: anchor.ROOT.rename(anchor.ROOT.with_name("forbidden-rebind")),
+                           lambda: (anchor.ROOT/"state"/c.SLOT).rename(anchor.ROOT/"state/forbidden-rebind"),
+                           lambda: (anchor.ROOT/"anchor.json").write_bytes(b"foreign"),
+                           lambda: anchor.ROOT.chmod(0o777)]
+                descriptor = os.open(anchor.ROOT,os.O_RDONLY|os.O_DIRECTORY)
+                actions.append(lambda: fcntl.ioctl(descriptor,0x40086602,array.array("L",[0])))
+                for action in actions:
+                    try: action()
+                    except OSError as error: assert error.errno == errno.EPERM
+                    else: os._exit(3)
+                os.close(descriptor)
+                os._exit(0)
         self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid,0)[1]), 0)
 
     def test_interruption_after_each_anchor_mutation_leaves_no_new_admission(self):
@@ -224,35 +227,40 @@ class AnchorNativeTests(unittest.TestCase):
                 self.assertFalse(anchor.ROOT.exists())
                 pid = os.fork()
                 if pid == 0:
-                    authority = grant()
-                    if phase in {"root-created", "slot-created"}:
-                        original = os.mkdir
-                        def interrupted(name, *args, **kwargs):
-                            original(name,*args,**kwargs)
-                            if name == (anchor.ROOT.name if phase == "root-created" else c.SLOT): os._exit(77)
-                        os.mkdir = interrupted
-                    if phase == "root-sealed":
-                        original = bootstrap.NewStock.seal
-                        def interrupted(stock):
-                            original(stock); os._exit(77)
-                        bootstrap.NewStock.seal = interrupted
-                    operation = bootstrap.Anchor(binding=self.binding, grant=authority)
-                    if phase == "intent-sealed": os._exit(77)
-                    operation.bind_objects(dict(synthetic=True)); os._exit(77)
-                self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid,0)[1]),77)
-                importlib.reload(bootstrap)
-                with self.assertRaisesRegex(c.ContractError,"ANCHOR_EXISTS"):
-                    bootstrap.Anchor(binding=self.binding,grant=self.authority)
-                # Explicit disposable fixture reset BETWEEN independent cases,
-                # never a path available to the production implementation.
-                self.tearDown(); self.setUp()
+                    with child_failure_boundary():
+                        authority = grant()
+                        if phase in {"root-created", "slot-created"}:
+                            original = os.mkdir
+                            def interrupted(name, *args, **kwargs):
+                                original(name,*args,**kwargs)
+                                if name == (anchor.ROOT.name if phase == "root-created" else c.SLOT): os._exit(77)
+                            os.mkdir = interrupted
+                        if phase == "root-sealed":
+                            original = bootstrap.NewStock.seal
+                            def interrupted(stock):
+                                original(stock); os._exit(77)
+                            bootstrap.NewStock.seal = interrupted
+                        operation = bootstrap.Anchor(binding=self.binding, grant=authority)
+                        if phase == "intent-sealed": os._exit(77)
+                        operation.bind_objects(dict(synthetic=True)); os._exit(77)
+                try:
+                    self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid,0)[1]),77)
+                    importlib.reload(bootstrap)
+                    with self.assertRaisesRegex(c.ContractError,"ANCHOR_EXISTS"):
+                        bootstrap.Anchor(binding=self.binding,grant=self.authority)
+                finally:
+                    # Reset even after a failed child, so later phases do not
+                    # merely report the same left-over synthetic root again.
+                    # This disposable fixture path is never a production API.
+                    self.tearDown(); self.setUp()
 
     def test_missing_anchor_after_dead_owner_cannot_reanimate_backup_grant(self):
         read, write = os.pipe()
         pid = os.fork()
         if pid == 0:
-            os.close(read)
-            os.write(write,c.canonical(grant())); os.close(write); os._exit(0)
+            with child_failure_boundary():
+                os.close(read)
+                os.write(write,c.canonical(grant())); os.close(write); os._exit(0)
         os.close(write)
         data = os.read(read,16384); os.close(read)
         self.assertEqual(os.waitstatus_to_exitcode(os.waitpid(pid,0)[1]),0)

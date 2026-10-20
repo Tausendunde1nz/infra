@@ -1,4 +1,10 @@
 *
+!tests/s8_fork_child.py
+!tests/test_s8_fork_child.py
+!tests/s8_diagnostic_once.py
+!tests/test_s8_diagnostic_observer.py
+!tests/s8_diagnostic_native.sh
+!.github/workflows/s8-diagnostic-once.yml
 !scripts/tu1nz_public_web_isolate_r1.py
 !tests/test_public_web_isolation.py
 !tests/public_web_isolation_native.py
@@ -415,3 +421,8 @@
 !scripts/tu1nz_b_mac_reader.py
 !tests/test_b_mac_reader.py
 !tests/b_mac_client_native.py
+!scripts/tu1nz_b_precopy_once.py
+!scripts/tu1nz_b_precopy_catalog.py
+!tests/test_b_precopy_once.py
+!tests/b_precopy_native.py
+!docs/B_PRECOPY_ONCE_R1.txt
