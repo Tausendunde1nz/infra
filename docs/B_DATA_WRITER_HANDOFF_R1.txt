@@ -56,8 +56,8 @@ and its fixed path, candidate05ce81be4e607d1e86fc487419c8510ef0c505f8 and the
 19-file release, Ownerplan e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36
 and historical tags/evidence remain unchanged. No repackaging/pin replacement.
 
-ONE-CAPTURE ACQUISITION EXCEPTION (user risk decision19.10.2026): solely
-B-PRECOPY-20261019-1, DB-only34 PRECOPY from chatops@100.121.130.51 / database
+ONE-CAPTURE ACQUISITION EXCEPTION (risk model19.10 / ID-only Source order21.10.2026): solely
+B-PRECOPY-20261021-2, DB-only34 PRECOPY from chatops@100.121.130.51 / database
 tu1nz_adult_commercial_s3, may treat the existing Source platform AND its
 administrative data authority as an OBSERVED DATA SUPPLIER, not individually
 origin-proven execution. This supersedes the individually evidenced Source
@@ -74,6 +74,10 @@ reset. Authorization ends at terminal success/abort or window end, including a
 partial attempt. No FINAL, restore, subsequent capture, Writer or other profile
 inherits this exception. Outside this exact acquisition the strict paragraph
 below applies unchanged. Current Source authorization does NOT authorize data.
+Previous B-PRECOPY-20261019-1 is consumed/PARTIAL_HOLD; its marker, window,
+receipts and other evidence remain untouched. This is a distinct proposed
+acquisition, not a reset/retry/renewal of that ID. No window has been selected
+for the new ID; later explicit data-execution approval remains mandatory.
 
 R5 independence is LIMITED, not a blanket admission: MVCC/data-only tools do
 not inherently call R5.LoaderConfiguration. A new data/stop procedure needs its
@@ -145,7 +149,7 @@ render --snapshot ACTUAL_TOKEN returns an argv array, never executes it:
   --snapshot=ACTUAL_TOKEN --table=public.EXACT_NAME ...
 Run the array directly, not eval. Stream stdout only to a create-only private
 postgres.data.dump.partial. Require exit0 before classifying a complete dump;
-The fixed B-PRECOPY-20261019-1 coordinator instead retains create-only final
+The fixed B-PRECOPY-20261021-2 coordinator instead retains create-only final
 basenames inside its new ID directories, externally labelled PARTIAL_HOLD until
 ALL checks, both full rereads and cleanup succeed. A basename/exit0 alone is
 never completion. This narrowly supersedes only the .partial naming convention;

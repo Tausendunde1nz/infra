@@ -47,6 +47,33 @@ class Once(unittest.TestCase):
         root,targets,at=self.fixture()
         with self.assertRaises(FileExistsError):c.Attempt(root/'attempt',time.monotonic()+10,targets)
         self.assertIn('ATTEMPT_CONSUMED',(root/'attempt').read_text())
+    def test_new_fixed_id_paths_reject_consumed_id_and_old_targets(self):
+        self.assertEqual(c.ID,'B-PRECOPY-20261021-2')
+        self.assertTrue(all(t.name==c.ID and t.parent.name=='export-data' for t in c.TARGETS))
+        now=datetime(2026,10,20,8,1,tzinfo=timezone.utc)  # synthetic clock, not an execution window
+        old=self.doc();old['capture_id']='B-PRECOPY-20261019-1'
+        with self.assertRaisesRegex(c.m.Denied,'WRONG_CAPTURE'):
+            c.approval(json.dumps(old).encode(),now)
+        old_targets=self.doc()
+        old_targets['targets']=[str(t.parent/'B-PRECOPY-20261019-1') for t in c.TARGETS]
+        with self.assertRaisesRegex(c.m.Denied,'CUSTODY_APPROVAL'):
+            c.approval(json.dumps(old_targets).encode(),now)
+    def test_new_attempt_does_not_touch_consumed_id_evidence(self):
+        root=Path(tempfile.mkdtemp(prefix='b-new-id-synthetic-')).resolve()
+        old={}
+        for suffix in ('.attempt.jsonl','.receipt.json','.manifest.json'):
+            p=root/('B-PRECOPY-20261019-1'+suffix)
+            c.new_file(p,b'SYNTHETIC_OLD_EVIDENCE')
+            old[p]=(p.stat().st_ino,p.read_bytes())
+        targets=(root/'a',root/'b')
+        for t in targets:t.mkdir(mode=0o700)
+        journal=root/(c.ID+'.attempt.jsonl')
+        at=c.Attempt(journal,time.monotonic()+10,targets);self.addCleanup(at.close)
+        self.assertEqual(json.loads(journal.read_bytes())['capture_id'],c.ID)
+        with self.assertRaises(FileExistsError):
+            c.Attempt(journal,time.monotonic()+10,targets)
+        for p,evidence in old.items():
+            self.assertEqual((p.stat().st_ino,p.read_bytes()),evidence)
     def test_success_hash_copy_full_independent_read_and_tamper(self):
         _,targets,at=self.fixture()
         raw,digest,size=at.pump([sys.executable,'-I','-c','import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())'],{},b'SYNTHETIC',100,targets[0]/'sample')

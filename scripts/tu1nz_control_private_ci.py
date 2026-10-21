@@ -58,7 +58,9 @@ REPOSITORY='Tausendunde1nz/infra'
 # Environment approval; no productive DSN/data, Host action or generic PR gate.
 # PR236: fixed one-capture acquisition contract/coordinator; same private inputs,
 # independently reviewed SHA and separate Environment admission, never Host data.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236))
+# PR237: ID/path-only successor binding; same exact private inputs, SHA review
+# and separate Environment admission. No reset or data-execution permission.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'
@@ -68,6 +70,31 @@ PUBLIC_ERRORS=frozenset('CONTROL_RECOVERY_'+name for name in (
     'CI_PRIVATE_LOCATION_RED','CI_CLEANUP_TARGET_RED','CI_CLEANUP_RED','CI_CAPSULE_BINDING_RED',
     'CI_FOREIGN_CONTAINER_RED','CI_CONTAINER_CLEANUP_RED',
     'CI_READ_CREDENTIAL_MISSING_OR_WRONG_KIND','CI_NATIVE_RED'))
+GIT_PHASES=frozenset(('GIT_INIT','REMOTE_ADD','PINNED_FETCH'))
+# Categories describe recognized Git message signatures, not a proven root cause.
+# No child bytes, command, path, URL or credential are ever copied to the result.
+GIT_ERROR_SIGNATURES=(
+    (b'fatal: authentication failed','AUTHENTICATION_REJECTED'),
+    (b'remote: repository not found','REMOTE_NOT_FOUND_OR_UNAUTHORIZED'),
+    (b'could not resolve host:','NAME_RESOLUTION_FAILURE'),
+    (b'ssl certificate problem:','TLS_VERIFICATION_FAILURE'))
+GIT_CATEGORIES=frozenset(category for _,category in GIT_ERROR_SIGNATURES)|{'UNKNOWN'}
+
+
+class PrivateGitFailure(c.RecoveryError):
+    def __init__(self,phase,returncode,raw):
+        super().__init__('CONTROL_RECOVERY_CI_PRIVATE_COMMAND_RED')
+        self.phase=phase;self.returncode=returncode
+        lowered=raw.lower()
+        matches={category for signature,category in GIT_ERROR_SIGNATURES if signature in lowered}
+        self.category=next(iter(matches)) if len(matches)==1 else 'UNKNOWN'
+
+    def public_diagnostic(self):
+        # Fail closed even if an internal caller supplies malformed metadata.
+        if (self.phase not in GIT_PHASES or type(self.returncode) is not int or
+                not -255<=self.returncode<=255 or self.returncode==0 or
+                self.category not in GIT_CATEGORIES):return None
+        return {'phase':self.phase,'returncode':self.returncode,'category':self.category}
 
 
 def runtime_binding(env,root):
@@ -137,8 +164,11 @@ def bounded(argv,*,env=None,cwd=None,timeout=120):
             for stream in (child.stdout,child.stderr):stream.close()
 
 
-def require_command(argv,**kwargs):
-    code,raw=bounded(argv,**kwargs);c.require(code==0,'CI_PRIVATE_COMMAND_RED');return raw
+def require_command(argv,*,git_phase=None,**kwargs):
+    c.require(git_phase is None or git_phase in GIT_PHASES,'CI_PRIVATE_COMMAND_RED')
+    code,raw=bounded(argv,**kwargs)
+    if code!=0 and git_phase is not None:raise PrivateGitFailure(git_phase,code,raw)
+    c.require(code==0,'CI_PRIVATE_COMMAND_RED');return raw
 
 
 def private_root(parent,workspace):
@@ -166,10 +196,10 @@ def fetch_capsule(private,token):
     fetch_env={**tool_env(),'GIT_ASKPASS':str(ask),'CONTROL_POLICY_READ_TOKEN':token}
     git=['/usr/bin/git','--no-optional-locks','-C',str(source),'-c','core.hooksPath=/dev/null']
     try:
-        require_command(git+['init','--bare','-q'],env=tool_env())
-        require_command(git+['remote','add','origin',c.TARGET['repository']],env=tool_env())
+        require_command(git+['init','--bare','-q'],git_phase='GIT_INIT',env=tool_env())
+        require_command(git+['remote','add','origin',c.TARGET['repository']],git_phase='REMOTE_ADD',env=tool_env())
         # Only exact target and its required ancestry, no arbitrary branches.
-        require_command(git+['fetch','--no-tags','origin',c.TARGET['commit']],env=fetch_env,timeout=180)
+        require_command(git+['fetch','--no-tags','origin',c.TARGET['commit']],git_phase='PINNED_FETCH',env=fetch_env,timeout=180)
     finally:
         fetch_env.pop('CONTROL_POLICY_READ_TOKEN',None)
         ask.unlink(missing_ok=True)
@@ -231,6 +261,9 @@ def run(workspace,image):
         code=str(error)
         result={'green':False,'code':code if isinstance(error,c.RecoveryError) and code in PUBLIC_ERRORS
                 else 'CONTROL_PRIVATE_CI_RED'}
+        if type(error) is PrivateGitFailure:
+            diagnostic=error.public_diagnostic()
+            if diagnostic is not None:result['git_diagnostic']=diagnostic
     finally:
         try:
             if container is not None:cleanup_container(container,owner)

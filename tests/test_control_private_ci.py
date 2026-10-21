@@ -20,18 +20,18 @@ import tu1nz_control_recovery_freeze as f
 
 class PrivateCI(unittest.TestCase):
     def test_only_exact_declared_source_prs_are_eligible_not_generic_same_repo(self):
-        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236)))
+        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237)))
         with tempfile.TemporaryDirectory() as d:
             event=Path(d)/'event.json'
             env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':p.REPOSITORY,
                  'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
                  'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':'1'*40}
-            for number in (225,226,227,228,229,230,231,232,233,234,235,236,237,999,'226','227','228','229','230','231','232','233','234','235','236',True):
+            for number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,999,'226','227','228','229','230','231','232','233','234','235','236','237',True):
                 data={'number':number,'pull_request':{'head':{'repo':{'full_name':p.REPOSITORY},'sha':'1'*40}}}
                 event.write_text(json.dumps(data))
                 with patch.object(p.subprocess,'run',side_effect=lambda argv,**kw:subprocess.CompletedProcess(
                         argv,0,b'1'*40+b'\n' if 'rev-parse' in argv else b'')):
-                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236):
+                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237):
                         self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                     else:
                         with self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
@@ -192,6 +192,53 @@ with p.interrupted():
             secret_calls=[args for args,env in calls if 'CONTROL_POLICY_READ_TOKEN' in env]
             self.assertEqual(len(secret_calls),1);self.assertIn('fetch',secret_calls[0])
             self.assertEqual(sha,c.digest(raw))
+
+    def test_git_failure_phase_exit_category_and_cleanup_without_raw_output(self):
+        samples=(
+            (b'fatal: Authentication failed for SYNTHETIC_PRIVATE_CANARY','AUTHENTICATION_REJECTED'),
+            (b'remote: Repository not found. SYNTHETIC_PRIVATE_CANARY','REMOTE_NOT_FOUND_OR_UNAUTHORIZED'),
+            (b'Could not resolve host: SYNTHETIC_PRIVATE_CANARY','NAME_RESOLUTION_FAILURE'),
+            (b'SSL certificate problem: SYNTHETIC_PRIVATE_CANARY','TLS_VERIFICATION_FAILURE'),
+            (b'SYNTHETIC_PRIVATE_CANARY github_pat_SYNTHETIC_ONLY','UNKNOWN'),
+            (b'fatal: Authentication failed\nCould not resolve host: CANARY','UNKNOWN'))
+        for failed_index,phase in enumerate(('GIT_INIT','REMOTE_ADD','PINNED_FETCH')):
+            for raw,category in samples:
+                with self.subTest(phase=phase,category=category),tempfile.TemporaryDirectory() as d:
+                    base=Path(d).resolve();work=base/'work';work.mkdir();temp=base/'temp';temp.mkdir()
+                    out=io.StringIO();err=io.StringIO()
+                    responses=[(0,b'')]*failed_index+[(128,raw)]
+                    with patch.dict(os.environ,{'RUNNER_TEMP':str(temp),'CONTROL_POLICY_READ_TOKEN':'github_pat_SYNTHETIC_ONLY'}),\
+                         patch.object(p,'runtime_binding',return_value='1'*40),\
+                         patch.object(p,'bounded',side_effect=responses) as child,\
+                         patch.object(p,'build_capsule') as capsule,\
+                         contextlib.redirect_stdout(out),contextlib.redirect_stderr(err):
+                        self.assertEqual(p.run(work,'image'),1)
+                    self.assertEqual(json.loads(out.getvalue()),{'green':False,
+                        'code':'CONTROL_RECOVERY_CI_PRIVATE_COMMAND_RED',
+                        'git_diagnostic':{'phase':phase,'returncode':128,'category':category}})
+                    self.assertEqual(child.call_count,failed_index+1);capsule.assert_not_called()
+                    self.assertEqual(list(temp.iterdir()),[])
+                    self.assertNotIn('CANARY',out.getvalue()+err.getvalue())
+                    self.assertNotIn('github_pat',out.getvalue()+err.getvalue())
+                    self.assertEqual(err.getvalue(),'')
+
+    def test_git_diagnostic_success_unknown_signal_and_invalid_metadata(self):
+        with patch.object(p,'bounded',return_value=(0,b'SYNTHETIC_PRIVATE_CANARY')):
+            self.assertEqual(p.require_command(['synthetic'],git_phase='GIT_INIT'),b'SYNTHETIC_PRIVATE_CANARY')
+        with patch.object(p,'bounded',return_value=(-9,b'SYNTHETIC_PRIVATE_CANARY')):
+            with self.assertRaises(p.PrivateGitFailure) as caught:
+                p.require_command(['synthetic'],git_phase='PINNED_FETCH')
+            self.assertEqual(caught.exception.public_diagnostic(),
+                             {'phase':'PINNED_FETCH','returncode':-9,'category':'UNKNOWN'})
+            with self.assertRaises(c.RecoveryError) as generic:p.require_command(['synthetic'])
+            self.assertIs(type(generic.exception),c.RecoveryError)
+        with patch.object(p,'bounded') as child,self.assertRaises(c.RecoveryError):
+            p.require_command(['synthetic'],git_phase='SYNTHETIC_PRIVATE_CANARY')
+        child.assert_not_called()
+        for attr,value in (('phase','SYNTHETIC_PRIVATE_CANARY'),('returncode',True),
+                           ('returncode',0),('returncode',256),('category','SYNTHETIC_PRIVATE_CANARY')):
+            error=p.PrivateGitFailure('GIT_INIT',128,b'')
+            setattr(error,attr,value);self.assertIsNone(error.public_diagnostic())
 
     def test_cleanup_failure_cannot_report_green(self):
         with tempfile.TemporaryDirectory() as d:

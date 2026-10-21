@@ -14,7 +14,9 @@ This removes no R1 tool/origin, Source kernel/PID1/SSH/admin/DB TCB, old-cache,
 writer, private-custody, snapshot, restore or FINAL gate. Unknown remains HOLD.
 Only the later explicit user risk decision19.10.2026 in R1 section1 and
 B_PRECOPY_ONCE_R1.txt substitutes observed Source data authority for individually
-proven Source platform/admin/backend/cache origin, for B-PRECOPY-20261019-1 only.
+proven Source platform/admin/backend/cache origin, for B-PRECOPY-20261021-2 only
+(ID-only Source order21.10.2026). Previous B-PRECOPY-20261019-1 stays consumed;
+its evidence is preserved and no execution/window approval carries over.
 This is NOT a client trust waiver or a general allowance for unknown evidence.
 
 2. AUTHENTIC CLIENT / LOCAL PLATFORM
