@@ -30,7 +30,7 @@ import tu1nz_b_mac_reader as m
 import tu1nz_b_data_handoff as b
 from tu1nz_b_precopy_catalog import catalog_sql
 
-ID='B-PRECOPY-20261019-1'
+ID='B-PRECOPY-20261021-2'
 SUFFIX='public-production-host-r4-20261017/b-data-writer-source-20261018/dependency-extension-20261018T131302Z/fixture-fix-20261018T141735Z/B-PG17-MAC-ADMISSION-1'
 STAGE=Path('/Users/daniel/Developer/tu1nz')/SUFFIX
 BACKUP=Path('/Users/daniel/.codex/backups')/SUFFIX

@@ -1,7 +1,8 @@
-B-PRECOPY-20261019-1 — FIXED PRIVATE ACQUISITION, NOT EXECUTION AUTHORITY
+B-PRECOPY-20261021-2 — FIXED PRIVATE ACQUISITION, NOT EXECUTION AUTHORITY
 
 1. EXACT EXCEPTION / LIMIT
-Implements the user's19.10.2026 risk decision and ONLY the R1 section1 exception.
+Retains the user's19.10.2026 risk model with the ID-only Source order21.10.2026
+and ONLY the R1 section1 exception; this is not data-execution authority.
 Source platform, transport-side Linux/kernel/admin/backend/cache and the fixed
 already approved DSN reader are accepted as an observed data supplier. Neither
 individual platform origin nor historical data truth is proved. A malicious
@@ -9,11 +10,14 @@ Source/admin can fabricate mutually consistent rows/catalogs/hashes. Accepting
 that risk is not a R5 cache admission, general Source trust, FINAL, stop, restore,
 migration or publication approval. All other R1/Mac-profile protections remain.
 
-Capture ID B-PRECOPY-20261019-1; exactly ONE create-only attempt marker, including
+Capture ID B-PRECOPY-20261021-2; exactly ONE create-only attempt marker, including
 authentication/early failure. Its approval ends on completion/abort or window
 end. No repeat after partial failure, credential failure, crash or SIGKILL; no
 marker reset/new window for this ID. A future different attempt needs its own
 explicit decision. Source authorization alone does not grant this attempt.
+Previous B-PRECOPY-20261019-1 was consumed/PARTIAL_HOLD while awaiting local
+input. Its marker/window/results and every other old artifact remain untouched;
+no reset, resume, reuse of old paths or renewal of that attempt is permitted.
 
 2. SOURCE / SELECTION / TOOLS
 SSH chatops@100.121.130.51:22, existing strict Hostkey/Tailscale path; only a
@@ -31,7 +35,7 @@ transaction is explicitly read-only. No Source SQL writes or Writer freedom.
 
 Use scripts/tu1nz_b_precopy_once.py, tu1nz_b_precopy_catalog.py and unchanged
 Mac reader/data-handoff compiler/verifier from the SAME explicitly approved
-clean Source commit/tree. Frozen9f494575c3a36c73412c3ee4197919a8e6f23a30/r3
+clean Source commit/tree. Frozen90842fd20453d49e8f7820d26c77a4f8ea4660c1/r4
 remains prior evidence, not a claim that this delta was already reviewed/merged.
 App93555d8a141caf8ace33522f9340d30bfc47d2bb; authentic15-file R2 schema recipe
 unchanged. Historical optional canary index stays observed on Source, not added
@@ -63,8 +67,8 @@ credentials or known excluded files. Business text/JSONb has NOT been inspected
 or proved secret-free. Entire payload confidential/quarantined; no new scanner.
 
 3. EXACT LOCAL TARGETS / BOUNDS
-A /Users/daniel/Developer/tu1nz/public-production-host-r4-20261017/b-data-writer-source-20261018/dependency-extension-20261018T131302Z/fixture-fix-20261018T141735Z/B-PG17-MAC-ADMISSION-1/export-data/B-PRECOPY-20261019-1
-B /Users/daniel/.codex/backups/public-production-host-r4-20261017/b-data-writer-source-20261018/dependency-extension-20261018T131302Z/fixture-fix-20261018T141735Z/B-PG17-MAC-ADMISSION-1/export-data/B-PRECOPY-20261019-1
+A /Users/daniel/Developer/tu1nz/public-production-host-r4-20261017/b-data-writer-source-20261018/dependency-extension-20261018T131302Z/fixture-fix-20261018T141735Z/B-PG17-MAC-ADMISSION-1/export-data/B-PRECOPY-20261021-2
+B /Users/daniel/.codex/backups/public-production-host-r4-20261017/b-data-writer-source-20261018/dependency-extension-20261018T131302Z/fixture-fix-20261018T141735Z/B-PG17-MAC-ADMISSION-1/export-data/B-PRECOPY-20261021-2
 Same FileVault Mac/APFS ECFACD2D-F578-438F-858D-C555E109DCF1; NOT independent
 failure domains or sufficient future operational backup. User accepted this
 for quarantined PRECOPY only. Local UID501/root/admin custody is an explicit
@@ -121,11 +125,11 @@ before FINISH PRECOPY_BYTES_CHECKED_NOT_RESTORED. Hashes mean copied bytes only.
 No actual production rows/counts/snapshot/dump have been obtained by Source tests.
 
 5. APPROVAL FORMAT / EXECUTION / FAILURE / CUSTODY
-Window proposal ONLY:20.10.2026 10:00–10:15MESZ (08:00–08:15UTC), no current
-execution authority. Later user must explicitly approve this ID, final Source
+Execution window NOT DETERMINED. The old ID's expired20.10/21.10 proposals
+grant no new authority. Later user must explicitly approve this ID, final Source
 commit/tree, scope and concrete window; machine JSON is not self-authorization.
 Keep approval JSON outside payload, exact fields only:
-schema=TU1NZ_B_PRECOPY_EXECUTION_WINDOW_V1, capture_id=B-PRECOPY-20261019-1,
+schema=TU1NZ_B_PRECOPY_EXECUTION_WINDOW_V1, capture_id=B-PRECOPY-20261021-2,
 window_start/end ISO8601 with timezone, duration300..900s; source_commit/tree
 exact final reviewed/released40hex; selection_sha256/schema_reference_sha256/
 client_manifest_sha256 as above; targets=[A,B], same_volume_risk_accepted=true.
@@ -136,6 +140,16 @@ Exact later entry from approved clean repository:
  --approval /ABSOLUTE/APPROVED-EXTERNAL-WINDOW.json --approval-sha256 EXACT_SHA256
 The approval filename/hash are fixed in the final private execution decision,
 not embedded as fake pre-approved values in this Source-only contract.
+Before selecting a window, establish that the human is at the Mac, can use the
+local Terminal and has the existing chatops sudo password available, without
+requesting/storing that password. A public-text-only local TTY demonstration
+is not authentication and may precede approval; it has no Source/DSN/DB/tunnel
+or capture marker. Human confirmation is evidence; an optional demonstration
+receipt is not a new admission gate or permanent presence guarantee. At actual
+start require final Source/scope approval, a valid explicitly approved window
+AND current confirmed input readiness together. Actual getpass/credential use
+stays inside that window AFTER the attempt marker, exactly as implemented;
+no early authentication or reversal of protected order is introduced.
 Generated .attempt.jsonl/.receipt.json/.manifest.json are create-only siblings
 under STAGE (the A path without /export-data/ID); no self-replacing complete label.
 Attempt journal fsyncs owned child PID/parent/time/argv hash BEFORE any secret.
