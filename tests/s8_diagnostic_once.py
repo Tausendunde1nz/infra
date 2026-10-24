@@ -186,14 +186,14 @@ class ForeignMetadataControl(unittest.TestCase):
                 os.close(listener)
 
 
-def main():
+def main(measurement="s8-measure-20261019-1"):
     if not (sys.platform == "linux" and os.geteuid() == 0
             and os.environ.get("container") == "docker" and Path("/.dockerenv").is_file()
             and Path("/proc/1/comm").read_text().strip() == "systemd"):
         raise SystemExit("S8_DIAGNOSTIC_ISOLATED_PID1_REQUIRED")
     trace = Trace()
     trace.note("profile", kernel=platform.release(), architecture=platform.machine(),
-               measurement="s8-measure-20261019-1", synthetic=True)
+               measurement=measurement, synthetic=True)
     class Result(unittest.TextTestResult):
         def startTest(self, test):
             trace.case = test.id(); trace.note("case_begin"); super().startTest(test)

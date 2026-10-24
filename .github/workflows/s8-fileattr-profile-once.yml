@@ -1,0 +1,31 @@
+name: S8 finite fileattr profile comparison
+
+on:
+  push:
+    branches: [codex/s8-profile-20261024]
+    paths: [tests/s8_fileattr_profile_probe.py]
+
+permissions:
+  contents: read
+
+jobs:
+  s8-profile-once:
+    if: >-
+      github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'S8: measure fileattr profile s8-fileattr-profile-20261024-1')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Bound source and synthetic observer regressions
+        env:
+          BOUND_SOURCE: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$BOUND_SOURCE"
+          printf 'S8_PROFILE_SOURCE %s\n' "$BOUND_SOURCE"
+          printf 'S8_PROFILE_RUNNER %s %s %s %s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion"
+          python3 -B -m unittest -v tests.test_s8_fork_child tests.test_s8_diagnostic_observer tests.test_s8_fileattr_profile_probe
+      - name: One finite paired profile and unchanged guard sequence
+        run: bash tests/s8_fileattr_profile_native.sh
