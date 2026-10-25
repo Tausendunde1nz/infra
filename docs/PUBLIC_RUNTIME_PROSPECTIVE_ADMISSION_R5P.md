@@ -159,7 +159,7 @@ Byte receipts `TU1NZ_PUBLIC_BYTE_ORIGIN_V1` are explicitly separate:
 `schema,basis,source_evidence_sha256,objects` (path→byteSHA256,1..512 entries).
 Basis for executable/Stdlib/DSO inputs is PUBLISHER or GIT only; all actual
 actor binaries and exact probe/operator closure must be covered. Four Unit
-bytes use GIT. Existing other static /etc files may use PUBLISHER/GIT/PRIOR_RECORD;
+bytes use GIT. Existing other non-executable static /etc files may use PUBLISHER/GIT/PRIOR_RECORD;
 other baseline paths still require PUBLISHER/GIT (never a prior-record byte waiver).
 The existing cache uses CACHE_DERIVATION, retaining its closed independent
 input-coverage/MATCH evidence; no historical cache-creation requirement.

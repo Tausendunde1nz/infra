@@ -322,7 +322,8 @@ def prospective_binding(scope, baseline, actual):
     for path, row in baseline['files'].items():
         if path in host_paths or path in PROSPECTIVE_UNITS: continue
         allowed=(('CACHE_DERIVATION',) if path == '/etc/ld.so.cache' else
-                 ('PUBLISHER','GIT','PRIOR_RECORD') if path.startswith('/etc/') else ('PUBLISHER','GIT'))
+                 ('PUBLISHER','GIT','PRIOR_RECORD') if path.startswith('/etc/') and not row['mode']&0o111
+                 else ('PUBLISHER','GIT'))
         byte_origin(row['origin_sha256'],path,row['sha256'],allowed)
     metadata = binding['metadata']
     required_meta = set(host_paths) | set(PROSPECTIVE_UNITS) | set(execution) | {'/etc/ld.so.cache'}
