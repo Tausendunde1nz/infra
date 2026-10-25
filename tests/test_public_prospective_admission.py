@@ -171,6 +171,12 @@ class ProspectiveAdmission(unittest.TestCase):
         def wrong(x,y,b,a):
             alias(x,y,b,a);x['names']['/bin']['target']='usr/sbin'
         with self.assertRaisesRegex(io.Hold,'ALIAS_SOURCE'):self.check(self.fixture(wrong))
+        def probe_conflict(x,y,b,a):
+            b['source_release']['probe_dependencies']['/bin/python3.12']=dict(
+                b['source_release']['probe_dependencies']['/usr/bin/python3.12'])
+            x['metadata']['/bin/python3.12']=dict(x['metadata']['/usr/bin/python3.12'],mode=0o700)
+            x['names']['/bin']=dict(kind='link',uid=0,gid=0,mode=0o777,attrs={},target='usr/bin')
+        with self.assertRaisesRegex(io.Hold,'METADATA_ALIAS_CONFLICT'):self.check(self.fixture(probe_conflict))
 
     def test_actual_name_comparison_is_additional_and_fail_closed(self):
         # Method contract with synthetic Paths only; not actual Linux/Host admission.

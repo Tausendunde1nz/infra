@@ -335,7 +335,12 @@ def prospective_binding(scope, baseline, actual):
         if expected is not None:
             require(row == {k:expected[k] for k in row}, 'PROSPECTIVE_METADATA_DRIFT')
         if path=='/etc/ld.so.cache':require(not row['mode']&0o111,'PROSPECTIVE_CACHE_METADATA')
-    prospective_names(binding, baseline)
+    resolved=prospective_names(binding, baseline);canonical_metadata={}
+    for path,row in metadata.items():
+        name=resolved[path]
+        require(name not in canonical_metadata or canonical_metadata[name]==row,
+                'PROSPECTIVE_METADATA_ALIAS_CONFLICT')
+        canonical_metadata[name]=row
     require(sum(len(actual[h]) for h in used) <= 1024*1024, 'PROSPECTIVE_MATERIAL_BOUND')
     return {h:actual[h] for h in used}
 
@@ -388,7 +393,7 @@ def prospective_names(binding, baseline):
             type(row['mode']) is int and 0<=row['mode']<=0o777 and not row['mode']&0o022 and
             row['attrs']=={} and type(row['flags']) is int and row['flags'] in (0,0x1000,0x80000,0x81000),
             'PROSPECTIVE_DIRECTORY_PROFILE')
-    return files
+    return resolved
 
 
 def prospective_packet_material(packet):
