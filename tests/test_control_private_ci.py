@@ -20,22 +20,64 @@ import tu1nz_control_recovery_freeze as f
 
 class PrivateCI(unittest.TestCase):
     def test_only_exact_declared_source_prs_are_eligible_not_generic_same_repo(self):
-        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238)))
+        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239)))
         with tempfile.TemporaryDirectory() as d:
             event=Path(d)/'event.json'
             env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':p.REPOSITORY,
                  'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
                  'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':'1'*40}
-            for number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,999,'226','227','228','229','230','231','232','233','234','235','236','237','238',True):
+            for number in (224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,999,'226','227','228','229','230','231','232','233','234','235','236','237','238','239',True):
                 data={'number':number,'pull_request':{'head':{'repo':{'full_name':p.REPOSITORY},'sha':'1'*40}}}
                 event.write_text(json.dumps(data))
                 with patch.object(p.subprocess,'run',side_effect=lambda argv,**kw:subprocess.CompletedProcess(
                         argv,0,b'1'*40+b'\n' if 'rev-parse' in argv else b'')):
-                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238):
+                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239):
                         self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                     else:
                         with self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
                             p.runtime_binding(env,Path(d))
+
+    def test_pr239_requires_repository_event_sha_and_clean_source_bindings(self):
+        with tempfile.TemporaryDirectory() as d:
+            event=Path(d)/'event.json'
+            data={'number':239,'pull_request':{'head':{'repo':{'full_name':p.REPOSITORY},'sha':'1'*40}}}
+            event.write_text(json.dumps(data))
+            env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':p.REPOSITORY,
+                 'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
+                 'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':'1'*40}
+            clean=lambda argv,**kw:subprocess.CompletedProcess(
+                argv,0,b'1'*40+b'\n' if 'rev-parse' in argv else b'')
+            with patch.object(p.subprocess,'run',side_effect=clean) as process:
+                self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
+                for key,value,code in (
+                        ('GITHUB_ACTIONS','false','CI_PLATFORM_BINDING_RED'),
+                        ('GITHUB_REPOSITORY','foreign/repository','CI_PLATFORM_BINDING_RED'),
+                        ('CONTROL_PRIVATE_ENVIRONMENT','foreign','CI_PLATFORM_BINDING_RED'),
+                        ('GITHUB_EVENT_NAME','pull_request_target','CI_EVENT_RED'),
+                        ('GITHUB_EVENT_NAME','workflow_dispatch','CI_EVENT_RED'),
+                        ('EXPECTED_SOURCE_SHA','2'*40,'CI_SOURCE_SHA_RED')):
+                    with self.subTest(key=key,value=value),self.assertRaisesRegex(c.RecoveryError,code):
+                        p.runtime_binding({**env,key:value},Path(d))
+                data['pull_request']['head']['repo']['full_name']='foreign/fork'
+                event.write_text(json.dumps(data))
+                with self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
+                    p.runtime_binding(env,Path(d))
+                data['pull_request']['head']['repo']['full_name']=p.REPOSITORY
+                for sha in ('2'*40,'1'*39):
+                    data['pull_request']['head']['sha']=sha;event.write_text(json.dumps(data))
+                    with self.subTest(sha=sha),self.assertRaisesRegex(c.RecoveryError,'CI_SOURCE_SHA_RED'):
+                        p.runtime_binding(env,Path(d))
+                data['pull_request']['head']['sha']='1'*40;event.write_text(json.dumps(data))
+                process.side_effect=lambda argv,**kw:subprocess.CompletedProcess(argv,0,b'2'*40+b'\n')
+                with self.assertRaisesRegex(c.RecoveryError,'CI_SOURCE_SHA_RED'):
+                    p.runtime_binding(env,Path(d))
+                for dirty_command in ('status','ls-files'):
+                    process.side_effect=lambda argv,**kw:subprocess.CompletedProcess(
+                        argv,0,b'changed' if dirty_command in argv else
+                        b'1'*40+b'\n' if 'rev-parse' in argv else b'')
+                    with self.subTest(dirty_command=dirty_command),self.assertRaisesRegex(
+                            c.RecoveryError,'CI_SOURCE_WORKING_SET_RED'):
+                        p.runtime_binding(env,Path(d))
 
     def test_private_location_and_finite_cleanup(self):
         with tempfile.TemporaryDirectory() as d:
