@@ -91,11 +91,16 @@ census remain compulsory; these maxima do not waive the original rules.
 
 ### B-M: selected metadata and no-follow namespace graph
 
-`metadata` is exactly B-H + four Unitfiles + operator_dependency alias rows;
-it repeats the corresponding exact baseline metadata, not a second looser set.
+`metadata` is exactly B-H + four Unitfiles + cache + every canonical actor/
+probe/operator executable, Stdlib/DSO source and dependency alias row. Existing
+baseline/operator rows must match; additional selected TCB rows have exact
+annex values, not a second looser set.
 Operator executables/DSOs may have execute bits but never group/other write;
 uid/gid0:0,attrs empty,flags0/0x80000. Their **bytes** retain Publisher/Git origin.
-Other existing byte-origin/metadata rows are not converted to prospective rows.
+This does not convert other application configuration rows to prospective rows.
+The cache remains non-executable. Every selected regular metadata row is compared
+before claim and freshly on the existing loader checks, including filesystem
+flags; alias rows must agree on their canonical file. No optional partial set.
 
 `names` is the exact no-follow directory/link graph derived from all baseline
 files, all actor/probe/operator executable inputs, dependency aliases and all

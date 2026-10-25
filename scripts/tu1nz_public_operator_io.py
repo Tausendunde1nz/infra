@@ -321,12 +321,16 @@ def prospective_binding(scope, baseline, actual):
                  ('PUBLISHER','GIT','PRIOR_RECORD') if path.startswith('/etc/') else ('PUBLISHER','GIT'))
         byte_origin(row['origin_sha256'],path,row['sha256'],allowed)
     metadata = binding['metadata']
-    required_meta = set(host_paths) | set(PROSPECTIVE_UNITS) | set(baseline['source_release']['operator_dependencies'])
+    required_meta = set(host_paths) | set(PROSPECTIVE_UNITS) | set(execution) | {'/etc/ld.so.cache'}
+    for rows in (baseline['source_release']['operator_dependencies'],baseline['source_release']['probe_dependencies']):
+        required_meta.update(rows)
     require(type(metadata) is dict and set(metadata) == required_meta, 'PROSPECTIVE_METADATA_SET')
     for path, row in metadata.items():
         secure_metadata(row)
         expected = baseline['files'].get(path, baseline['source_release']['operator_dependencies'].get(path))
-        require(row == {k:expected[k] for k in row}, 'PROSPECTIVE_METADATA_DRIFT')
+        if expected is not None:
+            require(row == {k:expected[k] for k in row}, 'PROSPECTIVE_METADATA_DRIFT')
+        if path=='/etc/ld.so.cache':require(not row['mode']&0o111,'PROSPECTIVE_CACHE_METADATA')
     prospective_names(binding, baseline)
     require(sum(len(actual[h]) for h in used) <= 1024*1024, 'PROSPECTIVE_MATERIAL_BOUND')
     return {h:actual[h] for h in used}

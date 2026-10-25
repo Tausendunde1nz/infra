@@ -522,6 +522,12 @@ class ReplacementAuthority(Authority):
                 identity,target=self.loader_aliases[(parent,leaf)]
                 io.require(identity[2:5]==(expected['uid'],expected['gid'],stat.S_IFLNK|expected['mode']) and
                     target==expected['target'],'PROSPECTIVE_ALIAS_DRIFT')
+        metadata={}
+        for path,expected in binding['metadata'].items():
+            canonical=self.bind_loader_path(path)
+            io.require(canonical not in metadata or metadata[canonical]==expected,'PROSPECTIVE_METADATA_ALIAS_CONFLICT')
+            metadata[canonical]=expected
+        self.prospective_metadata=metadata
         self.check_loader_paths()
 
     def open_runtime(self, baseline, paths, deadline):
@@ -687,6 +693,16 @@ class ReplacementAuthority(Authority):
                 os.readlink(leaf,dir_fd=fd)==target and
                 not os.listxattr('/proc/self/fd/'+str(fd)+'/'+leaf,follow_symlinks=False),
                 'REPLACEMENT_LOADER_ALIAS_CHANGED')
+        # Exact prospective TCB metadata is NOT inferred from Publisher bytes.
+        # Existing held parents/name watches remain active; regular flags also
+        # need fresh inspection (not all ioctl changes have inotify semantics).
+        for path,expected in getattr(self,'prospective_metadata',{}).items():
+            fd=os.open(Path(path).name,READ,dir_fd=self.paths.get(str(Path(path).parent)))
+            try:
+                row=self.paths.d.metadata(fd)
+                io.require(all(row[k]==expected[k] for k in ('uid','gid','mode','attrs','flags')),
+                           'PROSPECTIVE_FILE_METADATA_DRIFT')
+            finally:os.close(fd)
         self.paths.check()  # rename-and-return is latched, not just final identity
 
     def bind_loader_path(self,path):

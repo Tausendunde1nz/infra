@@ -32,6 +32,7 @@ class ProspectiveAdmission(unittest.TestCase):
         execution={'/usr/bin/busctl':'a'*64,'/usr/bin/python3.12':'b'*64,
             '/usr/lib/systemd/systemd':'c'*64,'/usr/sbin/nginx':'e'*64}
         exec_origin=origin('PUBLISHER',execution)
+        cache_hash='f'*64;cache_origin=origin('CACHE_DERIVATION',{'/etc/ld.so.cache':cache_hash})
         actors=[]
         for role,exe in [('kernel_manager','/usr/lib/systemd/systemd'),
             ('authenticated_maintenance','/usr/bin/python3.12'),
@@ -62,6 +63,8 @@ class ProspectiveAdmission(unittest.TestCase):
             metadata={p:{k:v for k,v in r.items() if k!='sha256'} for p,r in {**files,**units}.items()},
             execution_origins={p:exec_origin for p in execution},names=names)
         binding['metadata']['/usr/bin/busctl']=meta(0o755)
+        binding['metadata'].update({p:meta(0o755) for p in execution})
+        binding['metadata']['/etc/ld.so.cache']=meta()
         scope=dict(schema=io.PROSPECTIVE_SCOPE,machine_sha256=b['machine_sha256'],transaction=binding['transaction'],
                    release_sha256='5'*64,owner_plan_sha256='6'*64)
         acceptance=dict(schema=io.PROSPECTIVE_ACCEPTANCE,binding_sha256='',machine_sha256=b['machine_sha256'],
@@ -73,6 +76,7 @@ class ProspectiveAdmission(unittest.TestCase):
         scope.update(prospective_binding_sha256=bh,prospective_acceptance_sha256=ah)
         b['files']={p:dict(r,origin_sha256=bh) for p,r in files.items()}
         b['files'].update({p:dict(r,origin_sha256=unit_origin) for p,r in units.items()})
+        b['files']['/etc/ld.so.cache']=dict(sha256=cache_hash,origin_sha256=cache_origin,**meta())
         b['actors']=[dict(a['profile'],origin_sha256=bh) for a in actors]
         b['source_origin_receipts']=sorted(actual)
         return scope,b,actual
@@ -174,12 +178,29 @@ class ProspectiveAdmission(unittest.TestCase):
             import tu1nz_public_runtime_transition as transition
         s,b,a=self.fixture();binding=io.parse(a[s['prospective_binding_sha256']])
         subject=transition.ReplacementAuthority.__new__(transition.ReplacementAuthority)
-        subject.b=b;subject.paths=Mock();subject.bind_loader_path=Mock();subject.check_loader_paths=Mock()
+        subject.b=b;subject.paths=Mock();subject.bind_loader_path=Mock(side_effect=lambda p:p);subject.check_loader_paths=Mock()
         subject.paths.rows={p:(None,dict(r)) for p,r in binding['names'].items()}
         subject.admit_prospective_names(binding)
-        self.assertEqual(subject.bind_loader_path.call_count,len(io.prospective_names(binding,b)))
+        self.assertEqual(subject.bind_loader_path.call_count,len(io.prospective_names(binding,b))+len(binding['metadata']))
         subject.paths.rows['/usr'][1]['mode']=0o777
         with self.assertRaisesRegex(io.Hold,'DIRECTORY_DRIFT'):subject.admit_prospective_names(binding)
+
+    def test_cache_actor_probe_metadata_coverage_and_fresh_flags(self):
+        for path in ('/etc/ld.so.cache','/usr/sbin/nginx','/usr/bin/python3.12'):
+            def omit(x,y,b,a):x['metadata'].pop(path)
+            with self.subTest(path=path),self.assertRaisesRegex(io.Hold,'METADATA_SET'):self.check(self.fixture(omit))
+        with patch.object(os,'O_NOATIME',getattr(os,'O_NOATIME',0),create=True):
+            import tu1nz_public_runtime_transition as transition
+        subject=transition.ReplacementAuthority.__new__(transition.ReplacementAuthority)
+        expected=dict(uid=0,gid=0,mode=0o755,attrs={},flags=0)
+        subject.paths=Mock();subject.paths.get.return_value=7;subject.loader_aliases={}
+        subject.prospective_metadata={'/usr/sbin/nginx':expected};subject.paths.d.metadata.return_value=expected
+        with patch.object(transition.os,'open',return_value=8),patch.object(transition.os,'close') as close:
+            subject.check_loader_paths();close.assert_called_once_with(8)
+        subject.paths.d.metadata.return_value=dict(expected,flags=16)
+        with patch.object(transition.os,'open',return_value=8),patch.object(transition.os,'close') as close:
+            with self.assertRaisesRegex(io.Hold,'FILE_METADATA_DRIFT'):subject.check_loader_paths()
+            close.assert_called_once_with(8)
 
     def test_client_requires_private_material_before_success(self):
         s,b,a=self.fixture();artifact={'synthetic':'NOT_HOST_ADMISSION'};raw=io.canonical(artifact);h=io.sha(raw)
