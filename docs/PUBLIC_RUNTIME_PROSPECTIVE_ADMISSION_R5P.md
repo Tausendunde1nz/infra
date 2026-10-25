@@ -166,7 +166,10 @@ complete consumption/alias coverage. U1/full TCB is not waived by R5P.
 
 Binding/acceptance are validated locally **before** successful no-execute output
 and repeated remotely **before** adapter/claim; exact graph/profile observations
-then occur before the client custody claim. Selected evidence is carried once
+then occur before the client custody claim. Acceptance validity is rechecked
+after preparation and at client custody/
+claim handling, so read-only preparation cannot consume an expired approval.
+Selected evidence is carried once
 as private framed base64; full Runtime receipt is not needlessly duplicated.
 Old scopes cannot carry new prospective receipts; removing the R5P schema cannot
 authorize these new prospective origins. No actual annex is shipped here.

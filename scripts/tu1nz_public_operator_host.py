@@ -696,10 +696,13 @@ def session(source, packet, wire):
         adapter_type=source.load('replacement').ReplacementAdapter if replacement else Adapter
         adapter = adapter_type.__new__(adapter_type)
         adapter.__init__(source, packet['baseline'], plan, channel, packet['binding'], deadline=wire.deadline)
-        if prospective:adapter.a.admit_prospective_names(prospective_binding)
+        if prospective:
+            adapter.a.admit_prospective_names(prospective_binding)
+            io.prospective_packet_material(packet)  # admission may expire during read-only preparation
         wire.send({'type': 'prepared', 'binding': packet['binding']})
         io.require(wire.receive() == {'type': 'client_custody_created', 'binding': packet['binding']},
                    'FIXED_CLIENT_CUSTODY_NOT_CREATED')
+        if prospective:io.prospective_packet_material(packet)
         claimed = True
         channel.record('prestate_read_witness', adapter.read_witness)
         flow = r.Flow(adapter, RemoteJournal(channel, packet['binding']))

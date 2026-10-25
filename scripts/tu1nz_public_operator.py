@@ -186,13 +186,18 @@ def validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw):
 
 
 class Client:
-    def __init__(self, wire, r3, binding, *, http_expectations, owner_hold_before=None, runtime_payload=None):
+    def __init__(self, wire, r3, binding, *, http_expectations, owner_hold_before=None, runtime_payload=None,
+                 admission_packet=None):
         self.wire, self.r, self.binding = wire, r3, binding
         self.journal = None; self.fd = None; self.records = {}; self.last = binding; self.sequence = 0
         self.http_expectations = http_expectations
         self.owner_hold_before = owner_hold_before
         self.runtime_payload=runtime_payload;self.runtime_next=0
         self.runtime_payload_sha256=io.sha(runtime_payload) if runtime_payload is not None else None
+        self.admission_packet=admission_packet
+
+    def admission_current(self):
+        if self.admission_packet is not None:io.prospective_packet_material(self.admission_packet)
 
     def initialize(self):
         parent = self.r.CUSTODY_PARENT
@@ -223,6 +228,7 @@ class Client:
             if kind == 'prepared':
                 io.require(set(message) == {'type', 'binding'} and message['binding'] == self.binding and
                            self.journal is None, 'PREPARED_BINDING_OR_REPLAY')
+                self.admission_current()
                 self.initialize()
                 self.wire.send({'type': 'client_custody_created', 'binding': self.binding})
             elif kind == 'durable_record':
@@ -232,7 +238,8 @@ class Client:
                            'HASH_LINK_OR_SEQUENCE_RED')
                 name = str(row['sequence']).zfill(3)+'-'+row['kind']+'.json'
                 io.exclusive(self.fd, name, raw); self.records[name] = raw
-                if row['kind'] == 'flow_claim': self.journal.claim()
+                if row['kind'] == 'flow_claim':
+                    self.admission_current(); self.journal.claim()
                 elif row['kind'].startswith('flow_'):
                     self.journal.write(row['kind'][5:], row['value'])
                 self.last = message['sha256']; self.sequence = row['sequence']; self.check()
@@ -448,7 +455,8 @@ def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None, ru
         http = [e for u in (*r3.UNITS, 'lighting') for e in
                 (baseline['http'][u] if u != 'lighting' else [baseline['http'][u]]) if e['location'] == 'client']
         client = Client(wire, r3, packet['binding'], http_expectations=http, owner_hold_before=owner_hold_before,
-                        runtime_payload=runtime_payload)
+                        runtime_payload=runtime_payload,
+                        admission_packet=packet if packet['scope']['schema']==io.PROSPECTIVE_SCOPE else None)
         result = client.serve(); child.stdin.close()
         io.require(child.wait(timeout=5) == 0, 'SSH_END_UNKNOWN')
     except BaseException as error:

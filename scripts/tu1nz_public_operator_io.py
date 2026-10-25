@@ -267,7 +267,7 @@ def prospective_binding(scope, baseline, actual):
     actor_fields = {'role','exe','exe_sha256','uid','gid','groups','caps','nnp','argv_sha256','cgroup',
                     'initial_env_sha256','lsm_sha256','namespaces','max_instances'}
     roles = {'kernel_manager':1,'authenticated_maintenance':8,'administrative_service':16,'nginx_reader':16}
-    counts = {k:0 for k in roles}; execution = {}
+    counts = {k:0 for k in roles}; execution = {}; actor_identities=set()
     for item, expected in zip(actors, baseline['actors']):
         require(type(item) is dict and set(item) == {'profile','justification'} and
                 type(item['justification']) is str and 32 <= len(item['justification']) <= 2048,
@@ -276,7 +276,7 @@ def prospective_binding(scope, baseline, actual):
         require(type(row) is dict and set(row) == actor_fields and row ==
                 {k:v for k,v in expected.items() if k != 'origin_sha256'} and expected['origin_sha256'] == binding_hash,
                 'PROSPECTIVE_ROLE_BINDING')
-        role = row['role']; require(role in roles and type(row['max_instances']) is int and
+        role = row['role']; require(type(role) is str and role in roles and type(row['max_instances']) is int and
                 1 <= row['max_instances'] <= roles[role], 'PROSPECTIVE_ROLE_LIMIT')
         counts[role] += row['max_instances']
         require(type(row['nnp']) is int and row['nnp'] in (0,1) and
@@ -292,6 +292,8 @@ def prospective_binding(scope, baseline, actual):
             type(row['namespaces']) is dict and set(row['namespaces'])=={'pid','mnt','user','net'} and
             all(type(v) is str and re.fullmatch(k+r':\[[0-9]+\]',v) for k,v in row['namespaces'].items()),
             'PROSPECTIVE_ROLE_PROFILE')
+        identity=sha(canonical({k:v for k,v in row.items() if k not in ('role','max_instances')}))
+        require(identity not in actor_identities,'PROSPECTIVE_AMBIGUOUS_ROLE');actor_identities.add(identity)
         require(type(row['exe']) is str and row['exe'].startswith(('/usr/bin/','/usr/sbin/','/usr/lib/','/sbin/','/bin/')) and
                 '\x00' not in row['exe'] and '..' not in Path(row['exe']).parts and str(Path(row['exe']))==row['exe'],
                 'PROSPECTIVE_ACTOR_EXECUTABLE')

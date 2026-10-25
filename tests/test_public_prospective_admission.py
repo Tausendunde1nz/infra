@@ -203,6 +203,18 @@ class ProspectiveAdmission(unittest.TestCase):
         body=inspect.getsource(host.session)
         self.assertLess(body.index('io.prospective_packet_material(packet)'),body.index('adapter.__init__'))
         self.assertLess(body.index('admit_prospective_names'),body.index("wire.send({'type': 'prepared'"))
+        self.assertIn('io.prospective_packet_material(packet)',body[body.index('admit_prospective_names'):body.index("wire.send({'type': 'prepared'")])
+
+    def test_expiry_during_preparation_denies_before_client_custody_and_claim(self):
+        s,b,a=self.fixture();used=self.check((s,b,a))
+        packet=dict(scope=s,baseline=b,prospective_material={h:base64.b64encode(v).decode() for h,v in used.items()})
+        wire=Mock();wire.receive.return_value={'type':'prepared','binding':'synthetic'}
+        subject=client.Client(wire,Mock(),'synthetic',http_expectations=[],admission_packet=packet)
+        subject.initialize=Mock()
+        with patch.object(io.time,'time',return_value=1792923000):subject.admission_current()
+        with patch.object(io.time,'time',return_value=1793012400),self.assertRaisesRegex(io.Hold,'TIME_OR_EXPIRY'):
+            subject.serve()
+        subject.initialize.assert_not_called();wire.send.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
