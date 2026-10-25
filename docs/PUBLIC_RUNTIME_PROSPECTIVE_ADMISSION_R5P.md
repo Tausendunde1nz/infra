@@ -69,12 +69,40 @@ The baseline additionally points `origin_sha256` to the prospective binding.
 Every profile has a32..2048-character independent justification of its actual
 task, necessity and minimum privileges. A UID or cgroup alone is not one.
 
-UID/GID are exact four-integer vectors; groups sorted unique integers;
-all five capability sets exact unsigned64-bit integers; nnp integer0/1;
+UID/GID are exact four-integer vectors; groups are an exact nondecreasing list
+of unsigned32-bit integers (at most65536), **including duplicate entries**.
+Neither schema, measurement nor comparison deduplicates/sorts a measured list:
+membership, multiplicity and any additional GID remain bound. No NSS/primary-GID
+inference substitutes for the measured supplementary list. A narrower/different
+list is also a mismatch, not an automatic permission to proceed.
+All five capability sets are exact unsigned64-bit integers; nnp integer0/1;
 argv/environment/LSM represented by exact SHA256, not published raw values;
 pid/mnt/user/net namespace identities are exact. Executable canonical paths
 are finite under /usr/bin,/usr/sbin,/usr/lib,/bin,/sbin with separately
 authenticated byte origins. No name glob, extra role, omitted actor or wildcard.
+
+`cgroup` means the **complete structured `/proc/PID/cgroup` contents**, removing
+exactly its final LF, not an extracted path. Each record is
+`hierarchy-ID:controller-list:absolute-path`; LF separates multiple records.
+The same bounded parser is used by the annex schema, leader/thread measurement
+and exact actor comparison. Hierarchy IDs, named/v1 controllers, their order,
+all records and paths are retained; values are never sorted, reduced to one
+hierarchy, trimmed or rewritten to an assumed `0::` prefix. v2's record has
+ID0 and an empty controller list; positive IDs require nonempty controllers.
+Duplicate hierarchy IDs/controllers, malformed numbers/records, control
+characters and noncanonical/relative paths fail closed. Paths may contain
+colons or printable spaces; these are data, not field/whitespace normalization.
+Bounds:64 records,262144 characters total,4096 characters per absolute path.
+The full value must match exactly, including hierarchy/controller changes even
+when paths agree. An administrative-service role additionally requires **every**
+parsed path to start with `/system.slice/`; a substring or one chosen row cannot
+hide another context. This grammar does not authorize v1/hybrid execution or
+change the existing v2 unit/invocation checks, role/ancestry/namespace/instance
+limits, Unknown-Deny, publisher origin, claims or any execution permission.
+Old path-only profiles are rejected, not silently upgraded or reaccepted.
+Only synthetic fixtures enter public source/CI; real context decisions and
+specific prospective annex acceptance remain separate private human decisions.
+Format reference: [Linux kernel cgroup documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#organizing-processes-and-threads).
 
 Instance limits are additional ceilings, never permissions to add processes:
 

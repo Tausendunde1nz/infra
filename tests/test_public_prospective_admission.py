@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 import tu1nz_public_operator as client
+import tu1nz_public_operator_observe as observe
 io=client.io
 
 
@@ -40,7 +41,7 @@ class ProspectiveAdmission(unittest.TestCase):
             uid=33 if role=='nginx_reader' else 0
             row=dict(role=role,exe=exe,exe_sha256=execution[exe],uid=[uid]*4,gid=[uid]*4,
                 groups=[uid],caps={k:0 for k in ('CapInh','CapPrm','CapEff','CapBnd','CapAmb')},nnp=1,
-                argv_sha256='1'*64,cgroup='/system.slice/synthetic.service',initial_env_sha256='2'*64,
+                argv_sha256='1'*64,cgroup='0::/system.slice/synthetic.service',initial_env_sha256='2'*64,
                 lsm_sha256='3'*64,namespaces={k:k+':[1]' for k in ('pid','mnt','user','net')},max_instances=1)
             actors.append(dict(profile=row,justification='Synthetic regression fixture, never a production role approval.'))
         b=dict(machine_sha256='4'*64,boot_id='synthetic-boot',policy_roots=policy,
@@ -120,11 +121,102 @@ class ProspectiveAdmission(unittest.TestCase):
             lambda x,y,b,a:x['actors'][1].update(justification='UID0'),
             lambda x,y,b,a:x['actors'][1]['profile'].update(nnp=True),
             lambda x,y,b,a:x['actors'][1]['profile'].update(namespaces={}),
-            lambda x,y,b,a:x['actors'][2]['profile'].update(cgroup='/unknown'),
+            lambda x,y,b,a:x['actors'][2]['profile'].update(cgroup='0::/unknown'),
             lambda x,y,b,a:x['actors'][3]['profile']['caps'].update(CapEff=1),
             lambda x,y,b,a:x['execution_origins'].pop('/usr/sbin/nginx')]
         for n,change in enumerate(cases):
             with self.subTest(case=n),self.assertRaises(io.Hold):self.check(self.fixture(change))
+
+    def test_full_cgroup_records_preserve_all_hierarchies_controllers_and_paths(self):
+        value='0::/system.slice/synthetic.service\n7:cpu,cpuacct:/system.slice/synthetic:worker\n9:name=synthetic:/system.slice/with space '
+        self.assertEqual(io.cgroup_records(value), ((0,(),'/system.slice/synthetic.service'),
+            (7,('cpu','cpuacct'),'/system.slice/synthetic:worker'),
+            (9,('name=synthetic',),'/system.slice/with space ')))
+        self.assertTrue(io.system_slice_cgroup(value))
+        def select(x,y,b,a):x['actors'][2]['profile']['cgroup']=value
+        _,baseline,_=fixture=self.fixture(select);self.check(fixture)
+        expected=baseline['actors'][2]
+        self.assertTrue(observe.exact_actor(expected,expected))
+        # A complete v1 record remains structured, not rewritten to v2/path-only.
+        self.assertEqual(io.cgroup_records('3:memory:/'),((3,('memory',),'/'),))
+
+    def test_malformed_cgroups_are_not_path_normalized_or_partially_selected(self):
+        cases=['','/system.slice/synthetic.service',' 0::/synthetic','00::/synthetic',
+            '-1:cpu:/synthetic','2147483648:cpu:/synthetic','0:cpu:/synthetic','2::/synthetic',
+            '2:cpu,cpu:/synthetic','2:cpu,:/synthetic','2:unknown=bad:/synthetic',
+            '0::relative','0:://synthetic','0::/synthetic/','0::/./synthetic','0::/x/../synthetic',
+            '0::/synthetic\x00','0::/synthetic\r','0::/synthetic\t','0::/synthetic\n',
+            '0::/one\n0::/two','2:cpu:/one\n3:cpu:/two','0::/one\nmalformed',
+            '0::/'+'x'*4096,'\n'.join(str(n)+':name=synthetic'+str(n)+':/' for n in range(1,66)),
+            True,[],None]
+        for value in cases:
+            def select(x,y,b,a):x['actors'][2]['profile']['cgroup']=value
+            with self.subTest(value=value),self.assertRaises(io.Hold):self.check(self.fixture(select))
+
+    def test_service_context_requires_every_parsed_path_not_a_matching_substring(self):
+        for value in ('0::/user.slice/system.slice/synthetic.service',
+                      '0::/system.slice/synthetic.service\n2:cpu:/user.slice/synthetic',
+                      '0::/system.slice-other/synthetic.service','0::/system.slice'):
+            self.assertFalse(io.system_slice_cgroup(value))
+            def select(x,y,b,a):x['actors'][2]['profile']['cgroup']=value
+            with self.subTest(value=value),self.assertRaisesRegex(io.Hold,'SERVICE_CONTEXT'):
+                self.check(self.fixture(select))
+
+    def test_exact_actor_does_not_reduce_cgroup_identity_to_its_path(self):
+        value='0::/system.slice/synthetic.service\n2:cpu,cpuacct:/system.slice/synthetic.service'
+        def select(x,y,b,a):x['actors'][2]['profile']['cgroup']=value
+        _,baseline,_=fixture=self.fixture(select);self.check(fixture)
+        expected=baseline['actors'][2]
+        for changed in (value.replace('2:','3:'),value.replace('cpu,cpuacct','cpu'),
+                        value.replace('cpu,cpuacct','cpuacct,cpu'),
+                        '\n'.join(reversed(value.split('\n'))),
+                        value.replace('synthetic.service','different.service'),
+                        value.split('\n')[0]):
+            with self.subTest(changed=changed):
+                self.assertFalse(observe.exact_actor(dict(expected,cgroup=changed),expected))
+        for malformed in ('/system.slice/synthetic.service','0::/synthetic\n'):
+            with self.assertRaises(io.Hold):observe.exact_actor(dict(expected,cgroup=malformed),expected)
+
+    def test_proc_cgroup_removes_only_one_final_lf_and_retains_path_spaces(self):
+        with tempfile.TemporaryDirectory(prefix='synthetic-cgroup-field-') as folder:
+            path=Path(folder)/'cgroup'
+            for value in ('0::/synthetic ', '0::/synthetic:worker',
+                          '0::/synthetic\n2:cpu:/other'):
+                path.write_text(value+'\n')
+                self.assertEqual(observe.proc_cgroup(str(path)),value)
+            for value in ('0::/synthetic','0::/synthetic\n\n','\n0::/synthetic\n'):
+                path.write_text(value)
+                with self.assertRaises(io.Hold):observe.proc_cgroup(str(path))
+
+    def test_groups_keep_exact_multiplicity_and_additional_memberships_deny(self):
+        def select(x,y,b,a):x['actors'][2]['profile']['groups']=[4,4,9]
+        _,baseline,_=fixture=self.fixture(select);self.check(fixture)
+        expected=baseline['actors'][2]
+        self.assertTrue(observe.exact_actor(expected,expected))
+        for changed in ([4,4,9,12],[4,9],[4,4,4,9],[4,4],[],[9,4,4]):
+            with self.subTest(groups=changed):
+                self.assertFalse(observe.exact_actor(dict(expected,groups=changed),expected))
+        for groups in ([9,4,4],[False],[4,-1],[2**32],[4]*65537):
+            def select_bad(x,y,b,a):x['actors'][2]['profile']['groups']=groups
+            with self.subTest(groups_length=len(groups)),self.assertRaises(io.Hold):
+                self.check(self.fixture(select_bad))
+            with self.assertRaises(io.Hold):observe.exact_actor(expected,dict(expected,groups=groups))
+        # No inferred primary/NSS membership is added to the empty raw list.
+        self.assertFalse(observe.exact_actor(dict(expected,groups=[0]),dict(expected,groups=[])))
+
+    def test_thread_measurement_keeps_raw_groups_and_complete_cgroup(self):
+        # Synthetic proc-field adapter only, NOT an actual Host/actor admission.
+        values={'stat':'42 (synthetic) '+' '.join(['S']+['0']*18+['7'])+'\n',
+            'status':'Uid:\t0 0 0 0\nGid:\t0 0 0 0\nGroups:\t4 4 9\nNoNewPrivs:\t1\n'+
+                ''.join(k+':\t0\n' for k in observe.CAPS),
+            'cgroup':'0::/synthetic\n2:cpu:/other\n','uid_map':'0 0 1\n',
+            'gid_map':'0 0 1\n','setgroups':'deny\n'}
+        with patch.object(observe,'proc_text',side_effect=lambda p:values[p.rsplit('/',1)[-1]]), \
+             patch.object(observe.os,'readlink',side_effect=lambda p:p.rsplit('/',1)[-1]+':[1]'), \
+             patch.object(observe,'task_label',return_value=b'SYNTHETIC_LABEL'):
+            tick,row=observe.thread_security('/synthetic-proc/42/task/42')
+        self.assertEqual(tick,'7');self.assertEqual(row['groups'],[4,4,9])
+        self.assertEqual(row['cgroup'],'0::/synthetic\n2:cpu:/other')
 
     def test_prospective_receipts_never_authenticate_executable_bytes(self):
         s,b,a=self.fixture();b['source_release']['operator_dependencies']['/usr/bin/busctl']['origin_sha256']=s['prospective_binding_sha256']

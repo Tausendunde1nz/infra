@@ -174,6 +174,14 @@ def proc_bytes(path):
         return stream.read()
 
 
+def proc_cgroup(path):
+    value = proc_text(path)
+    io.require(value.endswith('\n'), 'CGROUP_PROC_TERMINATOR')
+    value = value[:-1]  # Exactly the file terminator, NOT strip()/path extraction.
+    io.cgroup_records(value)
+    return value
+
+
 def starttime(pid):
     value = proc_text('/proc/'+str(pid)+'/stat')
     return value[value.rfind(')')+2:].split()[19]
@@ -205,7 +213,7 @@ def thread_security(root):
                 'groups': list(map(int, status['Groups'].split())),
                 'caps': {k: int(status[k].strip(), 16) for k in CAPS},
                 'nnp': int(status['NoNewPrivs'].strip()),
-                'cgroup': proc_text(root+'/cgroup').strip(),
+                'cgroup': proc_cgroup(root+'/cgroup'),
                 'namespaces': {n: os.readlink(root+'/ns/'+n) for n in ('pid', 'mnt', 'user', 'net')},
                 'uid_map': proc_text(root+'/uid_map').split(),
                 'gid_map': proc_text(root+'/gid_map').split(),
@@ -300,7 +308,7 @@ def process(pid):
            'groups': list(map(int, s['Groups'].split())), 'caps': {k: int(s[k].strip(), 16) for k in CAPS},
            'nnp': int(s['NoNewPrivs'].strip()), 'ppid': int(s['PPid'].strip()),
            'argv_sha256': io.sha(proc_bytes(root+'/cmdline')),
-           'cgroup': proc_text(root+'/cgroup').strip(),
+           'cgroup': proc_cgroup(root+'/cgroup'),
            'namespaces': {n: os.readlink(root+'/ns/'+n) for n in ('pid', 'mnt', 'user', 'net')},
            'uid_map': proc_text(root+'/uid_map').split(),
            'gid_map': proc_text(root+'/gid_map').split(),
@@ -350,7 +358,10 @@ def exact_actor(row, expected):
                for n in expected['caps'].values()) and
                all(type(expected[k]) is list and len(expected[k]) == 4 and all(type(n) is int and 0 <= n < 2**32
                    for n in expected[k]) for k in ('uid', 'gid')) and type(expected['groups']) is list and
-               all(type(n) is int and 0 <= n < 2**32 for n in expected['groups']), 'ADMIN_NUMERIC_PROFILE_SCHEMA')
+               all(type(n) is int and 0 <= n < 2**32 for n in expected['groups']) and
+               expected['groups'] == sorted(expected['groups']) and len(expected['groups']) <= 65536,
+               'ADMIN_NUMERIC_PROFILE_SCHEMA')
+    io.cgroup_records(expected['cgroup']); io.cgroup_records(row['cgroup'])
     return all(row[k] == expected[k] for k in allowed-{'role', 'max_instances', 'origin_sha256'})
 
 
@@ -795,7 +806,7 @@ class Authority:
                     ancestor = int(values['PPid'].strip()); parents.add(ancestor)
                 io.require(pid in parents, 'MAINTENANCE_NOT_OWN_AUTHENTICATED_ANCESTRY')
             elif role == 'administrative_service':
-                io.require('/system.slice/' in row['cgroup'], 'ADMIN_NOT_BOUND_SERVICE_CONTEXT')
+                io.require(io.system_slice_cgroup(row['cgroup']), 'ADMIN_NOT_BOUND_SERVICE_CONTEXT')
             if self.b['actors'][index]['role'] == 'nginx_reader':
                 # A bounding ceiling is not an effective/inheritable grant.
                 # It remains exactly pinned in the actor profile; real broker,
