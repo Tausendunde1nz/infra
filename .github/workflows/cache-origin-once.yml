@@ -1,0 +1,32 @@
+name: Cache origin single approved comparison
+
+on:
+  push:
+    branches: [codex/cache-origin-ci-20261024-1]
+    paths: [scripts/tu1nz_cache_origin_ci_once.py, .github/workflows/cache-origin-once.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  cache-origin-once:
+    if: >-
+      github.run_attempt == 1 && !github.event.deleted &&
+      startsWith(github.event.head_commit.message, 'Cache origin: one approved comparison CACHE-CI-20261024-1')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: control-private-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # One later separately approved push, NOT publication by this draft.
+      # NOT authorized by earlier Control-source approvals. Exact final Source,
+      # one run_id and private data scope require new independent/human review.
+      # No artifact/cache/summary, private command output or later consumer.
+      - name: Exactly one privately bound cache comparison
+        env:
+          CACHE_ORIGIN_ADMISSION: ${{ secrets.CACHE_ORIGIN_ADMISSION }}
+          CACHE_ORIGIN_ASSET_READ_TOKEN: ${{ secrets.CACHE_ORIGIN_ASSET_READ_TOKEN }}
+        run: python3 -I -B scripts/tu1nz_cache_origin_ci_once.py
