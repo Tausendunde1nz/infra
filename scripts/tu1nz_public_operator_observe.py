@@ -175,9 +175,12 @@ def proc_bytes(path):
 
 
 def proc_cgroup(path):
-    value = proc_text(path)
-    io.require(value.endswith('\n'), 'CGROUP_PROC_TERMINATOR')
-    value = value[:-1]  # Exactly the file terminator, NOT strip()/path extraction.
+    # Binary read avoids TextIO's universal-newline CR/CRLF normalization.
+    value = proc_bytes(path)
+    io.require(value.endswith(b'\n'), 'CGROUP_PROC_TERMINATOR')
+    try: value = value[:-1].decode('utf-8', 'strict')
+    except UnicodeDecodeError: raise io.Hold('PUBLIC_OPERATOR_CGROUP_PROC_ENCODING') from None
+    # Exactly the final byte LF, NOT strip()/path extraction/newline rewriting.
     io.cgroup_records(value)
     return value
 

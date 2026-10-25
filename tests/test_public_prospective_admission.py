@@ -184,8 +184,10 @@ class ProspectiveAdmission(unittest.TestCase):
                           '0::/synthetic\n2:cpu:/other'):
                 path.write_text(value+'\n')
                 self.assertEqual(observe.proc_cgroup(str(path)),value)
-            for value in ('0::/synthetic','0::/synthetic\n\n','\n0::/synthetic\n'):
-                path.write_text(value)
+            for value in (b'0::/synthetic',b'0::/synthetic\n\n',b'\n0::/synthetic\n',
+                          b'0::/synthetic\r\n',b'0::/synthetic\r',b'0::/syn\rthetic\n',
+                          b'0::/synthetic\xff\n',b'0::/synthetic\x00\n'):
+                path.write_bytes(value)
                 with self.assertRaises(io.Hold):observe.proc_cgroup(str(path))
 
     def test_groups_keep_exact_multiplicity_and_additional_memberships_deny(self):
@@ -212,6 +214,7 @@ class ProspectiveAdmission(unittest.TestCase):
             'cgroup':'0::/synthetic\n2:cpu:/other\n','uid_map':'0 0 1\n',
             'gid_map':'0 0 1\n','setgroups':'deny\n'}
         with patch.object(observe,'proc_text',side_effect=lambda p:values[p.rsplit('/',1)[-1]]), \
+             patch.object(observe,'proc_bytes',return_value=values['cgroup'].encode()), \
              patch.object(observe.os,'readlink',side_effect=lambda p:p.rsplit('/',1)[-1]+':[1]'), \
              patch.object(observe,'task_label',return_value=b'SYNTHETIC_LABEL'):
             tick,row=observe.thread_security('/synthetic-proc/42/task/42')
