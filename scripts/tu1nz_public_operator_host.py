@@ -661,10 +661,12 @@ def session(source, packet, wire):
     def interrupted(_number, _frame): raise KeyboardInterrupt()
     for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(number, interrupted)
-    replacing=packet['scope'].get('schema')=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
+    replacing=packet['scope'].get('schema') in io.R5_SCOPES
+    prospective=packet['scope'].get('schema')==io.PROSPECTIVE_SCOPE
     io.require(set(packet) == {'source', 'hashes', 'baseline', 'baseline_raw', 'scope_raw',
                                'owner_plan', 'scope', 'scope_sha256', 'binding'} |
-                               ({'baseline_encoding'} if replacing else set()),
+                               ({'baseline_encoding'} if replacing else set()) |
+                               ({'prospective_material'} if prospective else set()),
                'SESSION_PACKET_SCHEMA')
     scope = packet['scope']; plan = base64.b64decode(packet['owner_plan'], validate=True)
     replacement=io.replacement_scope(scope,packet['baseline'])
@@ -682,6 +684,7 @@ def session(source, packet, wire):
                scope['administrative_roles_sha256'] == io.sha(io.canonical(packet['baseline']['actors'])) and
                scope['baseline_origins_sha256'] == io.sha(io.canonical(packet['baseline']['source_origin_receipts'])),
                'SESSION_INDEPENDENT_BINDING')
+    prospective_binding=io.prospective_packet_material(packet)  # BEFORE adapter or claim
     channel = io.LinkedRecords(wire, packet['binding'])
     channel.approval_bound = True  # only after exact scope/code/host checks above
     adapter = None; flow = None; final_status = 'HOLD'; primary = None; abort = []; cleanup = []; claimed = False
@@ -693,9 +696,13 @@ def session(source, packet, wire):
         adapter_type=source.load('replacement').ReplacementAdapter if replacement else Adapter
         adapter = adapter_type.__new__(adapter_type)
         adapter.__init__(source, packet['baseline'], plan, channel, packet['binding'], deadline=wire.deadline)
+        if prospective:
+            adapter.a.admit_prospective_names(prospective_binding)
+            io.prospective_packet_material(packet)  # admission may expire during read-only preparation
         wire.send({'type': 'prepared', 'binding': packet['binding']})
         io.require(wire.receive() == {'type': 'client_custody_created', 'binding': packet['binding']},
                    'FIXED_CLIENT_CUSTODY_NOT_CREATED')
+        if prospective:io.prospective_packet_material(packet)
         claimed = True
         channel.record('prestate_read_witness', adapter.read_witness)
         flow = r.Flow(adapter, RemoteJournal(channel, packet['binding']))

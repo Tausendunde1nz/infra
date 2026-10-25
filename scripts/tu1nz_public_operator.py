@@ -142,7 +142,7 @@ def application_reference(root, baseline):
         io.require(reference['objects'].get(name) == expected, 'APPLICATION_TRACKED_BYTE_DRIFT')
 
 
-def reference_origins(paths, baseline):
+def reference_origins(paths, baseline, scope=None):
     """Material readback of independently bound reference receipts.
 
     Hash identity does NOT itself prove the receipt's historical assertions.
@@ -155,11 +155,12 @@ def reference_origins(paths, baseline):
         io.require(raw and io.sha(raw) not in actual, 'ORIGIN_EMPTY_OR_DUPLICATED')
         actual[io.sha(raw)] = raw
     io.require(set(actual) == set(baseline['source_origin_receipts']), 'REFERENCE_ORIGIN_EVIDENCE_MISSING')
+    prospective = io.prospective_binding(scope or {}, baseline, actual)
     runtime = baseline['source_release']['runtime_reference']
     origin = io.parse(actual[runtime['origin_sha256']])
     if runtime.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1':
         io.require(origin==runtime['artifact'],'REPLACEMENT_ARTIFACT_ORIGIN_BYTES')
-        return  # New prospective artifact, never relabel an old installation receipt.
+        return prospective  # Never relabel an old installation receipt.
     io.require(set(origin) == {'schema', 'application_commit', 'application_tree', 'runtime_objects_sha256',
                               'prior_evidence_sha256'} and origin['schema'] == 'TU1NZ_PUBLIC_RUNTIME_ORIGIN_V1' and
                (origin['application_commit'], origin['application_tree']) == (runtime['commit'], runtime['tree']) and
@@ -167,6 +168,7 @@ def reference_origins(paths, baseline):
                type(origin['prior_evidence_sha256']) is list and origin['prior_evidence_sha256'] and
                set(origin['prior_evidence_sha256']) <= set(actual)-{runtime['origin_sha256']},
                'RUNTIME_ORIGIN_CONTENT_OR_PRIOR_EVIDENCE_UNBOUND')
+    return prospective
 
 
 def validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw):
@@ -184,13 +186,18 @@ def validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw):
 
 
 class Client:
-    def __init__(self, wire, r3, binding, *, http_expectations, owner_hold_before=None, runtime_payload=None):
+    def __init__(self, wire, r3, binding, *, http_expectations, owner_hold_before=None, runtime_payload=None,
+                 admission_packet=None):
         self.wire, self.r, self.binding = wire, r3, binding
         self.journal = None; self.fd = None; self.records = {}; self.last = binding; self.sequence = 0
         self.http_expectations = http_expectations
         self.owner_hold_before = owner_hold_before
         self.runtime_payload=runtime_payload;self.runtime_next=0
         self.runtime_payload_sha256=io.sha(runtime_payload) if runtime_payload is not None else None
+        self.admission_packet=admission_packet
+
+    def admission_current(self):
+        if self.admission_packet is not None:io.prospective_packet_material(self.admission_packet)
 
     def initialize(self):
         parent = self.r.CUSTODY_PARENT
@@ -221,6 +228,7 @@ class Client:
             if kind == 'prepared':
                 io.require(set(message) == {'type', 'binding'} and message['binding'] == self.binding and
                            self.journal is None, 'PREPARED_BINDING_OR_REPLAY')
+                self.admission_current()
                 self.initialize()
                 self.wire.send({'type': 'client_custody_created', 'binding': self.binding})
             elif kind == 'durable_record':
@@ -230,7 +238,8 @@ class Client:
                            'HASH_LINK_OR_SEQUENCE_RED')
                 name = str(row['sequence']).zfill(3)+'-'+row['kind']+'.json'
                 io.exclusive(self.fd, name, raw); self.records[name] = raw
-                if row['kind'] == 'flow_claim': self.journal.claim()
+                if row['kind'] == 'flow_claim':
+                    self.admission_current(); self.journal.claim()
                 elif row['kind'].startswith('flow_'):
                     self.journal.write(row['kind'][5:], row['value'])
                 self.last = message['sha256']; self.sequence = row['sequence']; self.check()
@@ -374,7 +383,7 @@ def main():
                'INDEPENDENT_RELEASE_OR_SCOPE_HASH')
     scope, baseline = io.parse(scope_raw), io.parse(baseline_raw)
     validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw)
-    reference_origins(args.origin, baseline)
+    prospective = reference_origins(args.origin, baseline, scope)
     application_reference(args.application_reference, baseline)
     encoded, hashes = source_package(args.infra, args.control, io.parse(release_raw))
     source = io.Source(encoded, hashes); r3 = source.load('r3')
@@ -406,6 +415,9 @@ def main():
     if replacing:
         packet['baseline_encoding']='zlib_R5'
         packet['baseline_raw']=base64.b64encode(zlib.compress(baseline_raw,9)).decode()
+    if scope['schema']==io.PROSPECTIVE_SCOPE:
+        packet['prospective_material']={h:base64.b64encode(raw).decode() for h,raw in prospective.items()}
+    io.prospective_packet_material(packet)
     io.require(io.baseline_bytes(packet)==baseline_raw,'BASELINE_PACKET_READBACK')
     io.require(len(io.canonical(packet))<=io.MAX_FRAME,'LOCAL_PACKET_BOUND_BEFORE_HOST')
     if not args.execute:
@@ -443,7 +455,8 @@ def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None, ru
         http = [e for u in (*r3.UNITS, 'lighting') for e in
                 (baseline['http'][u] if u != 'lighting' else [baseline['http'][u]]) if e['location'] == 'client']
         client = Client(wire, r3, packet['binding'], http_expectations=http, owner_hold_before=owner_hold_before,
-                        runtime_payload=runtime_payload)
+                        runtime_payload=runtime_payload,
+                        admission_packet=packet if packet['scope']['schema']==io.PROSPECTIVE_SCOPE else None)
         result = client.serve(); child.stdin.close()
         io.require(child.wait(timeout=5) == 0, 'SSH_END_UNKNOWN')
     except BaseException as error:

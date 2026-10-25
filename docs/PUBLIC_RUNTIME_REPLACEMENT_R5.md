@@ -1,5 +1,11 @@
 # R5: public-service runtime replacement — Source contract, not Host acceptance
 
+For the finite prospective Hostpolicy/metadata/role origin addendum, see
+`PUBLIC_RUNTIME_PROSPECTIVE_ADMISSION_R5P.md`. It does not admit real annexes or
+replace executable Publisher origin, full TCB or live Host/Owner gates. Current
+Lighting's separate admission does not require the historical R2 predecessor;
+the older R2 sequencing text below is historical, not an added Lighting gate.
+
 This is a prospective artifact, not a claim about the origin of the old install.
 The closed archive search did not establish its complete original interpreter,
 venv and installation provenance. Archive differences are not current live drift.
