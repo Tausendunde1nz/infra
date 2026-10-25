@@ -508,6 +508,22 @@ class ReplacementAuthority(Authority):
     def release_fields(self):
         return super().release_fields()|{'operator_dependencies'}
 
+    def admit_prospective_names(self,binding):
+        """Additional exact prospective profile, not replacement of live fences."""
+        files=io.prospective_names(binding,self.b)
+        for path in sorted(files):self.bind_loader_path(path)
+        for path,expected in binding['names'].items():
+            if expected['kind']=='directory':
+                self.paths.get(path);row=self.paths.rows[path][1]
+                io.require(all(row[k]==expected[k] for k in ('uid','gid','mode','attrs','flags')),
+                           'PROSPECTIVE_DIRECTORY_DRIFT')
+            else:
+                parent,leaf=str(Path(path).parent),Path(path).name
+                identity,target=self.loader_aliases[(parent,leaf)]
+                io.require(identity[2:5]==(expected['uid'],expected['gid'],stat.S_IFLNK|expected['mode']) and
+                    target==expected['target'],'PROSPECTIVE_ALIAS_DRIFT')
+        self.check_loader_paths()
+
     def open_runtime(self, baseline, paths, deadline):
         io.operator_dependency_reference(baseline['source_release'],baseline['source_origin_receipts'])
         self.replacement_active=False

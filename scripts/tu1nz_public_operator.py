@@ -142,7 +142,7 @@ def application_reference(root, baseline):
         io.require(reference['objects'].get(name) == expected, 'APPLICATION_TRACKED_BYTE_DRIFT')
 
 
-def reference_origins(paths, baseline):
+def reference_origins(paths, baseline, scope=None):
     """Material readback of independently bound reference receipts.
 
     Hash identity does NOT itself prove the receipt's historical assertions.
@@ -155,11 +155,12 @@ def reference_origins(paths, baseline):
         io.require(raw and io.sha(raw) not in actual, 'ORIGIN_EMPTY_OR_DUPLICATED')
         actual[io.sha(raw)] = raw
     io.require(set(actual) == set(baseline['source_origin_receipts']), 'REFERENCE_ORIGIN_EVIDENCE_MISSING')
+    prospective = io.prospective_binding(scope or {}, baseline, actual)
     runtime = baseline['source_release']['runtime_reference']
     origin = io.parse(actual[runtime['origin_sha256']])
     if runtime.get('schema')=='TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1':
         io.require(origin==runtime['artifact'],'REPLACEMENT_ARTIFACT_ORIGIN_BYTES')
-        return  # New prospective artifact, never relabel an old installation receipt.
+        return prospective  # Never relabel an old installation receipt.
     io.require(set(origin) == {'schema', 'application_commit', 'application_tree', 'runtime_objects_sha256',
                               'prior_evidence_sha256'} and origin['schema'] == 'TU1NZ_PUBLIC_RUNTIME_ORIGIN_V1' and
                (origin['application_commit'], origin['application_tree']) == (runtime['commit'], runtime['tree']) and
@@ -167,6 +168,7 @@ def reference_origins(paths, baseline):
                type(origin['prior_evidence_sha256']) is list and origin['prior_evidence_sha256'] and
                set(origin['prior_evidence_sha256']) <= set(actual)-{runtime['origin_sha256']},
                'RUNTIME_ORIGIN_CONTENT_OR_PRIOR_EVIDENCE_UNBOUND')
+    return prospective
 
 
 def validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw):
@@ -374,7 +376,7 @@ def main():
                'INDEPENDENT_RELEASE_OR_SCOPE_HASH')
     scope, baseline = io.parse(scope_raw), io.parse(baseline_raw)
     validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw)
-    reference_origins(args.origin, baseline)
+    prospective = reference_origins(args.origin, baseline, scope)
     application_reference(args.application_reference, baseline)
     encoded, hashes = source_package(args.infra, args.control, io.parse(release_raw))
     source = io.Source(encoded, hashes); r3 = source.load('r3')
@@ -406,6 +408,9 @@ def main():
     if replacing:
         packet['baseline_encoding']='zlib_R5'
         packet['baseline_raw']=base64.b64encode(zlib.compress(baseline_raw,9)).decode()
+    if scope['schema']==io.PROSPECTIVE_SCOPE:
+        packet['prospective_material']={h:base64.b64encode(raw).decode() for h,raw in prospective.items()}
+    io.prospective_packet_material(packet)
     io.require(io.baseline_bytes(packet)==baseline_raw,'BASELINE_PACKET_READBACK')
     io.require(len(io.canonical(packet))<=io.MAX_FRAME,'LOCAL_PACKET_BOUND_BEFORE_HOST')
     if not args.execute:

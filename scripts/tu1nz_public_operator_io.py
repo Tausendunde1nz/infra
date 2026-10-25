@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import base64
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -25,6 +26,21 @@ import urllib.parse
 import urllib.request
 
 MAX_FRAME = 4*1024*1024
+R5_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
+PROSPECTIVE_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5P_V1'
+PROSPECTIVE_BINDING = 'TU1NZ_PUBLIC_PROSPECTIVE_BINDING_V1'
+PROSPECTIVE_ACCEPTANCE = 'TU1NZ_PUBLIC_PROSPECTIVE_ACCEPTANCE_V1'
+BYTE_ORIGIN = 'TU1NZ_PUBLIC_BYTE_ORIGIN_V1'
+R5_SCOPES = (R5_SCOPE, PROSPECTIVE_SCOPE)
+PROSPECTIVE_POLICY_ROOTS = ('/etc/polkit-1/rules.d', '/usr/share/polkit-1/rules.d',
+    '/etc/sudoers.d', '/etc/dbus-1/system.d', '/usr/share/dbus-1/system.d')
+PROSPECTIVE_NSS = frozenset(('/etc/passwd', '/etc/group', '/etc/nsswitch.conf', '/etc/sudoers', '/etc/hosts'))
+PROSPECTIVE_UNITS = {
+    '/etc/systemd/system/tu1nz-adult-public-s7.service': 'ad098f7533716f2e26f9aff500bc82a7b98c939b5b021a442f37d778edc7b692',
+    '/etc/systemd/system/tu1nz-adult-public-s8-landing.service': 'f2663c4f1e57e91aa938d67bc5533fa5324dd355282bdf6e52fe40102b7b994d',
+    '/etc/systemd/system/tu1nz-adult-public-s10-wms.service': '53237fc837a28cabbab7e34693db67bfaa2736b5153818f6b218c7dbcd65b89a',
+    '/etc/systemd/system/tu1nz-adult-public-s8-landing.service.d/s9-growth.conf': '2e10d790f1ed2dd736c9b0c7ec1dda5b58c6cc767e5d5cb2574fe76eb99ceb4b'}
+PROSPECTIVE_RISK = 'CURRENT_HOST_TCB_MAY_FALSIFY_CAPTURE_NOT_HISTORICAL_INTEGRITY'
 CONTROL_PINS = {
     'entry': '538e157629414f717039de1f4b3d0b388fde16718df74dc54c16dde1ac3826c7',
     'guard': 'eb01c7d260f7ad83b7d3437fe78768549a091289ecff99cae68f05689c224b58'}
@@ -94,10 +110,14 @@ def operator_dependency_reference(release, origins):
 def replacement_scope(scope, baseline):
     fields={'schema','release_sha256','baseline_sha256','administrative_roles_sha256',
             'baseline_origins_sha256','r3_approval_sha256','machine_sha256','transaction','owner_plan_sha256'}
-    replacement=scope.get('schema')=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
-    require(set(scope)==fields | ({'runtime_artifact_sha256','legacy_return'} if replacement else set()) and
-            scope['schema'] in ('TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1','TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'),
+    replacement=scope.get('schema') in R5_SCOPES
+    prospective=scope.get('schema')==PROSPECTIVE_SCOPE
+    extra={'prospective_binding_sha256','prospective_acceptance_sha256'} if prospective else set()
+    require(set(scope)==fields | ({'runtime_artifact_sha256','legacy_return'} if replacement else set()) | extra and
+            scope['schema'] in ('TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1', *R5_SCOPES),
             'APPROVED_SCOPE_SCHEMA')
+    require(not prospective or all(type(scope[k]) is str and re.fullmatch('[a-f0-9]{64}',scope[k])
+            for k in extra),'PROSPECTIVE_SCOPE_HASHES')
     reference=baseline['source_release']['runtime_reference']
     if replacement:
         operator_dependency_reference(baseline['source_release'],baseline['source_origin_receipts'])
@@ -121,7 +141,7 @@ def replacement_scope(scope, baseline):
 def baseline_bytes(packet):
     raw=base64.b64decode(packet['baseline_raw'],validate=True)
     if packet.get('baseline_encoding')=='zlib_R5':
-        require(packet['scope']['schema']=='TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1',
+        require(packet['scope']['schema'] in R5_SCOPES,
                 'COMPRESSED_BASELINE_NOT_LEGACY_SCOPE')
         decoder=zlib.decompressobj();raw=decoder.decompress(raw,MAX_FRAME+1)
         require(len(raw)<=MAX_FRAME and decoder.eof and not decoder.unconsumed_tail and
@@ -130,6 +150,249 @@ def baseline_bytes(packet):
         require('baseline_encoding' not in packet,'UNKNOWN_BASELINE_ENCODING')
     require(len(raw)<=MAX_FRAME,'BASELINE_SIZE_BOUND')
     return raw
+
+
+def prospective_binding(scope, baseline, actual):
+    """Pure, fail-closed admission of MATERIAL, not a Host read or approval.
+
+    Actual review/human provenance is selected by the OUT-OF-BAND independently
+    approved scope hash. Names, booleans and this function cannot create it.
+    Return only the exact required material for repeated pre-claim validation.
+    """
+    prospective = scope.get('schema') == PROSPECTIVE_SCOPE
+    special = set()
+    for h, raw in actual.items():
+        try: value = json.loads(raw)
+        except (ValueError, UnicodeError): continue
+        if type(value) is dict and value.get('schema') in (PROSPECTIVE_BINDING, PROSPECTIVE_ACCEPTANCE):
+            special.add(h)
+    if not prospective:
+        require(not special, 'PROSPECTIVE_DOWNGRADE')
+        return {}
+    origins = set(baseline['source_origin_receipts']); used = set()
+    def material(h):
+        require(type(h) is str and re.fullmatch('[a-f0-9]{64}', h) and h in origins and
+                h in actual and actual[h] and sha(actual[h]) == h, 'PROSPECTIVE_MATERIAL_MISSING')
+        used.add(h)
+        return actual[h]
+    binding_hash, acceptance_hash = (scope[k] for k in ('prospective_binding_sha256', 'prospective_acceptance_sha256'))
+    binding, acceptance = parse(material(binding_hash)), parse(material(acceptance_hash))
+    require(special == {binding_hash, acceptance_hash}, 'PROSPECTIVE_EXACT_RECEIPTS')
+    require(type(binding) is dict and set(binding) == {'schema','machine_sha256','boot_id','transaction',
+        'capture','host_files','unit_files','policy_roots','actors','metadata','execution_origins','names'},
+        'PROSPECTIVE_BINDING_SCHEMA')
+    require(binding['schema'] == PROSPECTIVE_BINDING and binding['machine_sha256'] == scope['machine_sha256'] ==
+        baseline['machine_sha256'] and binding['boot_id'] == baseline['boot_id'] and
+        binding['transaction'] == scope['transaction'] == 'public-rights-20261014-1', 'PROSPECTIVE_HOST_BINDING')
+    require(type(acceptance) is dict and set(acceptance) == {'schema','binding_sha256','machine_sha256','boot_id',
+        'transaction','release_sha256','owner_plan_sha256','review_sha256','human_decision_sha256',
+        'accepted_at','expires_at','risk'}, 'PROSPECTIVE_ACCEPTANCE_SCHEMA')
+    require(acceptance['schema'] == PROSPECTIVE_ACCEPTANCE and acceptance['binding_sha256'] == binding_hash and
+        all(acceptance[k] == scope[k] for k in ('machine_sha256','transaction','release_sha256','owner_plan_sha256')) and
+        acceptance['boot_id'] == baseline['boot_id'] and acceptance['risk'] == PROSPECTIVE_RISK,
+        'PROSPECTIVE_ACCEPTANCE_BINDING')
+    require(type(binding['capture']) is dict and set(binding['capture']) ==
+        {'read_scope_sha256','reader_source_sha256','read_receipt_sha256','started_at','finished_at'},
+        'PROSPECTIVE_CAPTURE_SCHEMA')
+    evidence = [binding['capture'][k] for k in ('read_scope_sha256','reader_source_sha256','read_receipt_sha256')]
+    evidence += [acceptance['review_sha256'], acceptance['human_decision_sha256']]
+    require(all(type(h) is str and re.fullmatch('[a-f0-9]{64}',h) for h in evidence) and
+            len(set(evidence + [binding_hash, acceptance_hash])) == 7, 'PROSPECTIVE_DISTINCT_EVIDENCE')
+    for h in evidence:
+        require(len(material(h)) <= 256*1024, 'PROSPECTIVE_EVIDENCE_BOUND')
+    def timestamp(v):
+        require(type(v) is str and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', v), 'PROSPECTIVE_TIME_SCHEMA')
+        try: return datetime.strptime(v, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
+        except ValueError: raise Hold('PUBLIC_OPERATOR_PROSPECTIVE_TIME_SCHEMA') from None
+    start, end = (timestamp(binding['capture'][k]) for k in ('started_at','finished_at'))
+    accepted, expires = (timestamp(acceptance[k]) for k in ('accepted_at','expires_at'))
+    require(0 <= end-start <= 300 and end <= accepted <= time.time() <= expires <= end+86400,
+            'PROSPECTIVE_TIME_OR_EXPIRY')
+    roots = binding['policy_roots']
+    require(type(roots) is dict and set(roots) == set(PROSPECTIVE_POLICY_ROOTS) and roots == baseline['policy_roots'],
+            'PROSPECTIVE_POLICY_ROOTS')
+    host_paths = set(PROSPECTIVE_NSS)
+    for root, names in roots.items():
+        require(type(names) is list and len(names) <= 64 and
+                all(type(n) is str and re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', n) and n not in ('.','..') for n in names) and
+                names == sorted(set(names)),
+                'PROSPECTIVE_POLICY_NAMES')
+        host_paths.update(root+'/'+n for n in names)
+    require(type(binding['host_files']) is dict and set(binding['host_files']) == host_paths and
+        type(binding['unit_files']) is dict and set(binding['unit_files']) == set(PROSPECTIVE_UNITS),
+        'PROSPECTIVE_EXACT_FILE_SET')
+    file_fields = {'sha256','uid','gid','mode','attrs','flags'}
+    def secure_metadata(row):
+        require(type(row) is dict and set(row) == {'uid','gid','mode','attrs','flags'} and
+            type(row['uid']) is type(row['gid']) is int and row['uid'] == row['gid'] == 0 and
+            type(row['mode']) is int and 0 <= row['mode'] <= 0o777 and not row['mode'] & 0o022 and
+            row['attrs'] == {} and type(row['flags']) is int and row['flags'] in (0, 0x80000),
+            'PROSPECTIVE_METADATA_PROFILE')
+    def byte_origin(h, path, digest, allowed):
+        require(h not in {binding_hash, acceptance_hash, *evidence}, 'PROSPECTIVE_NOT_BYTE_ORIGIN')
+        origin = parse(material(h))
+        require(type(origin) is dict and set(origin) == {'schema','basis','source_evidence_sha256','objects'} and
+                origin['schema'] == BYTE_ORIGIN and origin['basis'] in allowed and
+                type(origin['objects']) is dict and 0<len(origin['objects'])<=512 and
+                origin['objects'].get(path) == digest,
+                'PROSPECTIVE_TYPED_BYTE_ORIGIN')
+        refs = origin['source_evidence_sha256']
+        require(type(refs) is list and 0 < len(refs) <= 8 and all(type(h) is str for h in refs) and len(set(refs)) == len(refs) and
+                not set(refs) & {binding_hash,acceptance_hash,h,*evidence}, 'PROSPECTIVE_BYTE_EVIDENCE')
+        for ref in refs:
+            raw = material(ref)
+            try: obj = json.loads(raw)
+            except (ValueError, UnicodeError): obj = None
+            require(not (type(obj) is dict and obj.get('schema') in
+                (BYTE_ORIGIN, PROSPECTIVE_BINDING, PROSPECTIVE_ACCEPTANCE)), 'PROSPECTIVE_ORIGIN_CYCLE')
+    for table in ('host_files','unit_files'):
+        for path, row in binding[table].items():
+            require(type(row) is dict and set(row) == file_fields and
+                type(row.get('sha256')) is str and re.fullmatch('[a-f0-9]{64}', row['sha256']), 'PROSPECTIVE_FILE_SCHEMA')
+            secure_metadata({k:row[k] for k in file_fields-{'sha256'}})
+            require(not row['mode'] & 0o111 and path in baseline['files'] and
+                    row == {k:v for k,v in baseline['files'][path].items() if k != 'origin_sha256'},
+                    'PROSPECTIVE_FILE_DRIFT')
+            h = baseline['files'][path]['origin_sha256']
+            if table == 'host_files': require(h == binding_hash, 'PROSPECTIVE_POLICY_ORIGIN')
+            else:
+                require(row['sha256'] == PROSPECTIVE_UNITS[path], 'PROSPECTIVE_UNIT_SOURCE_BYTES')
+                byte_origin(h, path, row['sha256'], ('GIT',))
+    actual_units = {p for v in baseline['unit_files'].values() for p in [v['fragment'], *v['dropins']]}
+    require(actual_units == set(PROSPECTIVE_UNITS), 'PROSPECTIVE_UNIT_SET')
+    # EVERY baseline actor is represented, never a subset or an origin wildcard.
+    actors = binding['actors']
+    require(type(actors) is list and 4 <= len(actors) <= 256 and len(actors) == len(baseline['actors']),
+            'PROSPECTIVE_ACTOR_SET')
+    actor_fields = {'role','exe','exe_sha256','uid','gid','groups','caps','nnp','argv_sha256','cgroup',
+                    'initial_env_sha256','lsm_sha256','namespaces','max_instances'}
+    roles = {'kernel_manager':1,'authenticated_maintenance':8,'administrative_service':16,'nginx_reader':16}
+    counts = {k:0 for k in roles}; execution = {}
+    for item, expected in zip(actors, baseline['actors']):
+        require(type(item) is dict and set(item) == {'profile','justification'} and
+                type(item['justification']) is str and 32 <= len(item['justification']) <= 2048,
+                'PROSPECTIVE_ROLE_JUSTIFICATION')
+        row = item['profile']
+        require(type(row) is dict and set(row) == actor_fields and row ==
+                {k:v for k,v in expected.items() if k != 'origin_sha256'} and expected['origin_sha256'] == binding_hash,
+                'PROSPECTIVE_ROLE_BINDING')
+        role = row['role']; require(role in roles and type(row['max_instances']) is int and
+                1 <= row['max_instances'] <= roles[role], 'PROSPECTIVE_ROLE_LIMIT')
+        counts[role] += row['max_instances']
+        require(type(row['nnp']) is int and row['nnp'] in (0,1) and
+            type(row['caps']) is dict and set(row['caps'])=={'CapInh','CapPrm','CapEff','CapBnd','CapAmb'} and
+            all(type(n) is int and 0<=n<2**64 for n in row['caps'].values()) and
+            all(type(row[k]) is list and len(row[k])==4 and all(type(n) is int and 0<=n<2**32
+                for n in row[k]) for k in ('uid','gid')) and type(row['groups']) is list and
+            all(type(n) is int and 0<=n<2**32 for n in row['groups']) and
+            row['groups']==sorted(set(row['groups'])) and
+            all(type(row[k]) is str and re.fullmatch('[a-f0-9]{64}',row[k])
+                for k in ('exe_sha256','argv_sha256','initial_env_sha256','lsm_sha256')) and
+            type(row['cgroup']) is str and row['cgroup'].startswith('/') and
+            type(row['namespaces']) is dict and set(row['namespaces'])=={'pid','mnt','user','net'} and
+            all(type(v) is str and re.fullmatch(k+r':\[[0-9]+\]',v) for k,v in row['namespaces'].items()),
+            'PROSPECTIVE_ROLE_PROFILE')
+        require(type(row['exe']) is str and row['exe'].startswith(('/usr/bin/','/usr/sbin/','/usr/lib/','/sbin/','/bin/')) and
+                '\x00' not in row['exe'] and '..' not in Path(row['exe']).parts and str(Path(row['exe']))==row['exe'],
+                'PROSPECTIVE_ACTOR_EXECUTABLE')
+        require(row['exe'] not in execution or execution[row['exe']]==row['exe_sha256'], 'PROSPECTIVE_EXEC_COLLISION')
+        execution[row['exe']] = row['exe_sha256']
+        if role == 'kernel_manager': require(row['uid'] == row['gid'] == [0]*4, 'PROSPECTIVE_MANAGER_PROFILE')
+        if role == 'administrative_service': require(row['cgroup'].startswith('/system.slice/'), 'PROSPECTIVE_SERVICE_CONTEXT')
+        if role == 'nginx_reader': require(row['uid'] == row['gid'] == [33]*4 and row['groups'] == [33] and
+            not any(v for k,v in row['caps'].items() if k != 'CapBnd'), 'PROSPECTIVE_NGINX_PROFILE')
+    require(counts['kernel_manager'] == 1 and all(counts.values()) and sum(counts.values()) <= 256,
+            'PROSPECTIVE_COMPLETE_ROLES')
+    for rows in (baseline['source_release']['operator_dependencies'], baseline['source_release']['probe_dependencies']):
+        for path, row in rows.items():
+            require(row['source'] not in execution or execution[row['source']] == row['sha256'], 'PROSPECTIVE_EXEC_COLLISION')
+            execution[row['source']] = row['sha256']
+    require(type(binding['execution_origins']) is dict and set(binding['execution_origins']) == set(execution),
+            'PROSPECTIVE_EXECUTION_COVERAGE')
+    for path,digest in execution.items():
+        byte_origin(binding['execution_origins'][path],path,digest,('PUBLISHER','GIT'))
+    for row in baseline['source_release']['operator_dependencies'].values():
+        require(row['origin_sha256'] == binding['execution_origins'][row['source']], 'PROSPECTIVE_OPERATOR_ORIGIN')
+    for path, row in baseline['files'].items():
+        if path in host_paths or path in PROSPECTIVE_UNITS: continue
+        allowed=(('CACHE_DERIVATION',) if path == '/etc/ld.so.cache' else
+                 ('PUBLISHER','GIT','PRIOR_RECORD') if path.startswith('/etc/') else ('PUBLISHER','GIT'))
+        byte_origin(row['origin_sha256'],path,row['sha256'],allowed)
+    metadata = binding['metadata']
+    required_meta = set(host_paths) | set(PROSPECTIVE_UNITS) | set(baseline['source_release']['operator_dependencies'])
+    require(type(metadata) is dict and set(metadata) == required_meta, 'PROSPECTIVE_METADATA_SET')
+    for path, row in metadata.items():
+        secure_metadata(row)
+        expected = baseline['files'].get(path, baseline['source_release']['operator_dependencies'].get(path))
+        require(row == {k:expected[k] for k in row}, 'PROSPECTIVE_METADATA_DRIFT')
+    prospective_names(binding, baseline)
+    require(sum(len(actual[h]) for h in used) <= 1024*1024, 'PROSPECTIVE_MATERIAL_BOUND')
+    return {h:actual[h] for h in used}
+
+
+def prospective_names(binding, baseline):
+    """Exact no-follow directory/link graph, derived ONLY from selected inputs.
+
+    No Host I/O here. Existing R5 Paths/loader fences compare these profiles
+    before claim and retain their ordinary event/identity protection thereafter.
+    """
+    names=binding['names']; require(type(names) is dict and 0<len(names)<=1024,'PROSPECTIVE_NAMES_BOUND')
+    required=set();files=set(baseline['files'])|set(binding['execution_origins'])
+    for key in ('operator_dependencies','probe_dependencies'):
+        files.update(baseline['source_release'][key])
+    def resolve(path, directory=False):
+        require(type(path) is str and path.startswith('/') and '\x00' not in path and
+            '..' not in Path(path).parts and str(Path(path))==path,'PROSPECTIVE_NAME_PATH')
+        pending=path.split('/')[1:];current=Path('/');links=steps=0
+        required.add('/')
+        while pending:
+            steps+=1;require(steps<=512,'PROSPECTIVE_NAME_CYCLE')
+            leaf=pending.pop(0)
+            if leaf in ('','.'):continue
+            if leaf=='..':current=current.parent;continue
+            name=str(current/leaf);row=names.get(name)
+            if not pending and not directory and row is None:return name
+            require(type(row) is dict,'PROSPECTIVE_NAME_MISSING');required.add(name)
+            if row.get('kind')=='link':
+                links+=1;require(links<=40 and set(row)=={'kind','uid','gid','mode','attrs','target'} and
+                    type(row['uid']) is type(row['gid']) is int and row['uid']==row['gid']==0 and
+                    row['mode']==0o777 and row['attrs']=={} and type(row['target']) is str and
+                    0<len(row['target'])<=4096 and '\x00' not in row['target'],'PROSPECTIVE_LINK_PROFILE')
+                if row['target'].startswith('/'):current=Path('/')
+                pending=row['target'].split('/')+pending
+            else:
+                require(row.get('kind')=='directory','PROSPECTIVE_NAME_TYPE');current=current/leaf
+        return str(current)
+    resolved={path:resolve(path) for path in files}
+    for key in ('operator_dependencies','probe_dependencies'):
+        require(all(resolved[path]==row['source'] for path,row in baseline['source_release'][key].items()),
+                'PROSPECTIVE_ALIAS_SOURCE')
+    require(all(resolved[path]==path for path in binding['execution_origins']),
+            'PROSPECTIVE_EXECUTABLE_CANONICAL_NAME')
+    for path in PROSPECTIVE_POLICY_ROOTS:resolve(path,True)
+    require(set(names)==required,'PROSPECTIVE_EXACT_NAMES')
+    for path,row in names.items():
+        if row.get('kind')=='link':continue
+        require(set(row)=={'kind','uid','gid','mode','attrs','flags'} and row['kind']=='directory' and
+            type(row['uid']) is type(row['gid']) is int and row['uid']==row['gid']==0 and
+            type(row['mode']) is int and 0<=row['mode']<=0o777 and not row['mode']&0o022 and
+            row['attrs']=={} and type(row['flags']) is int and row['flags'] in (0,0x1000,0x80000,0x81000),
+            'PROSPECTIVE_DIRECTORY_PROFILE')
+    return files
+
+
+def prospective_packet_material(packet):
+    prospective=packet['scope'].get('schema')==PROSPECTIVE_SCOPE
+    require(('prospective_material' in packet)==prospective,'PROSPECTIVE_PACKET_SCHEMA')
+    if not prospective:return {}
+    data=packet['prospective_material']
+    require(type(data) is dict and 0<len(data)<=256 and all(type(v) is str for v in data.values()),
+            'PROSPECTIVE_PACKET_MATERIAL')
+    try:actual={h:base64.b64decode(v,validate=True) for h,v in data.items()}
+    except ValueError:raise Hold('PUBLIC_OPERATOR_PROSPECTIVE_PACKET_MATERIAL') from None
+    required=prospective_binding(packet['scope'],packet['baseline'],actual)
+    require(set(required)==set(actual),'PROSPECTIVE_PACKET_EXACT_MATERIAL')
+    return parse(actual[packet['scope']['prospective_binding_sha256']])
 
 
 def application_coordinates(reference):

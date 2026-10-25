@@ -50,7 +50,7 @@ jobs:
           fetch-tags: true
           persist-credentials: false
       - name: Private CI boundary regression tests (no private input or credential)
-        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci tests.test_public_runtime_artifact
+        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci tests.test_public_runtime_artifact tests.test_public_prospective_admission
       - name: Build fresh approved native image before private input (no reused artifact)
         run: docker build --file tests/s8-native.Dockerfile --tag "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
       - name: Build fresh production-entry image before private input
