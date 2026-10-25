@@ -315,6 +315,10 @@ def prospective_binding(scope, baseline, actual):
         byte_origin(binding['execution_origins'][path],path,digest,('PUBLISHER','GIT'))
     for row in baseline['source_release']['operator_dependencies'].values():
         require(row['origin_sha256'] == binding['execution_origins'][row['source']], 'PROSPECTIVE_OPERATOR_ORIGIN')
+    cache=baseline['files'].get('/etc/ld.so.cache')
+    require(type(cache) is dict and set(cache)==file_fields|{'origin_sha256'} and
+        type(cache['sha256']) is str and re.fullmatch('[a-f0-9]{64}',cache['sha256']),
+        'PROSPECTIVE_CACHE_BASELINE_REQUIRED')
     for path, row in baseline['files'].items():
         if path in host_paths or path in PROSPECTIVE_UNITS: continue
         allowed=(('CACHE_DERIVATION',) if path == '/etc/ld.so.cache' else

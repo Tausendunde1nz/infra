@@ -186,6 +186,8 @@ class ProspectiveAdmission(unittest.TestCase):
         with self.assertRaisesRegex(io.Hold,'DIRECTORY_DRIFT'):subject.admit_prospective_names(binding)
 
     def test_cache_actor_probe_metadata_coverage_and_fresh_flags(self):
+        s,b,a=self.fixture();b['files'].pop('/etc/ld.so.cache')
+        with self.assertRaisesRegex(io.Hold,'CACHE_BASELINE_REQUIRED'):self.check((s,b,a))
         for path in ('/etc/ld.so.cache','/usr/sbin/nginx','/usr/bin/python3.12'):
             def omit(x,y,b,a):x['metadata'].pop(path)
             with self.subTest(path=path),self.assertRaisesRegex(io.Hold,'METADATA_SET'):self.check(self.fixture(omit))
