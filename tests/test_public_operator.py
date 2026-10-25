@@ -159,21 +159,80 @@ class OperatorBoundary(unittest.TestCase):
             self.assertEqual(set(io.http_cleanup(outer)), io.HTTP_CLEANUP)
             self.assertEqual(inner.primary, 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_HTTP_ABSOLUTE_DEADLINE')
 
+    @contextlib.contextmanager
+    def _record_proc_reads(self):
+        text_reads = []; byte_reads = []; cgroup_reads = []
+        text, binary = observe.proc_text, observe.proc_bytes
+        def actual_text(path):
+            value = text(path); text_reads.append(str(path)); return value
+        def actual_bytes(path):
+            value = binary(path); byte_reads.append(str(path))
+            if str(path).endswith('/cgroup'): cgroup_reads.append((str(path), value))
+            return value
+        with patch.object(observe, 'proc_text', actual_text), patch.object(observe, 'proc_bytes', actual_bytes):
+            yield text_reads, byte_reads, cgroup_reads
+
+    def _assert_single_leader_cgroup_reads(self, pid, cgroup, text_reads, cgroup_reads):
+        # Exact call sites/order AND raw contents, not an arbitrary read count.
+        self.assertEqual([p for p in text_reads if p.endswith('/cgroup')], [])
+        self.assertEqual(cgroup_reads, [('/proc/'+str(pid)+'/cgroup', cgroup.encode('utf-8')+b'\n'),
+            ('/proc/'+str(pid)+'/task/'+str(pid)+'/cgroup', cgroup.encode('utf-8')+b'\n')])
+
+    def test_cgroup_read_instrumentation_rejects_missing_extra_wrong_site_and_content(self):
+        # Actual reads of synthetic files only; NOT a native process proof.
+        pid = 42; leader = '/proc/42/cgroup'; followup = '/proc/42/task/42/cgroup'
+        foreign = '/proc/42/task/43/cgroup'
+        cgroup = '0::/synthetic\n7:cpu,cpuacct:/synthetic '
+        raw = cgroup.encode('utf-8')+b'\n'
+        cases = [('regular', [leader, followup], raw, raw, False, True),
+                 ('missing_first', [followup], raw, raw, False, False),
+                 ('missing_followup', [leader], raw, raw, False, False),
+                 ('missing_both', [], raw, raw, False, False),
+                 ('additional', [leader, followup, followup], raw, raw, False, False),
+                 ('same_site_twice', [leader, leader], raw, raw, False, False),
+                 ('reversed', [followup, leader], raw, raw, False, False),
+                 ('foreign_task', [leader, foreign], raw, raw, False, False),
+                 ('text_read', [leader, followup], raw, raw, True, False),
+                 ('first_content', [leader, followup], raw.replace(b'7:', b'8:'), raw, False, False),
+                 ('followup_content', [leader, followup], raw, raw.replace(b'cpu,cpuacct', b'cpu'), False, False),
+                 ('both_content', [leader, followup], raw.replace(b'synthetic', b'other'),
+                     raw.replace(b'synthetic', b'other'), False, False)]
+        binary = observe.proc_bytes
+        for label, paths, first, second, text_read, accepted in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory(prefix='synthetic-cgroup-reads-') as folder:
+                files = {path: Path(folder)/name for path, name in
+                         ((leader, 'leader'), (followup, 'followup'), (foreign, 'foreign'))}
+                for path, value in ((leader, first), (followup, second), (foreign, raw)):
+                    files[path].write_bytes(value)
+                with patch.object(observe, 'proc_bytes', side_effect=lambda path: binary(files[str(path)])), \
+                     patch.object(observe, 'proc_text', side_effect=lambda path: files[str(path)].read_text()):
+                    with self._record_proc_reads() as (text_reads, byte_reads, cgroup_reads):
+                        values = [observe.proc_cgroup(path) for path in paths]
+                        if text_read: observe.proc_text(leader)
+                self.assertEqual(byte_reads, paths)
+                if accepted:
+                    self.assertEqual(values, [cgroup, cgroup])
+                    self._assert_single_leader_cgroup_reads(pid, cgroup, text_reads, cgroup_reads)
+                else:
+                    with self.assertRaises(AssertionError):
+                        self._assert_single_leader_cgroup_reads(pid, cgroup, text_reads, cgroup_reads)
+
+    def test_cgroup_read_instrumentation_does_not_hide_errors_or_fill_counters(self):
+        with patch.object(observe, 'proc_bytes', side_effect=PermissionError('SYNTHETIC_READ_DENIED')):
+            with self._record_proc_reads() as (text_reads, byte_reads, cgroup_reads):
+                with self.assertRaises(PermissionError): observe.proc_cgroup('/proc/42/cgroup')
+        self.assertEqual(text_reads, []); self.assertEqual(byte_reads, []); self.assertEqual(cgroup_reads, [])
+
     @unittest.skipUnless(native_trace_capable(), 'requires isolated native Linux root with CAP_SYS_PTRACE')
     def test_actual_single_leader_start_sample_is_bound_not_another_start(self):
         # The faster pathname implementation must still perform BOTH complete
         # live samples. Instrumentation delegates every real read unchanged.
-        text_reads = []; byte_reads = []
-        text, binary = observe.proc_text, observe.proc_bytes
-        def actual_text(path):
-            text_reads.append(str(path)); return text(path)
-        def actual_bytes(path):
-            byte_reads.append(str(path)); return binary(path)
-        with patch.object(observe, 'proc_text', actual_text), patch.object(observe, 'proc_bytes', actual_bytes):
+        with self._record_proc_reads() as (text_reads, byte_reads, cgroup_reads):
             row = observe.process(os.getpid())
         self.assertEqual(row['pid'], os.getpid())
-        for name in ('status', 'cgroup', 'uid_map', 'gid_map', 'setgroups'):
+        for name in ('status', 'uid_map', 'gid_map', 'setgroups'):
             self.assertEqual(sum(p.endswith('/'+name) for p in text_reads), 2)
+        self._assert_single_leader_cgroup_reads(os.getpid(), row['cgroup'], text_reads, cgroup_reads)
         self.assertEqual(sum(p.endswith('/stat') for p in text_reads), 4)
         self.assertEqual(sum(p.endswith('/attr/current') for p in byte_reads), 2)
         self.assertEqual(sum(p.endswith('/cmdline') for p in byte_reads), 1)
