@@ -63,7 +63,11 @@ REPOSITORY='Tausendunde1nz/infra'
 # PR238: finite prospective R5P Hostpolicy/metadata/role Source addendum only.
 # Same pinned private inputs, final-SHA review and normal Environment approval;
 # no actual Host capture/annex acceptance, generic PR or production authority.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238))
+# PR239: finite cgroup-record/Groups representation compatibility only.
+# This entry is not a trust attestation: the complete new SHA still requires
+# independent review and normal external Environment approval before private CI.
+# Repository/event/SHA/clean-source bindings and pinned private inputs unchanged.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'

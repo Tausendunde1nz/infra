@@ -83,6 +83,45 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
 
 
+def cgroup_records(value):
+    """Full proc cgroup records, NOT a path or a normalized authorization.
+
+    Keep every hierarchy/controller/path and its order for exact comparison.
+    The proc reader removes exactly its final LF, never whitespace/path data.
+    This grammar does not grant a role or add v1/hybrid runtime support.
+    """
+    require(type(value) is str and 0 < len(value) <= 256*1024, 'CGROUP_PROFILE_BOUND')
+    lines = value.split('\n')
+    require(1 <= len(lines) <= 64, 'CGROUP_PROFILE_BOUND')
+    records = []; hierarchies = set(); controllers = set()
+    for line in lines:
+        fields = line.split(':', 2)
+        require(len(fields) == 3, 'CGROUP_PROFILE_STRUCTURE')
+        hierarchy, control, path = fields
+        require(re.fullmatch(r'0|[1-9][0-9]{0,9}', hierarchy) and
+                int(hierarchy) <= 0x7fffffff and hierarchy not in hierarchies,
+                'CGROUP_PROFILE_HIERARCHY')
+        names = control.split(',') if control else []
+        require((hierarchy == '0' and not names) or (hierarchy != '0' and names and
+                all(re.fullmatch(r'[A-Za-z0-9_]+|name=[A-Za-z0-9_.-]+', n) for n in names)),
+                'CGROUP_PROFILE_CONTROLLERS')
+        require(len(names) == len(set(names)) and not controllers.intersection(names),
+                'CGROUP_PROFILE_CONTROLLERS')
+        require(0 < len(path) <= 4096 and path.startswith('/') and
+                all(c.isprintable() for c in path) and
+                (path == '/' or all(p not in ('', '.', '..') for p in path[1:].split('/'))),
+                'CGROUP_PROFILE_PATH')
+        hierarchies.add(hierarchy); controllers.update(names)
+        records.append((int(hierarchy), tuple(names), path))
+    return tuple(records)
+
+
+def system_slice_cgroup(value):
+    # Every recorded hierarchy must have this context; one matching substring
+    # or one selected controller must never mask a different membership.
+    return all(path.startswith('/system.slice/') for _, _, path in cgroup_records(value))
+
+
 def operator_dependency_reference(release, origins):
     """R5 observer TCB inputs, NEVER copied into synthetic execution roots."""
     require(type(release) is dict and set(release)=={'probe_dependencies','python_binary',
@@ -285,13 +324,14 @@ def prospective_binding(scope, baseline, actual):
             all(type(row[k]) is list and len(row[k])==4 and all(type(n) is int and 0<=n<2**32
                 for n in row[k]) for k in ('uid','gid')) and type(row['groups']) is list and
             all(type(n) is int and 0<=n<2**32 for n in row['groups']) and
-            row['groups']==sorted(set(row['groups'])) and
+            row['groups']==sorted(row['groups']) and len(row['groups']) <= 65536 and
             all(type(row[k]) is str and re.fullmatch('[a-f0-9]{64}',row[k])
                 for k in ('exe_sha256','argv_sha256','initial_env_sha256','lsm_sha256')) and
-            type(row['cgroup']) is str and row['cgroup'].startswith('/') and
+            type(row['cgroup']) is str and
             type(row['namespaces']) is dict and set(row['namespaces'])=={'pid','mnt','user','net'} and
             all(type(v) is str and re.fullmatch(k+r':\[[0-9]+\]',v) for k,v in row['namespaces'].items()),
             'PROSPECTIVE_ROLE_PROFILE')
+        cgroup_records(row['cgroup'])
         identity=sha(canonical({k:v for k,v in row.items() if k not in ('role','max_instances')}))
         require(identity not in actor_identities,'PROSPECTIVE_AMBIGUOUS_ROLE');actor_identities.add(identity)
         require(type(row['exe']) is str and row['exe'].startswith(('/usr/bin/','/usr/sbin/','/usr/lib/','/sbin/','/bin/')) and
@@ -300,7 +340,7 @@ def prospective_binding(scope, baseline, actual):
         require(row['exe'] not in execution or execution[row['exe']]==row['exe_sha256'], 'PROSPECTIVE_EXEC_COLLISION')
         execution[row['exe']] = row['exe_sha256']
         if role == 'kernel_manager': require(row['uid'] == row['gid'] == [0]*4, 'PROSPECTIVE_MANAGER_PROFILE')
-        if role == 'administrative_service': require(row['cgroup'].startswith('/system.slice/'), 'PROSPECTIVE_SERVICE_CONTEXT')
+        if role == 'administrative_service': require(system_slice_cgroup(row['cgroup']), 'PROSPECTIVE_SERVICE_CONTEXT')
         if role == 'nginx_reader': require(row['uid'] == row['gid'] == [33]*4 and row['groups'] == [33] and
             not any(v for k,v in row['caps'].items() if k != 'CapBnd'), 'PROSPECTIVE_NGINX_PROFILE')
     require(counts['kernel_manager'] == 1 and all(counts.values()) and sum(counts.values()) <= 256,
