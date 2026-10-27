@@ -33,7 +33,7 @@ def load_io():
 
 
 io = load_io()
-INFRA_FILES = {n: 'scripts/tu1nz_public_operator_'+n+'.py' for n in ('io', 'fs', 'runtime_guard', 'observe', 'probes', 'host')}
+INFRA_FILES = {n: 'scripts/tu1nz_public_operator_'+n+'.py' for n in ('io', 'fs', 'runtime_guard', 'observe', 'probes', 'host', 'context')}
 INFRA_FILES['client'] = 'scripts/tu1nz_public_operator.py'
 INFRA_FILES.update(artifact='scripts/tu1nz_public_runtime_artifact.py',
                    replacement='scripts/tu1nz_public_runtime_transition.py',
@@ -415,7 +415,7 @@ def main():
     if replacing:
         packet['baseline_encoding']='zlib_R5'
         packet['baseline_raw']=base64.b64encode(zlib.compress(baseline_raw,9)).decode()
-    if scope['schema']==io.PROSPECTIVE_SCOPE:
+    if scope['schema'] in io.PROSPECTIVE_SCOPES:
         packet['prospective_material']={h:base64.b64encode(raw).decode() for h,raw in prospective.items()}
     io.prospective_packet_material(packet)
     io.require(io.baseline_bytes(packet)==baseline_raw,'BASELINE_PACKET_READBACK')
@@ -456,7 +456,7 @@ def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None, ru
                 (baseline['http'][u] if u != 'lighting' else [baseline['http'][u]]) if e['location'] == 'client']
         client = Client(wire, r3, packet['binding'], http_expectations=http, owner_hold_before=owner_hold_before,
                         runtime_payload=runtime_payload,
-                        admission_packet=packet if packet['scope']['schema']==io.PROSPECTIVE_SCOPE else None)
+                        admission_packet=packet if packet['scope']['schema'] in io.PROSPECTIVE_SCOPES else None)
         result = client.serve(); child.stdin.close()
         io.require(child.wait(timeout=5) == 0, 'SSH_END_UNKNOWN')
     except BaseException as error:
