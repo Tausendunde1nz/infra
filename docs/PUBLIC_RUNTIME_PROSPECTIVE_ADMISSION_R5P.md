@@ -401,12 +401,17 @@ strict checks establish each live PID/start/Invocation once; replacements are
 never adopted. These primary R5 targets are not silently dropped from edges.
 
 Each actual socket FD additionally needs one exact `channels` entry:
-`fd,direction,provider_side,authority,actions,objects,source_profile_sha256,
+`fd,direction,providers,objects,source_profile_sha256,
 target_profile_sha256,socket_sha256`. Direction is bound-listener/bound-peer;
-Provider side is explicitly source/peer (a listener requires source); named
-administrative providers at EITHER end cannot be relabelled application input.
-Authority is application_input/tmux_command/userbus_policy/agent_signing/
-system_broker, with the exact finite action list from `CHANNEL_ACTIONS`.
+`providers` has one or two exact `side,profile_sha256,authority,actions` rows;
+side is explicitly source/peer (a listener requires source). Named providers
+at EITHER end cannot be relabelled application input or omitted. U1's exact
+user-systemd profile is `user_service_manager`, U2 `user_executor`, U7
+`userbus_policy`; their composed manager/router channel names BOTH directed
+effects, not Host-systemd authority. Other finite types are application_input,
+tmux_command, agent_signing and system_broker; action lists are exactly
+`CHANNEL_ACTIONS`. Host providers require original HOST roles. Docker/SSH
+administrative channels without a finite action model remain HOLD.
 Provider profile, kernel cookie, addresses, type, direction, peer and full
 measurement must agree; named tmux/agent/userbus providers are checked.
 UNIX connected peers require SO_PEERPIDFD+fdinfo PID+exit poll and fresh full

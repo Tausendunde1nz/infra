@@ -309,27 +309,51 @@ class ContextKernelContracts(unittest.TestCase):
     def test_T06_channels_require_exact_peer_direction_provider_and_effect(self):
         obj=context.ContextBindings.__new__(context.ContextBindings)
         obj.reserved_witnesses={}
-        source={'exe':'/usr/bin/bash','role':'coexisting_user_tcb'};peer={'exe':'/usr/bin/tmux','role':'coexisting_user_tcb'}
+        source={'exe':'/usr/bin/bash','role':'coexisting_user_tcb','context_id':'U6'}
+        peer={'exe':'/usr/bin/tmux','role':'coexisting_user_tcb','context_id':'U5'}
         sh,ph=io.sha(io.canonical(source)),io.sha(io.canonical(peer))
         sock={'kind':'connected','peer_profile_sha256':ph,'cookie':44,'local':'0100','peer':'0100'}
-        channel=dict(fd=5,direction='bound-peer',provider_side='peer',authority='tmux_command',target_profile_sha256=ph,
+        def provider(side,ph,kind):return dict(side=side,profile_sha256=ph,authority=kind,actions=context.CHANNEL_ACTIONS[kind])
+        channel=dict(fd=5,direction='bound-peer',providers=[provider('peer',ph,'tmux_command')],target_profile_sha256=ph,
                      socket_sha256=io.sha(io.canonical(sock)))
         edge={'source_profile_sha256':sh,'channels':[channel]};descriptors={'descriptors':[dict(fd=5,socket=sock)]}
         obj.channel_check(edge,descriptors,[source,peer])
         for change in ({'target_profile_sha256':sh},{'direction':'bound-listener'},
-                       {'socket_sha256':'0'*64},{'authority':'agent_signing'}):
+                       {'socket_sha256':'0'*64},{'providers':[provider('peer',ph,'agent_signing')]}):
             with self.subTest(change=change),self.assertRaises(io.Hold):
                 obj.channel_check(dict(edge,channels=[dict(channel,**change)]),descriptors,[source,peer])
         with self.assertRaises(io.Hold):obj.channel_check(dict(edge,channels=[]),descriptors,[source,peer])
         reverse_sock=dict(sock,peer_profile_sha256=sh)
-        reverse_channel=dict(channel,provider_side='source',target_profile_sha256=sh,
+        reverse_channel=dict(channel,providers=[provider('source',ph,'tmux_command')],target_profile_sha256=sh,
                              socket_sha256=io.sha(io.canonical(reverse_sock)))
         reverse=dict(source_profile_sha256=ph,channels=[reverse_channel])
         reverse_descriptors={'descriptors':[dict(fd=5,socket=reverse_sock)]}
         obj.channel_check(reverse,reverse_descriptors,[source,peer])
-        for change in ({'authority':'application_input'},{'provider_side':'peer'}):
+        for change in ({'providers':[provider('source',ph,'application_input')]},
+                       {'providers':[provider('peer',sh,'tmux_command')]}):
             with self.subTest(reverse=change),self.assertRaises(io.Hold):
                 obj.channel_check(dict(reverse,channels=[dict(reverse_channel,**change)]),reverse_descriptors,[source,peer])
+
+    def test_T06_user_manager_listener_and_composite_userbus_provider_are_finite(self):
+        obj=context.ContextBindings.__new__(context.ContextBindings)
+        manager=dict(exe='/usr/lib/systemd/systemd',role='coexisting_user_tcb',context_id='U1')
+        bus=dict(exe='/usr/bin/dbus-daemon',role='coexisting_user_tcb',context_id='U7')
+        mh,bh=io.sha(io.canonical(manager)),io.sha(io.canonical(bus))
+        def p(side,h,kind):return dict(side=side,profile_sha256=h,authority=kind,actions=context.CHANNEL_ACTIONS[kind])
+        listener=dict(kind='listener',cookie=8,local='0100',peer=None)
+        c=dict(fd=3,direction='bound-listener',target_profile_sha256=None,socket_sha256=io.sha(io.canonical(listener)),
+               providers=[p('source',mh,'user_service_manager')])
+        edge=dict(source_profile_sha256=mh,channels=[c]);d={'descriptors':[dict(fd=3,socket=listener)]}
+        obj.channel_check(edge,d,[manager,bus])
+        sock=dict(kind='connected',cookie=9,local='0100',peer='0100',peer_profile_sha256=bh)
+        c=dict(c,direction='bound-peer',target_profile_sha256=bh,socket_sha256=io.sha(io.canonical(sock)),
+               providers=[p('source',mh,'user_service_manager'),p('peer',bh,'userbus_policy')])
+        d={'descriptors':[dict(fd=3,socket=sock)]};obj.channel_check(dict(edge,channels=[c]),d,[manager,bus])
+        for providers in ([p('source',mh,'application_input'),p('peer',bh,'userbus_policy')],
+                          [p('source',mh,'system_broker'),p('peer',bh,'userbus_policy')],
+                          [p('source',mh,'user_service_manager')]):
+            with self.subTest(providers=providers),self.assertRaises(io.Hold):
+                obj.channel_check(dict(edge,channels=[dict(c,providers=providers)]),d,[manager,bus])
 
     def test_T06_positive_policy_has_all_twenty_one_named_tuples_and_no_interaction(self):
         auth=SimpleNamespace(_authorization_owner=':1.9',paths=SimpleNamespace(read=lambda p:(b'chatops:x:1001:1001::/:/bin/bash\n',None)))

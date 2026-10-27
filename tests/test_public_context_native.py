@@ -248,13 +248,19 @@ class ContextNative(unittest.TestCase):
                         self.assertEqual(observed['kind'],kind)
                         self.assertEqual(os.get_blocking(stream.fileno()),before)
                         if kind=='connected':
-                            row=observe.process(os.getpid());profile={'owned_synthetic_peer':True}
-                            bound=context.peer_binding(library,copy,observed,{row['pid']:row},lambda r,p:True,
+                            row=observe.process(os.getpid())
+                            fields=('exe','exe_sha256','uid','gid','groups','caps','nnp','argv_sha256',
+                                    'cgroup','initial_env_sha256','lsm_sha256','namespaces')
+                            profile=dict({k:row[k] for k in fields},role='administrative_service',max_instances=1,origin_sha256='0'*64)
+                            bound=context.peer_binding(library,copy,observed,{row['pid']:row},observe.exact_actor,
                                 [profile],observe.process,deadline=time.monotonic()+5)
                             self.assertEqual(bound['peer_starttime'],row['starttime'])
                             with self.assertRaises(io.Hold):
                                 context.peer_binding(library,copy,observed,{row['pid']:dict(row,starttime='1')},
-                                    lambda r,p:True,[profile],observe.process,deadline=time.monotonic()+5)
+                                    observe.exact_actor,[profile],observe.process,deadline=time.monotonic()+5)
+                            with self.assertRaises(io.Hold):
+                                context.peer_binding(library,copy,observed,{row['pid']:row},observe.exact_actor,
+                                    [dict(profile,uid=[1001]*4)],observe.process,deadline=time.monotonic()+5)
                     finally:os.close(copy)
             finally:
                 os.close(pidfd);listener.close()
