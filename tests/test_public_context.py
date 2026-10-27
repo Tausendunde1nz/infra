@@ -312,7 +312,7 @@ class ContextKernelContracts(unittest.TestCase):
         source={'exe':'/usr/bin/bash','role':'coexisting_user_tcb'};peer={'exe':'/usr/bin/tmux','role':'coexisting_user_tcb'}
         sh,ph=io.sha(io.canonical(source)),io.sha(io.canonical(peer))
         sock={'kind':'connected','peer_profile_sha256':ph,'cookie':44,'local':'0100','peer':'0100'}
-        channel=dict(fd=5,direction='bound-peer',authority='tmux_command',target_profile_sha256=ph,
+        channel=dict(fd=5,direction='bound-peer',provider_side='peer',authority='tmux_command',target_profile_sha256=ph,
                      socket_sha256=io.sha(io.canonical(sock)))
         edge={'source_profile_sha256':sh,'channels':[channel]};descriptors={'descriptors':[dict(fd=5,socket=sock)]}
         obj.channel_check(edge,descriptors,[source,peer])
@@ -321,6 +321,15 @@ class ContextKernelContracts(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(io.Hold):
                 obj.channel_check(dict(edge,channels=[dict(channel,**change)]),descriptors,[source,peer])
         with self.assertRaises(io.Hold):obj.channel_check(dict(edge,channels=[]),descriptors,[source,peer])
+        reverse_sock=dict(sock,peer_profile_sha256=sh)
+        reverse_channel=dict(channel,provider_side='source',target_profile_sha256=sh,
+                             socket_sha256=io.sha(io.canonical(reverse_sock)))
+        reverse=dict(source_profile_sha256=ph,channels=[reverse_channel])
+        reverse_descriptors={'descriptors':[dict(fd=5,socket=reverse_sock)]}
+        obj.channel_check(reverse,reverse_descriptors,[source,peer])
+        for change in ({'authority':'application_input'},{'provider_side':'peer'}):
+            with self.subTest(reverse=change),self.assertRaises(io.Hold):
+                obj.channel_check(dict(reverse,channels=[dict(reverse_channel,**change)]),reverse_descriptors,[source,peer])
 
     def test_T06_positive_policy_has_all_twenty_one_named_tuples_and_no_interaction(self):
         auth=SimpleNamespace(_authorization_owner=':1.9',paths=SimpleNamespace(read=lambda p:(b'chatops:x:1001:1001::/:/bin/bash\n',None)))

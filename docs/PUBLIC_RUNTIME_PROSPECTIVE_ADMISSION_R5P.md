@@ -401,8 +401,10 @@ strict checks establish each live PID/start/Invocation once; replacements are
 never adopted. These primary R5 targets are not silently dropped from edges.
 
 Each actual socket FD additionally needs one exact `channels` entry:
-`fd,direction,authority,actions,objects,source_profile_sha256,
+`fd,direction,provider_side,authority,actions,objects,source_profile_sha256,
 target_profile_sha256,socket_sha256`. Direction is bound-listener/bound-peer;
+Provider side is explicitly source/peer (a listener requires source); named
+administrative providers at EITHER end cannot be relabelled application input.
 Authority is application_input/tmux_command/userbus_policy/agent_signing/
 system_broker, with the exact finite action list from `CHANNEL_ACTIONS`.
 Provider profile, kernel cookie, addresses, type, direction, peer and full

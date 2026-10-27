@@ -327,10 +327,12 @@ def validate_edges(row, baseline, material):
                    (edge['kind']=='descriptors' or channels==[]), 'CONTEXT_CHANNEL_SCHEMA')
         fds=set()
         for channel in channels:
-            io.require(type(channel) is dict and set(channel)=={'fd','direction','authority','actions','objects',
+            io.require(type(channel) is dict and set(channel)=={'fd','direction','provider_side','authority','actions','objects',
                        'source_profile_sha256','target_profile_sha256','socket_sha256'} and
                        type(channel['fd']) is int and 0<=channel['fd']<2**32 and channel['fd'] not in fds and
                        channel['direction'] in ('bound-listener','bound-peer') and
+                       channel['provider_side'] in ('source','peer') and
+                       (channel['direction']=='bound-peer' or channel['provider_side']=='source') and
                        channel['authority'] in CHANNEL_ACTIONS and
                        channel['actions']==CHANNEL_ACTIONS[channel['authority']] and
                        channel['objects']==protected_paths(baseline) and
@@ -1151,19 +1153,27 @@ class ContextBindings:
             io.require(c['socket_sha256']==io.sha(io.canonical(sock)) and
                        c['direction']==('bound-peer' if peer else 'bound-listener') and
                        c['target_profile_sha256']==peer,'CONTEXT_CHANNEL_DRIFT')
-            provider=by_hash[peer] if peer else source
+            io.require(c['provider_side'] in ('source','peer') and (peer or c['provider_side']=='source'),
+                       'CONTEXT_CHANNEL_PROVIDER_UNKNOWN')
+            provider=by_hash[peer] if c['provider_side']=='peer' else source
             required={'tmux_command':'tmux','userbus_policy':'dbus-daemon','agent_signing':'ssh-agent'}
             name=PurePosixPath(provider['exe']).name
             if c['authority'] in required:
                 io.require(name==required[c['authority']], 'CONTEXT_CHANNEL_PROVIDER_UNKNOWN')
-            for kind,program in required.items():
-                if name==program:
-                    expected='system_broker' if name=='dbus-daemon' and provider['role']=='administrative_service' else kind
-                    io.require(c['authority']==expected,'CONTEXT_ADMINISTRATIVE_CHANNEL_RELABELLED')
-            io.require(name not in ('dockerd','containerd','podman','rootlesskit','buildkitd','sshd','sudo'),
-                       'CONTEXT_UNBOUND_BROKER_ACTION_SET')
-            if name in ('systemd','polkitd'):
-                io.require(c['authority']=='system_broker','CONTEXT_ADMINISTRATIVE_CHANNEL_RELABELLED')
+            # Either end may be the service provider. A tmux/agent/userbus
+            # source must not disappear into generic input on its client FD.
+            for endpoint in (source,*([by_hash[peer]] if peer else [])):
+                executable=PurePosixPath(endpoint['exe']).name
+                for kind,program in required.items():
+                    if executable==program:
+                        expected='system_broker' if executable=='dbus-daemon' and endpoint['role']=='administrative_service' else kind
+                        io.require(c['authority']==expected and provider==endpoint,
+                                   'CONTEXT_ADMINISTRATIVE_CHANNEL_RELABELLED')
+                io.require(executable not in ('dockerd','containerd','podman','rootlesskit','buildkitd','sshd','sudo'),
+                           'CONTEXT_UNBOUND_BROKER_ACTION_SET')
+                if executable in ('systemd','polkitd'):
+                    io.require(c['authority']=='system_broker' and provider==endpoint,
+                               'CONTEXT_ADMINISTRATIVE_CHANNEL_RELABELLED')
             if c['authority']=='system_broker':
                 io.require(provider['role'] in ('kernel_manager','administrative_service'), 'CONTEXT_CHANNEL_PROVIDER_UNKNOWN')
 
