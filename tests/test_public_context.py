@@ -183,6 +183,7 @@ class ContextMaterial(unittest.TestCase):
                 p = ctx.profiles[m['profile_sha256']]
                 rows[m['pid']] = dict(p,pid=m['pid'],starttime=str(m['starttime']),kernel_thread=0,ppid=1,
                                      uid_map=r['uid_map'],gid_map=r['gid_map'],setgroups=r['setgroups'])
+        ctx.lifetimes={pid:Mock() for pid in ctx.members}
         ctx.check_actor = Mock(); ctx.authority_check = Mock()
         subject.targets = {}; subject.rights = set(); subject.runtime_invocations = {}
         subject.operator_pid = 999; subject.operator_start = '1010'
@@ -277,6 +278,20 @@ class ContextMaterial(unittest.TestCase):
 
 
 class ContextKernelContracts(unittest.TestCase):
+    def test_T03_same_pid_tick_profile_cannot_replace_exited_held_lifetime(self):
+        poll=Mock();poll.poll.side_effect=[[],[],[(91,select.POLLIN)],[],[]]
+        with patch.object(context.os,'pidfd_open',return_value=91,create=True) as opened, \
+             patch.object(context.select,'poll',return_value=poll), \
+             patch.object(context,'read_proc',return_value=b'Pid:\t23\n'),patch.object(context.os,'close') as close:
+            lifetime=context.ProcessLifetime(23,time.monotonic()+10)
+            # All user-visible PID/start/profile values could be identical;
+            # this kernel lifetime still exited and cannot be replaced.
+            with self.assertRaisesRegex(io.Hold,'MEMBER_EXITED'):lifetime.check()
+            with self.assertRaisesRegex(io.Hold,'LIFETIME_LOST'):lifetime.check()
+            lifetime.close();lifetime.close();opened.assert_called_once_with(23,0)
+            close.assert_called_once_with(91)
+        self.assertTrue(lifetime.failed)
+
     def test_T07_bytes_changed_during_watch_setup_are_not_accepted_by_stable_metadata(self):
         obj=context.RootBindings.__new__(context.RootBindings);identity=dict(device=1,inode=2,mount_id=3)
         obj.root=7;obj.dirs={'/':(7,identity)};obj.files={};obj.links={};obj.targets=set()

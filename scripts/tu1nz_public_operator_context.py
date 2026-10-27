@@ -392,6 +392,34 @@ def fd_identity(fd, *, deadline):
     return dict(device=value.st_dev, inode=value.st_ino, mount_id=int(matches[0]))
 
 
+class ProcessLifetime:
+    """One kernel lifetime per pinned member, never reopen/adopt after exit."""
+    def __init__(self, pid, deadline):
+        self.pid=pid;self.deadline=deadline;self.fd=None;self.failed=False
+        try:
+            deadline_check(deadline);self.fd=os.pidfd_open(pid,0)
+            self.poll=select.poll();self.poll.register(self.fd,select.POLLIN|select.POLLERR|select.POLLHUP)
+            self.check()
+        except BaseException:
+            self.close();raise
+
+    def check(self):
+        try:
+            io.require(not self.failed and self.fd is not None,'CONTEXT_MEMBER_LIFETIME_LOST')
+            deadline_check(self.deadline)
+            io.require(not self.poll.poll(0),'CONTEXT_MEMBER_EXITED')
+            raw=read_proc('/proc/self/fdinfo/'+str(self.fd),32768,deadline=self.deadline)
+            found=re.findall(rb'^Pid:\s*(-?[0-9]+)$',raw,re.M)
+            io.require(len(found)==1 and int(found[0])==self.pid and not self.poll.poll(0),
+                       'CONTEXT_MEMBER_LIFETIME_LOST')
+        except BaseException:
+            self.failed=True;raise
+
+    def close(self):
+        if self.fd is not None:
+            fd=self.fd;self.fd=None;os.close(fd)
+
+
 def open_rooted(root, path, flags, *, aliases=False):
     """No fallback to openat/realpath and no execution in a foreign domain.
 
@@ -578,13 +606,16 @@ def file_metadata(fd):
 
 class RootBindings:
     """One held foreign root; no textual path is interpreted in HOST."""
-    def __init__(self, row, deadline, exec_epoch):
+    def __init__(self, row, deadline, exec_epoch, lifetime=None):
         native(); self.row = row; self.deadline = deadline; self.exec = exec_epoch
-        self.root = self.events = self.pidfd = None; self.mount = None
+        self.root = self.events = None; self.mount = None
+        self.lifetime=lifetime;self.owns_lifetime=lifetime is None
         self.namespace_fds = {}; self.dirs = {}; self.files = {}; self.links = {}
         self.watches = {}; self.failed = False; self.targets = set()
         try:
-            pid = row['anchor_pid']; self.pidfd = os.pidfd_open(pid,0)
+            pid = row['anchor_pid']
+            if self.lifetime is None:self.lifetime=ProcessLifetime(pid,deadline)
+            self.lifetime.check()
             self.mount = MountEpoch(pid,deadline)
             for name in NS:
                 self.namespace_fds[name] = os.open('/proc/'+str(pid)+'/ns/'+name,os.O_RDONLY|os.O_CLOEXEC)
@@ -709,7 +740,7 @@ class RootBindings:
         raise io.Hold('PUBLIC_OPERATOR_CONTEXT_CODE_NAME_UNKNOWN')
 
     def check(self):
-        self.events_check(); row = self.row; pid = row['anchor_pid']
+        self.lifetime.check();self.events_check(); row = self.row; pid = row['anchor_pid']
         io.require(io.sha(read_proc('/proc/'+str(pid)+'/mountinfo',deadline=self.deadline)) == row['code_inputs']['mountinfo_sha256'],
                    'CONTEXT_MOUNT_TOPOLOGY_DRIFT')
         fresh = os.open('/proc/'+str(pid)+'/root',READ|os.O_DIRECTORY)
@@ -725,7 +756,7 @@ class RootBindings:
                    'CONTEXT_ROOT_METADATA_DRIFT')
         for path in tuple(self.files): self.pin(path)
         for path in row['code_inputs'].get('aliases',{}): self.pin(path)
-        self.events_check()
+        self.events_check();self.lifetime.check()
 
     def close(self, *, check=True):
         errors = []
@@ -733,7 +764,10 @@ class RootBindings:
             try: self.check()
             except BaseException: errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CONTEXT_FENCE_CLOSE_UNKNOWN')
         handles = {v[0] for v in self.dirs.values()} | {v[0] for v in self.files.values()} | set(self.namespace_fds.values())
-        handles.update(fd for fd in (self.root,self.events,self.pidfd) if fd is not None and fd >= 0)
+        handles.update(fd for fd in (self.root,self.events) if fd is not None and fd >= 0)
+        if self.owns_lifetime and self.lifetime is not None:
+            try:self.lifetime.close()
+            except OSError:errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CONTEXT_LIFETIME_CLOSE_UNKNOWN')
         if self.mount is not None:
             try: self.mount.close()
             except OSError: errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CONTEXT_MOUNT_CLOSE_UNKNOWN')
@@ -742,7 +776,7 @@ class RootBindings:
             try: os.close(fd)
             except OSError: errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CONTEXT_HANDLE_CLOSE_UNKNOWN')
         self.dirs.clear(); self.files.clear(); self.namespace_fds.clear()
-        self.root = self.events = self.pidfd = None
+        self.root = self.events = None
         return errors
 
 
@@ -901,6 +935,7 @@ class ContextBindings:
         native(); self.baseline = baseline; self.deadline = deadline; self.process = process
         self.rows = baseline['contexts']; self.roots = {}; self.exec = None; self.members = {}; self.files = set()
         self.reserved_witnesses = {}
+        self.lifetimes = {}
         self.profiles = {io.sha(io.canonical({k:v for k,v in p.items() if k != 'origin_sha256'})):p
                          for p in baseline['actors'] if p.get('context_id') != 'HOST'}
         io.require(set(self.rows) == set(PROGRAMS), 'CONTEXT_EXACT_SET')
@@ -910,12 +945,15 @@ class ContextBindings:
                     io.require(member['pid'] not in self.members, 'CONTEXT_MEMBER_COLLISION')
                     self.members[member['pid']] = (key,member)
             io.require(1 <= len(self.members) <= 24, 'CONTEXT_MEMBER_BOUND')
+            for pid in self.members:self.lifetimes[pid]=ProcessLifetime(pid,deadline)
             self.exec = ExecEpoch(self.members,deadline)
             for key,domain in self.rows.items():
                 # Full pinned subject first; no name/PID replacement/discovery.
+                self.lifetimes[domain['anchor_pid']].check()
                 actual = process(domain['anchor_pid'])
+                self.lifetimes[domain['anchor_pid']].check()
                 io.require(str(actual['starttime']) == str(domain['anchor_starttime']), 'CONTEXT_ANCHOR_CHANGED')
-                self.roots[key] = RootBindings(domain,deadline,self.exec)
+                self.roots[key] = RootBindings(domain,deadline,self.exec,self.lifetimes[domain['anchor_pid']])
                 self.files.update(self.roots[key].targets)
             for pid,(_,member) in self.members.items():
                 self.check_actor(process(pid),self.profiles[member['profile_sha256']])
@@ -934,7 +972,7 @@ class ContextBindings:
 
     @contextmanager
     def limit(self, deadline):
-        objects = [self,self.exec,*self.roots.values(),*(r.mount for r in self.roots.values())]
+        objects = [self,self.exec,*self.roots.values(),*(r.mount for r in self.roots.values()),*self.lifetimes.values()]
         previous = [(obj,obj.deadline) for obj in objects]
         for obj,old in previous: obj.deadline = min(old,deadline)
         try: yield
@@ -968,6 +1006,7 @@ class ContextBindings:
         return sorted(observed)
 
     def check_actor(self, row, profile):
+        self.lifetimes[row['pid']].check()
         io.require(self.matches(row,profile), 'CONTEXT_PINNED_ACTOR_CHANGED')
         key,member = self.members[row['pid']]; domain = self.rows[key]; root = self.roots[key]
         io.require(all(row[k] == domain[k] for k in ('namespaces','uid_map','gid_map','setgroups')),
@@ -990,7 +1029,7 @@ class ContextBindings:
                    self.mapped_files(row,root) == before and self.process(row['pid']) == row,
                    'CONTEXT_MAPPING_OR_SUBJECT_CHANGED')
         io.require(self.task_roots(row['pid'],domain['root_identity']) == tasks, 'CONTEXT_TASK_ROOT_SET_CHANGED')
-        root.events_check()
+        root.events_check();self.lifetimes[row['pid']].check()
 
     def task_roots(self, pid, expected):
         path = '/proc/'+str(pid)+'/task'; names = sorted(os.listdir(path)); result = {}
@@ -1129,6 +1168,7 @@ class ContextBindings:
                 io.require(provider['role'] in ('kernel_manager','administrative_service'), 'CONTEXT_CHANNEL_PROVIDER_UNKNOWN')
 
     def check(self):
+        for lifetime in self.lifetimes.values():lifetime.check()
         self.exec.check()
         for key,root in self.roots.items():
             root.check()
@@ -1136,6 +1176,7 @@ class ContextBindings:
             actual = self.process(domain['anchor_pid'])
             io.require(str(actual['starttime']) == str(domain['anchor_starttime']), 'CONTEXT_ANCHOR_CHANGED')
         self.exec.check()
+        for lifetime in self.lifetimes.values():lifetime.check()
 
     def close(self, *, check=True):
         errors = []
@@ -1148,4 +1189,11 @@ class ContextBindings:
             try: self.exec.close()
             except OSError: errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CONTEXT_EXEC_HANDLE_CLOSE_UNKNOWN')
             self.exec = None
+        for lifetime in self.lifetimes.values():
+            if check:
+                try:lifetime.check()
+                except BaseException:errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CONTEXT_MEMBER_CLOSE_UNKNOWN')
+            try:lifetime.close()
+            except OSError:errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CONTEXT_MEMBER_HANDLE_CLOSE_UNKNOWN')
+        self.lifetimes.clear()
         return errors
