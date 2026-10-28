@@ -38,7 +38,7 @@ def set_flags(fd,value):
 @unittest.skipUnless(sys.platform=="linux" and os.geteuid()==0 and
                     os.environ.get("container")=="docker", "disposable privileged Linux only")
 class KernelJournalBarrierTests(unittest.TestCase):
-    def test_kernel_flag_seal_is_an_exact_attributed_transaction_not_a_no_event_assumption(self):
+    def test_kernel_flag_seal_does_not_hide_a_chmod_in_the_event_allowlist(self):
         with tempfile.TemporaryDirectory(prefix="s8-inode-events-",dir="/var/tmp") as temporary:
             path=Path(temporary)/"probe";path.write_bytes(b"bound")
             fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW);old=flags(fd)

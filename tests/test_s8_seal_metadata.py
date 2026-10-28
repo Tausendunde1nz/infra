@@ -1,5 +1,6 @@
 """Portable protocol tests, NOT native fanotify/flag/namespace evidence."""
 import os
+import ast
 import ctypes
 import array
 import fcntl
@@ -42,6 +43,16 @@ def witness(*, selected=False, bound=True, children=True):
 
 
 class MetadataProtocolTests(unittest.TestCase):
+    def test_existing_diagnostic_loader_ids_resolve_without_running_native_cases(self):
+        source = Path(__file__).with_name("s8_diagnostic_once.py").read_text()
+        names = [node.value for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Constant)
+                 and isinstance(node.value, str) and node.value.startswith("tests.test_s8_journal_kernel_barrier.")]
+        self.assertTrue(names)
+        for name in names:
+            suite = unittest.defaultTestLoader.loadTestsFromName(name)
+            self.assertEqual(suite.countTestCases(), 1)
+            self.assertNotEqual(next(iter(suite)).__class__.__name__, "_FailedTest")
+
     def test_fd_handle_uses_comparison_api_and_opaque_bytes_only(self):
         libc = Mock()
         def fs(fd, target):
