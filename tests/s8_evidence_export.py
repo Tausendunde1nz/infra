@@ -137,7 +137,7 @@ def final_exit(measurement_exit, export_exit, evidence_complete, launcher_exit=0
 
 
 def receive_report(process, export_dir, measurement_exit, limit=MAX_LOG, launcher_exit=0,
-                   timeout=EXPORT_SECONDS):
+                   timeout=EXPORT_SECONDS, diagnostics=evidence_diagnostics):
     """A producer's stdout is only report bytes; stderr is bounded fixed JSON.
 
     No event is parsed away or rewritten in the saved raw prefix. Any truncation
@@ -226,7 +226,14 @@ def receive_report(process, export_dir, measurement_exit, limit=MAX_LOG, launche
         if sender["code"] != "STREAM_COMPLETE": errors.append(sender["code"])
         if sender["bytes_sent"] != saved: errors.append("EXPORT_BYTE_COUNT_MISMATCH")
         if sender["code"] == "STREAM_COMPLETE" and sender["source_size"] != saved: errors.append("SOURCE_BYTE_COUNT_MISMATCH")
-    diagnostic = evidence_diagnostics(bytes(copied))
+    try:
+        diagnostic = diagnostics(bytes(copied))
+        if type(diagnostic["evidence_complete"]) is not bool or not isinstance(diagnostic["codes"], list):
+            raise ValueError()
+    except Exception:
+        # A profile validator cannot prevent preservation/framing of raw RED
+        # evidence or replace the original measurement exit status.
+        diagnostic = dict(evidence_complete=False, codes=["PROFILE_VALIDATOR_ERROR"])
     export_exit = 74 if errors else 0
     complete = not errors and diagnostic["evidence_complete"]
     result = dict(measurement_exit=measurement_exit, measurement_started=measurement_exit is not None,
@@ -256,12 +263,14 @@ def receive_report(process, export_dir, measurement_exit, limit=MAX_LOG, launche
     return result, bytes(copied)
 
 
-def docker_export(container, export_dir, measurement_exit, fixture=False, launcher_exit=0):
+def docker_export(container, export_dir, measurement_exit, fixture=False, launcher_exit=0,
+                  diagnostics=evidence_diagnostics):
     if not re.fullmatch("[0-9a-f]{64}", container): raise ValueError("CONTAINER_ID_REQUIRED")
     command = ["docker", "exec", container, "python3", "-B", "tests/s8_evidence_export.py", "--send"]
     if fixture: command.append("--fixture")
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
-    return receive_report(process, export_dir, measurement_exit, launcher_exit=launcher_exit)
+    return receive_report(process, export_dir, measurement_exit, launcher_exit=launcher_exit,
+                          diagnostics=diagnostics)
 
 
 def main():

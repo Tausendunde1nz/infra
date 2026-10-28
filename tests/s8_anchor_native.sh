@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Disposable offline native kernel/PID-1 gate. No host targets or provider I/O.
 set -euo pipefail
+if [[ "$#" = 1 && "$1" = --seal-native-once ]]; then
+  exec python3 -B tests/s8_seal_native_once.py --launch
+fi
+test "$#" = 0
 test "${GITHUB_ACTIONS:-}" = true
 test "$(uname -m)" = x86_64
 image="tu1nz-s8-anchor-ci:${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"

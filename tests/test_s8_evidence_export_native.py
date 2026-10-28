@@ -24,7 +24,10 @@ class NativeEvidenceTransportTests(unittest.TestCase):
         assert os.geteuid() != 0 and shutil.which("docker")
         assert IMAGE == "tu1nz-s8-primary:" + os.environ["GITHUB_RUN_ID"] + "-1"
         cls.scratch = tempfile.mkdtemp(prefix="s8-native-transport-", dir=os.environ["RUNNER_TEMP"])
-        cls.container = subprocess.check_output(["docker", "create", "--network", "none", "--user", "0:0",
+        owner = os.environ.get("S8_SEAL_TRANSPORT_OWNER", "")
+        assert not owner or owner == os.environ["GITHUB_RUN_ID"] and re.fullmatch("[0-9]+", owner)
+        labels = ["--label", "tu1nz.s8-seal-transport=" + owner] if owner else []
+        cls.container = subprocess.check_output(["docker", "create", *labels, "--network", "none", "--user", "0:0",
             "--env", "container=docker", "--mount", "type=bind,src=" + os.getcwd() + ",dst=/source,readonly",
             "--mount", "type=bind,src=" + cls.scratch + ",dst=/s8-native-profile", "--workdir", "/source",
             "--entrypoint", "/usr/bin/python3", IMAGE, "-I", "-B", "-c", "import time;time.sleep(300)"]).decode().strip()

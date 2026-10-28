@@ -1,0 +1,26 @@
+{
+  "name": "S8 seal targeted native acceptance (not full CI)",
+  "on": {"push": {"branches": ["codex/s8-seal-native-once-20261028"]}},
+  "permissions": {"contents": "read"},
+  "jobs": {
+    "seal-native-once": {
+      "if": "github.run_attempt == 1 && github.repository == 'Tausendunde1nz/infra' && github.event.head_commit.message == 'S8: prepare seal native once 20261028'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 20,
+      "steps": [
+        {
+          "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "with": {"ref": "${{ github.sha }}", "fetch-depth": 5, "persist-credentials": false}
+        },
+        {
+          "name": "Portable launcher, observer and unchanged default transport contracts",
+          "run": "python3 -B -m unittest -v tests.test_s8_seal_native_once tests.test_s8_evidence_export"
+        },
+        {
+          "name": "One bound transport-first isolated PID1 acceptance and evidence export",
+          "run": "bash tests/s8_anchor_native.sh --seal-native-once"
+        }
+      ]
+    }
+  }
+}
