@@ -1,10 +1,13 @@
 name: S8 primary synthetic observation (substitute only)
 on:
   push:
-    branches: [codex/s8-primary-synthetic-20261028]
+    branches: [codex/s8-evidence-export-fix-20261028]
     paths:
       - tests/s8_primary_measurement.py
       - tests/test_s8_primary_measurement.py
+      - tests/s8_evidence_export.py
+      - tests/test_s8_evidence_export.py
+      - tests/test_s8_evidence_export_native.py
       - tests/s8_primary_measurement_native.sh
       - .github/workflows/s8-primary-measurement.yml
 permissions:
@@ -12,7 +15,7 @@ permissions:
 jobs:
   synthetic-once:
     if: >-
-      github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'S8: prepare primary observation 20261028')
+      github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'S8: prepare evidence export 20261028')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -22,6 +25,6 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
       - name: Portable observer-only contracts
-        run: python3 -B -m unittest -v tests.test_s8_primary_measurement
+        run: python3 -B -m unittest -v tests.test_s8_primary_measurement tests.test_s8_evidence_export
       - name: Exactly one bounded substitute measurement (not acceptance)
         run: bash tests/s8_primary_measurement_native.sh

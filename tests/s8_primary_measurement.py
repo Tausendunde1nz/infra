@@ -24,8 +24,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tests.s8_diagnostic_once import Trace, fence
 from tests.s8_fork_child import child_failure_boundary
+from tests.s8_evidence_export import MAX_LOG, evidence_diagnostics, validate_log
 
-MAX_LOG = 16 * 1024 * 1024
 MAX_RECORD = 3 * 1024 * 1024
 
 
@@ -49,10 +49,11 @@ def exception_fields(error):
 
 def decode_raw(raw):
     """Keep every byte even when decoding is incomplete or watch is lost."""
-    events, offset, invalid = [], 0, False
+    events, offset, invalid, codes = [], 0, False, []
     while offset < len(raw):
         if len(raw) - offset < 16:
             invalid = True
+            codes.append("INOTIFY_HEADER_SHORT")
             events.append(dict(offset=offset, malformed=True))
             break
         wd, mask, cookie, size = struct.unpack_from("iIII", raw, offset)
@@ -60,18 +61,22 @@ def decode_raw(raw):
         offset += 16
         if size > len(raw) - offset:
             invalid = True
+            codes.append("INOTIFY_NAME_TRUNCATED")
             events.append(dict(offset=start, wd=wd, mask=mask, cookie=cookie,
                                name_length=size, malformed=True))
             break
         name = raw[offset:offset + size]
         if size and (size % 4 or b"\0" not in name or any(name[name.index(0):])):
             invalid = True
+            codes.append("INOTIFY_NAME_ENCODING")
         events.append(dict(offset=start, wd=wd, mask=mask, cookie=cookie,
                            name_raw_hex=name.hex(), actor="UNKNOWN"))
         invalid |= bool(mask & (0x4000 | 0x8000 | 0x2000))
+        for flag, code in ((0x4000, "INOTIFY_OVERFLOW"), (0x8000, "INOTIFY_WATCH_LOST"), (0x2000, "INOTIFY_UNMOUNT")):
+            if mask & flag: codes.append(code)
         offset += size
     return dict(raw_hex=raw.hex(), byte_count=len(raw), events=events,
-                observation_invalid=invalid, actor="UNKNOWN")
+                observation_invalid=invalid, observation_codes=sorted(set(codes)), actor="UNKNOWN")
 
 
 class Recorder:
@@ -154,6 +159,8 @@ class PrimaryTrace(Trace):
                 name = bytes.fromhex(event.get("name_raw_hex", "")).split(b"\0", 1)[0]
                 if event.get("wd") not in wds or name not in allowed:
                     observation["observation_invalid"] = True
+                if event.get("wd") not in wds: observation["observation_codes"].append("INOTIFY_WD_UNBOUND")
+                if name not in allowed: observation["observation_codes"].append("INOTIFY_OBJECT_UNBOUND")
             observation["watch_binding"] = binding or watch
             self.note("original_inotify_read", fd=fd, watch=self.watches.get(fd),
                       begin_monotonic_ns=begin, **observation)
@@ -178,11 +185,11 @@ class PrimaryTrace(Trace):
                 wds = [int(re.search(r"\bwd:([0-9a-f]+)\b", line)[1], 16) for line in watches]
                 self.bindings[fd] = dict(wds=wds, watch_metadata=watches)
                 self.note("watch_binding", kind=kind, fd=fd, watch_metadata=watches,
-                    observation_invalid=not bool(watches))
+                    observation_invalid=not bool(watches), observation_codes=[] if watches else ["WATCH_METADATA_UNAVAILABLE"])
             except (OSError, TypeError, ValueError) as error:
                 self.bindings.pop(fd, None)
                 self.note("watch_binding_unavailable", fd=fd, errno=getattr(error, "errno", None),
-                          observation_invalid=True)
+                          observation_invalid=True, observation_codes=["WATCH_METADATA_UNAVAILABLE"])
             return observed(instance, *args, **kwargs)
         return check
 
@@ -230,45 +237,6 @@ class PrimaryTrace(Trace):
         stack.enter_context(patch.object(os, "_exit", observed_exit))
         stack.enter_context(patch.object(os, "fork", observed_fork))
         stack.enter_context(patch.object(unittest.TestCase, "subTest", observed_subtest))
-
-
-def validate_log(raw, recorder_errors=()):
-    """No event removal. Missing/invalid evidence can never produce GREEN."""
-    if recorder_errors or len(raw) > MAX_LOG or not raw.endswith(b"\n"):
-        return False
-    try:
-        rows = [json.loads(line) for line in raw.splitlines()]
-        end = [r for r in rows if r["operation"] == "measurement_end"]
-        begins = [r["case"] for r in rows if r["operation"] == "case_begin"]
-        ends = [r["case"] for r in rows if r["operation"] == "case_end"]
-        if (len(end) != 1 or rows[-1] != end[0] or end[0]["tests"] != 3
-                or len(begins) != 3 or len(set(begins)) != 3 or begins != ends):
-            return False
-        forks = [r for r in rows if r["operation"] == "fork_parent"]
-        exits = [r for r in rows if r["operation"] == "child_exit"]
-        expected = {"root-created", "root-sealed", "slot-created", "intent-sealed", "objects-sealed",
-                    "/var/tmp:known_foreign_chmod", "/s8-native-profile:known_foreign_chmod"}
-        if (len(forks) != 7 or len(exits) != 7 or len({r["child_pid"] for r in forks}) != 7
-                or {r["phase"] for r in forks} != expected
-                or {r["child_pid"] for r in forks} != {r["caller_pid"] for r in exits}):
-            return False
-        for fork in forks:
-            ended = [r for r in exits if r["caller_pid"] == fork["child_pid"]]
-            if len(ended) != 1 or ended[0]["phase"] != fork["phase"]:
-                return False
-        for row in rows:
-            if row.get("observation_invalid") or row.get("observer_errors"):
-                return False
-            if row["operation"] == "child_exit" and row["code"] == 99:
-                errors = [r for r in rows if r.get("caller_pid") == row["caller_pid"]
-                          and r["operation"] == "child_first_unexpected_exception"]
-                if len(errors) != 1:
-                    return False
-                if rows.index(errors[0]) > rows.index(row) or errors[0]["phase"] != row["phase"]:
-                    return False
-        return bool(rows)
-    except (KeyError, ValueError, TypeError):
-        return False
 
 
 class PrimitivePair(unittest.TestCase):
@@ -393,12 +361,14 @@ def main():
             observer_errors=recorder.errors, substitute_only=True, actor="UNKNOWN")
     finally:
         os.close(fd)
-    valid = validate_log(output.read_bytes(), recorder.errors)
+    diagnostic = evidence_diagnostics(output.read_bytes(), recorder.errors)
+    valid = diagnostic["evidence_complete"]
     red = [test.id() for test, _ in result.failures + result.errors]
     skipped = [test.id() for test, _ in result.skipped]
     original_success = not any(value.startswith(name) for value in red + skipped)
     primitive_success = not any("PrimitivePair.runTest:" in value for value in red + skipped)
     print("S8_PRIMARY_SUMMARY " + json.dumps(dict(evidence_complete=valid,
+        evidence_codes=diagnostic["codes"],
         sequence_success=result.wasSuccessful(), original_case_success=original_success,
         primitive_cases_success=primitive_success, skipped=len(result.skipped),
         substitute_only=True, historical_cause="UNPROVEN", metadata_actor="UNKNOWN")))

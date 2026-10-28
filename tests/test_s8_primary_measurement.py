@@ -65,6 +65,7 @@ class PrimaryObservationTests(unittest.TestCase):
                     *(struct.pack("iIII", -1, m, 0, 0) for m in (0x4000, 0x8000, 0x2000))):
             parsed = decode_raw(raw)
             self.assertTrue(parsed["observation_invalid"])
+            self.assertTrue(parsed["observation_codes"])
             self.assertEqual(bytes.fromhex(parsed["raw_hex"]), raw)
 
     def test_wrong_watch_or_phase_object_invalidate_without_changing_bytes(self):
