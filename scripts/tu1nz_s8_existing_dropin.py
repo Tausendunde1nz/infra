@@ -7,22 +7,32 @@ unsealing, resume or adoption of existing regular files is implemented.
 """
 import os
 
-from tu1nz_s8_execution_contract import Journal, close_preserving, require
-from tu1nz_s8_journal_fence import APPEND, NewJournalFence, add_inode_protection, inode_flags
+from tu1nz_s8_execution_contract import Journal, close_members, close_preserving, descriptor_scope, require
+from tu1nz_s8_journal_fence import APPEND, MetadataWitness, NewJournalFence, add_inode_protection, inode_flags
 from tu1nz_s8_new_stock import NewStock
 from tu1nz_s8_path_policy import PathChain, dropin_snapshot
 
 
 class ExistingWitness:
     def __init__(self, root):
-        self.chain = PathChain(root)
+        self.chain = self.metadata = None
+        try:
+            fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            with descriptor_scope(fd):
+                self.metadata = MetadataWitness(fd, children=False)
+                self.chain = PathChain(root, metadata_endpoint=self.metadata)
+                from tu1nz_s8_journal_fence import inode_fid
+                require(inode_fid(self.chain.fd) in self.metadata.targets, "DROPIN_IDENTITY_RED")
+        except BaseException as error:
+            close_preserving(error, self)
+            raise
 
     def check(self, *, require_creation=False):
         # No claim that this directory was created by the current process.
         self.chain.check()
 
     def close(self):
-        self.chain.close()
+        close_members(self, "chain", "metadata")
 
 
 class ExistingDropinStock(NewStock):
@@ -42,11 +52,11 @@ class ExistingDropinStock(NewStock):
             require(dropin_snapshot(root) == expected, "DROPIN_PRESTATE_CHANGED")
             # Operate on the already witnessed descriptor, not a re-resolved
             # name. A concurrent exchange/metadata event remains fatal even if
-            # restored. The flag operation itself emits no inotify event; this
-            # property is exercised by the mandatory native regression.
+            # restored. Own flag metadata is now an exact FID/TID transaction,
+            # not an assumption that the ioctl emits no inotify event.
             directory = self.witness.chain.fd
             require(inode_flags(directory) == expected["inode_flags"], "DROPIN_FLAGS_CHANGED")
-            add_inode_protection(directory, APPEND)
+            add_inode_protection(directory, APPEND, observers=(self.witness.metadata,))
             self.witness.check()
             require(not os.listdir(directory), "DROPIN_NOT_EMPTY_OR_REBOUND")
             self.fence = NewJournalFence(root, directory_mode=0o755)

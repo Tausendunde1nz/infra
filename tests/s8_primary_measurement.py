@@ -157,10 +157,19 @@ class PrimaryTrace(Trace):
                 allowed = {b"", b"stock-plan.json", b"anchor.json", b"state", b"intent.json", b"objects.json"}
             for event in observation["events"]:
                 name = bytes.fromhex(event.get("name_raw_hex", "")).split(b"\0", 1)[0]
-                if event.get("wd") not in wds or name not in allowed:
+                # PathChain observes every entry of a bound ancestry directory.
+                # Its original guard (not this observer) decides relevance to
+                # the selected next component. Unrelated siblings stay raw.
+                if watch.get("kind") == "ancestry":
+                    nodes = {node["wd"]: node for node in binding.get("nodes", [])}
+                    node = nodes.get(event.get("wd"))
+                    object_bound = node is not None and b"/" not in name and name not in (b".", b"..")
+                else:
+                    object_bound = name in allowed
+                if event.get("wd") not in wds or not object_bound:
                     observation["observation_invalid"] = True
                 if event.get("wd") not in wds: observation["observation_codes"].append("INOTIFY_WD_UNBOUND")
-                if name not in allowed: observation["observation_codes"].append("INOTIFY_OBJECT_UNBOUND")
+                if not object_bound: observation["observation_codes"].append("INOTIFY_OBJECT_UNBOUND")
             observation["watch_binding"] = binding or watch
             self.note("original_inotify_read", fd=fd, watch=self.watches.get(fd),
                       begin_monotonic_ns=begin, **observation)
@@ -168,7 +177,8 @@ class PrimaryTrace(Trace):
             try: fanotify = "fanotify" in os.readlink(f"/proc/self/fd/{fd}")
             except OSError: fanotify = False
             if fanotify:
-                # These are kernel OPEN_PERM requests, NOT metadata-origin proof.
+                # Preserve both permission and FID notification groups raw.
+                # Attribution is the guard parser's job, not an observer guess.
                 self.note("original_fanotify_read", fd=fd, raw_hex=raw.hex(),
                     byte_count=len(raw), begin_monotonic_ns=begin,
                     metadata_event_actor="UNKNOWN")
@@ -193,6 +203,44 @@ class PrimaryTrace(Trace):
             return observed(instance, *args, **kwargs)
         return check
 
+    def checked_chain(self, original):
+        def check(instance, *args, **kwargs):
+            fd = instance.events
+            # The constructor checks incrementally after adding each node.
+            # Bind exactly the existing nodes; never call/check/read it twice.
+            self.watches[fd] = dict(kind="ancestry")
+            try:
+                table = Path(f"/proc/self/fdinfo/{fd}").read_text()
+                metadata = [line for line in table.splitlines() if line.startswith("inotify ")]
+                wds = [int(re.search(r"\bwd:([0-9a-f]+)\b", line)[1], 16) for line in metadata]
+                nodes = [dict(wd=wd, path=str(path), fd=node_fd, expected=list(identity),
+                              target_raw_hex=None if target is None else target.hex(), creation=creation,
+                              observed=self.identity(node_fd))
+                         for wd, path, node_fd, identity, target, creation in instance.nodes]
+                valid = bool(nodes) and len(set(wds)) == len(wds) == len(nodes)
+                valid = valid and set(wds) == {node["wd"] for node in nodes}
+                valid = valid and all("identity_errno" not in node["observed"] and
+                                      "metadata_errno" not in node["observed"] for node in nodes)
+                by_wd = {int(re.search(r"\bwd:([0-9a-f]+)\b", line)[1], 16): line for line in metadata}
+                for node in nodes:
+                    observed = node["observed"]
+                    dev, ino = observed["dev"], observed["ino"]
+                    encoded = (os.major(dev) << 8) | (os.minor(dev) & 255) | ((os.minor(dev) & ~255) << 12)
+                    line = by_wd.get(node["wd"], "")
+                    valid = valid and list(node["expected"][:2]) == [dev, ino]
+                    valid = valid and int(re.search(r"\bino:([0-9a-f]+)\b", line)[1], 16) == ino
+                    valid = valid and int(re.search(r"\bsdev:([0-9a-f]+)\b", line)[1], 16) == encoded
+                self.bindings[fd] = dict(wds=wds, watch_metadata=metadata, nodes=nodes) if valid else {}
+                self.note("watch_binding", kind="ancestry", fd=fd, watch_metadata=metadata, nodes=nodes,
+                          observation_invalid=not valid,
+                          observation_codes=[] if valid else ["WATCH_METADATA_UNAVAILABLE"])
+            except (OSError, TypeError, ValueError, AttributeError, KeyError):
+                self.bindings.pop(fd, None)
+                self.note("watch_binding_unavailable", kind="ancestry", fd=fd,
+                          observation_invalid=True, observation_codes=["WATCH_METADATA_UNAVAILABLE"])
+            return original(instance, *args, **kwargs)
+        return check
+
     def observed_close(self, fd):
         result = super().observed_close(fd)
         self.bindings.pop(fd, None)
@@ -210,6 +258,7 @@ class PrimaryTrace(Trace):
     def install_primary(self, stack):
         self.install(stack)
         import tests.test_s8_anchor as anchor_tests
+        from tu1nz_s8_path_policy import PathChain
         original_exit, original_fork = os._exit, os.fork
         original_subtest = unittest.TestCase.subTest
 
@@ -234,6 +283,7 @@ class PrimaryTrace(Trace):
                 self.recorder.phase = old
 
         stack.enter_context(patch.object(anchor_tests, "child_failure_boundary", self.child_boundary))
+        stack.enter_context(patch.object(PathChain, "check", self.checked_chain(PathChain.check)))
         stack.enter_context(patch.object(os, "_exit", observed_exit))
         stack.enter_context(patch.object(os, "fork", observed_fork))
         stack.enter_context(patch.object(unittest.TestCase, "subTest", observed_subtest))

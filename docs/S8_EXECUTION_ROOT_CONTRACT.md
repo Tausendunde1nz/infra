@@ -1,5 +1,61 @@
 # S8 isolated execution root — status and historical construction checkpoints
 
+## Local sealing/metadata candidate — 2026-10-28 (native acceptance OPEN)
+
+The existing file-writer guarantee is unchanged: even a root filewriter's
+chmod followed by restoration must invalidate an observed construction.
+Kernel/PID1, privileged flag clearing/mount/ptrace administration and the
+separately accepted administrative systemd boundary are not enlarged here.
+No live authorization, historical-cause finding or prior-run GREEN follows.
+
+Own APPEND/IMMUTABLE ioctls can emit ATTRIB. Neither that mask, timing nor
+equal final metadata identifies an actor. The local candidate therefore
+transfers ATTRIB responsibility to a separate continuous
+`FAN_CLASS_NOTIF | FAN_REPORT_FID | FAN_REPORT_TID` group. The existing
+CONTENT/OPEN_PERM exact-thread fence remains unchanged. Namespace, rename,
+delete, overflow and watch-loss checks remain mandatory; queues are parsed,
+not blindly cleared or matched by counts across different observers.
+
+Before mkdir the parent witness marks the pinned parent. Its first metadata
+queue read is deferred until the fresh child FD's kernel FSID/opaque handle is
+bound, retaining pre-bind history. Before any journal file creation, the
+journal metadata witness and original OPEN_PERM fence must both be active.
+The existing empty drop-in has an exact-inode witness before its PathChain;
+only that endpoint's ATTRIB responsibility is transferred. Other PathChains,
+ancestors and namespace bits keep their original rejection rule.
+
+The only authorized metadata transaction is the constructing thread's
+add-only APPEND or IMMUTABLE ioctl on a prebound FD. All queued metadata is
+classified before arming, the exact old-to-new flags are read back, all queued
+metadata is classified afterwards, and the one-use token is consumed. A
+foreign/zero TID, other object, metadata outside that transaction, malformed
+record, overflow, missing expected event or observer loss denies authority.
+This relies on kernel FID/TID identity and actor-separated event merging, not
+an attribution inferred from inotify. Names remain consuming after failure;
+writer closure, exact bytes/metadata/ACLs and immutable handoff stay required.
+
+Unsupported FID/TID/filesystem/ABI support is platform HOLD, with no stat-only
+fallback, new host privilege, actor exception or permission normalization.
+The bounded implementation currently requires Linux x86_64/aarch64 LP64,
+comparison-only AT_HANDLE_FID, a nonzero FSID and a handle of at most 128 bytes.
+These are new mechanism-availability gates, not additional trusted actors.
+
+Portable protocol/observer checks do not establish native availability.
+`tests.test_s8_seal_metadata.NativeSealMetadataTests` prepares eight native
+cases: pre-bind foreign chmod/restore; own APPEND/IMMUTABLE transactions;
+same-process foreign thread and foreign process coalescence; untokened own
+metadata; endpoint rename/return; namespace watch removal; metadata queue
+loss. Existing foreign-open, metadata-restoration, new-stock, journal,
+anchor, immutable/writable-FD and full isolated PID1 gates remain mandatory.
+Neither new native execution nor publication is authorized by this candidate.
+
+API basis: [fanotify](https://man7.org/linux/man-pages/man7/fanotify.7.html),
+[FID/TID initialization](https://man7.org/linux/man-pages/man2/fanotify_init.2.html),
+[FD file handles](https://man7.org/linux/man-pages/man2/name_to_handle_at.2.html),
+and Linux v6.12's
+[actor-separated merge key](https://github.com/torvalds/linux/blob/v6.12/fs/notify/fanotify/fanotify.c).
+Those documents are not evidence of the actual host's support.
+
 ## R4 historical capture candidate — 2026-10-10
 
 R3 is a completed historical source release, not current host acceptance.

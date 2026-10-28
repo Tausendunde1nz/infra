@@ -16,7 +16,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
-from tu1nz_s8_journal_fence import NewJournalFence
+from tu1nz_s8_journal_fence import NewJournalFence, MetadataWitness, add_inode_protection
 from tu1nz_s8_execution_contract import ContractError
 
 GET_FLAGS=0x80086601
@@ -38,19 +38,26 @@ def set_flags(fd,value):
 @unittest.skipUnless(sys.platform=="linux" and os.geteuid()==0 and
                     os.environ.get("container")=="docker", "disposable privileged Linux only")
 class KernelJournalBarrierTests(unittest.TestCase):
-    def test_kernel_flag_seal_does_not_hide_a_chmod_in_the_event_allowlist(self):
+    def test_kernel_flag_seal_is_an_exact_attributed_transaction_not_a_no_event_assumption(self):
         with tempfile.TemporaryDirectory(prefix="s8-inode-events-",dir="/var/tmp") as temporary:
             path=Path(temporary)/"probe";path.write_bytes(b"bound")
             fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW);old=flags(fd)
             libc=ctypes.CDLL(None,use_errno=True)
             listener=libc.inotify_init1(os.O_NONBLOCK|os.O_CLOEXEC)
             self.assertGreaterEqual(listener,0)
+            directory=os.open(temporary,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            metadata=None
             try:
+                metadata=MetadataWitness(directory)
                 self.assertGreaterEqual(libc.inotify_add_watch(listener,os.fsencode(temporary),0x4),0)
-                set_flags(fd,old|IMMUTABLE)
-                with self.assertRaises(BlockingIOError):os.read(listener,65536)
+                add_inode_protection(fd,IMMUTABLE,observers=(metadata,))
+                # The measured conflict is real: do not retain the false
+                # assertion that our ioctl cannot emit an ATTRIB notification.
+                self.assertTrue(os.read(listener,65536))
+                metadata.check()
             finally:
-                set_flags(fd,old);os.close(fd);os.close(listener)
+                if metadata is not None:metadata.close()
+                set_flags(fd,old);os.close(fd);os.close(listener);os.close(directory)
 
     def protected_root(self):
         temporary=tempfile.TemporaryDirectory(prefix="s8-fenced-journal-",dir="/var/tmp")
@@ -70,7 +77,7 @@ class KernelJournalBarrierTests(unittest.TestCase):
             fence.check()
             read_fd=os.open(record,os.O_RDONLY|os.O_NOFOLLOW)
             record_flags=flags(read_fd)
-            set_flags(read_fd,record_flags|IMMUTABLE)
+            add_inode_protection(read_fd,IMMUTABLE,observers=(fence.metadata,))
             fence.check()
             fence.close();fence=None
             with self.assertRaises(PermissionError):record.write_bytes(b"other")

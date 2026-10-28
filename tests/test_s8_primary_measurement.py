@@ -4,6 +4,8 @@ import json
 import os
 import struct
 import tempfile
+from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
@@ -183,6 +185,64 @@ class PrimaryObservationTests(unittest.TestCase):
             recorder.note("synthetic")
             self.assertEqual(recorder.errors, ["OSError"])
             recorder.write.assert_called_once()
+
+    def test_chain_incremental_binding_and_original_result_once(self):
+        trace = self.trace(); sentinel = object(); original = Mock(return_value=sentinel)
+        chain = SimpleNamespace(events=9, nodes=[(7, Path("/synthetic"), 12, (1, 2), None, True)])
+        with patch.object(Path, "read_text", return_value="inotify wd:7 ino:2 sdev:1 mask:fce\n"), \
+             patch.object(trace, "identity", return_value=dict(dev=1, ino=2)):
+            self.assertIs(trace.checked_chain(original)(chain), sentinel)
+        original.assert_called_once_with(chain)
+        self.assertEqual(trace.bindings[9]["wds"], [7])
+        self.assertEqual(trace.bindings[9]["nodes"][0]["path"], "/synthetic")
+        self.assertFalse(trace.recorder.note.call_args.kwargs["observation_invalid"])
+
+    def test_chain_sibling_and_selected_names_stay_byte_exact_not_guard_exceptions(self):
+        for name in (b"sibling", b"selected", b""):
+            raw = struct.pack("iIII", 7, 4, 0, 16) + (name + b"\0").ljust(16, b"\0")
+            trace = self.trace(); trace.read = Mock(return_value=raw)
+            trace.watches[9] = dict(kind="ancestry")
+            trace.bindings[9] = dict(wds=[7], nodes=[dict(wd=7, path="/synthetic", target_raw_hex=b"selected".hex())])
+            with patch.object(trace, "is_inotify", return_value=True):
+                self.assertIs(trace.observed_read(9, 65536), raw)
+            fields = trace.recorder.note.call_args.kwargs
+            self.assertFalse(fields["observation_invalid"])
+            self.assertEqual(bytes.fromhex(fields["raw_hex"]), raw)
+            trace.read.assert_called_once_with(9, 65536)
+
+    def test_chain_missing_or_wrong_metadata_keeps_original_exception(self):
+        error = RuntimeError("not copied"); original = Mock(side_effect=error)
+        chain = SimpleNamespace(events=9, nodes=[(7, Path("/synthetic"), 12, (1, 2), None, True)])
+        for text in ("", "inotify wd:8 ino:2 sdev:1 mask:fce\n"):
+            trace = self.trace()
+            with patch.object(Path, "read_text", return_value=text), \
+                 patch.object(trace, "identity", return_value=dict(dev=1, ino=2)):
+                with self.assertRaises(RuntimeError) as caught: trace.checked_chain(original)(chain)
+            self.assertIs(caught.exception, error)
+            self.assertEqual(trace.bindings[9], {})
+            self.assertTrue(trace.recorder.note.call_args.kwargs["observation_invalid"])
+
+    def test_chain_unbound_wd_and_fd_reuse_still_invalidate(self):
+        trace = self.trace(); trace.close = Mock()
+        trace.watches[9] = dict(kind="ancestry")
+        trace.bindings[9] = dict(wds=[7], nodes=[dict(wd=7, path="/synthetic")])
+        raw = struct.pack("iIII", 8, 4, 0, 0); trace.read = Mock(return_value=raw)
+        with patch.object(trace, "is_inotify", return_value=True): trace.observed_read(9, 65536)
+        self.assertTrue(trace.recorder.note.call_args.kwargs["observation_invalid"])
+        trace.observed_close(9)
+        self.assertNotIn(9, trace.watches); self.assertNotIn(9, trace.bindings)
+
+    def test_chain_wd_alone_never_binds_wrong_inode_or_device(self):
+        chain = SimpleNamespace(events=9, nodes=[(7, Path("/synthetic"), 12, (1, 2), None, True)])
+        for text, observed in (("inotify wd:7 ino:3 sdev:1 mask:fce\n", dict(dev=1, ino=2)),
+                               ("inotify wd:7 ino:2 sdev:2 mask:fce\n", dict(dev=1, ino=2)),
+                               ("inotify wd:7 ino:3 sdev:1 mask:fce\n", dict(dev=1, ino=3))):
+            trace = self.trace(); original = Mock(return_value=17)
+            with patch.object(Path, "read_text", return_value=text), patch.object(trace, "identity", return_value=observed):
+                self.assertEqual(trace.checked_chain(original)(chain), 17)
+            original.assert_called_once_with(chain)
+            self.assertEqual(trace.bindings[9], {})
+            self.assertTrue(trace.recorder.note.call_args.kwargs["observation_invalid"])
 
 
 if __name__ == "__main__": unittest.main()
