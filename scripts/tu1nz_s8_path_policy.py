@@ -165,11 +165,17 @@ class PathChain:
     must BOTH agree. No background watcher or interrupted lifetime is trusted.
     A selected leaf may be watched read-only; unrelated siblings are ignored.
     """
-    def __init__(self, directory, *, creation=False, leaf=None, historical=False):
+    def __init__(self, directory, *, creation=False, leaf=None, historical=False, metadata_endpoint=None):
         directory = Path(directory)
         require(directory.is_absolute() and ".." not in directory.parts, "PARENT_PATH_RED")
         require(not (historical and creation), 'HISTORICAL_CREATION_FORBIDDEN')
         self.historical = historical
+        # Only ExistingDropinStock opts in, with an already active exact-inode
+        # FID/TID witness. All ordinary/historical PathChains are unchanged.
+        require(metadata_endpoint is None or not historical and not creation and leaf is None,
+                "PARENT_METADATA_ENDPOINT_RED")
+        self.metadata_endpoint = metadata_endpoint
+        self.directory = directory
         self.descriptors, self.nodes = [], []
         self.failed = False
         libc = ctypes.CDLL(None, use_errno=True)
@@ -206,11 +212,13 @@ class PathChain:
     def check(self):
         require(not self.failed and self.events is not None and self.owner == os.getpid(), "PARENT_WITNESS_LOST")
         try:
+            endpoint = getattr(self, "metadata_endpoint", None)
+            if endpoint is not None: endpoint.check()
             for _, path, fd, expected, _, creation in self.nodes:
                 options = dict(historical=True) if getattr(self, 'historical', False) else {}
                 require(identity(parent_metadata(path, creation=creation, **options)) == identity(os.fstat(fd)) == expected,
                         "PARENT_IDENTITY_RED")
-            by_watch = {row[0]: row[4] for row in self.nodes}
+            by_watch = {row[0]: row for row in self.nodes}
             while True:
                 try: payload = os.read(self.events, 65536)
                 except BlockingIOError: break
@@ -223,7 +231,19 @@ class PathChain:
                             and not mask & (0x4000 | 0x8000), "PARENT_EVENT_RED")
                     name = payload[offset:offset+size].split(b"\0", 1)[0]
                     offset += size
-                    require(bool(name) and name != by_watch[wd], "PARENT_CHANGED_NO_RETRY")
+                    node = by_watch[wd]
+                    # Transfer ATTRIB responsibility only for the exact
+                    # endpoint, never namespace bits, ancestors or other paths.
+                    delegated = endpoint is not None and mask in (4, 0x40000004) and (
+                        node[1] == self.directory and not name or
+                        node[1] == self.directory.parent and name == os.fsencode(self.directory.name))
+                    if delegated:
+                        from tu1nz_s8_journal_fence import inode_fid
+                        require(inode_fid(self.fd) in endpoint.targets,
+                                "PARENT_METADATA_ENDPOINT_RED")
+                    else:
+                        require(bool(name) and name != node[4], "PARENT_CHANGED_NO_RETRY")
+            if endpoint is not None: endpoint.check()
         except BaseException:
             self.failed = True
             raise
