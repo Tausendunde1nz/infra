@@ -163,6 +163,44 @@ print("ACTUAL_NATIVE_FSUID_DAC_GREEN")
     return ['/usr/bin/docker', 'exec', name, '/usr/bin/python3', '-I', '-B', '-c', program]
 
 
+def native_context_argv(name):
+    # Same already-owned network-none guest. No host, credential, cache or
+    # alternate engine is introduced. Twelve actual tests, ZERO native skips.
+    program = '''import os,sys,unittest,json
+assert sys.platform=="linux" and os.geteuid()==0 and os.environ.get("container")=="docker"
+sys.path.insert(0,"/source")
+os.environ["TU1NZ_CONTEXT_NATIVE"]="1"
+from tests.test_public_context_native import ContextNative
+class Result(unittest.TestResult):
+ error=None
+ def addError(self,test,error):
+  if self.error is None:self.error=error
+  super().addError(test,error)
+ def addFailure(self,test,error):
+  if self.error is None:self.error=error
+  super().addFailure(test,error)
+r=Result()
+unittest.defaultTestLoader.loadTestsFromTestCase(ContextNative).run(r)
+if not (r.testsRun==12 and not r.skipped and not r.failures and not r.errors):
+ line=1;kind="AssertionError";cause=None;number=0
+ if r.error:
+  kind=r.error[0].__name__;trace=r.error[2]
+  while trace is not None:
+   if trace.tb_frame.f_code.co_filename=="/source/tests/test_public_context_native.py":line=trace.tb_lineno
+   trace=trace.tb_next
+  error=r.error[1];seen=set()
+  while error is not None and id(error) not in seen:
+   seen.add(id(error))
+   if isinstance(getattr(error,"primary",None),str):
+    cause=error.primary;number=getattr(error,"native_errno",0);break
+   error=error.__context__
+ print(json.dumps({"native_failure":{"test_line":line,"test_type":kind,"production_fault":None,"cause_code":cause,"errno":number}}))
+ raise SystemExit(1)
+print("ACTUAL_NATIVE_CONTEXT_GREEN")
+'''
+    return ['/usr/bin/docker','exec',name,'/usr/bin/python3','-I','-B','-c',program]
+
+
 class CIError(RuntimeError):
     pass
 
@@ -475,6 +513,10 @@ def run(workspace, image):
                 if code != 0: diagnostic = failure_location(raw)
                 require(code == 0 and raw.strip() == b'ACTUAL_NATIVE_FSUID_DAC_GREEN',
                         'NATIVE_FSUID_DAC_RED')
+                phase = case+'-context'
+                code, raw = boundary.bounded(native_context_argv(container), timeout=30)
+                if code != 0: diagnostic = failure_location(raw)
+                require(code == 0 and raw.strip() == b'ACTUAL_NATIVE_CONTEXT_GREEN', 'NATIVE_CONTEXT_RED')
             phase = case+'-production'
             code, raw = boundary.bounded(['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
                 '/source/tests/public_operator_native.py', '--scenario', case], timeout=720)
@@ -489,6 +531,7 @@ def run(workspace, image):
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
                   'native_fsuid_tests': 7,
+                  'native_context_test': 'ACTUAL_NATIVE_CONTEXT_GREEN', 'native_context_tests': 12,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback

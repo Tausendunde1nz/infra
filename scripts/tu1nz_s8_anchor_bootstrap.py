@@ -54,7 +54,8 @@ class Anchor:
         self.journal.once("objects.json", objects)
         self.proof["objects_sha256"] = c.digest(objects)
         self.journal.check()
-        add_inode_protection(self.journal.journal.fd, IMMUTABLE)
+        add_inode_protection(self.journal.journal.fd, IMMUTABLE,
+                             observers=(self.journal.fence.metadata,))
         self.journal.handoff()
         self.journal = None
         return dict(self.proof)

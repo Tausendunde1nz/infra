@@ -662,7 +662,7 @@ def session(source, packet, wire):
     for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(number, interrupted)
     replacing=packet['scope'].get('schema') in io.R5_SCOPES
-    prospective=packet['scope'].get('schema')==io.PROSPECTIVE_SCOPE
+    prospective=packet['scope'].get('schema') in io.PROSPECTIVE_SCOPES
     io.require(set(packet) == {'source', 'hashes', 'baseline', 'baseline_raw', 'scope_raw',
                                'owner_plan', 'scope', 'scope_sha256', 'binding'} |
                                ({'baseline_encoding'} if replacing else set()) |

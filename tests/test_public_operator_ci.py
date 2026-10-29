@@ -518,6 +518,14 @@ def initial_application_ready():
         self.assertIn('test_actual_fsgid_not_real_saved_group_', argv[-1])
         self.assertLess(argv[-1].index('prepare_guest_kernel_view()'), argv[-1].index('r=Result()'))
 
+    def test_context_native_entry_keeps_exact_guest_count_and_no_skips(self):
+        argv = m.native_context_argv('owned')
+        self.assertEqual(argv[:6], ['/usr/bin/docker','exec','owned','/usr/bin/python3','-I','-B'])
+        self.assertIn('r.testsRun==12',argv[-1]);self.assertIn('not r.skipped',argv[-1])
+        self.assertIn('TU1NZ_CONTEXT_NATIVE',argv[-1]);self.assertIn('ContextNative',argv[-1])
+        self.assertIn('ACTUAL_NATIVE_CONTEXT_GREEN',argv[-1])
+        compile(argv[-1],'<synthetic-context-CI-entry>','exec')  # not executed
+
     def test_zero_uid_without_ptrace_is_not_native_observer_evidence(self):
         with patch('tests.test_public_operator.sys.platform', 'linux'), \
              patch('tests.test_public_operator.os.geteuid', return_value=0), \

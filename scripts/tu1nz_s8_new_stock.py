@@ -17,7 +17,7 @@ import stat
 import struct
 
 from tu1nz_s8_execution_contract import ContractError, Journal, canonical, close_members, close_preserving, descriptor_scope, failure_record, fingerprint, hex_value, protected, require
-from tu1nz_s8_journal_fence import APPEND, IMMUTABLE, NewJournalFence, add_inode_protection, inode_flags
+from tu1nz_s8_journal_fence import APPEND, IMMUTABLE, MetadataWitness, NewJournalFence, add_inode_protection, inode_flags
 from tu1nz_s8_path_policy import PathChain, parent_metadata
 
 
@@ -30,6 +30,7 @@ class ParentCreationWitness:
         self.parent, self.name = parent, os.fsencode(name)
         self.identity = parent.stat().st_dev, parent.stat().st_ino
         self.created = False
+        self.metadata = None
         libc = ctypes.CDLL(None, use_errno=True)
         libc.inotify_init1.argtypes = [ctypes.c_int]
         libc.inotify_init1.restype = ctypes.c_int
@@ -39,8 +40,11 @@ class ParentCreationWitness:
         try:
             require(self.fd >= 0, "STOCK_PARENT_WATCH_REQUIRED")
             # Own parent relocation/removal/metadata + direct child changes.
-            self.wd = libc.inotify_add_watch(self.fd, os.fsencode(parent), 0x00000fc4)
+            self.wd = libc.inotify_add_watch(self.fd, os.fsencode(parent), 0x00000fc0)
             require(self.wd >= 0, "STOCK_PARENT_WATCH_REQUIRED")
+            # Before mkdir. Defer reading this queue until the fresh child FD
+            # is bound, so even its pre-bind metadata history is classified.
+            self.metadata = MetadataWitness(self.chain.fd, selected=True)
         except BaseException as error:
             close_preserving(error, self); raise
 
@@ -66,16 +70,18 @@ class ParentCreationWitness:
                     require(mask == 0x40000100 and not self.created, "STOCK_PATH_CHANGED")
                     self.created = True
         require(not require_creation or self.created, "STOCK_CREATE_NOT_OBSERVED")
+        if self.metadata.bound: self.metadata.check()
 
     def close(self):
         failure = ContractError("S8_EXECUTION_STOCK_PARENT_CLEANUP_RED")
         failure._s8_cleanup_errors = []
         fd, self.fd = self.fd, None
         chain, self.chain = self.chain, None
+        metadata, self.metadata = getattr(self, "metadata", None), None
         if fd is not None and fd >= 0:
             try: os.close(fd)
             except BaseException as error: failure._s8_cleanup_errors.append(failure_record(error))
-        close_preserving(failure, chain)
+        close_preserving(failure, metadata, chain)
         if failure._s8_cleanup_errors: raise failure
 
 
@@ -113,7 +119,8 @@ class NewStock:
             with descriptor_scope(directory):
                 m = protected(root, directory=True, mode=0o700)
                 require(fingerprint(m) == fingerprint(os.fstat(directory)), "STOCK_IDENTITY_RED")
-                add_inode_protection(directory, APPEND)
+                self.witness.metadata.bind(directory)
+                add_inode_protection(directory, APPEND, observers=(self.witness.metadata,))
                 self.identity = os.fstat(directory).st_dev, os.fstat(directory).st_ino
             self.witness.check(require_creation=True)
             self.fence = NewJournalFence(root)
@@ -130,7 +137,7 @@ class NewStock:
         self.fence.check()
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.journal.fd)
         with descriptor_scope(fd):
-            add_inode_protection(fd, IMMUTABLE)
+            add_inode_protection(fd, IMMUTABLE, observers=(self.fence.metadata,))
             self.records[name] = fingerprint(os.fstat(fd))
         os.fsync(self.journal.fd)
 
@@ -179,10 +186,11 @@ class NewStock:
                 with descriptor_scope(child):
                     protected(self.root / "state", directory=True, mode=0o700)
                     require(not os.listdir(child), "STOCK_STATE_NOT_EMPTY")
-                    add_inode_protection(child, APPEND)
+                    add_inode_protection(child, APPEND, observers=(self.fence.metadata,))
                     state_identity = os.fstat(child).st_dev, os.fstat(child).st_ino
             self.fence.check(); self.witness.check(require_creation=True)
-            add_inode_protection(self.journal.fd, IMMUTABLE)
+            add_inode_protection(self.journal.fd, IMMUTABLE,
+                                 observers=(self.witness.metadata, self.fence.metadata))
             self.fence.check(); self.witness.check(require_creation=True)
             require(inode_flags(self.journal.fd) & (APPEND | IMMUTABLE) == APPEND | IMMUTABLE,
                     "STOCK_DIRECTORY_NOT_SEALED")

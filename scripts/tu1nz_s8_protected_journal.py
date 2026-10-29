@@ -85,7 +85,7 @@ class ProtectedJournal:
             self.fence.check()
             fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.journal.fd)
             with descriptor_scope(fd):
-                add_inode_protection(fd, IMMUTABLE)
+                add_inode_protection(fd, IMMUTABLE, observers=(self.fence.metadata,))
                 self.records[name] = fingerprint(os.fstat(fd))
             os.fsync(self.journal.fd)
             self.check()

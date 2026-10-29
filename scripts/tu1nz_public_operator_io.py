@@ -30,8 +30,12 @@ R5_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
 PROSPECTIVE_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5P_V1'
 PROSPECTIVE_BINDING = 'TU1NZ_PUBLIC_PROSPECTIVE_BINDING_V1'
 PROSPECTIVE_ACCEPTANCE = 'TU1NZ_PUBLIC_PROSPECTIVE_ACCEPTANCE_V1'
+CONTEXT_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5P_CONTEXT_V1'
+CONTEXT_BINDING = 'TU1NZ_PUBLIC_PROSPECTIVE_BINDING_CONTEXT_V1'
+CONTEXT_ACCEPTANCE = 'TU1NZ_PUBLIC_PROSPECTIVE_ACCEPTANCE_CONTEXT_V1'
 BYTE_ORIGIN = 'TU1NZ_PUBLIC_BYTE_ORIGIN_V1'
-R5_SCOPES = (R5_SCOPE, PROSPECTIVE_SCOPE)
+PROSPECTIVE_SCOPES = (PROSPECTIVE_SCOPE, CONTEXT_SCOPE)
+R5_SCOPES = (R5_SCOPE, *PROSPECTIVE_SCOPES)
 PROSPECTIVE_POLICY_ROOTS = ('/etc/polkit-1/rules.d', '/usr/share/polkit-1/rules.d',
     '/etc/sudoers.d', '/etc/dbus-1/system.d', '/usr/share/dbus-1/system.d')
 PROSPECTIVE_NSS = frozenset(('/etc/passwd', '/etc/group', '/etc/nsswitch.conf', '/etc/sudoers', '/etc/hosts'))
@@ -45,6 +49,7 @@ CONTROL_PINS = {
     'entry': '538e157629414f717039de1f4b3d0b388fde16718df74dc54c16dde1ac3826c7',
     'guard': 'eb01c7d260f7ad83b7d3437fe78768549a091289ecff99cae68f05689c224b58'}
 MODULES = {'io': 'tu1nz_public_operator_io', 'fs': 'tu1nz_public_operator_fs',
+           'context': 'tu1nz_public_operator_context',
            'client': 'tu1nz_public_operator',
            'observe': 'tu1nz_public_operator_observe', 'probes': 'tu1nz_public_operator_probes',
            'runtime_guard': 'tu1nz_public_operator_runtime_guard',
@@ -150,13 +155,16 @@ def replacement_scope(scope, baseline):
     fields={'schema','release_sha256','baseline_sha256','administrative_roles_sha256',
             'baseline_origins_sha256','r3_approval_sha256','machine_sha256','transaction','owner_plan_sha256'}
     replacement=scope.get('schema') in R5_SCOPES
-    prospective=scope.get('schema')==PROSPECTIVE_SCOPE
+    prospective=scope.get('schema') in PROSPECTIVE_SCOPES
     extra={'prospective_binding_sha256','prospective_acceptance_sha256'} if prospective else set()
     require(set(scope)==fields | ({'runtime_artifact_sha256','legacy_return'} if replacement else set()) | extra and
             scope['schema'] in ('TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_V1', *R5_SCOPES),
             'APPROVED_SCOPE_SCHEMA')
     require(not prospective or all(type(scope[k]) is str and re.fullmatch('[a-f0-9]{64}',scope[k])
             for k in extra),'PROSPECTIVE_SCOPE_HASHES')
+    contextual = scope.get('schema') == CONTEXT_SCOPE
+    require((baseline.get('schema') == 'TU1NZ_PUBLIC_HOST_BASELINE_CONTEXT_V1') == contextual and
+            ('contexts' in baseline) == contextual, 'CONTEXT_SCOPE_BASELINE_DOWNGRADE')
     reference=baseline['source_release']['runtime_reference']
     if replacement:
         operator_dependency_reference(baseline['source_release'],baseline['source_origin_receipts'])
@@ -198,12 +206,14 @@ def prospective_binding(scope, baseline, actual):
     approved scope hash. Names, booleans and this function cannot create it.
     Return only the exact required material for repeated pre-claim validation.
     """
-    prospective = scope.get('schema') == PROSPECTIVE_SCOPE
+    prospective = scope.get('schema') in PROSPECTIVE_SCOPES
+    contextual = scope.get('schema') == CONTEXT_SCOPE
     special = set()
     for h, raw in actual.items():
         try: value = json.loads(raw)
         except (ValueError, UnicodeError): continue
-        if type(value) is dict and value.get('schema') in (PROSPECTIVE_BINDING, PROSPECTIVE_ACCEPTANCE):
+        if type(value) is dict and value.get('schema') in (PROSPECTIVE_BINDING, PROSPECTIVE_ACCEPTANCE,
+                                                         CONTEXT_BINDING, CONTEXT_ACCEPTANCE):
             special.add(h)
     if not prospective:
         require(not special, 'PROSPECTIVE_DOWNGRADE')
@@ -218,17 +228,22 @@ def prospective_binding(scope, baseline, actual):
     binding, acceptance = parse(material(binding_hash)), parse(material(acceptance_hash))
     require(special == {binding_hash, acceptance_hash}, 'PROSPECTIVE_EXACT_RECEIPTS')
     require(type(binding) is dict and set(binding) == {'schema','machine_sha256','boot_id','transaction',
-        'capture','host_files','unit_files','policy_roots','actors','metadata','execution_origins','names'},
+        'capture','host_files','unit_files','policy_roots','actors','metadata','execution_origins','names'} |
+        ({'contexts'} if contextual else set()),
         'PROSPECTIVE_BINDING_SCHEMA')
-    require(binding['schema'] == PROSPECTIVE_BINDING and binding['machine_sha256'] == scope['machine_sha256'] ==
+    require(binding['schema'] == (CONTEXT_BINDING if contextual else PROSPECTIVE_BINDING) and
+        binding['machine_sha256'] == scope['machine_sha256'] ==
         baseline['machine_sha256'] and binding['boot_id'] == baseline['boot_id'] and
         binding['transaction'] == scope['transaction'] == 'public-rights-20261014-1', 'PROSPECTIVE_HOST_BINDING')
     require(type(acceptance) is dict and set(acceptance) == {'schema','binding_sha256','machine_sha256','boot_id',
         'transaction','release_sha256','owner_plan_sha256','review_sha256','human_decision_sha256',
         'accepted_at','expires_at','risk'}, 'PROSPECTIVE_ACCEPTANCE_SCHEMA')
-    require(acceptance['schema'] == PROSPECTIVE_ACCEPTANCE and acceptance['binding_sha256'] == binding_hash and
+    require(acceptance['schema'] == (CONTEXT_ACCEPTANCE if contextual else PROSPECTIVE_ACCEPTANCE) and
+        acceptance['binding_sha256'] == binding_hash and
         all(acceptance[k] == scope[k] for k in ('machine_sha256','transaction','release_sha256','owner_plan_sha256')) and
-        acceptance['boot_id'] == baseline['boot_id'] and acceptance['risk'] == PROSPECTIVE_RISK,
+        acceptance['boot_id'] == baseline['boot_id'] and
+        acceptance['risk'] == ([PROSPECTIVE_RISK, 'SELECTED_COEXISTENCE_TCB_CAN_INFLUENCE_R5_NOT_ISOLATED']
+                               if contextual else PROSPECTIVE_RISK),
         'PROSPECTIVE_ACCEPTANCE_BINDING')
     require(type(binding['capture']) is dict and set(binding['capture']) ==
         {'read_scope_sha256','reader_source_sha256','read_receipt_sha256','started_at','finished_at'},
@@ -283,7 +298,8 @@ def prospective_binding(scope, baseline, actual):
             try: obj = json.loads(raw)
             except (ValueError, UnicodeError): obj = None
             require(not (type(obj) is dict and obj.get('schema') in
-                (BYTE_ORIGIN, PROSPECTIVE_BINDING, PROSPECTIVE_ACCEPTANCE)), 'PROSPECTIVE_ORIGIN_CYCLE')
+                (BYTE_ORIGIN, PROSPECTIVE_BINDING, PROSPECTIVE_ACCEPTANCE,
+                 CONTEXT_BINDING, CONTEXT_ACCEPTANCE)), 'PROSPECTIVE_ORIGIN_CYCLE')
     for table in ('host_files','unit_files'):
         for path, row in binding[table].items():
             require(type(row) is dict and set(row) == file_fields and
@@ -312,9 +328,14 @@ def prospective_binding(scope, baseline, actual):
                 type(item['justification']) is str and 32 <= len(item['justification']) <= 2048,
                 'PROSPECTIVE_ROLE_JUSTIFICATION')
         row = item['profile']
-        require(type(row) is dict and set(row) == actor_fields and row ==
+        require(type(row) is dict and set(row) == actor_fields | ({'context_id'} if contextual else set()) and row ==
                 {k:v for k,v in expected.items() if k != 'origin_sha256'} and expected['origin_sha256'] == binding_hash,
                 'PROSPECTIVE_ROLE_BINDING')
+        if contextual:
+            require(type(row['context_id']) is str, 'CONTEXT_ROLE_DOMAIN')
+            if row['context_id'] != 'HOST':
+                continue  # Every such row is validated and consumed below, never omitted.
+            row = {k:v for k,v in row.items() if k != 'context_id'}
         role = row['role']; require(type(role) is str and role in roles and type(row['max_instances']) is int and
                 1 <= row['max_instances'] <= roles[role], 'PROSPECTIVE_ROLE_LIMIT')
         counts[role] += row['max_instances']
@@ -382,6 +403,12 @@ def prospective_binding(scope, baseline, actual):
         require(name not in canonical_metadata or canonical_metadata[name]==row,
                 'PROSPECTIVE_METADATA_ALIAS_CONFLICT')
         canonical_metadata[name]=row
+    if contextual:
+        from tu1nz_public_operator_context import validate_material
+        require(baseline.get('schema') == 'TU1NZ_PUBLIC_HOST_BASELINE_CONTEXT_V1' and
+                baseline.get('contexts') == binding['contexts'], 'CONTEXT_BASELINE_BINDING')
+        additional = validate_material(binding, baseline, material, byte_origin)
+        require(sum(counts.values()) + additional <= 256, 'CONTEXT_TOTAL_INSTANCES')
     require(sum(len(actual[h]) for h in used) <= 1024*1024, 'PROSPECTIVE_MATERIAL_BOUND')
     return {h:actual[h] for h in used}
 
@@ -438,7 +465,7 @@ def prospective_names(binding, baseline):
 
 
 def prospective_packet_material(packet):
-    prospective=packet['scope'].get('schema')==PROSPECTIVE_SCOPE
+    prospective=packet['scope'].get('schema') in PROSPECTIVE_SCOPES
     require(('prospective_material' in packet)==prospective,'PROSPECTIVE_PACKET_SCHEMA')
     if not prospective:return {}
     data=packet['prospective_material']
@@ -679,6 +706,8 @@ class Source:
         if name in self.modules:
             return self.modules[name]
         require(name in MODULES, 'MODULE_NAME')
+        if name in ('host', 'observe', 'replacement'):
+            self.load('context')
         module = types.ModuleType('public_operator_bound_'+name)
         module.__file__ = '<authenticated-memory:'+name+'>'
         self.modules[name] = module

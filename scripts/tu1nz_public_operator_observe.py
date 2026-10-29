@@ -26,6 +26,7 @@ import urllib.request
 from contextlib import contextmanager
 
 import tu1nz_public_operator_io as io
+import tu1nz_public_operator_context as context
 from tu1nz_public_operator_runtime_guard import RuntimeFence, writer_check
 
 UNITS = ('tu1nz-adult-public-s7.service', 'tu1nz-adult-public-s8-landing.service',
@@ -348,12 +349,13 @@ def initial_profile(pid, tick, deadline):
         return row
 
 
-def exact_actor(row, expected):
+def exact_actor(row, expected, *, contextual=False):
     allowed = {'role', 'exe', 'exe_sha256', 'uid', 'gid', 'groups', 'caps', 'nnp',
                'argv_sha256', 'cgroup', 'initial_env_sha256', 'lsm_sha256', 'namespaces',
-               'max_instances', 'origin_sha256'}
+               'max_instances', 'origin_sha256'} | ({'context_id'} if contextual else set())
     io.require(set(expected) == allowed and expected['role'] in
-               ('kernel_manager', 'administrative_service', 'authenticated_maintenance', 'nginx_reader'),
+               ('kernel_manager', 'administrative_service', 'authenticated_maintenance', 'nginx_reader',
+                *(context.ROLES if contextual else ())),
                'ADMIN_ROLE_SCHEMA')
     io.require(type(expected['max_instances']) is int and 1 <= expected['max_instances'] <= 8192 and
                type(expected['nnp']) is int and expected['nnp'] in (0, 1) and
@@ -365,7 +367,7 @@ def exact_actor(row, expected):
                expected['groups'] == sorted(expected['groups']) and len(expected['groups']) <= 65536,
                'ADMIN_NUMERIC_PROFILE_SCHEMA')
     io.cgroup_records(expected['cgroup']); io.cgroup_records(row['cgroup'])
-    return all(row[k] == expected[k] for k in allowed-{'role', 'max_instances', 'origin_sha256'})
+    return all(row[k] == expected[k] for k in allowed-{'role', 'max_instances', 'origin_sha256','context_id'})
 
 
 class Authority:
@@ -373,7 +375,9 @@ class Authority:
         required = {'schema', 'machine_sha256', 'boot_id', 'files', 'unit_files', 'actors',
                     'policy_roots', 'broker_sockets', 'broker_tcp', 'source_release',
                     'http', 'database', 'nginx_groups', 'source_origin_receipts', 'unit_search_sha256'}
-        io.require(set(baseline) == required and baseline['schema'] == 'TU1NZ_PUBLIC_HOST_BASELINE_V1',
+        contextual = baseline.get('schema') == context.BASELINE
+        io.require(set(baseline) == required | ({'contexts'} if contextual else set()) and
+                   baseline['schema'] in ('TU1NZ_PUBLIC_HOST_BASELINE_V1',context.BASELINE),
                    'BASELINE_SCHEMA')
         io.require(baseline['machine_sha256'] == machine and baseline['source_origin_receipts'], 'BASELINE_HOST_ORIGIN')
         origins = baseline['source_origin_receipts']
@@ -381,7 +385,7 @@ class Authority:
                    all(type(h) is str and re.fullmatch('[a-f0-9]{64}', h) for h in origins), 'BASELINE_ORIGIN_SCHEMA')
         # No "passed", "closed", "trusted:true" etc can enter this schema.
         self.b, self.paths, self.channel, self.deadline = baseline, paths, channel, deadline
-        self.runtime = None
+        self.runtime = None; self.contexts = None
         self.probe_check = None
         self.initial = {}; self.profiles = {}; self.targets = {}; self.accepted = set()
         self.operator_pid = os.getpid(); self.operator_start = starttime(os.getpid())
@@ -408,10 +412,15 @@ class Authority:
         io.require(Path('/proc/sys/kernel/random/boot_id').read_text().strip() == baseline['boot_id'], 'WRONG_BOOT')
         io.require(os.readlink('/proc/self/ns/mnt') == os.readlink('/proc/1/ns/mnt') and
                    os.readlink('/proc/self/ns/user') == os.readlink('/proc/1/ns/user'), 'HOST_NAMESPACE_REQUIRED')
+        if contextual:
+            io.require(os.readlink('/proc/self/ns/pid') == os.readlink('/proc/1/ns/pid'),
+                       'CONTEXT_FULL_HOST_PID_NAMESPACE_REQUIRED')
         io.require(set(baseline['source_release']) == self.release_fields(),
                    'RUNTIME_SOURCE_RELEASE_INCOMPLETE')
         self.runtime = self.open_runtime(baseline, paths, deadline)
         self.check_files()
+        if contextual:
+            self.contexts = context.ContextBindings(baseline,deadline,process)
         io.require(self.unit_search() == baseline['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
         self.initial_units = unit_rows(UNITS, self.deadline)
         self.check(stop_only=True)
@@ -752,6 +761,18 @@ class Authority:
             return int(value['MainPID']) == 0 and not value['Job']
         return all(not p.read_text().strip() for p in [root/'cgroup.procs', *root.rglob('cgroup.procs')])
 
+    def actor_matches(self, row, profile):
+        contextual = self.contexts is not None
+        if contextual and profile['context_id'] != 'HOST':
+            return self.contexts.matches(row,profile)
+        if contextual and any(re.search(r'/docker-[a-f0-9]{64}\.scope(?:/|$)',path)
+                              for _,_,path in io.cgroup_records(row['cgroup'])):
+            return False  # A container may not masquerade as a HOST profile.
+        if contextual and row['uid'][0] == 1001 and profile['role'] != 'authenticated_maintenance' and any(
+                path.startswith('/user.slice/user-1001.slice/') for _,_,path in io.cgroup_records(row['cgroup'])):
+            return False  # Not a generic user-service/admin fallback.
+        return exact_actor(row,profile,contextual=contextual)
+
     def actors_check(self, *, stop_only):
         counts = [0]*len(self.b['actors'])
         target_ids = set(self.targets.values()) if stop_only else set()
@@ -768,7 +789,7 @@ class Authority:
                        'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
             right_pids[expected[1]] = (unit, expected[2])
         io.require(len(right_pids) == len(self.rights), 'UNIT_MAIN_PROCESS_COLLISION')
-        brokers = []
+        brokers = []; census = {}
         for name in os.listdir('/proc'):
             if not name.isdecimal():
                 continue
@@ -777,10 +798,16 @@ class Authority:
                 row = process(pid)
             except (FileNotFoundError, ProcessLookupError):
                 continue
+            if self.contexts is not None:
+                exceptions = {(pid,str(tick)) for pid,tick in self.targets.values()}
+                exceptions.add((self.operator_pid,str(self.operator_start)))
+                exceptions.update((pid,str(value[1])) for pid,value in right_pids.items())
+                self.contexts.guard_exception(row,exceptions)
             # Each exception has a precise, measured identity. No UID0/1001 or
             # generic descendant exception is present.
             if row.get('kernel_thread') == 1:
                 continue
+            census[pid] = row
             if pid == self.operator_pid:
                 io.require(row['starttime'] == self.operator_start, 'OPERATOR_IDENTITY_CHANGED')
                 continue
@@ -793,7 +820,7 @@ class Authority:
                 started, tick = right_pids[pid]
                 io.require(row['starttime'] == tick, 'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
                 self.rights_check(started, row); right_seen.add(pid); continue
-            matched = [i for i, profile in enumerate(self.b['actors']) if exact_actor(row, profile)]
+            matched = [i for i, profile in enumerate(self.b['actors']) if self.actor_matches(row, profile)]
             io.require(len(matched) == 1, 'UNCLASSIFIED_OR_EXTRA_ACTOR')
             index = matched[0]; counts[index] += 1
             io.require(counts[index] <= self.b['actors'][index]['max_instances'], 'ACTOR_COUNT_CHANGED')
@@ -810,6 +837,9 @@ class Authority:
                 io.require(pid in parents, 'MAINTENANCE_NOT_OWN_AUTHENTICATED_ANCESTRY')
             elif role == 'administrative_service':
                 io.require(io.system_slice_cgroup(row['cgroup']), 'ADMIN_NOT_BOUND_SERVICE_CONTEXT')
+            elif role in context.ROLES:
+                io.require(self.contexts is not None, 'CONTEXT_ROLE_REQUIRES_NEW_SCOPE')
+                self.contexts.check_actor(row,self.b['actors'][index])
             if self.b['actors'][index]['role'] == 'nginx_reader':
                 # A bounding ceiling is not an effective/inheritable grant.
                 # It remains exactly pinned in the actor profile; real broker,
@@ -825,6 +855,8 @@ class Authority:
         io.require(unix == sorted(self.b['broker_sockets']) and tcp == self.b['broker_tcp'],
                    'BROKER_LISTENER_SET_CHANGED_OR_UNKNOWN')
         io.require(not tcp, 'TCP_BROKER_AUTHENTICATION_UNPROVEN')
+        if self.contexts is not None:
+            self.contexts.authority_check(self,census,command)
 
     def broker_endpoints(self, actors):
         unix, tcp = set(), []
@@ -1082,7 +1114,7 @@ class Authority:
                                'UNIX_PEER_ADDRESS_UNKNOWN')
                     peer_name = address.raw[2:size.value].split(b'\0', 1)[0]
                     peer_row = process(peer_pid)
-                    matched = [p for p in self.b['actors'] if exact_actor(peer_row, p)]
+                    matched = [p for p in self.b['actors'] if self.actor_matches(peer_row, p)]
                     io.require(len(matched) == 1, 'UNIX_PEER_NOT_BOUND_ADMINISTRATIVE_SERVICE')
                     executable = PurePosixPath(peer_row['exe']).name
                     journal = (int(path.name) in (0, 1, 2) and peer_name ==
@@ -1148,6 +1180,14 @@ class Authority:
                    'QUEUED_MANAGER_JOB_UNKNOWN')
 
     def check(self, *, stop_only=False):
+        if self.contexts is None:
+            return self._check(stop_only=stop_only)
+        with self.contexts.limit(self.deadline):
+            self.contexts.check()
+            self._check(stop_only=stop_only)
+            self.contexts.check()
+
+    def _check(self, *, stop_only=False):
         io.require(time.monotonic() < self.deadline, 'AUTHORITY_DEADLINE')
         io.require(self.runtime is not None, 'RUNTIME_PROVENANCE_UNAVAILABLE')
         self.runtime.check()
@@ -1159,15 +1199,22 @@ class Authority:
             self.units_check(stop_only=stop_only); self.actors_check(stop_only=stop_only)
         # The three bound delegation exceptions authorize only their stop.
         # They never waive existing writable Source/config FDs or shared maps.
-        writer_check(self.runtime.files | {v[:2] for v in self.initial.values()}, self.deadline)
+        writer_check(self.runtime.files | {v[:2] for v in self.initial.values()} |
+                     (self.contexts.files if self.contexts is not None else set()), self.deadline)
         self.paths.check()
         io.require(time.monotonic() < self.deadline, 'AUTHORITY_DEADLINE')
 
     def close(self):
+        errors = []
+        contexts = getattr(self,'contexts',None)
+        if contexts is not None:
+            self.contexts = None
+            errors.extend(contexts.close())
         runtime = getattr(self, 'runtime', None)
-        if runtime is None: return []
+        if runtime is None: return errors
         self.runtime = None
-        return runtime.close()
+        errors.extend(runtime.close())
+        return errors
 
     def accept_site(self, rows):
         groups = self.b['nginx_groups']
