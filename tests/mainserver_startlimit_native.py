@@ -44,6 +44,7 @@ def wait_state(name,states,*,result=None):
         if ((row['ActiveState'],row['SubState']) in states and not row['Job'] and
                 (result is None or row['Result']==result)):return row
         time.sleep(.05)
+    print(json.dumps({'synthetic_timeout_state':{k:row[k] for k in transition.START_LIMIT_UNIT_FIELDS}},sort_keys=True),flush=True)
     raise AssertionError('NATIVE_START_LIMIT_STATE_TIMEOUT')
 
 
@@ -69,7 +70,11 @@ def main():
         assert not target.exists()
         target.write_text('[Unit]\nStartLimitIntervalSec='+('6s' if index==2 else '900s')+
             '\nStartLimitBurst=3\n[Service]\nType=simple\nExecStart=/usr/bin/python3 -I -B '+str(script)+
-            '\nRestart=on-failure\nRestartSec='+('100ms' if index==2 else '15s')+'\n')
+            '\nRestart=on-failure\nRestartSec='+('100ms' if index==2 else '15s')+
+            '\n[Install]\nWantedBy=multi-user.target\n')
+        # Keep the same unit object referenced after stop. If a real target
+        # were GC-unloaded, missing timestamps/InvocationID must deny proof.
+        run('/usr/bin/systemctl','enable',name)
     run('/usr/bin/systemctl','daemon-reload')
     run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[0])
     run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[1])
@@ -77,7 +82,8 @@ def main():
     # Fixture construction only: stop during the 15s auto-restart wait. It
     # creates a terminal first-failure state without resetting either counter.
     run('/usr/bin/systemctl','--job-mode=fail','stop',UNITS[1])
-    wait_state(UNITS[1],{('failed','failed')})
+    terminal_state=wait_state(UNITS[1],{('failed','failed'),('inactive','dead')})
+    print(json.dumps({'synthetic_terminal_state':{k:terminal_state[k] for k in transition.START_LIMIT_UNIT_FIELDS}},sort_keys=True),flush=True)
     (ROOT/'fail-second').unlink()  # synthetic fault trigger only
     run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[2],check=False)
     limit=wait_state(UNITS[2],{('failed','failed')},result='start-limit-hit')
