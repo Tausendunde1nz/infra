@@ -1774,6 +1774,12 @@ class StartLimitObservationTests(unittest.TestCase):
         watch = self.watcher(); lib = watch.reader.lib
         lib.sd_bus_message_get_sender.return_value = b':1.2'
         lib.sd_bus_message_get_member.return_value = b'JobNew'; lib.sd_bus_message_at_end.return_value = 1
+        lib.sd_bus_message_get_path.return_value=b'/org/freedesktop/systemd1'
+        lib.sd_bus_message_get_interface.return_value=b'org.freedesktop.systemd1.Manager'
+        lib.sd_bus_message_get_signature.return_value=b'uos'
+        watch.reader.libc=Mock()
+        def blob(message,pointer,size):pointer._obj.value=123;size._obj.value=256;return 0
+        lib.bus_message_get_blob.side_effect=blob
         values = iter((1, b'/org/freedesktop/systemd1/job/1', r3.UNITS[0].encode()))
         def basic(message, kind, pointer):pointer._obj.value = next(values); return 1
         lib.sd_bus_message_read_basic.side_effect = basic

@@ -4,7 +4,6 @@ The 900-second age is fixture preparation BEFORE the measured 600-second
 window. This tests only StartLimit evidence, not full maintenance timing.
 """
 import json
-import ctypes
 import os
 from pathlib import Path
 import subprocess
@@ -107,31 +106,19 @@ def main():
         # A real stop job must invalidate the passive observer. No injected
         # manager reply, timestamp, rate counter or callback.
         watch=transition.StartLimitObservation(reader)
-        diagnostic=[];diagnostic_slot=ctypes.c_void_p()
-        def event(message,_userdata,_error):
-            if len(diagnostic)<16:
-                diagnostic.append({'sender':reader.lib.sd_bus_message_get_sender(message).decode(),
-                    'member':reader.lib.sd_bus_message_get_member(message).decode()})
-            return 0
-        diagnostic_callback=watch.callback_type(event)
-        diagnostic_match=("type='signal',path='/org/freedesktop/systemd1',"
-                          "interface='org.freedesktop.systemd1.Manager',member='JobRemoved'")
-        assert reader.lib.sd_bus_add_match(reader.bus,ctypes.byref(diagnostic_slot),diagnostic_match.encode(),
-                                          diagnostic_callback,None)>=0
         run('/usr/bin/systemctl','--job-mode=fail','stop',UNITS[0])
         end=time.monotonic()+5
         while not watch.failure and time.monotonic()<end:
             try:watch.drain()
             except io.Hold:assert watch.failure
             if not watch.failure:time.sleep(.02)
-        print(json.dumps({'synthetic_signal_diagnostic':diagnostic,'expected_sender':watch.owner,
-                          'production_observer_events':watch.events},sort_keys=True),flush=True)
-        reader.lib.sd_bus_slot_unref(diagnostic_slot)
         denied(watch.drain);assert watch.events>0
-        watch.close();reader.start_limit_watch=None
+        reader.close()  # removes all owned broker rules and subscription
         cases.append('REAL_FOREIGN_JOB_LATCHED')
         run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[0])
         wait_state(UNITS[0],{('active','running')})
+        # Separate native component scenario, not reconnect of a transaction.
+        reader=transition.ReadOnlyBus(fd,time.monotonic()+1100)
         early=snapshot(UNITS[0])
         target=max(early['properties']['ActiveEnterTimestampMonotonic'],
                    failed['properties']['StateChangeTimestampMonotonic'])/1_000_000+900.1

@@ -495,13 +495,24 @@ class StartLimitObservation:
         P=ctypes.c_void_p;S=ctypes.c_char_p;I=ctypes.c_int
         self.callback_type=ctypes.CFUNCTYPE(I,P,P,P)
         signatures={'sd_bus_add_match':([P,ctypes.POINTER(P),S,self.callback_type,P],I),
+                    'sd_bus_add_filter':([P,ctypes.POINTER(P),self.callback_type,P],I),
                     'sd_bus_slot_unref':([P],P),'sd_bus_process':([P,ctypes.POINTER(P)],I),
-                    'sd_bus_message_get_sender':([P],S),'sd_bus_message_get_member':([P],S)}
+                    'sd_bus_message_get_sender':([P],S),'sd_bus_message_get_member':([P],S),
+                    'sd_bus_message_get_interface':([P],S),'sd_bus_message_get_path':([P],S),
+                    'sd_bus_message_get_signature':([P,I],S)}
         for name,(args,result) in signatures.items():
             function=getattr(reader.lib,name);function.argtypes=args;function.restype=result
         self.callback=self.callback_type(self._event)
         try:
             self.owner=reader.simple('manager_owner')
+            # Keep all six exact broker rules below. sd-bus255's LOCAL argN
+            # matcher cannot skip JobNew/Removed's leading uint32, so it
+            # silently misses arg2. A local filter decodes only signals the
+            # broker already selected; no broader broker subscription.
+            # src/libsystemd/sd-bus/bus-message.c: bus_message_get_arg_skip
+            slot=ctypes.c_void_p();self.slots[('local','filter')]=slot
+            io.require(reader.lib.sd_bus_add_filter(reader.bus,ctypes.byref(slot),self.callback,None)>=0 and slot,
+                       'START_LIMIT_LOCAL_FILTER_UNKNOWN')
             for unit in UNITS:
                 for member in ('JobNew','JobRemoved'):
                     slot=ctypes.c_void_p();self.slots[(unit,member)]=slot
@@ -539,11 +550,32 @@ class StartLimitObservation:
         # latched; no subsequent observation can make it GREEN again.
         try:
             L=self.reader.lib;member=L.sd_bus_message_get_member(message)
+            if (member not in (b'JobNew',b'JobRemoved') or
+                    L.sd_bus_message_get_path(message)!=b'/org/freedesktop/systemd1' or
+                    L.sd_bus_message_get_interface(message)!=b'org.freedesktop.systemd1.Manager'):
+                return 0  # normal replies/other protocol messages, no body access
             io.require(not self.closed and L.sd_bus_message_get_sender(message)==self.owner.encode() and
-                       member in (b'JobNew',b'JobRemoved'),'START_LIMIT_EVENT_SOURCE_UNKNOWN')
-            # Six exact sender/member/arg2 matches are installed above. Any
-            # delivery invalidates the interval; no job ID/result/body needs
-            # to be copied or interpreted to grant a permission here.
+                       L.sd_bus_message_get_signature(message,1)==(b'uos' if member==b'JobNew' else b'uoss'),
+                       'START_LIMIT_EVENT_SOURCE_UNKNOWN')
+            blob=ctypes.c_void_p();size=ctypes.c_size_t()
+            try:
+                io.require(L.bus_message_get_blob(message,ctypes.byref(blob),ctypes.byref(size))>=0 and
+                           blob and 0<size.value<=4096,'START_LIMIT_EVENT_BOUND')
+            finally:
+                if blob:self.reader.libc.free(blob)
+            number=ctypes.c_uint32();path=ctypes.c_char_p();name=ctypes.c_char_p()
+            io.require(L.sd_bus_message_read_basic(message,b'u',ctypes.byref(number))==1 and
+                       L.sd_bus_message_read_basic(message,b'o',ctypes.byref(path))==1 and
+                       L.sd_bus_message_read_basic(message,b's',ctypes.byref(name))==1 and
+                       path.value==('/org/freedesktop/systemd1/job/'+str(number.value)).encode() and
+                       name.value is not None and len(name.value)<=256,'START_LIMIT_EVENT_VIEW_UNKNOWN')
+            if member==b'JobRemoved':
+                result=ctypes.c_char_p()
+                io.require(L.sd_bus_message_read_basic(message,b's',ctypes.byref(result))==1 and
+                           result.value and len(result.value)<=64,'START_LIMIT_EVENT_VIEW_UNKNOWN')
+            io.require(L.sd_bus_message_at_end(message,1)==1,'START_LIMIT_EVENT_VIEW_UNKNOWN')
+            unit=name.value.decode('ascii')
+            if unit not in self.pending:return 0  # already retired own unit; never another permission
             self.events+=1
             self.failure=self.failure or 'PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED'
         except BaseException:
