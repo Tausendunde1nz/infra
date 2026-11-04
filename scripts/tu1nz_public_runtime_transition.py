@@ -25,7 +25,8 @@ import time
 import tu1nz_public_operator_io as io
 import tu1nz_public_runtime_artifact as artifact
 from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ, writer_check
-from tu1nz_public_operator_observe import Authority, UNITS, ENV, process, command, typed_exec_properties, EXEC_PROPERTIES
+from tu1nz_public_operator_observe import (Authority, CurrentAuthority, UNITS, ENV, process, command,
+                                          typed_exec_properties, EXEC_PROPERTIES)
 from tu1nz_public_operator_host import Adapter, STAGING, LIGHTING, HELPER, DROPIN, ASSET_NAMES
 from tu1nz_public_operator_fs import security
 
@@ -958,6 +959,11 @@ class ReplacementAuthority(Authority):
         return errors
 
 
+class CurrentReplacementAuthority(ReplacementAuthority, CurrentAuthority):
+    """R4 replacement fences plus present-authority contract; no legacy bypass."""
+    pass
+
+
 def overlay():
     return artifact.overlay()
 
@@ -1138,6 +1144,8 @@ class MaintenanceAdapter(ReplacementAdapter):
     before constructing it. Recovery needs its own fresh admission instead of
     this absence-based constructor. No method here resets a consumed claim.
     """
+    authority_type = CurrentReplacementAuthority
+
     def __init__(self, source, baseline, plan_raw, channel, binding, *, deadline,
                  maintenance_inputs, after_ready_seconds):
         io.require(type(maintenance_inputs) is dict and set(maintenance_inputs) ==
@@ -1174,7 +1182,7 @@ class MaintenanceAdapter(ReplacementAdapter):
         targets.update((v['metadata']['device'], v['metadata']['inode']) for v in self.prepared_assets.values())
         if self.a.prepared_runtime is not None:
             self.a.prepared_runtime.check(); targets.update(self.a.prepared_runtime.files)
-        writer_check(targets, self.a.deadline)
+        self.a.check_writers(targets)
         self.channel.check(); self.p.check(full=True)
 
     def check_transaction_lock(self):
@@ -1237,7 +1245,7 @@ class MaintenanceAdapter(ReplacementAdapter):
                    'PREPARED_RUNTIME_REQUIRED')
         selected.check()
         self.a.bind_external_libraries(prepared=selected)
-        writer_check(selected.files, self.a.deadline)
+        self.a.check_writers(selected.files)
         selected.check()
 
     def prepare_runtime_bundle(self, *, deadline):
@@ -1304,8 +1312,8 @@ class MaintenanceAdapter(ReplacementAdapter):
                    'PREPARED_RUNTIME_CHANGED')
         if not self.a.replacement_active:self.check_prepared_dependencies()
         else:self.a.verify_external_libraries()
-        writer_check(selected.files | {(v['metadata']['device'], v['metadata']['inode'])
-                                        for v in self.prepared_assets.values()}, self.a.deadline)
+        self.a.check_writers(selected.files | {(v['metadata']['device'], v['metadata']['inode'])
+                             for v in self.prepared_assets.values()})
         if before_stop:
             self.preparation_check()
             io.require(time.monotonic()+self.after_ready_seconds < min(self.deadline, self.channel.ceiling),

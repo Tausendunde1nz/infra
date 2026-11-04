@@ -28,6 +28,9 @@ else:
         import tu1nz_public_operator_fs as fs
         import tu1nz_public_runtime_transition as transition
 import tu1nz_public_bootstrap_r3 as r3
+import tu1nz_public_operator_context as contexts
+import tu1nz_public_operator_observe as observe
+import tu1nz_public_operator_runtime_guard as runtime_guard
 
 
 class OwnedCandidateTests(unittest.TestCase):
@@ -546,6 +549,213 @@ class FirstOwnerEntryTests(unittest.TestCase):
             ssh.assert_not_called(); read_password.assert_not_called()
             for root in roots:
                 self.assertEqual(io.parse((root/'result.json').read_bytes())['status'], 'HOLD')
+
+
+class CurrentAuthorityContractTests(unittest.TestCase):
+    def profile(self):
+        return {'id': 'pid1', 'role': 'kernel_manager', 'purpose': 'Current host service manager',
+                'max_instances': 1, 'exe': '/usr/lib/systemd/systemd',
+                'uid': [0]*4, 'gid': [0]*4, 'groups': [], 'caps': {k: 0 for k in contexts.CAPS},
+                'nnp': 0, 'cgroup': '0::/init.scope',
+                'namespaces': {k: k+':[1]' for k in contexts.NS}}
+
+    def row(self, profile):
+        return {**{k: copy.deepcopy(profile[k]) for k in contexts.CURRENT_SECURITY}, 'pid': 1, 'starttime': '10'}
+
+    def test_finite_current_profiles_do_not_require_thirteen_contexts_or_history(self):
+        profile = self.profile()
+        with patch.object(contexts, 'PROGRAMS', {}):
+            self.assertEqual(contexts.current_profiles([profile]), [profile])
+        self.assertNotIn('origin_sha256', profile)
+        for old_requirement in ('argv_sha256', 'initial_env_sha256', 'code_inputs', 'authority_edges'):
+            with self.subTest(field=old_requirement), self.assertRaises(io.Hold):
+                contexts.current_profile({**profile, old_requirement: 'not a current permission'})
+
+    def test_root_uid_and_same_executable_do_not_admit_an_unknown_context(self):
+        profile = self.profile(); row = self.row(profile)
+        self.assertTrue(contexts.current_profile_matches(row, profile))
+        for field, value in (('pid', 2), ('cgroup', '0::/unknown.slice'), ('groups', [27]), ('nnp', 1),
+                             ('namespaces', {k: k+':[2]' for k in contexts.NS})):
+            with self.subTest(field=field):
+                self.assertFalse(contexts.current_profile_matches({**row, field: value}, profile))
+        for change in ({'max_instances': 0}, {'trusted': True}, {'uid': [True]*4}):
+            with self.subTest(change=change), self.assertRaises(io.Hold):
+                contexts.current_profile({**profile, **change})
+
+    def test_dynamic_maintenance_role_requires_this_authenticated_ancestry(self):
+        profile = self.profile(); profile.update(id='ssh-parent', role='authenticated_maintenance',
+                                                  exe='/usr/sbin/sshd')
+        row = self.row(profile); row.update(pid=123, starttime='20')
+        self.assertFalse(contexts.current_profile_matches(row, profile))
+        self.assertTrue(contexts.current_profile_matches(row, profile, authenticated_ancestors={(123, '20')}))
+        self.assertFalse(contexts.current_profile_matches(row, profile, authenticated_ancestors={(123, '19')}))
+
+    def test_direct_relevance_uses_fsuid_saved_ids_groups_and_active_capability(self):
+        row = self.row(self.profile()); row.update(uid=[900]*4, gid=[900]*4, groups=[])
+        row['caps']['CapBnd'] = 2**32-1
+        def relevant(value):
+            return contexts.directly_relevant(value, authority_uids=frozenset((0, 33, 1001)),
+                                             authority_gids=frozenset((993,)))
+        # False means only no DIRECT match. It grants no irrelevance/permission
+        # until actual inherited-channel/policy/Writer checks also complete.
+        self.assertFalse(relevant(row))
+        for index in range(4):
+            changed = copy.deepcopy(row); changed['uid'][index] = 0
+            self.assertTrue(relevant(changed))
+        self.assertTrue(relevant({**row, 'groups': [993]}))
+        self.assertTrue(relevant({**row, 'caps': {**row['caps'], 'CapEff': 1}}))
+        with self.assertRaises(io.Hold):relevant({**row, 'uid': [True]*4})
+
+
+def current_sample(profile, pid, tick='10'):
+    security = {k: copy.deepcopy(profile[k]) for k in contexts.CURRENT_SECURITY if k != 'exe'}
+    security.update(uid_map=['0', '0', '4294967295'], gid_map=['0', '0', '4294967295'],
+                    setgroups='allow', lsm_sha256='1'*64)
+    return dict(security, pid=pid, ppid=1, starttime=tick, kernel_thread=0, exe=profile['exe'],
+                task_observations=[dict(tid=pid, starttime=tick, security=copy.deepcopy(security))])
+
+
+class CurrentTaskTests(unittest.TestCase):
+    def setUp(self):
+        self.profile = CurrentAuthorityContractTests().profile()
+        self.profile['caps']['CapEff'] = 3
+        self.row = current_sample(self.profile, 1)
+
+    def test_current_task_may_drop_but_never_gain_authority(self):
+        low = copy.deepcopy(self.row['task_observations'][0]); low['tid'] = 10
+        low['security']['caps']['CapEff'] = 1; low['security']['nnp'] = 1
+        self.row['task_observations'].append(low)
+        self.assertEqual(contexts.current_task_check(self.row), 2)
+        for field, value in (('groups', [27]), ('uid', [1001]*4), ('nnp', True),
+                             ('namespaces', {k: k+':[2]' for k in contexts.NS}),
+                             ('caps', {**low['security']['caps'], 'CapEff': 4})):
+            changed = copy.deepcopy(self.row); changed['task_observations'][1]['security'][field] = value
+            with self.subTest(field=field), self.assertRaises(io.Hold):contexts.current_task_check(changed)
+
+    def test_later_good_sample_does_not_erase_bad_observed_worker(self):
+        bad = copy.deepcopy(self.row['task_observations'][0]); bad['tid'] = 10
+        bad['security']['caps']['CapEff'] = 4
+        self.row['task_observations'].insert(0, bad)
+        with self.assertRaises(io.Hold):contexts.current_task_check(self.row)
+
+    def test_new_current_contract_cannot_enter_old_authority_or_context_binding(self):
+        old = observe.Authority.__new__(observe.Authority)
+        new = transition.CurrentReplacementAuthority.__new__(transition.CurrentReplacementAuthority)
+        self.assertNotIn(contexts.CURRENT_BASELINE, old.baseline_schemas())
+        self.assertEqual(new.baseline_schemas(), (contexts.CURRENT_BASELINE,))
+        self.assertEqual(new.baseline_extra_fields({}), {'current_authority'})
+        new.b = {'current_authority': {'observation_sha256': 'a'*64}, 'source_origin_receipts': ['b'*64]}
+        present = dict(sha256='c'*64, uid=0, gid=0, mode=0o644, attrs={}, flags=0,
+                       current_observation_sha256='a'*64)
+        new.validate_file_binding(present)
+        with self.assertRaises(io.Hold):old.validate_file_binding(present)
+        with self.assertRaises(io.Hold):new.validate_file_binding({**present, 'origin_sha256': 'a'*64})
+
+    def read_process(self, samples, listings):
+        with patch.object(contexts, 'native'), patch.object(contexts, 'ProcessLifetime') as lifetime, \
+             patch.object(contexts, 'read_proc', return_value=b'Kthread: 0\nPPid: 0\n'), \
+             patch.object(observe, 'starttime', return_value='10'), \
+             patch.object(observe.os, 'readlink', return_value=self.profile['exe']), \
+             patch.object(observe.os, 'listdir', side_effect=listings), \
+             patch.object(observe, 'thread_security', side_effect=samples):
+            try:return observe.current_process(1, deadline=time.monotonic()+60)
+            finally:lifetime.return_value.close.assert_called_once()
+
+    def test_current_reader_retains_retired_worker_observation(self):
+        security = self.row['task_observations'][0]['security']
+        row = self.read_process([('10', security)]*5, [['1', '10'], ['1'], ['1']])
+        self.assertEqual(set(row['current_tasks']), {'1'})
+        self.assertEqual([r['tid'] for r in row['task_observations']], [1, 10, 1])
+
+    def test_current_reader_fails_immediately_on_bad_worker_before_later_retirement(self):
+        security = self.row['task_observations'][0]['security']
+        bad = copy.deepcopy(security); bad['caps']['CapEff'] = 4
+        with self.assertRaisesRegex(io.Hold, 'ADDITIONAL_OR_UNKNOWN_AUTHORITY'):
+            self.read_process([('10', security), ('10', security), ('10', bad)], [['1', '10']])
+
+
+class CurrentActorCensusTests(unittest.TestCase):
+    def setUp(self):
+        pid1 = CurrentAuthorityContractTests().profile()
+        admin = copy.deepcopy(pid1)
+        admin.update(id='daemon', role='administrative_service', purpose='Mapped current daemon',
+                     exe='/usr/sbin/example', cgroup='0::/system.slice/example.service', max_instances=2)
+        self.a = observe.CurrentAuthority.__new__(observe.CurrentAuthority)
+        self.a.b = {'actors': [pid1, admin], 'broker_sockets': [], 'broker_tcp': []}
+        self.a.contexts = None; self.a.targets = {}; self.a.rights = set(); self.a.runtime_invocations = {}
+        self.a.operator_pid = 999; self.a.operator_start = '10'; self.a.deadline = time.monotonic()+60
+        self.a.authenticated_ancestors = frozenset()
+        self.a.relevant_identities = Mock(return_value=(frozenset((0, 33, 1001)), frozenset((0, 27, 993))))
+        self.a.broker_endpoints = Mock(return_value=([], [])); self.a.delegation_check = Mock()
+        self.rows = {1: current_sample(pid1, 1), 20: current_sample(admin, 20)}
+        self.a.administrative_process = lambda pid: self.rows[pid]
+
+    def run_census(self):
+        with patch.object(observe.os, 'listdir', return_value=list(map(str, self.rows))), \
+             patch.object(observe, 'process', side_effect=lambda pid: self.rows[pid]):
+            self.a.actors_check(stop_only=False)
+
+    def test_known_current_admin_does_not_need_historical_code_or_twenty_one_negative_queries(self):
+        self.run_census(); self.a.delegation_check.assert_not_called()
+        self.rows.pop(20)  # no mandatory stale membership list
+        self.run_census()
+
+    def test_root_same_uid_and_same_executable_in_unknown_context_is_denied(self):
+        self.rows[20]['cgroup'] = '0::/unknown.slice'
+        for sample in self.rows[20]['task_observations']:sample['security']['cgroup'] = self.rows[20]['cgroup']
+        with self.assertRaisesRegex(io.Hold, 'UNKNOWN_RELEVANT'):self.run_census()
+        self.a.delegation_check.assert_not_called()
+
+    def test_no_direct_privilege_still_requires_actual_negative_channel_and_policy_check(self):
+        profile = copy.deepcopy(self.a.b['actors'][1])
+        profile.update(uid=[900]*4, gid=[900]*4, groups=[], cgroup='0::/system.slice/unrelated.service')
+        self.rows[30] = current_sample(profile, 30)
+        self.run_census(); self.a.delegation_check.assert_called_once_with(self.rows[30])
+        self.a.delegation_check.side_effect = io.Hold('PUBLIC_OPERATOR_INHERITED_UNKNOWN')
+        with self.assertRaisesRegex(io.Hold, 'INHERITED_UNKNOWN'):self.run_census()
+
+    def test_known_tcb_does_not_waive_actual_writer_fences(self):
+        self.a.paths = SimpleNamespace(check=Mock()); self.a.runtime = SimpleNamespace(check=Mock())
+        with patch.object(observe, 'current_writer_check', side_effect=io.Hold('PUBLIC_OPERATOR_EXISTING_SOURCE_WRITABLE_FD')):
+            with self.assertRaisesRegex(io.Hold, 'WRITABLE_FD'):self.a.check_writers({(1, 2)})
+        self.a.runtime.check.assert_called_once()
+
+
+class CurrentWriterCensusTests(unittest.TestCase):
+    def run_scan(self, listings, worker, *, exists=False, proc=None):
+        raw = '10 (synthetic) '+' '.join(['S']+['0']*18+['10'])
+        def contents(path):
+            return 'Kthread: 0\n' if path.endswith('/status') else raw
+        with patch.object(runtime_guard.sys, 'platform', 'linux'), \
+             patch.object(os, 'O_NOATIME', 0, create=True), \
+             patch.object(runtime_guard.os, 'listdir', side_effect=listings), \
+             patch.object(runtime_guard.os.path, 'lexists', return_value=exists), \
+             patch.object(runtime_guard, 'proc_text', side_effect=proc or contents), \
+             patch.object(runtime_guard, 'writer_task', side_effect=worker) as checked:
+            runtime_guard.current_writer_check({(1, 2)}, time.monotonic()+60)
+            return checked.call_args_list
+
+    def test_actual_retired_worker_is_not_stale_membership_failure(self):
+        def worker(path, *args, **kwargs):
+            if path.endswith('/11'):raise FileNotFoundError()
+        calls = self.run_scan([['10'], ['10', '11'], ['10'], ['10']], worker)
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(c.kwargs == {'allow_closed_unidentified_fd': True} for c in calls))
+
+    def test_live_unknown_worker_new_unmeasured_worker_and_positive_writer_deny(self):
+        with self.assertRaisesRegex(io.Hold, 'LIVE_TASK_VIEW_UNKNOWN'):
+            self.run_scan([['10'], ['10', '11']], Mock(side_effect=FileNotFoundError()), exists=True)
+        with self.assertRaisesRegex(io.Hold, 'UNMEASURED_LIVE_TASK'):
+            self.run_scan([['10'], ['10'], ['10'], ['10', '12']], Mock())
+        with self.assertRaisesRegex(io.Hold, 'EXISTING_SOURCE_WRITABLE_FD'):
+            self.run_scan([['10'], ['10']], Mock(side_effect=io.Hold('PUBLIC_OPERATOR_EXISTING_SOURCE_WRITABLE_FD')))
+
+    def test_fully_exited_process_is_distinct_from_live_inaccessible_process(self):
+        self.run_scan([['10']], Mock(), proc=Mock(side_effect=FileNotFoundError()))
+        with self.assertRaisesRegex(io.Hold, 'LIVE_PROCESS_VIEW_UNKNOWN'):
+            self.run_scan([['10']], Mock(), exists=True, proc=Mock(side_effect=FileNotFoundError()))
+        with self.assertRaisesRegex(io.Hold, 'VIEW_UNKNOWN'):
+            self.run_scan([['10']], Mock(), proc=Mock(side_effect=PermissionError()))
 
 
 if __name__ == '__main__':
