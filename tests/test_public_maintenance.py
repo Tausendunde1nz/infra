@@ -1661,11 +1661,77 @@ class OperatorSessionTests(unittest.TestCase):
                 observe.operator_session_members(123, deadline=time.monotonic()+30)
 
 
+class StartLimitStateProofTests(unittest.TestCase):
+    def snapshot(self,*,active=True):
+        return {'unit':r3.UNITS[0],'manager_owner':':1.2','observed_monotonic_us':1000_000_000,
+                'properties':{'StartLimitIntervalUSec':900_000_000,'StartLimitBurst':3,
+                    'ActiveEnterTimestampMonotonic':50_000_000,'ConditionTimestampMonotonic':49_000_000,
+                    'StateChangeTimestampMonotonic':50_000_000 if active else 999_000_000},
+                'unit_state':dict(Type='simple',InvocationID='a'*32,NRestarts='0',Result='success',
+                    ActiveState='active' if active else 'inactive',SubState='running' if active else 'dead',
+                    MainPID='123' if active else '0',ControlPID='0',Job='')}
+
+    def test_production_900_second_limit_needs_no_wait_after_same_aged_invocation_stops(self):
+        old=self.snapshot();current=self.snapshot(active=False)
+        self.assertEqual(transition.start_limit_permission(old,require_active=True),'AGED_SUCCESSFUL_ACTIVE_INVOCATION')
+        self.assertEqual(transition.start_limit_permission(current,anchor=old),
+                         'SAME_AGED_INVOCATION_NOW_SUCCESSFULLY_EMPTY')
+        with self.assertRaisesRegex(io.Hold,'TERMINAL_WINDOW'):transition.start_limit_permission(current)
+        self.assertEqual(current['properties']['StartLimitIntervalUSec'],900_000_000)
+
+    def test_condition_alone_does_not_bound_an_activating_hurry_up_attempt(self):
+        current=self.snapshot(active=False)
+        current['unit_state'].update(ActiveState='failed',SubState='failed',Result='exit-code')
+        with self.assertRaisesRegex(io.Hold,'TERMINAL_WINDOW'):transition.start_limit_permission(current)
+        current['observed_monotonic_us']=1900_002_000
+        self.assertEqual(transition.start_limit_permission(current),'AGED_TERMINAL_TRANSITION_AFTER_LAST_CONDITION')
+
+    def test_later_condition_same_tick_unknown_or_changed_invocation_cannot_reuse_old_anchor(self):
+        old=self.snapshot()
+        for mutation in ('condition','invocation','failure','manager','active_entry'):
+            cur=self.snapshot(active=False)
+            if mutation=='condition':cur['properties']['ConditionTimestampMonotonic']+=1
+            if mutation=='active_entry':cur['properties']['ActiveEnterTimestampMonotonic']+=1
+            if mutation=='invocation':cur['unit_state']['InvocationID']='b'*32
+            if mutation=='failure':cur['unit_state']['Result']='exit-code'
+            if mutation=='manager':cur['manager_owner']=':1.3'
+            with self.subTest(mutation=mutation),self.assertRaises(io.Hold):
+                transition.start_limit_permission(cur,anchor=old)
+        for c in (50_000_000,50_000_001):
+            cur=self.snapshot(active=False);cur['properties'].update(
+                StateChangeTimestampMonotonic=50_000_000,ConditionTimestampMonotonic=c)
+            with self.assertRaises(io.Hold):transition.start_limit_permission(cur)
+
+    def test_new_jobs_restart_startlimit_transitions_invalid_types_and_too_recent_active_are_denied(self):
+        for change in ({'NRestarts':'1'},{'Job':'1 /job'},{'Result':'start-limit-hit'},
+                       {'ControlPID':'123'},{'ActiveState':'activating'},{'SubState':'auto-restart'},
+                       {'Type':'notify'},{'InvocationID':''},{'MainPID':'0'}):
+            cur=self.snapshot();cur['unit_state'].update(change)
+            with self.subTest(change=change),self.assertRaises(io.Hold):transition.start_limit_permission(cur)
+        for k,v in (('StartLimitIntervalUSec',2**64-1),('StartLimitBurst',True),
+                    ('ConditionTimestampMonotonic',0),('StateChangeTimestampMonotonic',1001_000_000)):
+            cur=self.snapshot();cur['properties'][k]=v
+            with self.assertRaises(io.Hold):transition.start_limit_permission(cur)
+        cur=self.snapshot();cur['observed_monotonic_us']=950_001_000
+        with self.assertRaises(io.Hold):transition.start_limit_permission(cur)
+
+    def test_bracketed_live_read_requires_same_unit_and_manager(self):
+        snap=self.snapshot();reader=SimpleNamespace(simple=Mock(return_value=snap['manager_owner']),
+            start_limit_state=Mock(return_value=snap['properties']))
+        read=Mock(return_value=snap['unit_state'])
+        with patch.object(transition.time,'monotonic_ns',return_value=snap['observed_monotonic_us']*1000):
+            self.assertEqual(transition.start_limit_state_read(reader,read,r3.UNITS[0]),snap)
+        self.assertEqual(read.call_count,2)
+        read.side_effect=[snap['unit_state'],{**snap['unit_state'],'Job':'1'}]
+        with self.assertRaises(io.Hold):transition.start_limit_state_read(reader,read,r3.UNITS[0])
+
+
 class StartLimitObservationTests(unittest.TestCase):
     def watcher(self, interval=10_000_000, burst=5):
         watch = transition.StartLimitObservation.__new__(transition.StartLimitObservation)
         watch.owner = ':1.2'; watch.started = 100.0; watch.ready = True; watch.closed = False
         watch.failure = None; watch.pending = set(r3.UNITS); watch.events = 0
+        watch.state_permissions = {}
         watch.slots = {(u, m): object() for u in r3.UNITS for m in ('JobNew', 'JobRemoved')}
         watch.limits = {u: {'StartLimitIntervalUSec': interval, 'StartLimitBurst': burst} for u in r3.UNITS}
         watch.reader = SimpleNamespace(simple=Mock(return_value=watch.owner),

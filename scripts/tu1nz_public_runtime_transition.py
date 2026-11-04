@@ -236,14 +236,20 @@ class ReadOnlyBus:
         return self.properties(unit, 'org.freedesktop.systemd1.Service', self.KEYS)
 
     LIMIT_KEYS={'StartLimitIntervalUSec':'t', 'StartLimitBurst':'u'}
+    LIMIT_STATE_KEYS={**LIMIT_KEYS, 'ActiveEnterTimestampMonotonic':'t',
+                      'ConditionTimestampMonotonic':'t', 'StateChangeTimestampMonotonic':'t'}
 
     def start_limits(self,unit):
         body=self.properties(unit, 'org.freedesktop.systemd1.Unit', self.LIMIT_KEYS)
         return {k: v['data'] for k, v in body['data'][0].items()}
 
+    def start_limit_state(self,unit):
+        body=self.properties(unit, 'org.freedesktop.systemd1.Unit', self.LIMIT_STATE_KEYS)
+        return {k: v['data'] for k, v in body['data'][0].items()}
+
     def properties(self,unit,interface,keys):
         io.require((interface=='org.freedesktop.systemd1.Service' and keys==self.KEYS) or
-                   (interface=='org.freedesktop.systemd1.Unit' and keys==self.LIMIT_KEYS),
+                   (interface=='org.freedesktop.systemd1.Unit' and keys in (self.LIMIT_KEYS,self.LIMIT_STATE_KEYS)),
                    'REPLACEMENT_READER_SCOPE')
         # Preserve the original ONE GetAll manager dispatch, not nine
         # separately interleavable property requests. Bound the ENTIRE wire
@@ -282,7 +288,7 @@ class ReadOnlyBus:
 
     def selected_values(self,message,*,keys=None):
         keys=self.KEYS if keys is None else keys
-        io.require(keys in (self.KEYS,self.LIMIT_KEYS),'REPLACEMENT_READER_SCOPE')
+        io.require(keys in (self.KEYS,self.LIMIT_KEYS,self.LIMIT_STATE_KEYS),'REPLACEMENT_READER_SCOPE')
         L=self.lib;result={};seen=set()
         def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
         io.require(ok(L.sd_bus_message_enter_container(message,b'a',b'{sv}'))==1,'REPLACEMENT_READER_TYPE')
@@ -392,6 +398,79 @@ class ReadOnlyBus:
         self.broken=True
 
 
+START_LIMIT_UNIT_FIELDS=('Type','ActiveState','SubState','InvocationID','NRestarts','Result',
+                         'MainPID','ControlPID','Job')
+
+
+def start_limit_state_read(reader, unit_reader, unit):
+    """Fresh typed PID1 timestamps bracketed by the existing finite unit view."""
+    io.require(unit in UNITS, 'START_LIMIT_UNIT_SCOPE')
+    owner=reader.simple('manager_owner')
+    before=unit_reader(unit); properties=reader.start_limit_state(unit); after=unit_reader(unit)
+    io.require(reader.simple('manager_owner')==owner and
+               all(before[k]==after[k] for k in START_LIMIT_UNIT_FIELDS), 'START_LIMIT_STATE_CHANGED')
+    return {'unit':unit, 'manager_owner':owner, 'properties':properties,
+            'unit_state':{k:after[k] for k in START_LIMIT_UNIT_FIELDS},
+            'observed_monotonic_us':time.monotonic_ns()//1000}
+
+
+def start_limit_permission(current, *, anchor=None, require_active=False):
+    """Prove NEXT-request eligibility, never read or claim a zero live counter.
+
+    Pinned systemd255: unit_start returns before the rate test while ACTIVE;
+    otherwise it timestamps condition evaluation, except while ACTIVATING.
+    A terminal state change follows all such activating attempts. Thus an
+    aged successful active invocation, or an aged terminal transition strictly
+    AFTER condition evaluation, bounds the last possible rate test. Condition
+    time alone is insufficient (the activating/hurry-up path skips it).
+
+    The active anchor survives only the same invocation/condition/active-entry
+    and successful stop. A later attempt or failure cannot be silently adopted.
+    This relies on the approved current PID1/clock trust, not gap surveillance.
+    Native255 counterexamples and the final independent review remain gates.
+    https://github.com/systemd/systemd/blob/v255/src/core/unit.c
+    https://github.com/systemd/systemd/blob/v255/src/core/service.c
+    """
+    io.require(type(current) is dict and set(current)==
+               {'unit','manager_owner','properties','unit_state','observed_monotonic_us'} and
+               current['unit'] in UNITS and type(current['manager_owner']) is str and
+               re.fullmatch(r':\d+\.\d+',current['manager_owner']), 'START_LIMIT_STATE_SHAPE')
+    p=current['properties'];s=current['unit_state'];now=current['observed_monotonic_us']
+    io.require(type(p) is dict and set(p)==set(ReadOnlyBus.LIMIT_STATE_KEYS) and
+               all(type(p[k]) is int and 0<=p[k]<2**(32 if k=='StartLimitBurst' else 64)
+                   for k in p) and type(now) is int and now>0 and
+               type(s) is dict and set(s)==set(START_LIMIT_UNIT_FIELDS) and
+               all(type(v) is str for v in s.values()), 'START_LIMIT_STATE_TYPES')
+    io.require(s['Type']=='simple' and s['NRestarts']=='0' and s['ControlPID']=='0' and
+               not s['Job'] and s['Result']!='start-limit-hit' and
+               re.fullmatch('[0-9a-f]{32}',s['InvocationID']), 'START_LIMIT_STATE_NOT_ELIGIBLE')
+    active=s['ActiveState']=='active' and s['SubState']=='running' and s['MainPID'].isdecimal() and int(s['MainPID'])>0
+    empty=(s['ActiveState'],s['SubState']) in (('inactive','dead'),('failed','failed')) and s['MainPID']=='0'
+    io.require(active or (empty and not require_active), 'START_LIMIT_STATE_NOT_ELIGIBLE')
+    a=p['ActiveEnterTimestampMonotonic'];c=p['ConditionTimestampMonotonic'];t=p['StateChangeTimestampMonotonic']
+    io.require(0<c<=t<=now and 0<=a<=t, 'START_LIMIT_TIMESTAMPS_UNKNOWN')
+    interval=p['StartLimitIntervalUSec']
+    io.require(interval<2**64-1, 'START_LIMIT_INFINITE_WINDOW_UNPROVEN')
+    if not interval or not p['StartLimitBurst']:return 'EXISTING_LIMITER_DISABLED'
+    if active:
+        io.require(s['Result']=='success' and c<=a and now-a>interval+1000,
+                   'START_LIMIT_ACTIVE_WINDOW_NOT_ELAPSED')
+        return 'AGED_SUCCESSFUL_ACTIVE_INVOCATION'
+    if anchor is not None:
+        # A bound original READ_WITNESS is still revalidated as evidence, not
+        # accepted merely because its hash or a supplied GREEN bit matches.
+        start_limit_permission(anchor, require_active=True)
+        ap=anchor['properties'];old=anchor['unit_state']
+        same=(anchor['unit']==current['unit'] and anchor['manager_owner']==current['manager_owner'] and
+              anchor['observed_monotonic_us']<=now and s['Result']=='success' and
+              old['InvocationID']==s['InvocationID'] and
+              all(p[k]==ap[k] for k in (*ReadOnlyBus.LIMIT_KEYS,
+                  'ActiveEnterTimestampMonotonic','ConditionTimestampMonotonic')))
+        if same:return 'SAME_AGED_INVOCATION_NOW_SUCCESSFULLY_EMPTY'
+    io.require(c<t and now-t>interval+1000, 'START_LIMIT_TERMINAL_WINDOW_NOT_ELAPSED_OR_ATTEMPT_UNKNOWN')
+    return 'AGED_TERMINAL_TRANSITION_AFTER_LAST_CONDITION'
+
+
 class StartLimitObservation:
     """One passive job-free interval for exactly the three maintenance units.
 
@@ -411,6 +490,7 @@ class StartLimitObservation:
         io.require(reader.start_limit_watch is None, 'START_LIMIT_OBSERVATION_NO_REENTRY')
         self.reader=reader;self.slots={};self.pending=set(UNITS);self.failure=None
         self.ready=False;self.closed=False;self.started=None;self.limits={};self.events=0
+        self.state_permissions={}
         reader.start_limit_watch=self  # acquire cleanup ownership before C calls
         P=ctypes.c_void_p;S=ctypes.c_char_p;I=ctypes.c_int
         self.callback_type=ctypes.CFUNCTYPE(I,P,P,P)
@@ -498,11 +578,33 @@ class StartLimitObservation:
                    'START_LIMIT_CONFIGURATION_CHANGED_OR_UNKNOWN')
         interval=current['StartLimitIntervalUSec'];burst=current['StartLimitBurst']
         self.drain()
+        if unit in self.state_permissions:
+            saved=self.state_permissions[unit]
+            fresh=start_limit_state_read(self.reader,saved['unit_reader'],unit)
+            io.require(all(fresh[k]==saved['snapshot'][k] for k in
+                           ('unit','manager_owner','properties','unit_state')) and
+                       start_limit_permission(fresh,anchor=saved['anchor'])==saved['basis'],
+                       'START_LIMIT_QUALIFIED_STATE_CHANGED')
+            self.drain()
+            return 0.0
         if not interval or not burst:return 0.0  # actual existing disabled limiter; never change it
         io.require(interval<2**64-1, 'START_LIMIT_INFINITE_WINDOW_UNPROVEN')
         elapsed=time.monotonic()-self.started
         io.require(elapsed>=0,'START_LIMIT_CLOCK_CHANGED')
         return max(0.0, interval/1_000_000+.001-elapsed)
+
+    def bind_current_permission(self,unit,unit_reader,*,anchor):
+        io.require(self.ready and unit in self.pending and unit not in self.state_permissions,
+                   'START_LIMIT_PERMISSION_NO_REENTRY')
+        self.drain();current=start_limit_state_read(self.reader,unit_reader,unit)
+        io.require(current['unit_state']['ActiveState'] in ('inactive','failed') and
+                   current['manager_owner']==self.owner and
+                   {k:current['properties'][k] for k in ReadOnlyBus.LIMIT_KEYS}==self.limits[unit],
+                   'START_LIMIT_PERMISSION_NOT_CURRENT_EMPTY')
+        basis=start_limit_permission(current,anchor=anchor)
+        self.drain()
+        self.state_permissions[unit]={'snapshot':current,'basis':basis,'anchor':anchor,'unit_reader':unit_reader}
+        return {'snapshot':current,'basis':basis,'live_counter_read':False,'counter_reset':False}
 
     def retire_for_start(self,unit):
         io.require(self.remaining(unit)==0,'START_LIMIT_WINDOW_NOT_ELAPSED')
@@ -1959,6 +2061,12 @@ class MaintenanceAdapter(ReplacementAdapter):
         self.read_witness['stop_profiles'] = self.a.original_profiles
         self.read_witness['legacy_contexts'] = self.a.legacy_contexts
         self.read_witness['operator_session'] = dict(self.operator_session)
+        anchors={}
+        for unit in UNITS:
+            current=start_limit_state_read(self.a.read_bus(),self.a.unit,unit)
+            start_limit_permission(current,require_active=True)
+            anchors[unit]=current
+        self.read_witness['start_limit_anchors']=anchors
 
     def service_action(self, action, unit, *, deadline):
         io.require(action in ('start', 'stop') and unit in UNITS, 'MAINTENANCE_SERVICE_ACTION_SCOPE')
@@ -1970,9 +2078,14 @@ class MaintenanceAdapter(ReplacementAdapter):
         self.a.check();self.a.manager_jobs_clear()
         watch=StartLimitObservation(self.a.read_bus())
         self.start_limit_observation=watch
+        permissions={}
+        for unit in UNITS:
+            if self.a.unit(unit)['ActiveState']=='active':continue  # observe only, never a new start grant
+            permissions[unit]=watch.bind_current_permission(unit,self.a.unit,
+                anchor=self.read_witness['start_limit_anchors'][unit])
         self.channel.record('maintenance_start_limit_observation', {'manager_owner': watch.owner,
             'started_monotonic': watch.started, 'limits': watch.limits,
-            'kind': 'PASSIVE_RELEVANT_JOB_OBSERVATION_NO_COUNTER_RESET'})
+            'permissions':permissions,'kind': 'FRESH_TIMESTAMP_PROOF_AND_PASSIVE_JOB_GUARD_NO_COUNTER_RESET'})
 
     def before_start_request(self, unit, before, *, old, deadline):
         watch=self.start_limit_observation
@@ -2150,6 +2263,12 @@ class MaintenanceAdapter(ReplacementAdapter):
                              for v in self.prepared_assets.values()})
         if before_stop:
             self.preparation_check()
+            for unit in UNITS:
+                current=start_limit_state_read(self.a.read_bus(),self.a.unit,unit)
+                start_limit_permission(current,require_active=True)
+                anchor=self.read_witness['start_limit_anchors'][unit]
+                io.require(all(current[k]==anchor[k] for k in ('unit','manager_owner','properties','unit_state')),
+                           'START_LIMIT_ORIGINAL_ANCHOR_CHANGED_BEFORE_STOP')
             io.require(time.monotonic()+self.after_ready_seconds < min(self.deadline, self.channel.ceiling),
                        'INSUFFICIENT_AFTER_READY_BUDGET_NO_STOP')
         self.channel.check(); self.p.check(full=True)
@@ -2476,13 +2595,17 @@ class RecoveryAdapter(MaintenanceAdapter):
     def recover_state(self):
         self.now(); self.evidence.check_original(); self.check_unspent_owner()
         self.a.check(); self.check_prepared_state()
-        rows = unit_rows(UNITS, self.a.deadline); kinds = {}; identities = {}
+        rows = unit_rows(UNITS, self.a.deadline); kinds = {}; identities = {}; start_permissions={}
         for unit, value in rows.items():
             current = process(int(value['MainPID'])) if int(value['MainPID']) else None
             kinds[unit] = self.a.classify_current_unit(unit, value, current)
             identities[unit] = {k:value[k] for k in ('ActiveState', 'SubState', 'InvocationID', 'NRestarts',
                 'Result', 'MainPID', 'ControlPID', 'ControlGroup', 'Job', 'NeedDaemonReload', 'DropInPaths')}
             if current is not None:identities[unit]['actual_starttime'] = current['starttime']
+            if kinds[unit]!='known_new_active':
+                snapshot=start_limit_state_read(self.a.read_bus(),self.a.unit,unit)
+                basis=start_limit_permission(snapshot,anchor=self.read_witness['start_limit_anchors'][unit])
+                start_permissions[unit]={'snapshot':snapshot,'basis':basis,'live_counter_read':False}
         phase = recovery_phase(self.asset_map, self.asset_states, kinds)
         io.require(phase == self.a.recovery_phase, 'RECOVERY_STATE_CHANGED_DURING_ADMISSION')
         data = self.a.current_data_readonly()
@@ -2490,7 +2613,7 @@ class RecoveryAdapter(MaintenanceAdapter):
                    'RECOVERY_OWNER_PLAN_CURRENT_OBJECTS_CHANGED')
         self.check_unspent_owner(); self.evidence.check_original(); self.channel.check()
         self.recovery_state_proof = {'schema': 'TU1NZ_REV4_FRESH_RECOVERY_STATE', 'phase': phase,
-            'units': identities, 'classes': kinds, 'assets': self.asset_states,
+            'units': identities, 'classes': kinds, 'assets': self.asset_states, 'start_permissions':start_permissions,
             'runtime': self.prepared_ready['runtime'], 'current_data': data,
             'probe_state': self.a.recovery_probes.state, 'probe_hash': self.probe_hash,
             'backup': self.original_backup_proof,

@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  mainserver-startlimit-native:
+    name: mainserver-startlimit-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    # Public synthetic PID1 only; 900s of fixture ageing precedes measurement.
+    # No Environment or private credential; not the full V6/timing gate.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Actual systemd255 StartLimit state proof and negative cases
+        run: bash tests/mainserver_startlimit_native.sh
   b-data-handoff:
     name: b-data-handoff
     runs-on: ubuntu-24.04
