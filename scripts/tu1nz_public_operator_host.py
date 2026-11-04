@@ -291,6 +291,13 @@ class Adapter:
                    'PRIOR_INVOCATION_UNKNOWN')
         return 'currently_active_requires_single_return_stop'
 
+    def service_action(self, action, unit, *, deadline):
+        io.require(action in ('start', 'stop') and unit in UNITS, 'SERVICE_ACTION_SCOPE')
+        return command(['/usr/bin/systemctl', action, unit], deadline)
+
+    def before_start_request(self, unit, before, *, old, deadline):
+        pass  # Historical entry behavior remains unchanged.
+
     def fault(self, error):
         if type(error) is self.r.FlowFailure: return error
         if isinstance(error, io.Hold): primary = error.primary
@@ -471,7 +478,7 @@ class Adapter:
             classified = self.state(unit)
             io.require(classified == 'currently_active_requires_single_return_stop', 'STOP_STATE_NOT_ACTIVE')
             self.stop_requested.add((action, unit))
-            r = command(['/usr/bin/systemctl', 'stop', unit], deadline)
+            r = self.service_action('stop', unit, deadline=deadline)
             io.require(r.returncode == 0 and self.a.empty(unit), 'STOP_OUTCOME_UNKNOWN')
             self.a.stopped.add(unit); self.a.rights.discard(unit)
             result.update(cgroup_empty=True, no_job=not self.a.unit(unit)['Job'])
@@ -524,7 +531,8 @@ class Adapter:
                        'START_BASELINE_NOT_FULLY_INACTIVE')
             self.channel.record('first_start_attempt', {'unit': unit, 'old_operation': old,
                 'prior_invocation': before['InvocationID'], 'prior_restart_counter': before['NRestarts']})
-            r = command(['/usr/bin/systemctl', 'start', unit], deadline)
+            self.before_start_request(unit, before, old=old, deadline=deadline)
+            r = self.service_action('start', unit, deadline=deadline)
             io.require(r.returncode == 0, 'START_OUTCOME_UNKNOWN_NO_RETRY')
             value = self.a.unit(unit)
             # A manual start resets the manager's automatic-restart counter;

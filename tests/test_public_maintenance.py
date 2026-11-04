@@ -169,6 +169,8 @@ class PreparedRuntimeTests(unittest.TestCase):
         adapter.p = Mock(); adapter.p.create_file.return_value = {'synthetic': 'metadata'}
         adapter.prepare_private_roots = Mock(); adapter.receive_artifact = Mock(return_value=b'fixture')
         fence = Mock(); fence.identity_digest.return_value = {'sha256': 'b'*64, 'objects': 1, 'file_bytes': 0}
+        adapter.a.legacy_runtime = fence; adapter.read_witness = {'synthetic': 'read witness only'}
+        adapter.operator_session = dict(pid=123, starttime='10', session=123, process_group=123)
         adapter.construct_runtime = Mock(return_value=fence)
         adapter.check_prepared_dependencies = Mock(); adapter.prepare_asset_candidates = Mock()
         adapter.preparation_check = Mock(); adapter.check_transaction_lock = Mock()
@@ -180,6 +182,27 @@ class PreparedRuntimeTests(unittest.TestCase):
         self.assertIsNone(adapter.ready_raw)
         adapter.check_prepared_state.assert_not_called()
 
+    def test_probe_reuse_receipt_requires_completed_cleanup_and_same_actual_platform(self):
+        adapter = transition.MaintenanceAdapter.__new__(transition.MaintenanceAdapter)
+        adapter.quiet = Mock(); adapter.channel = Mock(); adapter.probe_hash = 'a'*64
+        adapter.arm_start_limit_observation = Mock()
+        platform = {'synthetic': 'measured platform'}
+        adapter.a = SimpleNamespace(platform_identity=Mock(return_value=platform))
+        adapter.probes = SimpleNamespace(cleanup_complete=True, unconfirmed=set(), reports=[],
+                                        owned={}, retained={}, private='synthetic')
+        with patch.object(transition.ReplacementAdapter, '_perform', return_value={'outcome': 'CONFIRMED'}) as run:
+            adapter._perform('bounded_synthetic_probes', deadline=100)
+        run.assert_called_once()
+        self.assertEqual([c.args[0] for c in adapter.channel.record.call_args_list],
+                         ['maintenance_probe_platform', 'maintenance_probes_complete'])
+        adapter.channel.reset_mock(); adapter.probes.cleanup_complete = False
+        with patch.object(transition.ReplacementAdapter, '_perform', return_value={'outcome': 'CONFIRMED'}):
+            with self.assertRaises(io.Hold):adapter._perform('bounded_synthetic_probes', deadline=100)
+        self.assertEqual([c.args[0] for c in adapter.channel.record.call_args_list], ['maintenance_probe_platform'])
+        adapter.probes.cleanup_complete = True
+        adapter.a.platform_identity.side_effect = [platform, {'synthetic': 'changed platform'}]
+        with patch.object(transition.ReplacementAdapter, '_perform', return_value={'outcome': 'CONFIRMED'}):
+            with self.assertRaises(io.Hold):adapter._perform('bounded_synthetic_probes', deadline=100)
     def test_prepared_dependency_failure_never_switches_old_active_runtime(self):
         adapter = transition.MaintenanceAdapter.__new__(transition.MaintenanceAdapter)
         old = Mock(); old.files = {(1, 1)}
@@ -756,6 +779,151 @@ class CurrentWriterCensusTests(unittest.TestCase):
             self.run_scan([['10']], Mock(), exists=True, proc=Mock(side_effect=FileNotFoundError()))
         with self.assertRaisesRegex(io.Hold, 'VIEW_UNKNOWN'):
             self.run_scan([['10']], Mock(), proc=Mock(side_effect=PermissionError()))
+
+
+class OperatorSessionTests(unittest.TestCase):
+    def test_private_session_created_once_before_claim_or_existing_own_session_verified(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing), patch.object(contexts, 'native'), \
+                 patch.object(observe.os, 'getpid', return_value=123), \
+                 patch.object(observe.os, 'getsid', side_effect=[123 if existing else 1, 123]), \
+                 patch.object(observe.os, 'getpgrp', return_value=123), \
+                 patch.object(observe.os, 'setsid') as create, \
+                 patch.object(observe, 'starttime', return_value='10'):
+                self.assertEqual(observe.operator_session_start(deadline=time.monotonic()+30),
+                                 dict(pid=123, starttime='10', session=123, process_group=123))
+                self.assertEqual(create.call_count, 0 if existing else 1)
+
+    def stat_bytes(self, pid, sid, tick):
+        return (str(pid)+' (synthetic) '+' '.join(['S', '1', str(sid), str(sid)]+['0']*15+[tick])).encode()
+
+    def test_orphan_helper_remains_visible_by_session_after_operator_exit(self):
+        rows = {'/proc/20/stat': self.stat_bytes(20, 123, '10'),
+                '/proc/30/stat': self.stat_bytes(30, 999, '11')}
+        with patch.object(contexts, 'native'), patch.object(observe.os, 'listdir', return_value=['20', '30']), \
+             patch.object(contexts, 'read_proc', side_effect=lambda path, *a, **k: rows[path]):
+            self.assertEqual(observe.operator_session_members(123, deadline=time.monotonic()+30),
+                             [dict(pid=20, starttime='10')])
+
+    def test_session_read_cannot_hide_reused_pid_or_live_unknown(self):
+        with patch.object(contexts, 'native'), patch.object(observe.os, 'listdir', return_value=['20']), \
+             patch.object(contexts, 'read_proc', side_effect=[self.stat_bytes(20, 123, '10'),
+                                                            self.stat_bytes(20, 123, '11')]):
+            with self.assertRaisesRegex(io.Hold, 'MEMBER_CHANGED'):
+                observe.operator_session_members(123, deadline=time.monotonic()+30)
+        with patch.object(contexts, 'native'), patch.object(observe.os, 'listdir', return_value=['20']), \
+             patch.object(contexts, 'read_proc', side_effect=FileNotFoundError()), \
+             patch.object(observe.os.path, 'lexists', return_value=True):
+            with self.assertRaisesRegex(io.Hold, 'LIVE_VIEW_UNKNOWN'):
+                observe.operator_session_members(123, deadline=time.monotonic()+30)
+
+
+class StartLimitObservationTests(unittest.TestCase):
+    def watcher(self, interval=10_000_000, burst=5):
+        watch = transition.StartLimitObservation.__new__(transition.StartLimitObservation)
+        watch.owner = ':1.2'; watch.started = 100.0; watch.ready = True; watch.closed = False
+        watch.failure = None; watch.pending = set(r3.UNITS); watch.events = 0
+        watch.slots = {(u, m): object() for u in r3.UNITS for m in ('JobNew', 'JobRemoved')}
+        watch.limits = {u: {'StartLimitIntervalUSec': interval, 'StartLimitBurst': burst} for u in r3.UNITS}
+        watch.reader = SimpleNamespace(simple=Mock(return_value=watch.owner),
+            start_limits=Mock(side_effect=lambda u: watch.limits[u]), lib=Mock(), check=watch.check_latched,
+            broken=False, bus=None)
+        watch.reader.lib.sd_bus_process.return_value = 0
+        return watch
+
+    def test_zero_restart_counter_is_not_a_quiet_interval_proof(self):
+        watch = self.watcher(); unit = r3.UNITS[0]
+        with patch.object(transition.time, 'monotonic', return_value=105):
+            self.assertGreater(watch.remaining(unit), 5)
+            with self.assertRaisesRegex(io.Hold, 'WINDOW_NOT_ELAPSED'):watch.retire_for_start(unit)
+        self.assertIn(unit, watch.pending)
+        with patch.object(transition.time, 'monotonic', return_value=110.002):watch.retire_for_start(unit)
+        self.assertNotIn(unit, watch.pending)
+        self.assertEqual(watch.reader.lib.sd_bus_slot_unref.call_count, 2)
+        self.assertEqual(watch.started, 100.0)
+        with self.assertRaises(io.Hold):watch.retire_for_start(unit)
+
+    def test_existing_disabled_limiter_is_observed_not_written_or_reset(self):
+        for interval, burst in ((0, 5), (10_000_000, 0)):
+            watch = self.watcher(interval, burst)
+            with self.subTest(interval=interval, burst=burst), patch.object(transition.time, 'monotonic', return_value=100):
+                self.assertEqual(watch.remaining(r3.UNITS[0]), 0)
+        watch = self.watcher(2**64-1)
+        with self.assertRaisesRegex(io.Hold, 'INFINITE_WINDOW_UNPROVEN'):watch.remaining(r3.UNITS[0])
+
+    def test_manager_change_limit_change_and_channel_loss_fail_closed(self):
+        watch = self.watcher(); watch.reader.simple.return_value = ':1.3'
+        with self.assertRaisesRegex(io.Hold, 'MANAGER_CHANGED'):watch.remaining(r3.UNITS[0])
+        watch = self.watcher(); watch.reader.start_limits.side_effect = None
+        watch.reader.start_limits.return_value = {'StartLimitIntervalUSec': 1, 'StartLimitBurst': 5}
+        with self.assertRaisesRegex(io.Hold, 'CONFIGURATION_CHANGED'):watch.remaining(r3.UNITS[0])
+        watch = self.watcher(); watch.reader.lib.sd_bus_process.return_value = -5
+        with self.assertRaisesRegex(io.Hold, 'CHANNEL_LOST'):watch.remaining(r3.UNITS[0])
+        self.assertTrue(watch.reader.broken)
+
+    def test_event_cannot_be_erased_by_later_silence_or_used_as_start_permission(self):
+        watch = self.watcher(); lib = watch.reader.lib
+        lib.sd_bus_message_get_sender.return_value = b':1.2'
+        lib.sd_bus_message_get_member.return_value = b'JobNew'; lib.sd_bus_message_at_end.return_value = 1
+        values = iter((1, b'/org/freedesktop/systemd1/job/1', r3.UNITS[0].encode()))
+        def basic(message, kind, pointer):pointer._obj.value = next(values); return 1
+        lib.sd_bus_message_read_basic.side_effect = basic
+        self.assertEqual(watch._event(None, None, None), 1)
+        with patch.object(transition.time, 'monotonic', return_value=1000):
+            with self.assertRaisesRegex(io.Hold, 'RELEVANT_JOB_OBSERVED'):watch.retire_for_start(r3.UNITS[0])
+        self.assertEqual(watch.started, 100.0); self.assertEqual(watch.events, 1)
+        watch.close(); self.assertTrue(watch.closed)
+
+
+class MaintenanceStartAdmissionTests(unittest.TestCase):
+    def adapter(self):
+        adapter=transition.MaintenanceAdapter.__new__(transition.MaintenanceAdapter)
+        adapter.deadline=600;adapter.channel=Mock();adapter.channel.ceiling=600
+        adapter.start_limit_proofs={};adapter.condition=Mock()
+        before=dict(InvocationID='a'*32, NRestarts='0', ActiveState='inactive', SubState='dead',
+                    Result='success', MainPID='0', ControlPID='0', Job='')
+        adapter.a=SimpleNamespace(check=Mock(), unit=Mock(return_value=before), empty=Mock(return_value=True))
+        adapter.start_limit_observation=SimpleNamespace(remaining=Mock(return_value=0),
+            retire_for_start=Mock(), owner=':1.2', started=90,
+            limits={u:dict(StartLimitIntervalUSec=10_000_000,StartLimitBurst=5) for u in r3.UNITS})
+        return adapter,before
+
+    def test_durable_prior_counter_precedes_retiring_guard_for_one_real_request(self):
+        adapter,before=self.adapter();order=[]
+        adapter.channel.record.side_effect=lambda *args:order.append('record')
+        adapter.start_limit_observation.retire_for_start.side_effect=lambda *args:order.append('retire')
+        with patch.object(transition.time,'monotonic',return_value=100.1):
+            adapter.before_start_request(r3.UNITS[0],before,old=False,deadline=120)
+        self.assertEqual(order,['record','retire'])
+        proof=adapter.start_limit_proofs[r3.UNITS[0]]
+        self.assertEqual(proof['prior'],before);self.assertFalse(proof['counter_reset'])
+        adapter.condition.assert_called_once_with(r3.UNITS[0],present=False)
+        with self.assertRaises(io.Hold):adapter.before_start_request(r3.UNITS[0],before,old=False,deadline=120)
+
+    def test_positive_counter_limit_hit_changed_state_or_insufficient_existing_budget_cannot_start(self):
+        for change in ({'NRestarts':'1'},{'Result':'start-limit-hit'},{'Job':'1'},{'MainPID':'123'}):
+            adapter,before=self.adapter()
+            with self.subTest(change=change),self.assertRaises(io.Hold):
+                adapter.before_start_request(r3.UNITS[0],{**before,**change},old=False,deadline=120)
+            adapter.channel.record.assert_not_called()
+            adapter.start_limit_observation.retire_for_start.assert_not_called()
+        adapter,before=self.adapter();adapter.start_limit_observation.remaining.return_value=21
+        with patch.object(transition.time,'monotonic',return_value=100),self.assertRaisesRegex(io.Hold,'BUDGET'):
+            adapter.before_start_request(r3.UNITS[0],before,old=False,deadline=120)
+        adapter.channel.record.assert_not_called()
+        adapter,before=self.adapter();adapter.a.unit.return_value={**before,'InvocationID':'b'*32}
+        with patch.object(transition.time,'monotonic',return_value=100),self.assertRaisesRegex(io.Hold,'STATE_CHANGED'):
+            adapter.before_start_request(r3.UNITS[0],before,old=False,deadline=120)
+        adapter.start_limit_observation.retire_for_start.assert_not_called()
+
+    def test_no_legacy_start_or_conflicting_job_replacement_is_requested(self):
+        adapter,_=self.adapter()
+        with patch.object(transition,'command',return_value='synthetic') as command:
+            self.assertEqual(adapter.service_action('start',r3.UNITS[0],deadline=120),'synthetic')
+            self.assertEqual(command.call_args.args[0],
+                             ['/usr/bin/systemctl','--job-mode=fail','start',r3.UNITS[0]])
+            with self.assertRaises(io.Hold):adapter.service_action('restart',r3.UNITS[0],deadline=120)
+        self.assertEqual(command.call_count,1)
 
 
 if __name__ == '__main__':

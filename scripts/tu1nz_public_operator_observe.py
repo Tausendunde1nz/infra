@@ -330,6 +330,51 @@ class CurrentProcessExited(Exception):
     """No current subject remains; never a negative proof for a live PID."""
 
 
+def operator_session_start(*, deadline):
+    """Own kernel session for this coordinator and its synchronous helpers.
+
+    No service/unit/cgroup creation, signal, reattach or background process.
+    A leader which cannot establish its own session denies BEFORE the claim.
+    systemd probe units remain separately bound by their fixed probe contract.
+    """
+    context.native(); context.deadline_check(deadline)
+    pid = os.getpid(); tick = starttime(pid)
+    io.require(pid > 1, 'OPERATOR_SESSION_INIT_FORBIDDEN')
+    if os.getsid(0) != pid:os.setsid()
+    io.require(os.getsid(0) == os.getpgrp() == pid and starttime(pid) == tick,
+               'OPERATOR_PRIVATE_SESSION_UNKNOWN')
+    context.deadline_check(deadline)
+    return {'pid': pid, 'starttime': tick, 'session': pid, 'process_group': pid}
+
+
+def operator_session_members(session, *, deadline):
+    """Current kernel membership, including orphans after coordinator exit.
+
+    A closed lock alone is not this proof. No command arguments, environment,
+    process memory or unrelated data are read; no process is signalled here.
+    """
+    context.native(); context.number(session, minimum=2)
+    names = [n for n in os.listdir('/proc') if n.isdecimal()]
+    io.require(len(names) <= 8192, 'OPERATOR_SESSION_PROCESS_BOUND')
+    members = []
+    for name in names:
+        context.deadline_check(deadline); path = '/proc/'+name+'/stat'
+        try:
+            raw = context.read_proc(path, 32768, deadline=deadline).decode()
+            fields = raw[raw.rfind(')')+2:].split()
+            io.require(len(fields) >= 20 and fields[3].isdecimal() and fields[19].isdecimal(),
+                       'OPERATOR_SESSION_PROC_UNKNOWN')
+            if int(fields[3]) != session:continue
+            again = context.read_proc(path, 32768, deadline=deadline).decode()
+            values = again[again.rfind(')')+2:].split()
+            io.require(len(values) >= 20 and values[3] == fields[3] and values[19] == fields[19],
+                       'OPERATOR_SESSION_MEMBER_CHANGED')
+            members.append({'pid': int(name), 'starttime': fields[19]})
+        except (FileNotFoundError, ProcessLookupError):
+            io.require(not os.path.lexists('/proc/'+name), 'OPERATOR_SESSION_LIVE_VIEW_UNKNOWN')
+    return sorted(members, key=lambda r: r['pid'])
+
+
 def current_process(pid, *, deadline):
     """R4 current administration metadata, with no argv/env/code publication read.
 
@@ -500,7 +545,10 @@ class Authority:
         self.check_files()
         if contextual:
             self.contexts = context.ContextBindings(baseline,deadline,process)
-        io.require(self.unit_search() == baseline['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
+        self.initial_current_admission()
+
+    def initial_current_admission(self):
+        io.require(self.unit_search() == self.b['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
         self.initial_units = unit_rows(UNITS, self.deadline)
         self.check(stop_only=True)
 
@@ -822,35 +870,40 @@ class Authority:
                 io.require(key in value and (set(value[key].split()) == set(expected_value.split())
                            if unordered else value[key] == expected_value), 'UNIT_DEPENDENCY_OR_POLICY_CHANGED')
             current = process(int(value['MainPID'])) if int(value['MainPID']) else None
-            if current is not None:
-                io.require(value['ControlGroup'] == '/system.slice/'+unit and
-                           current['cgroup'] == '0::'+value['ControlGroup'], 'UNIT_PROCESS_CGROUP_BINDING')
-            if unit in self.runtime_invocations and unit not in self.stopped:
-                io.require(value['NRestarts'] == '0' and current is not None and value['ActiveState'] == 'active' and
-                           (value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
-                           'ACCEPTED_FIRST_INVOCATION_OR_RESTART_COUNTER_CHANGED')
-            if unit in self.stopped:
-                io.require(value['ActiveState'] == 'inactive' and current is None and self.empty(unit),
-                           'UNIT_NOT_QUIET')
-            elif unit in self.rights:
-                io.require(value['ActiveState'] == 'active' and current is not None, 'START_NOT_ACTIVE')
-                io.require((value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
-                           'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
-                self.rights_check(unit, current)
-            elif stop_only:
-                io.require(value['ActiveState'] == 'active' and current is not None and
-                           current['uid'] == current['gid'] == [1001]*4 and current['nnp'] == 1 and
-                           not any(current['caps'][k] for k in ('CapPrm', 'CapEff', 'CapAmb')) and
-                           current['namespaces']['user'] == os.readlink('/proc/self/ns/user'),
-                           'STOP_TARGET_STATE_CHANGED')
-                if unit in self.targets:
-                    io.require((current['pid'], current['starttime']) == self.targets[unit], 'STOP_TARGET_CHANGED')
-                self.targets[unit] = (current['pid'], current['starttime'])
-                self.original_profiles.setdefault(unit, {k: current[k] for k in
-                    ('uid', 'gid', 'groups', 'caps', 'nnp', 'uid_map', 'gid_map', 'setgroups')})
-                self.legacy_contexts[unit] = {k: current[k] for k in ('uid', 'gid', 'groups', 'nnp')}
-                self.legacy_contexts[unit]['caps'] = {k: format(current['caps'][k], '016x')
-                                                    for k in ('CapInh', 'CapPrm', 'CapEff', 'CapAmb')}
+            self.unit_process_check(unit, value, current, stop_only=stop_only)
+        self.stop_contexts_check(stop_only=stop_only)
+
+    def unit_process_check(self, unit, value, current, *, stop_only):
+        if current is not None:
+            io.require(value['ControlGroup'] == '/system.slice/'+unit and
+                       current['cgroup'] == '0::'+value['ControlGroup'], 'UNIT_PROCESS_CGROUP_BINDING')
+        if unit in self.runtime_invocations and unit not in self.stopped:
+            io.require(value['NRestarts'] == '0' and current is not None and value['ActiveState'] == 'active' and
+                       (value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
+                       'ACCEPTED_FIRST_INVOCATION_OR_RESTART_COUNTER_CHANGED')
+        if unit in self.stopped:
+            io.require(value['ActiveState'] == 'inactive' and current is None and self.empty(unit), 'UNIT_NOT_QUIET')
+        elif unit in self.rights:
+            io.require(value['ActiveState'] == 'active' and current is not None, 'START_NOT_ACTIVE')
+            io.require((value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
+                       'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
+            self.rights_check(unit, current)
+        elif stop_only:
+            io.require(value['ActiveState'] == 'active' and current is not None and
+                       current['uid'] == current['gid'] == [1001]*4 and current['nnp'] == 1 and
+                       not any(current['caps'][k] for k in ('CapPrm', 'CapEff', 'CapAmb')) and
+                       current['namespaces']['user'] == os.readlink('/proc/self/ns/user'),
+                       'STOP_TARGET_STATE_CHANGED')
+            if unit in self.targets:
+                io.require((current['pid'], current['starttime']) == self.targets[unit], 'STOP_TARGET_CHANGED')
+            self.targets[unit] = (current['pid'], current['starttime'])
+            self.original_profiles.setdefault(unit, {k: current[k] for k in
+                ('uid', 'gid', 'groups', 'caps', 'nnp', 'uid_map', 'gid_map', 'setgroups')})
+            self.legacy_contexts[unit] = {k: current[k] for k in ('uid', 'gid', 'groups', 'nnp')}
+            self.legacy_contexts[unit]['caps'] = {k: format(current['caps'][k], '016x')
+                                                for k in ('CapInh', 'CapPrm', 'CapEff', 'CapAmb')}
+
+    def stop_contexts_check(self, *, stop_only):
         if stop_only:
             io.require(set(self.legacy_contexts) == set(UNITS) and
                        io.sha(io.canonical(self.legacy_contexts)) == LEGACY_CONTEXTS_SHA,

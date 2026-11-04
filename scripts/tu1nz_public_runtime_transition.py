@@ -23,10 +23,11 @@ import tarfile
 import time
 
 import tu1nz_public_operator_io as io
+import tu1nz_public_operator_context as context
 import tu1nz_public_runtime_artifact as artifact
-from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ, writer_check
+from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ, EXCLUDED
 from tu1nz_public_operator_observe import (Authority, CurrentAuthority, UNITS, ENV, process, command,
-                                          typed_exec_properties, EXEC_PROPERTIES)
+    typed_exec_properties, EXEC_PROPERTIES, operator_session_start, operator_session_members)
 from tu1nz_public_operator_host import Adapter, STAGING, LIGHTING, HELPER, DROPIN, ASSET_NAMES
 from tu1nz_public_operator_fs import security
 
@@ -135,6 +136,7 @@ class ReadOnlyBus:
 
     def __init__(self,fd,deadline):
         self.deadline=deadline;self.bus=ctypes.c_void_p();self.broken=False;self.pid=os.getpid()
+        self.start_limit_watch=None
         io.require('DBUS_SYSTEM_BUS_ADDRESS' not in os.environ and
                    not any(k in os.environ for k in artifact.LOADER_UNSET),'REPLACEMENT_READER_ENVIRONMENT_UNBOUND')
         self.lib=ctypes.CDLL('/proc/self/fd/'+str(fd),mode=os.RTLD_LOCAL|os.RTLD_NOW,use_errno=True)
@@ -230,6 +232,18 @@ class ReadOnlyBus:
         return '/org/freedesktop/systemd1/unit/'+''.join(c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
 
     def service(self,unit):
+        return self.properties(unit, 'org.freedesktop.systemd1.Service', self.KEYS)
+
+    LIMIT_KEYS={'StartLimitIntervalUSec':'t', 'StartLimitBurst':'u'}
+
+    def start_limits(self,unit):
+        body=self.properties(unit, 'org.freedesktop.systemd1.Unit', self.LIMIT_KEYS)
+        return {k: v['data'] for k, v in body['data'][0].items()}
+
+    def properties(self,unit,interface,keys):
+        io.require((interface=='org.freedesktop.systemd1.Service' and keys==self.KEYS) or
+                   (interface=='org.freedesktop.systemd1.Unit' and keys==self.LIMIT_KEYS),
+                   'REPLACEMENT_READER_SCOPE')
         # Preserve the original ONE GetAll manager dispatch, not nine
         # separately interleavable property requests. Bound the ENTIRE wire
         # body; the library validates/consumes every unknown variant too.
@@ -241,7 +255,7 @@ class ReadOnlyBus:
                 path.encode(),b'org.freedesktop.DBus.Properties',b'GetAll'))
             ok(L.sd_bus_message_set_auto_start(message,0))
             ok(L.sd_bus_message_set_allow_interactive_authorization(message,0))
-            ok(L.sd_bus_message_append(message,b's',ctypes.c_char_p(b'org.freedesktop.systemd1.Service')))
+            ok(L.sd_bus_message_append(message,b's',ctypes.c_char_p(interface.encode())))
             remaining=min(20,self.deadline-time.monotonic());io.require(remaining>0,'REPLACEMENT_READER_DEADLINE')
             ok(L.sd_bus_call(self.bus,message,int(remaining*1000000),None,ctypes.byref(reply)))
             self.check();blob=ctypes.c_void_p();size=ctypes.c_size_t()
@@ -253,10 +267,10 @@ class ReadOnlyBus:
                 io.require(blob and 0<size.value<=65536,'REPLACEMENT_READER_OUTPUT_BOUND')
             finally:
                 if blob:self.libc.free(blob)
-            values=self.selected_values(reply)
+            values=self.selected_values(reply,keys=keys)
             io.require(ok(L.sd_bus_message_at_end(reply,1))==1,'REPLACEMENT_READER_EXTRA_VALUE')
             body={'type':'a{sv}','data':[values]}
-            io.require(len(io.canonical(body))<=2*1024*1024 and set(self.KEYS)==set(values),
+            io.require(len(io.canonical(body))<=2*1024*1024 and set(keys)==set(values),
                        'REPLACEMENT_READER_OUTPUT_BOUND_OR_MISSING')
             self.check();return body
         except BaseException:
@@ -265,7 +279,9 @@ class ReadOnlyBus:
             if reply:L.sd_bus_message_unref(reply)
             if message:L.sd_bus_message_unref(message)
 
-    def selected_values(self,message):
+    def selected_values(self,message,*,keys=None):
+        keys=self.KEYS if keys is None else keys
+        io.require(keys in (self.KEYS,self.LIMIT_KEYS),'REPLACEMENT_READER_SCOPE')
         L=self.lib;result={};seen=set()
         def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
         io.require(ok(L.sd_bus_message_enter_container(message,b'a',b'{sv}'))==1,'REPLACEMENT_READER_TYPE')
@@ -280,21 +296,28 @@ class ReadOnlyBus:
             io.require(re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,255}',key) and key not in seen,
                        'REPLACEMENT_READER_DICTIONARY_UNKNOWN')
             seen.add(key)
-            if key not in self.KEYS:
+            if key not in keys:
                 # Library consumes/validates the complete variant; no current
                 # safety property is skipped and missing required keys deny.
                 io.require(ok(L.sd_bus_message_skip(message,b'v'))==1,'REPLACEMENT_READER_TYPE')
             else:
-                signature=self.KEYS[key]
-                io.require(ok(L.sd_bus_message_enter_container(message,b'v',signature.encode()))==1 and
-                           ok(L.sd_bus_message_enter_container(message,b'a',signature[1:].encode()))==1,
+                signature=keys[key]
+                io.require(ok(L.sd_bus_message_enter_container(message,b'v',signature.encode()))==1,
                            'REPLACEMENT_READER_TYPE')
                 values=[];size=0
-                if signature!='as':
+                if signature in ('t','u'):
+                    scalar=ctypes.c_uint64() if signature=='t' else ctypes.c_uint()
+                    io.require(ok(L.sd_bus_message_read_basic(message,signature.encode(),ctypes.byref(scalar)))==1,
+                               'REPLACEMENT_READER_TYPE')
+                    values=scalar.value
+                else:
+                    io.require(ok(L.sd_bus_message_enter_container(message,b'a',signature[1:].encode()))==1,
+                               'REPLACEMENT_READER_TYPE')
+                if signature not in ('as','t','u'):
                     io.require(ok(L.sd_bus_message_at_end(message,0))==1,
                         'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT' if key in EXEC_PROPERTIES else
                         'REPLACEMENT_UNIT_ENVIRONMENT_FILES_FORBIDDEN')
-                else:
+                elif signature=='as':
                     while not ok(L.sd_bus_message_at_end(message,0)):
                         self.check();value=ctypes.c_char_p()
                         io.require(ok(L.sd_bus_message_read_basic(message,b's',ctypes.byref(value)))==1 and
@@ -302,7 +325,7 @@ class ReadOnlyBus:
                         raw=value.value;size+=len(raw)
                         io.require(size<=2*1024*1024 and len(values)<32768,'REPLACEMENT_READER_OUTPUT_BOUND')
                         values.append(raw.decode())
-                ok(L.sd_bus_message_exit_container(message))
+                if signature not in ('t','u'):ok(L.sd_bus_message_exit_container(message))
                 io.require(ok(L.sd_bus_message_at_end(message,0))==1,'REPLACEMENT_READER_EXTRA_VALUE')
                 ok(L.sd_bus_message_exit_container(message))
                 result[key]={'type':signature,'data':values}
@@ -319,10 +342,10 @@ class ReadOnlyBus:
     def simple(self,kind):
         # Exactly the two EXISTING read-only CLI requests. No caller-selected
         # destination, method, policy subject, action or reconnect is exposed.
-        io.require(kind in ('owner','jobs'),'REPLACEMENT_READER_SCOPE')
+        io.require(kind in ('owner','manager_owner','jobs'),'REPLACEMENT_READER_SCOPE')
         destination,path,interface,member=(
             (b'org.freedesktop.DBus',b'/org/freedesktop/DBus',b'org.freedesktop.DBus',b'GetNameOwner')
-            if kind=='owner' else (b'org.freedesktop.systemd1',b'/org/freedesktop/systemd1',
+            if kind!='jobs' else (b'org.freedesktop.systemd1',b'/org/freedesktop/systemd1',
                 b'org.freedesktop.systemd1.Manager',b'ListJobs'))
         message=ctypes.c_void_p();reply=ctypes.c_void_p();L=self.lib
         def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
@@ -331,8 +354,9 @@ class ReadOnlyBus:
             ok(L.sd_bus_message_new_method_call(self.bus,ctypes.byref(message),destination,path,interface,member))
             ok(L.sd_bus_message_set_auto_start(message,0))
             ok(L.sd_bus_message_set_allow_interactive_authorization(message,0))
-            if kind=='owner':
-                ok(L.sd_bus_message_append(message,b's',ctypes.c_char_p(b'org.freedesktop.PolicyKit1')))
+            if kind!='jobs':
+                name=b'org.freedesktop.PolicyKit1' if kind=='owner' else b'org.freedesktop.systemd1'
+                ok(L.sd_bus_message_append(message,b's',ctypes.c_char_p(name)))
             remaining=min(20,self.deadline-time.monotonic());io.require(remaining>0,'REPLACEMENT_READER_DEADLINE')
             ok(L.sd_bus_call(self.bus,message,int(remaining*1000000),None,ctypes.byref(reply)))
             self.check();blob=ctypes.c_void_p();size=ctypes.c_size_t()
@@ -341,7 +365,7 @@ class ReadOnlyBus:
                 io.require(blob and 0<size.value<=65536,'REPLACEMENT_READER_OUTPUT_BOUND')
             finally:
                 if blob:self.libc.free(blob)
-            if kind=='owner':
+            if kind!='jobs':
                 value=ctypes.c_char_p()
                 io.require(ok(L.sd_bus_message_read_basic(reply,b's',ctypes.byref(value)))==1 and
                     value.value is not None and len(value.value)<=256,'EXISTING_POLICY_DAEMON_UNKNOWN_NO_ACTIVATION')
@@ -360,9 +384,144 @@ class ReadOnlyBus:
             if message:L.sd_bus_message_unref(message)
 
     def close(self):
+        if getattr(self,'start_limit_watch',None) is not None:
+            self.start_limit_watch.close();self.start_limit_watch=None
         if self.bus:
             self.lib.sd_bus_close(self.bus);self.lib.sd_bus_unref(self.bus);self.bus=ctypes.c_void_p()
         self.broken=True
+
+
+class StartLimitObservation:
+    """One passive job-free interval for exactly the three maintenance units.
+
+    systemd255 exports interval/burst, not the live limiter counter. Its
+    ratelimit_below() starts a fresh window after a strictly greater elapsed
+    interval (CLOCK_MONOTONIC). Observing no relevant job for a full interval,
+    with an unchanged manager and current empty/nonrestarting unit, permits
+    one start without reset-failed or a trial request. Any observed job or
+    reader loss permanently invalidates this observation; no restart of it.
+
+    Only notification subscription changes on this existing connection. No
+    unit operation, generic method, provider activation or new infrastructure.
+    https://github.com/systemd/systemd/blob/v255/src/basic/ratelimit.c
+    https://github.com/systemd/systemd/blob/v255/src/core/service.c
+    """
+    def __init__(self, reader):
+        io.require(reader.start_limit_watch is None, 'START_LIMIT_OBSERVATION_NO_REENTRY')
+        self.reader=reader;self.slots={};self.pending=set(UNITS);self.failure=None
+        self.ready=False;self.closed=False;self.started=None;self.limits={};self.events=0
+        reader.start_limit_watch=self  # acquire cleanup ownership before C calls
+        P=ctypes.c_void_p;S=ctypes.c_char_p;I=ctypes.c_int
+        self.callback_type=ctypes.CFUNCTYPE(I,P,P,P)
+        signatures={'sd_bus_add_match':([P,ctypes.POINTER(P),S,self.callback_type,P],I),
+                    'sd_bus_slot_unref':([P],P),'sd_bus_process':([P,ctypes.POINTER(P)],I),
+                    'sd_bus_message_get_sender':([P],S),'sd_bus_message_get_member':([P],S)}
+        for name,(args,result) in signatures.items():
+            function=getattr(reader.lib,name);function.argtypes=args;function.restype=result
+        self.callback=self.callback_type(self._event)
+        try:
+            self.owner=reader.simple('manager_owner')
+            for unit in UNITS:
+                for member in ('JobNew','JobRemoved'):
+                    slot=ctypes.c_void_p();self.slots[(unit,member)]=slot
+                    match=("type='signal',sender='"+self.owner+"',path='/org/freedesktop/systemd1',"
+                           "interface='org.freedesktop.systemd1.Manager',member='"+member+"',arg2='"+unit+"'")
+                    io.require(reader.lib.sd_bus_add_match(reader.bus,ctypes.byref(slot),match.encode(),
+                               self.callback,None)>=0 and slot, 'START_LIMIT_SIGNAL_MATCH_UNKNOWN')
+            self._subscribe()
+            self.drain()
+            reader.simple('jobs')  # empty at the beginning, not just absent future signals
+            for unit in UNITS:self.limits[unit]=reader.start_limits(unit)
+            io.require(reader.simple('manager_owner')==self.owner, 'START_LIMIT_MANAGER_CHANGED')
+            self.drain();self.started=time.monotonic();self.ready=True
+        except BaseException:
+            reader.broken=True;self.close();raise
+
+    def _subscribe(self):
+        L=self.reader.lib;message=ctypes.c_void_p();reply=ctypes.c_void_p()
+        def ok(n):io.require(n>=0,'START_LIMIT_SUBSCRIPTION_UNKNOWN')
+        try:
+            self.reader.check()
+            ok(L.sd_bus_message_new_method_call(self.reader.bus,ctypes.byref(message),self.owner.encode(),
+                b'/org/freedesktop/systemd1',b'org.freedesktop.systemd1.Manager',b'Subscribe'))
+            ok(L.sd_bus_message_set_auto_start(message,0));ok(L.sd_bus_message_set_allow_interactive_authorization(message,0))
+            remaining=min(20,self.reader.deadline-time.monotonic())
+            io.require(remaining>0,'START_LIMIT_SUBSCRIPTION_DEADLINE')
+            ok(L.sd_bus_call(self.reader.bus,message,int(remaining*1000000),None,ctypes.byref(reply)))
+            io.require(L.sd_bus_message_at_end(reply,1)==1,'START_LIMIT_SUBSCRIPTION_REPLY_UNKNOWN')
+        finally:
+            if reply:L.sd_bus_message_unref(reply)
+            if message:L.sd_bus_message_unref(message)
+
+    def _event(self,message,_userdata,_error):
+        # Exceptions cannot cross a ctypes callback. Keep the first fault
+        # latched; no subsequent observation can make it GREEN again.
+        try:
+            L=self.reader.lib;member=L.sd_bus_message_get_member(message)
+            io.require(not self.closed and L.sd_bus_message_get_sender(message)==self.owner.encode() and
+                       member in (b'JobNew',b'JobRemoved'),'START_LIMIT_EVENT_SOURCE_UNKNOWN')
+            # Six exact sender/member/arg2 matches are installed above. Any
+            # delivery invalidates the interval; no job ID/result/body needs
+            # to be copied or interpreted to grant a permission here.
+            self.events+=1
+            self.failure=self.failure or 'PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED'
+        except BaseException:
+            self.failure=self.failure or 'PUBLIC_OPERATOR_START_LIMIT_EVENT_VIEW_UNKNOWN'
+        return 1
+
+    def check_latched(self):
+        if self.failure:raise io.Hold(self.failure)
+        io.require(not self.closed,'START_LIMIT_OBSERVATION_CLOSED')
+
+    def drain(self):
+        self.reader.check();self.check_latched()
+        for _ in range(1024):
+            count=self.reader.lib.sd_bus_process(self.reader.bus,None)
+            if count<0:
+                self.reader.broken=True
+                raise io.Hold('PUBLIC_OPERATOR_START_LIMIT_CHANNEL_LOST')
+            self.reader.check();self.check_latched()
+            if count==0:return
+        self.failure='PUBLIC_OPERATOR_START_LIMIT_EVENT_BOUND'
+        self.check_latched()
+
+    def remaining(self,unit):
+        io.require(self.ready and unit in self.pending and self.started is not None,
+                   'START_LIMIT_CURRENT_OBSERVATION_REQUIRED')
+        self.drain()
+        io.require(self.reader.simple('manager_owner')==self.owner, 'START_LIMIT_MANAGER_CHANGED')
+        current=self.reader.start_limits(unit)
+        io.require(current==self.limits[unit] and set(current)==set(ReadOnlyBus.LIMIT_KEYS) and
+                   type(current['StartLimitIntervalUSec']) is int and 0<=current['StartLimitIntervalUSec']<2**64 and
+                   type(current['StartLimitBurst']) is int and 0<=current['StartLimitBurst']<2**32,
+                   'START_LIMIT_CONFIGURATION_CHANGED_OR_UNKNOWN')
+        interval=current['StartLimitIntervalUSec'];burst=current['StartLimitBurst']
+        self.drain()
+        if not interval or not burst:return 0.0  # actual existing disabled limiter; never change it
+        io.require(interval<2**64-1, 'START_LIMIT_INFINITE_WINDOW_UNPROVEN')
+        elapsed=time.monotonic()-self.started
+        io.require(elapsed>=0,'START_LIMIT_CLOCK_CHANGED')
+        return max(0.0, interval/1_000_000+.001-elapsed)
+
+    def retire_for_start(self,unit):
+        io.require(self.remaining(unit)==0,'START_LIMIT_WINDOW_NOT_ELAPSED')
+        self._retire(unit)  # AFTER last drain and BEFORE the one owned start
+
+    def retire_already_active(self,unit):
+        io.require(self.ready and unit in self.pending,'START_LIMIT_CURRENT_OBSERVATION_REQUIRED')
+        self.drain();self._retire(unit)  # no start permission or counter assertion
+
+    def _retire(self,unit):
+        for member in ('JobNew','JobRemoved'):
+            slot=self.slots.pop((unit,member))
+            if slot:self.reader.lib.sd_bus_slot_unref(slot)
+        self.pending.remove(unit)
+
+    def close(self):
+        if self.closed:return
+        for slot in self.slots.values():
+            if slot:self.reader.lib.sd_bus_slot_unref(slot)
+        self.slots.clear();self.pending.clear();self.closed=True
 
 
 class LoaderConfiguration:
@@ -456,6 +615,10 @@ class LegacyStopFence(RuntimeFence):
             'REPLACEMENT_ORIGIN_REFERENCE')
         return {'.':{'kind':'directory'}}
 
+    def identity_digest(self):
+        # Current protected legacy snapshot ONLY; never an execution origin.
+        return ReplacementFence.identity_digest(self)
+
 
 class ReplacementFence(RuntimeFence):
     root=artifact.ROOT
@@ -514,6 +677,7 @@ class ReplacementFence(RuntimeFence):
             record(path, {'kind': 'directory', 'metadata': before})
             names = sorted(os.listdir(fd))
             for name in names:
+                if path == '.' and self.snapshot_only and name in EXCLUDED:continue
                 rel = name if path == '.' else path+'/'+name
                 io.require(rel in self.expected, 'PREPARED_RUNTIME_EXTRA_OBJECT')
                 expected = self.expected[rel]
@@ -961,7 +1125,52 @@ class ReplacementAuthority(Authority):
 
 class CurrentReplacementAuthority(ReplacementAuthority, CurrentAuthority):
     """R4 replacement fences plus present-authority contract; no legacy bypass."""
-    pass
+    def platform_identity(self):
+        """Only the platform inputs actually used by probes/rights/leases.
+
+        Present fingerprint for possible reuse of completed probes, not a
+        claim that the interrupted interval had continuous monitoring.
+        """
+        self.check_loader_configuration(); self.verify_external_libraries()
+        kernel = os.uname(); values = {}
+        for path in ('/proc/sys/kernel/yama/ptrace_scope',
+                     '/proc/sys/kernel/unprivileged_userns_clone',
+                     '/proc/sys/user/max_user_namespaces',
+                     '/proc/sys/fs/leases-enable', '/proc/sys/fs/lease-break-time'):
+            try:raw = context.read_proc(path, 4096, deadline=self.deadline)
+            except FileNotFoundError:
+                io.require(not os.path.lexists(path), 'PLATFORM_INPUT_VIEW_UNKNOWN')
+                values[path] = {'state': 'ABSENT'}; continue
+            io.require(re.fullmatch(rb'[0-9]+\n?', raw), 'PLATFORM_INPUT_VALUE_UNKNOWN')
+            values[path] = {'state': 'PRESENT', 'sha256': io.sha(raw)}
+        tick = context.read_proc('/proc/1/stat', 32768, deadline=self.deadline)
+        fields = tick[tick.rfind(b')')+2:].split()
+        io.require(len(fields) >= 20 and fields[19].isdigit(), 'PLATFORM_MANAGER_LIFETIME_UNKNOWN')
+        fd = os.open('/proc/1/exe', os.O_RDONLY | os.O_CLOEXEC | os.O_NOATIME)
+        try:
+            before = os.fstat(fd)
+            io.require(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and
+                       0 < before.st_size <= 32*1024*1024, 'PLATFORM_MANAGER_EXECUTABLE_UNKNOWN')
+            raw = os.pread(fd, before.st_size+1, 0)
+            again = os.fstat(fd)
+            keys = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink',
+                    'st_size', 'st_mtime_ns', 'st_ctime_ns')
+            identity = {k: getattr(before, k) for k in keys}
+            io.require(identity == {k: getattr(again, k) for k in keys} and len(raw) == before.st_size,
+                       'PLATFORM_MANAGER_EXECUTABLE_CHANGED')
+        finally:os.close(fd)
+        final_stat = context.read_proc('/proc/1/stat', 32768, deadline=self.deadline)
+        final_fields = final_stat[final_stat.rfind(b')')+2:].split()
+        io.require(len(final_fields) >= 20 and final_fields[19] == fields[19],
+                   'PLATFORM_MANAGER_LIFETIME_CHANGED')
+        self.check_loader_configuration(); self.verify_external_libraries()
+        return {'schema': 'TU1NZ_REV4_USED_PLATFORM_IDENTITY_V1', 'boot_id': self.b['boot_id'],
+                'kernel': {k: getattr(kernel, k) for k in ('sysname', 'release', 'version', 'machine')},
+                'manager': {'starttime': fields[19].decode(), 'metadata': identity, 'sha256': io.sha(raw)},
+                'inputs': values, 'probe_dependencies_sha256': io.sha(io.canonical(
+                    self.b['source_release']['probe_dependencies'])),
+                'operator_dependencies_sha256': io.sha(io.canonical(
+                    self.b['source_release']['operator_dependencies']))}
 
 
 def overlay():
@@ -1168,9 +1377,59 @@ class MaintenanceAdapter(ReplacementAdapter):
         self.prepared_ready = None; self.ready_raw = None; self.ready_metadata = None
         self.prepared_assets = {}; self.asset_states = {}; self.prepared_directories = {}
         self.prepared_directory_states = {}
+        self.start_limit_observation = None; self.start_limit_proofs = {}
+        self.operator_session = operator_session_start(deadline=deadline)
         super().__init__(source, baseline, plan_raw, channel, binding, deadline=deadline)
         self.asset_map = prepared_asset_map(self.r)
         self.artifacts.update({self.dropdir(u)+'/'+OVERLAY: ('runtime_overlay', 0o644) for u in UNITS})
+
+    def pre_stop(self):
+        super().pre_stop()
+        self.read_witness['stop_profiles'] = self.a.original_profiles
+        self.read_witness['legacy_contexts'] = self.a.legacy_contexts
+        self.read_witness['operator_session'] = dict(self.operator_session)
+
+    def service_action(self, action, unit, *, deadline):
+        io.require(action in ('start', 'stop') and unit in UNITS, 'MAINTENANCE_SERVICE_ACTION_SCOPE')
+        # A new conflicting job must fail rather than be silently replaced.
+        return command(['/usr/bin/systemctl', '--job-mode=fail', action, unit], deadline)
+
+    def arm_start_limit_observation(self):
+        io.require(self.start_limit_observation is None, 'START_LIMIT_OBSERVATION_NO_REPLAY')
+        self.a.check();self.a.manager_jobs_clear()
+        watch=StartLimitObservation(self.a.read_bus())
+        self.start_limit_observation=watch
+        self.channel.record('maintenance_start_limit_observation', {'manager_owner': watch.owner,
+            'started_monotonic': watch.started, 'limits': watch.limits,
+            'kind': 'PASSIVE_RELEVANT_JOB_OBSERVATION_NO_COUNTER_RESET'})
+
+    def before_start_request(self, unit, before, *, old, deadline):
+        watch=self.start_limit_observation
+        io.require(not old and unit in UNITS and watch is not None and unit not in self.start_limit_proofs,
+                   'MAINTENANCE_START_OBSERVATION_REQUIRED')
+        io.require(before['NRestarts']=='0' and before['Result']!='start-limit-hit' and
+                   not before['Job'] and before['MainPID']==before['ControlPID']=='0',
+                   'MAINTENANCE_PRESTART_COUNTER_OR_JOB_UNKNOWN')
+        while True:
+            remaining=watch.remaining(unit)
+            io.require(time.monotonic()+remaining < min(deadline,self.deadline,self.channel.ceiling),
+                       'START_LIMIT_WINDOW_EXCEEDS_EXISTING_ACTION_BUDGET')
+            self.a.check();self.channel.check()
+            if remaining==0:break
+            time.sleep(min(.05,remaining))  # within the SAME20s, never a new timer
+        current=self.a.unit(unit)
+        fields=('InvocationID','NRestarts','ActiveState','SubState','Result','MainPID','ControlPID','Job')
+        io.require(all(current[k]==before[k] for k in fields) and self.a.empty(unit),
+                   'MAINTENANCE_PRESTART_STATE_CHANGED')
+        self.condition(unit,present=False)
+        proof={'unit':unit, 'prior':{k:current[k] for k in fields}, 'manager_owner':watch.owner,
+               'limits':watch.limits[unit], 'observation_started_monotonic':watch.started,
+               'observed_monotonic':time.monotonic(), 'counter_reset':False}
+        self.channel.record('maintenance_start_permission',proof)
+        # Final fresh signal drain after custody ACK; then disarm ONLY this
+        # unit so its one requested job is not confused with foreign activity.
+        watch.retire_for_start(unit)
+        self.start_limit_proofs[unit]=proof
 
     def preparation_check(self):
         """Old units remain old; no quiet(), new-runtime or rights assertion."""
@@ -1213,6 +1472,7 @@ class MaintenanceAdapter(ReplacementAdapter):
         row = process(os.getpid())
         self.channel.record('maintenance_lock_held', {'path': path, 'metadata': self.lock_metadata,
             'operator': {k: row[k] for k in ('pid', 'starttime', 'cgroup')},
+            'operator_session': self.operator_session,
             'not_a_recovery_claim': True})
         for path in (STAGING, LIGHTING):
             self.parent(str(PurePosixPath(path).parent)); self.directory(path)
@@ -1266,6 +1526,9 @@ class MaintenanceAdapter(ReplacementAdapter):
                  'inputs': self.maintenance_inputs, 'owner_plan_sha256': self.r.OWNER_PLAN,
                  'artifact_sha256': io.sha(io.canonical(self.replacement_receipt)),
                  'archive_sha256': self.replacement_receipt['archive_sha256'],
+                 'read_witness_sha256': io.sha(io.canonical(self.read_witness)),
+                 'legacy_runtime_identity': self.a.legacy_runtime.identity_digest(),
+                 'operator_session': self.operator_session,
                  'runtime': runtime, 'mapping': self.asset_map, 'assets': self.prepared_assets,
                  'directories': self.prepared_directories,
                  'checks': ['complete_runtime', 'prepared_dependencies', 'complete_candidates',
@@ -1360,6 +1623,20 @@ class MaintenanceAdapter(ReplacementAdapter):
             'runtime_sha256': selected.digest, 'old_return': False})
 
     def _perform(self, action, unit=None, *, deadline):
+        watch=getattr(self,'start_limit_observation',None)
+        if watch is not None:watch.drain()
+        if action == 'bounded_synthetic_probes':
+            self.quiet(); platform = self.a.platform_identity()
+            self.arm_start_limit_observation()
+            self.channel.record('maintenance_probe_platform', platform)
+            result = super()._perform(action, unit, deadline=deadline)
+            io.require(self.probes.cleanup_complete and not self.probes.unconfirmed and
+                       self.a.platform_identity() == platform, 'MAINTENANCE_PROBE_PLATFORM_OR_CLEANUP_CHANGED')
+            self.channel.record('maintenance_probes_complete', {'platform': platform,
+                'proof_sha256': self.probe_hash, 'reports': self.probes.reports,
+                'owned': self.probes.owned, 'retained': self.probes.retained,
+                'private_root': self.probes.private, 'cleanup': []})
+            return result
         if action in ('prepare_runtime_bundle', 'create_persistent_barriers', 'install_four_artifacts'):
             io.require(unit is None and self.pending is None and
                        time.monotonic() < deadline <= self.deadline, 'MAINTENANCE_ACTION_SCOPE')
@@ -1414,6 +1691,14 @@ class MaintenanceAdapter(ReplacementAdapter):
         return super()._perform(action, unit, deadline=deadline)
 
     def _observe(self, phase, *, deadline):
+        watch=getattr(self,'start_limit_observation',None)
+        if watch is not None:watch.drain()
+        if phase.startswith('started:'):
+            unit=phase.split(':',1)[1]
+            io.require(unit in self.start_limit_proofs, 'MAINTENANCE_START_PERMISSION_NOT_RECORDED')
+            observed=super()._observe(phase,deadline=deadline)
+            return self.r.Observation(self.r.TX,self.binding,phase,
+                observed.facts | {'current_no_start_limit_before_request'},time.monotonic())
         if phase == 'prepared':
             self.check_prepared_state(before_stop=True)
             return self.r.Observation(self.r.TX, self.binding, phase, frozenset((
@@ -1451,6 +1736,12 @@ class MaintenanceAdapter(ReplacementAdapter):
 
     def close(self):
         errors = []
+        if getattr(self, 'operator_session', None) is not None:
+            try:
+                members = operator_session_members(self.operator_session['session'], deadline=self.deadline)
+                io.require(members == [{k: self.operator_session[k] for k in ('pid', 'starttime')}],
+                           'MAINTENANCE_HELPER_SESSION_NOT_EMPTY')
+            except BaseException:errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_HELPER_CLEANUP_UNKNOWN')
         if getattr(self, 'transaction_lock', None) is not None:
             try:self.check_transaction_lock()
             except BaseException:errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_LOCK_CLEANUP_UNKNOWN')

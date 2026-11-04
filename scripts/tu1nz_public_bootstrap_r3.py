@@ -311,6 +311,7 @@ class MaintenanceFlow(Flow):
     The outer session's earlier 600s deadline includes transport/admission.
     """
     required = {**REQUIRED,
+        **{'started:'+u: REQUIRED['started:'+u] | {'current_no_start_limit_before_request'} for u in UNITS},
         'owner_ready': REQUIRED['owner_ready'] | {'first_owner_marker_two_custodies_same_window'},
         'prepared': frozenset((
         'ready_two_custodies', 'full_runtime_identity_digest', 'ten_complete_candidates',
@@ -355,6 +356,7 @@ class RecoveryFlow(Flow):
     can restart this flow after an exception or an unconfirmed effect.
     """
     required = {**REQUIRED,
+        **{'started:'+u: REQUIRED['started:'+u] | {'current_no_start_limit_before_request'} for u in UNITS},
         'owner_ready': REQUIRED['owner_ready'] | {'first_owner_marker_two_custodies_same_window'},
         'recovery_admitted': RECOVERY_BASE,
         **{'recovery_state:'+u: RECOVERY_UNIT for u in UNITS},
