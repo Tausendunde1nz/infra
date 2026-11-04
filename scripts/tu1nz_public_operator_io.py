@@ -1049,6 +1049,24 @@ class MaintenanceLinkedRecords(LinkedRecords):
         return marker
 
 
+def recovery_entry(original_binding, boot_id, source_sha256, mac_snapshot_sha256, ready_sha256):
+    """Fixed entry bytes; creating either copy spends the sole entry.
+
+    No time-derived name, second transaction or new approval is introduced.
+    This value is formed by the authenticated client from its actual original
+    custody, then checked by the Host before its fixed directory is created.
+    """
+    owner_entry_marker(original_binding=original_binding, execution_binding=original_binding,
+                       ready_sha256=ready_sha256, boot_id=boot_id, route='recovery-once')
+    require(all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v)
+                for v in (source_sha256, mac_snapshot_sha256)), 'RECOVERY_ENTRY_INPUT_HASHES')
+    return {'schema': 'TU1NZ_REV4_SINGLE_RECOVERY_ENTRY', 'transaction': 'public-rights-20261014-1',
+            'machine': 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae',
+            'owner_plan_sha256': 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36',
+            'original_binding': original_binding, 'boot_id': boot_id, 'source_sha256': source_sha256,
+            'mac_snapshot_sha256': mac_snapshot_sha256, 'ready_sha256': ready_sha256}
+
+
 def recovery_binding(seed):
     """Technical binding of the sole recovery context, not a new approval."""
     hashes = {'original_binding', 'ready_sha256', 'source_sha256', 'artifact_sha256',

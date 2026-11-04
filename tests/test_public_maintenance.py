@@ -659,6 +659,109 @@ class RecoveryAdmissionChannelTests(unittest.TestCase):
         self.assertEqual(channel.sequence, 0); self.assertFalse(channel.approval_bound)
 
 
+class RecoveryMacCustodyTests(unittest.TestCase):
+    def fixture(self):
+        tmp = self.enterContext(tempfile.TemporaryDirectory(dir=Path(tempfile.gettempdir()).resolve()))
+        root = Path(tmp)
+        self.enterContext(patch.object(r3, 'CUSTODY_PARENT', root))
+        fixed = '/Users/daniel/Developer/tu1nz/service-isolation-lighting-night-20261013/host-operator-intents'
+        self.enterContext(patch.object(client, 'Path', side_effect=lambda value:root if value == fixed else Path(value)))
+        binding = 'a'*64; source = 'b'*64; boot = '00000000-0000-0000-0000-000000000001'
+        ready = {'boot_id': boot, 'inputs': {'scope_sha256': binding, 'source_sha256': source},
+                 'artifact_sha256': 'c'*64}
+        journal = r3.Journal(root, binding); journal.claim()
+        os.mkdir('operator-records', 0o700, dir_fd=journal.fd)
+        fd = os.open('operator-records', os.O_RDONLY | os.O_DIRECTORY, dir_fd=journal.fd)
+        previous = binding
+        try:
+            for seq,(kind,value) in enumerate((('flow_claim', {'transaction': r3.TX}),
+                    ('maintenance_ready', {'ready': ready, 'sha256': io.sha(io.canonical(ready))}),
+                    ('flow_hold', {'phase': 'quiet'})), 1):
+                row = {'sequence': seq, 'binding': binding, 'previous': previous, 'kind': kind, 'value': value}
+                raw = io.canonical(row); io.exclusive(fd, str(seq).zfill(3)+'-'+kind+'.json', raw)
+                previous = io.sha(raw)
+        finally:os.close(fd); journal.close()
+        return root, binding, source, boot
+
+    def make(self, args):
+        root, binding, source, boot = args
+        c = client.RecoveryCustody(r3, binding, boot_id=boot, source_sha256=source, deadline=time.monotonic()+600)
+        self.addCleanup(c.close)
+        return c
+
+    def seed(self, c, state=None, failure=None):
+        return {'schema': 'TU1NZ_MAIN_SERVER_REV4_RECOVERY_ONCE', 'transaction': r3.TX, 'machine': r3.MACHINE,
+                'boot_id': c.entry['boot_id'], 'owner_plan_sha256': r3.OWNER_PLAN, 'original_status': 'FAILED_HOLD',
+                'unconfirmed_mac_tail': None, 'original_binding': c.original_binding,
+                'ready_sha256': c.ready_sha256, 'source_sha256': c.entry['source_sha256'],
+                'artifact_sha256': c.ready['artifact_sha256'], 'mac_tail_sha256': c.snapshot['tail'],
+                'host_tail_sha256': c.snapshot['tail'], 'original_failure_sha256': io.sha(io.canonical(failure or {})),
+                'fresh_state_sha256': io.sha(io.canonical(state or {}))}
+
+    def test_one_additive_entry_keeps_original_bytes_and_cannot_be_reopened(self):
+        args = self.fixture(); root = args[0]/r3.TX
+        before = {p.relative_to(root):p.read_bytes() for p in root.rglob('*') if p.is_file()}
+        c = self.make(args); c.bind(self.seed(c)); c.claim(); c.write('hold', {'original_status': 'FAILED_HOLD'})
+        c.check(); c.close()
+        self.assertTrue((root/'recovery-once/entry.json').is_file())
+        self.assertTrue(all((root/p).read_bytes() == raw for p,raw in before.items()))
+        with self.assertRaises(io.Hold):self.make(args)
+        self.assertTrue(all((root/p).read_bytes() == raw for p,raw in before.items()))
+
+    def test_partial_entry_write_consumes_entry_without_deleting_or_repairing_it(self):
+        args = self.fixture(); original = io.exclusive
+        def fail(parent, name, raw):
+            if name == 'entry.json':raise OSError('synthetic interrupted durable entry')
+            return original(parent, name, raw)
+        with patch.object(io, 'exclusive', side_effect=fail), self.assertRaises(OSError):self.make(args)
+        self.assertTrue((args[0]/r3.TX/'recovery-once').is_dir())
+        with self.assertRaises(io.Hold):self.make(args)
+        self.assertEqual(list((args[0]/r3.TX/'recovery-once').iterdir()), [])
+
+    def test_original_or_entry_byte_change_is_not_adopted(self):
+        args = self.fixture(); c = self.make(args)
+        path = args[0]/r3.TX/'operator-records/003-flow_hold.json'
+        raw = path.read_bytes(); path.write_bytes(raw+b' ')
+        with self.assertRaises(io.Hold):c.check()
+        self.assertEqual(path.read_bytes(), raw+b' ')
+
+    def test_recovery_binding_rejects_different_runtime_and_unknown_host_tail(self):
+        args = self.fixture(); c = self.make(args); seed = self.seed(c)
+        for delta in ({'artifact_sha256': 'd'*64}, {'host_tail_sha256': 'e'*64}):
+            with self.subTest(delta=delta), self.assertRaises(io.Hold):c.bind({**seed, **delta})
+        self.assertIsNone(c.binding)
+        self.assertFalse((args[0]/r3.TX/'recovery-once/operator-records').exists())
+
+    def test_draft_checks_survive_binding_but_end_before_effects_and_owner_is_additive(self):
+        args = self.fixture(); custody = self.make(args)
+        wire = Mock(); wire.deadline = custody.deadline
+        c = client.RecoveryClient(wire, r3, custody, http_expectations=[]); self.addCleanup(c.close)
+        check = {'type': 'recovery_admission_check', 'original_binding': custody.original_binding,
+                 'entry_sha256': io.sha(custody.entry_raw), 'mac_snapshot_sha256': custody.manifest['snapshot_sha256']}
+        state = {'phase': 'F4'}; failure = {'original_status': 'FAILED_HOLD'}
+        seed = self.seed(custody, state, failure)
+        self.assertTrue(c.extension_message(check))
+        self.assertTrue(c.extension_message({'type': 'recovery_prepared', 'seed': seed,
+                                           'fresh_state': state, 'original_failure': failure}))
+        def record(kind, value):
+            row = {'sequence': c.sequence+1, 'binding': c.binding, 'previous': c.last, 'kind': kind, 'value': value}
+            raw = io.canonical(row); name = str(row['sequence']).zfill(3)+'-'+kind+'.json'
+            io.exclusive(c.fd, name, raw); c.records[name] = raw; c.project_record(row)
+            c.sequence += 1; c.last = io.sha(raw); c.check()
+        record('recovery_context', seed)
+        self.assertTrue(c.extension_message(check))  # Host draft.finish before fresh-state record
+        record('recovery_state_observation', state)
+        with self.assertRaises(io.Hold):c.extension_message(check)
+        record('recovery_flow_claim', {'transaction': r3.TX, 'original_claim_reset': False, 'recovery_of_recovery': False})
+        marker = io.owner_entry_marker(original_binding=c.original_binding, execution_binding=c.binding,
+            ready_sha256=c.ready_sha256, boot_id=c.boot_id, route='recovery-once')
+        record('owner_admission_intent', marker)
+        self.assertEqual((args[0]/r3.TX/'owner-admission-intent').read_bytes(), io.canonical(marker))
+        self.assertEqual(custody.read_original_root(), custody.original_files)
+        for kind in ('prepared', 'runtime_chunk_request'):
+            with self.assertRaises(io.Hold):c.extension_message({'type': kind})
+
+
 class RecoveryActionBoundaryTests(unittest.TestCase):
     def adapter(self):
         a = transition.RecoveryAdapter.__new__(transition.RecoveryAdapter)
