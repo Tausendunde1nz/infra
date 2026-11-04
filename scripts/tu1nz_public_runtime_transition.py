@@ -30,7 +30,7 @@ from tu1nz_public_operator_observe import (Authority, CurrentAuthority, UNITS, E
     typed_exec_properties, EXEC_PROPERTIES, operator_session_start, operator_session_members,
     unit_rows, LEGACY_CONTEXTS_SHA)
 from tu1nz_public_operator_host import Adapter, STAGING, LIGHTING, HELPER, DROPIN, ASSET_NAMES
-from tu1nz_public_operator_fs import security, OWNED_FILE_FIELDS
+from tu1nz_public_operator_fs import security, OWNED_FILE_FIELDS, Backup
 
 OVERLAY = 'zzz-public-runtime-r5.conf'
 CHUNK = 512*1024
@@ -2296,4 +2296,140 @@ class MaintenanceAdapter(ReplacementAdapter):
             try:os.close(self.transaction_lock)
             except OSError:errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_LOCK_CLOSE_UNKNOWN')
             self.transaction_lock = None
+        return errors
+
+
+class RecoveryAdapter(MaintenanceAdapter):
+    """One separately entered recovery; original __init__/pre_stop are unused.
+
+    The session consumes its fixed entry before construction, checks the bound
+    pre-stop protection/native proof, and supplies RecoveryAdmissionChannel.
+    Fresh admission forms the binding; no effect is allowed before the
+    independent input checks and dual-custody binding are complete.
+    """
+    authority_type = RecoveryAuthority
+
+    def __init__(self, source, baseline, plan_raw, channel, *, evidence, deadline):
+        io.require(isinstance(channel, io.RecoveryAdmissionChannel) and
+                   isinstance(evidence, RecoveryOriginalEvidence) and channel.binding == evidence.binding and
+                   deadline == channel.ceiling == channel.wire.deadline and
+                   channel.context['mac_snapshot_sha256'] == evidence.pair['mac_snapshot_sha256'],
+                   'RECOVERY_ADMISSION_CHANNEL_OR_EVIDENCE_MISMATCH')
+        self.source, self.r = source, source.load('r3')
+        self.channel, self.binding, self.deadline = channel, None, deadline
+        io.require(io.sha(plan_raw) == self.r.OWNER_PLAN, 'ORIGINAL_OWNER_PLAN_REQUIRED')
+        self.plan_raw = plan_raw; self.evidence = evidence; self.p = evidence.p; self.a = None
+        self.transaction_lock = None; self.extra_runtime_fences = []
+        self.initialize_operation_state()
+        self.operator_session = operator_session_start(deadline=deadline)
+        self.preparing = False; self.read_witness = evidence.witness
+        self.maintenance_inputs = evidence.ready['inputs']
+        self.ready_raw, self.ready_metadata = evidence.ready_raw, evidence.ready_metadata
+        self.prepared_ready = evidence.ready; self.prepared_assets = evidence.ready['assets']
+        self.prepared_directories = evidence.ready['directories']; self.prepared_directory_states = {}
+        self.asset_map = prepared_asset_map(self.r); self.asset_states = {}
+        self.start_limit_observation = None; self.start_limit_proofs = {}
+        self.recovery_bound = False; self.recovery_terminal = False; self.recovery_state_proof = None
+        self.recovery_once_actions = set(); self.terminal_stop_invocations = set()
+        self.backup_mode = None; self.recovery_backup_used = False
+        self.artifacts.update({self.dropdir(u)+'/'+OVERLAY: ('runtime_overlay', 0o644) for u in UNITS})
+        self.check_unspent_owner()
+        channel.check()
+        self.lock_metadata = evidence.lock_metadata; self.transaction_lock = os.dup(evidence.lock_fd)
+        self.a = RecoveryAuthority.__new__(RecoveryAuthority)
+        self.a.__init__(baseline, self.p, channel, machine=self.r.MACHINE, deadline=deadline, evidence=evidence)
+        self.asset_states = self.a.recovery_assets  # this fresh in-process state only
+        self.prepared_directory_states = {p: self.p.d.metadata(self.p.get(p)) for p in
+            (self.r.BOOT+'/prepared', self.r.BOOT+'/prepared/assets')}
+        self.replacement_receipt = baseline['source_release']['runtime_reference']['artifact']
+        self.replacement_ready = self.a.replacement_active
+        self.synchronize_current_assets()
+        self.probe_hash = self.a.recovery_probes.hash
+        self.recover_state()
+
+    def pre_stop(self):
+        raise io.Hold('PUBLIC_OPERATOR_RECOVERY_CANNOT_ENTER_ORIGINAL_PRE_STOP')
+
+    def preparation_check(self):
+        raise io.Hold('PUBLIC_OPERATOR_RECOVERY_CANNOT_PREPARE_OR_REBUILD_RUNTIME')
+
+    def receive_artifact(self, **kwargs):
+        raise io.Hold('PUBLIC_OPERATOR_RECOVERY_RUNTIME_TRANSFER_FORBIDDEN')
+
+    def check_unspent_owner(self):
+        io.require(not self.owner_admission_started, 'RECOVERY_OWNER_ALREADY_ENTERED')
+        self.p.absent(self.r.BOOT+'/owner-admission-intent')
+        self.p.absent(LIGHTING+'/writer-preparation-r2')
+        io.require(not os.listdir(self.p.get(LIGHTING)), 'RECOVERY_LIGHTING_ROOT_NOT_UNUSED')
+
+    def synchronize_current_assets(self):
+        self.installed.clear(); self.barriers.clear(); self.barrier_places.clear()
+        for key, spec in self.asset_map.items():
+            value = self.asset_states[key]
+            if spec['source'] is None:
+                if value['place'] == 'target':self.barriers[spec['unit']] = value['metadata']
+                if value['place'] != 'candidate':
+                    self.barrier_places[spec['unit']] = (spec[value['place']], value['metadata'])
+            elif value['place'] == 'target':self.installed[spec['target']] = value['metadata']
+
+    def recover_state(self):
+        self.now(); self.evidence.check_original(); self.check_unspent_owner()
+        self.a.check(); self.check_prepared_state()
+        rows = unit_rows(UNITS, self.a.deadline); kinds = {}; identities = {}
+        for unit, value in rows.items():
+            current = process(int(value['MainPID'])) if int(value['MainPID']) else None
+            kinds[unit] = self.a.classify_current_unit(unit, value, current)
+            identities[unit] = {k:value[k] for k in ('ActiveState', 'SubState', 'InvocationID', 'NRestarts',
+                'Result', 'MainPID', 'ControlPID', 'ControlGroup', 'Job', 'NeedDaemonReload', 'DropInPaths')}
+            if current is not None:identities[unit]['actual_starttime'] = current['starttime']
+        phase = recovery_phase(self.asset_map, self.asset_states, kinds)
+        io.require(phase == self.a.recovery_phase, 'RECOVERY_STATE_CHANGED_DURING_ADMISSION')
+        data = self.a.current_data_readonly()
+        io.require(self.site_read_witness() == self.evidence.witness['site_read_witness_sha256'],
+                   'RECOVERY_OWNER_PLAN_CURRENT_OBJECTS_CHANGED')
+        self.check_unspent_owner(); self.evidence.check_original(); self.channel.check()
+        self.recovery_state_proof = {'schema': 'TU1NZ_REV4_FRESH_RECOVERY_STATE', 'phase': phase,
+            'units': identities, 'classes': kinds, 'assets': self.asset_states,
+            'runtime': self.prepared_ready['runtime'], 'current_data': data,
+            'probe_state': self.a.recovery_probes.state, 'probe_hash': self.probe_hash,
+            'original_failure': self.evidence.failure, 'operator_session': self.operator_session,
+            'original_ack_reconstructed': False, 'gap_monitoring_claimed': False}
+        io.require(len(io.canonical(self.recovery_state_proof)) < 48*1024, 'RECOVERY_STATE_RECORD_BOUND')
+        return self.recovery_state_proof
+
+    def bind_execution(self, channel):
+        """Session-owned transition after all actual admission inputs pass."""
+        io.require(not self.recovery_bound and self.binding is None and
+                   isinstance(self.channel, io.RecoveryAdmissionChannel) and
+                   isinstance(channel, io.RecoveryLinkedRecords) and channel.approval_bound and
+                   channel.host_fd is not None and channel.sequence == 1 and
+                   channel.seed['original_binding'] == self.evidence.binding and
+                   channel.seed['ready_sha256'] == io.sha(self.ready_raw) and
+                   channel.seed['source_sha256'] == self.maintenance_inputs['source_sha256'] and
+                   channel.seed['artifact_sha256'] == self.prepared_ready['artifact_sha256'] and
+                   channel.seed['boot_id'] == self.prepared_ready['boot_id'] and
+                   all(channel.seed[k] == self.evidence.pair[k] for k in
+                       ('mac_tail_sha256', 'host_tail_sha256', 'unconfirmed_mac_tail')) and
+                   channel.seed['fresh_state_sha256'] == io.sha(io.canonical(self.recovery_state_proof)) and
+                   channel.seed['original_failure_sha256'] == io.sha(io.canonical(self.evidence.failure)) and
+                   channel.ceiling == self.deadline, 'RECOVERY_EXECUTION_BINDING_NOT_ADMITTED')
+        self.evidence.check_original(); self.check_unspent_owner()
+        self.channel.finish()
+        self.channel = self.a.channel = channel; self.binding = channel.binding
+        self.recovery_bound = True
+        channel.record('recovery_state_observation', self.recovery_state_proof)
+
+    def _perform(self, action, unit=None, *, deadline):
+        # Effects are implemented in the finite dispatch below only once all
+        # fresh custody/protection/clock gates are bound. Never inherit the
+        # original preparation/return/install dispatcher as a fallback.
+        io.require(self.recovery_bound and not self.recovery_terminal,
+                   'RECOVERY_EFFECT_NOT_ADMITTED_OR_TERMINAL')
+        raise io.Hold('PUBLIC_OPERATOR_RECOVERY_ACTION_NOT_YET_IMPLEMENTED')
+
+    def close(self):
+        errors = []
+        try:errors.extend(super().close())
+        finally:
+            if getattr(self, 'evidence', None) is not None:errors.extend(self.evidence.close())
         return errors

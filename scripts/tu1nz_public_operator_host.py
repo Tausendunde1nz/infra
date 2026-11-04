@@ -35,6 +35,17 @@ class Adapter:
         self.p = Paths(source.load('entry'), deadline=deadline)
         self.a = self.authority_type.__new__(self.authority_type)
         self.a.__init__(baseline, self.p, channel, machine=self.r.MACHINE, deadline=deadline)
+        self.initialize_operation_state()
+        # Every original unit/drop-in/input/tool must be an exact expected source
+        # object, not an object discovered and silently blessed during this run.
+        required = {p for v in baseline['unit_files'].values() for p in [v['fragment'], *v['dropins']]}
+        io.require(required <= set(baseline['files']) and not set(self.artifacts) & set(baseline['files']),
+                   'ORIGINAL_CONFIG_SET_OR_FORWARD_ABSENCE')
+        self.pre_stop()
+        self.preparing = False; self.old_accepted.clear()
+
+    def initialize_operation_state(self):
+        """Empty local bookkeeping only, no authority, claim or observation."""
         self.barriers = {}; self.return_barriers = {}; self.installed = {}
         self.barrier_places = {}; self.barrier_history = []
         self.accepted = {}; self.old_accepted = {}; self.started = {}; self.start_requested = set()
@@ -46,13 +57,6 @@ class Adapter:
         self.created = set(); self.absence_prefixes = set(); self.read_witness = None
         self.artifacts = {HELPER: ('runtime', 0o555)}
         self.artifacts.update({self.dropdir(u)+'/'+DROPIN: (n, 0o644) for u, n in zip(UNITS, ASSET_NAMES)})
-        # Every original unit/drop-in/input/tool must be an exact expected source
-        # object, not an object discovered and silently blessed during this run.
-        required = {p for v in baseline['unit_files'].values() for p in [v['fragment'], *v['dropins']]}
-        io.require(required <= set(baseline['files']) and not set(self.artifacts) & set(baseline['files']),
-                   'ORIGINAL_CONFIG_SET_OR_FORWARD_ABSENCE')
-        self.pre_stop()
-        self.preparing = False; self.old_accepted.clear()
 
     @staticmethod
     def dropdir(unit):

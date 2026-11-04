@@ -634,6 +634,31 @@ class RecoveryFailureTests(unittest.TestCase):
                 'record': {'type': 'final', 'status': 'COMPLETE'}}})
 
 
+class RecoveryAdmissionChannelTests(unittest.TestCase):
+    def test_current_custody_read_cannot_emit_an_action_claim_or_original_ack(self):
+        wire = Mock(); wire.deadline = time.monotonic()+10
+        channel = io.RecoveryAdmissionChannel(wire, original_binding='a'*64,
+            entry_sha256='b'*64, mac_snapshot_sha256='c'*64)
+        wire.receive.return_value = {'type': 'recovery_admission_current', **channel.context}
+        channel.check()
+        for kind in ('flow_claim', 'host_action_intent', 'recovery_context', 'owner_admission_intent'):
+            with self.subTest(kind=kind), self.assertRaises(io.Hold):channel.record(kind, {})
+        with self.assertRaises(io.Hold):channel.attach(5)
+        self.assertEqual(channel.sequence, 0); self.assertIsNone(channel.host_fd)
+        self.assertFalse(channel.approval_bound)
+        channel.finish()
+        with self.assertRaises(io.Hold):channel.check()
+
+    def test_changed_original_or_entry_custody_does_not_form_a_fresh_binding(self):
+        wire = Mock(); wire.deadline = time.monotonic()+10
+        channel = io.RecoveryAdmissionChannel(wire, original_binding='a'*64,
+            entry_sha256='b'*64, mac_snapshot_sha256='c'*64)
+        wire.receive.return_value = {'type': 'recovery_admission_current', **channel.context,
+                                    'mac_snapshot_sha256': 'd'*64}
+        with self.assertRaises(io.Hold):channel.finish()
+        self.assertEqual(channel.sequence, 0); self.assertFalse(channel.approval_bound)
+
+
 class CurrentDatabaseReadTests(unittest.TestCase):
     def authority(self):
         a = observe.CurrentAuthority.__new__(observe.CurrentAuthority)

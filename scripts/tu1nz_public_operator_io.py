@@ -1068,6 +1068,46 @@ def recovery_binding(seed):
     return sha(canonical(seed))
 
 
+class RecoveryAdmissionChannel(LinkedRecords):
+    """Read-only transport while the fresh recovery binding is being formed.
+
+    The fixed entry is already spent on both sides. A current state hash
+    cannot exist before the actual state has been read. Therefore this stage
+    can check its entry/original custody and perform bound read-only HTTP,
+    but cannot emit an action record, attach a journal or enter owner work.
+    Once replaced by RecoveryLinkedRecords it cannot be used again.
+    """
+    def __init__(self, wire, *, original_binding, entry_sha256, mac_snapshot_sha256):
+        require(all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v) for v in
+                    (original_binding, entry_sha256, mac_snapshot_sha256)), 'RECOVERY_ADMISSION_TRANSPORT_BINDING')
+        super().__init__(wire, original_binding)
+        self.context = {'original_binding': original_binding, 'entry_sha256': entry_sha256,
+                        'mac_snapshot_sha256': mac_snapshot_sha256}
+        self.sealed = False
+
+    def record(self, kind, value):
+        raise Hold('PUBLIC_OPERATOR_RECOVERY_EFFECT_BEFORE_FRESH_BINDING')
+
+    def attach(self, fd):
+        raise Hold('PUBLIC_OPERATOR_RECOVERY_JOURNAL_BEFORE_FRESH_BINDING')
+
+    def check(self):
+        require(not self.sealed and time.monotonic() < min(self.ceiling, self.wire.deadline),
+                'RECOVERY_ADMISSION_CHANNEL_CLOSED_OR_EXPIRED')
+        self.wire.send({'type': 'recovery_admission_check', **self.context})
+        require(self.wire.receive() == {'type': 'recovery_admission_current', **self.context},
+                'RECOVERY_ADMISSION_CUSTODY_CHANGED')
+
+    def http(self, endpoint):
+        self.check()
+        result = super().http(endpoint)
+        self.check()
+        return result
+
+    def finish(self):
+        self.check(); self.sealed = True
+
+
 class RecoveryLinkedRecords(MaintenanceLinkedRecords):
     """An additive chain only; no handle to the original journal is accepted.
 
