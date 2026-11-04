@@ -684,6 +684,120 @@ def exclusive(parent, name, raw):
         os.close(fd)
 
 
+def read_original_chain(parent, binding, *, owner, deadline, client_supplements=False):
+    """Bounded, strictly read-only original custody census for one recovery.
+
+    The caller obtains this FD through the fixed compiled custody path and
+    proves the old operator/helpers absent plus lock ownership separately.
+    This reader neither repairs a tail nor grants any action from a record.
+    """
+    require(type(binding) is str and re.fullmatch('[0-9a-f]{64}', binding) and
+            type(owner) is int and owner >= 0, 'ORIGINAL_CHAIN_ARGUMENTS')
+    before = os.fstat(parent)
+    require(stat.S_ISDIR(before.st_mode) and before.st_uid == owner and
+            stat.S_IMODE(before.st_mode) == 0o700, 'ORIGINAL_CHAIN_DIRECTORY_PROFILE')
+    names = sorted(os.listdir(parent))
+    extras = {'held.json', 'final.json'} if client_supplements else set()
+    require(0 < len(names) <= 512+len(extras) and all(n in extras or
+            re.fullmatch('[0-9]{3}-[A-Za-z0-9_]+[.]json', n) for n in names), 'ORIGINAL_CHAIN_NAMES')
+    rows = []; supplements = {}; previous = binding; total = 0
+    for name in names:
+        require(time.monotonic() < deadline, 'ORIGINAL_CHAIN_READ_DEADLINE')
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        if sys.platform == 'linux':flags |= os.O_NOATIME
+        fd = os.open(name, flags, dir_fd=parent)
+        try:
+            first = os.fstat(fd)
+            require(stat.S_ISREG(first.st_mode) and first.st_nlink == 1 and first.st_uid == owner and
+                    stat.S_IMODE(first.st_mode) == 0o600 and 0 < first.st_size <= 65536,
+                    'ORIGINAL_CHAIN_RECORD_PROFILE')
+            raw = os.pread(fd, first.st_size+1, 0); total += len(raw)
+            require(len(raw) == first.st_size and total <= (512+len(extras))*65536,
+                    'ORIGINAL_CHAIN_BYTES_BOUND')
+            after = os.fstat(fd); named = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            fields = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink',
+                      'st_size', 'st_mtime_ns', 'st_ctime_ns')
+            identity = {k: getattr(first, k) for k in fields}
+            require(all(identity == {k: getattr(s, k) for k in fields} for s in (after, named)),
+                    'ORIGINAL_CHAIN_RECORD_CHANGED')
+            value = parse(raw)
+            require(type(value) is dict and canonical(value) == raw, 'ORIGINAL_CHAIN_RECORD_CANONICAL')
+            proof = {'name': name, 'sha256': sha(raw), 'metadata': identity, 'record': value}
+            if name in extras:
+                require(value.get('type') == name[:-5], 'ORIGINAL_CHAIN_SUPPLEMENT_TYPE')
+                supplements[name] = proof
+                continue
+            sequence = len(rows)+1
+            require(sequence <= 512 and set(value) == {'sequence', 'binding', 'previous', 'kind', 'value'} and
+                    type(value['sequence']) is int and value['sequence'] == sequence and
+                    value['binding'] == binding and value['previous'] == previous and
+                    type(value['kind']) is str and re.fullmatch('[A-Za-z0-9_]+', value['kind']) and
+                    name == str(sequence).zfill(3)+'-'+value['kind']+'.json',
+                    'ORIGINAL_CHAIN_LINK_OR_SEQUENCE')
+            previous = proof['sha256']; rows.append(proof)
+        finally:
+            os.close(fd)
+    current = os.fstat(parent)
+    fields = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink', 'st_mtime_ns', 'st_ctime_ns')
+    require(rows and sorted(os.listdir(parent)) == names and
+            all(getattr(before, k) == getattr(current, k) for k in fields) and
+            time.monotonic() < deadline, 'ORIGINAL_CHAIN_DIRECTORY_CHANGED')
+    return {'binding': binding, 'tail': previous, 'count': len(rows), 'records': rows,
+            'supplements': supplements, 'directory': {k: getattr(current, k) for k in fields}}
+
+
+def original_chain_pair(mac, host, *, binding, ready_sha256):
+    """Validate prefix/tails, never reconstruct original acknowledgements.
+
+    The sole possible mismatch is ONE valid Mac-only tail: LinkedRecords waits
+    for that durable Mac ACK before writing its Host mirror. Divergence, a Host
+    lead, a larger gap, and missing beidseitiges READY all remain HOLD.
+    Fresh process/data/files/probe admission and a bound original failure are
+    still required elsewhere; these two hashes are not recovery permission.
+    """
+    require(type(ready_sha256) is str and re.fullmatch('[0-9a-f]{64}', ready_sha256),
+            'ORIGINAL_READY_HASH')
+    for snapshot in (mac, host):
+        require(type(snapshot) is dict and snapshot.get('binding') == binding and
+                type(snapshot.get('records')) is list and type(snapshot.get('count')) is int and
+                snapshot['count'] == len(snapshot['records']) and 0 < snapshot['count'] <= 512,
+                'ORIGINAL_CHAIN_SNAPSHOT')
+        previous = binding
+        for number, proof in enumerate(snapshot['records'], 1):
+            row = proof.get('record'); raw = canonical(row)
+            require(type(row) is dict and set(row) == {'sequence', 'binding', 'previous', 'kind', 'value'} and
+                    type(row['sequence']) is int and row['sequence'] == number and row['binding'] == binding and
+                    row['previous'] == previous and type(row['kind']) is str and
+                    re.fullmatch('[A-Za-z0-9_]+', row['kind']) and len(raw) <= 65536 and
+                    sha(raw) == proof.get('sha256'), 'ORIGINAL_CHAIN_SNAPSHOT_INVALID')
+            previous = proof['sha256']
+        require(snapshot.get('tail') == previous, 'ORIGINAL_CHAIN_TAIL_INVALID')
+    require(host['count'] <= mac['count'] <= host['count']+1, 'ORIGINAL_CHAIN_UNEXPLAINED_GAP')
+    require(all(m['sha256'] == h['sha256'] for m, h in zip(mac['records'], host['records'])),
+            'ORIGINAL_CHAIN_DIVERGENCE')
+    common = [v['record'] for v in host['records']]
+    ready = [v for v in common if v['kind'] == 'maintenance_ready']
+    require(len(ready) == 1 and type(ready[0]['value']) is dict and
+            ready[0]['value'].get('sha256') == ready_sha256 and
+            sha(canonical(ready[0]['value'].get('ready'))) == ready_sha256,
+            'ORIGINAL_READY_NOT_IN_BOTH_CUSTODIES')
+    claims = [v for v in common if v['kind'] == 'flow_claim']
+    require(len(claims) == 1 and claims[0]['value'] == {'transaction': 'public-rights-20261014-1'} and
+            claims[0]['sequence'] < ready[0]['sequence'],
+            'ORIGINAL_TRANSACTION_CLAIM')
+    for proof in mac['records']:
+        row = proof['record']; value = row['value']
+        require(not row['kind'].startswith(('owner_', 'recovery_')) and row['kind'] != 'flow_complete' and
+                not (type(value) is dict and
+                     (value.get('phase') in ('owner_ready', 'owner_done') or
+                      value.get('action') == 'supervised_owner_transaction')),
+                'ORIGINAL_OWNER_OR_COMPLETION_EXCLUDES_RECOVERY')
+    return {'original_binding': binding, 'mac_tail_sha256': mac['tail'], 'host_tail_sha256': host['tail'],
+            'common_records': host['count'], 'ready_sha256': ready_sha256,
+            'unconfirmed_mac_tail': mac['records'][-1]['sha256'] if mac['count'] > host['count'] else None,
+            'original_ack_reconstructed': False}
+
+
 class Source:
     """In-memory exact old components plus new reviewed operator modules.
 
@@ -698,8 +812,8 @@ class Source:
                 all(sha(raw) == hashes[n] for n, raw in self.bytes.items()), 'SOURCE_HASH')
         require(all(hashes[k] == h for k, h in CONTROL_PINS.items()), 'UNCHANGED_CONTROL_COMPONENT')
         require(all(hashes[k] == h for k, h in ASSETS.items()), 'UNCHANGED_RUNTIME_COMPONENT')
-        require(hashes['r3'] == '0b302ec29184cf036800452cfd55e347a1ffa78e160766a729d998285a8ee6ca',
-                'UNCHANGED_ORDERING_COMPONENT')
+        require(hashes['r3'] == 'c3484b9fcdffd63c6c8a6f7caeb550b0e5dbe742d9e9d266d2c4be43ef38d2c9',
+                'REV4_ORDERING_COMPONENT')
         self.modules = {}
 
     def load(self, name):
@@ -811,3 +925,102 @@ class LinkedRecords:
                     type(measured['bytes']) is int and 0 <= measured['bytes'] <= 1024*1024,
                     'CLIENT_HTTP_MEASUREMENT_RED')
         return measured
+
+
+def owner_entry_marker(*, original_binding, execution_binding, ready_sha256, boot_id, route):
+    require(route in ('original', 'recovery-once') and
+            all(type(h) is str and re.fullmatch('[0-9a-f]{64}', h)
+                for h in (original_binding, execution_binding, ready_sha256)) and
+            type(boot_id) is str and
+            re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', boot_id) and
+            (route != 'original' or original_binding == execution_binding), 'OWNER_ENTRY_BINDING')
+    return {'schema': 'TU1NZ_REV4_FIRST_OWNER_ADMISSION', 'transaction': 'public-rights-20261014-1',
+            'machine': 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae',
+            'owner_plan_sha256': 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36',
+            'original_binding': original_binding, 'execution_binding': execution_binding,
+            'ready_sha256': ready_sha256, 'boot_id': boot_id, 'route': route, 'owner_window_seconds': 120}
+
+
+class MaintenanceLinkedRecords(LinkedRecords):
+    """R4 original/recovery marker protocol; legacy channels cannot emit it."""
+    def __init__(self, wire, binding, *, original_binding, boot_id, route='original'):
+        # Validate the fixed contextual fields without claiming READY exists.
+        owner_entry_marker(original_binding=original_binding, execution_binding=binding,
+                           ready_sha256='0'*64, boot_id=boot_id, route=route)
+        super().__init__(wire, binding)
+        self.original_binding, self.boot_id, self.route = original_binding, boot_id, route
+        self.owner_entry_started = False
+
+    def begin_owner_admission(self, paths, *, ready_sha256):
+        require(self.approval_bound and not self.owner_entry_started and self.host_fd is not None,
+                'OWNER_ENTRY_NOT_ADMITTED_OR_REPLAY')
+        self.owner_entry_started = True  # includes unknown/one-sided marker
+        marker = owner_entry_marker(original_binding=self.original_binding, execution_binding=self.binding,
+                                   ready_sha256=ready_sha256, boot_id=self.boot_id, route=self.route)
+        path = '/etc/tu1nz/public-web-bootstrap-r3/20261014-1/owner-admission-intent'
+        paths.absent(path)
+        paths.absent('/opt/tu1nz_repos/lighting-halloween-r1/20261014-1/writer-preparation-r2')
+        # The R4 client persists its fixed TX-root marker BEFORE this ACK.
+        # Either side's partial outcome consumes admission permanently.
+        self.record('owner_admission_intent', marker)
+        raw = canonical(marker); metadata = paths.create_file(path, raw)
+        actual, row = paths.read(path)
+        require(actual == raw and all(row[k] == metadata[k] for k in row if k != 'atime_ns'),
+                'OWNER_ENTRY_HOST_READBACK')
+        self.record('owner_admission_markers_confirmed', {'sha256': sha(raw), 'host_metadata': row})
+        return marker
+
+
+def recovery_binding(seed):
+    """Technical binding of the sole recovery context, not a new approval."""
+    hashes = {'original_binding', 'ready_sha256', 'source_sha256', 'artifact_sha256',
+              'mac_tail_sha256', 'host_tail_sha256', 'original_failure_sha256', 'fresh_state_sha256'}
+    require(type(seed) is dict and set(seed) == hashes | {'schema', 'transaction', 'machine',
+            'boot_id', 'owner_plan_sha256', 'original_status', 'unconfirmed_mac_tail'},
+            'RECOVERY_BINDING_SCHEMA')
+    require(seed['schema'] == 'TU1NZ_MAIN_SERVER_REV4_RECOVERY_ONCE' and
+            seed['transaction'] == 'public-rights-20261014-1' and
+            seed['machine'] == 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae' and
+            seed['owner_plan_sha256'] == 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36' and
+            seed['original_status'] == 'FAILED_HOLD' and type(seed['boot_id']) is str and
+            re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', seed['boot_id']) and
+            all(type(seed[k]) is str and re.fullmatch('[0-9a-f]{64}', seed[k]) for k in hashes) and
+            (seed['unconfirmed_mac_tail'] is None or seed['unconfirmed_mac_tail'] == seed['mac_tail_sha256']),
+            'RECOVERY_FIXED_BINDING')
+    return sha(canonical(seed))
+
+
+class RecoveryLinkedRecords(MaintenanceLinkedRecords):
+    """An additive chain only; no handle to the original journal is accepted.
+
+    Host and Mac recovery-entry markers must already exist and be matched by
+    the admitted session. Failure at any point spends the one recovery entry.
+    This class does not reconnect, repair prior ACKs, or remove original HOLD.
+    """
+    def __init__(self, wire, seed):
+        self.seed = parse(canonical(seed))
+        super().__init__(wire, recovery_binding(self.seed), original_binding=self.seed['original_binding'],
+                         boot_id=self.seed['boot_id'], route='recovery-once')
+
+    def attach(self, fd):
+        require(self.sequence == 0 and not self.prior and self.host_fd is None,
+                'RECOVERY_CHAIN_ATTACH_ONCE')
+        expected = '/etc/tu1nz/public-web-bootstrap-r3/20261014-1/recovery-once/intents'
+        current = os.fstat(fd)
+        require(stat.S_ISDIR(current.st_mode) and current.st_uid == current.st_gid == 0 and
+                stat.S_IMODE(current.st_mode) == 0o700 and not os.listdir(fd) and
+                os.readlink('/proc/self/fd/'+str(fd)) == expected, 'RECOVERY_CHAIN_FIXED_NEW_DIRECTORY')
+        named = os.stat(expected, follow_symlinks=False)
+        require((current.st_dev, current.st_ino) == (named.st_dev, named.st_ino),
+                'RECOVERY_CHAIN_DIRECTORY_BINDING')
+        super().attach(fd)
+
+    def record(self, kind, value):
+        require(self.host_fd is not None and kind not in
+                ('maintenance_ready', 'flow_claim', 'flow_complete', 'prestate_read_witness'),
+                'RECOVERY_CANNOT_REWRITE_ORIGINAL_HISTORY')
+        if self.sequence == 0:
+            require(kind == 'recovery_context' and value == self.seed, 'RECOVERY_FIRST_CONTEXT_REQUIRED')
+        else:
+            require(kind != 'recovery_context', 'RECOVERY_CONTEXT_NO_REPLAY')
+        return super().record(kind, value)

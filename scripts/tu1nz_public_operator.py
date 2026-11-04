@@ -18,9 +18,11 @@ from pathlib import Path
 import re
 import select
 import shlex
+import stat
 import subprocess
 import sys
 import time
+import warnings
 import zlib
 
 
@@ -221,6 +223,16 @@ class Client:
             finally:
                 os.close(fd)
         self.journal.check()
+        self.check_extra()
+
+    def check_extra(self):
+        pass
+
+    def project_record(self, row):
+        if row['kind'] == 'flow_claim':
+            self.admission_current(); self.journal.claim()
+        elif row['kind'].startswith('flow_'):
+            self.journal.write(row['kind'][5:], row['value'])
 
     def serve(self):
         while True:
@@ -238,10 +250,7 @@ class Client:
                            'HASH_LINK_OR_SEQUENCE_RED')
                 name = str(row['sequence']).zfill(3)+'-'+row['kind']+'.json'
                 io.exclusive(self.fd, name, raw); self.records[name] = raw
-                if row['kind'] == 'flow_claim':
-                    self.admission_current(); self.journal.claim()
-                elif row['kind'].startswith('flow_'):
-                    self.journal.write(row['kind'][5:], row['value'])
+                self.project_record(row)
                 self.last = message['sha256']; self.sequence = row['sequence']; self.check()
                 ack = {'type': 'persisted', 'sequence': self.sequence, 'sha256': self.last}
                 if row['kind'] == 'owner_object_intent' and row['value']['relative'] == self.owner_hold_before:
@@ -299,6 +308,78 @@ class Client:
     def close(self):
         if self.fd is not None: os.close(self.fd); self.fd = None
         if self.journal is not None: self.journal.close(); self.journal = None
+
+
+class MaintenanceClient(Client):
+    """Fixed original-TX owner marker before its ACK, with continuous readback.
+
+    Selected only by the new reviewed R4 session, never by a legacy scope.
+    Recovery's client must override owner_marker_parent() to its independently
+    held original TX root; this class never accepts a marker path from JSON.
+    """
+    def __init__(self, wire, r3, binding, *, boot_id, **kwargs):
+        super().__init__(wire, r3, binding, **kwargs)
+        self.original_binding = binding; self.boot_id = boot_id; self.route = 'original'
+        self.ready_sha256 = None; self.owner_marker = None; self.owner_marker_identity = None
+
+    def owner_marker_parent(self):
+        self.journal.check()
+        return self.journal.fd
+
+    @staticmethod
+    def marker_identity(row):
+        return tuple(getattr(row, k) for k in ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode',
+                                             'st_nlink', 'st_size', 'st_mtime_ns', 'st_ctime_ns'))
+
+    def project_record(self, row):
+        kind, value = row['kind'], row['value']
+        if kind == 'maintenance_ready':
+            io.require(self.route == 'original' and self.ready_sha256 is None and
+                       type(value) is dict and type(value.get('ready')) is dict,
+                       'CLIENT_READY_SEQUENCE')
+            ready = value['ready']
+            io.require(ready.get('schema') == 'TU1NZ_MAIN_SERVER_REV4_20261104' and
+                       ready.get('transaction') == self.r.TX and ready.get('machine') == self.r.MACHINE and
+                       ready.get('boot_id') == self.boot_id and ready.get('owner_plan_sha256') == self.r.OWNER_PLAN and
+                       type(ready.get('inputs')) is dict and ready['inputs'].get('scope_sha256') == self.original_binding and
+                       value.get('sha256') == io.sha(io.canonical(ready)), 'CLIENT_READY_BINDING')
+            self.ready_sha256 = value['sha256']
+        elif kind == 'owner_admission_intent':
+            io.require(self.ready_sha256 is not None and self.owner_marker is None,
+                       'CLIENT_OWNER_ENTRY_NOT_READY_OR_REPLAY')
+            expected = io.owner_entry_marker(original_binding=self.original_binding, execution_binding=self.binding,
+                ready_sha256=self.ready_sha256, boot_id=self.boot_id, route=self.route)
+            prior = [io.parse(raw) for raw in self.records.values()]
+            claim = 'flow_claim' if self.route == 'original' else 'recovery_flow_claim'
+            io.require(value == expected and sum(v['kind'] == claim for v in prior) == 1 and
+                       not any(v['kind'].startswith('owner_') and v['sequence'] != row['sequence'] for v in prior),
+                       'CLIENT_OWNER_ENTRY_BINDING_OR_PRIOR_ADMISSION')
+            parent = self.owner_marker_parent(); raw = io.canonical(expected)
+            io.exclusive(parent, 'owner-admission-intent', raw)
+            actual = os.stat('owner-admission-intent', dir_fd=parent, follow_symlinks=False)
+            io.require(stat.S_ISREG(actual.st_mode) and actual.st_nlink == 1 and
+                       actual.st_uid == os.geteuid() and stat.S_IMODE(actual.st_mode) == 0o600,
+                       'CLIENT_OWNER_MARKER_PROFILE')
+            self.owner_marker_identity = self.marker_identity(actual); self.owner_marker = raw
+            self.check_extra()
+        elif kind == 'owner_admission_markers_confirmed':
+            io.require(self.owner_marker is not None and type(value) is dict and
+                       value.get('sha256') == io.sha(self.owner_marker), 'CLIENT_OWNER_HOST_MARKER_UNCONFIRMED')
+            self.check_extra()
+        super().project_record(row)
+
+    def check_extra(self):
+        if self.owner_marker is None:return
+        parent = self.owner_marker_parent()
+        fd = os.open('owner-admission-intent', os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+        try:
+            before = self.marker_identity(os.fstat(fd))
+            raw = os.pread(fd, len(self.owner_marker)+1, 0)
+            after = self.marker_identity(os.fstat(fd))
+            named = self.marker_identity(os.stat('owner-admission-intent', dir_fd=parent, follow_symlinks=False))
+            io.require(before == after == named == self.owner_marker_identity and raw == self.owner_marker,
+                       'CLIENT_OWNER_MARKER_CHANGED')
+        finally:os.close(fd)
 
 
 def bootstrap(io_raw):
@@ -443,7 +524,9 @@ def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None, ru
     result = {'status': 'UNKNOWN_HOLD_NO_RETRY'}
     try:
         targets, preparation = preparation_records(packet['binding'])
-        password = getpass.getpass('chatops sudo — gebundener einmaliger R3/R4-Operator: ').encode()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', getpass.GetPassWarning)
+            password = getpass.getpass('chatops sudo — gebundener einmaliger R3/R4-Operator: ').encode()
         io.require(password and b'\n' not in password and b'\r' not in password, 'PASSWORD_INPUT_FORMAT')
         child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         child.stdin.write(password+b'\n'); child.stdin.flush(); password = None

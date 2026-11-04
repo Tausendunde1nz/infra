@@ -10,6 +10,8 @@ from __future__ import annotations
 import base64
 from contextlib import contextmanager
 import ctypes
+import fcntl
+import hashlib
 import io as memory_io
 import os
 from pathlib import Path, PurePosixPath
@@ -22,9 +24,10 @@ import time
 
 import tu1nz_public_operator_io as io
 import tu1nz_public_runtime_artifact as artifact
-from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ
+from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ, writer_check
 from tu1nz_public_operator_observe import Authority, UNITS, ENV, process, command, typed_exec_properties, EXEC_PROPERTIES
-from tu1nz_public_operator_host import Adapter
+from tu1nz_public_operator_host import Adapter, STAGING, LIGHTING, HELPER, DROPIN, ASSET_NAMES
+from tu1nz_public_operator_fs import security
 
 OVERLAY = 'zzz-public-runtime-r5.conf'
 CHUNK = 512*1024
@@ -485,6 +488,82 @@ class ReplacementFence(RuntimeFence):
     def content_match(self,key,raw):
         if raw.startswith(b'\x7fELF'):self.elf_files.add(key)
 
+    def identity_digest(self):
+        """Fresh full sealed-tree bytes AND metadata digest for R4 READY.
+
+        This is a read, not materialization, adoption, or a historical origin.
+        Existing latched watches bracket it. Do not reuse RuntimeFence._walk:
+        it admits new watches and updates its initial capture accumulators.
+        """
+        self.check()
+        digest = hashlib.sha256(); count = 0; byte_count = 0; observed = set()
+        def record(path, value):
+            nonlocal count
+            count += 1
+            io.require(path in self.expected and path not in observed and count <= 32768 and
+                       time.monotonic() < min(self.deadline, self.paths.deadline),
+                       'PREPARED_RUNTIME_IDENTITY_BOUND')
+            observed.add(path)
+            raw = io.canonical({'path': path, **value})
+            digest.update(len(raw).to_bytes(4, 'big')); digest.update(raw)
+        def walk(fd, path, depth):
+            nonlocal byte_count
+            io.require(depth < 32, 'PREPARED_RUNTIME_IDENTITY_DEPTH')
+            before = metadata(self.paths.d, fd); self.profile_match(path, before)
+            record(path, {'kind': 'directory', 'metadata': before})
+            names = sorted(os.listdir(fd))
+            for name in names:
+                rel = name if path == '.' else path+'/'+name
+                io.require(rel in self.expected, 'PREPARED_RUNTIME_EXTRA_OBJECT')
+                expected = self.expected[rel]
+                first = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if stat.S_ISLNK(first.st_mode):
+                    self.link_profile_match(rel, first)
+                    attrs = os.listxattr('/proc/self/fd/'+str(fd)+'/'+name, follow_symlinks=False)
+                    target = os.readlink(name, dir_fd=fd)
+                    io.require(not attrs and expected == {'kind': 'link', 'target': target},
+                               'PREPARED_RUNTIME_LINK_CHANGED')
+                    fields = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink',
+                              'st_size', 'st_mtime_ns', 'st_ctime_ns')
+                    row = {k: getattr(first, k) for k in fields}
+                    again = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    io.require(row == {k: getattr(again, k) for k in fields}, 'PREPARED_RUNTIME_LINK_RACE')
+                    record(rel, {'kind': 'link', 'metadata': row, 'attrs': {},
+                                 'flags': 'NOT_APPLICABLE_SYMLINK', 'target': target})
+                    continue
+                io.require(stat.S_ISREG(first.st_mode) or stat.S_ISDIR(first.st_mode),
+                           'PREPARED_RUNTIME_OBJECT_TYPE')
+                child = os.open(name, READ|(os.O_DIRECTORY if stat.S_ISDIR(first.st_mode) else 0), dir_fd=fd)
+                try:
+                    row = metadata(self.paths.d, child); self.profile_match(rel, row)
+                    io.require(row[:2] == (first.st_dev, first.st_ino), 'PREPARED_RUNTIME_NAME_RACE')
+                    if stat.S_ISDIR(first.st_mode):
+                        io.require(expected == {'kind': 'directory'}, 'PREPARED_RUNTIME_TYPE_CHANGED')
+                        walk(child, rel, depth+1)
+                    else:
+                        io.require(first.st_nlink == 1 and 0 <= first.st_size <= 32*1024*1024,
+                                   'PREPARED_RUNTIME_FILE_BOUND')
+                        byte_count += first.st_size
+                        io.require(byte_count <= 512*1024*1024, 'PREPARED_RUNTIME_BYTES_BOUND')
+                        raw = os.pread(child, first.st_size+1, 0)
+                        content = io.sha(raw)
+                        io.require(len(raw) == first.st_size and expected == {'kind': 'file', 'sha256': content},
+                                   'PREPARED_RUNTIME_FILE_BYTES')
+                        record(rel, {'kind': 'file', 'metadata': row, 'sha256': content})
+                    io.require(metadata(self.paths.d, child) == row, 'PREPARED_RUNTIME_METADATA_RACE')
+                    again = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    io.require((again.st_dev, again.st_ino, again.st_mtime_ns, again.st_ctime_ns) ==
+                               (first.st_dev, first.st_ino, first.st_mtime_ns, first.st_ctime_ns),
+                               'PREPARED_RUNTIME_NAME_RACE')
+                finally:
+                    os.close(child)
+            io.require(sorted(os.listdir(fd)) == names and metadata(self.paths.d, fd) == before,
+                       'PREPARED_RUNTIME_DIRECTORY_RACE')
+        walk(self.fd, '.', 0)
+        io.require(observed == set(self.expected), 'PREPARED_RUNTIME_INCOMPLETE')
+        self.check()
+        return {'sha256': digest.hexdigest(), 'objects': count, 'file_bytes': byte_count}
+
 
 class ReplacementAuthority(Authority):
     def policy_owner(self):return self.read_bus().simple('owner')
@@ -533,6 +612,7 @@ class ReplacementAuthority(Authority):
     def open_runtime(self, baseline, paths, deadline):
         io.operator_dependency_reference(baseline['source_release'],baseline['source_origin_receipts'])
         self.replacement_active=False
+        self.prepared_runtime=None
         self.external_dependencies={};self.external_identities={}
         self.loader_bindings={};self.loader_aliases={}
         self.loader_config=LoaderConfiguration.__new__(LoaderConfiguration)
@@ -619,23 +699,30 @@ class ReplacementAuthority(Authority):
         self.external_dependencies[path]={k:reference[path][k] for k in ('source','sha256')}
         return raw
 
-    def dependency_census(self,target):
+    def dependency_census(self,target,*,prepared=None):
         # Execute ONLY the independently authenticated, self-contained loader
         # selected by bound busctl. No ldd/shell/helper or guessed SONAME, no
         # generic command-scope expansion. Both census sites use this path.
         loader=self.census_loader
+        selected=self.runtime if prepared is None else prepared
+        if prepared is not None:
+            io.require(prepared is self.prepared_runtime and isinstance(prepared,ReplacementFence) and
+                       not self.replacement_active and self.runtime is self.legacy_runtime,
+                       'PREPARED_CENSUS_NOT_ACTIVATION')
+            prepared.check()
         io.require(loader is not None and loader in self.external_identities and
             (target=='/usr/bin/busctl' or target.startswith(artifact.ROOT+'/') and
-             target[len(artifact.ROOT)+1:] in self.runtime.elf_files),
+             target[len(artifact.ROOT)+1:] in selected.elf_files),
             'REPLACEMENT_CENSUS_SCOPE')
-        self.loader_config.check();self.verify_external_libraries()
+        self.loader_config.check();self.verify_external_libraries(prepared=prepared)
         remaining=min(20,self.deadline-time.monotonic())
         io.require(remaining>0,'REPLACEMENT_CENSUS_DEADLINE')
         result=subprocess.run([self.loader_bindings[loader],'--list',target],capture_output=True,
             timeout=remaining,env=dict(ENV),cwd='/')
         io.require(time.monotonic()<self.deadline and len(result.stdout)<=2*1024*1024 and
             len(result.stderr)<=2*1024*1024,'REPLACEMENT_CENSUS_TIME_OR_OUTPUT_BOUND')
-        self.loader_config.check();self.verify_external_libraries()
+        self.loader_config.check();self.verify_external_libraries(prepared=prepared)
+        if prepared is not None:prepared.check()
         return result
 
     def interpreter_binding(self,row,*,old):
@@ -755,16 +842,24 @@ class ReplacementAuthority(Authority):
                 return resolved
         raise io.Hold('PUBLIC_OPERATOR_REPLACEMENT_LOADER_PATH_TYPE')
 
-    def bind_external_libraries(self):
+    def bind_external_libraries(self,*,prepared=None):
         self.check_loader_configuration()
-        io.require(self.replacement_active and isinstance(self.runtime,ReplacementFence),
-                   'REPLACEMENT_NOT_CURRENT')
-        io.require(0<len(self.runtime.elf_files)<=256,'REPLACEMENT_ELF_COUNT')
+        selected=self.runtime if prepared is None else prepared
+        if prepared is None:
+            io.require(self.replacement_active and isinstance(selected,ReplacementFence),
+                       'REPLACEMENT_NOT_CURRENT')
+        else:
+            io.require(prepared is self.prepared_runtime and isinstance(prepared,ReplacementFence) and
+                       not self.replacement_active and self.runtime is self.legacy_runtime,
+                       'PREPARED_DEPENDENCIES_NOT_ACTIVATION')
+            prepared.check()
+        io.require(0<len(selected.elf_files)<=256,'REPLACEMENT_ELF_COUNT')
         reference=self.b['source_release']['probe_dependencies']
-        roots=artifact.loader_context_roots(self.runtime.elf_files)
+        roots=artifact.loader_context_roots(selected.elf_files)
         covered=set(roots)
         for name in roots:
-            result=self.dependency_census(artifact.ROOT+'/'+name)
+            result=(self.dependency_census(artifact.ROOT+'/'+name) if prepared is None else
+                    self.dependency_census(artifact.ROOT+'/'+name,prepared=prepared))
             io.require(result.returncode==0 and b'not found' not in result.stdout,'REPLACEMENT_LOADER_UNKNOWN')
             for line in result.stdout.decode().splitlines():
                 words=line.split();paths=[w for w in words if w.startswith('/')]
@@ -774,17 +869,17 @@ class ReplacementAuthority(Authority):
                     resolved=Path(self.bind_loader_path(path))
                     if resolved.is_relative_to(artifact.ROOT):
                         key=str(resolved.relative_to(artifact.ROOT))
-                        io.require(self.runtime.expected.get(key,{}).get('kind')=='file',
+                        io.require(selected.expected.get(key,{}).get('kind')=='file',
                                    'REPLACEMENT_LOADER_ESCAPED_ARTIFACT')
-                        io.require(key in self.runtime.elf_files,'REPLACEMENT_LOADER_NON_ELF_TARGET')
+                        io.require(key in selected.elf_files,'REPLACEMENT_LOADER_NON_ELF_TARGET')
                         covered.add(key)
                     else:
                         io.require(path in reference and set(reference[path])=={'source','sha256'} and
                             reference[path]['source'].startswith(('/usr/lib/','/usr/bin/')),
                             'REPLACEMENT_EXTERNAL_LIBRARY_ORIGIN_UNBOUND')
                         self.external_dependencies[path]=reference[path]
-        artifact.require_elf_coverage(self.runtime.elf_files,covered)
-        self.verify_external_libraries()
+        artifact.require_elf_coverage(selected.elf_files,covered)
+        self.verify_external_libraries(prepared=prepared)
 
     def check_loader_configuration(self):
         self.loader_config.check()
@@ -793,7 +888,12 @@ class ReplacementAuthority(Authority):
         else:io.require(measured==self.manager_environment,'REPLACEMENT_MANAGER_ENVIRONMENT_CHANGED')
         self.loader_config.check()
 
-    def verify_external_libraries(self):
+    def verify_external_libraries(self,*,prepared=None):
+        selected=self.runtime if prepared is None else prepared
+        if prepared is not None:
+            io.require(prepared is self.prepared_runtime and isinstance(prepared,ReplacementFence) and
+                       not self.replacement_active and self.runtime is self.legacy_runtime,
+                       'PREPARED_EXTERNAL_FENCE_REQUIRED')
         self.check_loader_paths()
         samples={}  # ONE current batch only; discarded on every call.
         for path,expected in self.external_dependencies.items():
@@ -809,13 +909,15 @@ class ReplacementAuthority(Authority):
             digest,row=samples[source]
             io.require(digest==expected['sha256'],'REPLACEMENT_EXTERNAL_LIBRARY_DRIFT')
             identity=tuple(row[k] for k in ('device','inode','mtime_ns','ctime_ns'))
-            if path not in self.external_identities:
+            if path in self.external_identities:
+                io.require(self.external_identities[path]==identity,'REPLACEMENT_EXTERNAL_LIBRARY_REPLACED')
+            if path not in self.external_identities or identity[:2] not in selected.files:
                 fd=os.open(expected['source'],READ)
                 try:
                     observed=os.fstat(fd)
                     io.require((observed.st_dev,observed.st_ino,observed.st_mtime_ns,observed.st_ctime_ns)==identity,
                                'REPLACEMENT_EXTERNAL_LIBRARY_CHANGED')
-                    self.runtime._watch(fd)
+                    selected._watch(fd)
                     # Establish the initial byte binding AFTER installing the
                     # watch too; a write between the first sample and watch
                     # cannot be hidden by a later alias sharing that sample.
@@ -826,9 +928,8 @@ class ReplacementAuthority(Authority):
                         'REPLACEMENT_EXTERNAL_LIBRARY_CHANGED')
                 finally:os.close(fd)
                 self.external_identities[path]=identity
-                self.runtime.files.add(identity[:2])
-            else:io.require(self.external_identities[path]==identity,'REPLACEMENT_EXTERNAL_LIBRARY_REPLACED')
-        if self.replacement_active:self.runtime.check()
+                selected.files.add(identity[:2])
+        if self.replacement_active or prepared is not None:selected.check()
         self.check_loader_paths()
 
     def check(self,*,stop_only=False):
@@ -878,7 +979,11 @@ class ReplacementAdapter(Adapter):
         self.read_witness['legacy_runtime_origin']='UNKNOWN_STOP_WITNESS_ONLY_NO_OLD_RETURN'
         self.read_witness['replacement_artifact_sha256']=io.sha(io.canonical(self.replacement_receipt))
 
-    def receive_artifact(self):
+    def receive_artifact(self, *, preparing=False):
+        if preparing:
+            io.require(isinstance(self, MaintenanceAdapter) and self.prepared_ready is None and
+                       not self.a.replacement_active, 'PREPARATION_RECEIVER_SCOPE')
+            self.preparation_check()
         expected=self.replacement_receipt;parts=[]
         for index,offset in enumerate(range(0,expected['archive_bytes'],CHUNK)):
             # Transport changes no Host objects. Full fresh quiet admission is
@@ -892,10 +997,12 @@ class ReplacementAdapter(Adapter):
             raw=base64.b64decode(row['data'],validate=True)
             io.require(len(raw)==min(CHUNK,expected['archive_bytes']-offset),'REPLACEMENT_CHUNK_SIZE')
             parts.append(raw)
-        raw=b''.join(parts);inspect_archive(raw,expected);self.quiet()
+        raw=b''.join(parts);inspect_archive(raw,expected)
+        if preparing:self.preparation_check()
+        else:self.quiet()
         return raw
 
-    def materialize(self, raw, *, deadline):
+    def construct_runtime(self, raw, *, deadline):
         # Root is private0700 during construction, not admitted by Paths until
         # fully populated/sealed. Only newly created own objects are chmodded.
         prefix=str(Path(artifact.ROOT).parent)
@@ -932,7 +1039,18 @@ class ReplacementAdapter(Adapter):
         next_fence=ReplacementFence.__new__(ReplacementFence)
         self.extra_runtime_fences.append(next_fence)
         next_fence.__init__(self.a.b['source_release']['runtime_reference'],self.p,
-            self.a.b['source_origin_receipts'],python_binary=artifact.ROOT+'/python/bin/python3.12',deadline=self.deadline)
+            self.a.b['source_origin_receipts'],python_binary=artifact.ROOT+'/python/bin/python3.12',
+            deadline=min(deadline, self.deadline))
+        # A successful bounded capture becomes a surviving transaction fence.
+        # Never restore an expired/broken capture or extend the outer deadline.
+        next_fence.check()
+        next_fence.deadline=self.deadline
+        return next_fence
+
+    def materialize(self, raw, *, deadline):
+        # Historical R5 order is unchanged. The new R4 maintenance adapter
+        # separately calls construct_runtime before Stop without activating it.
+        next_fence=self.construct_runtime(raw,deadline=deadline)
         previous=self.a.runtime
         self.extra_runtime_fences.append(previous)
         # Retain the old witness AND writer targets until final cleanup.
@@ -988,4 +1106,349 @@ class ReplacementAdapter(Adapter):
         try:errors.extend(super().close())
         except BaseException:
             errors.append('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_REPLACEMENT_ADAPTER_CLOSE_UNKNOWN')
+        return errors
+
+
+MAINTENANCE_CONTRACT = 'TU1NZ_MAIN_SERVER_REV4_20261104'
+
+
+def prepared_asset_map(r3):
+    """Compiled destinations only. Neither Scope nor READY supplies paths."""
+    assets = r3.BOOT+'/prepared/assets/'
+    mapping = {'helper': {'candidate': assets+'helper', 'target': HELPER,
+                         'source': 'runtime', 'mode': 0o555, 'unit': None}}
+    for index, unit in enumerate(UNITS):
+        parent = Adapter.dropdir(unit)+'/'
+        for kind, name, source in (('isolation', DROPIN, ASSET_NAMES[index]),
+                                   ('overlay', OVERLAY, 'runtime_overlay'),
+                                   ('barrier', r3.BARRIER, None)):
+            key = str(index)+'-'+kind
+            mapping[key] = {'candidate': assets+key, 'target': parent+name,
+                            'source': source, 'mode': 0o644, 'unit': unit}
+            if kind == 'barrier':
+                mapping[key]['quarantine'] = r3.BOOT+'/quarantine/forward-'+unit
+    return mapping
+
+
+class MaintenanceAdapter(ReplacementAdapter):
+    """R4 original-run preparation; no recovery admission through __init__.
+
+    This adapter is not selected by the legacy dispatcher. The reviewed R4
+    session must bind its inputs, protection/restore and native timing proof
+    before constructing it. Recovery needs its own fresh admission instead of
+    this absence-based constructor. No method here resets a consumed claim.
+    """
+    def __init__(self, source, baseline, plan_raw, channel, binding, *, deadline,
+                 maintenance_inputs, after_ready_seconds):
+        io.require(type(maintenance_inputs) is dict and set(maintenance_inputs) ==
+                   {'scope_sha256', 'baseline_sha256', 'source_sha256',
+                    'pre_stop_protection_sha256', 'native_timing_sha256'} and
+                   all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v)
+                       for v in maintenance_inputs.values()), 'MAINTENANCE_INPUT_BINDING')
+        io.require(maintenance_inputs['scope_sha256'] == binding and
+                   maintenance_inputs['baseline_sha256'] == io.sha(io.canonical(baseline)) and
+                   maintenance_inputs['source_sha256'] == io.sha(io.canonical(
+                       {k: io.sha(v) for k, v in source.bytes.items()})), 'MAINTENANCE_INPUT_DRIFT')
+        # This is a checked value from the bound native timing result, not an
+        # operator guess. 180s is only the irreducible 3*20 + 120 floor; the
+        # caller must also include backup/probes/admission/cleanup/reserve.
+        io.require(type(after_ready_seconds) is int and 180 < after_ready_seconds < 600,
+                   'MAINTENANCE_TIMING_INPUT')
+        self.maintenance_inputs = dict(maintenance_inputs)
+        self.after_ready_seconds = after_ready_seconds
+        self.transaction_lock = None
+        self.prepared_ready = None; self.ready_raw = None; self.ready_metadata = None
+        self.prepared_assets = {}; self.asset_states = {}; self.prepared_directories = {}
+        self.prepared_directory_states = {}
+        super().__init__(source, baseline, plan_raw, channel, binding, deadline=deadline)
+        self.asset_map = prepared_asset_map(self.r)
+        self.artifacts.update({self.dropdir(u)+'/'+OVERLAY: ('runtime_overlay', 0o644) for u in UNITS})
+
+    def preparation_check(self):
+        """Old units remain old; no quiet(), new-runtime or rights assertion."""
+        self.now(); self.p.check(full=True); self.a.check(stop_only=True)
+        io.require(not self.a.stopped and not self.a.rights and not self.a.replacement_active and
+                   self.a.runtime is self.a.legacy_runtime, 'PREPARATION_NOT_OLD_RUNNING_STATE')
+        targets = set(self.a.runtime.files)
+        targets.update((row['device'], row['inode']) for _, row, *_ in self.p.rows.values())
+        targets.update((v['metadata']['device'], v['metadata']['inode']) for v in self.prepared_assets.values())
+        if self.a.prepared_runtime is not None:
+            self.a.prepared_runtime.check(); targets.update(self.a.prepared_runtime.files)
+        writer_check(targets, self.a.deadline)
+        self.channel.check(); self.p.check(full=True)
+
+    def check_transaction_lock(self):
+        io.require(self.transaction_lock is not None, 'MAINTENANCE_LOCK_MISSING')
+        path = self.r.BOOT+'/transaction.lock'
+        raw, actual = self.p.read(path)
+        held = os.fstat(self.transaction_lock)
+        io.require(raw == b'' and self.same_file(actual, self.lock_metadata) and
+                   (held.st_dev, held.st_ino) == (actual['device'], actual['inode']),
+                   'MAINTENANCE_LOCK_IDENTITY_CHANGED')
+        # No LOCK_UN/LOCK_EX gap. A lock retained on this same open description
+        # remains exclusive until close, including on an interrupted action.
+
+    def prepare_private_roots(self):
+        self.preparation_check(); self.space()
+        self.parent(str(PurePosixPath(self.r.BOOT).parent)); self.directory(self.r.BOOT)
+        path = self.r.BOOT+'/transaction.lock'
+        self.lock_metadata = self.p.create_file(path, b'')
+        self.transaction_lock = os.open(PurePosixPath(path).name, READ,
+                                        dir_fd=self.p.get(self.r.BOOT))
+        fcntl.flock(self.transaction_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.check_transaction_lock()
+        for name in ('read-witness', 'intents', 'acknowledgments', 'quarantine', 'reports', 'prepared'):
+            self.directory(self.r.BOOT+'/'+name)
+        self.directory(self.r.BOOT+'/prepared/assets')
+        self.channel.attach(self.p.get(self.r.BOOT+'/intents'))
+        self.p.create_file(self.r.BOOT+'/read-witness/witness.json', io.canonical(self.read_witness))
+        row = process(os.getpid())
+        self.channel.record('maintenance_lock_held', {'path': path, 'metadata': self.lock_metadata,
+            'operator': {k: row[k] for k in ('pid', 'starttime', 'cgroup')},
+            'not_a_recovery_claim': True})
+        for path in (STAGING, LIGHTING):
+            self.parent(str(PurePosixPath(path).parent)); self.directory(path)
+        for name in ('quarantine', 'reports', 'result'):
+            self.directory(STAGING+'/'+name)
+        for unit in UNITS:
+            self.parent(self.dropdir(unit), 0o755)
+        self.a.new_parent_paths |= self.created & {self.dropdir(u) for u in UNITS}
+        self.preparation_check()
+
+    def prepare_asset_candidates(self):
+        io.require(not self.prepared_assets and self.prepared_ready is None,
+                   'NO_PREPARATION_REPLAY')
+        io.require(self.source.bytes['runtime_overlay'] == overlay(), 'REPLACEMENT_OVERLAY_SOURCE')
+        for key, spec in self.asset_map.items():
+            self.preparation_check(); self.p.absent(spec['target'])
+            if 'quarantine' in spec:self.p.absent(spec['quarantine'])
+            raw = self.r.BARRIER_BYTES if spec['source'] is None else self.source.bytes[spec['source']]
+            row = self.p.create_file(spec['candidate'], raw, spec['mode'])
+            expected = {'sha256': io.sha(raw), 'metadata': row}
+            actual = self.p.classify_owned_pair(spec['candidate'], spec['target'], expected,
+                                                quarantine=spec.get('quarantine'))
+            io.require(actual['place'] == 'candidate', 'PREPARED_ASSET_NOT_PRIVATE')
+            self.prepared_assets[key] = expected; self.asset_states[key] = actual
+        self.preparation_check()
+
+    def check_prepared_dependencies(self):
+        selected = self.a.prepared_runtime
+        io.require(isinstance(selected, ReplacementFence) and not self.a.replacement_active,
+                   'PREPARED_RUNTIME_REQUIRED')
+        selected.check()
+        self.a.bind_external_libraries(prepared=selected)
+        writer_check(selected.files, self.a.deadline)
+        selected.check()
+
+    def prepare_runtime_bundle(self, *, deadline):
+        io.require(self.prepared_ready is None and self.a.prepared_runtime is None and
+                   self.transaction_lock is None, 'NO_PREPARATION_REPLAY')
+        self.prepare_private_roots()
+        raw = self.receive_artifact(preparing=True)
+        self.a.prepared_runtime = self.construct_runtime(raw, deadline=deadline)
+        self.check_prepared_dependencies(); self.prepare_asset_candidates()
+        self.preparation_check(); self.check_transaction_lock()
+        runtime = self.a.prepared_runtime.identity_digest()
+        # Exact created directory identities, including private roots. Their
+        # real timestamps are retained; later intentional child changes have
+        # separate receipts. Security and inode bindings never become mutable.
+        self.prepared_directories = {p: self.p.d.metadata(self.p.get(p)) for p in sorted(self.created)}
+        ready = {'schema': MAINTENANCE_CONTRACT, 'transaction': self.r.TX,
+                 'machine': self.r.MACHINE, 'boot_id': self.a.b['boot_id'],
+                 'inputs': self.maintenance_inputs, 'owner_plan_sha256': self.r.OWNER_PLAN,
+                 'artifact_sha256': io.sha(io.canonical(self.replacement_receipt)),
+                 'archive_sha256': self.replacement_receipt['archive_sha256'],
+                 'runtime': runtime, 'mapping': self.asset_map, 'assets': self.prepared_assets,
+                 'directories': self.prepared_directories,
+                 'checks': ['complete_runtime', 'prepared_dependencies', 'complete_candidates',
+                            'current_old_stop_authority', 'current_writers', 'exclusive_lock'],
+                 'activation': 'NOT_ACTIVATED', 'old_return': False}
+        raw = io.canonical(ready)
+        io.require(len(raw) < 48*1024, 'PREPARED_READY_RECORD_BOUND')
+        self.ready_metadata = self.p.create_file(self.r.BOOT+'/prepared/READY.json', raw)
+        self.prepared_directory_states = {p: self.p.d.metadata(self.p.get(p)) for p in
+            (self.r.BOOT+'/prepared', self.r.BOOT+'/prepared/assets')}
+        # Setting ready only AFTER the linked record completes prevents Stop
+        # if either custody or its ACK is missing. No later state read invents
+        # that missing original ACK.
+        self.channel.record('maintenance_ready', {'ready': ready, 'sha256': io.sha(raw),
+            'file_metadata': self.ready_metadata,
+            'actual_prepared_directories': self.prepared_directory_states})
+        self.ready_raw = raw; self.prepared_ready = ready
+        self.check_prepared_state(before_stop=True)
+        return io.sha(raw)
+
+    def check_prepared_state(self, *, before_stop=False):
+        io.require(self.prepared_ready is not None, 'PREPARED_READY_MISSING')
+        self.check_transaction_lock(); self.p.check(full=True)
+        raw, row = self.p.read(self.r.BOOT+'/prepared/READY.json')
+        io.require(raw == self.ready_raw and self.same_file(row, self.ready_metadata), 'PREPARED_READY_CHANGED')
+        for path, expected in self.prepared_directories.items():
+            actual = self.p.d.metadata(self.p.get(path))
+            io.require(security(actual) == security(expected), 'PREPARED_DIRECTORY_IDENTITY_CHANGED')
+        for path, expected in self.prepared_directory_states.items():
+            io.require(self.same_file(self.p.d.metadata(self.p.get(path)), expected),
+                       'PREPARED_DIRECTORY_UNEXPLAINED_CHANGE')
+        io.require(set(os.listdir(self.p.get(self.r.BOOT+'/prepared'))) == {'assets', 'READY.json'} and
+                   set(os.listdir(self.p.get(self.r.BOOT+'/prepared/assets'))) ==
+                   {PurePosixPath(self.asset_map[k]['candidate']).name for k, v in self.asset_states.items()
+                    if v['place'] == 'candidate'}, 'PREPARED_PRIVATE_SUBSTRUCTURE_CHANGED')
+        for key, spec in self.asset_map.items():
+            observed = self.p.classify_owned_pair(spec['candidate'], spec['target'], self.prepared_assets[key],
+                                                  quarantine=spec.get('quarantine'))
+            prior = self.asset_states[key]
+            io.require(observed['place'] == prior['place'] and
+                       self.same_file(observed['metadata'], prior['metadata']), 'PREPARED_ASSET_UNEXPLAINED_CHANGE')
+        selected = self.a.prepared_runtime
+        io.require(selected is not None and selected.identity_digest() == self.prepared_ready['runtime'],
+                   'PREPARED_RUNTIME_CHANGED')
+        if not self.a.replacement_active:self.check_prepared_dependencies()
+        else:self.a.verify_external_libraries()
+        writer_check(selected.files | {(v['metadata']['device'], v['metadata']['inode'])
+                                        for v in self.prepared_assets.values()}, self.a.deadline)
+        if before_stop:
+            self.preparation_check()
+            io.require(time.monotonic()+self.after_ready_seconds < min(self.deadline, self.channel.ceiling),
+                       'INSUFFICIENT_AFTER_READY_BUDGET_NO_STOP')
+        self.channel.check(); self.p.check(full=True)
+
+    def publish_prepared_asset(self, key):
+        self.check_transaction_lock()
+        io.require(key in self.asset_map and self.asset_states[key]['place'] == 'candidate',
+                   'NO_ASSET_PUBLICATION_REPLAY')
+        spec = self.asset_map[key]
+        assets = self.r.BOOT+'/prepared/assets'
+        io.require(self.same_file(self.p.d.metadata(self.p.get(assets)), self.prepared_directory_states[assets]),
+                   'PREPARED_PUBLICATION_PARENT_DRIFT')
+        self.channel.record('prepared_publication_intent', {'key': key,
+            'ready_sha256': io.sha(self.ready_raw), 'mapping': spec})
+        proof = self.p.publish_owned_candidate(spec['candidate'], spec['target'], self.prepared_assets[key])
+        # Bind real post-rename ctime before any later operation. If record
+        # persistence fails, this action remains failed; no in-process retry.
+        self.asset_states[key] = proof
+        self.prepared_directory_states[assets] = proof['parents'][assets]
+        if spec['source'] is None:
+            self.barriers[spec['unit']] = proof['metadata']
+            self.barrier_places[spec['unit']] = (spec['target'], proof['metadata'])
+        else:self.installed[spec['target']] = proof['metadata']
+        if spec['unit'] is not None:
+            self.a.own_config_paths.add(spec['target'])
+            self.a.own_dropins[spec['unit']].add(spec['target'])
+        self.channel.record('prepared_publication_observed', {'key': key, 'actual': proof})
+
+    def activate_prepared_runtime(self):
+        self.quiet(); self.check_prepared_state()
+        io.require(not self.a.replacement_active and not self.replacement_ready and
+                   set(self.installed) == set(self.artifacts), 'PREPARED_ACTIVATION_INCOMPLETE')
+        previous = self.a.runtime; selected = self.a.prepared_runtime
+        io.require(previous is self.a.legacy_runtime, 'PREPARED_ACTIVATION_OLD_STATE')
+        self.check_prepared_dependencies()
+        selected.files |= previous.files
+        self.extra_runtime_fences.append(previous)
+        self.a.runtime = selected; self.a.replacement_active = True
+        previous.check(); selected.check(); self.a.bind_external_libraries()
+        self.replacement_ready = True
+        self.channel.record('prepared_runtime_activated', {'ready_sha256': io.sha(self.ready_raw),
+            'runtime_sha256': selected.digest, 'old_return': False})
+
+    def _perform(self, action, unit=None, *, deadline):
+        if action in ('prepare_runtime_bundle', 'create_persistent_barriers', 'install_four_artifacts'):
+            io.require(unit is None and self.pending is None and
+                       time.monotonic() < deadline <= self.deadline, 'MAINTENANCE_ACTION_SCOPE')
+            self.pending = (action, unit)
+            self.channel.record('host_action_intent', {'action': action, 'unit': unit})
+            result = {'action': action, 'unit': unit, 'outcome': 'CONFIRMED'}
+            if action == 'prepare_runtime_bundle':
+                result['proof_sha256'] = self.prepare_runtime_bundle(deadline=deadline)
+            elif action == 'create_persistent_barriers':
+                self.check_prepared_state(before_stop=True)
+                io.require(not self.barriers, 'NO_BARRIER_REPLAY')
+                # No check against effective DropInPaths between publishing
+                # this fixed set and the one bound reload: the manager still
+                # has its old loaded view until that reload completes.
+                for key, spec in self.asset_map.items():
+                    if spec['source'] is None:self.publish_prepared_asset(key)
+                self.reload()
+                for u in UNITS:self.condition(u, present=True)
+            else:
+                self.quiet(); self.check_prepared_state()
+                io.require(self.backup_hash and self.restore_hash == self.backup_hash and self.probe_hash,
+                           'PREPARED_INSTALL_PREREQUISITES')
+                io.require(not self.installed and not self.replacement_ready, 'NO_INSTALL_REPLAY')
+                for key, spec in self.asset_map.items():
+                    if spec['source'] is not None:self.publish_prepared_asset(key)
+                self.reload(); self.activate_prepared_runtime()
+                for u in UNITS:self.isolation(u)
+                result['proof_sha256'] = io.sha(self.ready_raw)
+            io.require(time.monotonic() < deadline, 'MAINTENANCE_ACTION_LATE')
+            self.channel.record('host_action_ack', result)
+            self.pending = None
+            return result
+        io.require(action != 'create_sealed_staging', 'MAINTENANCE_ROOTS_ALREADY_PREPARED')
+        if action == 'stop':
+            self.check_prepared_state(before_stop=not self.a.stopped)
+        if action == 'quarantine_own_barrier':
+            key = next(k for k, s in self.asset_map.items() if s['source'] is None and s['unit'] == unit)
+            io.require(self.asset_states[key]['place'] == 'target', 'NO_BARRIER_RELEASE_REPLAY')
+            result = super()._perform(action, unit, deadline=deadline)
+            spec = self.asset_map[key]
+            actual = self.p.classify_owned_pair(spec['candidate'], spec['target'], self.prepared_assets[key],
+                                                quarantine=spec['quarantine'])
+            io.require(actual['place'] == 'quarantine' and
+                       self.same_file(actual['metadata'], self.barrier_places[unit][1]),
+                       'PREPARED_BARRIER_QUARANTINE_CHANGED')
+            actual['parents'] = {str(PurePosixPath(p).parent):
+                                self.p.d.metadata(self.p.get(str(PurePosixPath(p).parent)))
+                                for p in (spec['target'], spec['quarantine'])}
+            self.asset_states[key] = actual
+            self.channel.record('prepared_barrier_release_observed', {'key': key, 'actual': actual})
+            return result
+        return super()._perform(action, unit, deadline=deadline)
+
+    def _observe(self, phase, *, deadline):
+        if phase == 'prepared':
+            self.check_prepared_state(before_stop=True)
+            return self.r.Observation(self.r.TX, self.binding, phase, frozenset((
+                'ready_two_custodies', 'full_runtime_identity_digest', 'ten_complete_candidates',
+                'prepared_external_dependencies', 'old_runtime_not_activated',
+                'private_roots_and_exclusive_lock', 'native_after_ready_budget_remaining')),
+                time.monotonic())
+        if phase == 'owner_ready':
+            io.require(not self.owner_admission_started and isinstance(self.channel, io.MaintenanceLinkedRecords),
+                       'OWNER_ENTRY_REQUIRES_REV4_CHANNEL')
+            self.now()
+            started = time.monotonic()
+            io.require(started+120 < min(deadline, self.deadline, self.channel.ceiling),
+                       'OWNER_FULL_WINDOW_NOT_AVAILABLE_NO_ENTRY')
+            self.owner_admission_started = True
+            owner_deadline = started+120
+            self.channel.cap(owner_deadline)
+            with self.a.limit(owner_deadline):
+                # No Supervisor, leases or writer-preparation exists before
+                # the two fixed entry markers. Every step shares THIS120s.
+                self.channel.begin_owner_admission(self.p, ready_sha256=io.sha(self.ready_raw))
+                self.a.check(); self.function_all(old=False)
+                self.owner = self.source.load('owner').Supervisor(self.source.load('guard'), self.plan_raw,
+                    self.r.OWNER_PLAN, self.a.bounded(owner_deadline), self.channel.bounded(owner_deadline),
+                    deadline=owner_deadline)
+                self.owner.check_all()
+                self.now()
+            return self.r.Observation(self.r.TX, self.binding, phase, frozenset((
+                'original_exact_owner_plan_matches', 'rights_acceptance_current',
+                'all82_file_leases_namespace_FD_mapping_fences', 'owner120s512FD_bound',
+                'actual_owner_backup_independent_read_restore', 'separate_owner_journal_and_intent_unspent',
+                'first_owner_marker_two_custodies_same_window')), time.monotonic())
+        io.require(phase != 'staging_ready', 'MAINTENANCE_ROOTS_ALREADY_PREPARED')
+        return super()._observe(phase, deadline=deadline)
+
+    def close(self):
+        errors = []
+        if getattr(self, 'transaction_lock', None) is not None:
+            try:self.check_transaction_lock()
+            except BaseException:errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_LOCK_CLEANUP_UNKNOWN')
+        errors.extend(super().close())
+        if getattr(self, 'transaction_lock', None) is not None:
+            try:os.close(self.transaction_lock)
+            except OSError:errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_LOCK_CLOSE_UNKNOWN')
+            self.transaction_lock = None
         return errors

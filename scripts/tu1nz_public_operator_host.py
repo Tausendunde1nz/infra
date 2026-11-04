@@ -631,6 +631,27 @@ class RemoteJournal:
         self.channel.record('flow_'+kind, value)
 
 
+class RecoveryRemoteJournal:
+    """Own bounded Flow subchain. Never invokes the original Flow claim."""
+    def __init__(self, channel):
+        io.require(isinstance(channel, io.RecoveryLinkedRecords), 'RECOVERY_JOURNAL_CHANNEL')
+        self.channel, self.binding = channel, channel.binding
+        self.claimed = False; self.count = 0
+
+    def claim(self):
+        io.require(not self.claimed, 'RECOVERY_FLOW_NO_REPLAY')
+        self.claimed = True
+        self.write('claim', {'transaction': 'public-rights-20261014-1',
+                             'original_claim_reset': False, 'recovery_of_recovery': False})
+
+    def write(self, kind, value):
+        io.require(self.claimed and self.count < 128 and kind in
+                   ('claim', 'observation', 'intent', 'ack', 'hold', 'complete'),
+                   'RECOVERY_FLOW_RECORD_BOUND')
+        self.count += 1
+        self.channel.record('recovery_flow_'+kind, value)
+
+
 def source_fault_location(error):
     """Source-only location, never exception text, locals or Host path values."""
     seen = set(); location = None

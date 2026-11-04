@@ -336,6 +336,7 @@ s.close()
         authority.external_dependencies={p:{'source':source,'sha256':a.sha(raw)} for p in aliases}
         authority.loader_bindings=dict.fromkeys(aliases,source)
         authority.external_identities=dict.fromkeys(aliases,(1,2,3,4));authority.replacement_active=False
+        authority.runtime=SimpleNamespace(files={(1,2)})  # already-fenced inputs in this component fixture
         authority.verify_external_libraries()
         read.assert_called_once_with(99,'SYNTHETIC.so')
         self.assertEqual(authority.check_loader_paths.call_count,2)
