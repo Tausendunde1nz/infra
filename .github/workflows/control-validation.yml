@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  mainserver-backup-native:
+    name: mainserver-backup-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # Only generated private filesystem fixtures. No Host data, private token,
+    # actual capture entry, real credentials, services or artifact upload.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Linux descriptor and metadata backup boundary, synthetic data only
+        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v tests.test_mainserver_backup_read tests.test_mainserver_backup tests.test_mainserver_restore
   mainserver-startlimit-native:
     name: mainserver-startlimit-native
     runs-on: ubuntu-24.04
