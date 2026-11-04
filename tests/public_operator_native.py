@@ -833,6 +833,62 @@ def actual_census_loader_profile(s):
     assert names(observed)==names(comparison) and names(observed)
 
 
+def actual_start_limit_job_observation(s):
+    """Real PID1 properties/signals on this fixture's already active units.
+
+    No mocks, limiter changes or reset-failed. A start request against an
+    already active synthetic service produces a job without restarting its
+    process. This tests passive observation, NOT full recovery admission.
+    """
+    assert_guest()
+    replacement=s.load('replacement');observer=s.load('observe')
+    providers={str(Path(p).resolve(strict=True)) for p in operator_dependency_names(s)
+               if Path(p).name.startswith('libsystemd-shared-') and Path(p).name.endswith('.so')}
+    assert len(providers)==1
+    fd=os.open(next(iter(providers)),os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    reader=None
+    try:
+        end=time.monotonic()+40
+        before=observer.unit_rows(UNITS,end)
+        assert all(v['ActiveState']=='active' and v['NRestarts']=='0' and not v['Job'] for v in before.values())
+        reader=replacement.ReadOnlyBus(fd,end)
+        watch=replacement.StartLimitObservation(reader)
+        # Compare typed native GetAll scalars to the existing CLI's actual
+        # numeric output, then observe the whole unchanged finite interval.
+        for unit in UNITS:
+            burst=run('/usr/bin/systemctl','show',unit,'--property=StartLimitBurst','--value').decode().strip()
+            assert burst.isdecimal() and int(burst)==watch.limits[unit]['StartLimitBurst']
+            assert 0 < watch.limits[unit]['StartLimitIntervalUSec'] <= 15_000_000
+            assert watch.limits[unit]['StartLimitBurst'] > 0
+        assert watch.remaining(UNITS[0]) > 0
+        while watch.remaining(UNITS[0]) > 0:
+            assert time.monotonic() < end-10
+            time.sleep(.02)
+        watch.retire_for_start(UNITS[0])
+        run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[0])
+        watch.drain()  # retired own unit's real job must no longer match
+        run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[1])
+        rejected=False
+        until=min(end,time.monotonic()+5)
+        while time.monotonic() < until and not rejected:
+            try:watch.drain()
+            except s.load('io').Hold as error:
+                assert error.primary=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED'
+                rejected=True
+            if not rejected:time.sleep(.02)
+        assert rejected and watch.events > 0
+        try:watch.remaining(UNITS[2])
+        except s.load('io').Hold:pass
+        else:raise AssertionError('NATIVE_START_LIMIT_FAULT_NOT_LATCHED')
+        after=observer.unit_rows(UNITS,end)
+        assert all((after[u]['MainPID'],after[u]['InvocationID'],after[u]['NRestarts']) ==
+                   (before[u]['MainPID'],before[u]['InvocationID'],before[u]['NRestarts']) for u in UNITS)
+        reader.close();assert watch.closed and not watch.slots and not reader.bus
+    finally:
+        if reader is not None:reader.close()
+        os.close(fd)
+
+
 def actual_loader_alias_fence(s):
     """Own synthetic library names only; no systemd ancestor/reload experiment."""
     replacement=s.load('replacement');entry=s.load('entry');fs=s.load('fs')
@@ -953,6 +1009,7 @@ def main():
     actual_read_census_fence(s)
     actual_loader_configuration_fence(s)
     actual_policy_owner_epoch(s)
+    if args.scenario=='r5_success':actual_start_limit_job_observation(s)
     if args.scenario == 'thread_authority':
         # Exact profile first, then a real per-task fsuid change. A worker
         # retains root filesystem authority while the leader no longer does.
