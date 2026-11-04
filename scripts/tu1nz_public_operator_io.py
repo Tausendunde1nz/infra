@@ -29,6 +29,11 @@ MAX_FRAME = 4*1024*1024
 MAINTENANCE_SCOPE = 'TU1NZ_MAIN_SERVER_REV4_APPROVED_SCOPE_V1'
 MAINTENANCE_DECISION_SHA = 'e6794711443f5768c2e720c7552948964976c246ab59ff89236f53125fbd49fc'
 MAINTENANCE_APPROVAL_SHA = '576251012fb1e73fcc29a49334140660339b74fbdda05273822e53cb6f80c3a4'
+# Compiled production identity, never selected by a packet, environment or
+# command-line override. Native fixture code substitutes only its generated
+# machine/plan constants, as the existing full operator fixture does for r3.
+MAINTENANCE_MACHINE = 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae'
+MAINTENANCE_OWNER_PLAN = 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36'
 R5_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
 PROSPECTIVE_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5P_V1'
 PROSPECTIVE_BINDING = 'TU1NZ_PUBLIC_PROSPECTIVE_BINDING_V1'
@@ -174,9 +179,9 @@ def maintenance_scope(scope, baseline):
     require(scope['contract_sha256'] == MAINTENANCE_DECISION_SHA and scope['approval_sha256'] == MAINTENANCE_APPROVAL_SHA and
             scope['r3_approval_sha256'] == '7032ae9a4baf5c358e81050cd3fd675386c2f33100ab9932f504c053eaa10a7d' and
             scope['machine_sha256'] == baseline['machine_sha256'] ==
-            'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae' and
+            MAINTENANCE_MACHINE and
             scope['transaction'] == 'public-rights-20261014-1' and
-            scope['owner_plan_sha256'] == 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36' and
+            scope['owner_plan_sha256'] == MAINTENANCE_OWNER_PLAN and
             scope['legacy_return'] is False, 'MAINTENANCE_APPROVED_FINITE_CONTRACT')
     require(baseline.get('schema') == 'TU1NZ_PUBLIC_HOST_BASELINE_CURRENT_REV4_V1' and
             'contexts' not in baseline and baseline.get('current_authority') == {
@@ -252,6 +257,56 @@ def maintenance_material_binding(scope, baseline, material, *, source_hashes, re
             type(review['evidence_sha256']) is str and re.fullmatch('[0-9a-f]{64}', review['evidence_sha256']) and
             accepted <= timestamp(review['reviewed_at']) <= now, 'MAINTENANCE_INDEPENDENT_INPUT_REVIEW_MISMATCH')
     return docs
+
+
+def maintenance_packet_binding(packet, source, *, remaining_seconds):
+    """Decode only the finite Rev4 envelope, without claims or Host effects.
+
+    The session must additionally validate real protection/restore, native
+    timing and read-scope evidence before constructing either effect adapter.
+    This function deliberately cannot return an approval_bound channel.
+    """
+    fields = {'source', 'hashes', 'baseline', 'baseline_raw', 'baseline_encoding', 'scope', 'scope_raw',
+              'scope_sha256', 'binding', 'owner_plan', 'release', 'maintenance_material',
+              'review_sha256', 'route', 'remaining_milliseconds'}
+    require(type(packet) is dict and packet.get('route') in ('original', 'recovery-once') and
+            set(packet) == fields | ({'recovery'} if packet['route'] == 'recovery-once' else set()) and
+            packet['baseline_encoding'] == 'zlib_REV4' and type(packet['remaining_milliseconds']) is int and
+            0 < packet['remaining_milliseconds'] <= 600000, 'MAINTENANCE_PACKET_SCHEMA')
+    hashes = {k:sha(v) for k,v in source.bytes.items()}
+    require(packet['hashes'] == hashes and set(packet['source']) == set(hashes) and all(
+            base64.b64decode(packet['source'][k], validate=True) == v for k,v in source.bytes.items()),
+            'MAINTENANCE_PACKET_SOURCE_CHANGED')
+    decoder = zlib.decompressobj()
+    raw = decoder.decompress(base64.b64decode(packet['baseline_raw'], validate=True), MAX_FRAME+1)
+    require(len(raw) <= MAX_FRAME and decoder.eof and not decoder.unconsumed_tail and not decoder.unused_data and
+            raw == canonical(packet['baseline']), 'MAINTENANCE_PACKET_BASELINE_CANONICAL')
+    scope_raw = base64.b64decode(packet['scope_raw'], validate=True)
+    scope,baseline = packet['scope'],packet['baseline']
+    require(scope_raw == canonical(scope) and sha(scope_raw) == packet['scope_sha256'] == packet['binding'] and
+            scope['baseline_sha256'] == sha(raw) and scope['release_sha256'] == sha(canonical(packet['release'])) and
+            packet['release'].get('schema') == 'TU1NZ_PUBLIC_OPERATOR_RELEASE_V1' and
+            packet['release'].get('files') == hashes, 'MAINTENANCE_PACKET_INPUT_BINDING')
+    plan = base64.b64decode(packet['owner_plan'], validate=True)
+    require(sha(plan) == scope['owner_plan_sha256'] == MAINTENANCE_OWNER_PLAN and
+            parse(plan)['host'] == scope['machine_sha256'] == MAINTENANCE_MACHINE,
+            'MAINTENANCE_PACKET_FIXED_OWNER_PLAN')
+    require(type(packet['maintenance_material']) is dict, 'MAINTENANCE_PACKET_MATERIAL_SCHEMA')
+    material = {n:base64.b64decode(v, validate=True) for n,v in packet['maintenance_material'].items()}
+    docs = maintenance_material_binding(scope,baseline,material,source_hashes=hashes,
+                                        review_sha256=packet['review_sha256'], remaining_seconds=remaining_seconds)
+    if packet['route'] == 'recovery-once':
+        recovery = packet['recovery']
+        require(type(recovery) is dict and set(recovery) == {'entry', 'manifest'} and
+                type(recovery['entry']) is dict and type(recovery['manifest']) is dict,
+                'MAINTENANCE_RECOVERY_ENVELOPE_SCHEMA')
+        entry = recovery['entry']; manifest = recovery['manifest']
+        require(entry == recovery_entry(packet['binding'],baseline['boot_id'],sha(canonical(hashes)),
+                    manifest.get('snapshot_sha256'),entry.get('ready_sha256')) and
+                manifest.get('binding') == packet['binding'], 'MAINTENANCE_RECOVERY_ENTRY_BINDING')
+    return {'documents': docs, 'plan': plan, 'inputs': {
+        'scope_sha256': packet['binding'], 'baseline_sha256': sha(raw), 'source_sha256': sha(canonical(hashes)),
+        'pre_stop_protection_sha256': scope['pre_stop_protection_sha256'], 'native_timing_sha256': scope['native_timing_sha256']}}
 
 
 def replacement_scope(scope, baseline):
@@ -1116,8 +1171,7 @@ def owner_entry_marker(*, original_binding, execution_binding, ready_sha256, boo
             re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', boot_id) and
             (route != 'original' or original_binding == execution_binding), 'OWNER_ENTRY_BINDING')
     return {'schema': 'TU1NZ_REV4_FIRST_OWNER_ADMISSION', 'transaction': 'public-rights-20261014-1',
-            'machine': 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae',
-            'owner_plan_sha256': 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36',
+            'machine': MAINTENANCE_MACHINE, 'owner_plan_sha256': MAINTENANCE_OWNER_PLAN,
             'original_binding': original_binding, 'execution_binding': execution_binding,
             'ready_sha256': ready_sha256, 'boot_id': boot_id, 'route': route, 'owner_window_seconds': 120}
 
@@ -1164,8 +1218,7 @@ def recovery_entry(original_binding, boot_id, source_sha256, mac_snapshot_sha256
     require(all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v)
                 for v in (source_sha256, mac_snapshot_sha256)), 'RECOVERY_ENTRY_INPUT_HASHES')
     return {'schema': 'TU1NZ_REV4_SINGLE_RECOVERY_ENTRY', 'transaction': 'public-rights-20261014-1',
-            'machine': 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae',
-            'owner_plan_sha256': 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36',
+            'machine': MAINTENANCE_MACHINE, 'owner_plan_sha256': MAINTENANCE_OWNER_PLAN,
             'original_binding': original_binding, 'boot_id': boot_id, 'source_sha256': source_sha256,
             'mac_snapshot_sha256': mac_snapshot_sha256, 'ready_sha256': ready_sha256}
 
@@ -1179,8 +1232,7 @@ def recovery_binding(seed):
             'RECOVERY_BINDING_SCHEMA')
     require(seed['schema'] == 'TU1NZ_MAIN_SERVER_REV4_RECOVERY_ONCE' and
             seed['transaction'] == 'public-rights-20261014-1' and
-            seed['machine'] == 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae' and
-            seed['owner_plan_sha256'] == 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36' and
+            seed['machine'] == MAINTENANCE_MACHINE and seed['owner_plan_sha256'] == MAINTENANCE_OWNER_PLAN and
             seed['original_status'] == 'FAILED_HOLD' and type(seed['boot_id']) is str and
             re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', seed['boot_id']) and
             all(type(seed[k]) is str and re.fullmatch('[0-9a-f]{64}', seed[k]) for k in hashes) and

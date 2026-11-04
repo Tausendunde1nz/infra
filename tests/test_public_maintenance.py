@@ -4,6 +4,7 @@ The native production-adapter suite must separately exercise actual Linux
 renameat2, systemd, fences, failures, real restore and complete time budgets.
 """
 import copy
+import base64
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import sys
 import tempfile
 import time
 import unittest
+import zlib
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
 from contextlib import nullcontext
@@ -721,6 +723,55 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
         with self.assertRaises(io.Hold):self.check(f)
         bind(); review['findings'] = ['unresolved']; material['review'] = io.canonical(review)
         with self.assertRaises(io.Hold):self.check(f)
+
+    def packet(self):
+        f = self.fixture(); scope,baseline,material,hashes,acceptance,review,bind,*_ = f
+        source = SimpleNamespace(bytes={n:('SYNTHETIC_SOURCE_'+n).encode() for n in hashes})
+        hashes.clear(); hashes.update({n:io.sha(raw) for n,raw in source.bytes.items()})
+        acceptance['source_sha256'] = io.sha(io.canonical(hashes))
+        material['current_acceptance'] = io.canonical(acceptance)
+        scope['current_acceptance_sha256'] = io.sha(material['current_acceptance'])
+        plan = io.canonical({'host': r3.MACHINE, 'fixture': 'not actual owner evidence'})
+        self.enterContext(patch.object(io, 'MAINTENANCE_OWNER_PLAN', io.sha(plan)))
+        scope['owner_plan_sha256'] = io.sha(plan)
+        release = {'schema': 'TU1NZ_PUBLIC_OPERATOR_RELEASE_V1', 'files': hashes}
+        scope['release_sha256'] = io.sha(io.canonical(release)); bind()
+        encoded = lambda raw:base64.b64encode(raw).decode()
+        raw_scope = io.canonical(scope)
+        return {'source': {n:encoded(raw) for n,raw in source.bytes.items()}, 'hashes': hashes,
+            'baseline': baseline, 'baseline_raw': encoded(zlib.compress(io.canonical(baseline))),
+            'baseline_encoding': 'zlib_REV4', 'scope': scope, 'scope_raw': encoded(raw_scope),
+            'scope_sha256': io.sha(raw_scope), 'binding': io.sha(raw_scope), 'owner_plan': encoded(plan),
+            'release': release, 'maintenance_material': {n:encoded(raw) for n,raw in material.items()},
+            'review_sha256': io.sha(material['review']), 'route': 'original', 'remaining_milliseconds': 590000}, source
+
+    def test_packet_requires_exact_current_source_and_canonical_reviewed_bytes(self):
+        packet, source = self.packet()
+        result = io.maintenance_packet_binding(packet, source, remaining_seconds=590)
+        self.assertEqual(result['inputs']['scope_sha256'], packet['binding'])
+        self.assertNotIn('approval_bound', result)
+        for field,value in (('binding','f'*64), ('remaining_milliseconds',True), ('baseline_encoding','zlib_R5'),
+                            ('scope_raw',base64.b64encode(io.canonical(packet['scope'])+b'\n').decode())):
+            with self.subTest(field=field), self.assertRaises(io.Hold):
+                io.maintenance_packet_binding({**packet,field:value}, source, remaining_seconds=590)
+        changed = copy.deepcopy(packet); changed['source']['host'] = base64.b64encode(b'changed').decode()
+        with self.assertRaises(io.Hold):io.maintenance_packet_binding(changed, source, remaining_seconds=590)
+        changed = copy.deepcopy(packet)
+        changed['baseline_raw'] = base64.b64encode(base64.b64decode(packet['baseline_raw'])+b'trailing').decode()
+        with self.assertRaises(io.Hold):io.maintenance_packet_binding(changed, source, remaining_seconds=590)
+
+    def test_recovery_envelope_cannot_change_source_original_binding_or_route(self):
+        packet, source = self.packet()
+        entry = io.recovery_entry(packet['binding'], packet['baseline']['boot_id'],
+                                 io.sha(io.canonical(packet['hashes'])), 'a'*64, 'b'*64)
+        recovery = {'entry': entry, 'manifest': {'binding': packet['binding'], 'snapshot_sha256': 'a'*64}}
+        packet.update(route='recovery-once', recovery=recovery)
+        result = io.maintenance_packet_binding(packet, source, remaining_seconds=590)
+        self.assertEqual(result['inputs']['scope_sha256'], entry['original_binding'])
+        # Only envelope binding is established here; the actual host chain
+        # reader must still reject this intentionally incomplete manifest.
+        recovery['entry'] = {**entry, 'original_binding': 'f'*64}
+        with self.assertRaises(io.Hold):io.maintenance_packet_binding(packet, source, remaining_seconds=590)
 
 
 class RecoveryAdmissionChannelTests(unittest.TestCase):
