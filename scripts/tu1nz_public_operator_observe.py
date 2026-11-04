@@ -1584,6 +1584,9 @@ class CurrentAuthority(Authority):
             io.require(not actual.st_mode & 0o002, 'CURRENT_PUBLIC_ADMINISTRATIVE_BROKER')
         return frozenset(uids), frozenset(gids)
 
+    def accepted_runtime_actor(self, unit, row):
+        self.rights_check(unit, row)
+
     def actors_check(self, *, stop_only):
         io.require(self.contexts is None, 'CURRENT_NO_HISTORICAL_CONTEXT_ADMISSION')
         authority_uids, authority_gids = self.relevant_identities()
@@ -1619,7 +1622,7 @@ class CurrentAuthority(Authority):
                 if pid in right_pids:
                     unit, tick = right_pids[pid]
                     io.require(strict['starttime'] == tick, 'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
-                    self.rights_check(unit, strict); right_seen.add(pid)
+                    self.accepted_runtime_actor(unit, strict); right_seen.add(pid)
                 else:self.delegation_check(strict, known_stop=True)
                 continue
             matched = [i for i, profile in enumerate(self.b['actors']) if self.actor_matches(row, profile)]

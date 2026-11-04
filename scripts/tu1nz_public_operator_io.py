@@ -890,7 +890,7 @@ class Source:
                 all(sha(raw) == hashes[n] for n, raw in self.bytes.items()), 'SOURCE_HASH')
         require(all(hashes[k] == h for k, h in CONTROL_PINS.items()), 'UNCHANGED_CONTROL_COMPONENT')
         require(all(hashes[k] == h for k, h in ASSETS.items()), 'UNCHANGED_RUNTIME_COMPONENT')
-        require(hashes['r3'] == '101aa8cb37277148d3166059c44e34edf45d5fcfa3e2c93204af44a825df559f',
+        require(hashes['r3'] == '063b068d6ae7fb3440f5750cc644f59c188646008f929b0524992cdf259ab1e9',
                 'REV4_ORDERING_COMPONENT')
         self.modules = {}
 

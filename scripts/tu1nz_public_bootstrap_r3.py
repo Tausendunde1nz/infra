@@ -383,11 +383,16 @@ class RecoveryFlow(Flow):
             states = observed.facts & {'F1', 'F2', 'F3', 'F4'}
             require(len(states) == 1, 'RECOVERY_STATE_NOT_UNIQUE')
             state = next(iter(states)); self.stage = state
+            if state != 'F1':
+                # A completed rename can precede a lost reload ACK. Only the
+                # exact own disk/loaded delta may be reconciled; the adapter
+                # skips daemon-reload when effective configuration is current.
+                self.effect('recovery_reconcile_config')
             if state == 'F1':
                 self.effect('recovery_complete_barriers'); self.witness('barriers')
                 for unit in STOP:
                     current = self.witness('recovery_state:'+unit)
-                    choices = current.facts & {'known_old_active', 'empty_inactive'}
+                    choices = current.facts & {'known_old_active', 'empty_inactive', 'empty_terminal_failed'}
                     require(len(choices) == 1, 'RECOVERY_OLD_STOP_STATE_UNKNOWN')
                     if 'known_old_active' in choices:
                         value = self.effect('recovery_stop', unit)

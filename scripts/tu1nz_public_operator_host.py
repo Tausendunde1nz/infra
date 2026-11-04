@@ -302,6 +302,17 @@ class Adapter:
     def before_start_request(self, unit, before, *, old, deadline):
         pass  # Historical entry behavior remains unchanged.
 
+    def start_baseline_check(self, unit, before, *, old):
+        io.require(before['ActiveState'] == 'inactive' and before['MainPID'] == '0' and not before['Job'],
+                   'START_BASELINE_NOT_FULLY_INACTIVE')
+
+    def record_start_attempt(self, unit, before, *, old):
+        self.channel.record('first_start_attempt', {'unit': unit, 'old_operation': old,
+            'prior_invocation': before['InvocationID'], 'prior_restart_counter': before['NRestarts']})
+
+    def observe_start_identity(self, unit, identity, *, old):
+        pass  # An observation is not runtime/rights/functional acceptance.
+
     def fault(self, error):
         if type(error) is self.r.FlowFailure: return error
         if isinstance(error, io.Hold): primary = error.primary
@@ -531,10 +542,8 @@ class Adapter:
             io.require(unit in UNITS and unit not in attempted and self.a.empty(unit), 'NO_START_REPLAY_OR_NONEMPTY')
             self.condition(unit, present=False); attempted.add(unit)
             before = self.a.unit(unit)
-            io.require(before['ActiveState'] == 'inactive' and before['MainPID'] == '0' and not before['Job'],
-                       'START_BASELINE_NOT_FULLY_INACTIVE')
-            self.channel.record('first_start_attempt', {'unit': unit, 'old_operation': old,
-                'prior_invocation': before['InvocationID'], 'prior_restart_counter': before['NRestarts']})
+            self.start_baseline_check(unit, before, old=old)
+            self.record_start_attempt(unit, before, old=old)
             self.before_start_request(unit, before, old=old, deadline=deadline)
             r = self.service_action('start', unit, deadline=deadline)
             io.require(r.returncode == 0, 'START_OUTCOME_UNKNOWN_NO_RETRY')
@@ -547,6 +556,7 @@ class Adapter:
             io.require(value['NRestarts'] == '0', 'FIRST_START_AUTORESTART_DETECTED')
             io.require(value['ActiveState'] == 'active' and not value['Job'], 'START_OUTCOME_UNKNOWN_NO_RETRY')
             first = (value['InvocationID'], int(value['MainPID']), starttime(int(value['MainPID'])))
+            self.observe_start_identity(unit, first, old=old)
             while True:
                 value = self.a.unit(unit)
                 io.require((value['InvocationID'], int(value['MainPID']), starttime(int(value['MainPID']))) == first and

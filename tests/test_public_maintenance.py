@@ -659,6 +659,192 @@ class RecoveryAdmissionChannelTests(unittest.TestCase):
         self.assertEqual(channel.sequence, 0); self.assertFalse(channel.approval_bound)
 
 
+class RecoveryActionBoundaryTests(unittest.TestCase):
+    def adapter(self):
+        a = transition.RecoveryAdapter.__new__(transition.RecoveryAdapter)
+        a.deadline = time.monotonic()+600; a.recovery_bound = True; a.recovery_terminal = False
+        a.pending = None; a.recovery_once_actions = set(); a.start_limit_observation = None
+        a.protected_state = Mock(); a.check_prepared_state = Mock(); a.check_unspent_owner = Mock()
+        a.quiet = Mock(); a.space = Mock(); a.channel = Mock(); a.p = Mock()
+        a.a = SimpleNamespace(current_data_readonly=Mock(), b={'files': {'/etc/tu1nz/example': {'sha256': 'a'*64}}})
+        a.arm_start_limit_observation = Mock(); a.current_backup_verified = Mock()
+        a.backup_mode = 'NEW_RECOVERY_REQUIRED'; a.recovery_backup_used = False
+        a.backup = None; a.backup_hash = a.restore_hash = None
+        return a
+
+    def test_new_private_copy_uses_only_one_fixed_child_and_failure_does_not_reenter(self):
+        a = self.adapter(); fake = Mock(); fake.create.side_effect = OSError('synthetic interrupted copy')
+        with patch.object(transition, 'Backup', return_value=fake) as constructor:
+            with self.assertRaises(OSError):a._perform('recovery_private_backup', deadline=time.monotonic()+120)
+        self.assertTrue(a.recovery_backup_used)
+        self.assertEqual(constructor.call_args.args[2], transition.STAGING+'/recovery-once')
+        a.p.create_directory.assert_called_once_with(transition.STAGING+'/recovery-once')
+        with self.assertRaises(io.Hold):a._perform('recovery_private_backup', deadline=time.monotonic()+120)
+        self.assertEqual(fake.create.call_count, 1)
+        fake.restore_test.assert_not_called()
+
+    def test_current_original_copy_and_restore_are_read_only_reused(self):
+        a = self.adapter(); a.backup_mode = 'ORIGINAL_CURRENT'; a.backup_hash = a.restore_hash = 'a'*64
+        with patch.object(transition, 'Backup') as constructor:
+            for action in ('recovery_private_backup', 'recovery_private_restore'):
+                result = a._perform(action, deadline=time.monotonic()+120)
+                self.assertEqual(result['proof_sha256'], 'a'*64)
+            constructor.assert_not_called()
+        a.p.create_directory.assert_not_called()
+        self.assertEqual(a.current_backup_verified.call_count, 2)
+
+    def test_old_start_rebuild_second_entry_and_terminal_forward_are_denied(self):
+        for action in ('start_old', 'return_old_configuration', 'prepare_runtime_bundle', 'create_sealed_staging'):
+            a = self.adapter()
+            with self.subTest(action=action), self.assertRaises(io.Hold):
+                a._perform(action, deadline=time.monotonic()+120)
+            a.channel.record.assert_not_called()
+        a = self.adapter(); a.recovery_terminal = True
+        with self.assertRaises(io.Hold):a._perform('recovery_start', r3.UNITS[0], deadline=time.monotonic()+20)
+        a.channel.record.assert_not_called()
+
+    def test_reconcile_skips_reload_for_current_configuration(self):
+        a = self.adapter(); a.a.check = Mock(); a.a.deadline = a.deadline
+        a.a.recovery_reload_units = set(); a.a.recovery_allow_load_delta = True
+        a.a.b['unit_files'] = {u: {'dropins': []} for u in r3.UNITS}
+        a.a.own_dropins = {u: set() for u in r3.UNITS}; a.reload = Mock()
+        current = {u: {'NeedDaemonReload': 'no', 'DropInPaths': ''} for u in r3.UNITS}
+        with patch.object(transition, 'unit_rows', return_value=current):a.reconcile_config()
+        a.reload.assert_not_called(); self.assertFalse(a.a.recovery_allow_load_delta)
+        a.channel.record.assert_not_called()
+
+
+class RecoveryTerminalBoundaryTests(unittest.TestCase):
+    def fixture(self, *, active=True):
+        x = transition.RecoveryAdapter.__new__(transition.RecoveryAdapter)
+        x.recovery_bound = True; x.recovery_terminal = False; x.owner_admission_started = False
+        x.owner = None; x.replacement_ready = True; x.deadline = time.monotonic()+600
+        x.terminal_prepare_seconds = 30; x.terminal_cleanup_seconds = 10; x.terminal_reserve_seconds = 100
+        x.channel = Mock(); x.channel.ceiling = x.deadline; x.evidence = Mock()
+        x.check_unspent_owner = Mock(); x.check_transaction_lock = Mock(); x.check_prepared_state = Mock()
+        x.condition = Mock(); x.reconcile_config = Mock(); x.p = Mock()
+        x.terminal_stop_invocations = set(); x.recovery_new_seen = {}
+        x.asset_map = transition.prepared_asset_map(r3)
+        x.asset_states = {k: {'place': 'target', 'metadata': {}} for k in x.asset_map}
+        x.barriers = {}; x.barrier_places = {}
+        a = x.a = Mock(); a.replacement_active = True; a.b = {'unit_search_sha256': 'a'*64}
+        a.unit_search.return_value = 'a'*64; a.deadline = x.deadline
+        a.limit.side_effect = lambda deadline:nullcontext(); a.empty.return_value = True
+        a.runtime_invocations = {}; a.own_dropins = {u:set() for u in r3.UNITS}; a.own_config_paths = set()
+        fields = (*contexts.CURRENT_SECURITY, 'uid_map', 'gid_map', 'setgroups', 'exe_sha256',
+                  'initial_env_sha256', 'lsm_sha256')
+        rows = {}; processes = {}
+        for n,u in enumerate(r3.UNITS):
+            pid = 100+n
+            rows[u] = {'MainPID': str(pid) if active else '0', 'ControlPID': '0', 'Job': '',
+                       'ActiveState': 'active' if active else 'inactive', 'SubState': 'running' if active else 'dead',
+                       'NRestarts': '0', 'Result': 'success', 'InvocationID': str(n+1)*32,
+                       'ControlGroup': '/system.slice/'+u}
+            processes[pid] = {**dict.fromkeys(fields, 'synthetic'), 'pid': pid, 'starttime': 1000+n,
+                              'cgroup': '0::/system.slice/'+u}
+            a.runtime_invocations[u] = (rows[u]['InvocationID'], pid, 1000+n)
+        a.unit.side_effect = lambda unit:rows[unit]
+        def stop(action, unit, *, deadline):
+            self.assertEqual(action, 'stop')
+            rows[unit].update(MainPID='0', ActiveState='inactive', SubState='dead')
+            return SimpleNamespace(returncode=0)
+        x.service_action = Mock(side_effect=stop)
+        return x, rows, processes
+
+    def run_terminal(self, x, rows, processes):
+        with patch.object(transition, 'unit_rows', return_value=rows), \
+             patch.object(transition, 'process', side_effect=lambda pid:processes[pid]):
+            x.hold_known_new_units(deadline=x.deadline)
+
+    def test_known_new_reverse_stop_is_terminal_and_never_claims_completion(self):
+        x, rows, processes = self.fixture()
+        self.run_terminal(x, rows, processes)
+        self.assertEqual([c.args for c in x.service_action.call_args_list],
+                         [('stop',u) for u in reversed(r3.UNITS)])
+        self.assertEqual(x.a.stopped, set(r3.UNITS)); self.assertTrue(x.recovery_terminal)
+        final = x.channel.record.call_args.args
+        self.assertEqual(final[0], 'recovery_terminal_hold_current')
+        self.assertFalse(final[1]['host_complete']); self.assertFalse(final[1]['owner_entered'])
+        self.assertEqual(final[1]['original_status'], 'FAILED_HOLD')
+        x.p.quarantine.assert_not_called()
+        with self.assertRaises(io.Hold):self.run_terminal(x, rows, processes)
+        self.assertEqual(x.service_action.call_count, 3)
+
+    def test_unknown_invocation_job_or_source_delta_denies_every_service_action(self):
+        for failure in ('identity', 'job', 'source'):
+            x, rows, processes = self.fixture()
+            if failure == 'identity':rows[r3.UNITS[0]]['InvocationID'] = 'f'*32
+            if failure == 'job':rows[r3.UNITS[0]]['Job'] = 'unresolved'
+            if failure == 'source':x.a.unit_search.return_value = 'b'*64
+            with self.subTest(failure=failure), self.assertRaises(io.Hold):self.run_terminal(x, rows, processes)
+            x.service_action.assert_not_called(); x.p.quarantine.assert_not_called()
+            self.assertTrue(x.recovery_terminal)
+
+    def test_insufficient_reserve_spends_terminal_entry_and_does_not_reset_deadline(self):
+        x, rows, processes = self.fixture(); original = x.deadline = time.monotonic()+50
+        with self.assertRaises(io.Hold):self.run_terminal(x, rows, processes)
+        self.assertEqual(x.deadline, original); self.assertTrue(x.recovery_terminal)
+        x.channel.record.assert_not_called(); x.service_action.assert_not_called()
+
+    def test_owner_entry_excludes_even_stop_only_branch(self):
+        x, rows, processes = self.fixture(); x.owner_admission_started = True
+        with self.assertRaises(io.Hold):self.run_terminal(x, rows, processes)
+        x.channel.record.assert_not_called(); x.service_action.assert_not_called()
+
+    def test_unknown_stop_ack_is_not_replayed_or_followed_by_other_stops(self):
+        x, rows, processes = self.fixture()
+        x.service_action.side_effect = TimeoutError('synthetic missing stop response')
+        with self.assertRaises(TimeoutError):self.run_terminal(x, rows, processes)
+        self.assertTrue(x.recovery_terminal); self.assertEqual(x.service_action.call_count, 1)
+        with self.assertRaises(io.Hold):self.run_terminal(x, rows, processes)
+        self.assertEqual(x.service_action.call_count, 1)
+        self.assertFalse(any(c.args[0] == 'recovery_terminal_hold_current' for c in x.channel.record.call_args_list))
+
+    def test_stop_only_snapshot_cannot_accept_a_changed_kernel_profile(self):
+        x, rows, processes = self.fixture(); self.run_terminal(x, rows, processes)
+        admitted = next(c.args[1]['profiles'] for c in x.channel.record.call_args_list
+                        if c.args[0] == 'recovery_terminal_stop_only_admission')
+        # Records are serialized in production; retain the initial live view
+        # separately because the adapter subsequently marks stopped units empty.
+        u = r3.UNITS[0]; row = processes[100]
+        fields = (*contexts.CURRENT_SECURITY, 'uid_map', 'gid_map', 'setgroups', 'exe_sha256',
+                  'initial_env_sha256', 'lsm_sha256')
+        auth = transition.RecoveryAuthority.__new__(transition.RecoveryAuthority)
+        auth.terminal_profiles = {u: {'kind': 'known_new_stop_only',
+            'identity': (rows[u]['InvocationID'], row['pid'], row['starttime']),
+            'kernel': {k:row[k] for k in fields}}}
+        auth.interpreter_binding = Mock(); auth.rights_check = Mock()
+        auth.accepted_runtime_actor(u, row)
+        auth.rights_check.assert_not_called()
+        with self.assertRaises(io.Hold):auth.accepted_runtime_actor(u, {**row, 'exe_sha256': 'changed'})
+        self.assertEqual(auth.interpreter_binding.call_count, 1)
+
+
+class RecoveryLoadedConfigTests(unittest.TestCase):
+    def fixture(self):
+        a = transition.RecoveryAuthority.__new__(transition.RecoveryAuthority)
+        a.evidence = SimpleNamespace(r=r3); a.recovery_allow_load_delta = True; a.recovery_reload_units = set()
+        mapping = transition.prepared_asset_map(r3); a.recovery_assets = {k: {'place': 'target'} for k in mapping}
+        a.own_dropins = {u: {s['target'] for s in mapping.values() if s['unit'] == u} for u in r3.UNITS}
+        expected = {'fragment': '/etc/systemd/system/'+r3.UNITS[0], 'dropins': []}
+        value = {'FragmentPath': expected['fragment'], 'Job': '', 'KillMode': 'control-group',
+                 'NeedDaemonReload': 'yes', 'DropInPaths': ''}
+        return a, value, expected
+
+    def test_only_known_own_missing_load_delta_is_admitted_before_exact_reload(self):
+        a, value, expected = self.fixture()
+        a.unit_configuration_check(r3.UNITS[0], value, expected)
+        self.assertEqual(a.recovery_reload_units, {r3.UNITS[0]})
+        for change in ({'DropInPaths': '/etc/systemd/system/foreign.conf'}, {'Job': '1'},
+                       {'FragmentPath': '/run/unknown.service'}, {'NeedDaemonReload': 'unknown'}):
+            with self.subTest(change=change), self.assertRaises(io.Hold):
+                a.unit_configuration_check(r3.UNITS[0], {**value, **change}, expected)
+        a.recovery_allow_load_delta = False
+        with self.assertRaises(io.Hold):a.unit_configuration_check(r3.UNITS[0], value, expected)
+        a.unit_configuration_check(r3.UNITS[0], {**value, 'NeedDaemonReload': 'no',
+                                   'DropInPaths': ' '.join(a.own_dropins[r3.UNITS[0]])}, expected)
+
+
 class CurrentDatabaseReadTests(unittest.TestCase):
     def authority(self):
         a = observe.CurrentAuthority.__new__(observe.CurrentAuthority)
@@ -738,7 +924,7 @@ class RecoveryOrderTests(unittest.TestCase):
     def test_direct_f4_fresh_acceptance_of_active_new_units_never_restarts(self):
         flow, adapter, _, effects, _ = self.flow('F4', active_new=r3.UNITS)
         flow.recover()
-        self.assertEqual(effects, [('supervised_owner_transaction', None)])
+        self.assertEqual(effects, [('recovery_reconcile_config', None), ('supervised_owner_transaction', None)])
         observed = [call.args[0] for call in adapter.observe.call_args_list]
         self.assertTrue(all('recovery_active:'+u in observed for u in r3.UNITS))
         self.assertNotIn('install', observed)
@@ -764,7 +950,7 @@ class RecoveryOrderTests(unittest.TestCase):
     def test_partial_owner_admission_blocks_terminal_service_actions(self):
         flow, adapter, _, effects, _ = self.flow('F4', active_new=r3.UNITS, partial_owner=True)
         with self.assertRaises(r3.FlowFailure):flow.recover()
-        self.assertEqual(effects, [])
+        self.assertEqual(effects, [('recovery_reconcile_config', None)])
         adapter.hold_known_new_units.assert_not_called()
         with self.assertRaises(r3.Denied):flow.recover()
 
@@ -801,6 +987,55 @@ class ExistingBackupTests(unittest.TestCase):
                  root+'/restore-test/tree/etc/tu1nz': ['example.json']}
         backup = fs.Backup(paths, {source: io.sha(raw)}, root, Mock())
         return backup, values, private, names, manifest_raw
+
+    def classify(self, backup, values, private, names):
+        def info(name, *, dir_fd, follow_symlinks):
+            if dir_fd+'/'+name not in names:raise FileNotFoundError()
+            return SimpleNamespace()
+        backup.paths.d.stable_file.side_effect = lambda parent, name: (
+            private[(parent, name)] if (parent, name) in private else values[parent+'/'+name])
+        with patch.object(fs.os, 'stat', side_effect=info), patch.object(fs.os, 'listdir', side_effect=lambda p:names[p]):
+            return backup.classify_original_for_recovery()
+
+    def test_partial_private_copy_is_classified_without_finishing_repairing_or_claiming_restore(self):
+        backup, values, private, names, _ = self.fixture(); before = backup.root+'/before'
+        names[before] = ['000']; names[backup.root+'/restore-test'] = []
+        raw, row = private[(before, '000')]; private[(before, '000')] = (raw[:5], row)
+        proof = self.classify(backup, values, private, names)
+        self.assertEqual(proof['state'], 'INCOMPLETE_PRIVATE_COPY_REQUIRES_NEW_FIXED_TEST')
+        self.assertFalse(proof['old_objects_changed']); self.assertFalse(proof['old_restore_claimed_successful'])
+        backup.paths.create_file.assert_not_called(); backup.paths.create_directory.assert_not_called()
+        self.assertIsNone(backup.manifest)
+
+    def test_complete_private_copy_and_restore_are_reused_by_current_readback(self):
+        backup, values, private, names, _ = self.fixture()
+        proof = self.classify(backup, values, private, names)
+        self.assertEqual(proof['state'], 'COMPLETE_CURRENT_COPY_AND_RESTORE')
+        self.assertFalse(proof['historical_ack_reconstructed'])
+        backup.paths.create_file.assert_not_called(); backup.paths.create_directory.assert_not_called()
+
+    def test_partial_restore_prefix_may_be_left_for_new_test_but_wrong_content_is_negative(self):
+        for replacement in (b'{"fix', b'{"wrong'):
+            backup, values, private, names, _ = self.fixture()
+            key = next(k for k in values if '/restore-test/' in k); raw, row = values[key]
+            values[key] = (replacement, {**row, 'mode': 0o600, 'mtime_ns': 99})
+            if replacement == b'{"fix':
+                self.assertEqual(self.classify(backup, values, private, names)['state'],
+                                 'INCOMPLETE_PRIVATE_COPY_REQUIRES_NEW_FIXED_TEST')
+            else:
+                with self.assertRaisesRegex(io.Hold, 'NEGATIVE_CONTENT'):
+                    self.classify(backup, values, private, names)
+
+    def test_manifest_contradiction_foreign_name_or_malformed_manifest_cannot_trigger_fresh_copy(self):
+        for fault in ('copy_lost_after_manifest', 'foreign', 'manifest'):
+            backup, values, private, names, _ = self.fixture(); before = backup.root+'/before'
+            if fault == 'copy_lost_after_manifest':names[before] = ['manifest.json']
+            elif fault == 'foreign':names[before].append('not-owned')
+            else:
+                raw, row = private[(before, 'manifest.json')]; private[(before, 'manifest.json')] = (b'{', row)
+            with self.subTest(fault=fault), self.assertRaises((io.Hold, ValueError)):
+                self.classify(backup, values, private, names)
+            backup.paths.create_file.assert_not_called(); backup.paths.create_directory.assert_not_called()
 
     def test_complete_current_backup_and_actual_restored_bytes_can_be_observed_without_ack_repair(self):
         backup, values, private, names, raw = self.fixture()

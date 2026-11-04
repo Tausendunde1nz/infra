@@ -1712,6 +1712,7 @@ class RecoveryAuthority(CurrentReplacementAuthority):
         self.evidence = evidence; self.recovery_assets = {}; self.recovery_units = {}
         self.recovery_prepared = None; self.recovery_allow_load_delta = True
         self.recovery_probes = None
+        self.terminal_profiles = None
         self.recovery_reload_units = set()
         super().__init__(baseline, paths, channel, machine=machine, deadline=deadline)
 
@@ -1847,6 +1848,18 @@ class RecoveryAuthority(CurrentReplacementAuthority):
         if delta:self.recovery_reload_units.add(unit)
 
     def unit_process_check(self, unit, value, current, *, stop_only):
+        if self.terminal_profiles is not None:
+            expected = self.terminal_profiles[unit]
+            io.require(not value['Job'] and value['ControlPID'] == '0', 'RECOVERY_TERMINAL_JOB_OR_CONTROL_PROCESS')
+            if expected['kind'] == 'empty':
+                io.require(current is None and value['MainPID'] == '0' and self.empty(unit) and
+                           value['ActiveState'] in ('inactive', 'failed'), 'RECOVERY_TERMINAL_EMPTY_CHANGED')
+            else:
+                io.require(current is not None and value['ActiveState'] == 'active' and value['NRestarts'] == '0' and
+                           (value['InvocationID'], current['pid'], current['starttime']) == expected['identity'],
+                           'RECOVERY_TERMINAL_BOUND_INVOCATION_CHANGED')
+                self.accepted_runtime_actor(unit, current)
+            return
         if unit in self.stopped:
             kind = self.classify_current_unit(unit, value, current)
             io.require(kind in ('empty_inactive', 'empty_terminal_failed'), 'RECOVERY_UNIT_NO_LONGER_QUIET')
@@ -1857,7 +1870,21 @@ class RecoveryAuthority(CurrentReplacementAuthority):
         else:
             io.require(self.classify_current_unit(unit, value, current) == 'known_old_active' and
                        (current['pid'], current['starttime']) == self.targets.get(unit),
-                       'RECOVERY_OLD_CURRENT_IDENTITY_LOST')
+                   'RECOVERY_OLD_CURRENT_IDENTITY_LOST')
+
+    def accepted_runtime_actor(self, unit, row):
+        if self.terminal_profiles is None:return super().accepted_runtime_actor(unit, row)
+        expected = self.terminal_profiles[unit]
+        fields = (*context.CURRENT_SECURITY, 'uid_map', 'gid_map', 'setgroups', 'exe_sha256',
+                  'initial_env_sha256', 'lsm_sha256')
+        io.require(expected['kind'] == 'known_new_stop_only' and
+                   (row['pid'], row['starttime']) == expected['identity'][1:] and
+                   {k:row[k] for k in fields} == expected['kernel'], 'RECOVERY_TERMINAL_PROCESS_PROFILE_CHANGED')
+        self.interpreter_binding(row, old=False)
+        # This exact new invocation can be stopped despite its measured bad
+        # runtime rights. It gets no operation/owner trust. Actual source
+        # writers, foreign actors, namespaces, dependencies and jobs are still
+        # checked by the enclosing current authority before every stop.
 
     def stop_contexts_check(self, *, stop_only):
         # Only the retained expected original contexts; every still-live old
@@ -2159,12 +2186,15 @@ class MaintenanceAdapter(ReplacementAdapter):
         io.require(previous is self.a.legacy_runtime, 'PREPARED_ACTIVATION_OLD_STATE')
         self.check_prepared_dependencies()
         selected.files |= previous.files
-        self.extra_runtime_fences.append(previous)
+        self.retain_old_fence(previous)
         self.a.runtime = selected; self.a.replacement_active = True
         previous.check(); selected.check(); self.a.bind_external_libraries()
         self.replacement_ready = True
         self.channel.record('prepared_runtime_activated', {'ready_sha256': io.sha(self.ready_raw),
             'runtime_sha256': selected.digest, 'old_return': False})
+
+    def retain_old_fence(self, fence):
+        self.extra_runtime_fences.append(fence)
 
     def _perform(self, action, unit=None, *, deadline):
         watch=getattr(self,'start_limit_observation',None)
@@ -2309,12 +2339,22 @@ class RecoveryAdapter(MaintenanceAdapter):
     """
     authority_type = RecoveryAuthority
 
-    def __init__(self, source, baseline, plan_raw, channel, *, evidence, deadline):
+    def __init__(self, source, baseline, plan_raw, channel, *, evidence, deadline,
+                 terminal_prepare_seconds, terminal_cleanup_seconds):
         io.require(isinstance(channel, io.RecoveryAdmissionChannel) and
                    isinstance(evidence, RecoveryOriginalEvidence) and channel.binding == evidence.binding and
                    deadline == channel.ceiling == channel.wire.deadline and
                    channel.context['mac_snapshot_sha256'] == evidence.pair['mac_snapshot_sha256'],
                    'RECOVERY_ADMISSION_CHANNEL_OR_EVIDENCE_MISMATCH')
+        # Values from the session's actually validated native timing proof,
+        # whose digest is part of READY. Never guessed from a JSON GREEN bit.
+        io.require(type(terminal_prepare_seconds) is int and 0 < terminal_prepare_seconds <= 120 and
+                   type(terminal_cleanup_seconds) is int and 0 < terminal_cleanup_seconds <= 120 and
+                   terminal_prepare_seconds+60+terminal_cleanup_seconds < 600,
+                   'RECOVERY_TERMINAL_TIMING_INPUT')
+        self.terminal_prepare_seconds = terminal_prepare_seconds
+        self.terminal_cleanup_seconds = terminal_cleanup_seconds
+        self.terminal_reserve_seconds = terminal_prepare_seconds+60+terminal_cleanup_seconds
         self.source, self.r = source, source.load('r3')
         self.channel, self.binding, self.deadline = channel, None, deadline
         io.require(io.sha(plan_raw) == self.r.OWNER_PLAN, 'ORIGINAL_OWNER_PLAN_REQUIRED')
@@ -2331,6 +2371,7 @@ class RecoveryAdapter(MaintenanceAdapter):
         self.start_limit_observation = None; self.start_limit_proofs = {}
         self.recovery_bound = False; self.recovery_terminal = False; self.recovery_state_proof = None
         self.recovery_once_actions = set(); self.terminal_stop_invocations = set()
+        self.recovery_new_seen = {}
         self.backup_mode = None; self.recovery_backup_used = False
         self.artifacts.update({self.dropdir(u)+'/'+OVERLAY: ('runtime_overlay', 0o644) for u in UNITS})
         self.check_unspent_owner()
@@ -2345,6 +2386,9 @@ class RecoveryAdapter(MaintenanceAdapter):
         self.replacement_ready = self.a.replacement_active
         self.synchronize_current_assets()
         self.probe_hash = self.a.recovery_probes.hash
+        self.original_backup_proof = self.inspect_original_backup()
+        io.require(self.a.recovery_phase not in ('F3', 'F4') or self.backup_mode == 'ORIGINAL_CURRENT',
+                   'RECOVERY_INSTALL_WITHOUT_COMPLETE_BACKUP_AND_RESTORE')
         self.recover_state()
 
     def pre_stop(self):
@@ -2372,6 +2416,63 @@ class RecoveryAdapter(MaintenanceAdapter):
                     self.barrier_places[spec['unit']] = (spec[value['place']], value['metadata'])
             elif value['place'] == 'target':self.installed[spec['target']] = value['metadata']
 
+    def protected_state(self):
+        self.now(); self.evidence.check_original(); self.a.check(); self.channel.check()
+
+    def inspect_original_backup(self):
+        requested = [r for r in self.evidence.records if r['kind'] == 'host_action_intent' and
+                     r['value'].get('action') == 'protected_rights_backup']
+        io.require(len(requested) <= 1, 'RECOVERY_ORIGINAL_BACKUP_REPLAY')
+        present = any(os.path.lexists(STAGING+'/'+name) for name in ('before', 'restore-test'))
+        io.require(not present or requested, 'RECOVERY_BACKUP_OBJECTS_WITHOUT_ORIGINAL_INTENT')
+        backup = Backup(self.p, {p:v['sha256'] for p,v in self.a.b['files'].items()}, STAGING, self.protected_state)
+        proof = backup.classify_original_for_recovery()
+        acks = {name: [r['value'] for r in self.evidence.records if r['kind'] == 'host_action_ack' and
+                      r['value'].get('action') == name] for name in
+                ('protected_rights_backup', 'isolated_restore_rehearsal')}
+        io.require(all(len(v) <= 1 for v in acks.values()), 'RECOVERY_ORIGINAL_BACKUP_ACK_REPEAT')
+        if proof['state'] == 'COMPLETE_CURRENT_COPY_AND_RESTORE':
+            io.require(requested and all(not v or v[0]['proof_sha256'] == proof['manifest_sha256']
+                                        for v in acks.values()), 'RECOVERY_BACKUP_RECEIPT_MISMATCH')
+            self.backup = backup; self.backup_hash = self.restore_hash = proof['manifest_sha256']
+            self.backup_mode = 'ORIGINAL_CURRENT'
+        else:
+            io.require(not acks['isolated_restore_rehearsal'], 'RECOVERY_COMPLETED_RESTORE_NOW_INCOMPLETE')
+            if acks['protected_rights_backup']:
+                raw, _ = self.p.read(STAGING+'/before/manifest.json')
+                io.require(io.sha(raw) == acks['protected_rights_backup'][0]['proof_sha256'],
+                           'RECOVERY_COMPLETED_BACKUP_NOW_INCOMPLETE')
+            self.backup_mode = 'NEW_RECOVERY_REQUIRED'
+        return proof
+
+    def current_backup_verified(self):
+        io.require(self.backup is not None and self.backup_hash is not None and
+                   self.restore_hash == self.backup_hash, 'RECOVERY_BACKUP_RESTORE_NOT_COMPLETE')
+        fresh = Backup(self.p, self.backup.files, self.backup.root, self.protected_state)
+        return fresh.load_verified_existing(expected_sha256=self.backup_hash)
+
+    def check_probe_current(self):
+        io.require(self.probe_hash is not None, 'RECOVERY_PROBES_NOT_COMPLETE')
+        if self.probes is None:
+            self.a.recovery_probes.check()
+            io.require(self.a.recovery_probes.hash == self.probe_hash, 'RECOVERY_REUSED_PROBE_HASH_CHANGED')
+        else:
+            io.require(self.probes.cleanup_complete and not self.probes.unconfirmed and
+                       io.sha(io.canonical(self.probes.reports)) == self.probe_hash and
+                       self.a.platform_identity() == self.recovery_new_probe_platform,
+                       'RECOVERY_NEW_PROBE_CLEANUP_OR_PLATFORM_CHANGED')
+            self.probes.check_retained()
+
+    def publish_prepared_asset(self, key):
+        # Enable only the independently bound own load delta while publishing;
+        # a complete reload must restore strict effective-config comparison.
+        self.a.recovery_allow_load_delta = True
+        return super().publish_prepared_asset(key)
+
+    def retain_old_fence(self, fence):
+        io.require(fence is self.a.legacy_runtime, 'RECOVERY_LEGACY_FENCE_OWNERSHIP')
+        # RecoveryAuthority already owns both original and prepared fences.
+
     def recover_state(self):
         self.now(); self.evidence.check_original(); self.check_unspent_owner()
         self.a.check(); self.check_prepared_state()
@@ -2392,6 +2493,7 @@ class RecoveryAdapter(MaintenanceAdapter):
             'units': identities, 'classes': kinds, 'assets': self.asset_states,
             'runtime': self.prepared_ready['runtime'], 'current_data': data,
             'probe_state': self.a.recovery_probes.state, 'probe_hash': self.probe_hash,
+            'backup': self.original_backup_proof,
             'original_failure': self.evidence.failure, 'operator_session': self.operator_session,
             'original_ack_reconstructed': False, 'gap_monitoring_claimed': False}
         io.require(len(io.canonical(self.recovery_state_proof)) < 48*1024, 'RECOVERY_STATE_RECORD_BOUND')
@@ -2419,13 +2521,306 @@ class RecoveryAdapter(MaintenanceAdapter):
         self.recovery_bound = True
         channel.record('recovery_state_observation', self.recovery_state_proof)
 
+    def start_baseline_check(self, unit, before, *, old):
+        io.require(not old and self.replacement_ready and self.a.replacement_active and
+                   self.a.classify_current_unit(unit, before, None) in
+                   ('empty_inactive', 'empty_terminal_failed'), 'RECOVERY_START_BASELINE_NOT_ADMITTED')
+
+    def record_start_attempt(self, unit, before, *, old):
+        io.require(not old, 'RECOVERY_OLD_RUNTIME_START_FORBIDDEN')
+        self.channel.record('recovery_start_attempt', {'unit': unit, 'original_binding': self.evidence.binding,
+            'prior_invocation': before['InvocationID'], 'prior_restart_counter': before['NRestarts'],
+            'prior_result': before['Result'], 'prior_active_state': before['ActiveState'],
+            'original_attempt_not_reclassified': True, 'counter_reset_requested': False})
+
+    def observe_start_identity(self, unit, identity, *, old):
+        io.require(not old and unit not in self.recovery_new_seen and self.replacement_ready,
+                   'RECOVERY_START_IDENTITY_NOT_NEW_REQUEST')
+        self.recovery_new_seen[unit] = identity
+        self.channel.record('recovery_new_invocation_observed', {'unit': unit, 'identity': identity,
+            'rights_or_function_accepted': False, 'only_possible_terminal_stop_constraint': True})
+
+    def reload(self):
+        # Only the explicit fresh-admission delta or this recovery's own new
+        # rename may reach here. The existing global source census remains.
+        self.a.recovery_allow_load_delta = False
+        Adapter.reload(self)
+        self.a.recovery_reload_units.clear()
+
+    def reconcile_config(self):
+        self.a.check(); rows = unit_rows(UNITS, self.a.deadline)
+        changed = [u for u,v in rows.items() if v['NeedDaemonReload'] != 'no' or
+                   set(v['DropInPaths'].split()) != set(self.a.b['unit_files'][u]['dropins']) | self.a.own_dropins[u]]
+        if changed:
+            self.channel.record('recovery_reload_intent', {'units_with_own_load_delta': changed,
+                'original_ack_reconstructed': False})
+            self.reload()
+            self.channel.record('recovery_reload_current', {'units': list(UNITS)})
+        else:
+            self.a.recovery_allow_load_delta = False; self.a.check()
+
     def _perform(self, action, unit=None, *, deadline):
-        # Effects are implemented in the finite dispatch below only once all
-        # fresh custody/protection/clock gates are bound. Never inherit the
-        # original preparation/return/install dispatcher as a fallback.
-        io.require(self.recovery_bound and not self.recovery_terminal,
-                   'RECOVERY_EFFECT_NOT_ADMITTED_OR_TERMINAL')
-        raise io.Hold('PUBLIC_OPERATOR_RECOVERY_ACTION_NOT_YET_IMPLEMENTED')
+        io.require(self.recovery_bound and not self.recovery_terminal and self.pending is None and
+                   time.monotonic() < deadline <= self.deadline, 'RECOVERY_EFFECT_NOT_ADMITTED_OR_TERMINAL')
+        allowed = {'recovery_reconcile_config', 'recovery_complete_barriers', 'recovery_stop',
+                   'recovery_private_backup', 'recovery_private_restore', 'recovery_unused_or_verified_probes',
+                   'recovery_publish_assets', 'recovery_release_barrier', 'recovery_start',
+                   'supervised_owner_transaction'}
+        io.require(action in allowed and (action, unit) not in self.recovery_once_actions,
+                   'RECOVERY_ACTION_SCOPE_OR_REPEAT')
+        if self.start_limit_observation is not None:self.start_limit_observation.drain()
+        self.recovery_once_actions.add((action, unit))
+        if action == 'supervised_owner_transaction':
+            return Adapter._perform(self, action, unit, deadline=deadline)
+        self.protected_state(); self.check_prepared_state(); self.check_unspent_owner()
+        if action in ('recovery_stop', 'recovery_start'):
+            io.require(unit in UNITS, 'RECOVERY_SERVICE_UNIT_SCOPE')
+            value = self.a.unit(unit)
+            current = process(int(value['MainPID'])) if int(value['MainPID']) else None
+            kind = self.a.classify_current_unit(unit, value, current)
+            if action == 'recovery_stop':
+                io.require(kind == 'known_old_active', 'RECOVERY_STOP_NOT_KNOWN_ORIGINAL')
+                for u in UNITS:self.condition(u, present=True)
+            else:
+                io.require(kind in ('empty_inactive', 'empty_terminal_failed') and self.replacement_ready,
+                           'RECOVERY_START_NOT_EMPTY_NEW_RUNTIME')
+                io.require(time.monotonic()+20+self.terminal_reserve_seconds <
+                           min(self.deadline, self.channel.ceiling), 'RECOVERY_START_WITHOUT_TERMINAL_RESERVE')
+                self.current_backup_verified(); self.check_probe_current()
+                io.require(self.probe_hash is not None, 'RECOVERY_START_WITHOUT_PROBES')
+                self.isolation(unit)
+            self.channel.record('recovery_controlled_service_intent', {'action': action, 'unit': unit,
+                'prior': {k:value[k] for k in ('InvocationID', 'NRestarts', 'Result', 'ActiveState', 'Job')},
+                'original_binding': self.evidence.binding, 'original_effects_not_reclassified': True})
+            value = Adapter._perform(self, 'stop' if action == 'recovery_stop' else 'start', unit, deadline=deadline)
+            return {**value, 'action': action}
+        io.require(unit is None or action == 'recovery_release_barrier', 'RECOVERY_ACTION_UNIT_SCOPE')
+        self.pending = (action, unit)
+        self.channel.record('recovery_action_intent', {'action': action, 'unit': unit})
+        result = {'action': action, 'unit': unit, 'outcome': 'CONFIRMED'}
+        if action == 'recovery_reconcile_config':
+            self.reconcile_config()
+            if self.a.recovery_phase == 'F4':self.arm_start_limit_observation()
+        elif action == 'recovery_complete_barriers':
+            io.require(self.a.recovery_phase == 'F1', 'RECOVERY_BARRIER_COMPLETION_PHASE')
+            for key,spec in self.asset_map.items():
+                if spec['source'] is None:
+                    if self.asset_states[key]['place'] == 'candidate':self.publish_prepared_asset(key)
+                    else:io.require(self.asset_states[key]['place'] == 'target', 'RECOVERY_EARLY_RELEASE_UNKNOWN')
+            self.reconcile_config()
+            for u in UNITS:self.condition(u, present=True)
+        elif action == 'recovery_private_backup':
+            self.quiet(); self.a.current_data_readonly(); self.space()
+            if self.start_limit_observation is None:self.arm_start_limit_observation()
+            if self.backup_mode == 'ORIGINAL_CURRENT':self.current_backup_verified()
+            else:
+                io.require(self.backup_mode == 'NEW_RECOVERY_REQUIRED' and not self.recovery_backup_used,
+                           'RECOVERY_PRIVATE_BACKUP_NO_REPLAY')
+                self.recovery_backup_used = True
+                self.p.absent(STAGING+'/recovery-once'); self.p.create_directory(STAGING+'/recovery-once')
+                self.backup = Backup(self.p, {p:v['sha256'] for p,v in self.a.b['files'].items()},
+                                     STAGING+'/recovery-once', self.quiet)
+                self.backup_hash = self.backup.create(); self.backup_mode = 'RECOVERY_COPY_CREATED'
+            result['proof_sha256'] = self.backup_hash
+        elif action == 'recovery_private_restore':
+            self.quiet()
+            if self.backup_mode == 'ORIGINAL_CURRENT':self.current_backup_verified()
+            else:
+                io.require(self.backup_mode == 'RECOVERY_COPY_CREATED' and self.restore_hash is None,
+                           'RECOVERY_PRIVATE_RESTORE_NO_REPLAY')
+                self.restore_hash = self.backup.restore_test(); self.backup_mode = 'RECOVERY_CURRENT'
+            result['proof_sha256'] = self.restore_hash
+        elif action == 'recovery_unused_or_verified_probes':
+            self.quiet(); self.current_backup_verified()
+            if self.probe_hash is not None:self.check_probe_current()
+            else:
+                io.require(self.a.recovery_probes.state == 'UNUSED' and self.probes is None,
+                           'RECOVERY_PROBE_ENTRY_ALREADY_USED')
+                self.a.recovery_probes.unused_current()
+                self.recovery_new_probe_platform = self.a.platform_identity()
+                module = self.source.load('probes')
+                self.probes = module.Probes(self.p, self.source, self.a, self.channel, deadline=deadline)
+                self.probe_hash = self.probes.run()
+                self.check_probe_current()
+                self.channel.record('recovery_probes_complete', {
+                    'proof_sha256': self.probe_hash, 'platform': self.recovery_new_probe_platform,
+                    'reports': [{'unit': r['unit'], 'sha256': io.sha(io.canonical(r))} for r in self.probes.reports],
+                    'cleanup': [], 'original_probe_replayed': False})
+            result['proof_sha256'] = self.probe_hash
+        elif action == 'recovery_publish_assets':
+            self.quiet(); self.current_backup_verified(); self.check_probe_current()
+            self.a.current_data_readonly()
+            for key,spec in self.asset_map.items():
+                if spec['source'] is not None:
+                    if self.asset_states[key]['place'] == 'candidate':self.publish_prepared_asset(key)
+                    else:io.require(self.asset_states[key]['place'] == 'target', 'RECOVERY_ASSET_PLACE_CHANGED')
+            self.reconcile_config()
+            if not self.replacement_ready:self.activate_prepared_runtime()
+            for u in UNITS:self.isolation(u)
+            if self.start_limit_observation is None:self.arm_start_limit_observation()
+            result['proof_sha256'] = io.sha(self.ready_raw)
+        elif action == 'recovery_release_barrier':
+            io.require(unit in UNITS and all(u in self.accepted for u in UNITS[:UNITS.index(unit)]),
+                       'RECOVERY_RELEASE_PREDECESSOR_NOT_ACCEPTED')
+            key = next(k for k,s in self.asset_map.items() if s['source'] is None and s['unit'] == unit)
+            spec = self.asset_map[key]; current = self.asset_states[key]
+            if current['place'] == 'target':
+                self.condition(unit, present=True)
+                self.channel.record('recovery_barrier_release_intent', {'key': key, 'actual_before': current})
+                row = self.p.quarantine(spec['target'], spec['quarantine'], current['metadata'])
+                actual = self.p.classify_owned_pair(spec['candidate'], spec['target'], self.prepared_assets[key],
+                                                    quarantine=spec['quarantine'])
+                io.require(actual['place'] == 'quarantine' and self.same_file(actual['metadata'], row),
+                           'RECOVERY_BARRIER_RELEASE_POSTSTATE_UNKNOWN')
+                self.asset_states[key] = actual; self.barrier_places[unit] = (spec['quarantine'], row)
+                self.a.own_dropins[unit].remove(spec['target']); self.a.recovery_allow_load_delta = True
+                self.channel.record('recovery_barrier_release_observed', {'key': key, 'actual': actual})
+                self.reconcile_config()
+            else:io.require(current['place'] == 'quarantine', 'RECOVERY_RELEASE_NOT_OWN_PUBLISHED_BARRIER')
+            self.condition(unit, present=False)
+        else:
+            raise io.Hold('PUBLIC_OPERATOR_RECOVERY_ACTION_NOT_YET_IMPLEMENTED')
+        io.require(time.monotonic() < deadline, 'RECOVERY_ACTION_LATE')
+        self.channel.record('recovery_action_ack', result); self.pending = None
+        return result
+
+    def _observe(self, phase, *, deadline):
+        io.require(self.recovery_bound and not self.recovery_terminal and deadline <= self.deadline,
+                   'RECOVERY_OBSERVATION_NOT_ADMITTED')
+        if self.start_limit_observation is not None:self.start_limit_observation.drain()
+        if phase == 'recovery_admitted':
+            self.protected_state(); self.check_prepared_state(); self.check_unspent_owner()
+            self.a.current_data_readonly()
+            io.require(self.site_read_witness() == self.evidence.witness['site_read_witness_sha256'],
+                       'RECOVERY_CURRENT_OWNER_PLAN_CHANGED')
+            self.channel.check(); self.now()
+            return self.r.Observation(self.r.TX, self.binding, phase,
+                self.r.RECOVERY_BASE | {self.a.recovery_phase}, time.monotonic())
+        if phase.startswith('recovery_state:'):
+            unit = phase.split(':', 1)[1]; io.require(unit in UNITS, 'RECOVERY_OBSERVATION_UNIT_SCOPE')
+            self.protected_state(); self.check_prepared_state()
+            value = self.a.unit(unit)
+            current = process(int(value['MainPID'])) if int(value['MainPID']) else None
+            kind = self.a.classify_current_unit(unit, value, current)
+            key = next(k for k,s in self.asset_map.items() if s['source'] is None and s['unit'] == unit)
+            self.condition(unit, present=self.asset_states[key]['place'] == 'target')
+            self.channel.record('recovery_prior_unit_observation', {'unit': unit, 'kind': kind,
+                'current': {k:value[k] for k in ('InvocationID', 'NRestarts', 'Result', 'ActiveState',
+                           'SubState', 'MainPID', 'ControlPID', 'Job', 'ControlGroup')},
+                'barrier_place': self.asset_states[key]['place'], 'original_ack_reconstructed': False})
+            if kind == 'known_new_active' and self.start_limit_observation is not None:
+                self.start_limit_observation.retire_already_active(unit)
+            return self.r.Observation(self.r.TX, self.binding, phase, self.r.RECOVERY_UNIT | {kind}, time.monotonic())
+        if phase.startswith('recovery_active:'):
+            unit = phase.split(':', 1)[1]; io.require(unit in UNITS, 'RECOVERY_OBSERVATION_UNIT_SCOPE')
+            io.require(all(u in self.accepted for u in UNITS[:UNITS.index(unit)]), 'RECOVERY_ACTIVE_PREFIX_NOT_ACCEPTED')
+            self.a.check(); self.isolation(unit); self.condition(unit, present=False)
+            self.function(unit, old=False); self.a.check(); self.check_probe_current(); self.current_backup_verified()
+            return self.r.Observation(self.r.TX, self.binding, phase, frozenset((
+                'existing_new_invocation_freshly_accepted', 'actual_rights_data_DB_HTTP',
+                'no_start_or_restart_performed')), time.monotonic())
+        io.require(phase not in ('pre_stop', 'prepared', 'staging_ready', 'staging'),
+                   'RECOVERY_ORIGINAL_PHASE_FORBIDDEN')
+        return super()._observe(phase, deadline=deadline)
+
+    def hold_known_new_units(self, *, deadline):
+        """K4's sole terminal action. No forward retry or subsequent owner.
+
+        This deliberately does NOT use the normal rights-acceptance path:
+        an exact, authentic new invocation with bad measured rights can be
+        stop-only. Unknown/replaced processes, live jobs, source/writer loss,
+        unavailable custody or insufficient reserve still deny every effect.
+        """
+        io.require(self.recovery_bound and not self.recovery_terminal and not self.owner_admission_started and
+                   self.owner is None and self.replacement_ready and self.a.replacement_active and
+                   deadline <= self.deadline, 'RECOVERY_TERMINAL_ENTRY_NOT_ALLOWED')
+        self.recovery_terminal = True  # even failed admission cannot be retried
+        started = time.monotonic(); end = min(deadline, self.deadline, self.channel.ceiling)
+        io.require(started+self.terminal_reserve_seconds < end, 'RECOVERY_TERMINAL_RESERVE_UNAVAILABLE')
+        prepare_end = min(end-60-self.terminal_cleanup_seconds, started+self.terminal_prepare_seconds)
+        with self.a.limit(prepare_end):
+            self.channel.check(); self.check_unspent_owner(); self.evidence.check_original()
+            self.check_transaction_lock(); self.check_prepared_state()
+            self.a.check_files(); self.a.check_loader_configuration(); self.a.verify_external_libraries()
+            self.a.manager_jobs_clear()
+            io.require(self.a.unit_search() == self.a.b['unit_search_sha256'], 'RECOVERY_TERMINAL_FOREIGN_UNIT_DELTA')
+            profiles = {}; units = unit_rows(UNITS, self.a.deadline)
+            fields = (*context.CURRENT_SECURITY, 'uid_map', 'gid_map', 'setgroups', 'exe_sha256',
+                      'initial_env_sha256', 'lsm_sha256')
+            for unit, value in units.items():
+                io.require(not value['Job'] and value['ControlPID'] == '0', 'RECOVERY_TERMINAL_JOB_UNKNOWN')
+                if value['MainPID'] == '0':
+                    io.require(value['ActiveState'] in ('inactive', 'failed') and self.a.empty(unit),
+                               'RECOVERY_TERMINAL_EMPTY_UNIT_UNKNOWN')
+                    profiles[unit] = {'kind': 'empty', 'prior_restart_counter': value['NRestarts'],
+                                      'prior_result': value['Result']}
+                    continue
+                row = process(int(value['MainPID']))
+                identity = (value['InvocationID'], row['pid'], row['starttime'])
+                expected = self.a.runtime_invocations.get(unit, self.recovery_new_seen.get(unit))
+                io.require(value['ActiveState'] == 'active' and value['SubState'] == 'running' and
+                           value['NRestarts'] == '0' and identity == expected and
+                           value['ControlGroup'] == '/system.slice/'+unit and
+                           row['cgroup'] == '0::'+value['ControlGroup'], 'RECOVERY_TERMINAL_NOT_BOUND_NEW_INVOCATION')
+                self.a.interpreter_binding(row, old=False)
+                profiles[unit] = {'kind': 'known_new_stop_only', 'identity': identity,
+                                  'kernel': {k:row[k] for k in fields}, 'operational_acceptance': False}
+            # This finite stop-only view is never deserialized or reused for
+            # operation. It is derived above from current source-bound reads.
+            self.a.terminal_profiles = profiles
+            self.a.rights = {u for u,v in profiles.items() if v['kind'] == 'known_new_stop_only'}
+            self.a.stopped = set(UNITS)-self.a.rights
+            self.a.runtime_invocations = {u:profiles[u]['identity'] for u in self.a.rights}
+            self.a.check()
+            self.channel.record('recovery_terminal_stop_only_admission', {'profiles': profiles,
+                'original_status': 'FAILED_HOLD', 'recovery_status': 'HOLD',
+                'no_start_or_owner_after_this_entry': True})
+            for key,spec in self.asset_map.items():
+                if spec['source'] is not None:continue
+                current = self.asset_states[key]
+                io.require(current['place'] in ('target', 'quarantine'), 'RECOVERY_TERMINAL_BARRIER_NOT_OWNED')
+                if current['place'] == 'target':continue
+                self.a.check(); self.check_prepared_state(); self.channel.check()
+                self.channel.record('recovery_terminal_barrier_intent', {'key': key, 'actual_before': current})
+                row = self.p.quarantine(spec['quarantine'], spec['target'], current['metadata'])
+                actual = self.p.classify_owned_pair(spec['candidate'], spec['target'], self.prepared_assets[key],
+                                                    quarantine=spec['quarantine'])
+                io.require(actual['place'] == 'target' and self.same_file(actual['metadata'], row),
+                           'RECOVERY_TERMINAL_BARRIER_OUTCOME_UNKNOWN')
+                self.asset_states[key] = actual; self.barriers[spec['unit']] = row
+                self.barrier_places[spec['unit']] = (spec['target'], row)
+                self.a.own_dropins[spec['unit']].add(spec['target']); self.a.own_config_paths.add(spec['target'])
+                self.a.recovery_allow_load_delta = True
+                self.channel.record('recovery_terminal_barrier_observed', {'key': key, 'actual': actual})
+            self.reconcile_config()
+            for unit in UNITS:self.condition(unit, present=True)
+            io.require(time.monotonic() < prepare_end, 'RECOVERY_TERMINAL_PREPARATION_LATE')
+        for unit in reversed(UNITS):
+            if self.a.terminal_profiles[unit]['kind'] == 'empty':continue
+            stop_end = min(end-self.terminal_cleanup_seconds, time.monotonic()+20)
+            with self.a.limit(stop_end):
+                self.a.check(); self.channel.check(); self.check_transaction_lock()
+                for u in UNITS:self.condition(u, present=True)
+                identity = self.a.terminal_profiles[unit]['identity']
+                io.require(identity not in self.terminal_stop_invocations, 'RECOVERY_TERMINAL_STOP_NO_REPLAY')
+                self.terminal_stop_invocations.add(identity)
+                self.channel.record('recovery_terminal_stop_intent', {'unit': unit, 'identity': identity})
+                result = self.service_action('stop', unit, deadline=stop_end)
+                value = self.a.unit(unit)
+                io.require(result.returncode == 0 and value['MainPID'] == value['ControlPID'] == '0' and
+                           not value['Job'] and self.a.empty(unit), 'RECOVERY_TERMINAL_STOP_OUTCOME_UNKNOWN')
+                self.a.terminal_profiles[unit] = {'kind': 'empty', 'prior_restart_counter': value['NRestarts'],
+                                                'prior_result': value['Result']}
+                self.a.stopped.add(unit); self.a.rights.discard(unit)
+                self.channel.record('recovery_terminal_stop_observed', {'unit': unit,
+                    'cgroup_empty': True, 'no_job': True, 'recovery_status': 'HOLD'})
+                self.a.check()
+        self.a.check(); self.channel.check()
+        io.require(self.a.stopped == set(UNITS) and time.monotonic()+self.terminal_cleanup_seconds < end,
+                   'RECOVERY_TERMINAL_STOP_OR_CLEANUP_RESERVE_INCOMPLETE')
+        self.channel.record('recovery_terminal_hold_current', {'known_new_units_stopped': list(UNITS),
+            'original_status': 'FAILED_HOLD', 'recovery_status': 'HOLD', 'host_complete': False,
+            'owner_entered': False, 'operator_cleanup_still_required': True})
 
     def close(self):
         errors = []

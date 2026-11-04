@@ -444,3 +444,113 @@ class Backup:
         return {'manifest_sha256': digest, 'scope_files_sha256': io.sha(io.canonical(self.files)),
                 'current_copies_and_restored_metadata_verified': True,
                 'historical_ack_reconstructed': False, 'live_or_database_restore': False}
+
+    def classify_original_for_recovery(self):
+        """Read the old fixed private copy/test, without finishing or repairing it.
+
+        Only absent objects or exact byte prefixes in the compiled copy/tree
+        layout qualify as an interrupted private copy. Wrong bytes, extra
+        names, unsafe metadata, malformed existing manifests, or source drift
+        remain HOLD. The caller must ALSO reject recorded negative findings.
+        A truncated manifest is deliberately not parsed by a permissive
+        recovery parser; its provenance/content is insufficient here.
+        """
+        io.require(self.manifest is None and self.root ==
+                   '/opt/tu1nz_repos/public-web-isolation-r1/20261014-1' and
+                   0 < len(self.files) <= 256, 'RECOVERY_PARTIAL_BACKUP_SCOPE')
+        self.check(); p = self.paths; source = {}; expected_names = {}
+        for index, path in enumerate(sorted(self.files)):
+            self.check(); raw, row = p.read(path)
+            io.require(io.sha(raw) == self.files[path], 'RECOVERY_BACKUP_CURRENT_SOURCE_DRIFT')
+            source[path] = (raw, row); expected_names[str(index).zfill(3)] = path
+        def directory(path):
+            parent, name = str(PurePosixPath(path).parent), PurePosixPath(path).name
+            try:os.stat(name, dir_fd=p.get(parent), follow_symlinks=False)
+            except FileNotFoundError:
+                p.absent(path); return None
+            fd = p.get(path); row = p.d.metadata(fd)
+            io.require(row['uid'] == row['gid'] == 0 and row['mode'] == 0o700 and not row['attrs'],
+                       'RECOVERY_PARTIAL_BACKUP_DIRECTORY_PROFILE')
+            return fd
+        before = directory(self.root+'/before'); restore = directory(self.root+'/restore-test')
+        io.require(restore is None or before is not None, 'RECOVERY_RESTORE_WITH_LOST_ORIGINAL_BACKUP_DIRECTORY')
+        complete = before is not None and restore is not None
+        manifest = None; observed = []
+        if before is not None:
+            names = set(os.listdir(before))
+            io.require(names <= set(expected_names) | {'manifest.json'}, 'RECOVERY_PARTIAL_BACKUP_EXTRA_OBJECT')
+            for name in sorted(names-{'manifest.json'}):
+                self.check(); raw, row = p.d.stable_file(before, name)
+                wanted, _ = source[expected_names[name]]
+                io.require(row['uid'] == row['gid'] == 0 and row['mode'] == 0o600 and
+                           row['nlink'] == 1 and not row['attrs'] and not row['flags'] & ~p.d.PHYSICAL_FLAGS and
+                           len(raw) <= len(wanted) and wanted.startswith(raw), 'RECOVERY_PRIVATE_COPY_NEGATIVE_CONTENT')
+                complete = complete and raw == wanted
+                observed.append({'copy': name, 'sha256': io.sha(raw), 'bytes': len(raw)})
+            complete = complete and names == set(expected_names) | {'manifest.json'}
+            if 'manifest.json' in names:
+                raw, row = p.d.stable_file(before, 'manifest.json')
+                value = io.parse(raw)
+                io.require(type(value) is dict and set(value) == set(source) and io.canonical(value) == raw and
+                           row['uid'] == row['gid'] == 0 and row['mode'] == 0o600 and row['nlink'] == 1 and
+                           not row['attrs'], 'RECOVERY_EXISTING_MANIFEST_INCOMPLETE_OR_INVALID')
+                for name, path in expected_names.items():
+                    item = value[path]; original = source[path][1]
+                    io.require(type(item) is dict and set(item) == {'copy', 'sha256', 'original'} and
+                               item['copy'] == name and item['sha256'] == self.files[path] and
+                               type(item['original']) is dict and set(item['original']) == OWNED_FILE_FIELDS and
+                               all(item['original'][k] == original[k] for k in OWNED_FILE_FIELDS-{'atime_ns'}),
+                               'RECOVERY_EXISTING_MANIFEST_SOURCE_MISMATCH')
+                manifest = value
+                # The original code writes the manifest only AFTER all copies
+                # passed readback. Missing/truncated copies now are a concrete
+                # integrity contradiction, not an interrupted pre-manifest copy.
+                io.require(names == set(expected_names) | {'manifest.json'} and all(
+                    v['sha256'] == self.files[expected_names[v['copy']]] for v in observed),
+                    'RECOVERY_MANIFEST_WITH_LOST_OR_CHANGED_COPIES')
+        if restore is not None:
+            names = set(os.listdir(restore))
+            io.require(names <= {'tree', 'tree-return'} and len(names) <= 1,
+                       'RECOVERY_PARTIAL_RESTORE_EXTRA_OR_DUPLICATE_TREE')
+            complete = complete and names == {'tree'}
+            if names:
+                io.require(manifest is not None, 'RECOVERY_RESTORE_WITHOUT_COMPLETE_BACKUP_MANIFEST')
+                name = next(iter(names)); tree = self.root+'/restore-test/'+name
+                expected_dirs = {'': set()}; expected_files = {}
+                for path in source:
+                    parts = PurePosixPath(path).parts[1:]; parent = ''
+                    for part in parts[:-1]:
+                        expected_dirs[parent].add(part); parent = parent+'/'+part if parent else part
+                        expected_dirs.setdefault(parent, set())
+                    expected_dirs[parent].add(parts[-1]); expected_files['/'.join(parts)] = path
+                visited = set()
+                def walk(relative):
+                    nonlocal complete
+                    self.check(); path = tree+('/'+relative if relative else ''); fd = directory(path)
+                    io.require(fd is not None, 'RECOVERY_RESTORE_DIRECTORY_VANISHED')
+                    actual_names = set(os.listdir(fd))
+                    io.require(actual_names <= expected_dirs[relative], 'RECOVERY_PARTIAL_RESTORE_FOREIGN_NAME')
+                    for leaf in sorted(actual_names):
+                        rel = relative+'/'+leaf if relative else leaf
+                        if rel in expected_dirs:walk(rel); continue
+                        original_path = expected_files[rel]; wanted, current = source[original_path]
+                        raw, row = p.d.stable_file(fd, leaf); visited.add(original_path)
+                        io.require(row['uid'] == 0 and row['gid'] in (0, current['gid']) and
+                                   row['mode'] in (0o600, current['mode']) and row['nlink'] == 1 and
+                                   all(k in current['attrs'] and current['attrs'][k] == v for k,v in row['attrs'].items()) and
+                                   not row['flags'] & ~p.d.PHYSICAL_FLAGS and
+                                   len(raw) <= len(wanted) and wanted.startswith(raw),
+                                   'RECOVERY_PRIVATE_RESTORE_NEGATIVE_CONTENT_OR_METADATA')
+                        complete = complete and raw == wanted and all(row[k] == current[k] for k in
+                            ('uid', 'gid', 'mode', 'attrs', 'mtime_ns')) and (
+                            row['flags'] & ~p.d.PHYSICAL_FLAGS == current['flags'] & ~p.d.PHYSICAL_FLAGS)
+                    io.require(set(os.listdir(fd)) == actual_names, 'RECOVERY_PARTIAL_RESTORE_CHANGED')
+                walk(''); complete = complete and visited == set(source)
+        self.check()
+        if complete:
+            proof = self.load_verified_existing()
+            return {'state': 'COMPLETE_CURRENT_COPY_AND_RESTORE', **proof}
+        return {'state': 'INCOMPLETE_PRIVATE_COPY_REQUIRES_NEW_FIXED_TEST',
+                'scope_files_sha256': io.sha(io.canonical(self.files)),
+                'private_copy_inventory_sha256': io.sha(io.canonical(observed)),
+                'old_objects_changed': False, 'old_restore_claimed_successful': False}
