@@ -798,6 +798,84 @@ def original_chain_pair(mac, host, *, binding, ready_sha256):
             'original_ack_reconstructed': False}
 
 
+def original_chain_manifest(snapshot):
+    """Bound the actual Mac read without transferring up to32MiB of history.
+
+    Called only after read_original_chain on the held fixed Mac directory.
+    The sole final record is included because it may be the unexplained ACK
+    tail. Common bytes are read independently on the Host and compared by
+    hash. No original record is created, appended, or called successful.
+    """
+    rows = snapshot['records']
+    require(type(rows) is list and 0 < len(rows) <= 512 and
+            snapshot['count'] == len(rows), 'ORIGINAL_MANIFEST_RECORD_BOUND')
+    previous = snapshot['binding']; hashes = []
+    for index, proof in enumerate(rows, 1):
+        row = proof['record']; raw = canonical(row)
+        require(type(row) is dict and set(row) == {'sequence', 'binding', 'previous', 'kind', 'value'} and
+                type(row['sequence']) is int and row['sequence'] == index and
+                row['binding'] == snapshot['binding'] and row['previous'] == previous and
+                type(row['kind']) is str and re.fullmatch('[A-Za-z0-9_]+', row['kind']) and
+                len(raw) <= 65536 and sha(raw) == proof['sha256'], 'ORIGINAL_MANIFEST_CHAIN_INVALID')
+        previous = proof['sha256']; hashes.append(previous)
+    require(previous == snapshot['tail'], 'ORIGINAL_MANIFEST_TAIL_INVALID')
+    supplements = snapshot['supplements']
+    require(type(supplements) is dict and set(supplements) <= {'held.json', 'final.json'},
+            'ORIGINAL_MANIFEST_SUPPLEMENTS')
+    values = {}
+    for name, proof in supplements.items():
+        raw = canonical(proof['record'])
+        require(type(proof['record']) is dict and proof['record'].get('type') == name[:-5] and
+                len(raw) <= 65536 and sha(raw) == proof['sha256'], 'ORIGINAL_MANIFEST_SUPPLEMENT_INVALID')
+        values[name] = {'sha256': proof['sha256'], 'record': proof['record']}
+    return {'schema': 'TU1NZ_REV4_ORIGINAL_CHAIN_MANIFEST', 'binding': snapshot['binding'],
+            'hashes': hashes, 'last_record': rows[-1]['record'], 'supplements': values,
+            'snapshot_sha256': sha(canonical(snapshot))}
+
+
+def original_manifest_pair(manifest, host, *, binding, ready_sha256):
+    """Compare independently read custody bytes; this is not an ACK repair.
+
+    The authenticated recovery transport supplies a manifest made from the
+    actual fixed Mac custody. Host records supply the matching common bytes.
+    The original_chain_pair rules still apply to EVERY common/orphan record.
+    Neither a scope document nor a user-provided manifest is an executable
+    input to this helper. The actual directory snapshots remain held by their
+    respective readers and must be unchanged at subsequent action boundaries.
+    """
+    require(type(manifest) is dict and set(manifest) ==
+            {'schema', 'binding', 'hashes', 'last_record', 'supplements', 'snapshot_sha256'} and
+            manifest['schema'] == 'TU1NZ_REV4_ORIGINAL_CHAIN_MANIFEST' and
+            manifest['binding'] == binding and type(manifest['hashes']) is list and
+            type(host.get('count')) is int and host['count'] <= len(manifest['hashes']) <= host['count']+1 and
+            0 < len(manifest['hashes']) <= 512 and
+            all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v) for v in
+                [manifest['snapshot_sha256'], *manifest['hashes']]), 'ORIGINAL_MANIFEST_SCHEMA_OR_GAP')
+    hashes = manifest['hashes']
+    require(len(host['records']) == host['count'] and all(
+            row['sha256'] == hashes[index] for index, row in enumerate(host['records'])),
+            'ORIGINAL_MANIFEST_COMMON_BYTES_DIFFER')
+    last_raw = canonical(manifest['last_record'])
+    require(len(last_raw) <= 65536 and sha(last_raw) == hashes[-1], 'ORIGINAL_MANIFEST_LAST_BYTES')
+    # A temporary comparison view ONLY. These entries are never persisted or
+    # returned as acknowledgements. The common Host bytes have matching Mac
+    # digests; the Mac-only tail, if any, keeps its UNKNOWN outcome.
+    rows = list(host['records'])
+    if len(hashes) > host['count']:
+        rows.append({'sha256': hashes[-1], 'record': manifest['last_record']})
+    else:
+        require(rows[-1]['record'] == manifest['last_record'], 'ORIGINAL_MANIFEST_FINAL_DIVERGENCE')
+    comparison = {'binding': binding, 'count': len(rows), 'tail': hashes[-1], 'records': rows}
+    result = original_chain_pair(comparison, host, binding=binding, ready_sha256=ready_sha256)
+    # Validate supplement shape and digest independently of an optional value.
+    checked = original_chain_manifest({**comparison, 'supplements': manifest['supplements']})
+    require(checked['hashes'] == hashes, 'ORIGINAL_MANIFEST_LINKS_DIFFER')
+    result['mac_snapshot_sha256'] = manifest['snapshot_sha256']
+    result['mac_supplements'] = checked['supplements']
+    result['unconfirmed_mac_record'] = manifest['last_record'] if len(hashes) > host['count'] else None
+    return result
+
+
 class Source:
     """In-memory exact old components plus new reviewed operator modules.
 

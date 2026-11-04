@@ -185,6 +185,7 @@ class PreparedRuntimeTests(unittest.TestCase):
     def test_probe_reuse_receipt_requires_completed_cleanup_and_same_actual_platform(self):
         adapter = transition.MaintenanceAdapter.__new__(transition.MaintenanceAdapter)
         adapter.quiet = Mock(); adapter.channel = Mock(); adapter.probe_hash = 'a'*64
+        adapter.p = Mock()
         adapter.arm_start_limit_observation = Mock()
         platform = {'synthetic': 'measured platform'}
         adapter.a = SimpleNamespace(platform_identity=Mock(return_value=platform))
@@ -309,6 +310,39 @@ class RecoveryCustodyTests(unittest.TestCase):
         self.assertEqual(set(chain['supplements']), {'held.json', 'final.json'})
         self.assertEqual(chain['count'], 2)
 
+    def test_compact_manifest_requires_matching_independently_read_bytes(self):
+        host, _, _ = self.snapshot(self.rows())
+        mac, _, _ = self.snapshot(self.rows([('host_action_intent', {'action': 'stop'})]),
+            extra={'final.json': io.canonical({'type': 'final', 'status': 'HOLD'})})
+        manifest = io.original_chain_manifest(mac)
+        proof = io.original_manifest_pair(manifest, host, binding=self.binding, ready_sha256=self.ready_sha)
+        self.assertEqual(proof['unconfirmed_mac_record'], mac['records'][-1]['record'])
+        self.assertEqual(proof['mac_snapshot_sha256'], io.sha(io.canonical(mac)))
+        self.assertFalse(proof['original_ack_reconstructed'])
+        for field, value in (('hashes', ['b'*64, *manifest['hashes'][1:]]),
+                             ('last_record', {'kind': 'invented'}), ('snapshot_sha256', 'not-a-hash')):
+            with self.subTest(field=field), self.assertRaises(io.Hold):
+                io.original_manifest_pair({**manifest, field: value}, host,
+                                         binding=self.binding, ready_sha256=self.ready_sha)
+        bad = copy.deepcopy(manifest); bad['supplements']['final.json']['record']['status'] = 'SUCCESS'
+        with self.assertRaises(io.Hold):
+            io.original_manifest_pair(bad, host, binding=self.binding, ready_sha256=self.ready_sha)
+
+    def test_compact_manifest_cannot_hide_owner_tail_or_replace_the_512_record_bound(self):
+        host, _, _ = self.snapshot(self.rows())
+        owner, _, _ = self.snapshot(self.rows([('owner_admission_intent', {})]))
+        with self.assertRaises(io.Hold):
+            io.original_manifest_pair(io.original_chain_manifest(owner), host,
+                                     binding=self.binding, ready_sha256=self.ready_sha)
+        large = self.rows([('bounded_fixture', {'padding': 'x'*60000}) for _ in range(510)])
+        snapshot = {'binding': self.binding, 'tail': io.sha(large[-1][1]), 'count': len(large),
+                    'records': [{'sha256': io.sha(raw), 'record': io.parse(raw)} for _, raw in large],
+                    'supplements': {}}
+        manifest = io.original_chain_manifest(snapshot)
+        self.assertLess(len(io.canonical(manifest)), 128*1024)
+        snapshot['records'].append(snapshot['records'][-1]); snapshot['count'] += 1
+        with self.assertRaises(io.Hold):io.original_chain_manifest(snapshot)
+
     def test_bad_record_names_permissions_links_or_bytes_deny_read(self):
         for fault in ('partial', 'extra', 'symlink', 'hardlink', 'mode', 'noncanonical', 'sequence'):
             with self.subTest(fault=fault):
@@ -337,6 +371,298 @@ class RecoveryCustodyTests(unittest.TestCase):
         for key, value in (('transaction', 'new-name'), ('original_status', 'SUCCESS'),
                            ('owner_plan_sha256', 'b'*64), ('unconfirmed_mac_tail', 'b'*64)):
             with self.subTest(key=key), self.assertRaises(io.Hold):io.recovery_binding({**seed, key: value})
+
+
+class RecoveryObjectHistoryTests(unittest.TestCase):
+    def setUp(self):
+        OwnedCandidateTests.setUp(self)
+        self.expected['metadata']['ctime_ns'] = 100
+
+    def history(self, place, records, *, ctime=110):
+        spec = transition.prepared_asset_map(r3)['0-barrier']
+        observed = {'place': place, 'metadata': {**self.expected['metadata'], 'ctime_ns': ctime}}
+        return transition.recovery_asset_history('0-barrier', spec, self.expected, observed, records)
+
+    def intent(self):
+        return {'kind': 'prepared_publication_intent', 'value': {
+            'key': '0-barrier', 'mapping': transition.prepared_asset_map(r3)['0-barrier']}}
+
+    def publication(self):
+        return {'kind': 'prepared_publication_observed', 'value': {'key': '0-barrier',
+            'actual': {'place': 'target', 'metadata': {**self.expected['metadata'], 'ctime_ns': 110}}}}
+
+    def test_unknown_ack_does_not_authorize_an_unrequested_move_or_reverse_a_confirmed_move(self):
+        initial = self.expected['metadata']['ctime_ns']
+        self.history('candidate', [], ctime=initial)
+        with self.assertRaises(io.Hold):self.history('target', [])
+        proof = self.history('target', [self.intent()])
+        self.assertEqual(proof['basis'], 'CURRENT_OBJECT_OBSERVATION_NOT_ORIGINAL_ACK')
+        self.assertEqual(proof['original_last_confirmed_place'], 'candidate')
+        self.history('candidate', [self.intent()], ctime=initial)
+        confirmed = [self.intent(), self.publication()]
+        self.history('target', confirmed)
+        for place, ctime in (('candidate', initial), ('target', 111), ('quarantine', 120)):
+            with self.subTest(place=place, ctime=ctime), self.assertRaises(io.Hold):
+                self.history(place, confirmed, ctime=ctime)
+
+    def test_barrier_release_requires_original_intent_and_preserves_real_post_ctime(self):
+        records = [self.intent(), self.publication(), {'kind': 'host_action_intent', 'value': {
+            'action': 'quarantine_own_barrier', 'unit': r3.UNITS[0]}}]
+        self.history('target', records)
+        self.history('quarantine', records, ctime=120)
+        records.append({'kind': 'barrier_quarantined', 'value': {'unit': r3.UNITS[0],
+            'path': transition.prepared_asset_map(r3)['0-barrier']['quarantine'],
+            'actual': {**self.expected['metadata'], 'ctime_ns': 120}}})
+        self.history('quarantine', records, ctime=120)
+        with self.assertRaises(io.Hold):self.history('target', records)
+        with self.assertRaises(io.Hold):self.history('quarantine', records, ctime=121)
+
+
+class RecoveryOriginalEvidenceTests(unittest.TestCase):
+    def fixture(self):
+        self.binding = 'a'*64; self.boot = '00000000-0000-0000-0000-000000000001'
+        self.source = SimpleNamespace(bytes={'runtime': b'synthetic'}, load=lambda name:r3)
+        self.inputs = {k:'c'*64 for k in ('baseline_sha256', 'pre_stop_protection_sha256', 'native_timing_sha256')}
+        self.inputs.update(scope_sha256=self.binding, source_sha256=io.sha(io.canonical(
+            {k:io.sha(v) for k,v in self.source.bytes.items()})))
+        self.session = {'pid': 42, 'starttime': '1000', 'session': 42, 'process_group': 42}
+        self.witness = {'boot': self.boot, 'operator_session': self.session}
+        self.meta = {'device': 1, 'inode': 2, 'uid': 0, 'gid': 0, 'mode': 0o600,
+                     'type': stat.S_IFREG, 'nlink': 1, 'size': 0, 'mtime_ns': 100,
+                     'ctime_ns': 100, 'atime_ns': 100, 'attrs': {}, 'flags': 0}
+        mapping = transition.prepared_asset_map(r3)
+        self.ready = {'schema': transition.MAINTENANCE_CONTRACT, 'transaction': r3.TX,
+            'machine': r3.MACHINE, 'boot_id': self.boot, 'inputs': self.inputs,
+            'owner_plan_sha256': r3.OWNER_PLAN, 'artifact_sha256': 'b'*64, 'archive_sha256': 'd'*64,
+            'read_witness_sha256': io.sha(io.canonical(self.witness)), 'legacy_runtime_identity': {},
+            'operator_session': self.session, 'runtime': {}, 'mapping': mapping,
+            'assets': {k:{} for k in mapping}, 'directories': {}, 'checks': ['complete_runtime',
+            'prepared_dependencies', 'complete_candidates', 'current_old_stop_authority',
+            'current_writers', 'exclusive_lock'], 'activation': 'NOT_ACTIVATED', 'old_return': False}
+        ready_record = {'ready': self.ready, 'sha256': io.sha(io.canonical(self.ready)),
+                        'file_metadata': self.meta, 'actual_prepared_directories': {}}
+        lock_record = {'path': r3.BOOT+'/transaction.lock', 'metadata': self.meta,
+                       'operator_session': self.session, 'operator': {'pid': 42, 'starttime': '1000'}}
+        values = [('prestate_read_witness', self.witness), ('flow_claim', {'transaction': r3.TX}),
+                  ('maintenance_lock_held', lock_record), ('maintenance_ready', ready_record)]
+        previous = self.binding; rows = []
+        for index, (kind, value) in enumerate(values, 1):
+            record = {'sequence': index, 'binding': self.binding, 'previous': previous,
+                      'kind': kind, 'value': value}
+            previous = io.sha(io.canonical(record)); rows.append({'record': record, 'sha256': previous})
+        self.snapshot = {'binding': self.binding, 'tail': previous, 'count': len(rows),
+                         'records': rows, 'supplements': {}}
+        self.manifest = io.original_chain_manifest(self.snapshot)
+        self.files = {r3.BOOT+'/prepared/READY.json': (io.canonical(self.ready), self.meta),
+                      r3.BOOT+'/read-witness/witness.json': (io.canonical(self.witness), self.meta),
+                      r3.BOOT+'/transaction.lock': (b'', self.meta)}
+        self.paths = Mock(); self.paths.get.return_value = 99
+        self.paths.read.side_effect = lambda path:self.files[path]
+        self.object = transition.RecoveryOriginalEvidence.__new__(transition.RecoveryOriginalEvidence)
+
+    def initialize(self):
+        self.object.__init__(self.paths, self.source, self.manifest, original_binding=self.binding,
+                            maintenance_inputs=self.inputs, boot_id=self.boot, deadline=time.monotonic()+10)
+
+    def native_mocks(self, *, members=()):
+        from contextlib import ExitStack
+        stack = ExitStack(); self.addCleanup(stack.close)
+        stack.enter_context(patch.object(io, 'read_original_chain', return_value=self.snapshot))
+        stack.enter_context(patch.object(transition, 'operator_session_members', return_value=list(members)))
+        for name, value in (('dup', 90), ('open', 91), ('fstat', SimpleNamespace(st_dev=1, st_ino=2))):
+            stack.enter_context(patch.object(transition.os, name, return_value=value))
+        self.lock = stack.enter_context(patch.object(transition.fcntl, 'flock'))
+
+    def test_original_custody_is_read_only_and_existing_lock_is_acquired_without_reset(self):
+        self.fixture(); self.native_mocks(); self.initialize()
+        self.lock.assert_called_once_with(91, transition.fcntl.LOCK_EX | transition.fcntl.LOCK_NB)
+        self.paths.create_file.assert_not_called(); self.paths.create_directory.assert_not_called()
+        self.assertEqual(self.object.binding, self.binding)
+        self.assertEqual(self.object.ready_raw, io.canonical(self.ready))
+        self.files[r3.BOOT+'/transaction.lock'] = (b'', {**self.meta, 'inode': 3})
+        with self.assertRaises(io.Hold):self.object.check_original()
+
+    def test_live_original_or_orphan_helper_prevents_lock_and_recovery_admission(self):
+        self.fixture(); self.native_mocks(members=[{'pid': 43, 'starttime': '1001'}])
+        with self.assertRaisesRegex(io.Hold, 'HELPER_STILL_PRESENT'):self.initialize()
+        self.lock.assert_not_called()
+
+    def test_changed_ready_witness_or_source_never_becomes_current_authority(self):
+        for fault in ('ready', 'witness', 'source'):
+            with self.subTest(fault=fault):
+                self.fixture()
+                with patch.object(io, 'read_original_chain', return_value=self.snapshot), \
+                     patch.object(transition.os, 'dup', return_value=90):
+                    if fault == 'ready':
+                        self.files[r3.BOOT+'/prepared/READY.json'] = (io.canonical({**self.ready, 'old_return': True}), self.meta)
+                    elif fault == 'witness':
+                        self.files[r3.BOOT+'/read-witness/witness.json'] = (io.canonical({**self.witness, 'boot': 'other'}), self.meta)
+                    else:self.source.bytes['runtime'] = b'changed'
+                    with self.assertRaises(io.Hold):self.initialize()
+
+
+class RecoveryPhaseTests(unittest.TestCase):
+    def fixture(self, installed=0, *, barriers='target', units='empty_inactive'):
+        mapping = transition.prepared_asset_map(r3)
+        assets = {}; count = 0
+        for key, spec in mapping.items():
+            if spec['source'] is None:assets[key] = {'place': barriers}
+            else:
+                assets[key] = {'place': 'target' if count < installed else 'candidate'}; count += 1
+        return mapping, assets, {u: units for u in r3.UNITS}
+
+    def test_finite_f1_f2_f3_f4_with_no_second_runtime_construction(self):
+        for installed, barriers, units, expected in (
+                (0, 'candidate', 'known_old_active', 'F1'),
+                (0, 'target', 'known_old_active', 'F1'),
+                (0, 'target', 'empty_inactive', 'F2'),
+                (0, 'target', 'empty_terminal_failed', 'F2'),
+                (1, 'target', 'empty_inactive', 'F3'),
+                (6, 'target', 'empty_inactive', 'F3'),
+                (7, 'target', 'empty_terminal_failed', 'F4'),
+                (7, 'quarantine', 'known_new_active', 'F4')):
+            with self.subTest(expected=expected, installed=installed):
+                args = self.fixture(installed, barriers=barriers, units=units)
+                self.assertEqual(transition.recovery_phase(*args), expected)
+
+    def test_unknown_runtime_mixed_old_new_or_premature_downstream_release_denied(self):
+        cases = [self.fixture(1, units='known_old_active'),
+                 self.fixture(6, units='known_new_active'), self.fixture(3, barriers='quarantine')]
+        mapping, assets, units = self.fixture(7)
+        units[r3.UNITS[1]] = 'known_new_active'; assets['1-barrier']['place'] = 'quarantine'
+        cases.append((mapping, assets, units))
+        mapping, assets, units = self.fixture(7); assets['2-barrier']['place'] = 'quarantine'
+        cases.append((mapping, assets, units))
+        for args in cases:
+            with self.subTest(args=args), self.assertRaises(io.Hold):transition.recovery_phase(*args)
+
+    def test_only_active_prefix_and_one_next_released_empty_unit_is_admitted(self):
+        mapping, assets, units = self.fixture(7)
+        units[r3.UNITS[0]] = 'known_new_active'; assets['0-barrier']['place'] = 'quarantine'
+        assets['1-barrier']['place'] = 'quarantine'
+        self.assertEqual(transition.recovery_phase(mapping, assets, units), 'F4')
+        assets['2-barrier']['place'] = 'quarantine'
+        with self.assertRaises(io.Hold):transition.recovery_phase(mapping, assets, units)
+
+
+class RecoveryCurrentUnitTests(unittest.TestCase):
+    def fixture(self):
+        a = transition.RecoveryAuthority.__new__(transition.RecoveryAuthority)
+        a.replacement_active = False; a.empty = Mock(return_value=True)
+        a.interpreter_binding = Mock(); a.delegation_check = Mock(); a.rights_check = Mock()
+        a.initial_application_ready = Mock(return_value=True)
+        old = {'InvocationID': 'a'*32, 'NRestarts': '0'}
+        row = {'pid': 42, 'starttime': '99', 'uid': [1001]*4, 'gid': [1001]*4,
+               'cgroup': '0::/system.slice/'+r3.UNITS[0]}
+        a.evidence = SimpleNamespace(witness={'units': {r3.UNITS[0]: old},
+                                              'targets': {r3.UNITS[0]: [42, '99']}})
+        a.original_profiles = {r3.UNITS[0]: {'uid': [1001]*4, 'gid': [1001]*4}}
+        value = {**old, 'Job': '', 'ControlPID': '0', 'MainPID': '42', 'ActiveState': 'active',
+                 'SubState': 'running', 'Result': 'success', 'ControlGroup': '/system.slice/'+r3.UNITS[0]}
+        return a, value, row
+
+    def test_old_target_requires_same_actual_lifetime_invocation_and_counter(self):
+        a, value, row = self.fixture()
+        self.assertEqual(a.classify_current_unit(r3.UNITS[0], value, row), 'known_old_active')
+        for v, r in (({**value, 'InvocationID': 'b'*32}, row),
+                     ({**value, 'NRestarts': '1'}, row), (value, {**row, 'starttime': '100'}),
+                     ({**value, 'Job': '1'}, row)):
+            with self.assertRaises(io.Hold):a.classify_current_unit(r3.UNITS[0], v, r)
+
+    def test_new_active_runtime_and_isolation_are_measured_not_inferred_from_zero_counter(self):
+        a, value, row = self.fixture(); a.replacement_active = True
+        a.interpreter_binding.side_effect = io.Hold('PUBLIC_OPERATOR_SYNTHETIC_WRONG_RUNTIME')
+        with self.assertRaises(io.Hold):a.classify_current_unit(r3.UNITS[0], value, row)
+        a.rights_check.assert_not_called()
+        a.interpreter_binding.side_effect = None
+        a.rights_check.side_effect = io.Hold('PUBLIC_OPERATOR_SYNTHETIC_RIGHTS_RED')
+        with self.assertRaises(io.Hold):a.classify_current_unit(r3.UNITS[0], value, row)
+        a.rights_check.side_effect = None
+        self.assertEqual(a.classify_current_unit(r3.UNITS[0], value, row), 'known_new_active')
+
+    def test_empty_terminal_failed_is_distinct_from_restart_startlimit_or_nonempty(self):
+        a, value, _ = self.fixture(); value.update(MainPID='0', ActiveState='failed', SubState='failed', Result='exit-code')
+        self.assertEqual(a.classify_current_unit(r3.UNITS[0], value, None), 'empty_terminal_failed')
+        for change in ({'Result': 'start-limit-hit'}, {'NRestarts': '1'}, {'ControlPID': '1'},
+                       {'SubState': 'auto-restart'}, {'ActiveState': 'deactivating'}):
+            with self.subTest(change=change), self.assertRaises(io.Hold):
+                a.classify_current_unit(r3.UNITS[0], {**value, **change}, None)
+        a.empty.return_value = False
+        with self.assertRaises(io.Hold):a.classify_current_unit(r3.UNITS[0], value, None)
+
+
+class RecoveryProbeAdmissionTests(unittest.TestCase):
+    def test_partial_unknown_or_failed_probe_cannot_become_unused_even_when_currently_empty(self):
+        for record in ({'kind': 'probe_start_intent', 'value': {}},
+                       {'kind': 'probe_completed', 'value': {}},
+                       {'kind': 'maintenance_probes_complete', 'value': {}},
+                       {'kind': 'host_action_intent', 'value': {'action': 'bounded_synthetic_probes'}}):
+            e = SimpleNamespace(snapshot={'records': []}, records=[record], source=Mock())
+            with self.subTest(record=record), patch.object(transition.RecoveryProbeEvidence, 'unused_current') as unused:
+                with self.assertRaisesRegex(io.Hold, 'PARTIAL_OR_UNKNOWN_PROBE'):
+                    transition.RecoveryProbeEvidence(Mock(), e)
+                unused.assert_not_called()
+
+    def test_unused_requires_current_fixed_probe_names_and_objects_absent(self):
+        e = SimpleNamespace(snapshot={'records': []}, records=[], source=Mock())
+        with patch.object(transition.RecoveryProbeEvidence, 'unused_current',
+                          side_effect=io.Hold('PUBLIC_OPERATOR_SYNTHETIC_OCCUPIED')) as unused:
+            with self.assertRaises(io.Hold):transition.RecoveryProbeEvidence(Mock(), e)
+            unused.assert_called_once()
+
+
+class RecoveryFailureTests(unittest.TestCase):
+    def test_lost_ack_is_unknown_and_known_negative_cannot_be_overruled(self):
+        code = 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CLIENT_CUSTODY_ACK_LOST'
+        records = [{'kind': 'flow_hold', 'value': {'primary': code, 'abort': [], 'cleanup': []}}]
+        proof = transition.recovery_failure_assessment(records, {})
+        self.assertEqual(proof['original_status'], 'FAILED_HOLD')
+        self.assertEqual(proof['original_effects'], 'UNKNOWN_UNTIL_FRESH_CLASSIFICATION')
+        for primary in ('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_ACTUAL_RUNTIME_RIGHTS_RED',
+                        'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_RESTORE_CONTENT_OR_METADATA',
+                        'PUBLIC_BOOTSTRAP_REQUIREMENT_OR_OPERATION_UNCONFIRMED'):
+            with self.subTest(primary=primary), self.assertRaises(io.Hold):
+                transition.recovery_failure_assessment(records+[{'kind': 'flow_hold',
+                    'value': {'primary': primary}}], {})
+
+    def test_missing_diagnostic_does_not_claim_mechanical_cause_or_original_success(self):
+        proof = transition.recovery_failure_assessment([], {})
+        self.assertEqual(proof['cause'], 'INCOMPLETE_ORIGINAL_NO_CAUSE_CLAIM')
+        self.assertTrue(proof['fresh_admission_still_required'])
+        with self.assertRaises(io.Hold):
+            transition.recovery_failure_assessment([], {'final.json': {
+                'record': {'type': 'final', 'status': 'COMPLETE'}}})
+
+
+class CurrentDatabaseReadTests(unittest.TestCase):
+    def authority(self):
+        a = observe.CurrentAuthority.__new__(observe.CurrentAuthority)
+        a.b = {'database': {'role': 'chatops', 'database': 'synthetic'}}; a.deadline = 120
+        return a
+
+    def test_quiet_read_is_readonly_with_actual_connection_count_and_no_secret_in_arguments(self):
+        a = self.authority()
+        result = SimpleNamespace(returncode=0, stderr=b'', stdout=b'chatops|synthetic|on|t|t\nf|f|f|f|f\nt|f\n0\n')
+        with patch.object(observe, 'command', return_value=result) as command:
+            proof = a.database_readonly('postgresql://chatops:synthetic-secret@127.0.0.1/synthetic',
+                                         require_other_connections_absent=True)
+        args, kwargs = command.call_args
+        self.assertNotIn('synthetic-secret', repr(args))
+        self.assertEqual(kwargs['extra_env']['PGOPTIONS'], '-c default_transaction_read_only=on')
+        self.assertIn(b'BEGIN READ ONLY;', kwargs['data'])
+        self.assertIn(b'FROM pg_stat_activity WHERE datname=current_database()', kwargs['data'])
+        self.assertTrue(kwargs['data'].endswith(b'ROLLBACK;'))
+        self.assertFalse(proof['provider_data_emitted'])
+        self.assertNotIn('synthetic-secret', repr(proof))
+
+    def test_other_connection_or_unknown_result_refuses_quiet_admission_without_terminating_it(self):
+        a = self.authority()
+        for suffix in (b'1\n', b'\n', b'unknown\n'):
+            result = SimpleNamespace(returncode=0, stderr=b'', stdout=b'chatops|synthetic|on|t|t\nf|f|f|f|f\nt|f\n'+suffix)
+            with patch.object(observe, 'command', return_value=result) as command, self.assertRaises(io.Hold):
+                a.database_readonly('postgresql://chatops@127.0.0.1/synthetic', require_other_connections_absent=True)
+            self.assertEqual(command.call_count, 1)
+            self.assertNotIn(b'pg_terminate_backend', command.call_args.kwargs['data'])
 
 
 class RecoveryOrderTests(unittest.TestCase):

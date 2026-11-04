@@ -27,9 +27,10 @@ import tu1nz_public_operator_context as context
 import tu1nz_public_runtime_artifact as artifact
 from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ, EXCLUDED
 from tu1nz_public_operator_observe import (Authority, CurrentAuthority, UNITS, ENV, process, command,
-    typed_exec_properties, EXEC_PROPERTIES, operator_session_start, operator_session_members)
+    typed_exec_properties, EXEC_PROPERTIES, operator_session_start, operator_session_members,
+    unit_rows, LEGACY_CONTEXTS_SHA)
 from tu1nz_public_operator_host import Adapter, STAGING, LIGHTING, HELPER, DROPIN, ASSET_NAMES
-from tu1nz_public_operator_fs import security
+from tu1nz_public_operator_fs import security, OWNED_FILE_FIELDS
 
 OVERLAY = 'zzz-public-runtime-r5.conf'
 CHUNK = 512*1024
@@ -1345,6 +1346,549 @@ def prepared_asset_map(r3):
     return mapping
 
 
+def recovery_asset_history(key, spec, expected, observed, records):
+    """Constrain a FRESH pair read by original intents and actual observations.
+
+    A surviving intent permits classification of either side of that one
+    operation; it does not say the effect happened. A completed observation
+    forbids rolling the inode/ctime backwards. No old ACK is synthesized.
+    """
+    places = ('candidate', 'target', 'quarantine') if 'quarantine' in spec else ('candidate', 'target')
+    io.require(observed.get('place') in places and type(records) is list and len(records) <= 512,
+               'RECOVERY_ASSET_HISTORY_INPUT')
+    requested = confirmed = 0; prior = expected['metadata']; publication = release = False
+    for row in records:
+        kind, value = row['kind'], row['value']
+        if kind == 'prepared_publication_intent' and value.get('key') == key:
+            io.require(not publication and value.get('mapping') == spec,
+                       'RECOVERY_PUBLICATION_INTENT_SCOPE_OR_REPEAT')
+            publication = True; requested = 1
+        elif kind == 'prepared_publication_observed' and value.get('key') == key:
+            actual = value.get('actual', {})
+            io.require(publication and confirmed == 0 and actual.get('place') == 'target' and
+                       type(actual.get('metadata')) is dict and set(actual['metadata']) == OWNED_FILE_FIELDS,
+                       'RECOVERY_PUBLICATION_OBSERVATION_ORDER')
+            prior = actual['metadata']; confirmed = 1
+        elif (kind == 'host_action_intent' and 'quarantine' in spec and
+              value.get('action') == 'quarantine_own_barrier' and value.get('unit') == spec['unit']):
+            io.require(confirmed == 1 and not release, 'RECOVERY_RELEASE_WITHOUT_PUBLISHED_BARRIER')
+            requested = 2; release = True
+        elif (kind == 'barrier_quarantined' and 'quarantine' in spec and value.get('unit') == spec['unit']):
+            io.require(release and value.get('path') == spec['quarantine'] and
+                       type(value.get('actual')) is dict and set(value['actual']) == OWNED_FILE_FIELDS,
+                       'RECOVERY_QUARANTINE_OBSERVATION_ORDER')
+            confirmed = 2; prior = value['actual']
+        elif kind == 'prepared_barrier_release_observed' and value.get('key') == key:
+            actual = value.get('actual', {})
+            io.require(release and confirmed == 2 and actual.get('place') == 'quarantine' and
+                       Adapter.same_file(actual.get('metadata', {}), prior) and
+                       set(actual.get('metadata', {})) == OWNED_FILE_FIELDS,
+                       'RECOVERY_BARRIER_RELEASE_OBSERVATION_ORDER')
+    now = places.index(observed['place'])
+    io.require(confirmed <= now <= requested, 'RECOVERY_ASSET_UNEXPLAINED_PLACEMENT')
+    if now == confirmed:
+        io.require(Adapter.same_file(observed['metadata'], prior), 'RECOVERY_CONFIRMED_ASSET_CHANGED')
+    else:
+        io.require(observed['metadata']['ctime_ns'] >= prior['ctime_ns'], 'RECOVERY_RENAME_CTIME_REVERSED')
+    return {'place': observed['place'], 'metadata': observed['metadata'],
+            'basis': 'CURRENT_OBJECT_OBSERVATION_NOT_ORIGINAL_ACK',
+            'original_last_confirmed_place': places[confirmed], 'original_last_requested_place': places[requested]}
+
+
+def recovery_failure_assessment(records, supplements):
+    """Keep original failure/HOLD; never overrule a recorded adverse finding.
+
+    No diagnostic is not a clean bill of health: it denotes an interrupted,
+    unconfirmed outcome requiring ALL fresh R0/F1–F4 checks. Known negative or
+    unclassified diagnostics are excluded. This finite allowlist covers only
+    transport/interruption/deadline or explicitly unconfirmed operation
+    outcomes; it does not turn them into success or absent effects.
+    """
+    mechanical = {'PUBLIC_BOOTSTRAP_INTERRUPTED', 'PUBLIC_BOOTSTRAP_IO_UNCONFIRMED',
+        *('PUBLIC_BOOTSTRAP_'+v for v in ('OBSERVATION_DEADLINE_HOLD',
+          'OBSERVATION_PERSISTENCE_DEADLINE_HOLD', 'TRANSACTION_DEADLINE',
+          'INTENT_PERSISTENCE_DEADLINE_HOLD', 'ACTION_DEADLINE_HOLD', 'ACTION_UNKNOWN_HOLD')),
+        *('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_'+v for v in ('WIRE_DEADLINE', 'WIRE_LOST_NO_RETRY',
+          'CLIENT_CUSTODY_ACK_LOST', 'LINKED_CUSTODY_DEADLINE', 'TRANSACTION_DEADLINE',
+          'AUTHORITY_DEADLINE', 'MAINTENANCE_ACTION_LATE', 'RELOAD_OUTCOME_UNKNOWN_NO_RETRY',
+          'STOP_OUTCOME_UNKNOWN', 'START_OUTCOME_UNKNOWN_NO_RETRY', 'FIRST_START_KERNEL_PROFILE_DEADLINE'))}
+    cleanup_unknown = {'PUBLIC_BOOTSTRAP_CLEANUP_RECORD_UNCONFIRMED',
+        'PUBLIC_BOOTSTRAP_HOLD_RECORD_PERSISTENCE_RED', 'PUBLIC_BOOTSTRAP_HOLD_RECORD_UNCONFIRMED',
+        'PUBLIC_BOOTSTRAP_FOLLOWUP_UNCONFIRMED', 'PUBLIC_BOOTSTRAP_MIRROR_CLOSE_UNCONFIRMED',
+        'PUBLIC_BOOTSTRAP_MAINTENANCE_HELPER_CLEANUP_UNKNOWN',
+        'PUBLIC_BOOTSTRAP_MAINTENANCE_LOCK_CLEANUP_UNKNOWN'}
+    diagnoses = [r['value'] for r in records if r['kind'] in
+                 ('flow_hold', 'operator_pending_cleanup', 'operator_cleanup')]
+    diagnoses += [p['record'] for p in supplements.values()]
+    observed = []
+    for value in diagnoses:
+        io.require(type(value) is dict and value.get('status', 'HOLD') == 'HOLD',
+                   'RECOVERY_ORIGINAL_NOT_FAILED_HOLD')
+        primary = value.get('primary')
+        io.require(primary is None or primary in mechanical, 'RECOVERY_RECORDED_NEGATIVE_OR_UNCLASSIFIED_FAILURE')
+        for key in ('abort', 'cleanup'):
+            codes = value.get(key, [])
+            io.require(type(codes) is list and len(codes) <= 512 and
+                       all(c in mechanical | cleanup_unknown for c in codes),
+                       'RECOVERY_RECORDED_ABORT_OR_CLEANUP_NOT_CLASSIFIED')
+        observed.append({'primary': primary, 'abort': value.get('abort', []),
+                         'cleanup': value.get('cleanup', [])})
+    return {'original_status': 'FAILED_HOLD', 'diagnostics': observed,
+            'cause': 'RECORDED_MECHANICAL_OR_UNCONFIRMED_OUTCOME' if any(v['primary'] for v in observed)
+                     else 'INCOMPLETE_ORIGINAL_NO_CAUSE_CLAIM',
+            'original_effects': 'UNKNOWN_UNTIL_FRESH_CLASSIFICATION',
+            'fresh_admission_still_required': True, 'original_records_changed': False}
+
+
+class RecoveryOriginalEvidence:
+    """Read only fixed original custody and hold its original lock.
+
+    This object does not create a recovery claim, initialize Authority, change
+    services, declare data/probes healthy, or admit recovery execution. The
+    explicit recovery session must already have consumed its one entry. The
+    caller retains this partially initialized object for cleanup on failure.
+    """
+    def __init__(self, paths, source, manifest, *, original_binding, maintenance_inputs,
+                 boot_id, deadline):
+        self.p, self.source, self.r = paths, source, source.load('r3')
+        self.deadline = deadline; self.original_fd = None; self.lock_fd = None
+        self.binding = original_binding; self.manifest = io.parse(io.canonical(manifest))
+        self.original_fd = os.dup(paths.get(self.r.BOOT+'/intents'))
+        self.snapshot = io.read_original_chain(self.original_fd, original_binding, owner=0, deadline=deadline)
+        raw, ready_metadata = paths.read(self.r.BOOT+'/prepared/READY.json')
+        io.require(len(raw) < 48*1024, 'RECOVERY_READY_BOUND')
+        self.ready = io.parse(raw); self.ready_raw = raw
+        io.require(type(self.ready) is dict and io.canonical(self.ready) == raw,
+                   'RECOVERY_READY_CANONICAL')
+        self.pair = io.original_manifest_pair(manifest, self.snapshot, binding=original_binding,
+                                             ready_sha256=io.sha(raw))
+        self.records = [v['record'] for v in self.snapshot['records']]
+        if self.pair['unconfirmed_mac_record'] is not None:self.records.append(self.pair['unconfirmed_mac_record'])
+        self.failure = recovery_failure_assessment(self.records, self.pair['mac_supplements'])
+        entries = [r['value'] for r in self.records if r['kind'] == 'maintenance_ready']
+        io.require(len(entries) == 1 and set(entries[0]) ==
+                   {'ready', 'sha256', 'file_metadata', 'actual_prepared_directories'} and
+                   Adapter.same_file(ready_metadata, entries[0]['file_metadata']), 'RECOVERY_READY_OBJECT_CHANGED')
+        self.ready_metadata = ready_metadata; self.ready_record = entries[0]
+        mapping = prepared_asset_map(self.r)
+        ready = self.ready
+        io.require(set(ready) == {'schema', 'transaction', 'machine', 'boot_id', 'inputs',
+                   'owner_plan_sha256', 'artifact_sha256', 'archive_sha256', 'read_witness_sha256',
+                   'legacy_runtime_identity', 'operator_session', 'runtime', 'mapping', 'assets',
+                   'directories', 'checks', 'activation', 'old_return'} and
+                   ready['schema'] == MAINTENANCE_CONTRACT and ready['transaction'] == self.r.TX and
+                   ready['machine'] == self.r.MACHINE and ready['boot_id'] == boot_id and
+                   ready['owner_plan_sha256'] == self.r.OWNER_PLAN and ready['mapping'] == mapping and
+                   ready['inputs'] == maintenance_inputs and maintenance_inputs['scope_sha256'] == original_binding and
+                   maintenance_inputs['source_sha256'] == io.sha(io.canonical(
+                       {k: io.sha(v) for k, v in source.bytes.items()})) and
+                   ready['activation'] == 'NOT_ACTIVATED' and ready['old_return'] is False,
+                   'RECOVERY_ORIGINAL_INPUTS_CHANGED')
+        # The check names describe original preparation only; present fences,
+        # actual data and independent approval still have to be established.
+        io.require(ready['checks'] == ['complete_runtime', 'prepared_dependencies', 'complete_candidates',
+                   'current_old_stop_authority', 'current_writers', 'exclusive_lock'] and
+                   type(ready['assets']) is dict and set(ready['assets']) == set(mapping),
+                   'RECOVERY_ORIGINAL_PREPARATION_SCHEMA')
+        witness_raw, self.witness_metadata = paths.read(self.r.BOOT+'/read-witness/witness.json')
+        self.witness = io.parse(witness_raw); self.witness_raw = witness_raw
+        witnesses = [r['value'] for r in self.records if r['kind'] == 'prestate_read_witness']
+        io.require(len(witnesses) == 1 and io.canonical(self.witness) == witness_raw and
+                   self.witness == witnesses[0] and io.sha(witness_raw) == ready['read_witness_sha256'] and
+                   self.witness['boot'] == boot_id and self.witness['operator_session'] == ready['operator_session'],
+                   'RECOVERY_READ_WITNESS_CHANGED')
+        locks = [r['value'] for r in self.records if r['kind'] == 'maintenance_lock_held']
+        io.require(len(locks) == 1 and locks[0]['path'] == self.r.BOOT+'/transaction.lock' and
+                   locks[0]['operator_session'] == ready['operator_session'], 'RECOVERY_ORIGINAL_LOCK_BINDING')
+        session = ready['operator_session']
+        io.require(type(session) is dict and set(session) == {'pid', 'starttime', 'session', 'process_group'} and
+                   type(session['pid']) is int and session['pid'] > 1 and
+                   session['pid'] == session['session'] == session['process_group'] and
+                   type(session['starttime']) is str and session['starttime'].isdecimal() and
+                   locks[0]['operator']['pid'] == session['pid'] and
+                   locks[0]['operator']['starttime'] == session['starttime'], 'RECOVERY_ORIGINAL_SESSION_BINDING')
+        io.require(not operator_session_members(session['session'], deadline=deadline),
+                   'RECOVERY_ORIGINAL_OPERATOR_OR_HELPER_STILL_PRESENT')
+        self.lock_metadata = locks[0]['metadata']
+        lock_raw, actual = paths.read(self.r.BOOT+'/transaction.lock')
+        io.require(lock_raw == b'' and Adapter.same_file(actual, self.lock_metadata),
+                   'RECOVERY_ORIGINAL_LOCK_CHANGED')
+        self.lock_fd = os.open('transaction.lock', READ, dir_fd=paths.get(self.r.BOOT))
+        held = os.fstat(self.lock_fd)
+        io.require((held.st_dev, held.st_ino) == (actual['device'], actual['inode']),
+                   'RECOVERY_LOCK_NAME_RACE')
+        fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.check_original()
+
+    def check_original(self):
+        io.require(time.monotonic() < self.deadline and self.lock_fd is not None,
+                   'RECOVERY_ORIGINAL_EVIDENCE_DEADLINE_OR_LOCK')
+        self.p.check(full=True)
+        current = io.read_original_chain(self.original_fd, self.binding, owner=0, deadline=self.deadline)
+        io.require(current == self.snapshot, 'RECOVERY_ORIGINAL_CUSTODY_CHANGED')
+        for path, expected, metadata in (
+                (self.r.BOOT+'/prepared/READY.json', self.ready_raw, self.ready_metadata),
+                (self.r.BOOT+'/read-witness/witness.json', self.witness_raw, self.witness_metadata),
+                (self.r.BOOT+'/transaction.lock', b'', self.lock_metadata)):
+            raw, actual = self.p.read(path)
+            io.require(raw == expected and Adapter.same_file(actual, metadata), 'RECOVERY_ORIGINAL_OBJECT_CHANGED')
+        held = os.fstat(self.lock_fd)
+        io.require((held.st_dev, held.st_ino) == (self.lock_metadata['device'], self.lock_metadata['inode']) and
+                   not operator_session_members(self.ready['operator_session']['session'], deadline=self.deadline),
+                   'RECOVERY_EXCLUSIVITY_LOST')
+        self.p.check(full=True)
+
+    def assets_current(self):
+        self.check_original(); out = {}
+        for key, spec in prepared_asset_map(self.r).items():
+            expected = self.ready['assets'][key]
+            raw = self.r.BARRIER_BYTES if spec['source'] is None else self.source.bytes[spec['source']]
+            io.require(expected['sha256'] == io.sha(raw) and expected['metadata']['mode'] == spec['mode'],
+                       'RECOVERY_CANDIDATE_SOURCE_CHANGED')
+            observed = self.p.classify_owned_pair(spec['candidate'], spec['target'], expected,
+                                                 quarantine=spec.get('quarantine'))
+            out[key] = recovery_asset_history(key, spec, expected, observed, self.records)
+        self.check_original()
+        return out
+
+    def close(self):
+        errors = []
+        for name in ('original_fd', 'lock_fd'):
+            fd = getattr(self, name, None)
+            if fd is not None:
+                try:os.close(fd)
+                except OSError:errors.append('PUBLIC_BOOTSTRAP_RECOVERY_ORIGINAL_EVIDENCE_CLOSE_UNKNOWN')
+                setattr(self, name, None)
+        return errors
+
+
+def recovery_phase(mapping, assets, units):
+    """Finite classification of freshly checked objects and unit identities.
+
+    Not a packet schema or permission by itself. Only RecoveryAuthority's
+    in-process readers supply these classifications; all data/probe/backup
+    prerequisites and source/clock/custody gates remain separate.
+    """
+    io.require(set(mapping) == set(assets) and set(units) == set(UNITS) and
+               all(v in ('known_old_active', 'known_new_active', 'empty_inactive',
+                         'empty_terminal_failed') for v in units.values()), 'RECOVERY_UNIT_CLASSIFICATION')
+    barriers = {spec['unit']: assets[key]['place'] for key, spec in mapping.items() if spec['source'] is None}
+    installed = [assets[key]['place'] for key, spec in mapping.items() if spec['source'] is not None]
+    io.require(len(installed) == 7 and set(barriers) == set(UNITS) and
+               all(v in ('candidate', 'target') for v in installed) and
+               all(v in ('candidate', 'target', 'quarantine') for v in barriers.values()),
+               'RECOVERY_ASSET_CLASSIFICATION')
+    old = [u for u in UNITS if units[u] == 'known_old_active']
+    new = [u for u in UNITS if units[u] == 'known_new_active']
+    count = installed.count('target')
+    if old or 'candidate' in barriers.values():
+        io.require(not new and count == 0 and 'quarantine' not in barriers.values(),
+                   'RECOVERY_OLD_ACTIVE_WITH_NEW_OR_RELEASED_ASSETS')
+        return 'F1'
+    if count < 7:
+        io.require(not old and not new and set(barriers.values()) == {'target'},
+                   'RECOVERY_PARTIAL_INSTALL_NOT_QUIET_AND_BARRIERED')
+        return 'F2' if count == 0 else 'F3'
+    io.require(not old and new == list(UNITS[:len(new)]), 'RECOVERY_NEW_ACTIVE_NOT_PREFIX')
+    for index, unit in enumerate(UNITS):
+        place = barriers[unit]
+        if index < len(new):io.require(place == 'quarantine', 'RECOVERY_ACTIVE_BARRIER_UNEXPLAINED')
+        elif index > len(new):io.require(place == 'target', 'RECOVERY_DOWNSTREAM_RELEASE_UNEXPLAINED')
+        else:io.require(place in ('target', 'quarantine'), 'RECOVERY_NEXT_START_BARRIER_UNKNOWN')
+    return 'F4'
+
+
+class RecoveryProbeEvidence:
+    """Reuse only fully completed original probes, or prove never entered.
+
+    There is no start/stop/run method. Completed measurements remain historic
+    measurements of those three owned probes, with fresh platform, fixed-name
+    inactivity and retained-object validation. Failed/partial probes cannot be
+    converted into an unused slot by finding their cgroups empty now.
+    """
+    def __init__(self, authority, evidence):
+        self.a, self.e = authority, evidence
+        self.module = evidence.source.load('probes'); self.reused = None; self.hash = None
+        rows = [v['record'] for v in evidence.snapshot['records']]
+        complete = [r['value'] for r in rows if r['kind'] == 'maintenance_probes_complete']
+        attempted = any(r['kind'].startswith('probe_') or r['kind'].startswith('maintenance_probe') or
+                        (r['kind'] in ('host_action_intent', 'flow_intent') and
+                         r['value'].get('action') == 'bounded_synthetic_probes') for r in evidence.records)
+        if not complete:
+            io.require(not attempted, 'RECOVERY_PARTIAL_OR_UNKNOWN_PROBE_NOT_REPLAYABLE')
+            self.unused_current()
+            self.state = 'UNUSED'; return
+        io.require(len(complete) == 1 and type(complete[0]) is dict and set(complete[0]) ==
+                   {'platform', 'proof_sha256', 'reports', 'owned', 'retained', 'private_root',
+                    'private_root_metadata', 'cleanup'}, 'RECOVERY_PROBE_COMPLETION_SCHEMA')
+        receipt = complete[0]; reports = [r['value'] for r in rows if r['kind'] == 'probe_completed']
+        io.require(len(reports) == 3 and [r['unit'] for r in reports] == list(self.module.NAMES) and
+                   receipt['reports'] == [{'unit': r['unit'], 'sha256': io.sha(io.canonical(r))} for r in reports] and
+                   receipt['proof_sha256'] == io.sha(io.canonical(reports)) and receipt['cleanup'] == [] and
+                   receipt['private_root'] == self.module.ROOT+'/root' and
+                   set(receipt['owned']) == set(self.module.NAMES) and
+                   set(receipt['retained']) <= set(self.module.NAMES), 'RECOVERY_PROBE_COMPLETION_INCOMPLETE')
+        cleanup = [r['value'] for r in rows if r['kind'] == 'probe_cleanup']
+        io.require(len(cleanup) == 1 and cleanup[0]['cleanup'] == [] and
+                   cleanup[0]['owned_units'] == list(self.module.NAMES) and
+                   cleanup[0]['persistent_objects_retained'] == self.module.ROOT and
+                   cleanup[0]['retained_transient_units'] == sorted(receipt['retained']),
+                   'RECOVERY_PROBE_CLEANUP_NOT_CONFIRMED')
+        starts = [r['value'] for r in rows if r['kind'] == 'probe_start_intent']
+        results = [r['value'] for r in rows if r['kind'] == 'probe_start_result']
+        io.require([r['unit'] for r in starts] == list(self.module.NAMES) and
+                   [r['unit'] for r in results] == list(self.module.NAMES) and
+                   all(r['exit'] == 0 for r in results), 'RECOVERY_PROBE_START_OR_RESULT_NOT_COMPLETE')
+        for unit, profile, report in zip(self.module.NAMES, self.module.PROFILES, reports):
+            owned = receipt['owned'][unit]; row = report['kernel_process']
+            io.require(owned['requested'] == 1 and type(owned['pid']) is int and owned['pid'] > 1 and
+                       (owned['pid'], owned['start']) == (row['pid'], row['starttime']) and
+                       owned['cgroup'] == '/system.slice/'+unit and
+                       re.fullmatch('[0-9a-f]{32}', owned['invocation']) and
+                       report['measurements_sha256'] == io.sha(io.canonical(
+                           {'profile': profile, 'peer': '1001:1001', 'admin': 'DENIED'})),
+                       'RECOVERY_ORIGINAL_PROBE_IDENTITY_CHANGED')
+        probe = self.module.Probes.__new__(self.module.Probes)
+        probe.p, probe.a, probe.channel = authority.paths, authority, authority.channel
+        probe.deadline = authority.deadline; probe.private = receipt['private_root']
+        probe.owned = io.parse(io.canonical(receipt['owned']))
+        probe.retained = io.parse(io.canonical(receipt['retained']))
+        # Read methods only, no __init__/prepare/run/cleanup actions. All
+        # retained paths are derived from fixed names before registration.
+        for unit, retained in probe.retained.items():
+            io.require(set(retained) == {'path', 'row', 'sha256', 'absent_after_gc'} and
+                       retained['path'] == '/run/systemd/transient/'+unit and
+                       type(retained['absent_after_gc']) is bool, 'RECOVERY_RETAINED_PROBE_PATH_SCOPE')
+        self.reused = probe; self.receipt = receipt; self.hash = receipt['proof_sha256']
+        self.state = 'COMPLETE_CURRENTLY_VERIFIED'
+        self.check()
+        io.require(authority.probe_check is None, 'RECOVERY_PROBE_CHECKER_OCCUPIED')
+        authority.probe_check = self.check
+
+    def unused_current(self):
+        module = self.module; self.a.paths.absent(module.ROOT)
+        probe = module.Probes.__new__(module.Probes)
+        probe.deadline = self.a.deadline; probe.owned = {}
+        for unit in module.NAMES:
+            value = probe.show(unit)
+            io.require(value.get('LoadState') == 'not-found' and probe.empty(unit, value),
+                       'RECOVERY_UNUSED_PROBE_NAME_OR_CGROUP_OCCUPIED')
+            self.a.paths.absent('/run/systemd/transient/'+unit)
+
+    def check(self):
+        if self.reused is None:
+            self.unused_current(); return
+        p = self.reused; p.deadline = min(self.a.deadline, self.a.channel.ceiling)
+        io.require(self.a.platform_identity() == self.receipt['platform'], 'RECOVERY_USED_PLATFORM_CHANGED')
+        actual = self.a.paths.d.metadata(self.a.paths.get(p.private))
+        io.require(Adapter.same_file(actual, self.receipt['private_root_metadata']),
+                   'RECOVERY_PROBE_ROOT_CHANGED')
+        for unit in self.module.NAMES:
+            path = p.inactive_profile(unit, p.deadline)
+            if path is None:
+                self.a.paths.absent('/run/systemd/transient/'+unit)
+                if unit in p.retained:p.retained[unit]['absent_after_gc'] = True
+                self.a.own_config_paths.discard('/run/systemd/transient/'+unit)
+            else:
+                io.require(unit in p.retained and not p.retained[unit]['absent_after_gc'],
+                           'RECOVERY_UNBOUND_OR_REUSED_PROBE_UNIT')
+                raw, row = self.a.paths.read(path); retained = p.retained[unit]
+                io.require(io.sha(raw) == retained['sha256'] and Adapter.same_file(row, retained['row']),
+                           'RECOVERY_RETAINED_PROBE_BYTES_CHANGED')
+                self.a.own_config_paths.add(path)
+        self.e.check_original()
+
+
+class RecoveryAuthority(CurrentReplacementAuthority):
+    """Fresh F1–F4 authority, never the original absence constructor.
+
+    Expected old identities are evidence constraints only. stopped/rights and
+    current runtime selection below are populated AFTER actual kernel/file
+    reads, not copied from the interrupted adapter or its success records.
+    No service effects, claim reset, or runtime construction occurs here.
+    """
+    def __init__(self, baseline, paths, channel, *, machine, deadline, evidence):
+        io.require(isinstance(evidence, RecoveryOriginalEvidence), 'RECOVERY_FIXED_ORIGINAL_EVIDENCE_REQUIRED')
+        self.evidence = evidence; self.recovery_assets = {}; self.recovery_units = {}
+        self.recovery_prepared = None; self.recovery_allow_load_delta = True
+        self.recovery_probes = None
+        self.recovery_reload_units = set()
+        super().__init__(baseline, paths, channel, machine=machine, deadline=deadline)
+
+    @contextmanager
+    def limit(self, deadline):
+        prior = self.evidence.deadline
+        self.evidence.deadline = min(prior, deadline)
+        try:
+            with super().limit(deadline):yield
+        finally:
+            # Only the surrounding unchanged transaction ceiling survives;
+            # no failed action is retried or granted a new action window.
+            self.evidence.deadline = prior
+
+    def initial_current_admission(self):
+        e = self.evidence; e.check_original()
+        io.require(io.sha(io.canonical(self.b)) == e.ready['inputs']['baseline_sha256'] and
+                   self.initial == {p: tuple(v) for p, v in e.witness['files'].items()},
+                   'RECOVERY_PROTECTED_ORIGINAL_SOURCE_CHANGED')
+        self.recovery_assets = e.assets_current()
+        self.admit_prepared_directories()
+        mapping = prepared_asset_map(e.r)
+        for key, spec in mapping.items():
+            if spec['unit'] is not None and self.recovery_assets[key]['place'] == 'target':
+                self.own_config_paths.add(spec['target']); self.own_dropins[spec['unit']].add(spec['target'])
+        self.new_parent_paths = set(e.ready['directories']) & {Adapter.dropdir(u) for u in UNITS}
+        io.require(self.legacy_runtime.identity_digest() == e.ready['legacy_runtime_identity'],
+                   'RECOVERY_LEGACY_SNAPSHOT_CHANGED_NO_HISTORICAL_ATTESTATION')
+        receipt = validate_receipt(self.b['source_release']['runtime_reference']['artifact'],
+                                   io.parse(e.source.bytes['runtime_inputs']))
+        io.require(io.sha(io.canonical(receipt)) == e.ready['artifact_sha256'] and
+                   receipt['archive_sha256'] == e.ready['archive_sha256'], 'RECOVERY_AUTHENTIC_ARTIFACT_CHANGED')
+        fence = ReplacementFence.__new__(ReplacementFence); self.recovery_prepared = fence
+        fence.__init__(self.b['source_release']['runtime_reference'], self.paths,
+            self.b['source_origin_receipts'], python_binary=artifact.ROOT+'/python/bin/python3.12',
+            deadline=self.deadline)
+        io.require(fence.identity_digest() == e.ready['runtime'], 'RECOVERY_RUNTIME_INCOMPLETE_OR_CHANGED_NO_REPAIR')
+        self.prepared_runtime = fence
+        self.bind_external_libraries(prepared=fence)
+        self.check_writers(fence.files | self.legacy_runtime.files)
+        all_installed = all(self.recovery_assets[k]['place'] == 'target' for k,s in mapping.items()
+                            if s['source'] is not None)
+        if all_installed:
+            # This changes only this fresh authority's selected read fence;
+            # no activation or service start is performed. All actual active
+            # processes must still prove this new identity below.
+            self.runtime = fence; self.replacement_active = True
+            fence.files |= self.legacy_runtime.files
+            self.bind_external_libraries()
+        self.initial_units = unit_rows(UNITS, self.deadline)
+        self.original_profiles = io.parse(io.canonical(e.witness['stop_profiles']))
+        self.legacy_contexts = io.parse(io.canonical(e.witness['legacy_contexts']))
+        io.require(set(self.original_profiles) == set(UNITS) and set(self.legacy_contexts) == set(UNITS) and
+                   io.sha(io.canonical(self.legacy_contexts)) == LEGACY_CONTEXTS_SHA,
+                   'RECOVERY_ORIGINAL_STOP_CONTRACT_CHANGED')
+        self.policies_check(); self.manager_jobs_clear()
+        for unit in UNITS:
+            value = self.initial_units[unit]
+            current = process(int(value['MainPID'])) if int(value['MainPID']) else None
+            kind = self.classify_current_unit(unit, value, current)
+            self.recovery_units[unit] = kind
+            if kind.startswith('empty_'):self.stopped.add(unit)
+            elif kind == 'known_old_active':self.targets[unit] = (current['pid'], current['starttime'])
+            else:
+                self.runtime_invocations[unit] = (value['InvocationID'], current['pid'], current['starttime'])
+                self.rights.add(unit)
+        self.recovery_phase = recovery_phase(mapping, self.recovery_assets, self.recovery_units)
+        self.recovery_probes = RecoveryProbeEvidence(self, e)
+        io.require(self.recovery_phase not in ('F3', 'F4') or self.recovery_probes.hash is not None,
+                   'RECOVERY_INSTALLED_ASSETS_WITHOUT_COMPLETE_PROBES')
+        io.require(self.unit_search() == self.b['unit_search_sha256'], 'RECOVERY_FOREIGN_MANAGER_DELTA')
+        self.check()
+
+    def admit_prepared_directories(self):
+        e = self.evidence; boot = e.r.BOOT
+        required = {boot, STAGING, LIGHTING, boot+'/prepared', boot+'/prepared/assets',
+                    *(boot+'/'+n for n in ('read-witness', 'intents', 'acknowledgments', 'quarantine', 'reports')),
+                    *(STAGING+'/'+n for n in ('quarantine', 'reports', 'result')), str(Path(artifact.ROOT).parent)}
+        allowed = required | {str(PurePosixPath(p).parent) for p in (boot, STAGING, LIGHTING)} | {
+                    Adapter.dropdir(u) for u in UNITS}
+        directories = e.ready['directories']
+        io.require(type(directories) is dict and required <= set(directories) <= allowed,
+                   'RECOVERY_PREPARED_DIRECTORY_SCOPE')
+        for path, expected in directories.items():
+            actual = self.paths.d.metadata(self.paths.get(path))
+            io.require(security(actual) == security(expected), 'RECOVERY_PREPARED_DIRECTORY_REPLACED')
+        io.require(set(os.listdir(self.paths.get(boot+'/prepared'))) == {'assets', 'READY.json'} and
+                   set(os.listdir(self.paths.get(boot+'/prepared/assets'))) == {
+                       PurePosixPath(spec['candidate']).name for k, spec in prepared_asset_map(e.r).items()
+                       if self.recovery_assets[k]['place'] == 'candidate'}, 'RECOVERY_PREPARED_NAMES_CHANGED')
+
+    def classify_current_unit(self, unit, value, current):
+        io.require(unit in UNITS and not value['Job'] and value['ControlPID'] == '0' and
+                   value['SubState'] not in ('auto-restart', 'auto-restart-queued'),
+                   'RECOVERY_UNIT_JOB_OR_AUTOMATIC_TRANSITION')
+        if current is None:
+            io.require(value['MainPID'] == '0' and value['NRestarts'] == '0' and self.empty(unit) and
+                       value['Result'] != 'start-limit-hit', 'RECOVERY_EMPTY_COUNTER_OR_CGROUP_UNKNOWN')
+            if value['ActiveState'] == 'inactive' and value['SubState'] == 'dead':return 'empty_inactive'
+            io.require(value['ActiveState'] == 'failed' and value['SubState'] == 'failed',
+                       'RECOVERY_EMPTY_NOT_TERMINAL')
+            return 'empty_terminal_failed'
+        io.require(value['ActiveState'] == 'active' and value['SubState'] == 'running' and
+                   value['ControlGroup'] == '/system.slice/'+unit and
+                   current['cgroup'] == '0::'+value['ControlGroup'] and
+                   re.fullmatch('[0-9a-f]{32}', value['InvocationID']), 'RECOVERY_ACTIVE_IDENTITY_UNKNOWN')
+        if self.replacement_active:
+            io.require(value['NRestarts'] == '0', 'RECOVERY_NEW_RESTART_COUNTER')
+            self.interpreter_binding(current, old=False)
+            self.rights_check(unit, current)
+            io.require(self.initial_application_ready(unit, current), 'RECOVERY_NEW_LISTENER_NOT_READY')
+            return 'known_new_active'
+        old = self.evidence.witness['units'][unit]
+        io.require((current['pid'], current['starttime']) == tuple(self.evidence.witness['targets'][unit]) and
+                   value['InvocationID'] == old['InvocationID'] and value['NRestarts'] == old['NRestarts'] and
+                   all(current[k] == v for k,v in self.original_profiles[unit].items()),
+                   'RECOVERY_OLD_STOP_IDENTITY_CHANGED')
+        self.interpreter_binding(current, old=True)
+        self.delegation_check(current, known_stop=True)
+        return 'known_old_active'
+
+    def unit_configuration_check(self, unit, value, expected):
+        if not self.recovery_allow_load_delta:return super().unit_configuration_check(unit, value, expected)
+        base = set(expected['dropins']); loaded = set(value['DropInPaths'].split())
+        disk = self.own_dropins[unit]
+        historical = {spec['target'] for key,spec in prepared_asset_map(self.evidence.r).items()
+                      if spec['unit'] == unit and self.recovery_assets[key]['place'] in ('target', 'quarantine')}
+        io.require(value['FragmentPath'] == expected['fragment'] and not value['Job'] and
+                   value['KillMode'] == 'control-group' and value['NeedDaemonReload'] in ('yes', 'no') and
+                   base <= loaded <= base | historical, 'RECOVERY_UNEXPLAINED_EFFECTIVE_CONFIG')
+        delta = loaded != base | disk or value['NeedDaemonReload'] == 'yes'
+        io.require(not delta or historical, 'RECOVERY_RELOAD_WITHOUT_OWN_CONFIG_DELTA')
+        if delta:self.recovery_reload_units.add(unit)
+
+    def unit_process_check(self, unit, value, current, *, stop_only):
+        if unit in self.stopped:
+            kind = self.classify_current_unit(unit, value, current)
+            io.require(kind in ('empty_inactive', 'empty_terminal_failed'), 'RECOVERY_UNIT_NO_LONGER_QUIET')
+            return
+        if unit in self.rights:
+            super().unit_process_check(unit, value, current, stop_only=False)
+            self.interpreter_binding(current, old=False)
+        else:
+            io.require(self.classify_current_unit(unit, value, current) == 'known_old_active' and
+                       (current['pid'], current['starttime']) == self.targets.get(unit),
+                       'RECOVERY_OLD_CURRENT_IDENTITY_LOST')
+
+    def stop_contexts_check(self, *, stop_only):
+        # Only the retained expected original contexts; every still-live old
+        # target was freshly compared above. Empty units gain no exemption.
+        io.require(io.sha(io.canonical(self.legacy_contexts)) == LEGACY_CONTEXTS_SHA,
+                   'RECOVERY_STOP_CONTEXT_CONSTRAINT_CHANGED')
+
+    def check(self, *, stop_only=False):
+        self.evidence.check_original()
+        if self.recovery_assets:
+            for key,spec in prepared_asset_map(self.evidence.r).items():
+                actual = self.paths.classify_owned_pair(spec['candidate'], spec['target'],
+                    self.evidence.ready['assets'][key], quarantine=spec.get('quarantine'))
+                expected = self.recovery_assets[key]
+                io.require(actual['place'] == expected['place'] and
+                           Adapter.same_file(actual['metadata'], expected['metadata']),
+                           'RECOVERY_OWNED_ASSET_CHANGED_AFTER_ADMISSION')
+        old_live = bool(set(self.targets)-self.stopped-self.rights)
+        super().check(stop_only=old_live)
+        self.evidence.check_original()
+
+    def close(self):
+        errors = []; current = getattr(self, 'runtime', None)
+        for fence in (getattr(self, 'legacy_runtime', None), getattr(self, 'recovery_prepared', None)):
+            if fence is not None and fence is not current:
+                try:errors.extend(fence.close())
+                except BaseException:errors.append('PUBLIC_BOOTSTRAP_RECOVERY_RUNTIME_FENCE_CLOSE_UNKNOWN')
+        errors.extend(super().close())
+        return errors
+
+
 class MaintenanceAdapter(ReplacementAdapter):
     """R4 original-run preparation; no recovery admission through __init__.
 
@@ -1633,9 +2177,11 @@ class MaintenanceAdapter(ReplacementAdapter):
             io.require(self.probes.cleanup_complete and not self.probes.unconfirmed and
                        self.a.platform_identity() == platform, 'MAINTENANCE_PROBE_PLATFORM_OR_CLEANUP_CHANGED')
             self.channel.record('maintenance_probes_complete', {'platform': platform,
-                'proof_sha256': self.probe_hash, 'reports': self.probes.reports,
+                'proof_sha256': self.probe_hash,
+                'reports': [{'unit': r['unit'], 'sha256': io.sha(io.canonical(r))} for r in self.probes.reports],
                 'owned': self.probes.owned, 'retained': self.probes.retained,
-                'private_root': self.probes.private, 'cleanup': []})
+                'private_root': self.probes.private,
+                'private_root_metadata': self.p.d.metadata(self.p.get(self.probes.private)), 'cleanup': []})
             return result
         if action in ('prepare_runtime_bundle', 'create_persistent_barriers', 'install_four_artifacts'):
             io.require(unit is None and self.pending is None and

@@ -654,62 +654,7 @@ class Authority:
                     if name == 's7_database_dsn': dsn = raw.strip().decode()
                 finally:
                     os.close(fd)
-            # A fixed SELECT-only transaction under the actual required peer
-            # identity. DSN never occurs in argv, records or private errors.
-            parsed = urllib.parse.urlsplit(dsn)
-            query_params = urllib.parse.parse_qsl(parsed.query, strict_parsing=True)
-            options = dict(query_params)
-            io.require(parsed.scheme in ('postgresql', 'postgres') and not parsed.fragment and
-                       len(options) == len(query_params) and set(options) <= {'host', 'port', 'user', 'password', 'dbname'},
-                       'DB_AUTHENTICATION_PROFILE_UNKNOWN')
-            host = options.get('host', urllib.parse.unquote(parsed.hostname or '') or '/var/run/postgresql')
-            database = options.get('dbname', urllib.parse.unquote(parsed.path.lstrip('/')))
-            user = options.get('user', urllib.parse.unquote(parsed.username or '') or 'chatops')
-            password = options.get('password', urllib.parse.unquote(parsed.password or ''))
-            port = options.get('port', str(parsed.port or 5432))
-            io.require(host in ('/var/run/postgresql', '/run/postgresql', 'localhost', '127.0.0.1', '::1') and
-                       port.isdecimal() and 1 <= int(port) <= 65535 and database == self.b['database']['database'] and
-                       user == self.b['database']['role'] and all('\x00' not in v and '\n' not in v
-                       for v in (database, user, password)), 'DB_LOCAL_TARGET_OR_IDENTITY_UNKNOWN')
-            def peer():
-                libc = ctypes.CDLL(None, use_errno=True)
-                last = int(Path('/proc/sys/kernel/cap_last_cap').read_text())
-                if not 0 <= last <= 63: os._exit(126)
-                for cap in range(last+1):
-                    if libc.prctl(24, cap, 0, 0, 0) != 0: os._exit(126)
-                if libc.prctl(38, 1, 0, 0, 0) != 0: os._exit(126)
-                os.setgroups([]); os.setgid(1001); os.setuid(1001)
-            if host.startswith('/'):
-                socket_name = host+'/.s.PGSQL.'+port
-                runtime_socket = Path('/proc')/str(row['pid'])/'root'/socket_name.lstrip('/')
-                host_stat, runtime_stat = os.stat(socket_name), os.stat(runtime_socket)
-                io.require(stat.S_ISSOCK(host_stat.st_mode) and
-                           (host_stat.st_dev, host_stat.st_ino) == (runtime_stat.st_dev, runtime_stat.st_ino),
-                           'DB_RUNTIME_SOCKET_NOT_SAME_OBJECT')
-            query = ("BEGIN READ ONLY; SET LOCAL statement_timeout='2s'; "
-                     "SELECT current_user,current_database(),current_setting('transaction_read_only'),"
-                     "has_table_privilege(current_user,'commercial_s7_waitlist','SELECT'),"
-                     "has_table_privilege(current_user,'commercial_s7_analytics_events','SELECT'); "
-                     "SELECT rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls "
-                     "FROM pg_roles WHERE rolname=current_user; "
-                     "SELECT EXISTS(SELECT 1 FROM commercial_s7_waitlist LIMIT 1),"
-                     "EXISTS(SELECT 1 FROM commercial_s7_analytics_events LIMIT 1); ROLLBACK;")
-            result = command(['/usr/bin/psql', '-X', '-w', '-q', '-A', '-t', '-F', '|',
-                              '--set=ON_ERROR_STOP=1'], self.deadline, data=query.encode(), preexec=peer,
-                             extra_env={'PGDATABASE': database, 'PGUSER': user, 'PGHOST': host, 'PGPORT': port,
-                                        'PGPASSWORD': password, 'PGCONNECT_TIMEOUT': '2',
-                                        'PGAPPNAME': 'tu1nz-readonly-public-admission',
-                                        'PGOPTIONS': '-c default_transaction_read_only=on',
-                                        'PGPASSFILE': '/proc/self/fd/-1'})
-            io.require(result.returncode == 0 and not result.stderr, 'DB_PEER_READ_UNKNOWN')
-            lines = result.stdout.decode().splitlines()
-            wanted = '|'.join((self.b['database']['role'], self.b['database']['database'], 'on', 't', 't'))
-            io.require(len(lines) == 3 and lines[0] == wanted and lines[1] == 'f|f|f|f|f' and
-                       lines[2] in ('t|t', 't|f', 'f|t', 'f|f'),
-                       'DB_IDENTITY_OR_READ_RED')
-            proof['data']['database'] = {'peer_uid_gid': 1001, 'identity_readonly_select': lines[0].split('|'),
-                                        'actual_role_flags': lines[1].split('|'),
-                                        'query_result_sha256': io.sha(result.stdout), 'provider_data_emitted': False}
+            proof['data']['database'] = self.database_readonly(dsn, runtime_pid=row['pid'])
         else:
             root = Path('/proc')/str(row['pid'])/'root/var/lib/tu1nz-adult-public-s9'
             for name in ('landing-aggregates.json',) if unit == UNITS[1] else (
@@ -732,6 +677,73 @@ class Authority:
         io.require(before['InvocationID'] == after['InvocationID'] and before['MainPID'] == after['MainPID'] and
                    starttime(row['pid']) == row['starttime'], 'FUNCTION_INVOCATION_CHANGED')
         return proof
+
+    def database_readonly(self, dsn, *, runtime_pid=None, require_other_connections_absent=False):
+        # A fixed SELECT-only transaction under the actual required peer
+        # identity. DSN never occurs in argv, records or private errors.
+        parsed = urllib.parse.urlsplit(dsn)
+        query_params = urllib.parse.parse_qsl(parsed.query, strict_parsing=True)
+        options = dict(query_params)
+        io.require(parsed.scheme in ('postgresql', 'postgres') and not parsed.fragment and
+                   len(options) == len(query_params) and set(options) <= {'host', 'port', 'user', 'password', 'dbname'},
+                   'DB_AUTHENTICATION_PROFILE_UNKNOWN')
+        host = options.get('host', urllib.parse.unquote(parsed.hostname or '') or '/var/run/postgresql')
+        database = options.get('dbname', urllib.parse.unquote(parsed.path.lstrip('/')))
+        user = options.get('user', urllib.parse.unquote(parsed.username or '') or 'chatops')
+        password = options.get('password', urllib.parse.unquote(parsed.password or ''))
+        port = options.get('port', str(parsed.port or 5432))
+        io.require(host in ('/var/run/postgresql', '/run/postgresql', 'localhost', '127.0.0.1', '::1') and
+                   port.isdecimal() and 1 <= int(port) <= 65535 and database == self.b['database']['database'] and
+                   user == self.b['database']['role'] and all('\x00' not in v and '\n' not in v
+                   for v in (database, user, password)), 'DB_LOCAL_TARGET_OR_IDENTITY_UNKNOWN')
+        def peer():
+            libc = ctypes.CDLL(None, use_errno=True)
+            last = int(Path('/proc/sys/kernel/cap_last_cap').read_text())
+            if not 0 <= last <= 63: os._exit(126)
+            for cap in range(last+1):
+                if libc.prctl(24, cap, 0, 0, 0) != 0: os._exit(126)
+            if libc.prctl(38, 1, 0, 0, 0) != 0: os._exit(126)
+            os.setgroups([]); os.setgid(1001); os.setuid(1001)
+        if host.startswith('/') and runtime_pid is not None:
+            socket_name = host+'/.s.PGSQL.'+port
+            runtime_socket = Path('/proc')/str(runtime_pid)/'root'/socket_name.lstrip('/')
+            host_stat, runtime_stat = os.stat(socket_name), os.stat(runtime_socket)
+            io.require(stat.S_ISSOCK(host_stat.st_mode) and
+                       (host_stat.st_dev, host_stat.st_ino) == (runtime_stat.st_dev, runtime_stat.st_ino),
+                       'DB_RUNTIME_SOCKET_NOT_SAME_OBJECT')
+        query = ("BEGIN READ ONLY; SET LOCAL statement_timeout='2s'; "
+                 "SELECT current_user,current_database(),current_setting('transaction_read_only'),"
+                 "has_table_privilege(current_user,'commercial_s7_waitlist','SELECT'),"
+                 "has_table_privilege(current_user,'commercial_s7_analytics_events','SELECT'); "
+                 "SELECT rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls "
+                 "FROM pg_roles WHERE rolname=current_user; "
+                 "SELECT EXISTS(SELECT 1 FROM commercial_s7_waitlist LIMIT 1),"
+                 "EXISTS(SELECT 1 FROM commercial_s7_analytics_events LIMIT 1); ")
+        if require_other_connections_absent:
+            # A single current negative census, never a claim of a lock or of
+            # no writer throughout the interruption. Do not hide sessions
+            # whose query/activity details this role cannot inspect.
+            query += ("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                      "AND pid<>pg_backend_pid(); ")
+        query += 'ROLLBACK;'
+        result = command(['/usr/bin/psql', '-X', '-w', '-q', '-A', '-t', '-F', '|',
+                          '--set=ON_ERROR_STOP=1'], self.deadline, data=query.encode(), preexec=peer,
+                         extra_env={'PGDATABASE': database, 'PGUSER': user, 'PGHOST': host, 'PGPORT': port,
+                                    'PGPASSWORD': password, 'PGCONNECT_TIMEOUT': '2',
+                                    'PGAPPNAME': 'tu1nz-readonly-public-admission',
+                                    'PGOPTIONS': '-c default_transaction_read_only=on',
+                                    'PGPASSFILE': '/proc/self/fd/-1'})
+        io.require(result.returncode == 0 and not result.stderr, 'DB_PEER_READ_UNKNOWN')
+        lines = result.stdout.decode().splitlines()
+        wanted = '|'.join((self.b['database']['role'], self.b['database']['database'], 'on', 't', 't'))
+        io.require(len(lines) == (4 if require_other_connections_absent else 3) and
+                   (not require_other_connections_absent or lines[3] == '0') and
+                   lines[0] == wanted and lines[1] == 'f|f|f|f|f' and
+                   lines[2] in ('t|t', 't|f', 'f|t', 'f|f'),
+                   'DB_IDENTITY_OR_READ_RED')
+        return {'peer_uid_gid': 1001, 'identity_readonly_select': lines[0].split('|'),
+                                    'actual_role_flags': lines[1].split('|'),
+                                    'query_result_sha256': io.sha(result.stdout), 'provider_data_emitted': False}
 
     def listener_binding(self, row, contract, *, allow_initial_unbound=False):
         host, port = contract['bind_host'], contract['bind_port']
@@ -830,11 +842,7 @@ class Authority:
             value = rows[unit]
             self.extra_unit_contract(unit, value, stop_only=stop_only)
             expected = self.b['unit_files'][unit]
-            io.require(value['FragmentPath'] == expected['fragment'] and
-                       not value['Job'] and value['NeedDaemonReload'] == 'no' and
-                       value['KillMode'] == 'control-group', 'UNIT_CONTROL_DRIFT_OR_JOB')
-            io.require(set(value['DropInPaths'].split()) == set(expected['dropins']) | self.own_dropins[unit],
-                       'FOREIGN_OR_MISSING_EFFECTIVE_DROPIN')
+            self.unit_configuration_check(unit, value, expected)
             for relation in ('RequiredBy', 'BoundBy', 'ConsistsOf', 'PropagatesStopTo', 'StopPropagatedFrom'):
                 io.require(set(value[relation].split()) <= set(UNITS), 'FOREIGN_STOP_IMPACT')
             explicit_requires = set() if unit == UNITS[0] else {UNITS[0]}
@@ -872,6 +880,13 @@ class Authority:
             current = process(int(value['MainPID'])) if int(value['MainPID']) else None
             self.unit_process_check(unit, value, current, stop_only=stop_only)
         self.stop_contexts_check(stop_only=stop_only)
+
+    def unit_configuration_check(self, unit, value, expected):
+        io.require(value['FragmentPath'] == expected['fragment'] and
+                   not value['Job'] and value['NeedDaemonReload'] == 'no' and
+                   value['KillMode'] == 'control-group', 'UNIT_CONTROL_DRIFT_OR_JOB')
+        io.require(set(value['DropInPaths'].split()) == set(expected['dropins']) | self.own_dropins[unit],
+                   'FOREIGN_OR_MISSING_EFFECTIVE_DROPIN')
 
     def unit_process_check(self, unit, value, current, *, stop_only):
         if current is not None:
@@ -1442,6 +1457,72 @@ class CurrentAuthority(Authority):
         current_writer_check(targets, self.deadline)
         if prepared is not None:prepared.check()
         self.runtime.check(); self.paths.check()
+
+    def current_data_readonly(self):
+        """Fixed current S7/JSON health, never an old-data hash/rollback gate.
+
+        The two existing credential input hashes remain bound in baseline.
+        No provider content or secret is emitted. Quiet requires no other
+        connection to this exact DB at query time plus no actual JSON writer;
+        running applications may legitimately advance their current data.
+        These point reads are not a database lock or a new restore procedure.
+        """
+        self.check_files()
+        credentials = {'s7_form_secret': '/etc/tu1nz/adult-commercial-s7-form.secret',
+                       's7_database_dsn': '/etc/tu1nz/adult-commercial-s7-database.dsn'}
+        io.require(set(credentials.values()) <= set(self.b['files']), 'CURRENT_DATA_CREDENTIAL_INPUT_UNBOUND')
+        dsn = None
+        for name, path in credentials.items():
+            raw, row = self.paths.read(path)
+            io.require(1 <= len(raw) <= 4096 and row['uid'] == row['gid'] == 0 and row['mode'] == 0o600 and
+                       io.sha(raw) == self.b['database']['credential_sha256'][name],
+                       'CURRENT_DATA_CREDENTIAL_INPUT_CHANGED')
+            if name == 's7_database_dsn':dsn = raw.strip().decode()
+        quiet = self.stopped == set(UNITS) and all(self.empty(u) for u in UNITS)
+        database = self.database_readonly(dsn, require_other_connections_absent=quiet)
+        parent = self.paths.get('/var/lib')
+        fd = os.open('tu1nz-adult-public-s9', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW |
+                     os.O_CLOEXEC | os.O_NOATIME, dir_fd=parent)
+        files = {}; identities = set()
+        try:
+            before = os.fstat(fd)
+            io.require(before.st_uid == before.st_gid == 1001 and stat.S_IMODE(before.st_mode) == 0o700 and
+                       not os.listxattr(fd), 'CURRENT_DATA_DIRECTORY_PROFILE')
+            for name in ('landing-aggregates.json', 'wms-traffic-quality.json'):
+                self.paths.check()
+                child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC |
+                                os.O_NOATIME, dir_fd=fd)
+                try:
+                    s = os.fstat(child)
+                    io.require(stat.S_ISREG(s.st_mode) and s.st_uid == s.st_gid == 1001 and
+                               stat.S_IMODE(s.st_mode) == 0o600 and s.st_nlink == 1 and
+                               0 < s.st_size <= 1024*1024 and not os.listxattr(child), 'CURRENT_DATA_FILE_PROFILE')
+                    raw = os.pread(child, s.st_size+1, 0)
+                    io.require(len(raw) == s.st_size and type(io.parse(raw)) is dict,
+                               'CURRENT_DATA_BYTES_OR_JSON_INVALID')
+                    named = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    fields = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink',
+                              'st_size', 'st_mtime_ns', 'st_ctime_ns')
+                    metadata = {k:getattr(s,k) for k in fields}
+                    io.require(all(metadata == {k:getattr(v,k) for k in fields}
+                                   for v in (os.fstat(child), named)), 'CURRENT_DATA_READ_CHANGED')
+                    files[name] = {'sha256': io.sha(raw), 'metadata': metadata}
+                    identities.add((s.st_dev, s.st_ino))
+                finally:os.close(child)
+            after = os.fstat(fd); named = os.stat('tu1nz-adult-public-s9', dir_fd=parent, follow_symlinks=False)
+            fixed = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode')
+            if quiet:fixed += ('st_mtime_ns', 'st_ctime_ns')
+            io.require(all(all(getattr(v,k) == getattr(before,k) for k in fixed) for v in (after,named)),
+                       'CURRENT_DATA_DIRECTORY_CHANGED')
+            if quiet:
+                self.check_writers(identities)
+                io.require(self.stopped == set(UNITS) and all(self.empty(u) for u in UNITS),
+                           'CURRENT_DATA_QUIET_LOST')
+        finally:os.close(fd)
+        self.check_files()
+        return {'database': database, 'state': files, 'quiet_at_read': quiet,
+                'data_rollback': False, 'historical_data_equality_claimed': False,
+                'database_lock_or_gap_monitoring_claimed': False}
 
     def ancestry(self):
         result = []; pid = self.operator_pid
