@@ -103,10 +103,12 @@ def main():
         denied(lambda:transition.start_limit_permission(failed))
         denied(lambda:transition.start_limit_permission(snapshot(UNITS[2])))
         cases.append('RECENT_ACTIVE_TERMINAL_AND_POSITIVE_RESTART_COUNTER_DENIED')
-        # A real no-op job still invalidates the passive observer. No injected
-        # manager reply, condition timestamp, rate counter or callback.
+        # A real stop job must invalidate the passive observer. PID1 may
+        # coalesce the signal for an immediately completed no-op start; such
+        # an already-ACTIVE request does not reach its limiter either.
+        # No injected manager reply, timestamp, rate counter or callback.
         watch=transition.StartLimitObservation(reader)
-        run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[0])
+        run('/usr/bin/systemctl','--job-mode=fail','stop',UNITS[0])
         end=time.monotonic()+5
         while not watch.failure and time.monotonic()<end:
             try:watch.drain()
@@ -115,6 +117,9 @@ def main():
         denied(watch.drain);assert watch.events>0
         watch.close();reader.start_limit_watch=None
         cases.append('REAL_FOREIGN_JOB_LATCHED')
+        run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[0])
+        wait_state(UNITS[0],{('active','running')})
+        early=snapshot(UNITS[0])
         target=max(early['properties']['ActiveEnterTimestampMonotonic'],
                    failed['properties']['StateChangeTimestampMonotonic'])/1_000_000+900.1
         print('SYNTHETIC_900S_PREPARATION_WAIT',flush=True)
