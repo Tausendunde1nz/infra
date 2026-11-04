@@ -67,7 +67,11 @@ REPOSITORY='Tausendunde1nz/infra'
 # This entry is not a trust attestation: the complete new SHA still requires
 # independent review and normal external Environment approval before private CI.
 # Repository/event/SHA/clean-source bindings and pinned private inputs unchanged.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240))
+# PR241: approved finite mainserver Rev4 maintenance/recovery implementation.
+# Same private Control inputs and exact-source checks. This membership alone
+# does not approve any head: independent final-head review and the protected
+# Environment gate still precede private input. No pilot or Host execution.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'
