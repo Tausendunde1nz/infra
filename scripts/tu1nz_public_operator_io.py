@@ -26,6 +26,9 @@ import urllib.parse
 import urllib.request
 
 MAX_FRAME = 4*1024*1024
+MAINTENANCE_SCOPE = 'TU1NZ_MAIN_SERVER_REV4_APPROVED_SCOPE_V1'
+MAINTENANCE_DECISION_SHA = 'e6794711443f5768c2e720c7552948964976c246ab59ff89236f53125fbd49fc'
+MAINTENANCE_APPROVAL_SHA = '576251012fb1e73fcc29a49334140660339b74fbdda05273822e53cb6f80c3a4'
 R5_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
 PROSPECTIVE_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5P_V1'
 PROSPECTIVE_BINDING = 'TU1NZ_PUBLIC_PROSPECTIVE_BINDING_V1'
@@ -149,6 +152,106 @@ def operator_dependency_reference(release, origins):
                 all(type(k) is type(v) is str for k,v in row['attrs'].items()),
                 'REPLACEMENT_OPERATOR_DEPENDENCY_PROFILE')
     return rows
+
+
+def maintenance_scope(scope, baseline):
+    """Only the approved Rev4 input contract; this is NOT a Host admission.
+
+    Kept separate from the historical prospective/context validators. The
+    current authority observation is bound explicitly, not laundered into a
+    historical origin. Backup, actual restore, timing, independent review and
+    all live Host gates remain separate necessary checks before any claim.
+    """
+    fields = {'schema', 'release_sha256', 'baseline_sha256', 'administrative_roles_sha256',
+              'baseline_origins_sha256', 'r3_approval_sha256', 'machine_sha256', 'transaction',
+              'owner_plan_sha256', 'runtime_artifact_sha256', 'legacy_return',
+              'contract_sha256', 'approval_sha256', 'current_observation_sha256',
+              'current_acceptance_sha256', 'read_scope_sha256', 'pre_stop_protection_sha256', 'native_timing_sha256'}
+    hashes = fields-{'schema', 'transaction', 'legacy_return'}
+    require(type(scope) is dict and set(scope) == fields and scope['schema'] == MAINTENANCE_SCOPE and
+            all(type(scope[k]) is str and re.fullmatch('[0-9a-f]{64}', scope[k]) for k in hashes),
+            'MAINTENANCE_SCOPE_SCHEMA')
+    require(scope['contract_sha256'] == MAINTENANCE_DECISION_SHA and scope['approval_sha256'] == MAINTENANCE_APPROVAL_SHA and
+            scope['r3_approval_sha256'] == '7032ae9a4baf5c358e81050cd3fd675386c2f33100ab9932f504c053eaa10a7d' and
+            scope['machine_sha256'] == baseline['machine_sha256'] ==
+            'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae' and
+            scope['transaction'] == 'public-rights-20261014-1' and
+            scope['owner_plan_sha256'] == 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36' and
+            scope['legacy_return'] is False, 'MAINTENANCE_APPROVED_FINITE_CONTRACT')
+    require(baseline.get('schema') == 'TU1NZ_PUBLIC_HOST_BASELINE_CURRENT_REV4_V1' and
+            'contexts' not in baseline and baseline.get('current_authority') == {
+                'schema': 'TU1NZ_CURRENT_RELEVANT_AUTHORITY_REV4_V1',
+                'risk': 'KNOWN_CURRENT_ADMINISTRATION_TCB_NOT_HISTORICAL_OR_GAP_INTEGRITY',
+                'observation_sha256': scope['current_observation_sha256']} and
+            scope['administrative_roles_sha256'] == sha(canonical(baseline['actors'])) and
+            scope['baseline_origins_sha256'] == sha(canonical(baseline['source_origin_receipts'])),
+            'MAINTENANCE_CURRENT_AUTHORITY_BINDING')
+    reference = baseline['source_release']['runtime_reference']
+    operator_dependency_reference(baseline['source_release'], baseline['source_origin_receipts'])
+    require(type(reference) is dict and set(reference) == {'schema', 'artifact', 'origin_sha256'} and
+            reference['schema'] == 'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1' and
+            sha(canonical(reference['artifact'])) == scope['runtime_artifact_sha256'] == reference['origin_sha256'] and
+            reference['origin_sha256'] in baseline['source_origin_receipts'] and
+            not any(p == '/opt/tu1nz_repos/adult-publishing-core' or
+                    p.startswith('/opt/tu1nz_repos/adult-publishing-core/') for p in baseline['files']),
+            'MAINTENANCE_AUTHENTIC_RUNTIME_NO_OLD_ADOPTION')
+    return True
+
+
+def maintenance_material_binding(scope, baseline, material, *, source_hashes, review_sha256, remaining_seconds=600):
+    """Pure exact-byte binding. Returned documents still need V1–V6 validation.
+
+    The independent review hash is selected from the actual review receipt,
+    not generated from a passed/closed flag and not a personal SHA prompt.
+    Reuses the old 300s capture / at most24h acceptance lifetime unchanged.
+    The original AND explicit recovery must fit their full remaining window.
+    """
+    maintenance_scope(scope, baseline)
+    require(type(review_sha256) is str and re.fullmatch('[0-9a-f]{64}', review_sha256) and
+            type(remaining_seconds) is int and 0 < remaining_seconds <= 600 and
+            type(source_hashes) is dict and set(source_hashes) == set(MODULES) | set(ASSETS) and
+            all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v) for v in source_hashes.values()),
+            'MAINTENANCE_MATERIAL_ARGUMENTS')
+    names = {k:scope[k+'_sha256'] for k in ('contract', 'approval', 'current_observation', 'current_acceptance',
+                                          'read_scope', 'pre_stop_protection', 'native_timing')}
+    names['review'] = review_sha256
+    require(type(material) is dict and set(material) == set(names) and all(
+            type(material[n]) is bytes and 0 < len(material[n]) <= 512*1024 and sha(material[n]) == h
+            for n,h in names.items()) and len(set(names.values())) == len(names),
+            'MAINTENANCE_MATERIAL_EXACT_BYTES')
+    docs = {n:parse(v) for n,v in material.items() if n != 'contract'}
+    acceptance = docs['current_acceptance']
+    require(type(acceptance) is dict and set(acceptance) == {'schema', 'observation_sha256', 'read_scope_sha256',
+            'machine_sha256', 'boot_id', 'transaction', 'source_sha256', 'capture_started_at',
+            'capture_finished_at', 'accepted_at', 'expires_at', 'risk'} and
+            acceptance['schema'] == 'TU1NZ_REV4_CURRENT_ACCEPTANCE' and
+            acceptance['observation_sha256'] == scope['current_observation_sha256'] and
+            acceptance['read_scope_sha256'] == scope['read_scope_sha256'] and
+            acceptance['machine_sha256'] == scope['machine_sha256'] and
+            acceptance['boot_id'] == baseline['boot_id'] and acceptance['transaction'] == scope['transaction'] and
+            acceptance['source_sha256'] == sha(canonical(source_hashes)) and
+            acceptance['risk'] == baseline['current_authority']['risk'], 'MAINTENANCE_CURRENT_ACCEPTANCE_BINDING')
+    def timestamp(value):
+        require(type(value) is str and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', value),
+                'MAINTENANCE_TIME_SCHEMA')
+        try:return datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:raise Hold('PUBLIC_OPERATOR_MAINTENANCE_TIME_SCHEMA') from None
+    start,end,accepted,expires = (timestamp(acceptance[k]) for k in
+        ('capture_started_at', 'capture_finished_at', 'accepted_at', 'expires_at'))
+    now = time.time()
+    require(0 <= end-start <= 300 and end <= accepted <= now and
+            now+remaining_seconds <= expires <= end+86400, 'MAINTENANCE_TIME_OR_FULL_WINDOW_EXPIRED')
+    review = docs['review']
+    expected = {k:scope[k+'_sha256'] for k in ('release', 'baseline', 'current_observation', 'current_acceptance',
+                                             'read_scope', 'pre_stop_protection', 'native_timing', 'contract', 'approval')}
+    expected.update(scope_sha256=sha(canonical(scope)), source_sha256=sha(canonical(source_hashes)))
+    require(type(review) is dict and set(review) == {'schema', 'reviewer', 'inputs', 'findings',
+            'evidence_sha256', 'reviewed_at'} and review['schema'] == 'TU1NZ_REV4_INDEPENDENT_EXECUTION_INPUT_REVIEW' and
+            type(review['reviewer']) is str and 1 <= len(review['reviewer']) <= 256 and
+            review['inputs'] == expected and review['findings'] == [] and
+            type(review['evidence_sha256']) is str and re.fullmatch('[0-9a-f]{64}', review['evidence_sha256']) and
+            accepted <= timestamp(review['reviewed_at']) <= now, 'MAINTENANCE_INDEPENDENT_INPUT_REVIEW_MISMATCH')
+    return docs
 
 
 def replacement_scope(scope, baseline):

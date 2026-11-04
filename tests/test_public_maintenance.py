@@ -4,6 +4,7 @@ The native production-adapter suite must separately exercise actual Linux
 renameat2, systemd, fences, failures, real restore and complete time budgets.
 """
 import copy
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import stat
@@ -634,6 +635,94 @@ class RecoveryFailureTests(unittest.TestCase):
                 'record': {'type': 'final', 'status': 'COMPLETE'}}})
 
 
+class MaintenanceMaterialBoundaryTests(unittest.TestCase):
+    def fixture(self):
+        source = {n:'a'*64 for n in set(io.MODULES)|set(io.ASSETS)}
+        artifact = {'synthetic_archive_receipt': 'not production evidence'}
+        artifact_hash = io.sha(io.canonical(artifact)); origin = 'b'*64
+        boot = '00000000-0000-0000-0000-000000000001'
+        material = {'contract': b'synthetic decision', 'approval': io.canonical({'synthetic_approval': True}),
+                    'current_observation': io.canonical({'synthetic_observation': True}),
+                    'read_scope': io.canonical({'synthetic_reader_scope': True}),
+                    'pre_stop_protection': io.canonical({'synthetic_protection': True}),
+                    'native_timing': io.canonical({'synthetic_timing': True})}
+        self.enterContext(patch.object(io, 'MAINTENANCE_DECISION_SHA', io.sha(material['contract'])))
+        self.enterContext(patch.object(io, 'MAINTENANCE_APPROVAL_SHA', io.sha(material['approval'])))
+        baseline = {'schema': 'TU1NZ_PUBLIC_HOST_BASELINE_CURRENT_REV4_V1', 'machine_sha256': r3.MACHINE,
+                    'boot_id': boot, 'actors': [], 'files': {}, 'source_origin_receipts': [origin, artifact_hash],
+                    'current_authority': {'schema': contexts.CURRENT_AUTHORITY, 'risk': contexts.CURRENT_RISK,
+                                          'observation_sha256': io.sha(material['current_observation'])},
+                    'source_release': {'probe_dependencies': {}, 'python_binary': '/usr/bin/python3',
+                        'operator_dependencies': {'/usr/bin/busctl': {'source': '/usr/bin/busctl', 'sha256': 'c'*64,
+                            'uid': 0, 'gid': 0, 'mode': 0o755, 'attrs': {}, 'flags': 0, 'origin_sha256': origin}},
+                        'runtime_reference': {'schema': 'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1',
+                                              'artifact': artifact, 'origin_sha256': artifact_hash}}}
+        now = 1804348800
+        def stamp(seconds):return datetime.fromtimestamp(seconds, timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        acceptance = {'schema': 'TU1NZ_REV4_CURRENT_ACCEPTANCE',
+            'observation_sha256': io.sha(material['current_observation']), 'read_scope_sha256': io.sha(material['read_scope']),
+            'machine_sha256': r3.MACHINE, 'boot_id': boot, 'transaction': r3.TX,
+            'source_sha256': io.sha(io.canonical(source)), 'capture_started_at': stamp(now-120),
+            'capture_finished_at': stamp(now-60), 'accepted_at': stamp(now-30), 'expires_at': stamp(now+3600),
+            'risk': contexts.CURRENT_RISK}
+        material['current_acceptance'] = io.canonical(acceptance)
+        scope = {'schema': io.MAINTENANCE_SCOPE, 'release_sha256': 'd'*64,
+            'baseline_sha256': io.sha(io.canonical(baseline)), 'administrative_roles_sha256': io.sha(io.canonical([])),
+            'baseline_origins_sha256': io.sha(io.canonical(baseline['source_origin_receipts'])),
+            'r3_approval_sha256': client.APPROVAL, 'machine_sha256': r3.MACHINE, 'transaction': r3.TX,
+            'owner_plan_sha256': r3.OWNER_PLAN, 'runtime_artifact_sha256': artifact_hash, 'legacy_return': False,
+            **{n+'_sha256':io.sha(v) for n,v in material.items()}}
+        review = {'schema': 'TU1NZ_REV4_INDEPENDENT_EXECUTION_INPUT_REVIEW', 'reviewer': 'synthetic reviewer',
+            'inputs': {}, 'findings': [], 'evidence_sha256': 'e'*64, 'reviewed_at': stamp(now-10)}
+        def bind_review():
+            review['inputs'] = {k:scope[k+'_sha256'] for k in ('release', 'baseline', 'current_observation',
+                'current_acceptance', 'read_scope', 'pre_stop_protection', 'native_timing', 'contract', 'approval')}
+            review['inputs'].update(scope_sha256=io.sha(io.canonical(scope)), source_sha256=io.sha(io.canonical(source)))
+            material['review'] = io.canonical(review)
+        bind_review()
+        self.enterContext(patch.object(io.time, 'time', return_value=now))
+        return scope,baseline,material,source,acceptance,review,bind_review,stamp,now
+
+    def check(self, fixture):
+        scope,baseline,material,source,*_ = fixture
+        return io.maintenance_material_binding(scope,baseline,material,source_hashes=source,
+                                               review_sha256=io.sha(material['review']))
+
+    def test_exact_material_binding_is_explicitly_not_restore_or_native_admission(self):
+        f = self.fixture(); docs = self.check(f)
+        # Intentionally incomplete synthetic gate documents pass ONLY byte
+        # binding. They must not enter any session/claim without V1–V6 checks.
+        self.assertEqual(docs['native_timing'], {'synthetic_timing': True})
+        self.assertNotIn('host_admitted', docs)
+        with self.assertRaises(io.Hold):io.replacement_scope(f[0], f[1])
+
+    def test_old_context_baseline_old_return_and_new_transaction_are_rejected(self):
+        f = self.fixture(); scope,baseline = f[:2]
+        for delta in ({'legacy_return': True}, {'transaction': 'new-transaction'}, {'approval_sha256': 'f'*64}):
+            with self.subTest(delta=delta), self.assertRaises(io.Hold):io.maintenance_scope({**scope,**delta},baseline)
+        with self.assertRaises(io.Hold):io.maintenance_scope(scope,{**baseline,'contexts':{}})
+
+    def test_capture_lifetime_and_full_remaining_window_are_not_extended(self):
+        f = self.fixture(); scope,baseline,material,source,acceptance,review,bind,stamp,now = f
+        original = dict(acceptance)
+        for delta in ({'expires_at': stamp(now+599)}, {'expires_at': stamp(now+86401)},
+                      {'capture_started_at': stamp(now-361)}, {'accepted_at': stamp(now+1)}):
+            acceptance.clear(); acceptance.update(original); acceptance.update(delta)
+            material['current_acceptance'] = io.canonical(acceptance)
+            scope['current_acceptance_sha256'] = io.sha(material['current_acceptance']); bind()
+            with self.subTest(delta=delta), self.assertRaises(io.Hold):self.check(f)
+
+    def test_changed_receipts_or_optimistic_review_flags_do_not_match_reviewed_inputs(self):
+        f = self.fixture(); scope,baseline,material,source,acceptance,review,bind,*_ = f
+        old = material['native_timing']; material['native_timing'] = io.canonical({'passed': True})
+        with self.assertRaises(io.Hold):self.check(f)
+        material['native_timing'] = old
+        review['inputs']['scope_sha256'] = 'f'*64; material['review'] = io.canonical(review)
+        with self.assertRaises(io.Hold):self.check(f)
+        bind(); review['findings'] = ['unresolved']; material['review'] = io.canonical(review)
+        with self.assertRaises(io.Hold):self.check(f)
+
+
 class RecoveryAdmissionChannelTests(unittest.TestCase):
     def test_current_custody_read_cannot_emit_an_action_claim_or_original_ack(self):
         wire = Mock(); wire.deadline = time.monotonic()+10
@@ -905,8 +994,6 @@ class RecoveryTerminalBoundaryTests(unittest.TestCase):
 
     def test_stop_only_snapshot_cannot_accept_a_changed_kernel_profile(self):
         x, rows, processes = self.fixture(); self.run_terminal(x, rows, processes)
-        admitted = next(c.args[1]['profiles'] for c in x.channel.record.call_args_list
-                        if c.args[0] == 'recovery_terminal_stop_only_admission')
         # Records are serialized in production; retain the initial live view
         # separately because the adapter subsequently marks stopped units empty.
         u = r3.UNITS[0]; row = processes[100]
@@ -1152,6 +1239,22 @@ class ExistingBackupTests(unittest.TestCase):
         backup.paths.create_directory.assert_not_called()
         backup.paths.d.new_file.assert_not_called()
         backup.paths.d.restore_metadata.assert_not_called()
+
+    def test_interrupted_manifest_exact_prefix_needs_all_copies_and_no_restore_objects(self):
+        for size in (0, 1, 70):
+            backup, values, private, names, raw = self.fixture(); before = backup.root+'/before'
+            names[backup.root+'/restore-test'] = []
+            _, row = private[(before, 'manifest.json')]
+            private[(before, 'manifest.json')] = (raw[:size], {**row, 'size': size})
+            proof = self.classify(backup, values, private, names)
+            self.assertEqual(proof['state'], 'INCOMPLETE_PRIVATE_COPY_REQUIRES_NEW_FIXED_TEST')
+            self.assertIsNone(backup.manifest)
+            self.assertEqual(private[(before, 'manifest.json')][0], raw[:size])
+            backup.paths.create_directory.assert_not_called()
+            backup.paths.d.new_file.assert_not_called()
+            backup.paths.d.restore_metadata.assert_not_called()
+            names[before] = ['manifest.json']
+            with self.assertRaises(io.Hold):self.classify(backup, values, private, names)
 
     def test_changed_source_copy_restore_or_extra_object_cannot_be_adopted(self):
         for fault in ('source_metadata', 'copy', 'restore', 'restore_metadata', 'extra', 'wrong_manifest_hash'):

@@ -450,10 +450,11 @@ class Backup:
 
         Only absent objects or exact byte prefixes in the compiled copy/tree
         layout qualify as an interrupted private copy. Wrong bytes, extra
-        names, unsafe metadata, malformed existing manifests, or source drift
+        names, unsafe metadata, unexplained manifest bytes, or source drift
         remain HOLD. The caller must ALSO reject recorded negative findings.
-        A truncated manifest is deliberately not parsed by a permissive
-        recovery parser; its provenance/content is insufficient here.
+        A truncated manifest qualifies only as an exact canonical prefix of
+        ALL current bound source metadata, after all copies and before any
+        restore object. It is left unchanged and never parsed as a receipt.
         """
         io.require(self.manifest is None and self.root ==
                    '/opt/tu1nz_repos/public-web-isolation-r1/20261014-1' and
@@ -490,18 +491,30 @@ class Backup:
             complete = complete and names == set(expected_names) | {'manifest.json'}
             if 'manifest.json' in names:
                 raw, row = p.d.stable_file(before, 'manifest.json')
-                value = io.parse(raw)
-                io.require(type(value) is dict and set(value) == set(source) and io.canonical(value) == raw and
-                           row['uid'] == row['gid'] == 0 and row['mode'] == 0o600 and row['nlink'] == 1 and
-                           not row['attrs'], 'RECOVERY_EXISTING_MANIFEST_INCOMPLETE_OR_INVALID')
-                for name, path in expected_names.items():
-                    item = value[path]; original = source[path][1]
-                    io.require(type(item) is dict and set(item) == {'copy', 'sha256', 'original'} and
-                               item['copy'] == name and item['sha256'] == self.files[path] and
-                               type(item['original']) is dict and set(item['original']) == OWNED_FILE_FIELDS and
-                               all(item['original'][k] == original[k] for k in OWNED_FILE_FIELDS-{'atime_ns'}),
-                               'RECOVERY_EXISTING_MANIFEST_SOURCE_MISMATCH')
-                manifest = value
+                io.require(row['uid'] == row['gid'] == 0 and row['mode'] == 0o600 and row['nlink'] == 1 and
+                           not row['attrs'] and not row['flags'] & ~p.d.PHYSICAL_FLAGS,
+                           'RECOVERY_EXISTING_MANIFEST_PROFILE')
+                expected_raw = io.canonical({path: {'copy': name, 'sha256': self.files[path],
+                                                    'original': source[path][1]}
+                                             for name,path in expected_names.items()})
+                if len(raw) < len(expected_raw) and expected_raw.startswith(raw):
+                    # No permissive JSON parser or rewritten manifest. Even
+                    # an atime difference prevents this exact prefix proof.
+                    io.require(restore is not None and not os.listdir(restore),
+                               'RECOVERY_PARTIAL_MANIFEST_WITH_LATER_RESTORE')
+                    complete = False
+                else:
+                    value = io.parse(raw)
+                    io.require(type(value) is dict and set(value) == set(source) and io.canonical(value) == raw,
+                               'RECOVERY_EXISTING_MANIFEST_INCOMPLETE_OR_INVALID')
+                    for name, path in expected_names.items():
+                        item = value[path]; original = source[path][1]
+                        io.require(type(item) is dict and set(item) == {'copy', 'sha256', 'original'} and
+                                   item['copy'] == name and item['sha256'] == self.files[path] and
+                                   type(item['original']) is dict and set(item['original']) == OWNED_FILE_FIELDS and
+                                   all(item['original'][k] == original[k] for k in OWNED_FILE_FIELDS-{'atime_ns'}),
+                                   'RECOVERY_EXISTING_MANIFEST_SOURCE_MISMATCH')
+                    manifest = value
                 # The original code writes the manifest only AFTER all copies
                 # passed readback. Missing/truncated copies now are a concrete
                 # integrity contradiction, not an interrupted pre-manifest copy.
