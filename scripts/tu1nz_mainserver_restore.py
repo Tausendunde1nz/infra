@@ -490,6 +490,26 @@ class PrivatePostgres:
         else:need(code == 0 and not err,'LOCAL_SQL_RESULT')
         return out
 
+    def install_known_owner_profile(self):
+        """Local NOLOGIN counterpart of the historically observed S7 owner.
+
+        This is a candidate profile, never proof of today's production rights.
+        The actual source owner/grant comparisons remain unchanged and exact.
+        No production identity, LOGIN or elevated flags are copied.
+        """
+        need(self.created and self.child is not None and self.child.poll() is None and
+             self.env['PGHOST']==str(self.socket) and self.env['PGUSER']=='tu1nz_restore_owner' and
+             not getattr(self,'owner_profile_installed',False),'LOCAL_OWNER_PROFILE_ENTRY')
+        self.owner_profile_installed=True
+        self.query(b'CREATE ROLE tu1nz_adult_commercial_s3_migrator NOLOGIN NOSUPERUSER NOCREATEDB '
+            b'NOCREATEROLE NOREPLICATION NOBYPASSRLS;\n'
+            b'GRANT USAGE, CREATE ON SCHEMA public TO tu1nz_adult_commercial_s3_migrator;\n'
+            b'ALTER FUNCTION public.tu1nz_reject_append_only_mutation() OWNER TO tu1nz_adult_commercial_s3_migrator;\n'
+            b'SET ROLE tu1nz_adult_commercial_s3_migrator;\n'
+            b'GRANT EXECUTE ON FUNCTION public.tu1nz_reject_append_only_mutation() TO tu1nz_adult_commercial_s3_runtime;\n'
+            b'RESET ROLE;\n'
+            b'REVOKE CREATE ON SCHEMA public FROM tu1nz_adult_commercial_s3_migrator;\n')
+
     def start(self):
         need(not self.created,'LOCAL_SERVER_REENTRY');self.created = True
         self.root.mkdir(mode=0o700);self.socket.mkdir(mode=0o700)

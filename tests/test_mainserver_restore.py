@@ -146,6 +146,25 @@ class CatalogBoundary(unittest.TestCase):
         with self.assertRaises(m.Denied):pg.query(b'SYNTHETIC',expect_error=True)
 
 
+class LocalOwnerProfileBoundary(unittest.TestCase):
+    def test_profile_cannot_target_remote_wrong_role_dead_or_reentered_cluster(self):
+        for changed in ('remote', 'role', 'dead', 'uncreated', 'reentry'):
+            with self.subTest(changed=changed):
+                pg = m.PrivatePostgres.__new__(m.PrivatePostgres)
+                pg.created = True;pg.socket = Path('/private/synthetic/socket')
+                pg.child = Mock();pg.child.poll.return_value = None
+                pg.env = {'PGHOST':str(pg.socket),'PGUSER':'tu1nz_restore_owner'}
+                pg.query = Mock()
+                if changed == 'remote':pg.env['PGHOST'] = '127.0.0.1'
+                if changed == 'role':pg.env['PGUSER'] = 'postgres'
+                if changed == 'dead':pg.child.poll.return_value = 0
+                if changed == 'uncreated':pg.created = False
+                if changed == 'reentry':pg.owner_profile_installed = True
+                with self.assertRaisesRegex(m.Denied, '^LOCAL_OWNER_PROFILE_ENTRY$'):
+                    pg.install_known_owner_profile()
+                pg.query.assert_not_called()
+
+
 class PrivateCustody(unittest.TestCase):
     def test_create_readback_and_no_replacement(self):
         with tempfile.TemporaryDirectory() as temp:

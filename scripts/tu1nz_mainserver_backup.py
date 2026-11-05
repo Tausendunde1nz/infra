@@ -360,6 +360,7 @@ def main():
             'NOCREATEROLE NOREPLICATION NOBYPASSRLS; CREATE DATABASE real_restore;\n').encode())
         pg.env['PGDATABASE']='real_restore'
         pg.query(b'GRANT CREATE,USAGE ON SCHEMA public TO postgres; SET ROLE postgres;\n'+ddl+grants+b'RESET ROLE;\n')
+        pg.install_known_owner_profile()
         local_catalog=pg.query(r.catalog_transaction());local_rights=pg.query(r.rights_transaction())
         layout=r.copy_layout(r.structural_catalog(local_catalog))
         capture_started=time.monotonic();deadline=capture_started+300
@@ -372,8 +373,10 @@ def main():
         snapshot=r.ReadOnlySnapshot(base,database_environment(OUTPUT,base),deadline=deadline)
         identity=snapshot.start(database=DATABASE,role=ROLE)
         source_catalog=snapshot.read('catalog');source_rights=snapshot.read('rights')
-        admission=r.compare_restore_catalog(source_catalog,local_catalog,source_rights,local_rights)
+        # Preserve only the already admitted finite technical metadata even
+        # when admission denies. Business data is still unread at this point.
         r.private_create(OUTPUT/'source-catalog.jsonl',source_catalog);r.private_create(OUTPUT/'source-rights.jsonl',source_rights)
+        admission=r.compare_restore_catalog(source_catalog,local_catalog,source_rights,local_rights)
         before={n:r.fingerprint(snapshot.read('fingerprint',layout,n)) for n in r.TABLES}
         archive=snapshot.dump();r.private_create(OUTPUT/'s7.dump',archive)
         need(private_read(OUTPUT/'s7.dump',r.MAX_DATA)==archive,'DB_ARCHIVE_FULL_READBACK')
