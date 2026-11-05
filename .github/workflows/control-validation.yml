@@ -23,7 +23,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Linux descriptor and metadata backup boundary, synthetic data only
-        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v tests.test_mainserver_backup_read tests.test_mainserver_backup tests.test_mainserver_restore
+        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v tests.test_mainserver_backup_read tests.test_mainserver_backup tests.test_mainserver_restore tests.test_mainserver_db_completion
   mainserver-startlimit-native:
     name: mainserver-startlimit-native
     runs-on: ubuntu-24.04
