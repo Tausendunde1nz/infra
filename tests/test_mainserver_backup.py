@@ -157,4 +157,36 @@ class Cleanup(unittest.TestCase):
             self.assertTrue(cluster.exists())
 
 
+@unittest.skipUnless(os.geteuid()==0,'real privileged FD ownership fixture; no emulated chown')
+class NewRootParent(unittest.TestCase):
+    def setUp(self):
+        self.entry=load('tu1nz_mainserver_file_restore_entry')
+        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name).resolve();self.root.chmod(0o700)
+        self.fd=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY);self.child=self.root/'privileged-restore'
+        self.child.mkdir(mode=0o700);os.chown(self.child,0,20)
+        self.created=os.open(self.child,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    def tearDown(self):
+        os.close(self.created);os.close(self.fd);self.tmp.cleanup()
+    def test_real_gid20_inode_becomes_root_root_without_parent_change(self):
+        parent=os.fstat(self.fd);before=os.fstat(self.created)
+        self.assertEqual((before.st_uid,before.st_gid),(0,20))
+        self.entry.bind_created_parent(self.fd,self.created)
+        after=os.fstat(self.created)
+        self.assertEqual((after.st_dev,after.st_ino),(before.st_dev,before.st_ino))
+        self.assertEqual((after.st_uid,after.st_gid,stat.S_IMODE(after.st_mode)),(0,0,0o700))
+        self.assertEqual((os.fstat(self.fd).st_uid,os.fstat(self.fd).st_gid,os.fstat(self.fd).st_mode),
+                         (parent.st_uid,parent.st_gid,parent.st_mode))
+    def test_swapped_name_does_not_chown_either_inode(self):
+        self.child.rename(self.root/'original');self.child.mkdir(mode=0o700);os.chown(self.child,0,20)
+        with self.assertRaisesRegex(RuntimeError,'NOT_BOUND'):self.entry.bind_created_parent(self.fd,self.created)
+        self.assertEqual(os.fstat(self.created).st_gid,20);self.assertEqual(self.child.stat().st_gid,20)
+    def test_nonroot_owned_or_wrong_mode_child_is_not_repaired(self):
+        os.fchown(self.created,501,20)
+        with self.assertRaisesRegex(RuntimeError,'NOT_BOUND'):self.entry.bind_created_parent(self.fd,self.created)
+        self.assertEqual(os.fstat(self.created).st_uid,501)
+        os.fchown(self.created,0,20);os.fchmod(self.created,0o750)
+        with self.assertRaisesRegex(RuntimeError,'NOT_BOUND'):self.entry.bind_created_parent(self.fd,self.created)
+        self.assertEqual(os.fstat(self.created).st_gid,20)
+
+
 if __name__=='__main__':unittest.main()

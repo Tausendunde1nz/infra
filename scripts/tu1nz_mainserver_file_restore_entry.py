@@ -42,6 +42,26 @@ def read(path,limit):
     finally:os.close(fd)
 
 
+def bind_created_parent(parent_fd,created_fd):
+    """Only after this entry's successful exclusive mkdir/open.
+
+    macOS may inherit the user's group despite effective GID 0. Set just this
+    new held inode to the required ownership; no parent or attribute changes.
+    """
+    before=os.fstat(created_fd)
+    identity=lambda s:(s.st_dev,s.st_ino,stat.S_IFMT(s.st_mode))
+    named=os.stat('privileged-restore',dir_fd=parent_fd,follow_symlinks=False)
+    need(os.geteuid()==0 and stat.S_ISDIR(before.st_mode) and before.st_uid==0 and
+         stat.S_IMODE(before.st_mode)==0o700 and identity(named)==identity(before),
+         'ROOT_NEW_RESTORE_PARENT_NOT_BOUND')
+    os.fchown(created_fd,0,0);os.fsync(created_fd)
+    after=os.fstat(created_fd)
+    named=os.stat('privileged-restore',dir_fd=parent_fd,follow_symlinks=False)
+    need(identity(after)==identity(before)==identity(named) and after.st_uid==after.st_gid==0 and
+         named.st_uid==named.st_gid==0 and stat.S_IMODE(after.st_mode)==stat.S_IMODE(named.st_mode)==0o700,
+         'ROOT_PRIVATE_RESTORE_PARENT')
+
+
 def main():
     need(sys.platform=='darwin' and os.getuid()==os.geteuid()==0 and os.environ.get('SUDO_UID')=='501' and
          os.environ.get('SUDO_GID')=='20' and len(sys.argv)==1,'PERSONAL_MAC_ROOT_REQUIRED')
@@ -84,8 +104,7 @@ def main():
         # No pre-existing attribute is removed or exempted from comparison.
         os.mkdir('privileged-restore',0o700,dir_fd=fd)
         parent=os.open('privileged-restore',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=fd)
-        own=os.fstat(parent)
-        need(own.st_uid==own.st_gid==0 and stat.S_IMODE(own.st_mode)==0o700,'ROOT_PRIVATE_RESTORE_PARENT')
+        bind_created_parent(fd,parent)
         receipt['proof']=f.restore_private_files(parent,manifest,blobs,scope['reader_scope']['files'],
                                                  deadline=time.monotonic()+120)
         receipt['status']='PASS_REAL_FILES_AND_88_LIGHTING_OBJECTS'
