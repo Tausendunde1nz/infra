@@ -15,6 +15,41 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_fresh_guest_still_rejects_either_existing_fixture_root(self):
+        from tests import public_operator_native as native
+        for existing in ('neither', 'root', 'app_parent'):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder)/'fixture'; parent=Path(folder)/'apps'
+                if existing=='root':root.mkdir()
+                if existing=='app_parent':parent.mkdir()
+                with patch.object(native,'ROOT',root), patch.object(native,'Path',return_value=parent), \
+                     patch.object(native,'assert_guest_isolation') as isolation:
+                    if existing=='neither':native.assert_guest()
+                    else:
+                        with self.assertRaises(AssertionError):native.assert_guest()
+                    isolation.assert_called_once_with()
+
+    def test_startlimit_component_requires_initialized_fixture_and_isolation(self):
+        from unittest.mock import Mock
+        from tests import public_operator_native as native
+        class ReachedComponent(Exception):pass
+        for state in ('initialized','missing_root','missing_app','not_isolated'):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder)/'fixture'; app=Path(folder)/'app'
+                if state!='missing_root':root.mkdir()
+                if state!='missing_app':app.mkdir()
+                source=Mock(); source.load.side_effect=ReachedComponent
+                with patch.object(native,'ROOT',root), patch.object(native,'APP',app), \
+                     patch.object(native,'assert_guest_isolation',
+                         side_effect=AssertionError if state=='not_isolated' else None) as isolation:
+                    if state=='initialized':
+                        with self.assertRaises(ReachedComponent):native.actual_start_limit_job_observation(source)
+                        source.load.assert_called_once_with('replacement')
+                    else:
+                        with self.assertRaises(AssertionError):native.actual_start_limit_job_observation(source)
+                        source.load.assert_not_called()
+                    isolation.assert_called_once_with()
+
     def test_only_previously_seen_pool_retirement_can_finish_fixture_preparation(self):
         from types import SimpleNamespace
         from unittest.mock import Mock

@@ -403,15 +403,19 @@ def write(path, raw, mode=0o644):
     with os.fdopen(fd, 'wb') as f: f.write(raw); f.flush(); os.fsync(f.fileno())
 
 
-def assert_guest():
+def assert_guest_isolation():
     assert os.geteuid() == 0 and Path('/.dockerenv').is_file() and os.environ.get('container') == 'docker'
     assert Path('/proc/1/comm').read_text().strip() == 'systemd'
-    assert not ROOT.exists() and not Path('/opt/tu1nz_repos').exists()
     assert all(p.name == 'lo' or not int((p/'flags').read_text(), 16) & 1
                for p in Path('/sys/class/net').iterdir() if p.is_dir())
     assert not Path('/proc/net/route').read_text().splitlines()[1:]
     for path in ('/source', '/control-source'):
         assert run('/usr/bin/findmnt', '-n', '-o', 'VFS-OPTIONS', '-T', path).decode().split(',')[0] == 'ro'
+
+
+def assert_guest():
+    assert_guest_isolation()
+    assert not ROOT.exists() and not Path('/opt/tu1nz_repos').exists()
 
 
 def source():
@@ -840,7 +844,10 @@ def actual_start_limit_job_observation(s):
     already active synthetic service produces a job without restarting its
     process. This tests passive observation, NOT full recovery admission.
     """
-    assert_guest()
+    # main already required an empty guest before exclusive fixture setup.
+    # This component observes that initialized fixture, retaining isolation.
+    assert_guest_isolation()
+    assert ROOT.is_dir() and APP.is_dir()
     replacement=s.load('replacement');observer=s.load('observe')
     providers={str(Path(p).resolve(strict=True)) for p in operator_dependency_names(s)
                if Path(p).name.startswith('libsystemd-shared-') and Path(p).name.endswith('.so')}
