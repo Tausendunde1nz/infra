@@ -417,5 +417,5 @@ def checked_db_receipt(scope,scope_sha,review_sha,r,old,*,files_done=False):
 if __name__=='__main__':
     try:raise SystemExit(capture_main())
     except Exception as error:
-        print('S7-Zusatz vor Eintritt abgebrochen:',str(error) if isinstance(error,Denied) else type(error).__name__)
+        print('S7-Zusatz abgebrochen:',str(error) if isinstance(error,Denied) else type(error).__name__)
         raise SystemExit(1)

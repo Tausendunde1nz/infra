@@ -1,5 +1,8 @@
 """S7 supplement synthetic boundaries: no production paths, data or access."""
+import ast
+import contextlib
 import copy
+import io
 import importlib.util
 import json
 import os
@@ -21,6 +24,22 @@ c=load('tu1nz_mainserver_db_completion');b=load('tu1nz_mainserver_backup');r=loa
 
 
 class EntryCustody(unittest.TestCase):
+    def test_outer_error_handler_never_claims_pre_entry_or_no_effect(self):
+        tree=ast.parse((SCRIPTS/'tu1nz_mainserver_s7_supplement.py').read_bytes())
+        handler=compile(ast.Module(body=[tree.body[-1]],type_ignores=[]),'synthetic-exact-outer-handler','exec')
+        with tempfile.TemporaryDirectory() as temp:
+            marker=Path(temp)/'synthetic-attempt'
+            for entered in (False,True):
+                def capture():
+                    if entered:marker.write_bytes(b'CONSUMED')
+                    raise OSError('SENSITIVE_SYNTHETIC_DETAIL')
+                out=io.StringIO()
+                with contextlib.redirect_stdout(out),self.assertRaises(SystemExit) as error:
+                    exec(handler,{'__name__':'__main__','capture_main':capture,'Denied':s.Denied})
+                self.assertEqual(error.exception.code,1)
+                self.assertEqual(out.getvalue(),'S7-Zusatz abgebrochen: OSError\n')
+                self.assertEqual(marker.exists(),entered)
+            self.assertEqual(marker.read_bytes(),b'CONSUMED')
     def test_import_inert_wrong_identity_denied_before_operational_read(self):
         with patch.object(s.os,'getuid',return_value=123),patch.object(s,'validate_inputs',side_effect=AssertionError):
             with self.assertRaisesRegex(s.Denied,'MAC_DANIEL_REQUIRED'):s.capture_main()
