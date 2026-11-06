@@ -668,9 +668,16 @@ class RecoveryClient(MaintenanceClient):
 def bootstrap(io_raw):
     # This exact source is in the authenticated SSH command; secret/private
     # input is sent only AFTER sudo exec and the ready frame, never argv.
-    encoded = base64.b64encode(io_raw).decode()
-    return ('import base64,hashlib,os,sys,time,types\n'
-            'raw=base64.b64decode('+repr(encoded)+')\n'
+    # Bound the decoded bytes and authenticate the ORIGINAL source before
+    # compile. Compression avoids execve's per-argument limit; it changes no
+    # Source binding, admission check or wire message.
+    io.require(type(io_raw) is bytes and 0 < len(io_raw) <= 3*1024*1024,
+               'BOOTSTRAP_SOURCE_SIZE')
+    encoded = base64.b64encode(zlib.compress(io_raw, 9)).decode()
+    return ('import base64,hashlib,os,sys,time,types,zlib\n'
+            'decoder=zlib.decompressobj()\n'
+            'raw=decoder.decompress(base64.b64decode('+repr(encoded)+',validate=True),'+str(len(io_raw)+1)+')\n'
+            'assert len(raw)=='+str(len(io_raw))+' and decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail\n'
             'assert hashlib.sha256(raw).hexdigest()=='+repr(io.sha(io_raw))+'\n'
             'm=types.ModuleType("tu1nz_public_operator_io");sys.modules[m.__name__]=m\n'
             'exec(compile(raw,"<authenticated-operator-io>","exec"),m.__dict__)\n'

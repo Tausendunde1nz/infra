@@ -1346,6 +1346,9 @@ if __name__ == '__main__':
             if trace.tb_frame.f_code.co_filename == __file__: line = trace.tb_lineno
             trace = trace.tb_next
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
+        # Bounded numeric errno only; never publish exception text/argv/path.
+        if isinstance(error, OSError) and type(error.errno) is int and 0 <= error.errno < 4096:
+            location['errno'] = error.errno
         fixture=fixture_fault_location(error)
         if fixture is not None:location['fixture_fault']=fixture
         if PRIMARY_WRITER_FAULT is not None:location['primary_fault']=PRIMARY_WRITER_FAULT
