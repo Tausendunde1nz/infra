@@ -637,6 +637,53 @@ class RecoveryFailureTests(unittest.TestCase):
                 'record': {'type': 'final', 'status': 'COMPLETE'}}})
 
 
+def synthetic_restore_envelope(test):
+    # No production private receipt is embedded in CI. This isolates the byte
+    # gate; a separate local readback binds the actual accepted receipts.
+    raws = {name:io.canonical({'synthetic': name}) for name in io.MAINTENANCE_RESTORE_RECEIPTS}
+    test.enterContext(patch.object(io, 'MAINTENANCE_RESTORE_RECEIPTS',
+                                  {name:io.sha(raw) for name,raw in raws.items()}))
+    return {'schema': 'TU1NZ_REV4_CLOSED_REAL_RESTORE_REUSE_V1',
+            'receipts': {name:base64.b64encode(raw).decode() for name,raw in raws.items()}}
+
+
+class MaintenanceRestoreBindingTests(unittest.TestCase):
+    def test_exact_read_only_receipts_do_not_claim_host_admission(self):
+        envelope = synthetic_restore_envelope(self)
+        with patch.object(io.os, 'open') as opening, patch.object(io.subprocess, 'Popen') as process:
+            result = io.maintenance_restore_binding(envelope)
+        self.assertEqual(result, {name:{'synthetic':name} for name in envelope['receipts']})
+        opening.assert_not_called(); process.assert_not_called()
+        self.assertNotIn('host_admitted', result)
+
+    def test_missing_cleanup_or_extra_receipt_is_not_accepted(self):
+        envelope = synthetic_restore_envelope(self)
+        for name in envelope['receipts']:
+            changed = copy.deepcopy(envelope); del changed['receipts'][name]
+            with self.subTest(missing=name), self.assertRaises(io.Hold):io.maintenance_restore_binding(changed)
+        with self.assertRaises(io.Hold):
+            io.maintenance_restore_binding({**envelope,'receipts':{**envelope['receipts'],'replacement':'e30='}})
+
+    def test_changed_or_reserialized_receipt_cannot_erase_earlier_state(self):
+        envelope = synthetic_restore_envelope(self)
+        for name, encoded in envelope['receipts'].items():
+            raw = base64.b64decode(encoded)
+            for changed in (raw+b'\n', io.canonical({'status':'PASS','all_gates':True})):
+                value = copy.deepcopy(envelope);value['receipts'][name] = base64.b64encode(changed).decode()
+                with self.subTest(receipt=name), self.assertRaises(io.Hold):io.maintenance_restore_binding(value)
+
+    def test_malformed_unbounded_or_permission_bearing_envelopes_are_rejected(self):
+        envelope = synthetic_restore_envelope(self)
+        for encoded in (None, True, '', '!invalid', 'A'*(64*1024+1)):
+            value = copy.deepcopy(envelope);value['receipts']['database'] = encoded
+            with self.subTest(encoded_type=type(encoded)), self.assertRaises(io.Hold):
+                io.maintenance_restore_binding(value)
+        for changed in (None, [], {'passed':True}, {**envelope,'host_admitted':True},
+                        {**envelope,'schema':'SYNTHETIC_RESTORE_SUFFICIENT'}):
+            with self.subTest(envelope_type=type(changed)), self.assertRaises(io.Hold):
+                io.maintenance_restore_binding(changed)
+
+
 class MaintenanceMaterialBoundaryTests(unittest.TestCase):
     def fixture(self):
         source = {n:'a'*64 for n in set(io.MODULES)|set(io.ASSETS)}
@@ -726,6 +773,8 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
 
     def packet(self):
         f = self.fixture(); scope,baseline,material,hashes,acceptance,review,bind,*_ = f
+        material['pre_stop_protection'] = io.canonical(synthetic_restore_envelope(self))
+        scope['pre_stop_protection_sha256'] = io.sha(material['pre_stop_protection'])
         source = SimpleNamespace(bytes={n:('SYNTHETIC_SOURCE_'+n).encode() for n in hashes})
         hashes.clear(); hashes.update({n:io.sha(raw) for n,raw in source.bytes.items()})
         acceptance['source_sha256'] = io.sha(io.canonical(hashes))
@@ -759,6 +808,22 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
         changed = copy.deepcopy(packet)
         changed['baseline_raw'] = base64.b64encode(base64.b64decode(packet['baseline_raw'])+b'trailing').decode()
         with self.assertRaises(io.Hold):io.maintenance_packet_binding(changed, source, remaining_seconds=590)
+
+    def test_rebinding_a_synthetic_pass_flag_still_cannot_supply_real_restore(self):
+        packet, source = self.packet()
+        raw = io.canonical({'synthetic_protection': True})
+        packet['maintenance_material']['pre_stop_protection'] = base64.b64encode(raw).decode()
+        packet['scope']['pre_stop_protection_sha256'] = io.sha(raw)
+        scope_raw = io.canonical(packet['scope'])
+        packet.update(scope_raw=base64.b64encode(scope_raw).decode(),
+                      scope_sha256=io.sha(scope_raw), binding=io.sha(scope_raw))
+        review = io.parse(base64.b64decode(packet['maintenance_material']['review']))
+        review['inputs'].update(pre_stop_protection=io.sha(raw), scope_sha256=packet['binding'])
+        review_raw = io.canonical(review)
+        packet['maintenance_material']['review'] = base64.b64encode(review_raw).decode()
+        packet['review_sha256'] = io.sha(review_raw)
+        with self.assertRaisesRegex(io.Hold, 'REAL_RESTORE_RECEIPT_SET'):
+            io.maintenance_packet_binding(packet, source, remaining_seconds=590)
 
     def test_recovery_envelope_cannot_change_source_original_binding_or_route(self):
         packet, source = self.packet()

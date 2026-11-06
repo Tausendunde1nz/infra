@@ -35,6 +35,14 @@ MAINTENANCE_APPROVAL_SHA = '576251012fb1e73fcc29a49334140660339b74fbdda05273822e
 # machine/plan constants, as the existing full operator fixture does for r3.
 MAINTENANCE_MACHINE = 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae'
 MAINTENANCE_OWNER_PLAN = 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36'
+# Closed real restore receipts, not synthetic test flags or permission for a
+# new backup attempt. These immutable technical receipts contain no data or
+# credentials. Their original bytes (including the earlier pending note in
+# protection) are preserved; the separate cleanup receipt resolves that note.
+MAINTENANCE_RESTORE_RECEIPTS = {
+    'database': '6c634508afc837e8eeca08b2564698e1904e1023c6c4ed6a2844279ec2dd2de6',
+    'protection': 'bbf6c77b6fcf22d84a722b7c98223623a6e9f3d2d29f950ff276d78c503ba10a',
+    'cleanup': 'de64bf0fb2246b06b831697c7508fdf697b2c4ff0d1bfde7587b50f49445c390'}
 R5_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
 PROSPECTIVE_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5P_V1'
 PROSPECTIVE_BINDING = 'TU1NZ_PUBLIC_PROSPECTIVE_BINDING_V1'
@@ -260,6 +268,34 @@ def maintenance_material_binding(scope, baseline, material, *, source_hashes, re
     return docs
 
 
+def maintenance_restore_binding(document):
+    """Reuse only the already accepted REAL DB/file restore and cleanup.
+
+    No path is opened and no backup/restore/SSH is invoked. The enclosing
+    material/scope/review binds these exact bytes on both sides. This proves
+    only reuse of the closed receipts: current coverage, intervening data,
+    Writer state, native timing and the remaining V1–V6 checks are still
+    required before a claim or stop. In particular the two snapshots do not
+    become atomic, and the old E1/S7 HOLDs do not become successful.
+    """
+    require(type(document) is dict and set(document) == {'schema', 'receipts'} and
+            document['schema'] == 'TU1NZ_REV4_CLOSED_REAL_RESTORE_REUSE_V1' and
+            type(document['receipts']) is dict and
+            set(document['receipts']) == set(MAINTENANCE_RESTORE_RECEIPTS),
+            'MAINTENANCE_REAL_RESTORE_RECEIPT_SET')
+    documents = {}
+    for name, expected in MAINTENANCE_RESTORE_RECEIPTS.items():
+        encoded = document['receipts'][name]
+        require(type(encoded) is str and 0 < len(encoded) <= 64*1024,
+                'MAINTENANCE_REAL_RESTORE_RECEIPT_BOUND')
+        try:raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            raise Hold('PUBLIC_OPERATOR_MAINTENANCE_REAL_RESTORE_ENCODING') from None
+        require(sha(raw) == expected, 'MAINTENANCE_REAL_RESTORE_RECEIPT_CHANGED')
+        documents[name] = parse(raw)
+    return documents
+
+
 def maintenance_transport_packet(packet, *, deadline):
     """Spend the existing client deadline; never start a new transport timer.
 
@@ -337,6 +373,7 @@ def maintenance_packet_binding(packet, source, *, remaining_seconds):
     material = {n:base64.b64decode(v, validate=True) for n,v in packet['maintenance_material'].items()}
     docs = maintenance_material_binding(scope,baseline,material,source_hashes=hashes,
                                         review_sha256=packet['review_sha256'], remaining_seconds=remaining_seconds)
+    restore = maintenance_restore_binding(docs['pre_stop_protection'])
     if packet['route'] == 'recovery-once':
         recovery = packet['recovery']
         require(type(recovery) is dict and set(recovery) == {'entry', 'manifest'} and
@@ -346,7 +383,7 @@ def maintenance_packet_binding(packet, source, *, remaining_seconds):
         require(entry == recovery_entry(packet['binding'],baseline['boot_id'],sha(canonical(hashes)),
                     manifest.get('snapshot_sha256'),entry.get('ready_sha256')) and
                 manifest.get('binding') == packet['binding'], 'MAINTENANCE_RECOVERY_ENTRY_BINDING')
-    return {'documents': docs, 'plan': plan, 'inputs': {
+    return {'documents': docs, 'restore_receipts': restore, 'plan': plan, 'inputs': {
         'scope_sha256': packet['binding'], 'baseline_sha256': sha(raw), 'source_sha256': sha(canonical(hashes)),
         'pre_stop_protection_sha256': scope['pre_stop_protection_sha256'], 'native_timing_sha256': scope['native_timing_sha256']}}
 
