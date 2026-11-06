@@ -59,6 +59,12 @@ def sha(raw):return hashlib.sha256(raw).hexdigest()
 def canonical(value):return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
 
 
+def input_changed(path,differences):
+    error=Denied('E1_INPUT_CHANGED')
+    error.input_observation={'check':'read/E1_INPUT_CHANGED','path':str(path),'differences':differences}
+    return error
+
+
 def read(path,limit,owner=501):
     path=Path(path);need(path.resolve(strict=True)==path,'E1_INPUT_CANONICAL')
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
@@ -72,8 +78,12 @@ def read(path,limit,owner=501):
             if not part:break
             raw+=part
         fields=('st_dev','st_ino','st_uid','st_gid','st_mode','st_nlink','st_size','st_mtime_ns','st_ctime_ns')
-        need(len(raw)==s.st_size and all(tuple(getattr(a,k) for k in fields)==tuple(getattr(s,k) for k in fields)
-             for a in (os.fstat(fd),path.lstat())),'E1_INPUT_CHANGED')
+        if len(raw)!=s.st_size:
+            raise input_changed(path,[{'attribute':'read_bytes','expected':s.st_size,'actual':len(raw)}])
+        observed=(os.fstat(fd),path.lstat())
+        if not all(tuple(getattr(a,k) for k in fields)==tuple(getattr(s,k) for k in fields) for a in observed):
+            raise input_changed(path,[{'observation':kind,'attribute':k,'expected':getattr(s,k),'actual':getattr(a,k)}
+                for kind,a in zip(('fd','path'),observed) for k in fields if getattr(a,k)!=getattr(s,k)])
         return raw
     finally:os.close(fd)
 
@@ -417,4 +427,6 @@ if __name__=='__main__':
     try:raise SystemExit(capture_main())
     except Exception as error:
         print('E1 vorzeitig abgebrochen:',str(error) if isinstance(error,Denied) else type(error).__name__)
+        if isinstance(error,Denied) and getattr(error,'input_observation',None) is not None:
+            print('E1 Prüfabweichung:',json.dumps(error.input_observation,sort_keys=True))
         raise SystemExit(1)
