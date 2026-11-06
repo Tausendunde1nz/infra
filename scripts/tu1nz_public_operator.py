@@ -13,6 +13,7 @@ import getpass
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -321,10 +322,37 @@ class MaintenanceClient(Client):
     Recovery's client must override owner_marker_parent() to its independently
     held original TX root; this class never accepts a marker path from JSON.
     """
-    def __init__(self, wire, r3, binding, *, boot_id, **kwargs):
+    def __init__(self, wire, r3, binding, *, boot_id, admission_source=None, **kwargs):
         super().__init__(wire, r3, binding, **kwargs)
         self.original_binding = binding; self.boot_id = boot_id; self.route = 'original'
         self.ready_sha256 = None; self.owner_marker = None; self.owner_marker_identity = None
+        self.admission_source = admission_source
+
+    def admission_current(self):
+        """Recheck the actual Rev4 bytes/lifetime before local custody effects.
+
+        The legacy prospective validator does not admit a Rev4 packet. Use
+        the same finite packet/material checks as the Host, with the CURRENT
+        remaining absolute deadline. This is not a substitute for the Host's
+        current coverage, Writer, native-timing or other pre-stop gates.
+        """
+        deadline = self.wire.deadline
+        io.require(type(deadline) in (int, float) and math.isfinite(deadline),
+                   'MAINTENANCE_CLIENT_DEADLINE_SCHEMA')
+        remaining = deadline-time.monotonic()
+        io.require(0 < remaining <= 600, 'MAINTENANCE_CLIENT_DEADLINE_EXPIRED_OR_EXTENDED')
+        packet = self.admission_packet
+        io.require(type(packet) is dict and self.admission_source is not None and
+                   packet.get('route') == self.route and packet.get('binding') == self.original_binding and
+                   type(packet.get('baseline')) is dict and packet['baseline'].get('boot_id') == self.boot_id,
+                   'MAINTENANCE_CLIENT_CURRENT_PACKET_REQUIRED')
+        return io.maintenance_packet_binding(packet, self.admission_source,
+                                              remaining_seconds=math.ceil(remaining))
+
+    def extension_message(self, message):
+        if message.get('type') == 'held':
+            io.require(message.get('return_available') is False, 'MAINTENANCE_CLIENT_OLD_RETURN_FORBIDDEN')
+        return False
 
     def owner_marker_parent(self):
         self.journal.check()
@@ -548,11 +576,13 @@ class RecoveryCustody:
 
 
 class RecoveryClient(MaintenanceClient):
-    def __init__(self, wire, r3, custody, *, http_expectations, owner_hold_before=None):
+    def __init__(self, wire, r3, custody, *, http_expectations, owner_hold_before=None,
+                 admission_packet=None, admission_source=None):
         io.require(isinstance(custody, RecoveryCustody) and custody.binding is None and custody.fd is not None,
                    'RECOVERY_CLIENT_EXISTING_ENTRY_REQUIRED')
         super().__init__(wire, r3, custody.original_binding, boot_id=custody.entry['boot_id'],
-                         http_expectations=http_expectations, owner_hold_before=owner_hold_before)
+                         http_expectations=http_expectations, owner_hold_before=owner_hold_before,
+                         admission_packet=admission_packet, admission_source=admission_source)
         self.custody = custody; self.route = 'recovery-once'; self.ready_sha256 = custody.ready_sha256
         self.recovery_seed = None; self.admission_open = True
 
@@ -578,7 +608,8 @@ class RecoveryClient(MaintenanceClient):
             self.admission_open = False
         elif row['sequence'] > 2:
             io.require(not self.admission_open, 'RECOVERY_CLIENT_EFFECT_BEFORE_CURRENT_STATE')
-        if kind == 'recovery_flow_claim':self.custody.claim()
+        if kind == 'recovery_flow_claim':
+            self.admission_current(); self.custody.claim()
         if kind.startswith('recovery_flow_'):self.custody.write(kind[len('recovery_flow_'):], value)
         super().project_record(row)
 
@@ -598,6 +629,7 @@ class RecoveryClient(MaintenanceClient):
             io.require(seed['fresh_state_sha256'] == io.sha(io.canonical(message['fresh_state'])) and
                        seed['original_failure_sha256'] == io.sha(io.canonical(message['original_failure'])),
                        'RECOVERY_CLIENT_CURRENT_OBSERVATION_HASH')
+            self.admission_current()
             self.custody.bind(seed); self.recovery_seed = io.parse(io.canonical(seed))
             self.binding = self.last = self.custody.binding; self.journal = self.custody
             self.fd = os.open('operator-records', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,

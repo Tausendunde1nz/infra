@@ -838,6 +838,97 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
         recovery['entry'] = {**entry, 'original_binding': 'f'*64}
         with self.assertRaises(io.Hold):io.maintenance_packet_binding(packet, source, remaining_seconds=590)
 
+    def admission_client(self, *, recovery=False):
+        packet, source = self.packet()
+        wire = Mock(); wire.deadline = time.monotonic()+590
+        if not recovery:
+            c = client.MaintenanceClient(wire, r3, packet['binding'],
+                boot_id=packet['baseline']['boot_id'], http_expectations=[],
+                admission_packet=packet, admission_source=source)
+        else:
+            entry = io.recovery_entry(packet['binding'], packet['baseline']['boot_id'],
+                                     io.sha(io.canonical(packet['hashes'])), 'a'*64, 'b'*64)
+            packet.update(route='recovery-once', recovery={'entry':entry,
+                'manifest':{'binding':packet['binding'],'snapshot_sha256':'a'*64}})
+            # Only client admission ordering here. Actual fixed-file custody
+            # and chain/seed validation remain in RecoveryCustodyTests.
+            custody = client.RecoveryCustody.__new__(client.RecoveryCustody)
+            custody.binding = None; custody.fd = -1; custody.original_binding = packet['binding']
+            custody.entry = entry; custody.ready_sha256 = entry['ready_sha256']
+            custody.bind = Mock(); custody.claim = Mock()
+            c = client.RecoveryClient(wire, r3, custody, http_expectations=[],
+                                      admission_packet=packet, admission_source=source)
+        return c, packet, source
+
+    def test_original_and_recovery_clients_use_the_actual_rev4_material_gate(self):
+        for recovery in (False, True):
+            c, packet, source = self.admission_client(recovery=recovery)
+            with self.subTest(recovery=recovery):
+                result = c.admission_current()
+                self.assertEqual(result['inputs']['scope_sha256'], packet['binding'])
+                self.assertNotIn('host_admitted', result)
+                with patch.object(io, 'prospective_packet_material') as legacy:
+                    c.admission_current()
+                legacy.assert_not_called()
+
+    def test_unbound_packet_wrong_route_original_binding_or_boot_deny_before_custody(self):
+        c, packet, source = self.admission_client()
+        for value in (None, {**packet,'route':'recovery-once'}, {**packet,'binding':'f'*64},
+                      {**packet,'baseline':{**packet['baseline'],'boot_id':'00000000-0000-0000-0000-000000000002'}}):
+            c.admission_packet = value
+            c.initialize = Mock(); c.wire.receive.return_value = {'type':'prepared','binding':c.binding}
+            with self.subTest(packet_type=type(value)), self.assertRaises(io.Hold):c.serve()
+            c.initialize.assert_not_called()
+
+    def test_changed_current_source_cannot_use_previously_validated_material(self):
+        c, packet, source = self.admission_client(); c.admission_current()
+        source.bytes['host'] += b'changed'
+        with self.assertRaisesRegex(io.Hold, 'SOURCE_CHANGED'):c.admission_current()
+
+    def test_client_deadline_is_current_finite_and_not_extended(self):
+        c, _, _ = self.admission_client()
+        with patch.object(client.time, 'monotonic', return_value=1000):
+            for deadline in (True, None, float('inf'), float('nan'), 999, 1000, 1600.1):
+                c.wire.deadline = deadline
+                with self.subTest(deadline=deadline), self.assertRaises(io.Hold):c.admission_current()
+
+    def expire_packet(self, c):
+        raw = base64.b64decode(c.admission_packet['maintenance_material']['current_acceptance'])
+        expires = datetime.strptime(io.parse(raw)['expires_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
+        return patch.object(io.time, 'time', return_value=expires-10)
+
+    def test_expired_original_admission_cannot_create_custody_or_claim(self):
+        c, _, _ = self.admission_client(); c.admission_current()
+        c.initialize = Mock(); c.wire.receive.return_value = {'type':'prepared','binding':c.binding}
+        c.journal = None
+        with self.expire_packet(c), self.assertRaisesRegex(io.Hold, 'FULL_WINDOW_EXPIRED'):c.serve()
+        c.initialize.assert_not_called()
+        c.journal = Mock()
+        with self.expire_packet(c), self.assertRaisesRegex(io.Hold, 'FULL_WINDOW_EXPIRED'):
+            c.project_record({'kind':'flow_claim','value':{}})
+        c.journal.claim.assert_not_called()
+
+    def test_expired_recovery_admission_cannot_bind_new_chain_or_claim(self):
+        c, _, _ = self.admission_client(recovery=True); c.admission_current()
+        state = {'phase':'F4'}; failure = {'original_status':'FAILED_HOLD'}
+        message = {'type':'recovery_prepared','seed':{'fresh_state_sha256':io.sha(io.canonical(state)),
+                   'original_failure_sha256':io.sha(io.canonical(failure))},
+                   'fresh_state':state,'original_failure':failure}
+        with self.expire_packet(c), self.assertRaisesRegex(io.Hold, 'FULL_WINDOW_EXPIRED'):
+            c.extension_message(message)
+        c.custody.bind.assert_not_called()
+        c.admission_open = False
+        with self.expire_packet(c), self.assertRaisesRegex(io.Hold, 'FULL_WINDOW_EXPIRED'):
+            c.project_record({'sequence':3,'kind':'recovery_flow_claim','value':{}})
+        c.custody.claim.assert_not_called()
+
+    def test_original_client_rejects_a_request_for_old_runtime_return(self):
+        c, _, _ = self.admission_client()
+        with self.assertRaisesRegex(io.Hold, 'OLD_RETURN_FORBIDDEN'):
+            c.extension_message({'type':'held','return_available':True})
+        self.assertFalse(c.extension_message({'type':'held','return_available':False,
+                                             'owner_return_available':True}))
+
 
 class RecoveryAdmissionChannelTests(unittest.TestCase):
     def test_current_custody_read_cannot_emit_an_action_claim_or_original_ack(self):
@@ -941,6 +1032,9 @@ class RecoveryMacCustodyTests(unittest.TestCase):
         args = self.fixture(); custody = self.make(args)
         wire = Mock(); wire.deadline = custody.deadline
         c = client.RecoveryClient(wire, r3, custody, http_expectations=[]); self.addCleanup(c.close)
+        # This test exercises actual additive custody/chain/owner markers;
+        # packet lifetime/source gates are covered without substitution above.
+        c.admission_current = Mock()
         check = {'type': 'recovery_admission_check', 'original_binding': custody.original_binding,
                  'entry_sha256': io.sha(custody.entry_raw), 'mac_snapshot_sha256': custody.manifest['snapshot_sha256']}
         state = {'phase': 'F4'}; failure = {'original_status': 'FAILED_HOLD'}
