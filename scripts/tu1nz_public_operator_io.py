@@ -10,6 +10,7 @@ import base64
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -257,6 +258,47 @@ def maintenance_material_binding(scope, baseline, material, *, source_hashes, re
             type(review['evidence_sha256']) is str and re.fullmatch('[0-9a-f]{64}', review['evidence_sha256']) and
             accepted <= timestamp(review['reviewed_at']) <= now, 'MAINTENANCE_INDEPENDENT_INPUT_REVIEW_MISMATCH')
     return docs
+
+
+def maintenance_transport_packet(packet, *, deadline):
+    """Spend the existing client deadline; never start a new transport timer.
+
+    Called after the authenticated ready frame and immediately before send.
+    The Host anchors this remaining duration at its EARLIER ready emission,
+    not at packet arrival. Thus either direction's transport/encoding delay
+    consumes budget without requiring synchronized wall clocks.
+    """
+    require(type(packet) is dict and packet.get('route') in ('original', 'recovery-once') and
+            type(deadline) in (int, float) and math.isfinite(deadline),
+            'MAINTENANCE_TRANSPORT_ARGUMENTS')
+    remaining = deadline-time.monotonic()
+    require(0 < remaining <= 600, 'MAINTENANCE_CLIENT_DEADLINE_EXPIRED_OR_EXTENDED')
+    milliseconds = math.floor(remaining*1000)  # rounding can only shorten it
+    require(0 < milliseconds <= 600000, 'MAINTENANCE_TRANSPORT_BUDGET_EXHAUSTED')
+    return {**packet, 'remaining_milliseconds': milliseconds}
+
+
+def maintenance_remote_deadline(packet, wire):
+    """One cap from the actual bootstrap anchor, before any admission/effect.
+
+    A bare remaining duration measured from packet arrival would silently add
+    transit time. The authenticated bootstrap retains its own monotonic ready
+    anchor instead. A missing anchor, expired frame, or second bind is HOLD.
+    This only bounds time; it grants no scope, claim, action or recovery.
+    """
+    require(not getattr(wire, '_maintenance_deadline_bound', False),
+            'MAINTENANCE_DEADLINE_ALREADY_BOUND')
+    wire._maintenance_deadline_bound = True
+    anchor = getattr(wire, 'bootstrap_started', None)
+    now = time.monotonic()
+    remaining = packet.get('remaining_milliseconds') if type(packet) is dict else None
+    require(type(anchor) in (int, float) and math.isfinite(anchor) and 0 <= anchor <= now and
+            type(wire.deadline) in (int, float) and math.isfinite(wire.deadline) and
+            wire.deadline <= anchor+600 and type(remaining) is int and 0 < remaining <= 600000,
+            'MAINTENANCE_BOOTSTRAP_DEADLINE_BINDING')
+    wire.deadline = min(wire.deadline, anchor+remaining/1000)
+    require(now < wire.deadline, 'MAINTENANCE_PACKET_ARRIVED_AFTER_DEADLINE')
+    return math.ceil(wire.deadline-now)
 
 
 def maintenance_packet_binding(packet, source, *, remaining_seconds):
