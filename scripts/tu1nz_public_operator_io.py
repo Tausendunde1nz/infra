@@ -296,6 +296,108 @@ def maintenance_restore_binding(document):
     return documents
 
 
+def maintenance_timing_binding(document, *, source_hashes, artifact):
+    """Check the bound FULL-entry measurements and derive finite reserves.
+
+    This is arithmetic/coverage admission, not a benchmark or a replacement
+    for independently reading the referenced native traces. The execution
+    input review binds this entire document and its exact Source. A fast
+    StartLimit/component test, a smaller fixture, skipped route, or bare PASS
+    cannot supply the original/Recovery budget. No clock or claim is reset.
+    """
+    fields = {'schema', 'source_sha256', 'artifact_sha256', 'measurement_source_sha256',
+              'transport_cleanup_reserve_milliseconds', 'runs'}
+    cases = {'original', 'recovery_F1', 'recovery_F2', 'recovery_F3', 'recovery_F4',
+             'recovery_terminal_F4'}
+    require(type(document) is dict and set(document) == fields and
+            document['schema'] == 'TU1NZ_REV4_FULL_NATIVE_TIMING_V1' and
+            document['source_sha256'] == sha(canonical(source_hashes)) and
+            document['artifact_sha256'] == sha(canonical(artifact)) and
+            type(document['measurement_source_sha256']) is str and
+            re.fullmatch('[0-9a-f]{64}', document['measurement_source_sha256']) and
+            type(document['runs']) is dict and set(document['runs']) == cases,
+            'MAINTENANCE_FULL_NATIVE_TIMING_REQUIRED')
+    reserve = document['transport_cleanup_reserve_milliseconds']
+    require(type(reserve) is int and 0 < reserve < 120000 and
+            type(artifact) is dict and type(artifact.get('objects')) is dict and
+            type(artifact.get('archive_bytes')) is int and artifact['archive_bytes'] > 0 and
+            type(artifact.get('expanded_file_bytes')) is int and artifact['expanded_file_bytes'] > 0,
+            'MAINTENANCE_NATIVE_DIMENSIONS_OR_RESERVE')
+    dimensions = {'runtime_objects': len(artifact['objects']), 'archive_bytes': artifact['archive_bytes'],
+                  'expanded_file_bytes': artifact['expanded_file_bytes'],
+                  'lighting_objects': 88, 'lighting_files': 82, 'protected_objects': 4}
+    require(dimensions['runtime_objects'] > 0, 'MAINTENANCE_NATIVE_EMPTY_RUNTIME')
+    times = {'elapsed_milliseconds', 'after_ready_milliseconds', 'preparation_milliseconds',
+             'owner_milliseconds', 'largest_service_action_milliseconds',
+             'terminal_prepare_milliseconds', 'terminal_stop_milliseconds', 'terminal_cleanup_milliseconds'}
+    counters = {'linked_records', 'flow_records', 'largest_record_bytes', 'owner_intents', 'owner_acks'}
+    row_fields = times | counters | {'entrypoints', 'status', 'cleanup_complete', 'dimensions', 'trace_sha256'}
+    traces = set(); whole_budgets = {}; after_ready = None
+    for name in sorted(cases):
+        row = document['runs'][name]; terminal = name == 'recovery_terminal_F4'
+        require(type(row) is dict and set(row) == row_fields and
+                row['entrypoints'] == ['tu1nz_public_operator.execute_maintenance',
+                    'tu1nz_public_operator_host.'+('maintenance_session' if name == 'original' else 'recovery_session')] and
+                row['status'] == ('HOLD_KNOWN_NEW_UNITS_STOPPED' if terminal else 'COMPLETE') and
+                row['cleanup_complete'] is True and type(row['trace_sha256']) is str and
+                re.fullmatch('[0-9a-f]{64}', row['trace_sha256']) and row['trace_sha256'] not in traces,
+                'MAINTENANCE_NATIVE_FULL_ENTRY_OR_CLEANUP')
+        traces.add(row['trace_sha256'])
+        measured = row['dimensions']
+        require(type(measured) is dict and set(measured) == set(dimensions) and all(
+                type(measured[k]) is int and dimensions[k] <= measured[k] <= 2**31 for k in dimensions) and
+                all(measured[k] == dimensions[k] for k in ('lighting_objects', 'lighting_files', 'protected_objects')),
+                'MAINTENANCE_NATIVE_FIXTURE_TOO_SMALL_OR_DIFFERENT_OWNER_SCOPE')
+        require(all(type(row[k]) is int and 0 <= row[k] <= 600000 for k in times | counters) and
+                0 < row['elapsed_milliseconds'] < 600000 and
+                row['largest_service_action_milliseconds'] <= 20000 and
+                row['owner_milliseconds'] <= 120000 and row['preparation_milliseconds'] <= 120000 and
+                0 < row['linked_records'] <= 512 and 0 < row['flow_records'] <= 128 and
+                0 < row['largest_record_bytes'] <= 65536 and
+                row['owner_intents'] == row['owner_acks'] == (0 if terminal else 84) and
+                row['linked_records'] >= row['owner_intents']+row['owner_acks']+row['flow_records'],
+                'MAINTENANCE_NATIVE_TIME_RECORD_OR_OWNER_BOUND')
+        require(row['owner_milliseconds'] <= row['elapsed_milliseconds'] and
+                (row['owner_milliseconds'] == 0 if terminal else row['owner_milliseconds'] > 0) and
+                (row['preparation_milliseconds'] == row['after_ready_milliseconds'] == 0
+                    if name != 'original' else
+                 0 < row['preparation_milliseconds'] and 0 < row['after_ready_milliseconds'] and
+                 row['owner_milliseconds'] <= row['after_ready_milliseconds'] and
+                 row['preparation_milliseconds']+row['after_ready_milliseconds'] <= row['elapsed_milliseconds']) and
+                (0 < row['terminal_prepare_milliseconds'] and 0 < row['terminal_cleanup_milliseconds'] and
+                 0 < row['terminal_stop_milliseconds'] <= 60000 and
+                 sum(row[k] for k in ('terminal_prepare_milliseconds','terminal_stop_milliseconds',
+                                     'terminal_cleanup_milliseconds')) <= row['elapsed_milliseconds']
+                    if terminal else row['terminal_prepare_milliseconds'] == row['terminal_stop_milliseconds'] ==
+                                     row['terminal_cleanup_milliseconds'] == 0),
+                'MAINTENANCE_NATIVE_PHASE_MEASUREMENTS')
+        # A fast measured Owner does not license starting with less than its
+        # FULL unchanged120s window. Account for the unspent portion now.
+        unused_owner = 0 if terminal else 120000-row['owner_milliseconds']
+        whole_budgets[name] = row['elapsed_milliseconds']+unused_owner+reserve
+        require(whole_budgets[name] < 600000, 'MAINTENANCE_NATIVE_WHOLE_600_BUDGET_EXCEEDED')
+        if name == 'original':
+            after_ready = max(181, math.ceil((row['after_ready_milliseconds']+unused_owner+reserve)/1000))
+            require(after_ready < 600 and row['elapsed_milliseconds']-row['after_ready_milliseconds']+
+                    after_ready*1000 < 600000, 'MAINTENANCE_NATIVE_ORIGINAL_READY_BUDGET_EXCEEDED')
+    terminal = document['runs']['recovery_terminal_F4']
+    prepare = math.ceil((terminal['terminal_prepare_milliseconds']+reserve)/1000)
+    cleanup = math.ceil((terminal['terminal_cleanup_milliseconds']+reserve)/1000)
+    require(0 < prepare <= 120 and 0 < cleanup <= 120 and prepare+60+cleanup < 600,
+            'MAINTENANCE_NATIVE_TERMINAL_RESERVE_EXCEEDED')
+    # Replace ONLY the observed terminal section with the adapter's actual
+    # full reserve. Its preceding admission/actions have already consumed
+    # budget; they must not disappear when the reserve is checked in isolation.
+    prefix = terminal['elapsed_milliseconds']-sum(terminal[k] for k in
+        ('terminal_prepare_milliseconds','terminal_stop_milliseconds','terminal_cleanup_milliseconds'))
+    whole_budgets['recovery_terminal_F4'] = max(whole_budgets['recovery_terminal_F4'],
+                                             prefix+(prepare+60+cleanup)*1000)
+    require(whole_budgets['recovery_terminal_F4'] < 600000,
+            'MAINTENANCE_NATIVE_TERMINAL_WHOLE_600_BUDGET_EXCEEDED')
+    return {'after_ready_seconds': after_ready, 'terminal_prepare_seconds': prepare,
+            'terminal_cleanup_seconds': cleanup, 'whole_budget_milliseconds': whole_budgets}
+
+
 def maintenance_transport_packet(packet, *, deadline):
     """Spend the existing client deadline; never start a new transport timer.
 
@@ -374,6 +476,8 @@ def maintenance_packet_binding(packet, source, *, remaining_seconds):
     docs = maintenance_material_binding(scope,baseline,material,source_hashes=hashes,
                                         review_sha256=packet['review_sha256'], remaining_seconds=remaining_seconds)
     restore = maintenance_restore_binding(docs['pre_stop_protection'])
+    timing = maintenance_timing_binding(docs['native_timing'], source_hashes=hashes,
+        artifact=baseline['source_release']['runtime_reference']['artifact'])
     if packet['route'] == 'recovery-once':
         recovery = packet['recovery']
         require(type(recovery) is dict and set(recovery) == {'entry', 'manifest'} and
@@ -383,7 +487,7 @@ def maintenance_packet_binding(packet, source, *, remaining_seconds):
         require(entry == recovery_entry(packet['binding'],baseline['boot_id'],sha(canonical(hashes)),
                     manifest.get('snapshot_sha256'),entry.get('ready_sha256')) and
                 manifest.get('binding') == packet['binding'], 'MAINTENANCE_RECOVERY_ENTRY_BINDING')
-    return {'documents': docs, 'restore_receipts': restore, 'plan': plan, 'inputs': {
+    return {'documents': docs, 'restore_receipts': restore, 'timing': timing, 'plan': plan, 'inputs': {
         'scope_sha256': packet['binding'], 'baseline_sha256': sha(raw), 'source_sha256': sha(canonical(hashes)),
         'pre_stop_protection_sha256': scope['pre_stop_protection_sha256'], 'native_timing_sha256': scope['native_timing_sha256']}}
 

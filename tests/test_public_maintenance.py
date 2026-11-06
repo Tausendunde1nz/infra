@@ -777,6 +777,20 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
         scope['pre_stop_protection_sha256'] = io.sha(material['pre_stop_protection'])
         source = SimpleNamespace(bytes={n:('SYNTHETIC_SOURCE_'+n).encode() for n in hashes})
         hashes.clear(); hashes.update({n:io.sha(raw) for n,raw in source.bytes.items()})
+        # Only the arithmetic/envelope test fixture. No actual native timing
+        # or Host admission is inferred from this synthetic report.
+        from tests.test_public_maintenance_transport import synthetic_timing
+        artifact = baseline['source_release']['runtime_reference']['artifact']
+        previous_artifact = io.sha(io.canonical(artifact))
+        artifact.update(objects={'synthetic':{}}, archive_bytes=45560268, expanded_file_bytes=200000000)
+        artifact_hash = io.sha(io.canonical(artifact))
+        baseline['source_release']['runtime_reference']['origin_sha256'] = artifact_hash
+        baseline['source_origin_receipts'].remove(previous_artifact)
+        baseline['source_origin_receipts'].append(artifact_hash)
+        scope.update(runtime_artifact_sha256=artifact_hash, baseline_sha256=io.sha(io.canonical(baseline)),
+            baseline_origins_sha256=io.sha(io.canonical(baseline['source_origin_receipts'])))
+        material['native_timing'] = io.canonical(synthetic_timing(hashes, artifact))
+        scope['native_timing_sha256'] = io.sha(material['native_timing'])
         acceptance['source_sha256'] = io.sha(io.canonical(hashes))
         material['current_acceptance'] = io.canonical(acceptance)
         scope['current_acceptance_sha256'] = io.sha(material['current_acceptance'])
@@ -824,6 +838,24 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
         packet['review_sha256'] = io.sha(review_raw)
         with self.assertRaisesRegex(io.Hold, 'REAL_RESTORE_RECEIPT_SET'):
             io.maintenance_packet_binding(packet, source, remaining_seconds=590)
+
+    def test_rebound_component_timing_cannot_reach_original_custody(self):
+        c, packet, source = self.admission_client()
+        raw = io.canonical({'component_seconds':0.276,'passed':True})
+        packet['maintenance_material']['native_timing'] = base64.b64encode(raw).decode()
+        packet['scope']['native_timing_sha256'] = io.sha(raw)
+        scope_raw = io.canonical(packet['scope'])
+        packet.update(scope_raw=base64.b64encode(scope_raw).decode(),
+                      scope_sha256=io.sha(scope_raw), binding=io.sha(scope_raw))
+        review = io.parse(base64.b64decode(packet['maintenance_material']['review']))
+        review['inputs'].update(native_timing=io.sha(raw), scope_sha256=packet['binding'])
+        review_raw = io.canonical(review)
+        packet['maintenance_material']['review'] = base64.b64encode(review_raw).decode()
+        packet['review_sha256'] = io.sha(review_raw)
+        c.binding = c.original_binding = packet['binding']
+        c.initialize = Mock(); c.wire.receive.return_value = {'type':'prepared','binding':c.binding}
+        with self.assertRaisesRegex(io.Hold, 'FULL_NATIVE_TIMING_REQUIRED'):c.serve()
+        c.initialize.assert_not_called()
 
     def test_recovery_envelope_cannot_change_source_original_binding_or_route(self):
         packet, source = self.packet()
