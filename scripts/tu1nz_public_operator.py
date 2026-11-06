@@ -585,6 +585,7 @@ class RecoveryClient(MaintenanceClient):
                          admission_packet=admission_packet, admission_source=admission_source)
         self.custody = custody; self.route = 'recovery-once'; self.ready_sha256 = custody.ready_sha256
         self.recovery_seed = None; self.admission_open = True
+        self.host_entry_confirmation_attempted = False; self.host_entry_confirmed = False
 
     def initialize(self):
         raise io.Hold('PUBLIC_OPERATOR_RECOVERY_ORIGINAL_INITIALIZER_FORBIDDEN')
@@ -596,6 +597,7 @@ class RecoveryClient(MaintenanceClient):
 
     def project_record(self, row):
         kind, value = row['kind'], row['value']
+        io.require(self.host_entry_confirmed, 'RECOVERY_CLIENT_HOST_ENTRY_NOT_CONFIRMED')
         io.require(kind not in ('flow_claim', 'flow_complete', 'maintenance_ready', 'prestate_read_witness') and
                    not kind.startswith('flow_'), 'RECOVERY_CLIENT_ORIGINAL_RECORD_FORBIDDEN')
         if row['sequence'] == 1:
@@ -616,8 +618,18 @@ class RecoveryClient(MaintenanceClient):
     def extension_message(self, message):
         kind = message.get('type')
         io.require(kind not in ('prepared', 'runtime_chunk_request'), 'RECOVERY_CLIENT_ORIGINAL_PROTOCOL_FORBIDDEN')
+        if kind == 'recovery_entry_created':
+            io.require(not self.host_entry_confirmation_attempted and self.admission_open and
+                       message == {'type':kind, 'original_binding':self.original_binding,
+                                   'entry_sha256':io.sha(self.custody.entry_raw)},
+                       'RECOVERY_CLIENT_HOST_ENTRY_BINDING_OR_REPLAY')
+            self.host_entry_confirmation_attempted = True
+            self.admission_current(); self.custody.check()
+            self.wire.send({**message, 'type':'recovery_entry_confirmed'})
+            self.host_entry_confirmed = True
+            return True
         if kind == 'recovery_admission_check':
-            io.require(self.admission_open and message == {'type': kind,
+            io.require(self.host_entry_confirmed and self.admission_open and message == {'type': kind,
                 'original_binding': self.original_binding, 'entry_sha256': io.sha(self.custody.entry_raw),
                 'mac_snapshot_sha256': self.custody.manifest['snapshot_sha256']}, 'RECOVERY_CLIENT_ADMISSION_BINDING')
             self.custody.check(); self.wire.send({**message, 'type': 'recovery_admission_current'})
@@ -630,6 +642,7 @@ class RecoveryClient(MaintenanceClient):
                        seed['original_failure_sha256'] == io.sha(io.canonical(message['original_failure'])),
                        'RECOVERY_CLIENT_CURRENT_OBSERVATION_HASH')
             self.admission_current()
+            io.require(self.host_entry_confirmed, 'RECOVERY_CLIENT_HOST_ENTRY_NOT_CONFIRMED')
             self.custody.bind(seed); self.recovery_seed = io.parse(io.canonical(seed))
             self.binding = self.last = self.custody.binding; self.journal = self.custody
             self.fd = os.open('operator-records', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,

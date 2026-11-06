@@ -689,6 +689,60 @@ def source_fault_location(error):
     return location
 
 
+class RecoveryHostEntry:
+    """Create-only half of the sole additive Recovery entry, never a retry.
+
+    The session must validate its complete packet/gates BEFORE construction;
+    the Mac has already spent its fixed entry BEFORE opening this transport.
+    This object only binds that entry, not fresh Authority or an effect grant.
+    Partial creation/unknown ACK is retained and consumes the entry. Paths
+    owns all opened descriptors; no original record, claim or lock is changed.
+    """
+    ROOT = '/etc/tu1nz/public-web-bootstrap-r3/20261014-1/recovery-once'
+
+    def __init__(self, paths, entry, *, original_binding, boot_id, source_sha256,
+                 mac_snapshot_sha256, ready_sha256, deadline):
+        self.p = paths; self.deadline = deadline; self.confirm_attempted = False; self.confirmed = False
+        self.entry = io.recovery_entry(original_binding, boot_id, source_sha256,
+                                       mac_snapshot_sha256, ready_sha256)
+        io.require(entry == self.entry and type(deadline) in (int, float) and deadline == paths.deadline and
+                   0 < deadline-time.monotonic() <= 600,
+                   'RECOVERY_HOST_ENTRY_BINDING_OR_DEADLINE')
+        self.raw = io.canonical(self.entry); self.metadata = None
+        paths.absent(self.ROOT)
+        # Creating the root spends the entry even if a following mkdir,
+        # fsync, write or readback fails. No existing directory is adopted.
+        paths.create_directory(self.ROOT)
+        for name in ('intents', 'acknowledgments', 'reports'):
+            paths.create_directory(self.ROOT+'/'+name)
+        self.metadata = paths.create_file(self.ROOT+'/reports/entry.json', self.raw)
+        self.check()
+
+    def check(self):
+        io.require(self.metadata is not None and time.monotonic() < self.deadline,
+                   'RECOVERY_HOST_ENTRY_INCOMPLETE_OR_EXPIRED')
+        self.p.check(full=True)
+        # Paths retains and rechecks the created directory inode/security
+        # bindings. Its ordinary journal writes may change directory times.
+        for name in ('', '/intents', '/acknowledgments', '/reports'):
+            self.p.get(self.ROOT+name)
+        raw, actual = self.p.read(self.ROOT+'/reports/entry.json')
+        io.require(raw == self.raw and Adapter.same_file(actual, self.metadata),
+                   'RECOVERY_HOST_ENTRY_CHANGED')
+        self.p.check(full=True)
+
+    def confirm(self, wire):
+        io.require(not self.confirm_attempted and wire.deadline == self.deadline,
+                   'RECOVERY_HOST_ENTRY_ACK_NO_RETRY_OR_TIMER_CHANGE')
+        self.confirm_attempted = True  # consume BEFORE send, including a lost output
+        self.check()
+        context = {'original_binding':self.entry['original_binding'], 'entry_sha256':io.sha(self.raw)}
+        wire.send({'type':'recovery_entry_created', **context})
+        io.require(wire.receive() == {'type':'recovery_entry_confirmed', **context},
+                   'RECOVERY_HOST_ENTRY_MAC_ACK_UNKNOWN')
+        self.check(); self.confirmed = True
+
+
 def session(source, packet, wire):
     """Actual production session, also the isolated integration entry.
 

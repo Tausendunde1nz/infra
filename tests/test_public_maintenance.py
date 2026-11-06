@@ -33,6 +33,7 @@ else:
 import tu1nz_public_bootstrap_r3 as r3
 import tu1nz_public_operator_context as contexts
 import tu1nz_public_operator_observe as observe
+import tu1nz_public_operator_host as host
 import tu1nz_public_operator_runtime_guard as runtime_guard
 
 
@@ -887,6 +888,7 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
             custody = client.RecoveryCustody.__new__(client.RecoveryCustody)
             custody.binding = None; custody.fd = -1; custody.original_binding = packet['binding']
             custody.entry = entry; custody.ready_sha256 = entry['ready_sha256']
+            custody.entry_raw = io.canonical(entry); custody.check = Mock()
             custody.bind = Mock(); custody.claim = Mock()
             c = client.RecoveryClient(wire, r3, custody, http_expectations=[],
                                       admission_packet=packet, admission_source=source)
@@ -916,6 +918,28 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
         c, packet, source = self.admission_client(); c.admission_current()
         source.bytes['host'] += b'changed'
         with self.assertRaisesRegex(io.Hold, 'SOURCE_CHANGED'):c.admission_current()
+
+    def test_recovery_entry_handshake_rechecks_actual_packet_and_custody_once(self):
+        c,_,_=self.admission_client(recovery=True)
+        message={'type':'recovery_entry_created','original_binding':c.original_binding,
+                 'entry_sha256':io.sha(c.custody.entry_raw)}
+        self.assertTrue(c.extension_message(message));self.assertTrue(c.host_entry_confirmed)
+        c.custody.check.assert_called_once()
+        c.wire.send.assert_called_once_with({**message,'type':'recovery_entry_confirmed'})
+        with self.assertRaises(io.Hold):c.extension_message(message)
+        self.assertEqual(c.wire.send.call_count,1)
+
+    def test_recovery_entry_wrong_bytes_or_unknown_send_never_retries(self):
+        c,_,_=self.admission_client(recovery=True)
+        message={'type':'recovery_entry_created','original_binding':c.original_binding,
+                 'entry_sha256':io.sha(c.custody.entry_raw)}
+        with self.assertRaises(io.Hold):c.extension_message({**message,'entry_sha256':'f'*64})
+        c.wire.send.assert_not_called()
+        c.wire.send.side_effect=OSError('synthetic unknown output')
+        with self.assertRaises(OSError):c.extension_message(message)
+        self.assertTrue(c.host_entry_confirmation_attempted);self.assertFalse(c.host_entry_confirmed)
+        with self.assertRaises(io.Hold):c.extension_message(message)
+        self.assertEqual(c.wire.send.call_count,1)
 
     def test_client_deadline_is_current_finite_and_not_extended(self):
         c, _, _ = self.admission_client()
@@ -950,6 +974,7 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
             c.extension_message(message)
         c.custody.bind.assert_not_called()
         c.admission_open = False
+        c.host_entry_confirmed = True  # this case concerns expiry after the earlier entry handshake
         with self.expire_packet(c), self.assertRaisesRegex(io.Hold, 'FULL_WINDOW_EXPIRED'):
             c.project_record({'sequence':3,'kind':'recovery_flow_claim','value':{}})
         c.custody.claim.assert_not_called()
@@ -960,6 +985,91 @@ class MaintenanceMaterialBoundaryTests(unittest.TestCase):
             c.extension_message({'type':'held','return_available':True})
         self.assertFalse(c.extension_message({'type':'held','return_available':False,
                                              'owner_return_available':True}))
+
+
+class RecoveryHostEntryTests(unittest.TestCase):
+    def setUp(self):
+        self.entry = io.recovery_entry('a'*64,'00000000-0000-0000-0000-000000000001','b'*64,'c'*64,'d'*64)
+        self.raw = io.canonical(self.entry); self.root = host.RecoveryHostEntry.ROOT
+        self.directories = set(); self.files = {}; self.deadline = time.monotonic()+590
+        self.meta = {'device':1,'inode':2,'type':stat.S_IFREG,'uid':0,'gid':0,'mode':0o600,
+            'nlink':1,'size':len(self.raw),'atime_ns':1,'mtime_ns':2,'ctime_ns':3,'attrs':{},'flags':0}
+        self.paths = Mock(); self.paths.deadline = self.deadline
+        def absent(path):
+            if path in self.directories or path in self.files:raise io.Hold('OCCUPIED_NO_ADOPTION')
+        def directory(path):
+            absent(path);self.directories.add(path);return 99
+        def create(path,raw):
+            absent(path);self.files[path]=(raw,dict(self.meta));return dict(self.meta)
+        self.paths.absent.side_effect = absent;self.paths.create_directory.side_effect = directory
+        self.paths.create_file.side_effect = create;self.paths.read.side_effect = lambda path:self.files[path]
+        self.paths.get.side_effect = lambda path:99 if path in self.directories else self.fail('unbound synthetic path')
+
+    def make(self, entry=None, deadline=None):
+        return host.RecoveryHostEntry(self.paths,self.entry if entry is None else entry,
+            original_binding='a'*64,boot_id=self.entry['boot_id'],source_sha256='b'*64,
+            mac_snapshot_sha256='c'*64,ready_sha256='d'*64,
+            deadline=self.deadline if deadline is None else deadline)
+
+    def wire(self):
+        wire=Mock();wire.deadline=self.deadline
+        wire.receive.return_value={'type':'recovery_entry_confirmed','original_binding':'a'*64,
+                                   'entry_sha256':io.sha(self.raw)}
+        return wire
+
+    def test_fixed_additive_entry_and_one_confirm_without_original_effects(self):
+        entry=self.make();wire=self.wire();entry.confirm(wire)
+        self.assertEqual(self.directories,{self.root,*[self.root+'/'+n for n in ('intents','acknowledgments','reports')]})
+        self.assertEqual(set(self.files),{self.root+'/reports/entry.json'})
+        self.assertTrue(entry.confirmed);self.assertTrue(entry.confirm_attempted)
+        wire.send.assert_called_once_with({'type':'recovery_entry_created','original_binding':'a'*64,
+                                           'entry_sha256':io.sha(self.raw)})
+        self.assertFalse(hasattr(entry,'approval_bound'))
+        with self.assertRaises(io.Hold):entry.confirm(wire)
+        self.assertEqual(wire.send.call_count,1)
+
+    def test_mismatched_entry_and_invalid_timer_do_not_create(self):
+        with self.assertRaises(io.Hold):self.make({**self.entry,'original_binding':'f'*64})
+        for deadline in (time.monotonic()-1,time.monotonic()+601,float('inf'),float('nan'),True):
+            self.paths.deadline=deadline
+            with self.subTest(deadline=deadline),self.assertRaises(io.Hold):self.make(deadline=deadline)
+        self.paths.create_directory.assert_not_called();self.paths.create_file.assert_not_called()
+
+    def test_partial_creation_spends_fixed_root_no_repair_or_second_entry(self):
+        original=self.paths.create_directory.side_effect
+        def fail(path):
+            if path.endswith('/intents'):raise OSError('synthetic interrupted creation')
+            return original(path)
+        self.paths.create_directory.side_effect=fail
+        with self.assertRaises(OSError):self.make()
+        self.assertEqual(self.directories,{self.root})
+        self.paths.create_directory.side_effect=original
+        with self.assertRaises(io.Hold):self.make()
+        self.assertEqual(self.directories,{self.root});self.assertEqual(self.files,{})
+
+    def test_missing_entry_after_write_failure_never_adopts_partial_directories(self):
+        self.paths.create_file.side_effect=OSError('synthetic lost write')
+        with self.assertRaises(OSError):self.make()
+        with self.assertRaises(io.Hold):self.make()
+        self.assertEqual(self.paths.create_file.call_count,1)
+
+    def test_lost_or_wrong_ack_does_not_retry_or_become_confirmed(self):
+        entry=self.make();wire=self.wire();wire.receive.return_value={'type':'recovery_entry_confirmed'}
+        with self.assertRaisesRegex(io.Hold,'MAC_ACK_UNKNOWN'):entry.confirm(wire)
+        self.assertFalse(entry.confirmed)
+        with self.assertRaises(io.Hold):entry.confirm(wire)
+        self.assertEqual(wire.send.call_count,1);self.assertIn(self.root+'/reports/entry.json',self.files)
+
+    def test_changed_marker_or_metadata_denies_before_confirmation(self):
+        entry=self.make();wire=self.wire();name=self.root+'/reports/entry.json'
+        self.files[name]=(self.raw,{**self.meta,'inode':3})
+        with self.assertRaisesRegex(io.Hold,'ENTRY_CHANGED'):entry.confirm(wire)
+        wire.send.assert_not_called();self.assertFalse(entry.confirmed)
+
+    def test_transport_cannot_replace_entry_deadline(self):
+        entry=self.make();wire=self.wire();wire.deadline+=1
+        with self.assertRaises(io.Hold):entry.confirm(wire)
+        wire.send.assert_not_called()
 
 
 class RecoveryAdmissionChannelTests(unittest.TestCase):
@@ -1071,6 +1181,10 @@ class RecoveryMacCustodyTests(unittest.TestCase):
                  'entry_sha256': io.sha(custody.entry_raw), 'mac_snapshot_sha256': custody.manifest['snapshot_sha256']}
         state = {'phase': 'F4'}; failure = {'original_status': 'FAILED_HOLD'}
         seed = self.seed(custody, state, failure)
+        with self.assertRaises(io.Hold):c.extension_message(check)
+        self.assertTrue(c.extension_message({'type':'recovery_entry_created',
+            'original_binding':custody.original_binding,'entry_sha256':io.sha(custody.entry_raw)}))
+        self.assertTrue(c.host_entry_confirmed)
         self.assertTrue(c.extension_message(check))
         self.assertTrue(c.extension_message({'type': 'recovery_prepared', 'seed': seed,
                                            'fresh_state': state, 'original_failure': failure}))
