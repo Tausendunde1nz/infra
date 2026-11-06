@@ -15,6 +15,60 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_native_job_component_never_grants_recent_start_permission(self):
+        from types import SimpleNamespace
+        from tests import public_operator_native as native
+        for fault in ('none','shortened_interval','false_permission'):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder); app=root/'app'; app.mkdir()
+                provider=root/'libsystemd-shared-fixture.so'; provider.write_bytes(b'SYNTHETIC')
+                events=[]; foreign=False
+                rows={u:dict(ActiveState='active',NRestarts='0',Job='',MainPID='42',InvocationID='same')
+                      for u in native.UNITS}
+                class Watch:
+                    def __init__(self,reader):
+                        self.reader=reader; reader.watch=self; self.closed=False; self.slots={'synthetic':1}
+                        self.events=0; self.failure=False
+                        self.limits={u:dict(StartLimitIntervalUSec=10_000_000 if fault=='shortened_interval'
+                                          else 900_000_000,StartLimitBurst=3) for u in native.UNITS}
+                    def remaining(self,unit):
+                        if self.failure:raise native.io.Hold('PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED')
+                        return 899.0
+                    def retire_for_start(self,unit):
+                        events.append('start_permission_checked')
+                        if fault!='false_permission':raise native.io.Hold('PUBLIC_OPERATOR_START_LIMIT_WINDOW_NOT_ELAPSED')
+                    def retire_already_active(self,unit):events.append('active_observer_retired')
+                    def drain(self):
+                        if foreign:
+                            self.failure=True;self.events+=1
+                            raise native.io.Hold('PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED')
+                class Reader:
+                    def __init__(self,*args):self.bus=True;self.watch=None
+                    def close(self):
+                        self.bus=None
+                        if self.watch:self.watch.closed=True;self.watch.slots.clear()
+                def run(*args,**kwargs):
+                    nonlocal foreign
+                    if args[1]=='show':return b'3\n'
+                    self.assertEqual(args[:3],('/usr/bin/systemctl','--job-mode=fail','start'))
+                    events.append('start_job_'+str(native.UNITS.index(args[3])))
+                    if args[3]==native.UNITS[1]:foreign=True
+                    return b''
+                modules={'replacement':SimpleNamespace(ReadOnlyBus=Reader,StartLimitObservation=Watch),
+                         'observe':SimpleNamespace(unit_rows=lambda *args:rows),'io':native.io}
+                with patch.object(native,'ROOT',root),patch.object(native,'APP',app), \
+                     patch.object(native,'assert_guest_isolation'),patch.object(native,'run',side_effect=run), \
+                     patch.object(native,'operator_dependency_names',return_value=[str(provider)]):
+                    if fault=='none':
+                        native.actual_start_limit_job_observation(SimpleNamespace(load=modules.__getitem__))
+                        self.assertEqual(events,['start_permission_checked','active_observer_retired',
+                                                 'start_job_0','start_job_1'])
+                    else:
+                        with self.assertRaises(AssertionError):
+                            native.actual_start_limit_job_observation(SimpleNamespace(load=modules.__getitem__))
+                        self.assertNotIn('active_observer_retired',events)
+                        self.assertFalse(any(e.startswith('start_job_') for e in events))
+
     def test_fresh_guest_still_rejects_either_existing_fixture_root(self):
         from tests import public_operator_native as native
         for existing in ('neither', 'root', 'app_parent'):

@@ -860,18 +860,20 @@ def actual_start_limit_job_observation(s):
         assert all(v['ActiveState']=='active' and v['NRestarts']=='0' and not v['Job'] for v in before.values())
         reader=replacement.ReadOnlyBus(fd,end)
         watch=replacement.StartLimitObservation(reader)
-        # Compare typed native GetAll scalars to the existing CLI's actual
-        # numeric output, then observe the whole unchanged finite interval.
+        # These copied units retain their real 900-second interval. This
+        # component checks job observation on already active fixture services;
+        # the separate mainserver_startlimit_native test proves aged admission.
         for unit in UNITS:
             burst=run('/usr/bin/systemctl','show',unit,'--property=StartLimitBurst','--value').decode().strip()
             assert burst.isdecimal() and int(burst)==watch.limits[unit]['StartLimitBurst']
-            assert 0 < watch.limits[unit]['StartLimitIntervalUSec'] <= 15_000_000
+            assert watch.limits[unit]['StartLimitIntervalUSec'] == 900_000_000
             assert watch.limits[unit]['StartLimitBurst'] > 0
         assert watch.remaining(UNITS[0]) > 0
-        while watch.remaining(UNITS[0]) > 0:
-            assert time.monotonic() < end-10
-            time.sleep(.02)
-        watch.retire_for_start(UNITS[0])
+        try:watch.retire_for_start(UNITS[0])
+        except s.load('io').Hold as error:
+            assert error.primary=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_WINDOW_NOT_ELAPSED'
+        else:raise AssertionError('NATIVE_RECENT_START_LIMIT_FALSE_PERMISSION')
+        watch.retire_already_active(UNITS[0])  # no new start permission
         run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[0])
         watch.drain()  # retired own unit's real job must no longer match
         run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[1])
