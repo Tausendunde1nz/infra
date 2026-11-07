@@ -110,7 +110,8 @@ READ_COST_LABELS = frozenset({'authority_check', 'authority_check_files', 'autho
               'owner_check_all', 'owner_apply', 'owner_finish', 'owner_admission', 'owner_close',
               'owner__backup_restore', 'object_fence_check', 'object_fence_writer_check', 'object_fence_close',
               'guard_owner_transition', 'guard_observe_fd', 'authority_policy_owner', 'authority_manager_jobs_clear',
-              'command_policy_owner', 'command_jobs', 'command_systemctl', 'command_other'})
+              'command_policy_owner', 'command_jobs', 'command_systemctl', 'command_other',
+              'reader_show_units', 'reader_properties', 'reader_exec_properties'})
 
 
 def safe_read_cost(value):

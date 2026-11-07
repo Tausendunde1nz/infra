@@ -62,7 +62,8 @@ class PublicOperatorCI(unittest.TestCase):
             'fs': N(Paths=methods(('check',))), 'io': N(LinkedRecords=methods(('record',)), measured_http=unchanged),
             'owner': N(Supervisor=methods(('check_all','_backup_restore','__init__','apply','finish','close')),
                        ObjectFence=methods(('check','writer_check','close'))),
-            'guard': N(owner_transition=unchanged, observe_fd=unchanged)}
+            'guard': N(owner_transition=unchanged, observe_fd=unchanged),
+            'replacement': N(ReadOnlyBus=methods(('show_units','properties','exec_properties')))}
         ns = {'s': N(load=lambda role: modules[role])}
         exec(native.READ_COST_WRAPPER, ns)
         ticks = [0]; calls = []; token = object(); error = RuntimeError('SYNTHETIC_ONLY')

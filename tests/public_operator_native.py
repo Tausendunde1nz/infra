@@ -192,6 +192,9 @@ def _command_cost(argv,*args,**kwargs):
         "command_systemctl" if argv[0]=="/usr/bin/systemctl" else "command_other")
  return _cost(label,_command_actual)(argv,*args,**kwargs)
 _observer.command=_command_cost
+_reader=s.load("replacement").ReadOnlyBus
+for _name in ("show_units","properties","exec_properties"):
+ setattr(_reader,_name,_cost("reader_"+_name,getattr(_reader,_name)))
 for _name in ("check","check_files","units_check","actors_check","policy_owner","manager_jobs_clear"):
  setattr(_observer.Authority,_name,_cost("authority_"+_name,getattr(_observer.Authority,_name)))
 for _name in ("process","writer_check"):
@@ -948,6 +951,43 @@ def actual_start_limit_job_observation(s):
         os.close(fd)
 
 
+def actual_unit_read_parity(s):
+    """Actual v255 CLI/direct-bus equivalence on the isolated fixture only.
+
+    Read all three Unit+Service profiles, all four allowed dependency objects,
+    and the original typed hook arrays. No substitution in production reads.
+    This component precedes the unchanged transaction/Owner clock.
+    """
+    assert_guest_isolation()
+    replacement=s.load('replacement');observer=s.load('observe')
+    providers={str(Path(p).resolve(strict=True)) for p in operator_dependency_names(s)
+               if Path(p).name==replacement.BUS_PROVIDER}
+    assert len(providers)==1
+    fd=os.open(next(iter(providers)),os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    reader=None
+    try:
+        end=time.monotonic()+40;reader=replacement.ReadOnlyBus(fd,end)
+        for units,keys in ((UNITS,observer.PROPERTIES),
+            (('system.slice','sysinit.target','network-online.target','tmp.mount'),
+             'LoadState,StopWhenUnneeded,ActiveState,Job')):
+            before=observer.unit_properties(units,keys,end)
+            actual=observer.unit_properties(units,keys,end,reader=reader)
+            after=observer.unit_properties(units,keys,end)
+            assert before==actual==after,'NATIVE_UNIT_READ_PARITY'
+        # Real provider formatters, including cases absent from this live
+        # fixture's values. Expected output follows the bound v255 printer.
+        for value,expected in ((0,'0'),(1,'1us'),(1_000_001,'1.000001s'),
+                               (90_000_000,'1min 30s'),(2**64-1,'infinity')):
+            assert reader.show_value('TimeoutStopUSec',{'type':'t','data':value})==expected
+        for value,expected in (([],''),(['a','b'],'a b'),(['a b'],'"a b"'),
+                               (['a"b'],'"a\\"b"')):
+            assert reader.show_value('Names',{'type':'as','data':value})==expected
+        reader.close();assert not reader.bus
+    finally:
+        if reader is not None:reader.close()
+        os.close(fd)
+
+
 def actual_loader_alias_fence(s):
     """Own synthetic library names only; no systemd ancestor/reload experiment."""
     replacement=s.load('replacement');entry=s.load('entry');fs=s.load('fs')
@@ -1068,7 +1108,9 @@ def main():
     actual_read_census_fence(s)
     actual_loader_configuration_fence(s)
     actual_policy_owner_epoch(s)
-    if args.scenario=='r5_success':actual_start_limit_job_observation(s)
+    if args.scenario=='r5_success':
+        actual_unit_read_parity(s)
+        actual_start_limit_job_observation(s)
     if args.scenario == 'thread_authority':
         # Exact profile first, then a real per-task fsuid change. A worker
         # retains root filesystem authority while the leader no longer does.

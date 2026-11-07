@@ -100,8 +100,10 @@ def typed_exec_properties(raw, wanted):
     return result
 
 
-def unit_exec_properties(unit, deadline):
+def unit_exec_properties(unit, deadline, *, reader=None):
     io.require(unit in UNITS,'UNIT_EXEC_PROPERTY_SCOPE')
+    if reader is not None:
+        return typed_exec_properties(io.canonical(reader.exec_properties(unit,deadline)),EXEC_PROPERTIES)
     path='/org/freedesktop/systemd1/unit/'+''.join(
         c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
     row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
@@ -111,7 +113,7 @@ def unit_exec_properties(unit, deadline):
     return typed_exec_properties(row.stdout,EXEC_PROPERTIES)
 
 
-def unit_properties(units, properties, deadline):
+def unit_properties(units, properties, deadline, *, reader=None):
     """One fresh bounded manager read, never a cache across checks/actions.
 
     Keep every requested object/property, reject duplicates/missing/foreign
@@ -127,11 +129,17 @@ def unit_properties(units, properties, deadline):
     exec_keys=keys & EXEC_PROPERTIES
     plain_keys=keys-EXEC_PROPERTIES
     io.require(not exec_keys or set(units)<=set(UNITS),'UNIT_EXEC_PROPERTY_SCOPE')
-    r = command(['/usr/bin/systemctl', 'show', *units, '--no-pager',
-                 '--property='+','.join(sorted(plain_keys))], deadline)
-    io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
+    if reader is None:
+        r = command(['/usr/bin/systemctl', 'show', *units, '--no-pager',
+                     '--property='+','.join(sorted(plain_keys))], deadline)
+        io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
+        raw = r.stdout
+    else:
+        # Same field/block validator below. No cache or fallback to another
+        # transport after an uncertain read; each batch is freshly measured.
+        raw = reader.show_units(units,plain_keys,deadline)
     result = {}
-    for block in r.stdout.decode().strip().split('\n\n'):
+    for block in raw.decode().strip().split('\n\n'):
         value = {}
         for line in block.splitlines():
             io.require('=' in line, 'UNIT_PROFILE_UNKNOWN')
@@ -144,17 +152,18 @@ def unit_properties(units, properties, deadline):
         result[identity] = value
     io.require(set(result) == set(units), 'UNIT_PROFILE_UNKNOWN')
     for unit in units if exec_keys else ():
-        observed=unit_exec_properties(unit,deadline)
+        observed=unit_exec_properties(unit,deadline,reader=reader)
         result[unit].update({k:observed[k] for k in exec_keys})
         io.require(set(result[unit])==keys,'UNIT_PROFILE_UNKNOWN')
     return result
 
 
-def unit_rows(units, deadline):
+def unit_rows(units, deadline, *, reader=None):
     # Legacy/actor reads do not make a no-hook admission decision. R5's
     # actual extra_unit_contract reads the five typed arrays once per fresh
     # unit protection check, not again in each unrelated actor census.
-    result = unit_properties(units, ','.join(p for p in PROPERTIES.split(',') if p not in EXEC_PROPERTIES), deadline)
+    result = unit_properties(units, ','.join(p for p in PROPERTIES.split(',') if p not in EXEC_PROPERTIES), deadline,
+                             reader=reader)
     for value in result.values():
         io.require(value['LoadState'] == 'loaded', 'UNIT_PROFILE_UNKNOWN')
         io.require(re.fullmatch('0|[1-9][0-9]{0,9}', value['NRestarts']) and
@@ -549,7 +558,7 @@ class Authority:
 
     def initial_current_admission(self):
         io.require(self.unit_search() == self.b['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
-        self.initial_units = unit_rows(UNITS, self.deadline)
+        self.initial_units = self.read_unit_rows(UNITS)
         self.check(stop_only=True)
 
     def baseline_schemas(self):
@@ -824,12 +833,18 @@ class Authority:
                        'NUMERIC_NSS_SUBJECT_BINDING_UNKNOWN')
         self.paths.check()  # no successful return with queued loss/swap/drift
 
+    def observation_reader(self):
+        return None  # R5 alone supplies its already authenticated provider.
+
+    def read_unit_rows(self, units):
+        return unit_rows(units,self.deadline,reader=self.observation_reader())
+
     def unit(self, unit):
         io.require(unit in UNITS, 'UNIT_SCOPE')
-        return unit_rows((unit,), self.deadline)[unit]
+        return self.read_unit_rows((unit,))[unit]
 
     def units_check(self, *, stop_only):
-        rows = unit_rows(UNITS, self.deadline)
+        rows = self.read_unit_rows(UNITS)
         # Gather only the same four permitted dependencies, freshly measured
         # in this check. No dependency is inferred healthy from the baseline.
         dependency_names = set()
@@ -837,7 +852,8 @@ class Authority:
             dependency_names.update(set(value['Requires'].split()) & {'system.slice', 'sysinit.target'})
             dependency_names.update(set(value['Wants'].split()) & {'network-online.target', 'tmp.mount'})
         dependencies = (unit_properties(sorted(dependency_names),
-            'LoadState,StopWhenUnneeded,ActiveState,Job', self.deadline) if dependency_names else {})
+            'LoadState,StopWhenUnneeded,ActiveState,Job', self.deadline,
+            reader=self.observation_reader()) if dependency_names else {})
         for unit in UNITS:
             value = rows[unit]
             self.extra_unit_contract(unit, value, stop_only=stop_only)
@@ -953,7 +969,7 @@ class Authority:
         # query repeated all three manager reads for every unrelated PID. No
         # observation is reused across censuses or a Host action.
         right_pids = {}; right_seen = set()
-        right_rows = unit_rows(sorted(self.rights), self.deadline) if self.rights else {}
+        right_rows = self.read_unit_rows(sorted(self.rights)) if self.rights else {}
         for unit in self.rights:
             value = right_rows[unit]; expected = self.runtime_invocations[unit]
             io.require(value['ActiveState'] == 'active' and not value['Job'] and
@@ -1592,7 +1608,7 @@ class CurrentAuthority(Authority):
         authority_uids, authority_gids = self.relevant_identities()
         target_ids = set(self.targets.values()) if stop_only else set()
         right_pids = {}; right_seen = set()
-        right_rows = unit_rows(sorted(self.rights), self.deadline) if self.rights else {}
+        right_rows = self.read_unit_rows(sorted(self.rights)) if self.rights else {}
         for unit in self.rights:
             value = right_rows[unit]; expected = self.runtime_invocations[unit]
             io.require(value['ActiveState'] == 'active' and not value['Job'] and value['NRestarts'] == '0' and

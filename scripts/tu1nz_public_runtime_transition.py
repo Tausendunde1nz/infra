@@ -27,7 +27,7 @@ import tu1nz_public_operator_context as context
 import tu1nz_public_runtime_artifact as artifact
 from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ, EXCLUDED
 from tu1nz_public_operator_observe import (Authority, CurrentAuthority, UNITS, ENV, process, command,
-    typed_exec_properties, EXEC_PROPERTIES, operator_session_start, operator_session_members,
+    typed_exec_properties, EXEC_PROPERTIES, PROPERTIES, operator_session_start, operator_session_members,
     unit_rows, LEGACY_CONTEXTS_SHA)
 from tu1nz_public_operator_host import Adapter, STAGING, LIGHTING, HELPER, DROPIN, ASSET_NAMES
 from tu1nz_public_operator_fs import security, OWNED_FILE_FIELDS, Backup
@@ -134,6 +134,15 @@ class ReadOnlyBus:
     """
     KEYS={**{k:'a(sasbttttuii)' for k in EXEC_PROPERTIES},
           'Environment':'as','PassEnvironment':'as','UnsetEnvironment':'as','EnvironmentFiles':'a(sb)'}
+    OBSERVATION_UNITS=frozenset((*UNITS,'system.slice','sysinit.target','network-online.target','tmp.mount'))
+    EXEC_KEYS={k:'a(sasbttttuii)' for k in EXEC_PROPERTIES}
+    SHOW_KEYS={**{k:'s' for k in PROPERTIES.split(',') if k not in EXEC_PROPERTIES},
+        **{k:'as' for k in ('Names','DropInPaths','Requires','BindsTo','PartOf','RequiredBy','BoundBy',
+            'ConsistsOf','PropagatesStopTo','StopPropagatedFrom','Triggers','TriggeredBy','OnFailure',
+            'SupplementaryGroups','OnSuccess','Wants')},
+        **{k:'b' for k in ('NeedDaemonReload','NoNewPrivileges','RefuseManualStop','RefuseManualStart','StopWhenUnneeded')},
+        **{k:'u' for k in ('MainPID','ControlPID','NRestarts')},
+        'Job':'(uo)','InvocationID':'ay','TimeoutStopUSec':'t'}
 
     def __init__(self,fd,deadline):
         self.deadline=deadline;self.bus=ctypes.c_void_p();self.broken=False;self.pid=os.getpid()
@@ -159,6 +168,10 @@ class ReadOnlyBus:
             'sd_bus_message_read_basic':([P,ctypes.c_char,P],I)}
         signatures['sd_bus_message_skip']=([P,S],I)
         signatures['bus_message_get_blob']=([P,ctypes.POINTER(P),ctypes.POINTER(ctypes.c_size_t)],I)
+        # The SAME authenticated v255 provider used by systemctl's printer.
+        # No Python approximation of timespans/quoting, no new library lookup.
+        signatures['format_timespan']=([P,ctypes.c_size_t,U,U],S)
+        signatures['shell_maybe_quote']=([S,I],P)
         for name,(args,result) in signatures.items():
             function=getattr(self.lib,name);function.argtypes=args;function.restype=result
         self.libc=ctypes.CDLL(None,use_errno=True)
@@ -248,7 +261,11 @@ class ReadOnlyBus:
         return {k: v['data'] for k, v in body['data'][0].items()}
 
     def properties(self,unit,interface,keys):
-        io.require((interface=='org.freedesktop.systemd1.Service' and keys==self.KEYS) or
+        observation=(interface=='' and 'Id' in keys and keys and
+                     all(k in self.SHOW_KEYS and self.SHOW_KEYS[k]==v for k,v in keys.items()))
+        exec_observation=interface=='org.freedesktop.systemd1.Service' and keys==self.EXEC_KEYS
+        io.require(observation or exec_observation or
+                   (interface=='org.freedesktop.systemd1.Service' and keys==self.KEYS) or
                    (interface=='org.freedesktop.systemd1.Unit' and keys in (self.LIMIT_KEYS,self.LIMIT_STATE_KEYS)),
                    'REPLACEMENT_READER_SCOPE')
         # Preserve the original ONE GetAll manager dispatch, not nine
@@ -257,7 +274,12 @@ class ReadOnlyBus:
         message=ctypes.c_void_p();reply=ctypes.c_void_p();L=self.lib
         def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
         try:
-            self.check();path=self.unit_path(unit)
+            self.check()
+            if observation:
+                io.require(unit in self.OBSERVATION_UNITS,'REPLACEMENT_READER_SCOPE')
+                path='/org/freedesktop/systemd1/unit/'+''.join(
+                    c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
+            else:path=self.unit_path(unit)
             ok(L.sd_bus_message_new_method_call(self.bus,ctypes.byref(message),b'org.freedesktop.systemd1',
                 path.encode(),b'org.freedesktop.DBus.Properties',b'GetAll'))
             ok(L.sd_bus_message_set_auto_start(message,0))
@@ -274,7 +296,7 @@ class ReadOnlyBus:
                 io.require(blob and 0<size.value<=65536,'REPLACEMENT_READER_OUTPUT_BOUND')
             finally:
                 if blob:self.libc.free(blob)
-            values=self.selected_values(reply,keys=keys)
+            values=self.selected_values(reply,keys=keys,observation=observation or exec_observation)
             io.require(ok(L.sd_bus_message_at_end(reply,1))==1,'REPLACEMENT_READER_EXTRA_VALUE')
             body={'type':'a{sv}','data':[values]}
             io.require(len(io.canonical(body))<=2*1024*1024 and set(keys)==set(values),
@@ -286,9 +308,11 @@ class ReadOnlyBus:
             if reply:L.sd_bus_message_unref(reply)
             if message:L.sd_bus_message_unref(message)
 
-    def selected_values(self,message,*,keys=None):
+    def selected_values(self,message,*,keys=None,observation=False):
         keys=self.KEYS if keys is None else keys
-        io.require(keys in (self.KEYS,self.LIMIT_KEYS,self.LIMIT_STATE_KEYS),'REPLACEMENT_READER_SCOPE')
+        io.require((not observation and keys in (self.KEYS,self.LIMIT_KEYS,self.LIMIT_STATE_KEYS)) or
+            (observation and (keys==self.EXEC_KEYS or 'Id' in keys and
+                all(k in self.SHOW_KEYS and self.SHOW_KEYS[k]==v for k,v in keys.items()))),'REPLACEMENT_READER_SCOPE')
         L=self.lib;result={};seen=set()
         def ok(value):io.require(value>=0,'REPLACEMENT_READER_REPLY_UNKNOWN');return value
         io.require(ok(L.sd_bus_message_enter_container(message,b'a',b'{sv}'))==1,'REPLACEMENT_READER_TYPE')
@@ -312,7 +336,9 @@ class ReadOnlyBus:
                 io.require(ok(L.sd_bus_message_enter_container(message,b'v',signature.encode()))==1,
                            'REPLACEMENT_READER_TYPE')
                 values=[];size=0
-                if signature in ('t','u'):
+                if observation:
+                    values=self.observed_value(message,signature)
+                elif signature in ('t','u'):
                     scalar=ctypes.c_uint64() if signature=='t' else ctypes.c_uint()
                     io.require(ok(L.sd_bus_message_read_basic(message,signature.encode(),ctypes.byref(scalar)))==1,
                                'REPLACEMENT_READER_TYPE')
@@ -320,11 +346,11 @@ class ReadOnlyBus:
                 else:
                     io.require(ok(L.sd_bus_message_enter_container(message,b'a',signature[1:].encode()))==1,
                                'REPLACEMENT_READER_TYPE')
-                if signature not in ('as','t','u'):
+                if not observation and signature not in ('as','t','u'):
                     io.require(ok(L.sd_bus_message_at_end(message,0))==1,
                         'REPLACEMENT_LEGACY_EXEC_HOOK_OR_ROOT' if key in EXEC_PROPERTIES else
                         'REPLACEMENT_UNIT_ENVIRONMENT_FILES_FORBIDDEN')
-                elif signature=='as':
+                elif not observation and signature=='as':
                     while not ok(L.sd_bus_message_at_end(message,0)):
                         self.check();value=ctypes.c_char_p()
                         io.require(ok(L.sd_bus_message_read_basic(message,b's',ctypes.byref(value)))==1 and
@@ -332,13 +358,106 @@ class ReadOnlyBus:
                         raw=value.value;size+=len(raw)
                         io.require(size<=2*1024*1024 and len(values)<32768,'REPLACEMENT_READER_OUTPUT_BOUND')
                         values.append(raw.decode())
-                if signature not in ('t','u'):ok(L.sd_bus_message_exit_container(message))
+                if not observation and signature not in ('t','u'):ok(L.sd_bus_message_exit_container(message))
                 io.require(ok(L.sd_bus_message_at_end(message,0))==1,'REPLACEMENT_READER_EXTRA_VALUE')
                 ok(L.sd_bus_message_exit_container(message))
                 result[key]={'type':signature,'data':values}
             io.require(ok(L.sd_bus_message_at_end(message,0))==1,'REPLACEMENT_READER_EXTRA_VALUE')
             ok(L.sd_bus_message_exit_container(message))
         ok(L.sd_bus_message_exit_container(message));return result
+
+    def observed_value(self,message,signature):
+        """Finite typed decoder; selected variants must be completely consumed.
+
+        sd-bus validates wire types/ranges. Nonempty exec arrays retain the
+        original typed hash semantics; they are never mistaken for absence.
+        """
+        self.check();L=self.lib
+        scalar={'s':ctypes.c_char_p,'o':ctypes.c_char_p,'u':ctypes.c_uint32,
+                't':ctypes.c_uint64,'i':ctypes.c_int32,'b':ctypes.c_int,'y':ctypes.c_ubyte}
+        if signature in scalar:
+            value=scalar[signature]()
+            io.require(L.sd_bus_message_read_basic(message,signature.encode(),ctypes.byref(value))==1,
+                       'REPLACEMENT_READER_TYPE')
+            if signature in ('s','o'):
+                io.require(value.value is not None and len(value.value)<=65536,'REPLACEMENT_READER_TYPE')
+                return value.value.decode()
+            if signature=='b':
+                io.require(value.value in (0,1),'REPLACEMENT_READER_TYPE');return bool(value.value)
+            return value.value
+        contents={'as':'s','ay':'y','(uo)':'uo','a(sasbttttuii)':'(sasbttttuii)',
+                  '(sasbttttuii)':'sasbttttuii'}
+        io.require(signature in contents,'REPLACEMENT_READER_SCOPE')
+        array=signature.startswith('a')
+        io.require(L.sd_bus_message_enter_container(message,b'a' if array else b'r',contents[signature].encode())==1,
+                   'REPLACEMENT_READER_TYPE')
+        values=[]
+        if array:
+            while True:
+                end=L.sd_bus_message_at_end(message,0)
+                io.require(end in (0,1),'REPLACEMENT_READER_REPLY_UNKNOWN')
+                if end:break
+                io.require(len(values)<32768,'REPLACEMENT_READER_OUTPUT_BOUND')
+                values.append(self.observed_value(message,contents[signature]))
+        else:
+            fields=('u','o') if signature=='(uo)' else ('s','as','b','t','t','t','t','u','i','i')
+            values=[self.observed_value(message,field) for field in fields]
+        io.require(L.sd_bus_message_at_end(message,0)==1 and L.sd_bus_message_exit_container(message)>=0,
+                   'REPLACEMENT_READER_EXTRA_VALUE')
+        return values
+
+    def show_value(self,key,item):
+        """v255 bus-print-properties.c / systemctl-show.c representation."""
+        signature=item['type'];value=item['data']
+        if signature=='s':return '[unprintable]' if '\n' in value else value
+        if signature=='b':return 'yes' if value else 'no'
+        if signature=='u':return str(value)
+        if signature=='(uo)':return str(value[0]) if value[0] else ''
+        if signature=='ay':return bytes(value).hex()
+        if signature=='t':
+            io.require(key=='TimeoutStopUSec','REPLACEMENT_READER_SCOPE')
+            buffer=ctypes.create_string_buffer(64)
+            result=self.lib.format_timespan(buffer,len(buffer),value,0)
+            io.require(result is not None,'REPLACEMENT_READER_FORMAT_UNKNOWN')
+            return result.decode()
+        io.require(signature=='as','REPLACEMENT_READER_SCOPE')
+        words=[]
+        for word in value:
+            pointer=self.lib.shell_maybe_quote(word.encode(),0)
+            io.require(pointer,'REPLACEMENT_READER_FORMAT_UNKNOWN')
+            try:words.append(ctypes.string_at(pointer).decode())
+            finally:self.libc.free(pointer)
+        return ' '.join(words)
+
+    @contextmanager
+    def observation_limit(self,deadline):
+        previous=self.deadline
+        # ONE twenty-second allowance for the entire former CLI batch.
+        self.deadline=min(previous,deadline,time.monotonic()+20)
+        try:
+            self.check();yield;self.check()
+        except BaseException:
+            self.broken=True;raise
+        finally:self.deadline=previous  # a latched failure never reconnects
+
+    def show_units(self,units,keys,deadline):
+        io.require(units and len(units)==len(set(units)) and set(units)<=self.OBSERVATION_UNITS and
+                   'Id' in keys and set(keys)<=set(self.SHOW_KEYS),'REPLACEMENT_READER_SCOPE')
+        with self.observation_limit(deadline):
+            blocks=[]
+            for unit in units:
+                # Empty interface matches systemctl's combined Unit+Service
+                # GetAll. Preserve one complete dispatch per requested object.
+                values=self.properties(unit,'',{k:self.SHOW_KEYS[k] for k in keys})['data'][0]
+                io.require(values['Id']['data']==unit,'UNIT_PROFILE_UNKNOWN')
+                blocks.append('\n'.join(k+'='+self.show_value(k,item) for k,item in values.items()))
+            raw=('\n\n'.join(blocks)+'\n').encode()
+            io.require(len(raw)<=2*1024*1024,'REPLACEMENT_READER_OUTPUT_BOUND')
+            return raw
+
+    def exec_properties(self,unit,deadline):
+        with self.observation_limit(deadline):
+            return self.properties(unit,'org.freedesktop.systemd1.Service',self.EXEC_KEYS)
 
     def environment(self):
         return {'Environment':self.get('/org/freedesktop/systemd1','org.freedesktop.systemd1.Manager','Environment','as')}
@@ -984,6 +1103,9 @@ class ReplacementAuthority(Authority):
             except BaseException:reader.close();raise
             self.reader=reader;return reader
         finally:os.close(fd)
+
+    def observation_reader(self):
+        return self.read_bus()
 
     def bind_operator_dependency(self,path):
         reference=self.b['source_release']['operator_dependencies']

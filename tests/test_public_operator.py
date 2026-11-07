@@ -541,7 +541,9 @@ except BaseException as error:
             with self.subTest(counter=counter), patch.object(observe, 'command',
                     side_effect=lambda argv,*a,**kw:bus if argv[0]=='/usr/bin/busctl' else reply):
                 with self.assertRaisesRegex(io.Hold, 'UNIT_RESTART_COUNTER_UNKNOWN'):
-                    observe.Authority.unit(SimpleNamespace(deadline=time.monotonic()+1), observe.UNITS[0])
+                    authority=observe.Authority.__new__(observe.Authority)
+                    authority.deadline=time.monotonic()+1
+                    authority.unit(observe.UNITS[0])
 
     def test_only_typed_present_empty_exec_arrays_mean_no_hook(self):
         # Parser-only samples. Real manager/D-Bus reads are mandatory native.
