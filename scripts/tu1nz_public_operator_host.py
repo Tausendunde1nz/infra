@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 import stat
 import signal
 import ctypes
+import math
 import time
 
 import tu1nz_public_operator_io as io
@@ -32,7 +33,8 @@ class Adapter:
         self.channel, self.binding, self.deadline = channel, binding, deadline
         io.require(io.sha(plan_raw) == self.r.OWNER_PLAN, 'ORIGINAL_OWNER_PLAN_REQUIRED')
         self.plan_raw = plan_raw
-        self.p = Paths(source.load('entry'), deadline=deadline)
+        self.p = Paths.__new__(Paths)
+        self.p.__init__(source.load('entry'), deadline=deadline)
         self.a = self.authority_type.__new__(self.authority_type)
         self.a.__init__(baseline, self.p, channel, machine=self.r.MACHINE, deadline=deadline)
         self.initialize_operation_state()
@@ -894,6 +896,131 @@ class MaintenanceSessionResult:
                   'source_fault':self.location, 'slot_consumed':False}
         self.wire.send(result)
         return result
+
+
+def maintenance_session_setup(source, packet, wire, *, route):
+    """Finite envelope/clock setup; not the outstanding V1–V6 live admission.
+
+    These entry functions are intentionally not selected by legacy session()
+    or bootstrap. The complete Rev4 entry still needs current coverage/input
+    admission and native full-route proofs before production selection.
+    """
+    io.require(packet.get('route') == route and os.geteuid() == 0, 'MAINTENANCE_SESSION_ROUTE_OR_UID')
+    remaining = io.maintenance_remote_deadline(packet, wire)
+    bound = io.maintenance_packet_binding(packet, source, remaining_seconds=remaining)
+    parent = os.getppid(); libc = ctypes.CDLL(None, use_errno=True)
+    io.require(libc.prctl(1, signal.SIGTERM, 0, 0, 0) == 0 and os.getppid() == parent,
+               'COORDINATOR_PARENT_BINDING')
+    def interrupted(_number, _frame):raise KeyboardInterrupt()
+    for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):signal.signal(number, interrupted)
+    return bound
+
+
+def maintenance_session(source, packet, wire):
+    """Original Rev4 Host sequence; no fallback to legacy Flow or Recovery.
+
+    All entry/coverage/native gates must be supplied by the complete admitted
+    dispatcher before this currently unselected sequence can be published.
+    Actual adapter observations remain mandatory; packet facts cannot replace
+    them. The original Flow alone owns its fixed original claim and ordering.
+    """
+    r = source.load('r3'); state = MaintenanceSessionResult(wire, r, route='original')
+    try:
+        bound = maintenance_session_setup(source, packet, wire, route='original')
+        source.load('artifact'); replacement = source.load('replacement')
+        channel = state.channel = io.MaintenanceLinkedRecords(wire, packet['binding'],
+            original_binding=packet['binding'], boot_id=packet['baseline']['boot_id'])
+        channel.approval_bound = True
+        adapter = state.adapter = replacement.MaintenanceAdapter.__new__(replacement.MaintenanceAdapter)
+        adapter.__init__(source, packet['baseline'], bound['plan'], channel, packet['binding'],
+            deadline=wire.deadline, maintenance_inputs=bound['inputs'],
+            after_ready_seconds=bound['timing']['after_ready_seconds'])
+        # Read-only adapter admission may consume time. Recheck the SAME
+        # current packet/lifetime before creating local original custody.
+        io.maintenance_packet_binding(packet, source,
+            remaining_seconds=max(1, math.ceil(wire.deadline-time.monotonic())))
+        io.require(time.monotonic() < wire.deadline, 'MAINTENANCE_ADMISSION_EXPIRED')
+        wire.send({'type':'prepared', 'binding':packet['binding']})
+        io.require(wire.receive() == {'type':'client_custody_created', 'binding':packet['binding']},
+                   'FIXED_CLIENT_CUSTODY_NOT_CREATED')
+        state.chain_started = True
+        channel.record('prestate_read_witness', adapter.read_witness)
+        flow = r.MaintenanceFlow(adapter, RemoteJournal(channel, packet['binding']))
+        try:
+            flow.forward(); state.completed(flow)
+        except BaseException as error:
+            state.failure(error); state.owner_return_or_hold()
+        channel.record('operator_pending_cleanup', {'status':state.status, 'primary':state.primary,
+            'abort':list(state.abort), 'cleanup':list(state.cleanup), 'client_cleanup_still_required':True})
+    except BaseException as error:state.failure(error)
+    finally:result = state.close()
+    return result
+
+
+def recovery_session(source, packet, wire):
+    """Sole F1–F4 Host sequence, with actual entry and fresh admission.
+
+    Does not call original Adapter.__init__, original pre_stop, Flow.forward,
+    runtime transfer or original Journal.claim. No original evidence is written.
+    This is not yet connected to the production selector; see setup's limits.
+    """
+    r = source.load('r3'); state = MaintenanceSessionResult(wire, r, route='recovery-once')
+    try:
+        bound = maintenance_session_setup(source, packet, wire, route='recovery-once')
+        source.load('artifact'); replacement = source.load('replacement')
+        paths = state.paths = Paths.__new__(Paths)
+        paths.__init__(source.load('entry'), deadline=wire.deadline)
+        machine, _ = paths.read('/etc/machine-id')
+        io.require(io.sha(machine) == r.MACHINE and
+                   Path('/proc/sys/kernel/random/boot_id').read_text().strip() == packet['baseline']['boot_id'],
+                   'RECOVERY_ENTRY_ACTUAL_HOST_OR_BOOT_CHANGED')
+        entry = packet['recovery']['entry']; manifest = packet['recovery']['manifest']
+        host_entry = RecoveryHostEntry(paths, entry, original_binding=packet['binding'],
+            boot_id=packet['baseline']['boot_id'], source_sha256=bound['inputs']['source_sha256'],
+            mac_snapshot_sha256=manifest['snapshot_sha256'], ready_sha256=entry['ready_sha256'],
+            deadline=wire.deadline)
+        host_entry.confirm(wire)  # both entry markers spent BEFORE evidence/Authority/Flow
+        evidence = state.evidence = replacement.RecoveryOriginalEvidence.__new__(replacement.RecoveryOriginalEvidence)
+        evidence.__init__(paths, source, manifest, original_binding=packet['binding'],
+            maintenance_inputs=bound['inputs'], boot_id=packet['baseline']['boot_id'], deadline=wire.deadline)
+        admission = state.channel = io.RecoveryAdmissionChannel(wire, original_binding=packet['binding'],
+            entry_sha256=io.sha(io.canonical(entry)), mac_snapshot_sha256=manifest['snapshot_sha256'])
+        adapter = state.adapter = replacement.RecoveryAdapter.__new__(replacement.RecoveryAdapter)
+        adapter.__init__(source, packet['baseline'], bound['plan'], admission, evidence=evidence,
+            deadline=wire.deadline, terminal_prepare_seconds=bound['timing']['terminal_prepare_seconds'],
+            terminal_cleanup_seconds=bound['timing']['terminal_cleanup_seconds'])
+        io.maintenance_packet_binding(packet, source,
+            remaining_seconds=max(1, math.ceil(wire.deadline-time.monotonic())))
+        io.require(time.monotonic() < wire.deadline, 'RECOVERY_ADMISSION_EXPIRED')
+        host_entry.check(); evidence.check_original()
+        fresh = adapter.recovery_state_proof
+        seed = {'schema':'TU1NZ_MAIN_SERVER_REV4_RECOVERY_ONCE', 'transaction':r.TX, 'machine':r.MACHINE,
+            'boot_id':packet['baseline']['boot_id'], 'owner_plan_sha256':r.OWNER_PLAN,
+            'original_binding':packet['binding'], 'ready_sha256':io.sha(evidence.ready_raw),
+            'source_sha256':bound['inputs']['source_sha256'], 'artifact_sha256':evidence.ready['artifact_sha256'],
+            'original_status':'FAILED_HOLD', 'original_failure_sha256':io.sha(io.canonical(evidence.failure)),
+            'fresh_state_sha256':io.sha(io.canonical(fresh)),
+            **{k:evidence.pair[k] for k in ('mac_tail_sha256','host_tail_sha256','unconfirmed_mac_tail')}}
+        channel = io.RecoveryLinkedRecords(wire, seed)
+        wire.send({'type':'recovery_prepared','seed':seed,'fresh_state':fresh,'original_failure':evidence.failure})
+        io.require(wire.receive() == {'type':'recovery_custody_bound','binding':channel.binding},
+                   'RECOVERY_FRESH_CLIENT_CUSTODY_NOT_BOUND')
+        state.channel = channel  # own even a failed partial attach
+        channel.attach(paths.get(RecoveryHostEntry.ROOT+'/intents'))
+        state.chain_started = True; channel.approval_bound = True
+        channel.record('recovery_context', seed)
+        adapter.bind_execution(channel)
+        flow = r.RecoveryFlow(adapter, RecoveryRemoteJournal(channel))
+        try:
+            flow.recover(); state.completed(flow)
+        except BaseException as error:
+            state.failure(error); state.owner_return_or_hold()
+        channel.record('operator_pending_cleanup', {'status':state.status, 'primary':state.primary,
+            'abort':list(state.abort), 'cleanup':list(state.cleanup), 'original_status':'FAILED_HOLD',
+            'client_cleanup_still_required':True})
+    except BaseException as error:state.failure(error)
+    finally:result = state.close()
+    return result
 
 
 def session(source, packet, wire):
