@@ -1,14 +1,130 @@
 """Pure Rev4 deadline boundaries; no Host/native timing acceptance."""
 from pathlib import Path
 import copy
+import os
+import subprocess
 import sys
+import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 import tu1nz_public_operator as client
 import tu1nz_public_operator_io as io
+
+
+class MaintenanceTransportLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.source = SimpleNamespace(bytes={'io':b'SYNTHETIC_IO_NOT_EXECUTED'})
+        self.packet = {'route':'original', 'hashes':{'io':io.sha(self.source.bytes['io'])},
+                       'remaining_milliseconds':600000}
+        self.bound = {'documents':{'native_timing':{'transport_cleanup_reserve_milliseconds':10000}}}
+
+    def test_actual_owned_local_child_uses_preexisting_window_and_same_wire(self):
+        # Replace only the SSH endpoint by an actual inert LOCAL child. The
+        # program has no Host/DB/custody/claim/service path. No admission proof.
+        program = '''import sys,time
+sys.path.insert(0,sys.argv[1])
+import tu1nz_public_operator_io as io
+assert sys.stdin.buffer.readline()==b'SYNTHETIC_NOT_A_CREDENTIAL\\n'
+w=io.Wire(0,1,deadline=time.monotonic()+10)
+w.send({'type':'ready','io_sha256':sys.argv[2]})
+p=w.receive();assert p['route']=='original' and 0<p['remaining_milliseconds']<590000
+w.send({'type':'inert_local_packet_received'})
+'''
+        real_popen = subprocess.Popen; children = []
+        def local_child(argv, **kwargs):
+            self.assertEqual(argv, client.ssh_argv(argv[-1]))
+            self.assertNotIn('SYNTHETIC_NOT_A_CREDENTIAL', repr(argv))
+            child = real_popen([sys.executable,'-I','-S','-B','-c',program,
+                str(Path(client.__file__).parent),self.packet['hashes']['io']], **kwargs)
+            children.append(child); return child
+        transport = client.MaintenanceTransport(reserve_milliseconds=10000)
+        try:
+            with patch.object(client.io,'maintenance_packet_binding',return_value=self.bound) as validation, \
+                 patch.object(client.subprocess,'Popen',side_effect=local_child):
+                wire,sent = transport.connect(self.packet,self.source,b'SYNTHETIC_NOT_A_CREDENTIAL')
+                self.assertEqual(wire.receive(),{'type':'inert_local_packet_received'})
+                self.assertEqual(wire.deadline,transport.started+590)
+                self.assertEqual(transport.deadline,transport.started+600)
+                self.assertEqual(validation.call_count,2)
+                self.assertLess(sent['remaining_milliseconds'],590000)
+                with self.assertRaisesRegex(io.Hold,'NO_RECONNECT'):
+                    transport.connect(self.packet,self.source,b'never sent')
+            self.assertEqual(transport.close(),[])
+            self.assertEqual(len(children),1)
+            self.assertEqual(children[0].returncode,0)
+            self.assertTrue(children[0].stdin.closed and children[0].stdout.closed)
+            with self.assertRaisesRegex(io.Hold,'CLOSE_ONCE'):transport.close()
+        finally:
+            if not transport.closed:transport.close()
+            for child in children:
+                if child.poll() is None:child.kill();child.wait(timeout=5)
+
+    def test_invalid_reserve_or_material_cannot_dispatch_or_reconnect(self):
+        for reserve in (True,0,-1,120000,float('nan')):
+            with self.subTest(reserve=reserve), self.assertRaises(io.Hold):
+                client.MaintenanceTransport(reserve_milliseconds=reserve)
+        transport=client.MaintenanceTransport(reserve_milliseconds=10000)
+        with patch.object(client.io,'maintenance_packet_binding',side_effect=io.Hold('SYNTHETIC_DENIAL')), \
+             patch.object(client.subprocess,'Popen') as spawn:
+            with self.assertRaises(io.Hold):transport.connect(self.packet,self.source,b'public synthetic')
+            with self.assertRaisesRegex(io.Hold,'NO_RECONNECT'):
+                transport.connect(self.packet,self.source,b'public synthetic')
+            spawn.assert_not_called()
+        self.assertEqual(transport.close(),[])
+
+    def test_forged_reserve_or_missing_recovery_custody_cannot_dispatch(self):
+        for changed in ('reserve','recovery'):
+            transport=client.MaintenanceTransport(reserve_milliseconds=10000)
+            bound=copy.deepcopy(self.bound);packet=copy.deepcopy(self.packet)
+            if changed=='reserve':bound['documents']['native_timing']['transport_cleanup_reserve_milliseconds']=1
+            else:packet['route']='recovery-once'
+            with patch.object(client.io,'maintenance_packet_binding',return_value=bound), \
+                 patch.object(client.subprocess,'Popen') as spawn:
+                with self.subTest(changed=changed),self.assertRaises(io.Hold):
+                    transport.connect(packet,self.source,b'public synthetic')
+                spawn.assert_not_called()
+            transport.close()
+
+    def test_local_preparation_time_spends_window_before_spawn(self):
+        clock=[0.0]
+        with patch.object(client.time,'monotonic',side_effect=lambda:clock[0]):
+            transport=client.MaintenanceTransport(reserve_milliseconds=10000)
+            clock[0]=590
+            with patch.object(client.subprocess,'Popen') as spawn:
+                with self.assertRaisesRegex(io.Hold,'WINDOW_EXPIRED'):
+                    transport.connect(self.packet,self.source,b'public synthetic')
+                spawn.assert_not_called()
+            self.assertEqual(transport.close(),[])
+            clock[0]=600
+            with self.assertRaises(io.Hold):transport.remaining(cleanup=True)
+
+    def test_cleanup_waits_share_one_deadline_and_expiry_is_never_success(self):
+        clock=[0.0];waits=[];actions=[]
+        child=SimpleNamespace(stdin=Mock(closed=False),stdout=Mock(closed=False),returncode=None)
+        child.poll=lambda:child.returncode
+        def wait(timeout):
+            waits.append(timeout);clock[0]+=timeout
+            if actions and actions[-1]=='kill':child.returncode=-9;return -9
+            raise subprocess.TimeoutExpired('OWNED_SYNTHETIC_CHILD',timeout)
+        child.wait=wait;child.terminate=lambda:actions.append('terminate');child.kill=lambda:actions.append('kill')
+        with patch.object(client.time,'monotonic',side_effect=lambda:clock[0]):
+            transport=client.MaintenanceTransport(reserve_milliseconds=10000);transport.child=child;clock[0]=590
+            errors=transport.close()
+        self.assertEqual(waits,[2,2,6]);self.assertEqual(actions,['terminate','kill'])
+        self.assertIn('PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED',errors)
+        self.assertIn('PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED',errors)
+
+    def test_expired_cleanup_never_opens_a_new_wait_window(self):
+        clock=[0.0];child=Mock();child.stdin.closed=child.stdout.closed=True;child.poll.return_value=None
+        with patch.object(client.time,'monotonic',side_effect=lambda:clock[0]):
+            transport=client.MaintenanceTransport(reserve_milliseconds=10000);transport.child=child;clock[0]=601
+            errors=transport.close()
+        child.wait.assert_not_called();child.kill.assert_called_once_with()
+        self.assertIn('PUBLIC_BOOTSTRAP_OWNED_SSH_END_UNKNOWN',errors)
+        self.assertIn('PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED',errors)
 
 
 def synthetic_timing(source_hashes, artifact):

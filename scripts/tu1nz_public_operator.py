@@ -690,6 +690,114 @@ def bootstrap(io_raw):
             's.load("host").session(s,p,w)\n')
 
 
+class MaintenanceTransport:
+    """One owned SSH lifetime inside ONE Rev4 600-second window.
+
+    Construct after personal password input, before either entry's local
+    custody/preparation and before SSH. Caller must consume its fixed entry
+    and pass all scope/current-state gates; this object grants none of them.
+    Only the explicit Rev4 entry selects it. The legacy execute is unchanged.
+    """
+    def __init__(self, *, reserve_milliseconds):
+        io.require(type(reserve_milliseconds) is int and 0 < reserve_milliseconds < 120000,
+                   'MAINTENANCE_TRANSPORT_RESERVE')
+        self.started = time.monotonic(); self.deadline = self.started+600
+        self.work_deadline = self.deadline-reserve_milliseconds/1000
+        self.child = None; self.wire = None; self.attempted = False; self.closed = False
+
+    def remaining(self, *, cleanup=False):
+        end = self.deadline if cleanup else self.work_deadline
+        remaining = end-time.monotonic()
+        io.require(remaining > 0, 'MAINTENANCE_TRANSPORT_WINDOW_EXPIRED')
+        return remaining
+
+    def connect(self, packet, source, password, *, recovery_custody=None):
+        io.require(not self.attempted and not self.closed,
+                   'MAINTENANCE_TRANSPORT_NO_RECONNECT')
+        self.attempted = True  # also spent if local validation or spawn fails
+        remaining = self.remaining()
+        bound = io.maintenance_packet_binding(packet, source,
+                                               remaining_seconds=math.ceil(remaining))
+        reserve = bound['documents']['native_timing']['transport_cleanup_reserve_milliseconds']
+        io.require(self.work_deadline == self.deadline-reserve/1000,
+                   'MAINTENANCE_TRANSPORT_RESERVE_NOT_FROM_PROOF')
+        if packet['route'] == 'recovery-once':
+            io.require(isinstance(recovery_custody, RecoveryCustody) and
+                       recovery_custody.deadline == self.work_deadline and
+                       recovery_custody.entry == packet['recovery']['entry'] and
+                       recovery_custody.manifest == packet['recovery']['manifest'],
+                       'MAINTENANCE_TRANSPORT_RECOVERY_ENTRY_REQUIRED')
+            recovery_custody.check()
+        else:
+            io.require(recovery_custody is None, 'MAINTENANCE_TRANSPORT_ORIGINAL_ENTRY_ONLY')
+        io.require(type(password) is bytes and password and b'\n' not in password and b'\r' not in password,
+                   'PASSWORD_INPUT_FORMAT')
+        program = bootstrap(source.bytes['io'])
+        remote = 'LC_ALL=C '+shlex.join(['/usr/bin/sudo', '-S', '-k', '-p', '', '--',
+                                        '/usr/bin/python3', '-I', '-B', '-S', '-c', program])
+        self.remaining()
+        self.child = subprocess.Popen(ssh_argv(remote), stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        # Nonblocking bounded write: even a wedged sudo/SSH cannot extend the
+        # already running window while the password is being sent.
+        fd = self.child.stdin.fileno(); os.set_blocking(fd, False)
+        data = memoryview(password+b'\n'); offset = 0
+        password_deadline = min(self.work_deadline, time.monotonic()+20)
+        try:
+            while offset < len(data):
+                remaining = password_deadline-time.monotonic()
+                io.require(remaining > 0 and select.select([], [fd], [], remaining)[1],
+                           'MAINTENANCE_PASSWORD_TRANSPORT_TIMEOUT')
+                try: written = os.write(fd, data[offset:])
+                except BlockingIOError: continue  # same write, not a new connection/command
+                io.require(written > 0, 'MAINTENANCE_PASSWORD_TRANSPORT_CLOSED')
+                offset += written
+        finally:
+            data.release(); password = None
+        self.wire = io.Wire(self.child.stdout.fileno(), fd,
+                            deadline=min(self.work_deadline, time.monotonic()+20))
+        io.require(self.wire.receive() == {'type':'ready', 'io_sha256':packet['hashes']['io']},
+                   'AUTHENTIC_BOOTSTRAP_NOT_READY')
+        self.remaining(); self.wire.deadline = self.work_deadline
+        # Validation is repeated after transport/password latency and before
+        # payload dispatch. Never carry a stale admission through that wait.
+        sent = io.maintenance_transport_packet(packet, deadline=self.work_deadline)
+        io.maintenance_packet_binding(sent, source, remaining_seconds=math.ceil(self.remaining()))
+        if recovery_custody is not None: recovery_custody.check()
+        self.wire.send(sent)
+        return self.wire, sent
+
+    def close(self):
+        io.require(not self.closed, 'MAINTENANCE_TRANSPORT_CLOSE_ONCE')
+        self.closed = True; errors = []
+        if self.child is not None:
+            for stream in (self.child.stdin, self.child.stdout):
+                try:
+                    if stream is not None and not stream.closed: stream.close()
+                except BaseException: errors.append('PUBLIC_BOOTSTRAP_OWNED_CHANNEL_CLOSE_UNKNOWN')
+            # Only OUR unreaped local Popen child; never a numeric remote PID.
+            # Every wait spends the SAME outer deadline, not20+5+5 extra.
+            for action, maximum in ((None, 2), ('terminate', 2), ('kill', None)):
+                try:
+                    if self.child.poll() is not None: break
+                    if action is not None: getattr(self.child, action)()
+                    remaining = self.deadline-time.monotonic()
+                    if remaining <= 0:
+                        if action == 'kill': break
+                        continue
+                    self.child.wait(timeout=remaining if maximum is None else min(maximum, remaining))
+                    break
+                except subprocess.TimeoutExpired: continue
+                except BaseException: errors.append('PUBLIC_BOOTSTRAP_OWNED_SSH_END_UNKNOWN'); break
+            try:
+                if self.child.poll() is None: errors.append('PUBLIC_BOOTSTRAP_OWNED_SSH_END_UNKNOWN')
+                elif self.child.returncode != 0: errors.append('PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED')
+            except BaseException: errors.append('PUBLIC_BOOTSTRAP_OWNED_SSH_STATUS_UNKNOWN')
+        if time.monotonic() >= self.deadline:
+            errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED')
+        return errors
+
+
 def preparation_records(binding):
     roots = [Path('/Users/daniel/Developer/tu1nz/public-production-source-r4-20261016'),
              Path('/Users/daniel/.codex/backups/public-production-source-r4-20261016')]
