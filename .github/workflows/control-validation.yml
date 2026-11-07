@@ -9,6 +9,36 @@ permissions:
   contents: read
 
 jobs:
+  mainserver-backup-native:
+    name: mainserver-backup-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    # Only generated private filesystem fixtures. No Host data, private token,
+    # actual capture entry, real credentials, services or artifact upload.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Linux descriptor and metadata backup boundary, synthetic data only
+        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v tests.test_mainserver_backup_read tests.test_mainserver_backup tests.test_mainserver_restore tests.test_mainserver_db_completion
+  mainserver-startlimit-native:
+    name: mainserver-startlimit-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    # Public synthetic PID1 only; 900s of fixture ageing precedes measurement.
+    # No Environment or private credential; not the full V6/timing gate.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Actual systemd255 StartLimit state proof and negative cases
+        run: bash tests/mainserver_startlimit_native.sh
   b-data-handoff:
     name: b-data-handoff
     runs-on: ubuntu-24.04
@@ -50,7 +80,7 @@ jobs:
           fetch-tags: true
           persist-credentials: false
       - name: Private CI boundary regression tests (no private input or credential)
-        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci tests.test_public_runtime_artifact tests.test_public_prospective_admission tests.test_public_context
+        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci tests.test_public_runtime_artifact tests.test_public_prospective_admission tests.test_public_context tests.test_public_maintenance tests.test_mainserver_restore
       - name: Build fresh approved native image before private input (no reused artifact)
         run: docker build --file tests/s8-native.Dockerfile --tag "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
       - name: Build fresh production-entry image before private input

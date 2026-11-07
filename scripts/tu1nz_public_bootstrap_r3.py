@@ -181,6 +181,8 @@ class Journal:
 
 class Flow:
     """Stateful supervised sequence, no automatic rollback/retry on any failure."""
+    required = REQUIRED
+    twenty_second_actions = frozenset(('stop', 'return_stop', 'start', 'start_old'))
     def __init__(self,adapter,journal):
         self.a=adapter;self.j=journal;self.stage='NEW';self.stopped=[]
         self.j.claim()
@@ -196,7 +198,7 @@ class Flow:
         require(type(o) is Observation and o.transaction==TX and o.binding==self.j.binding
                 and o.phase==phase,'OBSERVATION_BINDING_RED')
         age=time.monotonic()-o.observed_monotonic
-        require(0<=age<=2 and REQUIRED[phase]<=o.facts,'CURRENT_'+phase.upper()+'_GATE_RED')
+        require(0<=age<=2 and self.required[phase]<=o.facts,'CURRENT_'+phase.upper()+'_GATE_RED')
         self.j.write('observation',{'phase':phase,'facts_sha256':digest(canonical(sorted(o.facts))),
                                    'observed_monotonic':o.observed_monotonic})
         require(time.monotonic()<=self.deadline,'OBSERVATION_PERSISTENCE_DEADLINE_HOLD')
@@ -209,7 +211,7 @@ class Flow:
         self.j.write('intent',{'action':name,'unit':unit})
         self.mutation_started=True
         require(time.monotonic()<self.deadline,'INTENT_PERSISTENCE_DEADLINE_HOLD')
-        limit=min(self.deadline,time.monotonic()+(20 if name in ('stop','return_stop','start','start_old') else 120))
+        limit=min(self.deadline,time.monotonic()+(20 if name in self.twenty_second_actions else 120))
         value=self.a.perform(name,unit,deadline=limit)
         require(time.monotonic()<=limit,'ACTION_DEADLINE_HOLD')
         require(value is not None and value.get('outcome')=='CONFIRMED','ACTION_UNKNOWN_HOLD')
@@ -218,10 +220,17 @@ class Flow:
                 'ACTION_RECEIPT_FIELDS_RED')
         self.j.write('ack',value)
         return value
+    def prepare_before_barriers(self):
+        pass  # historical ordering; R4 overrides this explicit boundary
+    def prepare_after_quiet(self):
+        self.witness('staging_ready')
+        self.witness('quiet');self.effect('create_sealed_staging');self.witness('staging')
+        self.stage='STAGING'
     def forward(self):
         require(self.stage=='NEW' and not self.hold,'NO_FORWARD_REPLAY')
         try:
             self.witness('pre_stop')
+            self.prepare_before_barriers()
             self.effect('create_persistent_barriers');self.witness('barriers')
             self.stage='STOPPING'
             for unit in STOP:
@@ -229,8 +238,8 @@ class Flow:
                 require(r.get('cgroup_empty') is True and r.get('no_job') is True,'INCOMPLETE_STOP_HOLD')
                 self.stopped.append(unit)
             self.witness('quiet');self.stage='QUIET'
-            self.witness('staging_ready')
-            for action,phase in (('create_sealed_staging','staging'),('protected_rights_backup','backup'),
+            self.prepare_after_quiet()
+            for action,phase in (('protected_rights_backup','backup'),
                                  ('isolated_restore_rehearsal','restore'),('bounded_synthetic_probes','probes')):
                 self.witness('quiet');self.effect(action);self.witness(phase);self.stage=phase.upper()
             self.witness('quiet');self.install_started=True
@@ -294,6 +303,158 @@ class Flow:
         require(self.stage=='RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED' and not self.hold,'R2_NOT_ELIGIBLE')
         self.witness('r2_ready')
         return 'FRESH_FROZEN_R2_GATE_ELIGIBILITY_ONLY_NO_SIGNATURE_OR_DISPATCH'
+
+class MaintenanceFlow(Flow):
+    """The sole R4 original order; all effects still use the durable Flow API.
+
+    No recovery or old-runtime return dispatch is implicit in an exception.
+    The outer session's earlier 600s deadline includes transport/admission.
+    """
+    required = {**REQUIRED,
+        **{'started:'+u: REQUIRED['started:'+u] | {'current_no_start_limit_before_request'} for u in UNITS},
+        'owner_ready': REQUIRED['owner_ready'] | {'first_owner_marker_two_custodies_same_window'},
+        'prepared': frozenset((
+        'ready_two_custodies', 'full_runtime_identity_digest', 'ten_complete_candidates',
+        'prepared_external_dependencies', 'old_runtime_not_activated',
+        'private_roots_and_exclusive_lock', 'native_after_ready_budget_remaining'))}
+
+    def __init__(self, adapter, journal):
+        super().__init__(adapter, journal)
+        self.deadline = min(self.deadline, adapter.deadline)
+
+    def prepare_before_barriers(self):
+        self.stage = 'PREPARING'
+        self.effect('prepare_runtime_bundle'); self.witness('prepared')
+        self.stage = 'PREPARED'
+
+    def prepare_after_quiet(self):
+        # These exact roots were created before READY. The actual adapter
+        # freshly checks quiet/space/profiles; no absence or backup is claimed.
+        self.witness('staging'); self.stage = 'STAGING'
+
+    def return_old(self):
+        raise Denied('PUBLIC_BOOTSTRAP_MAINTENANCE_OLD_RUNTIME_RETURN_FORBIDDEN')
+
+
+RECOVERY_BASE = frozenset((
+    'same_original_host_boot_source_scope', 'original_failed_hold_preserved',
+    'both_original_chains_and_ready_current', 'one_recovery_entry_both_custodies',
+    'old_operator_helpers_jobs_gone', 'exclusive_same_transaction_lock',
+    'fresh_current_authority_writer_and_data_admission', 'owner_admission_and_claims_unspent',
+    'full_runtime_identity_digest_current', 'one_recovery_600s_including_cleanup'))
+RECOVERY_UNIT = frozenset(('current_unit_job_and_cgroup', 'current_effective_config',
+    'exact_own_barrier_place', 'prior_invocation_and_restart_counter_preserved',
+    'no_foreign_dependency_effect', 'current_relevant_authority'))
+
+
+class RecoveryFlow(Flow):
+    """One finite F1–F4 continuation under its own already-consumed entry.
+
+    Fresh in-process observations from RecoveryAdapter select the state.
+    A journal JSON flag is never an admission. Original intents/ACKs/HOLD
+    remain untouched. Neither forward(), return_old() nor a second recover()
+    can restart this flow after an exception or an unconfirmed effect.
+    """
+    required = {**REQUIRED,
+        **{'started:'+u: REQUIRED['started:'+u] | {'current_no_start_limit_before_request'} for u in UNITS},
+        'owner_ready': REQUIRED['owner_ready'] | {'first_owner_marker_two_custodies_same_window'},
+        'recovery_admitted': RECOVERY_BASE,
+        **{'recovery_state:'+u: RECOVERY_UNIT for u in UNITS},
+        **{'recovery_active:'+u: frozenset(('existing_new_invocation_freshly_accepted',
+            'actual_rights_data_DB_HTTP', 'no_start_or_restart_performed')) for u in UNITS}}
+    twenty_second_actions = Flow.twenty_second_actions | {'recovery_stop', 'recovery_start'}
+
+    def __init__(self, adapter, journal):
+        super().__init__(adapter, journal)
+        self.deadline = min(self.deadline, adapter.deadline)
+        self.recovery_used = False; self.in_f4 = False
+
+    def forward(self):
+        raise Denied('PUBLIC_BOOTSTRAP_RECOVERY_NOT_ORIGINAL_FORWARD')
+
+    def return_old(self):
+        raise Denied('PUBLIC_BOOTSTRAP_RECOVERY_OLD_RUNTIME_RETURN_FORBIDDEN')
+
+    def recover(self):
+        require(not self.recovery_used and self.stage == 'NEW' and not self.hold, 'NO_RECOVERY_REPLAY')
+        self.recovery_used = True  # before admission; failure spends this entry
+        try:
+            observed = self.witness('recovery_admitted')
+            states = observed.facts & {'F1', 'F2', 'F3', 'F4'}
+            require(len(states) == 1, 'RECOVERY_STATE_NOT_UNIQUE')
+            state = next(iter(states)); self.stage = state
+            if state != 'F1':
+                # A completed rename can precede a lost reload ACK. Only the
+                # exact own disk/loaded delta may be reconciled; the adapter
+                # skips daemon-reload when effective configuration is current.
+                self.effect('recovery_reconcile_config')
+            if state == 'F1':
+                self.effect('recovery_complete_barriers'); self.witness('barriers')
+                for unit in STOP:
+                    current = self.witness('recovery_state:'+unit)
+                    choices = current.facts & {'known_old_active', 'empty_inactive', 'empty_terminal_failed'}
+                    require(len(choices) == 1, 'RECOVERY_OLD_STOP_STATE_UNKNOWN')
+                    if 'known_old_active' in choices:
+                        value = self.effect('recovery_stop', unit)
+                        require(value.get('cgroup_empty') is True and value.get('no_job') is True,
+                                'RECOVERY_INCOMPLETE_STOP')
+                    self.stopped.append(unit)
+                self.witness('quiet'); self.stage = state = 'F2'
+            if state == 'F2':
+                self.witness('quiet')
+                self.effect('recovery_private_backup'); self.witness('backup')
+                self.effect('recovery_private_restore'); self.witness('restore')
+                self.effect('recovery_unused_or_verified_probes'); self.witness('probes')
+                self.stage = state = 'F3'
+            if state == 'F3':
+                # For direct F3 admission the adapter must freshly validate
+                # complete prior backup/restore/probe receipts and cleanup.
+                self.witness('quiet'); self.witness('backup'); self.witness('restore'); self.witness('probes')
+                self.install_started = True
+                self.effect('recovery_publish_assets'); self.witness('install')
+                self.stage = state = 'F4'
+            require(state == 'F4', 'RECOVERY_NO_STATE_TRANSITION')
+            self.in_f4 = True
+            for unit in UNITS:
+                current = self.witness('recovery_state:'+unit)
+                choices = current.facts & {'known_new_active', 'empty_inactive', 'empty_terminal_failed'}
+                require(len(choices) == 1, 'RECOVERY_NEW_START_STATE_UNKNOWN')
+                if 'known_new_active' in choices:
+                    self.witness('recovery_active:'+unit)
+                else:
+                    self.effect('recovery_release_barrier', unit); self.witness('release:'+unit)
+                    self.effect('recovery_start', unit); self.witness('started:'+unit)
+            self.witness('rights'); self.stage = 'RECOVERY_RIGHTS_ACCEPTED'
+            # K6 starts the one owner window before its durable entry marker.
+            # Adapter checks FULL remaining120s and all unused claims first.
+            self.witness('owner_ready'); self.owner_started = True
+            self.effect('supervised_owner_transaction'); self.witness('owner_done')
+            self.stage = 'RECOVERY_RIGHTS_OWNER_RECEIPTED_PENDING_OPERATOR_CLEANUP'
+            self.j.write('complete', {'stage': self.stage, 'original': 'FAILED_HOLD',
+                'final_host_acceptance': False, 'r2_dispatch': False, 'slot_consumed': False})
+            require(time.monotonic() <= self.deadline, 'RECOVERY_COMPLETION_PERSISTENCE_DEADLINE')
+            return self.stage
+        except BaseException as error:
+            self.hold = True; self.last_fault = type(error).__name__
+            primary = error.primary if type(error) is FlowFailure else failure_code(error)
+            abort = list(error.abort) if type(error) is FlowFailure else []
+            cleanup = list(error.cleanup) if type(error) is FlowFailure else []
+            try:
+                self.j.write('hold', {'stage': self.stage, 'original': 'FAILED_HOLD',
+                    'action': self.current_action, 'gate': self.current_gate,
+                    'primary': primary, 'abort': abort, 'cleanup': cleanup})
+            except BaseException:
+                cleanup.append('PUBLIC_BOOTSTRAP_RECOVERY_HOLD_RECORD_UNCONFIRMED')
+            # Only the separately admitted, finite terminal F4 action may run
+            # here. It rechecks channel/fences/known identities/time/NO OWNER
+            # itself; it cannot retry a failed forward action or start again.
+            if self.in_f4 and not self.owner_started and getattr(self.a, 'owner_admission_started', True) is False:
+                try:self.a.hold_known_new_units(deadline=self.deadline)
+                except BaseException as terminal:
+                    abort.append(terminal.primary if type(terminal) is FlowFailure else
+                                 'PUBLIC_BOOTSTRAP_RECOVERY_TERMINAL_STOP_UNCONFIRMED')
+            raise FlowFailure(primary, abort=abort, cleanup=cleanup) from None
+
 
 if __name__=='__main__':
     print(json.dumps({'component':'PUBLIC_BOOTSTRAP_R3_ORDERING_ONLY','host_execution':False,

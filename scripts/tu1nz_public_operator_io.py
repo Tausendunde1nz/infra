@@ -10,6 +10,7 @@ import base64
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -26,6 +27,22 @@ import urllib.parse
 import urllib.request
 
 MAX_FRAME = 4*1024*1024
+MAINTENANCE_SCOPE = 'TU1NZ_MAIN_SERVER_REV4_APPROVED_SCOPE_V1'
+MAINTENANCE_DECISION_SHA = 'e6794711443f5768c2e720c7552948964976c246ab59ff89236f53125fbd49fc'
+MAINTENANCE_APPROVAL_SHA = '576251012fb1e73fcc29a49334140660339b74fbdda05273822e53cb6f80c3a4'
+# Compiled production identity, never selected by a packet, environment or
+# command-line override. Native fixture code substitutes only its generated
+# machine/plan constants, as the existing full operator fixture does for r3.
+MAINTENANCE_MACHINE = 'a2166d9d5e0815dc5e452be3d01a1356f4d39e2164446274a43cde5afa7d8aae'
+MAINTENANCE_OWNER_PLAN = 'e9ac7f6056c42c5bcc67b9823d4cd65740a5037bae816a10431b0c8635dd6b36'
+# Closed real restore receipts, not synthetic test flags or permission for a
+# new backup attempt. These immutable technical receipts contain no data or
+# credentials. Their original bytes (including the earlier pending note in
+# protection) are preserved; the separate cleanup receipt resolves that note.
+MAINTENANCE_RESTORE_RECEIPTS = {
+    'database': '6c634508afc837e8eeca08b2564698e1904e1023c6c4ed6a2844279ec2dd2de6',
+    'protection': 'bbf6c77b6fcf22d84a722b7c98223623a6e9f3d2d29f950ff276d78c503ba10a',
+    'cleanup': 'de64bf0fb2246b06b831697c7508fdf697b2c4ff0d1bfde7587b50f49445c390'}
 R5_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5_V1'
 PROSPECTIVE_SCOPE = 'TU1NZ_PUBLIC_OPERATOR_APPROVED_SCOPE_R5P_V1'
 PROSPECTIVE_BINDING = 'TU1NZ_PUBLIC_PROSPECTIVE_BINDING_V1'
@@ -149,6 +166,330 @@ def operator_dependency_reference(release, origins):
                 all(type(k) is type(v) is str for k,v in row['attrs'].items()),
                 'REPLACEMENT_OPERATOR_DEPENDENCY_PROFILE')
     return rows
+
+
+def maintenance_scope(scope, baseline):
+    """Only the approved Rev4 input contract; this is NOT a Host admission.
+
+    Kept separate from the historical prospective/context validators. The
+    current authority observation is bound explicitly, not laundered into a
+    historical origin. Backup, actual restore, timing, independent review and
+    all live Host gates remain separate necessary checks before any claim.
+    """
+    fields = {'schema', 'release_sha256', 'baseline_sha256', 'administrative_roles_sha256',
+              'baseline_origins_sha256', 'r3_approval_sha256', 'machine_sha256', 'transaction',
+              'owner_plan_sha256', 'runtime_artifact_sha256', 'legacy_return',
+              'contract_sha256', 'approval_sha256', 'current_observation_sha256',
+              'current_acceptance_sha256', 'read_scope_sha256', 'pre_stop_protection_sha256', 'native_timing_sha256'}
+    hashes = fields-{'schema', 'transaction', 'legacy_return'}
+    require(type(scope) is dict and set(scope) == fields and scope['schema'] == MAINTENANCE_SCOPE and
+            all(type(scope[k]) is str and re.fullmatch('[0-9a-f]{64}', scope[k]) for k in hashes),
+            'MAINTENANCE_SCOPE_SCHEMA')
+    require(scope['contract_sha256'] == MAINTENANCE_DECISION_SHA and scope['approval_sha256'] == MAINTENANCE_APPROVAL_SHA and
+            scope['r3_approval_sha256'] == '7032ae9a4baf5c358e81050cd3fd675386c2f33100ab9932f504c053eaa10a7d' and
+            scope['machine_sha256'] == baseline['machine_sha256'] ==
+            MAINTENANCE_MACHINE and
+            scope['transaction'] == 'public-rights-20261014-1' and
+            scope['owner_plan_sha256'] == MAINTENANCE_OWNER_PLAN and
+            scope['legacy_return'] is False, 'MAINTENANCE_APPROVED_FINITE_CONTRACT')
+    require(baseline.get('schema') == 'TU1NZ_PUBLIC_HOST_BASELINE_CURRENT_REV4_V1' and
+            'contexts' not in baseline and baseline.get('current_authority') == {
+                'schema': 'TU1NZ_CURRENT_RELEVANT_AUTHORITY_REV4_V1',
+                'risk': 'KNOWN_CURRENT_ADMINISTRATION_TCB_NOT_HISTORICAL_OR_GAP_INTEGRITY',
+                'observation_sha256': scope['current_observation_sha256']} and
+            scope['administrative_roles_sha256'] == sha(canonical(baseline['actors'])) and
+            scope['baseline_origins_sha256'] == sha(canonical(baseline['source_origin_receipts'])),
+            'MAINTENANCE_CURRENT_AUTHORITY_BINDING')
+    reference = baseline['source_release']['runtime_reference']
+    operator_dependency_reference(baseline['source_release'], baseline['source_origin_receipts'])
+    require(type(reference) is dict and set(reference) == {'schema', 'artifact', 'origin_sha256'} and
+            reference['schema'] == 'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1' and
+            sha(canonical(reference['artifact'])) == scope['runtime_artifact_sha256'] == reference['origin_sha256'] and
+            reference['origin_sha256'] in baseline['source_origin_receipts'] and
+            not any(p == '/opt/tu1nz_repos/adult-publishing-core' or
+                    p.startswith('/opt/tu1nz_repos/adult-publishing-core/') for p in baseline['files']),
+            'MAINTENANCE_AUTHENTIC_RUNTIME_NO_OLD_ADOPTION')
+    return True
+
+
+def maintenance_material_binding(scope, baseline, material, *, source_hashes, review_sha256, remaining_seconds=600):
+    """Pure exact-byte binding. Returned documents still need V1–V6 validation.
+
+    The independent review hash is selected from the actual review receipt,
+    not generated from a passed/closed flag and not a personal SHA prompt.
+    Reuses the old 300s capture / at most24h acceptance lifetime unchanged.
+    The original AND explicit recovery must fit their full remaining window.
+    """
+    maintenance_scope(scope, baseline)
+    require(type(review_sha256) is str and re.fullmatch('[0-9a-f]{64}', review_sha256) and
+            type(remaining_seconds) is int and 0 < remaining_seconds <= 600 and
+            type(source_hashes) is dict and set(source_hashes) == set(MODULES) | set(ASSETS) and
+            all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v) for v in source_hashes.values()),
+            'MAINTENANCE_MATERIAL_ARGUMENTS')
+    names = {k:scope[k+'_sha256'] for k in ('contract', 'approval', 'current_observation', 'current_acceptance',
+                                          'read_scope', 'pre_stop_protection', 'native_timing')}
+    names['review'] = review_sha256
+    require(type(material) is dict and set(material) == set(names) and all(
+            type(material[n]) is bytes and 0 < len(material[n]) <= 512*1024 and sha(material[n]) == h
+            for n,h in names.items()) and len(set(names.values())) == len(names),
+            'MAINTENANCE_MATERIAL_EXACT_BYTES')
+    docs = {n:parse(v) for n,v in material.items() if n != 'contract'}
+    acceptance = docs['current_acceptance']
+    require(type(acceptance) is dict and set(acceptance) == {'schema', 'observation_sha256', 'read_scope_sha256',
+            'machine_sha256', 'boot_id', 'transaction', 'source_sha256', 'capture_started_at',
+            'capture_finished_at', 'accepted_at', 'expires_at', 'risk'} and
+            acceptance['schema'] == 'TU1NZ_REV4_CURRENT_ACCEPTANCE' and
+            acceptance['observation_sha256'] == scope['current_observation_sha256'] and
+            acceptance['read_scope_sha256'] == scope['read_scope_sha256'] and
+            acceptance['machine_sha256'] == scope['machine_sha256'] and
+            acceptance['boot_id'] == baseline['boot_id'] and acceptance['transaction'] == scope['transaction'] and
+            acceptance['source_sha256'] == sha(canonical(source_hashes)) and
+            acceptance['risk'] == baseline['current_authority']['risk'], 'MAINTENANCE_CURRENT_ACCEPTANCE_BINDING')
+    def timestamp(value):
+        require(type(value) is str and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', value),
+                'MAINTENANCE_TIME_SCHEMA')
+        try:return datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:raise Hold('PUBLIC_OPERATOR_MAINTENANCE_TIME_SCHEMA') from None
+    start,end,accepted,expires = (timestamp(acceptance[k]) for k in
+        ('capture_started_at', 'capture_finished_at', 'accepted_at', 'expires_at'))
+    now = time.time()
+    require(0 <= end-start <= 300 and end <= accepted <= now and
+            now+remaining_seconds <= expires <= end+86400, 'MAINTENANCE_TIME_OR_FULL_WINDOW_EXPIRED')
+    review = docs['review']
+    expected = {k:scope[k+'_sha256'] for k in ('release', 'baseline', 'current_observation', 'current_acceptance',
+                                             'read_scope', 'pre_stop_protection', 'native_timing', 'contract', 'approval')}
+    expected.update(scope_sha256=sha(canonical(scope)), source_sha256=sha(canonical(source_hashes)))
+    require(type(review) is dict and set(review) == {'schema', 'reviewer', 'inputs', 'findings',
+            'evidence_sha256', 'reviewed_at'} and review['schema'] == 'TU1NZ_REV4_INDEPENDENT_EXECUTION_INPUT_REVIEW' and
+            type(review['reviewer']) is str and 1 <= len(review['reviewer']) <= 256 and
+            review['inputs'] == expected and review['findings'] == [] and
+            type(review['evidence_sha256']) is str and re.fullmatch('[0-9a-f]{64}', review['evidence_sha256']) and
+            accepted <= timestamp(review['reviewed_at']) <= now, 'MAINTENANCE_INDEPENDENT_INPUT_REVIEW_MISMATCH')
+    return docs
+
+
+def maintenance_restore_binding(document):
+    """Reuse only the already accepted REAL DB/file restore and cleanup.
+
+    No path is opened and no backup/restore/SSH is invoked. The enclosing
+    material/scope/review binds these exact bytes on both sides. This proves
+    only reuse of the closed receipts: current coverage, intervening data,
+    Writer state, native timing and the remaining V1–V6 checks are still
+    required before a claim or stop. In particular the two snapshots do not
+    become atomic, and the old E1/S7 HOLDs do not become successful.
+    """
+    require(type(document) is dict and set(document) == {'schema', 'receipts'} and
+            document['schema'] == 'TU1NZ_REV4_CLOSED_REAL_RESTORE_REUSE_V1' and
+            type(document['receipts']) is dict and
+            set(document['receipts']) == set(MAINTENANCE_RESTORE_RECEIPTS),
+            'MAINTENANCE_REAL_RESTORE_RECEIPT_SET')
+    documents = {}
+    for name, expected in MAINTENANCE_RESTORE_RECEIPTS.items():
+        encoded = document['receipts'][name]
+        require(type(encoded) is str and 0 < len(encoded) <= 64*1024,
+                'MAINTENANCE_REAL_RESTORE_RECEIPT_BOUND')
+        try:raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            raise Hold('PUBLIC_OPERATOR_MAINTENANCE_REAL_RESTORE_ENCODING') from None
+        require(sha(raw) == expected, 'MAINTENANCE_REAL_RESTORE_RECEIPT_CHANGED')
+        documents[name] = parse(raw)
+    return documents
+
+
+def maintenance_timing_binding(document, *, source_hashes, artifact):
+    """Check the bound FULL-entry measurements and derive finite reserves.
+
+    This is arithmetic/coverage admission, not a benchmark or a replacement
+    for independently reading the referenced native traces. The execution
+    input review binds this entire document and its exact Source. A fast
+    StartLimit/component test, a smaller fixture, skipped route, or bare PASS
+    cannot supply the original/Recovery budget. No clock or claim is reset.
+    """
+    fields = {'schema', 'source_sha256', 'artifact_sha256', 'measurement_source_sha256',
+              'transport_cleanup_reserve_milliseconds', 'runs'}
+    cases = {'original', 'recovery_F1', 'recovery_F2', 'recovery_F3', 'recovery_F4',
+             'recovery_terminal_F4'}
+    require(type(document) is dict and set(document) == fields and
+            document['schema'] == 'TU1NZ_REV4_FULL_NATIVE_TIMING_V1' and
+            document['source_sha256'] == sha(canonical(source_hashes)) and
+            document['artifact_sha256'] == sha(canonical(artifact)) and
+            type(document['measurement_source_sha256']) is str and
+            re.fullmatch('[0-9a-f]{64}', document['measurement_source_sha256']) and
+            type(document['runs']) is dict and set(document['runs']) == cases,
+            'MAINTENANCE_FULL_NATIVE_TIMING_REQUIRED')
+    reserve = document['transport_cleanup_reserve_milliseconds']
+    require(type(reserve) is int and 0 < reserve < 120000 and
+            type(artifact) is dict and type(artifact.get('objects')) is dict and
+            type(artifact.get('archive_bytes')) is int and artifact['archive_bytes'] > 0 and
+            type(artifact.get('expanded_file_bytes')) is int and artifact['expanded_file_bytes'] > 0,
+            'MAINTENANCE_NATIVE_DIMENSIONS_OR_RESERVE')
+    dimensions = {'runtime_objects': len(artifact['objects']), 'archive_bytes': artifact['archive_bytes'],
+                  'expanded_file_bytes': artifact['expanded_file_bytes'],
+                  'lighting_objects': 88, 'lighting_files': 82, 'protected_objects': 4}
+    require(dimensions['runtime_objects'] > 0, 'MAINTENANCE_NATIVE_EMPTY_RUNTIME')
+    times = {'elapsed_milliseconds', 'after_ready_milliseconds', 'preparation_milliseconds',
+             'owner_milliseconds', 'largest_service_action_milliseconds',
+             'terminal_prepare_milliseconds', 'terminal_stop_milliseconds', 'terminal_cleanup_milliseconds'}
+    counters = {'linked_records', 'flow_records', 'largest_record_bytes', 'owner_intents', 'owner_acks'}
+    row_fields = times | counters | {'entrypoints', 'status', 'cleanup_complete', 'dimensions', 'trace_sha256'}
+    traces = set(); whole_budgets = {}; after_ready = None
+    for name in sorted(cases):
+        row = document['runs'][name]; terminal = name == 'recovery_terminal_F4'
+        require(type(row) is dict and set(row) == row_fields and
+                row['entrypoints'] == ['tu1nz_public_operator.execute_maintenance',
+                    'tu1nz_public_operator_host.'+('maintenance_session' if name == 'original' else 'recovery_session')] and
+                row['status'] == ('HOLD_KNOWN_NEW_UNITS_STOPPED' if terminal else 'COMPLETE') and
+                row['cleanup_complete'] is True and type(row['trace_sha256']) is str and
+                re.fullmatch('[0-9a-f]{64}', row['trace_sha256']) and row['trace_sha256'] not in traces,
+                'MAINTENANCE_NATIVE_FULL_ENTRY_OR_CLEANUP')
+        traces.add(row['trace_sha256'])
+        measured = row['dimensions']
+        require(type(measured) is dict and set(measured) == set(dimensions) and all(
+                type(measured[k]) is int and dimensions[k] <= measured[k] <= 2**31 for k in dimensions) and
+                all(measured[k] == dimensions[k] for k in ('lighting_objects', 'lighting_files', 'protected_objects')),
+                'MAINTENANCE_NATIVE_FIXTURE_TOO_SMALL_OR_DIFFERENT_OWNER_SCOPE')
+        require(all(type(row[k]) is int and 0 <= row[k] <= 600000 for k in times | counters) and
+                0 < row['elapsed_milliseconds'] < 600000 and
+                row['largest_service_action_milliseconds'] <= 20000 and
+                row['owner_milliseconds'] <= 120000 and row['preparation_milliseconds'] <= 120000 and
+                0 < row['linked_records'] <= 512 and 0 < row['flow_records'] <= 128 and
+                0 < row['largest_record_bytes'] <= 65536 and
+                row['owner_intents'] == row['owner_acks'] == (0 if terminal else 84) and
+                row['linked_records'] >= row['owner_intents']+row['owner_acks']+row['flow_records'],
+                'MAINTENANCE_NATIVE_TIME_RECORD_OR_OWNER_BOUND')
+        require(row['owner_milliseconds'] <= row['elapsed_milliseconds'] and
+                (row['owner_milliseconds'] == 0 if terminal else row['owner_milliseconds'] > 0) and
+                (row['preparation_milliseconds'] == row['after_ready_milliseconds'] == 0
+                    if name != 'original' else
+                 0 < row['preparation_milliseconds'] and 0 < row['after_ready_milliseconds'] and
+                 row['owner_milliseconds'] <= row['after_ready_milliseconds'] and
+                 row['preparation_milliseconds']+row['after_ready_milliseconds'] <= row['elapsed_milliseconds']) and
+                (0 < row['terminal_prepare_milliseconds'] and 0 < row['terminal_cleanup_milliseconds'] and
+                 0 < row['terminal_stop_milliseconds'] <= 60000 and
+                 sum(row[k] for k in ('terminal_prepare_milliseconds','terminal_stop_milliseconds',
+                                     'terminal_cleanup_milliseconds')) <= row['elapsed_milliseconds']
+                    if terminal else row['terminal_prepare_milliseconds'] == row['terminal_stop_milliseconds'] ==
+                                     row['terminal_cleanup_milliseconds'] == 0),
+                'MAINTENANCE_NATIVE_PHASE_MEASUREMENTS')
+        # A fast measured Owner does not license starting with less than its
+        # FULL unchanged120s window. Account for the unspent portion now.
+        unused_owner = 0 if terminal else 120000-row['owner_milliseconds']
+        whole_budgets[name] = row['elapsed_milliseconds']+unused_owner+reserve
+        require(whole_budgets[name] < 600000, 'MAINTENANCE_NATIVE_WHOLE_600_BUDGET_EXCEEDED')
+        if name == 'original':
+            after_ready = max(181, math.ceil((row['after_ready_milliseconds']+unused_owner+reserve)/1000))
+            require(after_ready < 600 and row['elapsed_milliseconds']-row['after_ready_milliseconds']+
+                    after_ready*1000 < 600000, 'MAINTENANCE_NATIVE_ORIGINAL_READY_BUDGET_EXCEEDED')
+    terminal = document['runs']['recovery_terminal_F4']
+    prepare = math.ceil((terminal['terminal_prepare_milliseconds']+reserve)/1000)
+    cleanup = math.ceil((terminal['terminal_cleanup_milliseconds']+reserve)/1000)
+    require(0 < prepare <= 120 and 0 < cleanup <= 120 and prepare+60+cleanup < 600,
+            'MAINTENANCE_NATIVE_TERMINAL_RESERVE_EXCEEDED')
+    # Replace ONLY the observed terminal section with the adapter's actual
+    # full reserve. Its preceding admission/actions have already consumed
+    # budget; they must not disappear when the reserve is checked in isolation.
+    prefix = terminal['elapsed_milliseconds']-sum(terminal[k] for k in
+        ('terminal_prepare_milliseconds','terminal_stop_milliseconds','terminal_cleanup_milliseconds'))
+    whole_budgets['recovery_terminal_F4'] = max(whole_budgets['recovery_terminal_F4'],
+                                             prefix+(prepare+60+cleanup)*1000)
+    require(whole_budgets['recovery_terminal_F4'] < 600000,
+            'MAINTENANCE_NATIVE_TERMINAL_WHOLE_600_BUDGET_EXCEEDED')
+    return {'after_ready_seconds': after_ready, 'terminal_prepare_seconds': prepare,
+            'terminal_cleanup_seconds': cleanup, 'whole_budget_milliseconds': whole_budgets}
+
+
+def maintenance_transport_packet(packet, *, deadline):
+    """Spend the existing client deadline; never start a new transport timer.
+
+    Called after the authenticated ready frame and immediately before send.
+    The Host anchors this remaining duration at its EARLIER ready emission,
+    not at packet arrival. Thus either direction's transport/encoding delay
+    consumes budget without requiring synchronized wall clocks.
+    """
+    require(type(packet) is dict and packet.get('route') in ('original', 'recovery-once') and
+            type(deadline) in (int, float) and math.isfinite(deadline),
+            'MAINTENANCE_TRANSPORT_ARGUMENTS')
+    remaining = deadline-time.monotonic()
+    require(0 < remaining <= 600, 'MAINTENANCE_CLIENT_DEADLINE_EXPIRED_OR_EXTENDED')
+    milliseconds = math.floor(remaining*1000)  # rounding can only shorten it
+    require(0 < milliseconds <= 600000, 'MAINTENANCE_TRANSPORT_BUDGET_EXHAUSTED')
+    return {**packet, 'remaining_milliseconds': milliseconds}
+
+
+def maintenance_remote_deadline(packet, wire):
+    """One cap from the actual bootstrap anchor, before any admission/effect.
+
+    A bare remaining duration measured from packet arrival would silently add
+    transit time. The authenticated bootstrap retains its own monotonic ready
+    anchor instead. A missing anchor, expired frame, or second bind is HOLD.
+    This only bounds time; it grants no scope, claim, action or recovery.
+    """
+    require(not getattr(wire, '_maintenance_deadline_bound', False),
+            'MAINTENANCE_DEADLINE_ALREADY_BOUND')
+    wire._maintenance_deadline_bound = True
+    anchor = getattr(wire, 'bootstrap_started', None)
+    now = time.monotonic()
+    remaining = packet.get('remaining_milliseconds') if type(packet) is dict else None
+    require(type(anchor) in (int, float) and math.isfinite(anchor) and 0 <= anchor <= now and
+            type(wire.deadline) in (int, float) and math.isfinite(wire.deadline) and
+            wire.deadline <= anchor+600 and type(remaining) is int and 0 < remaining <= 600000,
+            'MAINTENANCE_BOOTSTRAP_DEADLINE_BINDING')
+    wire.deadline = min(wire.deadline, anchor+remaining/1000)
+    require(now < wire.deadline, 'MAINTENANCE_PACKET_ARRIVED_AFTER_DEADLINE')
+    return math.ceil(wire.deadline-now)
+
+
+def maintenance_packet_binding(packet, source, *, remaining_seconds):
+    """Decode only the finite Rev4 envelope, without claims or Host effects.
+
+    The session must additionally validate real protection/restore, native
+    timing and read-scope evidence before constructing either effect adapter.
+    This function deliberately cannot return an approval_bound channel.
+    """
+    fields = {'source', 'hashes', 'baseline', 'baseline_raw', 'baseline_encoding', 'scope', 'scope_raw',
+              'scope_sha256', 'binding', 'owner_plan', 'release', 'maintenance_material',
+              'review_sha256', 'route', 'remaining_milliseconds'}
+    require(type(packet) is dict and packet.get('route') in ('original', 'recovery-once') and
+            set(packet) == fields | ({'recovery'} if packet['route'] == 'recovery-once' else set()) and
+            packet['baseline_encoding'] == 'zlib_REV4' and type(packet['remaining_milliseconds']) is int and
+            0 < packet['remaining_milliseconds'] <= 600000, 'MAINTENANCE_PACKET_SCHEMA')
+    hashes = {k:sha(v) for k,v in source.bytes.items()}
+    require(packet['hashes'] == hashes and set(packet['source']) == set(hashes) and all(
+            base64.b64decode(packet['source'][k], validate=True) == v for k,v in source.bytes.items()),
+            'MAINTENANCE_PACKET_SOURCE_CHANGED')
+    decoder = zlib.decompressobj()
+    raw = decoder.decompress(base64.b64decode(packet['baseline_raw'], validate=True), MAX_FRAME+1)
+    require(len(raw) <= MAX_FRAME and decoder.eof and not decoder.unconsumed_tail and not decoder.unused_data and
+            raw == canonical(packet['baseline']), 'MAINTENANCE_PACKET_BASELINE_CANONICAL')
+    scope_raw = base64.b64decode(packet['scope_raw'], validate=True)
+    scope,baseline = packet['scope'],packet['baseline']
+    require(scope_raw == canonical(scope) and sha(scope_raw) == packet['scope_sha256'] == packet['binding'] and
+            scope['baseline_sha256'] == sha(raw) and scope['release_sha256'] == sha(canonical(packet['release'])) and
+            packet['release'].get('schema') == 'TU1NZ_PUBLIC_OPERATOR_RELEASE_V1' and
+            packet['release'].get('files') == hashes, 'MAINTENANCE_PACKET_INPUT_BINDING')
+    plan = base64.b64decode(packet['owner_plan'], validate=True)
+    require(sha(plan) == scope['owner_plan_sha256'] == MAINTENANCE_OWNER_PLAN and
+            parse(plan)['host'] == scope['machine_sha256'] == MAINTENANCE_MACHINE,
+            'MAINTENANCE_PACKET_FIXED_OWNER_PLAN')
+    require(type(packet['maintenance_material']) is dict, 'MAINTENANCE_PACKET_MATERIAL_SCHEMA')
+    material = {n:base64.b64decode(v, validate=True) for n,v in packet['maintenance_material'].items()}
+    docs = maintenance_material_binding(scope,baseline,material,source_hashes=hashes,
+                                        review_sha256=packet['review_sha256'], remaining_seconds=remaining_seconds)
+    restore = maintenance_restore_binding(docs['pre_stop_protection'])
+    timing = maintenance_timing_binding(docs['native_timing'], source_hashes=hashes,
+        artifact=baseline['source_release']['runtime_reference']['artifact'])
+    if packet['route'] == 'recovery-once':
+        recovery = packet['recovery']
+        require(type(recovery) is dict and set(recovery) == {'entry', 'manifest'} and
+                type(recovery['entry']) is dict and type(recovery['manifest']) is dict,
+                'MAINTENANCE_RECOVERY_ENVELOPE_SCHEMA')
+        entry = recovery['entry']; manifest = recovery['manifest']
+        require(entry == recovery_entry(packet['binding'],baseline['boot_id'],sha(canonical(hashes)),
+                    manifest.get('snapshot_sha256'),entry.get('ready_sha256')) and
+                manifest.get('binding') == packet['binding'], 'MAINTENANCE_RECOVERY_ENTRY_BINDING')
+    return {'documents': docs, 'restore_receipts': restore, 'timing': timing, 'plan': plan, 'inputs': {
+        'scope_sha256': packet['binding'], 'baseline_sha256': sha(raw), 'source_sha256': sha(canonical(hashes)),
+        'pre_stop_protection_sha256': scope['pre_stop_protection_sha256'], 'native_timing_sha256': scope['native_timing_sha256']}}
 
 
 def replacement_scope(scope, baseline):
@@ -684,6 +1025,198 @@ def exclusive(parent, name, raw):
         os.close(fd)
 
 
+def read_original_chain(parent, binding, *, owner, deadline, client_supplements=False):
+    """Bounded, strictly read-only original custody census for one recovery.
+
+    The caller obtains this FD through the fixed compiled custody path and
+    proves the old operator/helpers absent plus lock ownership separately.
+    This reader neither repairs a tail nor grants any action from a record.
+    """
+    require(type(binding) is str and re.fullmatch('[0-9a-f]{64}', binding) and
+            type(owner) is int and owner >= 0, 'ORIGINAL_CHAIN_ARGUMENTS')
+    before = os.fstat(parent)
+    require(stat.S_ISDIR(before.st_mode) and before.st_uid == owner and
+            stat.S_IMODE(before.st_mode) == 0o700, 'ORIGINAL_CHAIN_DIRECTORY_PROFILE')
+    names = sorted(os.listdir(parent))
+    extras = {'held.json', 'final.json'} if client_supplements else set()
+    require(0 < len(names) <= 512+len(extras) and all(n in extras or
+            re.fullmatch('[0-9]{3}-[A-Za-z0-9_]+[.]json', n) for n in names), 'ORIGINAL_CHAIN_NAMES')
+    rows = []; supplements = {}; previous = binding; total = 0
+    for name in names:
+        require(time.monotonic() < deadline, 'ORIGINAL_CHAIN_READ_DEADLINE')
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+        if sys.platform == 'linux':flags |= os.O_NOATIME
+        fd = os.open(name, flags, dir_fd=parent)
+        try:
+            first = os.fstat(fd)
+            require(stat.S_ISREG(first.st_mode) and first.st_nlink == 1 and first.st_uid == owner and
+                    stat.S_IMODE(first.st_mode) == 0o600 and 0 < first.st_size <= 65536,
+                    'ORIGINAL_CHAIN_RECORD_PROFILE')
+            raw = os.pread(fd, first.st_size+1, 0); total += len(raw)
+            require(len(raw) == first.st_size and total <= (512+len(extras))*65536,
+                    'ORIGINAL_CHAIN_BYTES_BOUND')
+            after = os.fstat(fd); named = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            fields = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink',
+                      'st_size', 'st_mtime_ns', 'st_ctime_ns')
+            identity = {k: getattr(first, k) for k in fields}
+            require(all(identity == {k: getattr(s, k) for k in fields} for s in (after, named)),
+                    'ORIGINAL_CHAIN_RECORD_CHANGED')
+            value = parse(raw)
+            require(type(value) is dict and canonical(value) == raw, 'ORIGINAL_CHAIN_RECORD_CANONICAL')
+            proof = {'name': name, 'sha256': sha(raw), 'metadata': identity, 'record': value}
+            if name in extras:
+                require(value.get('type') == name[:-5], 'ORIGINAL_CHAIN_SUPPLEMENT_TYPE')
+                supplements[name] = proof
+                continue
+            sequence = len(rows)+1
+            require(sequence <= 512 and set(value) == {'sequence', 'binding', 'previous', 'kind', 'value'} and
+                    type(value['sequence']) is int and value['sequence'] == sequence and
+                    value['binding'] == binding and value['previous'] == previous and
+                    type(value['kind']) is str and re.fullmatch('[A-Za-z0-9_]+', value['kind']) and
+                    name == str(sequence).zfill(3)+'-'+value['kind']+'.json',
+                    'ORIGINAL_CHAIN_LINK_OR_SEQUENCE')
+            previous = proof['sha256']; rows.append(proof)
+        finally:
+            os.close(fd)
+    current = os.fstat(parent)
+    fields = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink', 'st_mtime_ns', 'st_ctime_ns')
+    require(rows and sorted(os.listdir(parent)) == names and
+            all(getattr(before, k) == getattr(current, k) for k in fields) and
+            time.monotonic() < deadline, 'ORIGINAL_CHAIN_DIRECTORY_CHANGED')
+    return {'binding': binding, 'tail': previous, 'count': len(rows), 'records': rows,
+            'supplements': supplements, 'directory': {k: getattr(current, k) for k in fields}}
+
+
+def original_chain_pair(mac, host, *, binding, ready_sha256):
+    """Validate prefix/tails, never reconstruct original acknowledgements.
+
+    The sole possible mismatch is ONE valid Mac-only tail: LinkedRecords waits
+    for that durable Mac ACK before writing its Host mirror. Divergence, a Host
+    lead, a larger gap, and missing beidseitiges READY all remain HOLD.
+    Fresh process/data/files/probe admission and a bound original failure are
+    still required elsewhere; these two hashes are not recovery permission.
+    """
+    require(type(ready_sha256) is str and re.fullmatch('[0-9a-f]{64}', ready_sha256),
+            'ORIGINAL_READY_HASH')
+    for snapshot in (mac, host):
+        require(type(snapshot) is dict and snapshot.get('binding') == binding and
+                type(snapshot.get('records')) is list and type(snapshot.get('count')) is int and
+                snapshot['count'] == len(snapshot['records']) and 0 < snapshot['count'] <= 512,
+                'ORIGINAL_CHAIN_SNAPSHOT')
+        previous = binding
+        for number, proof in enumerate(snapshot['records'], 1):
+            row = proof.get('record'); raw = canonical(row)
+            require(type(row) is dict and set(row) == {'sequence', 'binding', 'previous', 'kind', 'value'} and
+                    type(row['sequence']) is int and row['sequence'] == number and row['binding'] == binding and
+                    row['previous'] == previous and type(row['kind']) is str and
+                    re.fullmatch('[A-Za-z0-9_]+', row['kind']) and len(raw) <= 65536 and
+                    sha(raw) == proof.get('sha256'), 'ORIGINAL_CHAIN_SNAPSHOT_INVALID')
+            previous = proof['sha256']
+        require(snapshot.get('tail') == previous, 'ORIGINAL_CHAIN_TAIL_INVALID')
+    require(host['count'] <= mac['count'] <= host['count']+1, 'ORIGINAL_CHAIN_UNEXPLAINED_GAP')
+    require(all(m['sha256'] == h['sha256'] for m, h in zip(mac['records'], host['records'])),
+            'ORIGINAL_CHAIN_DIVERGENCE')
+    common = [v['record'] for v in host['records']]
+    ready = [v for v in common if v['kind'] == 'maintenance_ready']
+    require(len(ready) == 1 and type(ready[0]['value']) is dict and
+            ready[0]['value'].get('sha256') == ready_sha256 and
+            sha(canonical(ready[0]['value'].get('ready'))) == ready_sha256,
+            'ORIGINAL_READY_NOT_IN_BOTH_CUSTODIES')
+    claims = [v for v in common if v['kind'] == 'flow_claim']
+    require(len(claims) == 1 and claims[0]['value'] == {'transaction': 'public-rights-20261014-1'} and
+            claims[0]['sequence'] < ready[0]['sequence'],
+            'ORIGINAL_TRANSACTION_CLAIM')
+    for proof in mac['records']:
+        row = proof['record']; value = row['value']
+        require(not row['kind'].startswith(('owner_', 'recovery_')) and row['kind'] != 'flow_complete' and
+                not (type(value) is dict and
+                     (value.get('phase') in ('owner_ready', 'owner_done') or
+                      value.get('action') == 'supervised_owner_transaction')),
+                'ORIGINAL_OWNER_OR_COMPLETION_EXCLUDES_RECOVERY')
+    return {'original_binding': binding, 'mac_tail_sha256': mac['tail'], 'host_tail_sha256': host['tail'],
+            'common_records': host['count'], 'ready_sha256': ready_sha256,
+            'unconfirmed_mac_tail': mac['records'][-1]['sha256'] if mac['count'] > host['count'] else None,
+            'original_ack_reconstructed': False}
+
+
+def original_chain_manifest(snapshot):
+    """Bound the actual Mac read without transferring up to32MiB of history.
+
+    Called only after read_original_chain on the held fixed Mac directory.
+    The sole final record is included because it may be the unexplained ACK
+    tail. Common bytes are read independently on the Host and compared by
+    hash. No original record is created, appended, or called successful.
+    """
+    rows = snapshot['records']
+    require(type(rows) is list and 0 < len(rows) <= 512 and
+            snapshot['count'] == len(rows), 'ORIGINAL_MANIFEST_RECORD_BOUND')
+    previous = snapshot['binding']; hashes = []
+    for index, proof in enumerate(rows, 1):
+        row = proof['record']; raw = canonical(row)
+        require(type(row) is dict and set(row) == {'sequence', 'binding', 'previous', 'kind', 'value'} and
+                type(row['sequence']) is int and row['sequence'] == index and
+                row['binding'] == snapshot['binding'] and row['previous'] == previous and
+                type(row['kind']) is str and re.fullmatch('[A-Za-z0-9_]+', row['kind']) and
+                len(raw) <= 65536 and sha(raw) == proof['sha256'], 'ORIGINAL_MANIFEST_CHAIN_INVALID')
+        previous = proof['sha256']; hashes.append(previous)
+    require(previous == snapshot['tail'], 'ORIGINAL_MANIFEST_TAIL_INVALID')
+    supplements = snapshot['supplements']
+    require(type(supplements) is dict and set(supplements) <= {'held.json', 'final.json'},
+            'ORIGINAL_MANIFEST_SUPPLEMENTS')
+    values = {}
+    for name, proof in supplements.items():
+        raw = canonical(proof['record'])
+        require(type(proof['record']) is dict and proof['record'].get('type') == name[:-5] and
+                len(raw) <= 65536 and sha(raw) == proof['sha256'], 'ORIGINAL_MANIFEST_SUPPLEMENT_INVALID')
+        values[name] = {'sha256': proof['sha256'], 'record': proof['record']}
+    return {'schema': 'TU1NZ_REV4_ORIGINAL_CHAIN_MANIFEST', 'binding': snapshot['binding'],
+            'hashes': hashes, 'last_record': rows[-1]['record'], 'supplements': values,
+            'snapshot_sha256': sha(canonical(snapshot))}
+
+
+def original_manifest_pair(manifest, host, *, binding, ready_sha256):
+    """Compare independently read custody bytes; this is not an ACK repair.
+
+    The authenticated recovery transport supplies a manifest made from the
+    actual fixed Mac custody. Host records supply the matching common bytes.
+    The original_chain_pair rules still apply to EVERY common/orphan record.
+    Neither a scope document nor a user-provided manifest is an executable
+    input to this helper. The actual directory snapshots remain held by their
+    respective readers and must be unchanged at subsequent action boundaries.
+    """
+    require(type(manifest) is dict and set(manifest) ==
+            {'schema', 'binding', 'hashes', 'last_record', 'supplements', 'snapshot_sha256'} and
+            manifest['schema'] == 'TU1NZ_REV4_ORIGINAL_CHAIN_MANIFEST' and
+            manifest['binding'] == binding and type(manifest['hashes']) is list and
+            type(host.get('count')) is int and host['count'] <= len(manifest['hashes']) <= host['count']+1 and
+            0 < len(manifest['hashes']) <= 512 and
+            all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v) for v in
+                [manifest['snapshot_sha256'], *manifest['hashes']]), 'ORIGINAL_MANIFEST_SCHEMA_OR_GAP')
+    hashes = manifest['hashes']
+    require(len(host['records']) == host['count'] and all(
+            row['sha256'] == hashes[index] for index, row in enumerate(host['records'])),
+            'ORIGINAL_MANIFEST_COMMON_BYTES_DIFFER')
+    last_raw = canonical(manifest['last_record'])
+    require(len(last_raw) <= 65536 and sha(last_raw) == hashes[-1], 'ORIGINAL_MANIFEST_LAST_BYTES')
+    # A temporary comparison view ONLY. These entries are never persisted or
+    # returned as acknowledgements. The common Host bytes have matching Mac
+    # digests; the Mac-only tail, if any, keeps its UNKNOWN outcome.
+    rows = list(host['records'])
+    if len(hashes) > host['count']:
+        rows.append({'sha256': hashes[-1], 'record': manifest['last_record']})
+    else:
+        require(rows[-1]['record'] == manifest['last_record'], 'ORIGINAL_MANIFEST_FINAL_DIVERGENCE')
+    comparison = {'binding': binding, 'count': len(rows), 'tail': hashes[-1], 'records': rows}
+    result = original_chain_pair(comparison, host, binding=binding, ready_sha256=ready_sha256)
+    # Validate supplement shape and digest independently of an optional value.
+    checked = original_chain_manifest({**comparison, 'supplements': manifest['supplements']})
+    require(checked['hashes'] == hashes, 'ORIGINAL_MANIFEST_LINKS_DIFFER')
+    result['mac_snapshot_sha256'] = manifest['snapshot_sha256']
+    result['mac_supplements'] = checked['supplements']
+    result['unconfirmed_mac_record'] = manifest['last_record'] if len(hashes) > host['count'] else None
+    return result
+
+
 class Source:
     """In-memory exact old components plus new reviewed operator modules.
 
@@ -698,8 +1231,8 @@ class Source:
                 all(sha(raw) == hashes[n] for n, raw in self.bytes.items()), 'SOURCE_HASH')
         require(all(hashes[k] == h for k, h in CONTROL_PINS.items()), 'UNCHANGED_CONTROL_COMPONENT')
         require(all(hashes[k] == h for k, h in ASSETS.items()), 'UNCHANGED_RUNTIME_COMPONENT')
-        require(hashes['r3'] == '0b302ec29184cf036800452cfd55e347a1ffa78e160766a729d998285a8ee6ca',
-                'UNCHANGED_ORDERING_COMPONENT')
+        require(hashes['r3'] == '063b068d6ae7fb3440f5750cc644f59c188646008f929b0524992cdf259ab1e9',
+                'REV4_ORDERING_COMPONENT')
         self.modules = {}
 
     def load(self, name):
@@ -811,3 +1344,157 @@ class LinkedRecords:
                     type(measured['bytes']) is int and 0 <= measured['bytes'] <= 1024*1024,
                     'CLIENT_HTTP_MEASUREMENT_RED')
         return measured
+
+
+def owner_entry_marker(*, original_binding, execution_binding, ready_sha256, boot_id, route):
+    require(route in ('original', 'recovery-once') and
+            all(type(h) is str and re.fullmatch('[0-9a-f]{64}', h)
+                for h in (original_binding, execution_binding, ready_sha256)) and
+            type(boot_id) is str and
+            re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', boot_id) and
+            (route != 'original' or original_binding == execution_binding), 'OWNER_ENTRY_BINDING')
+    return {'schema': 'TU1NZ_REV4_FIRST_OWNER_ADMISSION', 'transaction': 'public-rights-20261014-1',
+            'machine': MAINTENANCE_MACHINE, 'owner_plan_sha256': MAINTENANCE_OWNER_PLAN,
+            'original_binding': original_binding, 'execution_binding': execution_binding,
+            'ready_sha256': ready_sha256, 'boot_id': boot_id, 'route': route, 'owner_window_seconds': 120}
+
+
+class MaintenanceLinkedRecords(LinkedRecords):
+    """R4 original/recovery marker protocol; legacy channels cannot emit it."""
+    def __init__(self, wire, binding, *, original_binding, boot_id, route='original'):
+        # Validate the fixed contextual fields without claiming READY exists.
+        owner_entry_marker(original_binding=original_binding, execution_binding=binding,
+                           ready_sha256='0'*64, boot_id=boot_id, route=route)
+        super().__init__(wire, binding)
+        self.original_binding, self.boot_id, self.route = original_binding, boot_id, route
+        self.owner_entry_started = False
+
+    def begin_owner_admission(self, paths, *, ready_sha256):
+        require(self.approval_bound and not self.owner_entry_started and self.host_fd is not None,
+                'OWNER_ENTRY_NOT_ADMITTED_OR_REPLAY')
+        self.owner_entry_started = True  # includes unknown/one-sided marker
+        marker = owner_entry_marker(original_binding=self.original_binding, execution_binding=self.binding,
+                                   ready_sha256=ready_sha256, boot_id=self.boot_id, route=self.route)
+        path = '/etc/tu1nz/public-web-bootstrap-r3/20261014-1/owner-admission-intent'
+        paths.absent(path)
+        paths.absent('/opt/tu1nz_repos/lighting-halloween-r1/20261014-1/writer-preparation-r2')
+        # The R4 client persists its fixed TX-root marker BEFORE this ACK.
+        # Either side's partial outcome consumes admission permanently.
+        self.record('owner_admission_intent', marker)
+        raw = canonical(marker); metadata = paths.create_file(path, raw)
+        actual, row = paths.read(path)
+        require(actual == raw and all(row[k] == metadata[k] for k in row if k != 'atime_ns'),
+                'OWNER_ENTRY_HOST_READBACK')
+        self.record('owner_admission_markers_confirmed', {'sha256': sha(raw), 'host_metadata': row})
+        return marker
+
+
+def recovery_entry(original_binding, boot_id, source_sha256, mac_snapshot_sha256, ready_sha256):
+    """Fixed entry bytes; creating either copy spends the sole entry.
+
+    No time-derived name, second transaction or new approval is introduced.
+    This value is formed by the authenticated client from its actual original
+    custody, then checked by the Host before its fixed directory is created.
+    """
+    owner_entry_marker(original_binding=original_binding, execution_binding=original_binding,
+                       ready_sha256=ready_sha256, boot_id=boot_id, route='recovery-once')
+    require(all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v)
+                for v in (source_sha256, mac_snapshot_sha256)), 'RECOVERY_ENTRY_INPUT_HASHES')
+    return {'schema': 'TU1NZ_REV4_SINGLE_RECOVERY_ENTRY', 'transaction': 'public-rights-20261014-1',
+            'machine': MAINTENANCE_MACHINE, 'owner_plan_sha256': MAINTENANCE_OWNER_PLAN,
+            'original_binding': original_binding, 'boot_id': boot_id, 'source_sha256': source_sha256,
+            'mac_snapshot_sha256': mac_snapshot_sha256, 'ready_sha256': ready_sha256}
+
+
+def recovery_binding(seed):
+    """Technical binding of the sole recovery context, not a new approval."""
+    hashes = {'original_binding', 'ready_sha256', 'source_sha256', 'artifact_sha256',
+              'mac_tail_sha256', 'host_tail_sha256', 'original_failure_sha256', 'fresh_state_sha256'}
+    require(type(seed) is dict and set(seed) == hashes | {'schema', 'transaction', 'machine',
+            'boot_id', 'owner_plan_sha256', 'original_status', 'unconfirmed_mac_tail'},
+            'RECOVERY_BINDING_SCHEMA')
+    require(seed['schema'] == 'TU1NZ_MAIN_SERVER_REV4_RECOVERY_ONCE' and
+            seed['transaction'] == 'public-rights-20261014-1' and
+            seed['machine'] == MAINTENANCE_MACHINE and seed['owner_plan_sha256'] == MAINTENANCE_OWNER_PLAN and
+            seed['original_status'] == 'FAILED_HOLD' and type(seed['boot_id']) is str and
+            re.fullmatch('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', seed['boot_id']) and
+            all(type(seed[k]) is str and re.fullmatch('[0-9a-f]{64}', seed[k]) for k in hashes) and
+            (seed['unconfirmed_mac_tail'] is None or seed['unconfirmed_mac_tail'] == seed['mac_tail_sha256']),
+            'RECOVERY_FIXED_BINDING')
+    return sha(canonical(seed))
+
+
+class RecoveryAdmissionChannel(LinkedRecords):
+    """Read-only transport while the fresh recovery binding is being formed.
+
+    The fixed entry is already spent on both sides. A current state hash
+    cannot exist before the actual state has been read. Therefore this stage
+    can check its entry/original custody and perform bound read-only HTTP,
+    but cannot emit an action record, attach a journal or enter owner work.
+    Once replaced by RecoveryLinkedRecords it cannot be used again.
+    """
+    def __init__(self, wire, *, original_binding, entry_sha256, mac_snapshot_sha256):
+        require(all(type(v) is str and re.fullmatch('[0-9a-f]{64}', v) for v in
+                    (original_binding, entry_sha256, mac_snapshot_sha256)), 'RECOVERY_ADMISSION_TRANSPORT_BINDING')
+        super().__init__(wire, original_binding)
+        self.context = {'original_binding': original_binding, 'entry_sha256': entry_sha256,
+                        'mac_snapshot_sha256': mac_snapshot_sha256}
+        self.sealed = False
+
+    def record(self, kind, value):
+        raise Hold('PUBLIC_OPERATOR_RECOVERY_EFFECT_BEFORE_FRESH_BINDING')
+
+    def attach(self, fd):
+        raise Hold('PUBLIC_OPERATOR_RECOVERY_JOURNAL_BEFORE_FRESH_BINDING')
+
+    def check(self):
+        require(not self.sealed and time.monotonic() < min(self.ceiling, self.wire.deadline),
+                'RECOVERY_ADMISSION_CHANNEL_CLOSED_OR_EXPIRED')
+        self.wire.send({'type': 'recovery_admission_check', **self.context})
+        require(self.wire.receive() == {'type': 'recovery_admission_current', **self.context},
+                'RECOVERY_ADMISSION_CUSTODY_CHANGED')
+
+    def http(self, endpoint):
+        self.check()
+        result = super().http(endpoint)
+        self.check()
+        return result
+
+    def finish(self):
+        self.check(); self.sealed = True
+
+
+class RecoveryLinkedRecords(MaintenanceLinkedRecords):
+    """An additive chain only; no handle to the original journal is accepted.
+
+    Host and Mac recovery-entry markers must already exist and be matched by
+    the admitted session. Failure at any point spends the one recovery entry.
+    This class does not reconnect, repair prior ACKs, or remove original HOLD.
+    """
+    def __init__(self, wire, seed):
+        self.seed = parse(canonical(seed))
+        super().__init__(wire, recovery_binding(self.seed), original_binding=self.seed['original_binding'],
+                         boot_id=self.seed['boot_id'], route='recovery-once')
+
+    def attach(self, fd):
+        require(self.sequence == 0 and not self.prior and self.host_fd is None,
+                'RECOVERY_CHAIN_ATTACH_ONCE')
+        expected = '/etc/tu1nz/public-web-bootstrap-r3/20261014-1/recovery-once/intents'
+        current = os.fstat(fd)
+        require(stat.S_ISDIR(current.st_mode) and current.st_uid == current.st_gid == 0 and
+                stat.S_IMODE(current.st_mode) == 0o700 and not os.listdir(fd) and
+                os.readlink('/proc/self/fd/'+str(fd)) == expected, 'RECOVERY_CHAIN_FIXED_NEW_DIRECTORY')
+        named = os.stat(expected, follow_symlinks=False)
+        require((current.st_dev, current.st_ino) == (named.st_dev, named.st_ino),
+                'RECOVERY_CHAIN_DIRECTORY_BINDING')
+        super().attach(fd)
+
+    def record(self, kind, value):
+        require(self.host_fd is not None and kind not in
+                ('maintenance_ready', 'flow_claim', 'flow_complete', 'prestate_read_witness'),
+                'RECOVERY_CANNOT_REWRITE_ORIGINAL_HISTORY')
+        if self.sequence == 0:
+            require(kind == 'recovery_context' and value == self.seed, 'RECOVERY_FIRST_CONTEXT_REQUIRED')
+        else:
+            require(kind != 'recovery_context', 'RECOVERY_CONTEXT_NO_REPLAY')
+        return super().record(kind, value)

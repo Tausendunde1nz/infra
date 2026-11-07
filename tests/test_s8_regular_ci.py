@@ -130,7 +130,8 @@ class RegularS8BindingTests(unittest.TestCase):
         raw=(ROOT/'.github/workflows/control-validation.yml').read_text()
         jobs=raw.split('jobs:\n',1)[1]
         self.assertEqual(re.findall(r'^  ([a-z0-9-]+):$',jobs,re.M),
-                         ['b-data-handoff','control-private-provenance','restore-contract'])
+                         ['mainserver-backup-native','mainserver-startlimit-native',
+                          'b-data-handoff','control-private-provenance','restore-contract'])
         before,restore=raw.split('  restore-contract:\n',1)
         for value in ('timeout-minutes: 10','timeout-minutes: 60','environment: control-private-ci',
                       'ref: ${{ github.event.pull_request.head.sha || github.sha }}'):

@@ -336,6 +336,7 @@ s.close()
         authority.external_dependencies={p:{'source':source,'sha256':a.sha(raw)} for p in aliases}
         authority.loader_bindings=dict.fromkeys(aliases,source)
         authority.external_identities=dict.fromkeys(aliases,(1,2,3,4));authority.replacement_active=False
+        authority.runtime=SimpleNamespace(files={(1,2)})  # already-fenced inputs in this component fixture
         authority.verify_external_libraries()
         read.assert_called_once_with(99,'SYNTHETIC.so')
         self.assertEqual(authority.check_loader_paths.call_count,2)
@@ -934,6 +935,179 @@ class BoundTransport(unittest.TestCase):
             with self.subTest(message=message),self.assertRaises(wire.Hold):sender.send_runtime_chunk(message)
         sender=client.Client(None,None,'UNIT',http_expectations=[])
         with self.assertRaises(wire.Hold):sender.send_runtime_chunk({'type':'runtime_chunk_request','index':0,'archive_sha256':wire.sha(b'X')})
+
+
+class UnitObservationBus(unittest.TestCase):
+    """Wire-shaped parser negatives only; actual CLI parity is mandatory native."""
+    def reader(self,items):
+        import ctypes,time
+        from unittest.mock import Mock
+        reader=replacement.ReadOnlyBus.__new__(replacement.ReadOnlyBus)
+        reader.bus=ctypes.c_void_p(3);reader.pid=os.getpid();reader.broken=False
+        reader.deadline=time.monotonic()+60;reader.lib=Mock();reader.libc=Mock()
+        lib=reader.lib;stack=[]
+        def tree(signature,value):
+            if signature=='as':return signature,[('s',v) for v in value]
+            if signature=='ay':return signature,[('y',v) for v in value]
+            if signature=='(uo)':return signature,list(zip(('u','o'),value))
+            if signature=='a(sasbttttuii)':
+                fields=('s','as','b','t','t','t','t','u','i','i')
+                return signature,[(signature[1:],[tree(k,v) for k,v in zip(fields,row)]) for row in value]
+            return signature,value
+        def call(bus,message,timeout,error,pointer):
+            pointer._obj.value=2
+            entries=[('{sv}',[('s',k),('v',[tree(sig,value)])]) for k,sig,value in items]
+            stack[:]=[[[('a{sv}',entries)],0]]
+            return 0
+        def current():return stack[-1][0][stack[-1][1]]
+        def enter(message,kind,contents):
+            signature,value=current();contents=contents.decode()
+            expected={'a':'a'+contents,'e':'{'+contents+'}','r':'('+contents+')','v':'v'}[kind.decode()]
+            if signature!=expected or kind==b'v' and value[0][0]!=contents:return -1
+            stack[-1][1]+=1;stack.append([value,0]);return 1
+        def end(message,complete):
+            return int(stack[-1][1]==len(stack[-1][0]))
+        def leave(message):
+            if not end(message,0) or len(stack)==1:return -1
+            stack.pop();return 0
+        def read(message,kind,pointer):
+            signature,value=current()
+            if signature!=kind.decode():return -1
+            pointer._obj.value=value.encode() if signature in ('s','o') else value
+            stack[-1][1]+=1;return 1
+        def skip(message,signature):
+            if current()[0]!=signature.decode():return -1
+            stack[-1][1]+=1;return 1
+        def message(bus,pointer,*args):pointer._obj.value=1;return 0
+        def blob(message,pointer,size):pointer._obj.value=9;size._obj.value=4096;return 0
+        lib.sd_bus_message_new_method_call.side_effect=message
+        lib.sd_bus_call.side_effect=call
+        lib.bus_message_get_blob.side_effect=blob
+        lib.sd_bus_message_enter_container.side_effect=enter
+        lib.sd_bus_message_exit_container.side_effect=leave
+        lib.sd_bus_message_at_end.side_effect=end
+        lib.sd_bus_message_read_basic.side_effect=read
+        lib.sd_bus_message_skip.side_effect=skip
+        for name in ('sd_bus_message_set_auto_start','sd_bus_message_set_allow_interactive_authorization',
+                     'sd_bus_message_append'):
+            getattr(lib,name).return_value=0
+        return reader
+
+    def test_observation_schema_matches_every_original_property(self):
+        from tu1nz_public_operator_observe import PROPERTIES,EXEC_PROPERTIES
+        self.assertEqual(set(replacement.ReadOnlyBus.SHOW_KEYS),set(PROPERTIES.split(','))-EXEC_PROPERTIES)
+
+    def test_fresh_batch_dispatch_flags_identity_and_original_field_parser(self):
+        import time
+        import tu1nz_public_operator_observe as observe
+        unit=replacement.UNITS[0]
+        items=[('Id','s',unit),('LoadState','s','loaded'),('Job','(uo)',[0,'/'])]
+        reader=self.reader(items);end=time.monotonic()+20
+        with patch.object(observe,'command',side_effect=AssertionError('NO_CLI_FALLBACK')):
+            first=observe.unit_properties((unit,),'LoadState,Job',end,reader=reader)
+            self.assertEqual(first[unit],{'Id':unit,'LoadState':'loaded','Job':''})
+            items[1]=('LoadState','s','not-found');items[2]=('Job','(uo)',[123,'/org/freedesktop/systemd1/job/123'])
+            second=observe.unit_properties((unit,),'LoadState,Job',end,reader=reader)
+            self.assertEqual(second[unit]['LoadState'],'not-found');self.assertEqual(second[unit]['Job'],'123')
+            self.assertEqual(reader.lib.sd_bus_call.call_count,2)
+            self.assertEqual(reader.lib.sd_bus_message_set_auto_start.call_args.args[1],0)
+            self.assertEqual(reader.lib.sd_bus_message_set_allow_interactive_authorization.call_args.args[1],0)
+            self.assertEqual(reader.lib.sd_bus_message_append.call_args.args[2].value,b'')
+            items[0]=('Id','s','FOREIGN.service')
+            with self.assertRaisesRegex(wire.Hold,'UNIT_PROFILE_UNKNOWN'):
+                observe.unit_properties((unit,),'LoadState,Job',end,reader=reader)
+            self.assertTrue(reader.broken)
+            with self.assertRaises(wire.Hold):reader.show_units((unit,),{'Id'},end)
+            self.assertEqual(reader.lib.sd_bus_call.call_count,3)
+
+    def test_missing_duplicate_and_wrong_types_deny_without_default(self):
+        import time
+        unit=replacement.UNITS[0]
+        cases=[[],[('Id','s',unit)],[('Id','s',unit),('Id','s',unit),('Job','(uo)',[0,'/'])],
+            [('Id','s',unit),('Job','s','')], [('Id','u',1),('Job','(uo)',[0,'/'])],
+            [('Id','s',unit),('Job','(uo)',[0,'/']),('Unknown','s','x'),('Unknown','s','x')]]
+        for items in cases:
+            with self.subTest(items=items):
+                reader=self.reader(items)
+                with self.assertRaises(wire.Hold):reader.show_units((unit,),{'Id','Job'},time.monotonic()+20)
+                self.assertTrue(reader.broken)
+                self.assertEqual(reader.lib.sd_bus_message_unref.call_count,2)
+                reader.libc.free.assert_called_once()
+        for key,signature in replacement.ReadOnlyBus.SHOW_KEYS.items():
+            if key=='Id':continue
+            items=[('Id','s',unit),(key,'u' if signature!='u' else 's',7 if signature!='u' else '7')]
+            with self.subTest(key=key):
+                reader=self.reader(items)
+                with self.assertRaises(wire.Hold):reader.show_units((unit,),{'Id',key},time.monotonic()+20)
+                self.assertTrue(reader.broken)
+
+    def test_nonempty_exec_retains_full_typed_hash_and_no_secret_output(self):
+        import time
+        import tu1nz_public_operator_observe as observe
+        row=['/bin/false',['SYNTHETIC_SECRET'],False,0,1,2,3,42,-1,2]
+        items=[(k,'a(sasbttttuii)',[row] if k=='ExecStop' else []) for k in observe.EXEC_PROPERTIES]
+        reader=self.reader(items)
+        expected=observe.typed_exec_properties(wire.canonical({'type':'a{sv}','data':[
+            {k:{'type':sig,'data':value} for k,sig,value in items}]}),observe.EXEC_PROPERTIES)
+        actual=observe.unit_exec_properties(replacement.UNITS[0],time.monotonic()+20,reader=reader)
+        self.assertEqual(actual,expected);self.assertNotIn('SYNTHETIC_SECRET',str(actual))
+        for bad in (items[:-1],[(k,'s','') for k in observe.EXEC_PROPERTIES]):
+            with self.subTest(bad=bad),self.assertRaises(wire.Hold):
+                observe.unit_exec_properties(replacement.UNITS[0],time.monotonic()+20,reader=self.reader(bad))
+
+    def test_typed_scalar_and_byte_array_representation(self):
+        import time
+        unit=replacement.UNITS[0]
+        items=[('Id','s',unit),('InvocationID','ay',[0,10,255]),('MainPID','u',2**32-1),
+               ('NeedDaemonReload','b',1),('RootDirectory','s','line\nbreak')]
+        reader=self.reader(items)
+        actual=reader.show_units((unit,),{x[0] for x in items},time.monotonic()+20).decode()
+        self.assertIn('InvocationID=000aff\n',actual)
+        self.assertIn('MainPID=4294967295\n',actual)
+        self.assertIn('NeedDaemonReload=yes\n',actual)
+        self.assertIn('RootDirectory=[unprintable]\n',actual)
+        items[3]=('NeedDaemonReload','b',2)
+        with self.assertRaises(wire.Hold):reader.show_units((unit,),{x[0] for x in items},time.monotonic()+20)
+
+    def test_one_batch_deadline_and_latched_expiry_during_parse(self):
+        unit=replacement.UNITS[0];items=[('Id','s',unit)]
+        for phase in ('before','call','parse','format'):
+            with self.subTest(phase=phase):
+                reader=self.reader(items);reader.deadline=600;now=[0]
+                with patch.object(replacement.time,'monotonic',side_effect=lambda:now[0]):
+                    if phase=='before':now[0]=120
+                    if phase=='call':
+                        original=reader.lib.sd_bus_call.side_effect
+                        def delayed(*args):
+                            result=original(*args);now[0]=21;return result
+                        reader.lib.sd_bus_call.side_effect=delayed
+                    if phase=='parse':
+                        original=reader.lib.sd_bus_message_read_basic.side_effect
+                        def delayed(*args):
+                            result=original(*args);now[0]=21;return result
+                        reader.lib.sd_bus_message_read_basic.side_effect=delayed
+                    if phase=='format':
+                        original=reader.show_value
+                        def delayed(*args):
+                            result=original(*args);now[0]=21;return result
+                        reader.show_value=delayed
+                    with self.assertRaises(wire.Hold):reader.show_units((unit,),{'Id'},120)
+                    self.assertEqual(reader.deadline,600);self.assertTrue(reader.broken)
+                    calls=reader.lib.sd_bus_call.call_count
+                    with self.assertRaises(wire.Hold):reader.show_units((unit,),{'Id'},500)
+                    self.assertEqual(reader.lib.sd_bus_call.call_count,calls)
+
+    def test_batches_keep_each_unit_and_share_twenty_second_budget(self):
+        units=replacement.UNITS[:2];reader=self.reader([]);reader.deadline=600;now=[0]
+        seen=[]
+        def properties(unit,interface,keys):
+            seen.append((unit,reader.deadline));now[0]+=11
+            return {'data':[{'Id':{'type':'s','data':unit}}]}
+        reader.properties=properties
+        with patch.object(replacement.time,'monotonic',side_effect=lambda:now[0]):
+            with self.assertRaises(wire.Hold):reader.show_units(units,{'Id'},120)
+        self.assertEqual(seen,[(units[0],20),(units[1],20)])
+        self.assertTrue(reader.broken);self.assertEqual(reader.deadline,600)
 
 
 if __name__=='__main__':unittest.main()

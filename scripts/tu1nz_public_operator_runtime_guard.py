@@ -52,7 +52,7 @@ def proc_text(path):
         return stream.read()
 
 
-def writer_task(root, targets, deadline):
+def writer_task(root, targets, deadline, *, allow_closed_unidentified_fd=False):
     """Measure one task's own file table, including unshared non-leaders."""
     root = str(root)
     raw = proc_text(root+'/stat'); tick = raw[raw.rfind(')')+2:].split()[19]
@@ -64,7 +64,13 @@ def writer_task(root, targets, deadline):
         for entry in entries:
             count += 1
             io.require(count <= 8192 and time.monotonic() < deadline, 'WRITER_DESCRIPTOR_BOUND_OR_DEADLINE')
-            s = entry.stat(follow_symlinks=True)
+            try:s = entry.stat(follow_symlinks=True)
+            except (FileNotFoundError, ProcessLookupError):
+                # Rev4 permits only a now CLOSED, previously unidentified FD.
+                # A live unreadable descriptor or any already observed target
+                # remains a hard failure. Never erase a detected Writer.
+                if not allow_closed_unidentified_fd or os.path.lexists(root+'/fd/'+entry.name):raise
+                continue
             if (s.st_dev, s.st_ino) in targets:
                 info = dict(x.split(':', 1) for x in proc_text(root+'/fdinfo/'+entry.name).splitlines() if ':' in x)
                 access = int(info['flags'].strip(), 8) & os.O_ACCMODE
@@ -118,6 +124,51 @@ def writer_check(targets, deadline):
             io.require(again[again.rfind(')')+2:].split()[19] == tick, 'WRITER_SUBJECT_CHANGED')
         except (OSError, ValueError, KeyError, IndexError):
             raise io.Hold('PUBLIC_OPERATOR_WRITER_VIEW_UNKNOWN') from None
+
+
+def current_writer_check(targets, deadline):
+    """Rev4 actual Writer census, tolerating only positively retired tasks/FDs.
+
+    Callers must bracket this with their live target fences. Every extant task
+    receives both bounded passes when present in both. No PID/UID/TCB exemption,
+    live read fallback, known writable-FD skip or negative proof from churn.
+    The Owner supervisor and its lease/file-table contract are unchanged.
+    """
+    io.require(sys.platform == 'linux' and hasattr(os, 'O_NOATIME'), 'CURRENT_WRITER_NATIVE_REQUIRED')
+    pids = [n for n in os.listdir('/proc') if n.isdecimal()]
+    io.require(len(pids) <= 8192, 'CURRENT_WRITER_PROCESS_BOUND')
+    tasks_seen = 0
+    for name in pids:
+        io.require(time.monotonic() < deadline, 'CURRENT_WRITER_DEADLINE')
+        root = '/proc/'+name
+        try:
+            raw = proc_text(root+'/stat'); tick = raw[raw.rfind(')')+2:].split()[19]
+            fields = dict(x.split(':', 1) for x in proc_text(root+'/status').splitlines() if ':' in x)
+            if fields.get('Kthread', '').strip() == '1':continue
+            seen = set()
+            for _ in range(2):
+                names = sorted(os.listdir(root+'/task'))
+                io.require(name in names and 0 < len(names) <= 8192 and all(n.isdecimal() for n in names),
+                           'CURRENT_WRITER_TASK_SET_UNKNOWN')
+                tasks_seen += len(names)
+                io.require(tasks_seen <= 65536, 'CURRENT_WRITER_TOTAL_TASK_BOUND')
+                for task in names:
+                    path = root+'/task/'+task
+                    try:writer_task(path, targets, deadline, allow_closed_unidentified_fd=True)
+                    except (FileNotFoundError, ProcessLookupError):
+                        # A descriptor/permission/map failure in a LIVE task is
+                        # still unknown. Absence retires the whole task only.
+                        io.require(not os.path.lexists(path), 'CURRENT_WRITER_LIVE_TASK_VIEW_UNKNOWN')
+                        seen.discard(task); continue
+                    seen.add(task)
+            live = set(os.listdir(root+'/task'))
+            io.require(name in live and live <= seen, 'CURRENT_WRITER_UNMEASURED_LIVE_TASK')
+            raw = proc_text(root+'/stat')
+            io.require(raw[raw.rfind(')')+2:].split()[19] == tick, 'CURRENT_WRITER_SUBJECT_CHANGED')
+        except (FileNotFoundError, ProcessLookupError):
+            io.require(not os.path.lexists(root), 'CURRENT_WRITER_LIVE_PROCESS_VIEW_UNKNOWN')
+        except (OSError, ValueError, KeyError, IndexError):
+            raise io.Hold('PUBLIC_OPERATOR_CURRENT_WRITER_VIEW_UNKNOWN') from None
 
 
 class RuntimeFence:

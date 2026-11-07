@@ -27,7 +27,7 @@ from contextlib import contextmanager
 
 import tu1nz_public_operator_io as io
 import tu1nz_public_operator_context as context
-from tu1nz_public_operator_runtime_guard import RuntimeFence, writer_check
+from tu1nz_public_operator_runtime_guard import RuntimeFence, writer_check, current_writer_check
 
 UNITS = ('tu1nz-adult-public-s7.service', 'tu1nz-adult-public-s8-landing.service',
          'tu1nz-adult-public-s10-wms.service')
@@ -100,8 +100,10 @@ def typed_exec_properties(raw, wanted):
     return result
 
 
-def unit_exec_properties(unit, deadline):
+def unit_exec_properties(unit, deadline, *, reader=None):
     io.require(unit in UNITS,'UNIT_EXEC_PROPERTY_SCOPE')
+    if reader is not None:
+        return typed_exec_properties(io.canonical(reader.exec_properties(unit,deadline)),EXEC_PROPERTIES)
     path='/org/freedesktop/systemd1/unit/'+''.join(
         c if c.isascii() and c.isalnum() else '_'+format(ord(c),'02x') for c in unit)
     row=command(['/usr/bin/busctl','--system','--auto-start=no','--allow-interactive-authorization=no',
@@ -111,7 +113,7 @@ def unit_exec_properties(unit, deadline):
     return typed_exec_properties(row.stdout,EXEC_PROPERTIES)
 
 
-def unit_properties(units, properties, deadline):
+def unit_properties(units, properties, deadline, *, reader=None):
     """One fresh bounded manager read, never a cache across checks/actions.
 
     Keep every requested object/property, reject duplicates/missing/foreign
@@ -127,11 +129,17 @@ def unit_properties(units, properties, deadline):
     exec_keys=keys & EXEC_PROPERTIES
     plain_keys=keys-EXEC_PROPERTIES
     io.require(not exec_keys or set(units)<=set(UNITS),'UNIT_EXEC_PROPERTY_SCOPE')
-    r = command(['/usr/bin/systemctl', 'show', *units, '--no-pager',
-                 '--property='+','.join(sorted(plain_keys))], deadline)
-    io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
+    if reader is None:
+        r = command(['/usr/bin/systemctl', 'show', *units, '--no-pager',
+                     '--property='+','.join(sorted(plain_keys))], deadline)
+        io.require(r.returncode == 0, 'UNIT_READ_UNKNOWN')
+        raw = r.stdout
+    else:
+        # Same field/block validator below. No cache or fallback to another
+        # transport after an uncertain read; each batch is freshly measured.
+        raw = reader.show_units(units,plain_keys,deadline)
     result = {}
-    for block in r.stdout.decode().strip().split('\n\n'):
+    for block in raw.decode().strip().split('\n\n'):
         value = {}
         for line in block.splitlines():
             io.require('=' in line, 'UNIT_PROFILE_UNKNOWN')
@@ -144,17 +152,18 @@ def unit_properties(units, properties, deadline):
         result[identity] = value
     io.require(set(result) == set(units), 'UNIT_PROFILE_UNKNOWN')
     for unit in units if exec_keys else ():
-        observed=unit_exec_properties(unit,deadline)
+        observed=unit_exec_properties(unit,deadline,reader=reader)
         result[unit].update({k:observed[k] for k in exec_keys})
         io.require(set(result[unit])==keys,'UNIT_PROFILE_UNKNOWN')
     return result
 
 
-def unit_rows(units, deadline):
+def unit_rows(units, deadline, *, reader=None):
     # Legacy/actor reads do not make a no-hook admission decision. R5's
     # actual extra_unit_contract reads the five typed arrays once per fresh
     # unit protection check, not again in each unrelated actor census.
-    result = unit_properties(units, ','.join(p for p in PROPERTIES.split(',') if p not in EXEC_PROPERTIES), deadline)
+    result = unit_properties(units, ','.join(p for p in PROPERTIES.split(',') if p not in EXEC_PROPERTIES), deadline,
+                             reader=reader)
     for value in result.values():
         io.require(value['LoadState'] == 'loaded', 'UNIT_PROFILE_UNKNOWN')
         io.require(re.fullmatch('0|[1-9][0-9]{0,9}', value['NRestarts']) and
@@ -326,6 +335,131 @@ def process(pid):
     return out
 
 
+class CurrentProcessExited(Exception):
+    """No current subject remains; never a negative proof for a live PID."""
+
+
+def operator_session_start(*, deadline):
+    """Own kernel session for this coordinator and its synchronous helpers.
+
+    No service/unit/cgroup creation, signal, reattach or background process.
+    A leader which cannot establish its own session denies BEFORE the claim.
+    systemd probe units remain separately bound by their fixed probe contract.
+    """
+    context.native(); context.deadline_check(deadline)
+    pid = os.getpid(); tick = starttime(pid)
+    io.require(pid > 1, 'OPERATOR_SESSION_INIT_FORBIDDEN')
+    if os.getsid(0) != pid:os.setsid()
+    io.require(os.getsid(0) == os.getpgrp() == pid and starttime(pid) == tick,
+               'OPERATOR_PRIVATE_SESSION_UNKNOWN')
+    context.deadline_check(deadline)
+    return {'pid': pid, 'starttime': tick, 'session': pid, 'process_group': pid}
+
+
+def operator_session_members(session, *, deadline):
+    """Current kernel membership, including orphans after coordinator exit.
+
+    A closed lock alone is not this proof. No command arguments, environment,
+    process memory or unrelated data are read; no process is signalled here.
+    """
+    context.native(); context.number(session, minimum=2)
+    names = [n for n in os.listdir('/proc') if n.isdecimal()]
+    io.require(len(names) <= 8192, 'OPERATOR_SESSION_PROCESS_BOUND')
+    members = []
+    for name in names:
+        context.deadline_check(deadline); path = '/proc/'+name+'/stat'
+        try:
+            raw = context.read_proc(path, 32768, deadline=deadline).decode()
+            fields = raw[raw.rfind(')')+2:].split()
+            io.require(len(fields) >= 20 and fields[3].isdecimal() and fields[19].isdecimal(),
+                       'OPERATOR_SESSION_PROC_UNKNOWN')
+            if int(fields[3]) != session:continue
+            again = context.read_proc(path, 32768, deadline=deadline).decode()
+            values = again[again.rfind(')')+2:].split()
+            io.require(len(values) >= 20 and values[3] == fields[3] and values[19] == fields[19],
+                       'OPERATOR_SESSION_MEMBER_CHANGED')
+            members.append({'pid': int(name), 'starttime': fields[19]})
+        except (FileNotFoundError, ProcessLookupError):
+            io.require(not os.path.lexists('/proc/'+name), 'OPERATOR_SESSION_LIVE_VIEW_UNKNOWN')
+    return sorted(members, key=lambda r: r['pid'])
+
+
+def current_process(pid, *, deadline):
+    """R4 current administration metadata, with no argv/env/code publication read.
+
+    Actual new application/owner rights still use strict process()/threads_check().
+    This distinct reader measures present administrative task rights; it does
+    not demand an unchanged historical worker list. Fully vanished workers
+    cannot grant a negative proof for any still-live task. Unreadable live or
+    unmeasured newly appearing tasks remain UNKNOWN.
+    """
+    context.native(); context.deadline_check(deadline)
+    lifetime = None; root = '/proc/'+str(pid)
+    try:
+        lifetime = context.ProcessLifetime(pid, deadline)
+        first = starttime(pid)
+        status = dict(x.split(':', 1) for x in context.read_proc(
+            root+'/status', deadline=deadline).decode().splitlines() if ':' in x)
+        if status.get('Kthread', '').strip() == '1':
+            lifetime.check()
+            io.require(starttime(pid) == first, 'CURRENT_KERNEL_TASK_CHANGED')
+            return {'pid': pid, 'starttime': first, 'kernel_thread': 1}
+        tick, security_row = thread_security(root)
+        io.require(tick == first, 'CURRENT_CONTEXT_LEADER_CHANGED')
+        exe = os.readlink(root+'/exe')
+        io.require(exe.startswith('/') and not exe.endswith(' (deleted)'), 'CURRENT_CONTEXT_EXECUTABLE_UNKNOWN')
+        row = {'pid': pid, 'starttime': first, 'kernel_thread': 0, 'exe': exe,
+               'ppid': int(status['PPid'].strip()), **security_row}
+        tasks = {}; seen = set(); observations = []
+        # Two bounded censuses, not a loop waiting for a convenient GREEN set.
+        for _ in range(2):
+            context.deadline_check(deadline); lifetime.check()
+            names = sorted(os.listdir(root+'/task'))
+            io.require(str(pid) in names and 0 < len(names) <= 8192 and
+                       all(n.isdecimal() for n in names), 'CURRENT_CONTEXT_TASK_BOUND')
+            for name in names:
+                context.deadline_check(deadline)
+                seen.add(name)
+                io.require(len(seen) <= 8192, 'CURRENT_CONTEXT_TASK_CHURN_BOUND')
+                try:
+                    task_tick, actual = thread_security(root+'/task/'+name)
+                except (FileNotFoundError, ProcessLookupError):
+                    # No broad OSError/permission fallback; only a now absent
+                    # task under this same surviving thread group can retire.
+                    lifetime.check()
+                    io.require(not os.path.lexists(root+'/task/'+name), 'CURRENT_CONTEXT_TASK_VIEW_UNKNOWN')
+                    tasks.pop(name, None)
+                    continue
+                tasks[name] = {'starttime': task_tick, 'security': actual}
+                # Retain BOTH samples, including workers that later retire.
+                # A later narrower/absent task cannot erase observed excess.
+                observations.append({'tid': int(name), 'starttime': task_tick, 'security': actual})
+                context.current_task_check({**row, 'task_observations': observations[-1:]})
+        lifetime.check()
+        final_names = set(os.listdir(root+'/task'))
+        io.require(str(pid) in final_names and final_names <= set(tasks), 'CURRENT_CONTEXT_UNMEASURED_LIVE_TASK')
+        tasks = {k: tasks[k] for k in sorted(final_names)}
+        final_tick, final_security = thread_security(root)
+        io.require(final_tick == first and final_security == security_row and
+                   os.readlink(root+'/exe') == exe, 'CURRENT_CONTEXT_LEADER_DRIFT')
+        row['current_tasks'] = tasks
+        row['task_observations'] = observations
+        context.current_task_check(row)
+        lifetime.check(); context.deadline_check(deadline)
+        return row
+    except (FileNotFoundError, ProcessLookupError) as error:
+        io.require(not os.path.lexists(root), 'CURRENT_LIVE_PROCESS_VIEW_UNKNOWN')
+        raise CurrentProcessExited() from error
+    except io.Hold as error:
+        # Only the exact kernel-lifetime exit and actual absent proc directory
+        # may retire. Never erase a prior task/Writer/permission failure.
+        if error.primary.endswith('_CONTEXT_MEMBER_EXITED') and not os.path.lexists(root):
+            raise CurrentProcessExited() from error
+        raise
+    finally:
+        if lifetime is not None:lifetime.close()
+
+
 def initial_profile(pid, tick, deadline):
     """Read ONE already-requested, identity-bound start while setup settles.
 
@@ -376,8 +510,8 @@ class Authority:
                     'policy_roots', 'broker_sockets', 'broker_tcp', 'source_release',
                     'http', 'database', 'nginx_groups', 'source_origin_receipts', 'unit_search_sha256'}
         contextual = baseline.get('schema') == context.BASELINE
-        io.require(set(baseline) == required | ({'contexts'} if contextual else set()) and
-                   baseline['schema'] in ('TU1NZ_PUBLIC_HOST_BASELINE_V1',context.BASELINE),
+        io.require(set(baseline) == required | self.baseline_extra_fields(baseline) and
+                   baseline['schema'] in self.baseline_schemas(),
                    'BASELINE_SCHEMA')
         io.require(baseline['machine_sha256'] == machine and baseline['source_origin_receipts'], 'BASELINE_HOST_ORIGIN')
         origins = baseline['source_origin_receipts']
@@ -399,8 +533,7 @@ class Authority:
         io.require(set(baseline['policy_roots']) == {'/etc/polkit-1/rules.d', '/usr/share/polkit-1/rules.d',
                    '/etc/sudoers.d', '/etc/dbus-1/system.d', '/usr/share/dbus-1/system.d'},
                    'INCOMPLETE_POLICY_ROOTS')
-        io.require(all(a['origin_sha256'] in baseline['source_origin_receipts'] for a in baseline['actors']),
-                   'ADMIN_ROLE_ORIGIN_UNBOUND')
+        self.validate_administrative_profiles(baseline)
         io.require({'/etc/passwd', '/etc/group', '/etc/nsswitch.conf', '/etc/sudoers', '/etc/hosts'} <=
                    set(baseline['files']), 'IDENTITY_OR_POLICY_INPUT_UNBOUND')
         libc = ctypes.CDLL(None, use_errno=True)
@@ -421,9 +554,40 @@ class Authority:
         self.check_files()
         if contextual:
             self.contexts = context.ContextBindings(baseline,deadline,process)
-        io.require(self.unit_search() == baseline['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
-        self.initial_units = unit_rows(UNITS, self.deadline)
+        self.initial_current_admission()
+
+    def initial_current_admission(self):
+        io.require(self.unit_search() == self.b['unit_search_sha256'], 'UNIT_SEARCH_BASELINE_CHANGED')
+        self.initial_units = self.read_unit_rows(UNITS)
         self.check(stop_only=True)
+
+    def baseline_schemas(self):
+        return ('TU1NZ_PUBLIC_HOST_BASELINE_V1', context.BASELINE)
+
+    def baseline_extra_fields(self, baseline):
+        return {'contexts'} if baseline.get('schema') == context.BASELINE else set()
+
+    def validate_administrative_profiles(self, baseline):
+        io.require(all(a['origin_sha256'] in baseline['source_origin_receipts'] for a in baseline['actors']),
+                   'ADMIN_ROLE_ORIGIN_UNBOUND')
+
+    def validate_file_binding(self, expected):
+        io.require(set(expected) == {'sha256', 'uid', 'gid', 'mode', 'attrs', 'flags', 'origin_sha256'} and
+                   re.fullmatch('[a-f0-9]{64}', expected['origin_sha256']) and
+                   expected['origin_sha256'] in self.b['source_origin_receipts'], 'FILE_ORIGIN_UNBOUND')
+
+    def administrative_process(self, pid):
+        return process(pid)
+
+    def check_writers(self, targets):
+        writer_check(targets, self.deadline)
+
+    def sudo_subject_name(self, uid):
+        raw, _ = self.paths.read('/etc/passwd')
+        names = [x.split(':')[0] for x in raw.decode().splitlines() if len(x.split(':')) == 7 and
+                 x.split(':')[2] == str(uid)]
+        io.require(len(names) == 1 and names[0] in ('www-data', 'chatops'), 'SUDO_SUBJECT_NAME_UNKNOWN')
+        return names[0]
 
     def release_fields(self):
         return {'probe_dependencies','python_binary','runtime_reference'}
@@ -499,62 +663,7 @@ class Authority:
                     if name == 's7_database_dsn': dsn = raw.strip().decode()
                 finally:
                     os.close(fd)
-            # A fixed SELECT-only transaction under the actual required peer
-            # identity. DSN never occurs in argv, records or private errors.
-            parsed = urllib.parse.urlsplit(dsn)
-            query_params = urllib.parse.parse_qsl(parsed.query, strict_parsing=True)
-            options = dict(query_params)
-            io.require(parsed.scheme in ('postgresql', 'postgres') and not parsed.fragment and
-                       len(options) == len(query_params) and set(options) <= {'host', 'port', 'user', 'password', 'dbname'},
-                       'DB_AUTHENTICATION_PROFILE_UNKNOWN')
-            host = options.get('host', urllib.parse.unquote(parsed.hostname or '') or '/var/run/postgresql')
-            database = options.get('dbname', urllib.parse.unquote(parsed.path.lstrip('/')))
-            user = options.get('user', urllib.parse.unquote(parsed.username or '') or 'chatops')
-            password = options.get('password', urllib.parse.unquote(parsed.password or ''))
-            port = options.get('port', str(parsed.port or 5432))
-            io.require(host in ('/var/run/postgresql', '/run/postgresql', 'localhost', '127.0.0.1', '::1') and
-                       port.isdecimal() and 1 <= int(port) <= 65535 and database == self.b['database']['database'] and
-                       user == self.b['database']['role'] and all('\x00' not in v and '\n' not in v
-                       for v in (database, user, password)), 'DB_LOCAL_TARGET_OR_IDENTITY_UNKNOWN')
-            def peer():
-                libc = ctypes.CDLL(None, use_errno=True)
-                last = int(Path('/proc/sys/kernel/cap_last_cap').read_text())
-                if not 0 <= last <= 63: os._exit(126)
-                for cap in range(last+1):
-                    if libc.prctl(24, cap, 0, 0, 0) != 0: os._exit(126)
-                if libc.prctl(38, 1, 0, 0, 0) != 0: os._exit(126)
-                os.setgroups([]); os.setgid(1001); os.setuid(1001)
-            if host.startswith('/'):
-                socket_name = host+'/.s.PGSQL.'+port
-                runtime_socket = Path('/proc')/str(row['pid'])/'root'/socket_name.lstrip('/')
-                host_stat, runtime_stat = os.stat(socket_name), os.stat(runtime_socket)
-                io.require(stat.S_ISSOCK(host_stat.st_mode) and
-                           (host_stat.st_dev, host_stat.st_ino) == (runtime_stat.st_dev, runtime_stat.st_ino),
-                           'DB_RUNTIME_SOCKET_NOT_SAME_OBJECT')
-            query = ("BEGIN READ ONLY; SET LOCAL statement_timeout='2s'; "
-                     "SELECT current_user,current_database(),current_setting('transaction_read_only'),"
-                     "has_table_privilege(current_user,'commercial_s7_waitlist','SELECT'),"
-                     "has_table_privilege(current_user,'commercial_s7_analytics_events','SELECT'); "
-                     "SELECT rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls "
-                     "FROM pg_roles WHERE rolname=current_user; "
-                     "SELECT EXISTS(SELECT 1 FROM commercial_s7_waitlist LIMIT 1),"
-                     "EXISTS(SELECT 1 FROM commercial_s7_analytics_events LIMIT 1); ROLLBACK;")
-            result = command(['/usr/bin/psql', '-X', '-w', '-q', '-A', '-t', '-F', '|',
-                              '--set=ON_ERROR_STOP=1'], self.deadline, data=query.encode(), preexec=peer,
-                             extra_env={'PGDATABASE': database, 'PGUSER': user, 'PGHOST': host, 'PGPORT': port,
-                                        'PGPASSWORD': password, 'PGCONNECT_TIMEOUT': '2',
-                                        'PGAPPNAME': 'tu1nz-readonly-public-admission',
-                                        'PGOPTIONS': '-c default_transaction_read_only=on',
-                                        'PGPASSFILE': '/proc/self/fd/-1'})
-            io.require(result.returncode == 0 and not result.stderr, 'DB_PEER_READ_UNKNOWN')
-            lines = result.stdout.decode().splitlines()
-            wanted = '|'.join((self.b['database']['role'], self.b['database']['database'], 'on', 't', 't'))
-            io.require(len(lines) == 3 and lines[0] == wanted and lines[1] == 'f|f|f|f|f' and
-                       lines[2] in ('t|t', 't|f', 'f|t', 'f|f'),
-                       'DB_IDENTITY_OR_READ_RED')
-            proof['data']['database'] = {'peer_uid_gid': 1001, 'identity_readonly_select': lines[0].split('|'),
-                                        'actual_role_flags': lines[1].split('|'),
-                                        'query_result_sha256': io.sha(result.stdout), 'provider_data_emitted': False}
+            proof['data']['database'] = self.database_readonly(dsn, runtime_pid=row['pid'])
         else:
             root = Path('/proc')/str(row['pid'])/'root/var/lib/tu1nz-adult-public-s9'
             for name in ('landing-aggregates.json',) if unit == UNITS[1] else (
@@ -577,6 +686,73 @@ class Authority:
         io.require(before['InvocationID'] == after['InvocationID'] and before['MainPID'] == after['MainPID'] and
                    starttime(row['pid']) == row['starttime'], 'FUNCTION_INVOCATION_CHANGED')
         return proof
+
+    def database_readonly(self, dsn, *, runtime_pid=None, require_other_connections_absent=False):
+        # A fixed SELECT-only transaction under the actual required peer
+        # identity. DSN never occurs in argv, records or private errors.
+        parsed = urllib.parse.urlsplit(dsn)
+        query_params = urllib.parse.parse_qsl(parsed.query, strict_parsing=True)
+        options = dict(query_params)
+        io.require(parsed.scheme in ('postgresql', 'postgres') and not parsed.fragment and
+                   len(options) == len(query_params) and set(options) <= {'host', 'port', 'user', 'password', 'dbname'},
+                   'DB_AUTHENTICATION_PROFILE_UNKNOWN')
+        host = options.get('host', urllib.parse.unquote(parsed.hostname or '') or '/var/run/postgresql')
+        database = options.get('dbname', urllib.parse.unquote(parsed.path.lstrip('/')))
+        user = options.get('user', urllib.parse.unquote(parsed.username or '') or 'chatops')
+        password = options.get('password', urllib.parse.unquote(parsed.password or ''))
+        port = options.get('port', str(parsed.port or 5432))
+        io.require(host in ('/var/run/postgresql', '/run/postgresql', 'localhost', '127.0.0.1', '::1') and
+                   port.isdecimal() and 1 <= int(port) <= 65535 and database == self.b['database']['database'] and
+                   user == self.b['database']['role'] and all('\x00' not in v and '\n' not in v
+                   for v in (database, user, password)), 'DB_LOCAL_TARGET_OR_IDENTITY_UNKNOWN')
+        def peer():
+            libc = ctypes.CDLL(None, use_errno=True)
+            last = int(Path('/proc/sys/kernel/cap_last_cap').read_text())
+            if not 0 <= last <= 63: os._exit(126)
+            for cap in range(last+1):
+                if libc.prctl(24, cap, 0, 0, 0) != 0: os._exit(126)
+            if libc.prctl(38, 1, 0, 0, 0) != 0: os._exit(126)
+            os.setgroups([]); os.setgid(1001); os.setuid(1001)
+        if host.startswith('/') and runtime_pid is not None:
+            socket_name = host+'/.s.PGSQL.'+port
+            runtime_socket = Path('/proc')/str(runtime_pid)/'root'/socket_name.lstrip('/')
+            host_stat, runtime_stat = os.stat(socket_name), os.stat(runtime_socket)
+            io.require(stat.S_ISSOCK(host_stat.st_mode) and
+                       (host_stat.st_dev, host_stat.st_ino) == (runtime_stat.st_dev, runtime_stat.st_ino),
+                       'DB_RUNTIME_SOCKET_NOT_SAME_OBJECT')
+        query = ("BEGIN READ ONLY; SET LOCAL statement_timeout='2s'; "
+                 "SELECT current_user,current_database(),current_setting('transaction_read_only'),"
+                 "has_table_privilege(current_user,'commercial_s7_waitlist','SELECT'),"
+                 "has_table_privilege(current_user,'commercial_s7_analytics_events','SELECT'); "
+                 "SELECT rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls "
+                 "FROM pg_roles WHERE rolname=current_user; "
+                 "SELECT EXISTS(SELECT 1 FROM commercial_s7_waitlist LIMIT 1),"
+                 "EXISTS(SELECT 1 FROM commercial_s7_analytics_events LIMIT 1); ")
+        if require_other_connections_absent:
+            # A single current negative census, never a claim of a lock or of
+            # no writer throughout the interruption. Do not hide sessions
+            # whose query/activity details this role cannot inspect.
+            query += ("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                      "AND pid<>pg_backend_pid(); ")
+        query += 'ROLLBACK;'
+        result = command(['/usr/bin/psql', '-X', '-w', '-q', '-A', '-t', '-F', '|',
+                          '--set=ON_ERROR_STOP=1'], self.deadline, data=query.encode(), preexec=peer,
+                         extra_env={'PGDATABASE': database, 'PGUSER': user, 'PGHOST': host, 'PGPORT': port,
+                                    'PGPASSWORD': password, 'PGCONNECT_TIMEOUT': '2',
+                                    'PGAPPNAME': 'tu1nz-readonly-public-admission',
+                                    'PGOPTIONS': '-c default_transaction_read_only=on',
+                                    'PGPASSFILE': '/proc/self/fd/-1'})
+        io.require(result.returncode == 0 and not result.stderr, 'DB_PEER_READ_UNKNOWN')
+        lines = result.stdout.decode().splitlines()
+        wanted = '|'.join((self.b['database']['role'], self.b['database']['database'], 'on', 't', 't'))
+        io.require(len(lines) == (4 if require_other_connections_absent else 3) and
+                   (not require_other_connections_absent or lines[3] == '0') and
+                   lines[0] == wanted and lines[1] == 'f|f|f|f|f' and
+                   lines[2] in ('t|t', 't|f', 'f|t', 'f|f'),
+                   'DB_IDENTITY_OR_READ_RED')
+        return {'peer_uid_gid': 1001, 'identity_readonly_select': lines[0].split('|'),
+                                    'actual_role_flags': lines[1].split('|'),
+                                    'query_result_sha256': io.sha(result.stdout), 'provider_data_emitted': False}
 
     def listener_binding(self, row, contract, *, allow_initial_unbound=False):
         host, port = contract['bind_host'], contract['bind_port']
@@ -638,9 +814,7 @@ class Authority:
                        'BASELINE_READ_SCOPE')
             io.require(time.monotonic() < self.deadline, 'BASELINE_READ_DEADLINE')
             raw, row = self.paths.d.stable_file(self.paths.get(str(pp.parent)), pp.name)
-            io.require(set(expected) == {'sha256', 'uid', 'gid', 'mode', 'attrs', 'flags', 'origin_sha256'} and
-                       re.fullmatch('[a-f0-9]{64}', expected['origin_sha256']) and
-                       expected['origin_sha256'] in self.b['source_origin_receipts'], 'FILE_ORIGIN_UNBOUND')
+            self.validate_file_binding(expected)
             io.require(io.sha(raw) == expected['sha256'] and all(row[k] == expected[k] for k in
                        ('uid', 'gid', 'mode', 'attrs', 'flags')), 'SOURCE_OR_INPUT_DRIFT')
             identity = (row['device'], row['inode'], row['mtime_ns'], row['ctime_ns'])
@@ -659,12 +833,18 @@ class Authority:
                        'NUMERIC_NSS_SUBJECT_BINDING_UNKNOWN')
         self.paths.check()  # no successful return with queued loss/swap/drift
 
+    def observation_reader(self):
+        return None  # R5 alone supplies its already authenticated provider.
+
+    def read_unit_rows(self, units):
+        return unit_rows(units,self.deadline,reader=self.observation_reader())
+
     def unit(self, unit):
         io.require(unit in UNITS, 'UNIT_SCOPE')
-        return unit_rows((unit,), self.deadline)[unit]
+        return self.read_unit_rows((unit,))[unit]
 
     def units_check(self, *, stop_only):
-        rows = unit_rows(UNITS, self.deadline)
+        rows = self.read_unit_rows(UNITS)
         # Gather only the same four permitted dependencies, freshly measured
         # in this check. No dependency is inferred healthy from the baseline.
         dependency_names = set()
@@ -672,16 +852,13 @@ class Authority:
             dependency_names.update(set(value['Requires'].split()) & {'system.slice', 'sysinit.target'})
             dependency_names.update(set(value['Wants'].split()) & {'network-online.target', 'tmp.mount'})
         dependencies = (unit_properties(sorted(dependency_names),
-            'LoadState,StopWhenUnneeded,ActiveState,Job', self.deadline) if dependency_names else {})
+            'LoadState,StopWhenUnneeded,ActiveState,Job', self.deadline,
+            reader=self.observation_reader()) if dependency_names else {})
         for unit in UNITS:
             value = rows[unit]
             self.extra_unit_contract(unit, value, stop_only=stop_only)
             expected = self.b['unit_files'][unit]
-            io.require(value['FragmentPath'] == expected['fragment'] and
-                       not value['Job'] and value['NeedDaemonReload'] == 'no' and
-                       value['KillMode'] == 'control-group', 'UNIT_CONTROL_DRIFT_OR_JOB')
-            io.require(set(value['DropInPaths'].split()) == set(expected['dropins']) | self.own_dropins[unit],
-                       'FOREIGN_OR_MISSING_EFFECTIVE_DROPIN')
+            self.unit_configuration_check(unit, value, expected)
             for relation in ('RequiredBy', 'BoundBy', 'ConsistsOf', 'PropagatesStopTo', 'StopPropagatedFrom'):
                 io.require(set(value[relation].split()) <= set(UNITS), 'FOREIGN_STOP_IMPACT')
             explicit_requires = set() if unit == UNITS[0] else {UNITS[0]}
@@ -717,35 +894,47 @@ class Authority:
                 io.require(key in value and (set(value[key].split()) == set(expected_value.split())
                            if unordered else value[key] == expected_value), 'UNIT_DEPENDENCY_OR_POLICY_CHANGED')
             current = process(int(value['MainPID'])) if int(value['MainPID']) else None
-            if current is not None:
-                io.require(value['ControlGroup'] == '/system.slice/'+unit and
-                           current['cgroup'] == '0::'+value['ControlGroup'], 'UNIT_PROCESS_CGROUP_BINDING')
-            if unit in self.runtime_invocations and unit not in self.stopped:
-                io.require(value['NRestarts'] == '0' and current is not None and value['ActiveState'] == 'active' and
-                           (value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
-                           'ACCEPTED_FIRST_INVOCATION_OR_RESTART_COUNTER_CHANGED')
-            if unit in self.stopped:
-                io.require(value['ActiveState'] == 'inactive' and current is None and self.empty(unit),
-                           'UNIT_NOT_QUIET')
-            elif unit in self.rights:
-                io.require(value['ActiveState'] == 'active' and current is not None, 'START_NOT_ACTIVE')
-                io.require((value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
-                           'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
-                self.rights_check(unit, current)
-            elif stop_only:
-                io.require(value['ActiveState'] == 'active' and current is not None and
-                           current['uid'] == current['gid'] == [1001]*4 and current['nnp'] == 1 and
-                           not any(current['caps'][k] for k in ('CapPrm', 'CapEff', 'CapAmb')) and
-                           current['namespaces']['user'] == os.readlink('/proc/self/ns/user'),
-                           'STOP_TARGET_STATE_CHANGED')
-                if unit in self.targets:
-                    io.require((current['pid'], current['starttime']) == self.targets[unit], 'STOP_TARGET_CHANGED')
-                self.targets[unit] = (current['pid'], current['starttime'])
-                self.original_profiles.setdefault(unit, {k: current[k] for k in
-                    ('uid', 'gid', 'groups', 'caps', 'nnp', 'uid_map', 'gid_map', 'setgroups')})
-                self.legacy_contexts[unit] = {k: current[k] for k in ('uid', 'gid', 'groups', 'nnp')}
-                self.legacy_contexts[unit]['caps'] = {k: format(current['caps'][k], '016x')
-                                                    for k in ('CapInh', 'CapPrm', 'CapEff', 'CapAmb')}
+            self.unit_process_check(unit, value, current, stop_only=stop_only)
+        self.stop_contexts_check(stop_only=stop_only)
+
+    def unit_configuration_check(self, unit, value, expected):
+        io.require(value['FragmentPath'] == expected['fragment'] and
+                   not value['Job'] and value['NeedDaemonReload'] == 'no' and
+                   value['KillMode'] == 'control-group', 'UNIT_CONTROL_DRIFT_OR_JOB')
+        io.require(set(value['DropInPaths'].split()) == set(expected['dropins']) | self.own_dropins[unit],
+                   'FOREIGN_OR_MISSING_EFFECTIVE_DROPIN')
+
+    def unit_process_check(self, unit, value, current, *, stop_only):
+        if current is not None:
+            io.require(value['ControlGroup'] == '/system.slice/'+unit and
+                       current['cgroup'] == '0::'+value['ControlGroup'], 'UNIT_PROCESS_CGROUP_BINDING')
+        if unit in self.runtime_invocations and unit not in self.stopped:
+            io.require(value['NRestarts'] == '0' and current is not None and value['ActiveState'] == 'active' and
+                       (value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
+                       'ACCEPTED_FIRST_INVOCATION_OR_RESTART_COUNTER_CHANGED')
+        if unit in self.stopped:
+            io.require(value['ActiveState'] == 'inactive' and current is None and self.empty(unit), 'UNIT_NOT_QUIET')
+        elif unit in self.rights:
+            io.require(value['ActiveState'] == 'active' and current is not None, 'START_NOT_ACTIVE')
+            io.require((value['InvocationID'], current['pid'], current['starttime']) == self.runtime_invocations[unit],
+                       'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
+            self.rights_check(unit, current)
+        elif stop_only:
+            io.require(value['ActiveState'] == 'active' and current is not None and
+                       current['uid'] == current['gid'] == [1001]*4 and current['nnp'] == 1 and
+                       not any(current['caps'][k] for k in ('CapPrm', 'CapEff', 'CapAmb')) and
+                       current['namespaces']['user'] == os.readlink('/proc/self/ns/user'),
+                       'STOP_TARGET_STATE_CHANGED')
+            if unit in self.targets:
+                io.require((current['pid'], current['starttime']) == self.targets[unit], 'STOP_TARGET_CHANGED')
+            self.targets[unit] = (current['pid'], current['starttime'])
+            self.original_profiles.setdefault(unit, {k: current[k] for k in
+                ('uid', 'gid', 'groups', 'caps', 'nnp', 'uid_map', 'gid_map', 'setgroups')})
+            self.legacy_contexts[unit] = {k: current[k] for k in ('uid', 'gid', 'groups', 'nnp')}
+            self.legacy_contexts[unit]['caps'] = {k: format(current['caps'][k], '016x')
+                                                for k in ('CapInh', 'CapPrm', 'CapEff', 'CapAmb')}
+
+    def stop_contexts_check(self, *, stop_only):
         if stop_only:
             io.require(set(self.legacy_contexts) == set(UNITS) and
                        io.sha(io.canonical(self.legacy_contexts)) == LEGACY_CONTEXTS_SHA,
@@ -780,7 +969,7 @@ class Authority:
         # query repeated all three manager reads for every unrelated PID. No
         # observation is reused across censuses or a Host action.
         right_pids = {}; right_seen = set()
-        right_rows = unit_rows(sorted(self.rights), self.deadline) if self.rights else {}
+        right_rows = self.read_unit_rows(sorted(self.rights)) if self.rights else {}
         for unit in self.rights:
             value = right_rows[unit]; expected = self.runtime_invocations[unit]
             io.require(value['ActiveState'] == 'active' and not value['Job'] and
@@ -1002,11 +1191,7 @@ class Authority:
         # systemd/broker operation or provider call is attempted.
         pid, tick, uid = row['pid'], row['starttime'], row['uid'][1]
         if row['nnp'] != 1:
-            raw, _ = self.paths.read('/etc/passwd')
-            names = [x.split(':')[0] for x in raw.decode().splitlines() if len(x.split(':')) == 7 and
-                     x.split(':')[2] == str(uid)]
-            io.require(len(names) == 1 and names[0] in ('www-data', 'chatops'), 'SUDO_SUBJECT_NAME_UNKNOWN')
-            name = names[0]
+            name = self.sudo_subject_name(uid)
             r = command(['/usr/bin/sudo', '-n', '-l', '-U', name], self.deadline)
             # -l's exit status is NOT an authorization decision. In particular
             # unknown-user/parser/I/O errors must never be admitted as denial.
@@ -1113,7 +1298,7 @@ class Authority:
                     io.require(libc.getpeername(copied, address, ctypes.byref(size)) == 0 and 2 <= size.value <= 110,
                                'UNIX_PEER_ADDRESS_UNKNOWN')
                     peer_name = address.raw[2:size.value].split(b'\0', 1)[0]
-                    peer_row = process(peer_pid)
+                    peer_row = self.administrative_process(peer_pid)
                     matched = [p for p in self.b['actors'] if self.actor_matches(peer_row, p)]
                     io.require(len(matched) == 1, 'UNIX_PEER_NOT_BOUND_ADMINISTRATIVE_SERVICE')
                     executable = PurePosixPath(peer_row['exe']).name
@@ -1199,8 +1384,8 @@ class Authority:
             self.units_check(stop_only=stop_only); self.actors_check(stop_only=stop_only)
         # The three bound delegation exceptions authorize only their stop.
         # They never waive existing writable Source/config FDs or shared maps.
-        writer_check(self.runtime.files | {v[:2] for v in self.initial.values()} |
-                     (self.contexts.files if self.contexts is not None else set()), self.deadline)
+        self.check_writers(self.runtime.files | {v[:2] for v in self.initial.values()} |
+                          (self.contexts.files if self.contexts is not None else set()))
         self.paths.check()
         io.require(time.monotonic() < self.deadline, 'AUTHORITY_DEADLINE')
 
@@ -1239,3 +1424,243 @@ class Authority:
         # the networkless owner supervisor and returns measured bytes/status,
         # never a GREEN claim. The operator verifies those measurements.
         self.channel.http(self.b['http']['lighting'])
+
+
+class CurrentAuthority(Authority):
+    """Rev4 present authority, deliberately separate from ContextBindings.
+
+    Exact mapped administration is the explicitly accepted current TCB. No
+    publisher/memory/13-context attestation is performed or implied. Actual
+    source Writer exclusion, policies, broker endpoints and negative subjects
+    remain independently measured. An unknown relevant process is never TCB.
+    This class alone does not authorize an execution route or recovery.
+    """
+    def baseline_schemas(self):
+        return (context.CURRENT_BASELINE,)
+
+    def baseline_extra_fields(self, baseline):
+        return {'current_authority'}
+
+    def validate_administrative_profiles(self, baseline):
+        contract = baseline['current_authority']
+        io.require(type(contract) is dict and set(contract) == {'schema', 'risk', 'observation_sha256'} and
+                   contract['schema'] == context.CURRENT_AUTHORITY and contract['risk'] == context.CURRENT_RISK,
+                   'CURRENT_AUTHORITY_CONTRACT_REQUIRED')
+        context.digest(contract['observation_sha256'])
+        context.current_profiles(baseline['actors'])
+        io.require(os.readlink('/proc/self/ns/pid') == os.readlink('/proc/1/ns/pid'),
+                   'CURRENT_FULL_HOST_PID_NAMESPACE_REQUIRED')
+        self.authenticated_ancestors = frozenset()
+
+    def validate_file_binding(self, expected):
+        if 'current_observation_sha256' not in expected:
+            return super().validate_file_binding(expected)  # reuse sufficient closed material
+        io.require(set(expected) == {'sha256', 'uid', 'gid', 'mode', 'attrs', 'flags',
+                                     'current_observation_sha256'} and
+                   expected['current_observation_sha256'] == self.b['current_authority']['observation_sha256'],
+                   'CURRENT_FILE_OBSERVATION_UNBOUND')
+        context.digest(expected['sha256'])
+        # This binds present bytes/metadata only. Authentic application/runtime
+        # and operator dependency references retain their separate validators.
+
+    def administrative_process(self, pid):
+        return current_process(pid, deadline=self.deadline)
+
+    def check_writers(self, targets):
+        self.paths.check(); self.runtime.check()
+        prepared = getattr(self, 'prepared_runtime', None)
+        if prepared is not None:prepared.check()
+        current_writer_check(targets, self.deadline)
+        if prepared is not None:prepared.check()
+        self.runtime.check(); self.paths.check()
+
+    def current_data_readonly(self):
+        """Fixed current S7/JSON health, never an old-data hash/rollback gate.
+
+        The two existing credential input hashes remain bound in baseline.
+        No provider content or secret is emitted. Quiet requires no other
+        connection to this exact DB at query time plus no actual JSON writer;
+        running applications may legitimately advance their current data.
+        These point reads are not a database lock or a new restore procedure.
+        """
+        self.check_files()
+        credentials = {'s7_form_secret': '/etc/tu1nz/adult-commercial-s7-form.secret',
+                       's7_database_dsn': '/etc/tu1nz/adult-commercial-s7-database.dsn'}
+        io.require(set(credentials.values()) <= set(self.b['files']), 'CURRENT_DATA_CREDENTIAL_INPUT_UNBOUND')
+        dsn = None
+        for name, path in credentials.items():
+            raw, row = self.paths.read(path)
+            io.require(1 <= len(raw) <= 4096 and row['uid'] == row['gid'] == 0 and row['mode'] == 0o600 and
+                       io.sha(raw) == self.b['database']['credential_sha256'][name],
+                       'CURRENT_DATA_CREDENTIAL_INPUT_CHANGED')
+            if name == 's7_database_dsn':dsn = raw.strip().decode()
+        quiet = self.stopped == set(UNITS) and all(self.empty(u) for u in UNITS)
+        database = self.database_readonly(dsn, require_other_connections_absent=quiet)
+        parent = self.paths.get('/var/lib')
+        fd = os.open('tu1nz-adult-public-s9', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW |
+                     os.O_CLOEXEC | os.O_NOATIME, dir_fd=parent)
+        files = {}; identities = set()
+        try:
+            before = os.fstat(fd)
+            io.require(before.st_uid == before.st_gid == 1001 and stat.S_IMODE(before.st_mode) == 0o700 and
+                       not os.listxattr(fd), 'CURRENT_DATA_DIRECTORY_PROFILE')
+            for name in ('landing-aggregates.json', 'wms-traffic-quality.json'):
+                self.paths.check()
+                child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC |
+                                os.O_NOATIME, dir_fd=fd)
+                try:
+                    s = os.fstat(child)
+                    io.require(stat.S_ISREG(s.st_mode) and s.st_uid == s.st_gid == 1001 and
+                               stat.S_IMODE(s.st_mode) == 0o600 and s.st_nlink == 1 and
+                               0 < s.st_size <= 1024*1024 and not os.listxattr(child), 'CURRENT_DATA_FILE_PROFILE')
+                    raw = os.pread(child, s.st_size+1, 0)
+                    io.require(len(raw) == s.st_size and type(io.parse(raw)) is dict,
+                               'CURRENT_DATA_BYTES_OR_JSON_INVALID')
+                    named = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    fields = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_nlink',
+                              'st_size', 'st_mtime_ns', 'st_ctime_ns')
+                    metadata = {k:getattr(s,k) for k in fields}
+                    io.require(all(metadata == {k:getattr(v,k) for k in fields}
+                                   for v in (os.fstat(child), named)), 'CURRENT_DATA_READ_CHANGED')
+                    files[name] = {'sha256': io.sha(raw), 'metadata': metadata}
+                    identities.add((s.st_dev, s.st_ino))
+                finally:os.close(child)
+            after = os.fstat(fd); named = os.stat('tu1nz-adult-public-s9', dir_fd=parent, follow_symlinks=False)
+            fixed = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode')
+            if quiet:fixed += ('st_mtime_ns', 'st_ctime_ns')
+            io.require(all(all(getattr(v,k) == getattr(before,k) for k in fixed) for v in (after,named)),
+                       'CURRENT_DATA_DIRECTORY_CHANGED')
+            if quiet:
+                self.check_writers(identities)
+                io.require(self.stopped == set(UNITS) and all(self.empty(u) for u in UNITS),
+                           'CURRENT_DATA_QUIET_LOST')
+        finally:os.close(fd)
+        self.check_files()
+        return {'database': database, 'state': files, 'quiet_at_read': quiet,
+                'data_rollback': False, 'historical_data_equality_claimed': False,
+                'database_lock_or_gap_monitoring_claimed': False}
+
+    def ancestry(self):
+        result = []; pid = self.operator_pid
+        for _ in range(32):
+            context.deadline_check(self.deadline)
+            tick = starttime(pid)
+            status = dict(x.split(':', 1) for x in context.read_proc('/proc/'+str(pid)+'/status',
+                          deadline=self.deadline).decode().splitlines() if ':' in x)
+            parent = int(status['PPid'].strip())
+            io.require(starttime(pid) == tick and pid not in {p for p, _ in result},
+                       'CURRENT_AUTHENTICATED_ANCESTRY_CHANGED')
+            if pid == self.operator_pid:
+                io.require(tick == self.operator_start, 'CURRENT_OPERATOR_CHANGED')
+            else:result.append((pid, tick))
+            if pid == 1:return frozenset(result)
+            io.require(parent > 0 and parent != pid, 'CURRENT_AUTHENTICATED_ANCESTRY_UNKNOWN')
+            pid = parent
+        raise io.Hold('PUBLIC_OPERATOR_CURRENT_AUTHENTICATED_ANCESTRY_BOUND')
+
+    def check(self, *, stop_only=False):
+        before = self.ancestry()
+        self.authenticated_ancestors = before
+        super().check(stop_only=stop_only)
+        io.require(self.ancestry() == before, 'CURRENT_AUTHENTICATED_ANCESTRY_CHANGED')
+
+    def actor_matches(self, row, profile):
+        return context.current_profile_matches(row, profile,
+                   authenticated_ancestors=self.authenticated_ancestors)
+
+    def sudo_subject_name(self, uid):
+        raw, _ = self.paths.read('/etc/passwd')
+        rows = [line.split(':') for line in raw.decode().splitlines()]
+        matches = [r for r in rows if len(r) == 7 and r[2] == str(uid)]
+        io.require(len(matches) == 1 and re.fullmatch('[A-Za-z_][A-Za-z0-9_.-]{0,63}[$]?', matches[0][0]) and
+                   sum(r[0] == matches[0][0] for r in rows) == 1, 'CURRENT_SUDO_NSS_SUBJECT_UNKNOWN')
+        return matches[0][0]
+
+    def relevant_identities(self):
+        # Derive from bound current identities, protected metadata and actual
+        # administrative socket DAC. These are not supplied "irrelevant" flags.
+        uids = {0, 33, 1001}; gids = {0, 33, 1001}
+        for profile in self.b['actors']:
+            if profile['role'] != 'nginx_reader':
+                uids.update(profile['uid']); gids.update(profile['gid']); gids.update(profile['groups'])
+        for row in self.b['files'].values():
+            uids.add(row['uid'])
+            if row['mode'] & 0o020:gids.add(row['gid'])
+        raw, _ = self.paths.read('/etc/group')
+        names = {'sudo', 'admin', 'docker', 'lxd', 'incus-admin', 'disk'}
+        for line in raw.decode().splitlines():
+            row = line.split(':')
+            if len(row) == 4 and row[0] in names:
+                io.require(row[2].isdecimal(), 'CURRENT_ADMIN_GROUP_UNKNOWN'); gids.add(int(row[2]))
+        for path in self.b['broker_sockets']:
+            actual = os.stat(path)
+            io.require(stat.S_ISSOCK(actual.st_mode) and not os.listxattr(path), 'CURRENT_BROKER_DAC_UNKNOWN')
+            uids.add(actual.st_uid)
+            if actual.st_mode & 0o020:gids.add(actual.st_gid)
+            io.require(not actual.st_mode & 0o002, 'CURRENT_PUBLIC_ADMINISTRATIVE_BROKER')
+        return frozenset(uids), frozenset(gids)
+
+    def accepted_runtime_actor(self, unit, row):
+        self.rights_check(unit, row)
+
+    def actors_check(self, *, stop_only):
+        io.require(self.contexts is None, 'CURRENT_NO_HISTORICAL_CONTEXT_ADMISSION')
+        authority_uids, authority_gids = self.relevant_identities()
+        target_ids = set(self.targets.values()) if stop_only else set()
+        right_pids = {}; right_seen = set()
+        right_rows = self.read_unit_rows(sorted(self.rights)) if self.rights else {}
+        for unit in self.rights:
+            value = right_rows[unit]; expected = self.runtime_invocations[unit]
+            io.require(value['ActiveState'] == 'active' and not value['Job'] and value['NRestarts'] == '0' and
+                       (value['InvocationID'], int(value['MainPID'])) == expected[:2],
+                       'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
+            right_pids[expected[1]] = (unit, expected[2])
+        io.require(len(right_pids) == len(self.rights), 'UNIT_MAIN_PROCESS_COLLISION')
+        names = [n for n in os.listdir('/proc') if n.isdecimal()]
+        io.require(len(names) <= 8192, 'CURRENT_PROCESS_CENSUS_BOUND')
+        counts = [0]*len(self.b['actors']); brokers = []; tasks = 0
+        for name in names:
+            context.deadline_check(self.deadline); pid = int(name)
+            try:row = self.administrative_process(pid)
+            except CurrentProcessExited:continue  # only actual absent lifetime, never a live read failure
+            if row.get('kernel_thread') == 1:continue
+            tasks += context.current_task_check(row)
+            io.require(tasks <= 65536, 'CURRENT_TOTAL_TASK_CENSUS_BOUND')
+            if pid == self.operator_pid:
+                io.require(row['starttime'] == self.operator_start, 'OPERATOR_IDENTITY_CHANGED'); continue
+            if PurePosixPath(row['exe']).name in ('dockerd', 'containerd', 'podman', 'rootlesskit', 'buildkitd'):
+                brokers.append(row)
+            if (pid, row['starttime']) in target_ids or pid in right_pids:
+                # The original stop exception and actual new-runtime isolation
+                # retain exact lifetime AND strict shared-task/file-table proof.
+                strict = process(pid)
+                io.require(strict['starttime'] == row['starttime'], 'CURRENT_APPLICATION_LIFETIME_CHANGED')
+                if pid in right_pids:
+                    unit, tick = right_pids[pid]
+                    io.require(strict['starttime'] == tick, 'ACCEPTED_RUNTIME_INVOCATION_CHANGED')
+                    self.accepted_runtime_actor(unit, strict); right_seen.add(pid)
+                else:self.delegation_check(strict, known_stop=True)
+                continue
+            matched = [i for i, profile in enumerate(self.b['actors']) if self.actor_matches(row, profile)]
+            io.require(len(matched) <= 1, 'CURRENT_ADMINISTRATIVE_PROFILE_COLLISION')
+            if matched:
+                index = matched[0]; profile = self.b['actors'][index]; counts[index] += 1
+                io.require(counts[index] <= profile['max_instances'], 'CURRENT_ADMINISTRATIVE_INSTANCE_EXCESS')
+                if profile['role'] != 'nginx_reader':
+                    continue  # expressly mapped CURRENT TCB, not a claim of negative authority
+            else:
+                io.require(not context.directly_relevant(row, authority_uids=authority_uids,
+                           authority_gids=authority_gids), 'CURRENT_UNKNOWN_RELEVANT_ADMINISTRATION')
+            # An unmatched process is not declared unrelated just because its
+            # leader UID/caps miss the direct set. Actual negative policy,
+            # broker and inherited-channel proofs are mandatory, per lifetime.
+            strict = process(pid)
+            io.require(strict['starttime'] == row['starttime'] and
+                       all(strict[k] == row[k] for k in context.CURRENT_SECURITY),
+                       'CURRENT_NEGATIVE_SUBJECT_CHANGED')
+            self.delegation_check(strict)
+        manager = next(i for i, p in enumerate(self.b['actors']) if p['role'] == 'kernel_manager')
+        io.require(counts[manager] == 1 and right_seen == set(right_pids), 'CURRENT_REQUIRED_SUBJECT_MISSING')
+        unix, tcp = self.broker_endpoints(brokers)
+        io.require(unix == sorted(self.b['broker_sockets']) and tcp == self.b['broker_tcp'] and not tcp,
+                   'CURRENT_BROKER_LISTENER_SET_CHANGED_OR_UNPROVEN')
