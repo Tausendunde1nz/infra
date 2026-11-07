@@ -743,6 +743,159 @@ class RecoveryHostEntry:
         self.check(); self.confirmed = True
 
 
+class MaintenanceSessionResult:
+    """Own partial session resources and a pending result, never an admission.
+
+    The future complete Rev4 dispatcher must first pass every material/current
+    coverage gate. This class neither creates a channel/adapter nor dispatches
+    an action. A returned Flow status alone cannot confer K5 completion. The
+    caller must retain partially initialized resources here before __init__.
+    Original and Recovery journals stay separate; no original ACK is repaired.
+    """
+    ORIGINAL_COMPLETE = 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED'
+    RECOVERY_PENDING = 'RECOVERY_RIGHTS_OWNER_RECEIPTED_PENDING_OPERATOR_CLEANUP'
+    RECOVERY_COMPLETE = 'RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED'
+
+    def __init__(self, wire, r3, *, route):
+        io.require(route in ('original', 'recovery-once'), 'MAINTENANCE_RESULT_ROUTE')
+        self.wire, self.r, self.route = wire, r3, route
+        self.adapter = self.channel = self.evidence = self.paths = None
+        self.chain_started = False; self.closed = False
+        self.status = 'HOLD'; self.primary = None; self.abort = []; self.cleanup = []
+        self.location = None; self.owner_completion = None
+
+    def failure(self, error):
+        """Keep the first failure; cleanup/notification cannot erase it."""
+        location = source_fault_location(error)
+        if self.location is None:self.location = location
+        fault = None
+        if self.adapter is not None:
+            try:fault = self.adapter.fault(error)
+            except BaseException:
+                self.abort.append('PUBLIC_BOOTSTRAP_FAILURE_CLASSIFICATION_UNKNOWN')
+        value = fault if fault is not None else error
+        primary = getattr(value, 'primary', self.r.failure_code(error))
+        if self.primary is None:self.primary = primary
+        else:self.abort.append(primary)
+        self.abort.extend(getattr(value, 'abort', ()))
+        self.cleanup.extend(getattr(value, 'cleanup', ()))
+        self.status = 'HOLD'
+
+    def completed(self, flow):
+        """Use the actual in-process Flow and own 84-ACK Owner result only.
+
+        The Flow has already witnessed actual rights/function/owner_done.
+        This is only a candidate until close(), durable cleanup and channel
+        close succeed. No historical successful record or boolean is input.
+        """
+        expected = self.ORIGINAL_COMPLETE if self.route == 'original' else self.RECOVERY_PENDING
+        flow_type = self.r.MaintenanceFlow if self.route == 'original' else self.r.RecoveryFlow
+        channel_type = io.MaintenanceLinkedRecords if self.route == 'original' else io.RecoveryLinkedRecords
+        io.require(type(flow) is flow_type and flow.a is self.adapter and
+                   type(self.channel) is channel_type and flow.j.channel is self.channel and self.chain_started and
+                   self.channel.host_fd is not None and flow.j.claimed and flow.j.binding == self.channel.binding and
+                   flow.stage == expected and flow.hold is False and flow.owner_started is True and
+                   self.primary is None and not self.abort and not self.cleanup,
+                   'MAINTENANCE_COMPLETION_NOT_CURRENT_FLOW')
+        owner = self.adapter.owner_result
+        io.require(type(owner) is dict and owner.get('status') == 'OWNER_COMPLETED' and
+                   type(owner.get('owner_acks')) is int and owner['owner_acks'] == 84 and
+                   type(owner.get('cleanup_sha256')) is str and len(owner['cleanup_sha256']) == 64 and
+                   all(c in '0123456789abcdef' for c in owner['cleanup_sha256']) and
+                   self.channel.owner_entry_started and self.adapter.owner_admission_started and
+                   time.monotonic() < min(self.wire.deadline, self.channel.ceiling, flow.deadline),
+                   'MAINTENANCE_CURRENT_OWNER_COMPLETION_MISSING')
+        self.owner_completion = io.sha(io.canonical(owner))
+        self.status = expected
+
+    def owner_return_or_hold(self):
+        """Only the already live Owner's original window may allow return.
+
+        This is not Recovery or an automatic fallback. Missing/late/unknown
+        confirmation is HOLD. RETURN_OLD is never offered or accepted. A
+        returned Owner state can never become a successful K5 completion.
+        """
+        io.require(self.primary is not None and self.status == 'HOLD' and self.chain_started,
+                   'MAINTENANCE_RETURN_WITHOUT_CURRENT_FAILURE')
+        adapter = self.adapter
+        owner = getattr(adapter, 'owner', None)
+        available = owner is not None and owner.attempted
+        end = min(self.wire.deadline, self.channel.ceiling, time.monotonic()+20,
+                  owner.deadline if available else self.wire.deadline)
+        seconds = max(0, min(20, end-time.monotonic()))
+        self.wire.send({'type':'held', 'primary':self.primary, 'abort':self.abort, 'cleanup':self.cleanup,
+            'return_available':False, 'owner_return_available':available and seconds > 0,
+            'decision_seconds':seconds})
+        # No separate20s or120s window. The transport itself enforces this cap.
+        with self.channel.limit(end):
+            decision = self.wire.receive()
+            io.require(decision in ({'type':'decision','value':'HOLD'},
+                                    {'type':'decision','value':'OWNER_RETURN'}),
+                       'MAINTENANCE_RETURN_DECISION_NOT_ALLOWED')
+            if decision['value'] == 'OWNER_RETURN':
+                io.require(available and time.monotonic() < end, 'OWNER_RETURN_NOT_AVAILABLE')
+                owner.return_once(); adapter.owner_result = owner.finish()
+        self.status = 'HOLD'  # original primary/abort/cleanup remain intact
+
+    def close(self):
+        """Close only owned resources, then persist the current cleanup result.
+
+        All operations spend the existing wire deadline. Loss of the cleanup
+        ACK or final frame cannot confer success. Even a candidate successful
+        Flow is downgraded on any close/clock error. The client must separately
+        prove its own transport/custody cleanup before whole-run acceptance.
+        """
+        io.require(not self.closed, 'MAINTENANCE_RESULT_CLOSE_ONCE')
+        self.closed = True
+        # Adapters normally own their Paths/evidence. Finally also drain the
+        # retained partial objects idempotently, including an early init error.
+        if self.adapter is not None:
+            try:self.cleanup.extend(self.adapter.close())
+            except BaseException:self.cleanup.append('PUBLIC_BOOTSTRAP_OPERATOR_CLOSE_UNCONFIRMED')
+        evidence = self.evidence if self.evidence is not None else getattr(self.adapter, 'evidence', None)
+        paths = self.paths if self.paths is not None else getattr(self.adapter, 'p', None)
+        if evidence is not None:
+            try:self.cleanup.extend(evidence.close())
+            except BaseException:self.cleanup.append('PUBLIC_BOOTSTRAP_RECOVERY_EVIDENCE_CLOSE_UNKNOWN')
+        if paths is not None and (getattr(paths, 'rows', None) or getattr(paths, 'events', None) is not None):
+            try:self.cleanup.extend(paths.close())
+            except BaseException:self.cleanup.append('PUBLIC_BOOTSTRAP_RECOVERY_PATHS_CLOSE_UNKNOWN')
+        if time.monotonic() >= self.wire.deadline:
+            self.cleanup.append('PUBLIC_BOOTSTRAP_MAINTENANCE_HOST_DEADLINE_EXPIRED')
+        if self.cleanup or self.primary is not None or self.abort:self.status = 'HOLD'
+        elif self.status == self.RECOVERY_PENDING:self.status = self.RECOVERY_COMPLETE
+        original = None
+        if self.route == 'recovery-once' and type(self.channel) is io.RecoveryLinkedRecords:
+            try:
+                original = dict(self.channel.seed)
+                io.require(io.recovery_binding(original) == self.channel.binding, 'RECOVERY_RESULT_SEED_CHANGED')
+            except BaseException:
+                self.cleanup.append('PUBLIC_BOOTSTRAP_RECOVERY_RESULT_ORIGINAL_BINDING_CHANGED'); self.status = 'HOLD'
+                original = None
+        record = {'status':self.status, 'primary':self.primary, 'abort':list(self.abort),
+                  'cleanup':list(self.cleanup), 'owner_completion_sha256':self.owner_completion,
+                  'original_status':'FAILED_HOLD' if self.route == 'recovery-once' else 'THIS_RUN',
+                  'original_evidence':original,
+                  'client_cleanup_still_required':True, 'r2_dispatch':False}
+        if self.chain_started:
+            try:self.channel.record('operator_cleanup', record)
+            except BaseException:
+                self.cleanup.append('PUBLIC_BOOTSTRAP_CLEANUP_RECORD_UNCONFIRMED'); self.status = 'HOLD'
+        if self.channel is not None and self.channel.host_fd is not None:
+            try:os.close(self.channel.host_fd)
+            except OSError:
+                self.cleanup.append('PUBLIC_BOOTSTRAP_MIRROR_CLOSE_UNCONFIRMED'); self.status = 'HOLD'
+            self.channel.host_fd = None
+        if time.monotonic() >= self.wire.deadline:
+            self.status = 'HOLD'
+            if 'PUBLIC_BOOTSTRAP_MAINTENANCE_HOST_DEADLINE_EXPIRED' not in self.cleanup:
+                self.cleanup.append('PUBLIC_BOOTSTRAP_MAINTENANCE_HOST_DEADLINE_EXPIRED')
+        result = {'type':'final', **record, 'status':self.status, 'cleanup':list(self.cleanup),
+                  'source_fault':self.location, 'slot_consumed':False}
+        self.wire.send(result)
+        return result
+
+
 def session(source, packet, wire):
     """Actual production session, also the isolated integration entry.
 
