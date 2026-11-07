@@ -1090,6 +1090,15 @@ def production_outcome(result,code,r,fault_wire,stderr):
     return value,acknowledgments,actual_root
 
 
+def fixture_unit_sample(observer, unit, deadline):
+    # Same read-only preparation as baseline(): the actual Authority method
+    # graph, without constructing an authority or claiming admission. A bare
+    # deadline-only duck object no longer supplies read_unit_rows().
+    reader=observer.Authority.__new__(observer.Authority)
+    reader.deadline=deadline
+    return reader.unit(unit)
+
+
 def main():
     global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, OWNER_TIMING, PRIMARY_WRITER_FAULT, NATIVE_ERRNO, ENV_DIAGNOSTIC
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
@@ -1156,12 +1165,10 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
     # Actual PID1 batch and three independent single reads must agree before
     # fault injection. Not a synthetic success response for an observer.
     measured_units = s.load('observe').unit_rows(UNITS, time.monotonic()+20)
-    assert measured_units == {u: s.load('observe').Authority.unit(
-        type('Read', (), {'deadline': time.monotonic()+20})(), u) for u in UNITS}
+    assert measured_units == {u: fixture_unit_sample(s.load('observe'),u,time.monotonic()+20) for u in UNITS}
     legacy = {}
     for u in UNITS:
-        row = s.load('observe').process(int(s.load('observe').Authority.unit(
-            type('Read', (), {'deadline': time.monotonic()+30})(), u)['MainPID']))
+        row = s.load('observe').process(int(fixture_unit_sample(s.load('observe'),u,time.monotonic()+30)['MainPID']))
         legacy[u] = {k: row[k] for k in ('uid', 'gid', 'groups', 'nnp')}
         legacy[u]['caps'] = {k: format(row['caps'][k], '016x') for k in ('CapInh', 'CapPrm', 'CapEff', 'CapAmb')}
     legacy_hash = io.sha(io.canonical(legacy))

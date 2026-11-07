@@ -15,6 +15,26 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_native_fixture_single_reads_delegate_real_method_graph_and_reject_missing_field(self):
+        from types import SimpleNamespace
+        import time
+        from tests import public_operator_native as native
+        import tu1nz_public_operator_observe as observe
+        unit=observe.UNITS[0];deadline=time.monotonic()+20
+        fields={k:'' for k in observe.PROPERTIES.split(',') if k not in observe.EXEC_PROPERTIES}
+        fields.update(Id=unit,LoadState='loaded',NRestarts='0',MainPID='123')
+        def reply(values):
+            return SimpleNamespace(returncode=0,stdout=('\n'.join(k+'='+v for k,v in values.items())+'\n').encode())
+        changed={**fields,'MainPID':'124'};missing=dict(changed);del missing['LoadState']
+        with (patch.object(observe.Authority,'__init__',side_effect=AssertionError('NO_FIXTURE_ADMISSION')),
+                patch.object(observe,'command',side_effect=[reply(fields),reply(changed),reply(missing)]) as reads):
+            self.assertEqual(native.fixture_unit_sample(observe,unit,deadline),fields)
+            self.assertEqual(native.fixture_unit_sample(observe,unit,deadline),changed)
+            with self.assertRaises(observe.io.Hold):native.fixture_unit_sample(observe,unit,deadline)
+        self.assertEqual(reads.call_count,3)
+        self.assertTrue(all(call.args[0][0]=='/usr/bin/systemctl' and call.args[1]==deadline
+                            for call in reads.call_args_list))
+
     @staticmethod
     def owner_timing_fixture():
         # Parser fixture only, never a native timing or admission receipt.
