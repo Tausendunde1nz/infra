@@ -15,6 +15,81 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    @staticmethod
+    def owner_timing_fixture():
+        # Parser fixture only, never a native timing or admission receipt.
+        row = {'calls': 1, 'inclusive_ns': 10, 'exclusive_ns': 2}
+        return {'phases': {'admission': {'owner_admission': dict(row)},
+                          'apply': {'owner_apply': dict(row), 'guard_owner_transition': {**row, 'calls': 84}},
+                          'finish': {'owner_finish': dict(row)}, 'close': {'owner_close': dict(row)}},
+                'started': True, 'finish_completed': True, 'finish_owner_acks': 84,
+                'finish_cleanup_bound': True, 'stack_empty': True, 'elapsed_ns': 119_000_000_000,
+                'client_cleanup_ns': 1_000_000, 'limit_ns': 120_000_000_000}
+
+    def test_owner_timing_requires_full_window_84_and_cleanup_without_new_limit(self):
+        value = self.owner_timing_fixture()
+        self.assertEqual(m.safe_owner_timing(value, completed=True), value)
+        for change in ({'elapsed_ns': 120_000_000_001}, {'limit_ns': 121_000_000_000},
+                       {'finish_owner_acks': 83}, {'finish_completed': False},
+                       {'finish_cleanup_bound': False}, {'stack_empty': False}):
+            with self.subTest(change=change), self.assertRaises(m.CIError):
+                m.safe_owner_timing({**value, **change}, completed=True)
+        for phase in ('admission','apply','finish','close'):
+            bad = json.loads(json.dumps(value)); del bad['phases'][phase]
+            with self.subTest(phase=phase), self.assertRaises(m.CIError):m.safe_owner_timing(bad, completed=True)
+        bad = json.loads(json.dumps(value)); bad['phases']['apply']['guard_owner_transition']['calls'] = 83
+        with self.assertRaises(m.CIError):m.safe_owner_timing(bad, completed=True)
+
+    def test_owner_timing_failure_keeps_late_measurement_but_never_private_values(self):
+        value = {**self.owner_timing_fixture(), 'elapsed_ns': 121_000_000_000, 'finish_completed': False}
+        def failure(timing):
+            return m.failure_location(json.dumps({'native_failure': {'test_line': 1,
+                'test_type': 'AssertionError', 'production_fault': None, 'owner_timing': timing}}).encode())
+        self.assertEqual(failure(value)['owner_timing'], value)
+        for bad in ({**value, 'path': 'PRIVATE_CANARY'}, {**value, 'finish_owner_acks': True},
+                    {**value, 'begin_monotonic_ns': 1}, {**value, 'phases': {'PRIVATE_CANARY': {}}},
+                    {**value, 'phases': {'apply': {'command': {'calls': 1, 'inclusive_ns': 5, 'exclusive_ns': 6}}}}):
+            with self.subTest(bad=bad):self.assertIsNone(failure(bad))
+
+    def test_native_timing_wrappers_delegate_once_and_account_nesting_on_exception(self):
+        from types import SimpleNamespace as N
+        from tests import public_operator_native as native
+        def unchanged(*args, **kwargs):return None
+        def methods(names):return type('Fixture', (), {n: unchanged for n in names})
+        observe = N(command=unchanged, process=unchanged, writer_check=unchanged,
+            Authority=methods(('check','check_files','units_check','actors_check','policy_owner','manager_jobs_clear')))
+        modules = {'observe': observe, 'host': N(process=unchanged), 'probes': N(process=unchanged),
+            'fs': N(Paths=methods(('check',))), 'io': N(LinkedRecords=methods(('record',)), measured_http=unchanged),
+            'owner': N(Supervisor=methods(('check_all','_backup_restore','__init__','apply','finish','close')),
+                       ObjectFence=methods(('check','writer_check','close'))),
+            'guard': N(owner_transition=unchanged, observe_fd=unchanged)}
+        ns = {'s': N(load=lambda role: modules[role])}
+        exec(native.READ_COST_WRAPPER, ns)
+        ticks = [0]; calls = []; token = object(); error = RuntimeError('SYNTHETIC_ONLY')
+        def leaf(*args, **kwargs):
+            calls.append((args,kwargs)); ticks[0] += 7
+            if kwargs.get('fail'):raise error
+            return token
+        inner = ns['_cost']('guard_owner_transition', leaf)
+        def outer(*args, **kwargs):
+            ticks[0] += 2
+            return inner(*args, **kwargs)
+        wrapped = ns['_phase']('apply', ns['_cost']('owner_apply', outer))
+        with patch('time.monotonic_ns', side_effect=lambda: ticks[0]):
+            self.assertIs(wrapped('a', flag=1), token)
+            with self.assertRaises(RuntimeError) as caught:wrapped('b', fail=True)
+        self.assertIs(caught.exception, error)
+        self.assertEqual(calls, [(('a',), {'flag':1}), (('b',), {'fail':True})])
+        self.assertEqual(ns['_read_cost']['owner_apply'], {'calls':2,'inclusive_ns':18,'exclusive_ns':4})
+        self.assertEqual(ns['_read_cost']['guard_owner_transition'], {'calls':2,'inclusive_ns':14,'exclusive_ns':14})
+        self.assertEqual(ns['_owner_phases']['apply'], ns['_read_cost'])
+        self.assertEqual(ns['_cost_stack'], []); self.assertIsNone(ns['_owner_phase'])
+        # The anchor includes time BEFORE __init__, not a fresh120s budget.
+        with patch('time.monotonic_ns', return_value=50_000_000_000):
+            ns['_phase']('admission', unchanged)(deadline=150.0)
+        self.assertEqual(ns['_owner_begin_ns'], 29_999_999_999)
+        self.assertEqual(ns['_owner_finish_result'], None)
+
     def test_native_job_component_never_grants_recent_start_permission(self):
         from types import SimpleNamespace
         from tests import public_operator_native as native
@@ -460,6 +535,7 @@ def initial_application_ready():
         value = {'scenario': 'success', 'status': 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', 'server_exit': 0,
                  'proof': 'a'*64, 'source_files': hashes, 'owner_confirmations': 84, 'actual_root_objects': 88,
                  'actual_faults': [], 'fixture_only_no_host_acceptance': True}
+        value['owner_timing'] = self.owner_timing_fixture()
         self.assertEqual(m.validate_report(json.dumps(value).encode(), 'success', hashes)['scenario'], 'success')
         for changed in ({'owner_confirmations': 83}, {'source_files': {'owner': 'c'*64}},
                         {'fixture_only_no_host_acceptance': False}, {'server_exit': 1}, {'green': True}):
@@ -473,6 +549,7 @@ def initial_application_ready():
             value = {'scenario': case, 'status': 'HOLD', 'server_exit': 0, 'proof': 'a'*64,
                      'source_files': {}, 'owner_confirmations': 0, 'actual_root_objects': 4,
                      'actual_faults': [], 'fixture_only_no_host_acceptance': True}
+            value['owner_timing'] = self.owner_timing_fixture()
             with self.subTest(case=case), self.assertRaisesRegex(m.CIError, 'INTENDED_FAULT_NOT_WITNESSED'):
                 m.validate_report(json.dumps(value).encode(), case, {})
 

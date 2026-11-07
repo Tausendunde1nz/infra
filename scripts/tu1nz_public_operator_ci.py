@@ -105,15 +105,54 @@ def safe_actor_diagnostic(value):
     return value
 
 
-def safe_read_cost(value):
-    labels = {'authority_check', 'authority_check_files', 'authority_units_check', 'authority_actors_check',
+READ_COST_LABELS = frozenset({'authority_check', 'authority_check_files', 'authority_units_check', 'authority_actors_check',
               'process', 'writer_check', 'paths_check', 'linked_record', 'measured_http', 'command',
-              'owner_check_all', 'owner_apply', 'owner_finish'}
-    require(type(value) is dict and 0 < len(value) <= len(labels) and set(value) <= labels, 'READ_COST_SCHEMA')
-    require(all(type(v) is dict and set(v) == {'calls', 'inclusive_ns'} and
+              'owner_check_all', 'owner_apply', 'owner_finish', 'owner_admission', 'owner_close',
+              'owner__backup_restore', 'object_fence_check', 'object_fence_writer_check', 'object_fence_close',
+              'guard_owner_transition', 'guard_observe_fd', 'authority_policy_owner', 'authority_manager_jobs_clear',
+              'command_policy_owner', 'command_jobs', 'command_systemctl', 'command_other'})
+
+
+def safe_read_cost(value):
+    require(type(value) is dict and 0 < len(value) <= len(READ_COST_LABELS) and
+            set(value) <= READ_COST_LABELS, 'READ_COST_SCHEMA')
+    require(all(type(v) is dict and set(v) in ({'calls', 'inclusive_ns'}, {'calls', 'inclusive_ns', 'exclusive_ns'}) and
                 type(v['calls']) is int and 0 <= v['calls'] <= 10_000_000 and
-                type(v['inclusive_ns']) is int and 0 <= v['inclusive_ns'] <= 720_000_000_000
+                type(v['inclusive_ns']) is int and 0 <= v['inclusive_ns'] <= 720_000_000_000 and
+                ('exclusive_ns' not in v or type(v['exclusive_ns']) is int and
+                 0 <= v['exclusive_ns'] <= v['inclusive_ns'])
                 for v in value.values()), 'READ_COST_SCHEMA')
+    return value
+
+
+def safe_owner_timing(value, *, completed=False):
+    # Counters/durations from the delegating native fixture only. No private
+    # paths, timestamps, observations or arbitrary strings leave the guest.
+    keys = {'phases', 'started', 'finish_completed', 'finish_owner_acks', 'finish_cleanup_bound',
+            'stack_empty', 'elapsed_ns', 'client_cleanup_ns', 'limit_ns'}
+    require(type(value) is dict and set(value) == keys and
+            all(type(value[k]) is bool for k in ('started', 'finish_completed', 'finish_cleanup_bound', 'stack_empty')) and
+            type(value['finish_owner_acks']) is int and 0 <= value['finish_owner_acks'] <= 84 and
+            type(value['limit_ns']) is int and value['limit_ns'] == 120_000_000_000 and
+            type(value['client_cleanup_ns']) is int and 0 <= value['client_cleanup_ns'] <= 720_000_000_000 and
+            type(value['phases']) is dict and set(value['phases']) <= {'admission', 'apply', 'finish', 'close'},
+            'OWNER_TIMING_SCHEMA')
+    for rows in value['phases'].values():
+        safe_read_cost(rows)
+        require(all('exclusive_ns' in row for row in rows.values()), 'OWNER_TIMING_SCHEMA')
+    if value['started']:
+        require(type(value['elapsed_ns']) is int and 0 <= value['elapsed_ns'] <= 720_000_000_000 and
+                'admission' in value['phases'], 'OWNER_TIMING_SCHEMA')
+    else:
+        require(value['elapsed_ns'] is None and not value['phases'] and not value['finish_completed'] and
+                not value['finish_cleanup_bound'] and value['finish_owner_acks'] == 0, 'OWNER_TIMING_SCHEMA')
+    if completed:
+        require(value['started'] and value['finish_completed'] and value['finish_cleanup_bound'] and
+                value['finish_owner_acks'] == 84 and value['stack_empty'] and
+                value['elapsed_ns'] <= value['limit_ns'] and
+                {'admission', 'apply', 'finish', 'close'} <= set(value['phases']) and
+                value['phases']['apply'].get('guard_owner_transition', {}).get('calls') == 84,
+                'OWNER_FULL_CLEANUP_120S_NOT_PROVED')
     return value
 
 
@@ -296,11 +335,12 @@ def validate_report(raw, case, hashes):
     require(len(raw) <= 65536, 'REPORT_BOUND')
     value = operator.io.parse(raw.strip())
     require(set(value) == {'scenario', 'status', 'server_exit', 'proof', 'source_files', 'owner_confirmations',
-                           'actual_root_objects', 'actual_faults', 'fixture_only_no_host_acceptance'} and
+                           'actual_root_objects', 'actual_faults', 'fixture_only_no_host_acceptance', 'owner_timing'} and
             value['scenario'] == case and value['source_files'] == hashes and
             value['fixture_only_no_host_acceptance'] is True and
             re.fullmatch('[a-f0-9]{64}', value['proof'] or ''), 'REPORT_SOURCE_OR_SCHEMA_RED')
     require(value['actual_faults'] == FAULTS[case], 'INTENDED_FAULT_NOT_WITNESSED')
+    timing = safe_owner_timing(value['owner_timing'], completed=case in ('success','r5_success','r5_legacy_unknown'))
     if case in ('success','r5_success','r5_legacy_unknown'):
         require((value['status'], value['server_exit'], value['owner_confirmations'], value['actual_root_objects']) ==
                 ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', 0, 84, 88), 'FORWARD_RED')
@@ -317,7 +357,7 @@ def validate_report(raw, case, hashes):
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')
     return {'scenario': case, 'result_sha256': value['proof'], 'status': value['status'],
-            'actual_faults': value['actual_faults']}
+            'actual_faults': value['actual_faults'], 'owner_timing': timing}
 
 
 def progress(sha,count,record):
@@ -331,9 +371,10 @@ def progress(sha,count,record):
             type(record) is dict and record.get('scenario')==CASES[count-1] and
             type(record.get('result_sha256')) is str and
             re.fullmatch('[a-f0-9]{64}',record['result_sha256']),'PROGRESS_SCHEMA')
+    timing = {'owner_timing': safe_owner_timing(record['owner_timing'])} if 'owner_timing' in record else {}
     print(json.dumps({'schema':'TU1NZ_PUBLIC_OPERATOR_NATIVE_PROGRESS_V1',
         'source_sha':sha,'completed_count':count,'scenario':record['scenario'],
-        'result_sha256':record['result_sha256'],'host_acceptance':False},sort_keys=True),flush=True)
+        'result_sha256':record['result_sha256'],'host_acceptance':False, **timing},sort_keys=True),flush=True)
 
 
 def failure_location(raw):
@@ -357,7 +398,7 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost', 'environment'}, 'FAILURE_SCHEMA')
+               {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost', 'owner_timing', 'environment'}, 'FAILURE_SCHEMA')
         if 'environment' in location:
             env=location['environment']
             require(type(env) is dict and set(env)=={'unit','sample','followup','identity','same_environment','executable','state','followup_expected_items','service'},'FAILURE_SCHEMA')
@@ -428,6 +469,8 @@ def failure_location(raw):
             location = {**location, 'actor': safe_actor_diagnostic(location['actor'])}
         if 'read_cost' in location:
             location = {**location, 'read_cost': safe_read_cost(location['read_cost'])}
+        if 'owner_timing' in location:
+            location = {**location, 'owner_timing': safe_owner_timing(location['owner_timing'])}
         return location
     except BaseException:
         return None
