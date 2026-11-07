@@ -192,6 +192,7 @@ def _command_cost(argv,*args,**kwargs):
         "command_systemctl" if argv[0]=="/usr/bin/systemctl" else "command_other")
  return _cost(label,_command_actual)(argv,*args,**kwargs)
 _observer.command=_command_cost
+s.load("artifact")  # same authenticated dependency order as Host.session
 _reader=s.load("replacement").ReadOnlyBus
 for _name in ("show_units","properties","exec_properties"):
  setattr(_reader,_name,_cost("reader_"+_name,getattr(_reader,_name)))

@@ -59,6 +59,7 @@ SAFE_FAILURE_TYPES = frozenset(n for n, v in vars(builtins).items()
     if isinstance(v, type) and issubclass(v, BaseException)) | {'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
 SAFE_NATIVE_CODES = frozenset(('NATIVE_FSUID_CHILD_SETFSUID_RED', 'NATIVE_FSUID_CHILD_UID_VIEW_RED',
     'NATIVE_FSUID_CHILD_CONNECT_RED', 'NATIVE_FSUID_CHILD_HANDSHAKE_RED', 'NATIVE_FSUID_CHILD_PROTOCOL_RED'))
+SERVER_IMPORT_CODE = 'NATIVE_MEASUREMENT_ARTIFACT_NOT_PRELOADED'
 
 
 def diagnostic_codes():
@@ -71,14 +72,19 @@ def diagnostic_codes():
         for node in ast.walk(ast.parse((workspace/relative).read_bytes())):
             if isinstance(node, ast.Constant) and type(node.value) is str and re.fullmatch('[A-Z][A-Z0-9_]{1,160}', node.value):
                 symbols.add(node.value)
-    return symbols | SAFE_NATIVE_CODES | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
+    return symbols | SAFE_NATIVE_CODES | {SERVER_IMPORT_CODE} | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
         'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_', 'PUBLIC_RUNTIME_', 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_RUNTIME_')
         for x in symbols}
 
 
 def terminal_wire_code(raw):
-    # Only an exact, literal PUBLIC Source Hold symbol may leave private child
-    # stderr. No traceback, path, argv, exception text or regex-shaped secret.
+    # Only listed literal codes may leave private child stderr. No traceback,
+    # path, argv, exception text or regex-shaped secret.
+    # One exact terminal import error for the authenticated measurement
+    # wrapper. No exception text, arbitrary module/path or traceback escapes.
+    lines = raw.splitlines()
+    if lines and lines[-1] == b"ModuleNotFoundError: No module named 'tu1nz_public_runtime_artifact'":
+        return SERVER_IMPORT_CODE
     symbols = diagnostic_codes(); candidates = set()
     for line in raw.splitlines():
         match = re.fullmatch(rb'tu1nz_public_operator_io\.Hold: (PUBLIC_OPERATOR_[A-Z0-9_]{1,96})', line)

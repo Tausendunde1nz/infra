@@ -15,6 +15,64 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_measurement_wrapper_fresh_import_graph_before_session(self):
+        # Actual public Source.load and modules in a fresh isolated Python.
+        # Synthetic owner/guard method surfaces ONLY; not release admission
+        # or native acceptance, and no private Control files are read here.
+        import subprocess
+        from tests import public_operator_native as native
+        program = r'''
+import json,os,sys,types
+from pathlib import Path
+p=json.load(sys.stdin);scripts=Path(p['root'])/'scripts'
+if not hasattr(os,'O_NOATIME'):os.O_NOATIME=0
+sys.path.insert(0,str(scripts))
+import tu1nz_public_operator_io as io
+import tu1nz_public_operator_host
+assert 'tu1nz_public_runtime_artifact' not in sys.modules
+s=io.Source.__new__(io.Source)
+s.bytes={n:(scripts/f).read_bytes() for n,f in (
+ ('artifact','tu1nz_public_runtime_artifact.py'),('replacement','tu1nz_public_runtime_transition.py'))}
+s.modules={n:sys.modules[io.MODULES[n]] for n in ('io','host','fs','runtime_guard','observe','probes','context')}
+def never(*args,**kwargs):raise AssertionError('NO_ACTION_ALLOWED')
+def methods(names):return type('Synthetic',(),{n:never for n in names})
+s.modules['owner']=types.SimpleNamespace(
+ Supervisor=methods(('check_all','_backup_restore','__init__','apply','finish','close')),
+ ObjectFence=methods(('check','writer_check','close')))
+s.modules['guard']=types.SimpleNamespace(owner_transition=never,observe_fd=never)
+sys.path.remove(str(scripts))  # exactly no filesystem fallback for bound modules
+def audit(event,args):
+ if event in ('subprocess.Popen','socket.__new__','socket.connect','os.system','os.exec','os.posix_spawn','os.fork','os.remove','os.rename','os.mkdir','os.chmod','os.chown','os.truncate') or event=='open' and ((isinstance(args[1],str) and any(c in args[1] for c in 'wax+')) or isinstance(args[2],int) and args[2] & (os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC)):
+  raise AssertionError('IMPORT_ONLY_BOUNDARY')
+sys.addaudithook(audit)
+exec(compile(p['wrapper'],'<native-read-cost-wrapper>','exec'),{'s':s})
+assert 'artifact' in s.modules and 'replacement' in s.modules
+print('SOURCE_WRAPPER_IMPORT_PASS')
+'''
+        wrapper=native.READ_COST_WRAPPER
+        preload='s.load("artifact")  # same authenticated dependency order as Host.session\n'
+        self.assertEqual(wrapper.count(preload),1)
+        for corrected in (False,True):
+            with self.subTest(corrected=corrected):
+                payload={'root':str(Path(__file__).resolve().parents[1]),
+                    'wrapper':wrapper if corrected else wrapper.replace(preload,'')}
+                r=subprocess.run([sys.executable,'-I','-S','-B','-c',program],
+                    input=json.dumps(payload).encode(),capture_output=True,timeout=15)
+                if corrected:
+                    self.assertEqual(r.returncode,0);self.assertEqual(r.stderr,b'')
+                    self.assertEqual(r.stdout.strip(),b'SOURCE_WRAPPER_IMPORT_PASS')
+                else:
+                    self.assertEqual(r.returncode,1);self.assertEqual(r.stdout,b'')
+                    self.assertEqual(m.terminal_wire_code(r.stderr),m.SERVER_IMPORT_CODE)
+
+    def test_terminal_import_code_has_no_module_or_traceback_disclosure(self):
+        exact=b"ModuleNotFoundError: No module named 'tu1nz_public_runtime_artifact'"
+        self.assertEqual(m.terminal_wire_code(b'PRIVATE_TRACE_CANARY\n'+exact+b'\n'),m.SERVER_IMPORT_CODE)
+        for raw in (b"ModuleNotFoundError: No module named 'PRIVATE_MODULE_CANARY'",
+                    exact+b' extra',b'prefix '+exact,exact+b'\nPRIVATE_SUFFIX_CANARY',b''):
+            with self.subTest(raw=raw):self.assertIsNone(m.terminal_wire_code(raw))
+        self.assertIn(m.SERVER_IMPORT_CODE,m.diagnostic_codes())
+
     def test_native_fixture_single_reads_delegate_real_method_graph_and_reject_missing_field(self):
         from types import SimpleNamespace
         import time
@@ -83,7 +141,7 @@ class PublicOperatorCI(unittest.TestCase):
             'owner': N(Supervisor=methods(('check_all','_backup_restore','__init__','apply','finish','close')),
                        ObjectFence=methods(('check','writer_check','close'))),
             'guard': N(owner_transition=unchanged, observe_fd=unchanged),
-            'replacement': N(ReadOnlyBus=methods(('show_units','properties','exec_properties')))}
+            'replacement': N(ReadOnlyBus=methods(('show_units','properties','exec_properties'))), 'artifact': N()}
         ns = {'s': N(load=lambda role: modules[role])}
         exec(native.READ_COST_WRAPPER, ns)
         ticks = [0]; calls = []; token = object(); error = RuntimeError('SYNTHETIC_ONLY')
@@ -647,6 +705,10 @@ def initial_application_ready():
         result = m.failure_location(json.dumps(value).encode())
         self.assertEqual(result['outcome']['primary'], outcome['primary'])
         self.assertEqual(result['outcome']['owner_confirmations'], 7)
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+        value['native_failure']['outcome'] = {**outcome, 'server_terminal_code': m.SERVER_IMPORT_CODE}
+        result = m.failure_location(json.dumps(value).encode())
+        self.assertEqual(result['outcome']['server_terminal_code'], m.SERVER_IMPORT_CODE)
         self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
         for key, changed in (('owner_confirmations', True), ('actual_root_objects', 89), ('server_exit', 'PRIVATE_CANARY')):
             with self.subTest(key=key):
