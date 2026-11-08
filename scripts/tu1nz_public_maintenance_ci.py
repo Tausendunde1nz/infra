@@ -14,6 +14,7 @@ import sys
 import time
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import tu1nz_public_operator_ci as ci
+import tu1nz_public_maintenance_diagnostics as diagnostics
 
 CASES=('original','recovery_F1','recovery_F2','recovery_F3','recovery_F4','recovery_terminal_F4')
 # Closed unchanged runtime receipt, verified locally before this fixture was
@@ -22,6 +23,7 @@ PRODUCTION_ARTIFACT='d42e5bd84d0fdb86f7e4c6856d67d33967215162087f9ea4ed39651fbfc
 FLOORS={'runtime_objects':6260,'archive_bytes':45560268,'expanded_file_bytes':143314310,
         'lighting_objects':88,'lighting_files':82,'protected_objects':4}
 MEASUREMENT_FILES=('scripts/tu1nz_public_maintenance_ci.py','tests/public_maintenance_native.py',
+    'scripts/tu1nz_public_maintenance_diagnostics.py',
     'tests/public_maintenance_fixture.py','tests/public_runtime_fixture.py','tests/public_operator_native.py',
     'tests/public-operator-native.Dockerfile','tests/public_operator_native_init.py','tests/s8_native_init.py')
 SCHEMA='TU1NZ_REV4_FULL_NATIVE_BATCH_V1'
@@ -94,12 +96,15 @@ def timing(records,measurement_sha,*,production=False):
 
 def safe_failure(value,case,phase):
     # Do not pass through private strings/tracebacks even if they look like
-    # error codes. Fixed source enums only; no PIDs, paths, argv or contents.
+    # error codes. Fixed source enums/validated fixture locations only; no
+    # PIDs, private paths, argv, exception text, locals or contents.
     allowed=ci.diagnostic_codes()|{'NATIVE_FULL_ENTRY_ASSERTION'}
     result={'case':case,'phase':phase,'green':False,'host_acceptance':False}
     if type(value) is not dict:return result
     if type(value.get('error_type')) is str and value['error_type'] in ci.SAFE_FAILURE_TYPES:result['error_type']=value['error_type']
     if type(value.get('code')) is str and value['code'] in allowed:result['code']=value['code']
+    point=diagnostics.validated(value.get('test_failure'))
+    if point is not None:result['test_failure']=point
     for route in ('original','recovery-once'):
         outer=value.get(route);inner=outer.get('result') if type(outer) is dict else None
         if type(inner) is not dict:continue

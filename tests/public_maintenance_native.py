@@ -18,6 +18,7 @@ import time
 
 sys.path.insert(0,'/source/scripts');sys.path.insert(0,'/source')
 from tests import public_maintenance_fixture as f
+import tu1nz_public_maintenance_diagnostics as diagnostics
 client=f.client;io=f.io;ROOT=f.ROOT
 
 # Executed solely in this guest's authenticated Host test process. Timing
@@ -272,6 +273,12 @@ def main(case,phase):
         'run':row,'host_acceptance':False}
 
 
+def failure_fields(error):
+    return {'error_type':type(error).__name__,
+        'code':getattr(error,'primary','NATIVE_FULL_ENTRY_ASSERTION'),
+        'test_failure':diagnostics.capture(error)}
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--case',choices=f.CASES,required=True)
     parser.add_argument('--phase',choices=('calibration','verification'),default='calibration')
@@ -283,7 +290,7 @@ if __name__=='__main__':
     result={'schema':'TU1NZ_REV4_NATIVE_CASE_V1','green':False,'case':args.case,'phase':args.phase,'host_acceptance':False}
     try:result=main(args.case,args.phase)
     except BaseException as error:
-        result['error_type']=type(error).__name__;result['code']=getattr(error,'primary','NATIVE_FULL_ENTRY_ASSERTION')
+        result.update(failure_fields(error))
         for route in ('original','recovery-once'):
             path=ROOT/('client-'+route+'.json')
             if path.exists():result[route]=io.parse(path.read_bytes())

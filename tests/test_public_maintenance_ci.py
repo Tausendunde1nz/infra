@@ -65,6 +65,95 @@ class NativeBoundaryTests(unittest.TestCase):
         self.assertNotIn('SECRET_CANARY',raw);self.assertNotIn('PRIVATE_CLASS',raw)
         self.assertIn('PUBLIC_BOOTSTRAP_INTERRUPTED',raw)
 
+    def test_actual_fixture_assertion_has_unique_public_checkpoint_and_stays_red(self):
+        from tests import public_maintenance_native as n
+        # Fail the first real fixture assertion before any native I/O. No
+        # assertion/return value is replaced; only its synthetic UID input.
+        with patch.object(n.f.f.os,'geteuid',return_value=501):
+            try:n.f.f.assert_guest_isolation()
+            except AssertionError as error:fields=n.failure_fields(error)
+            else:self.fail('real fixture assertion did not fail')
+        point=fields['test_failure']
+        self.assertEqual(point['checkpoint'],'REV4_GUEST_ASSERT_GUEST_ISOLATION_ASSERT_01')
+        self.assertEqual(point['file'],'tests/public_operator_native.py')
+        self.assertIn('assert os.geteuid() == 0',
+            (Path(__file__).resolve().parents[1]/point['file']).read_text().splitlines()[point['line']-1])
+        value={'schema':'TU1NZ_REV4_NATIVE_CASE_V1','green':False,'host_acceptance':False,
+            'case':'original','phase':'calibration',**fields}
+        output=m.safe_failure(value,'original','calibration')
+        self.assertEqual(output['test_failure'],point)
+        self.assertEqual(output['code'],'NATIVE_FULL_ENTRY_ASSERTION')
+        self.assertEqual(output['error_type'],'AssertionError')
+        self.assertIs(output['green'],False)
+        with self.assertRaisesRegex(m.ci.CIError,'^REV4_NATIVE_CASE_RED$'):
+            m.validate_case(value,'original','calibration',{})
+        # Exercise the actual CI failure-output/validation/finally path, with
+        # all container effects mocked and a locally generated private record.
+        import io as streams
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'calibration-original-result.json').write_bytes(io.canonical(value))
+            output=streams.StringIO()
+            with patch.object(m.ci,'command'),patch.object(m.ci,'inspect_guest'),patch.object(m.ci,'ready'), \
+                    patch.object(m.ci.boundary,'cleanup_container') as cleanup,redirect_stdout(output):
+                with self.assertRaisesRegex(m.ci.CIError,'^REV4_NATIVE_CASE_RED$'):
+                    m.case_run(Path('/synthetic-source'),Path('/synthetic-control'),'synthetic-image','sha256:'+'a'*64,
+                        'synthetic-owner',root,Path('/synthetic-inputs'),{},'original','calibration')
+            emitted=json.loads(output.getvalue())
+            self.assertEqual(emitted['failure']['test_failure'],point)
+            self.assertIs(emitted['failure']['green'],False)
+            cleanup.assert_called_once_with('tu1nz-rev4-synthetic-owner-calibration-original','synthetic-owner')
+
+    def test_failure_locations_reject_unbound_fields_values_paths_lines_and_types(self):
+        point=next(iter(m.diagnostics.checkpoints().values()))
+        for change in ({'checkpoint':'SECRET_CANARY'}, {'file':'/private/SECRET_CANARY'},
+                {'file':'other/'+point['file']}, {'file':'tests/../'+point['file']},
+                {'line':999999}, {'line':True}, {'line':str(point['line'])},
+                {'line':float(point['line'])}, {'locals':'SECRET_CANARY'},
+                {'checkpoint':[]}, {'file':[]}):
+            with self.subTest(change=change):
+                value={'test_failure':{**point,**change},'traceback':'SECRET_CANARY'}
+                result=m.safe_failure(value,'original','calibration')
+                self.assertNotIn('test_failure',result)
+                self.assertNotIn('SECRET_CANARY',json.dumps(result))
+        # A valid source location paired with another valid ID is invalid too.
+        other=next(v for v in m.diagnostics.checkpoints().values() if v['checkpoint']!=point['checkpoint'])
+        self.assertIsNone(m.diagnostics.validated({**point,'checkpoint':other['checkpoint']}))
+        for value in (None,[],False,{'checkpoint':'UNMAPPED_TEST_FAILURE','private':'SECRET_CANARY'}):
+            self.assertIsNone(m.diagnostics.validated(value))
+
+    def test_unmapped_innermost_frame_never_exports_exception_or_a_caller_location(self):
+        from tests import public_maintenance_native as n
+        try:raise AssertionError('SECRET_CANARY')
+        except AssertionError as error:fields=n.failure_fields(error)
+        self.assertEqual(fields['test_failure'],{'checkpoint':'UNMAPPED_TEST_FAILURE'})
+        result=m.safe_failure(fields,'original','calibration')
+        self.assertNotIn('SECRET_CANARY',json.dumps(result))
+        self.assertEqual(result['test_failure'],fields['test_failure'])
+        self.assertEqual(m.diagnostics.capture(AssertionError('SECRET_CANARY')),fields['test_failure'])
+
+    def test_explicit_deadline_raise_and_multiline_assertion_have_distinct_bound_points(self):
+        points=m.diagnostics.checkpoints()
+        native=Path(__file__).resolve().parents[1]/'tests/public_maintenance_native.py'
+        # Compile only the existing deadline raise, retaining its true source
+        # location. No guest, worker, timer or subprocess is started locally.
+        import ast
+        tree=ast.parse(native.read_bytes())
+        node=next(x for x in ast.walk(tree) if isinstance(x,ast.Raise) and
+            isinstance(x.exc,ast.Call) and x.exc.args and isinstance(x.exc.args[0],ast.Constant)
+            and x.exc.args[0].value=='FULL_ENTRY_600_PROCESS_END_EXCEEDED')
+        try:exec(compile(ast.Module(body=[node],type_ignores=[]),str(native),'exec'),{})
+        except AssertionError as error:point=m.diagnostics.capture(error)
+        self.assertEqual(point['checkpoint'],'REV4_NATIVE_EXECUTE_WORKER_RAISE_01')
+        self.assertEqual(m.diagnostics.validated(point),point)
+        guest=Path(__file__).resolve().parents[1]/'tests/public_operator_native.py'
+        tree=ast.parse(guest.read_bytes());fn=next(x for x in tree.body if isinstance(x,ast.FunctionDef)
+            and x.name=='assert_guest_isolation')
+        node=next(x for x in ast.walk(fn) if isinstance(x,ast.Assert) and x.end_lineno>x.lineno)
+        rows=[points[('tests/public_operator_native.py',line)] for line in range(node.lineno,node.end_lineno+1)]
+        self.assertEqual(len({v['checkpoint'] for v in rows}),1)
+        self.assertTrue(all(m.diagnostics.validated(v)==v for v in rows))
+
     def test_native_bootstrap_parses_with_actual_dependency_order_and_without_actions(self):
         from tests import public_maintenance_native as n
         inputs={'application':{'commit':'0'*40,'tree':'1'*40,'manifest_sha256':'a'*64}}
