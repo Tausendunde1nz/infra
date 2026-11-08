@@ -1,0 +1,33 @@
+name: CI953 fixture isolation probe
+
+on:
+  push:
+    branches: [codex/ci953-fixture-isolation-probe-20261108]
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Public synthetic mounts only. No Environment, secrets, private source,
+    # artifact, cache, production connection or maintenance entry.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Probe boundary regression tests
+        run: python3 -B -m unittest -v tests.test_ci953_fixture_isolation_probe
+      - name: Same fresh production-entry image build as CI953
+        run: docker build --file tests/public-operator-native.Dockerfile --tag "tu1nz-ci953-probe:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
+      - name: Original Unit and conditional single-line comparison
+        run: python3 -I -B -S tests/ci953_fixture_isolation_probe.py --image "tu1nz-ci953-probe:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Remove owned diagnostic image
+        if: always()
+        run: |
+          image="tu1nz-ci953-probe:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if docker image inspect "$image" >/dev/null 2>&1; then docker image rm "$image"; fi
+          if docker image inspect "$image" >/dev/null 2>&1; then exit 1; fi
