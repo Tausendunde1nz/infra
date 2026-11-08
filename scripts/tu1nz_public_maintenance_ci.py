@@ -127,6 +127,7 @@ def case_run(workspace,control,image,image_id,owner,root,inputs,hashes,case,phas
         ci.command(['/usr/bin/docker','start',name],timeout=30);ci.ready(name)
         unit=root/(phase+'-'+case+'.service')
         ci.save(unit,('[Unit]\nAfter=multi-user.target\n[Service]\nType=simple\n'
+            'Environment=container=docker\n'
             'ExecStart=/usr/bin/python3 -I -B -S /source/tests/public_maintenance_native.py --case '+case+' --phase '+phase+'\n'
             'StandardOutput=null\nStandardError=append:/native-private-stderr\nTimeoutStartSec=infinity\n').encode())
         ci.command(['/usr/bin/docker','cp',str(unit),name+':/etc/systemd/system/tu1nz-rev4-native-fixture.service'],timeout=15)
