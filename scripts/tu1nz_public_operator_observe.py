@@ -687,7 +687,7 @@ class Authority:
                    starttime(row['pid']) == row['starttime'], 'FUNCTION_INVOCATION_CHANGED')
         return proof
 
-    def database_readonly(self, dsn, *, runtime_pid=None, require_other_connections_absent=False):
+    def database_readonly(self, dsn, *, runtime_pid=None, require_other_connections_absent=False, coverage=None):
         # A fixed SELECT-only transaction under the actual required peer
         # identity. DSN never occurs in argv, records or private errors.
         parsed = urllib.parse.urlsplit(dsn)
@@ -734,6 +734,9 @@ class Authority:
             # whose query/activity details this role cannot inspect.
             query += ("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
                       "AND pid<>pg_backend_pid(); ")
+        if coverage is not None:
+            import tu1nz_public_operator_admission as admission
+            query += admission.query(coverage['model']).decode()
         query += 'ROLLBACK;'
         result = command(['/usr/bin/psql', '-X', '-w', '-q', '-A', '-t', '-F', '|',
                           '--set=ON_ERROR_STOP=1'], self.deadline, data=query.encode(), preexec=peer,
@@ -744,13 +747,19 @@ class Authority:
                                     'PGPASSFILE': '/proc/self/fd/-1'})
         io.require(result.returncode == 0 and not result.stderr, 'DB_PEER_READ_UNKNOWN')
         lines = result.stdout.decode().splitlines()
+        count = 4 if require_other_connections_absent else 3
+        coverage_proof = None
+        if coverage is not None:
+            coverage_proof = admission.compare_database(coverage,lines[count:])
+            lines = lines[:count]
         wanted = '|'.join((self.b['database']['role'], self.b['database']['database'], 'on', 't', 't'))
         io.require(len(lines) == (4 if require_other_connections_absent else 3) and
                    (not require_other_connections_absent or lines[3] == '0') and
                    lines[0] == wanted and lines[1] == 'f|f|f|f|f' and
                    lines[2] in ('t|t', 't|f', 'f|t', 'f|f'),
                    'DB_IDENTITY_OR_READ_RED')
-        return {'peer_uid_gid': 1001, 'identity_readonly_select': lines[0].split('|'),
+        return {**({'current_coverage':coverage_proof} if coverage is not None else {}),
+                'peer_uid_gid': 1001, 'identity_readonly_select': lines[0].split('|'),
                                     'actual_role_flags': lines[1].split('|'),
                                     'query_result_sha256': io.sha(result.stdout), 'provider_data_emitted': False}
 
@@ -1474,7 +1483,7 @@ class CurrentAuthority(Authority):
         if prepared is not None:prepared.check()
         self.runtime.check(); self.paths.check()
 
-    def current_data_readonly(self):
+    def current_data_readonly(self, *, coverage=None):
         """Fixed current S7/JSON health, never an old-data hash/rollback gate.
 
         The two existing credential input hashes remain bound in baseline.
@@ -1495,7 +1504,7 @@ class CurrentAuthority(Authority):
                        'CURRENT_DATA_CREDENTIAL_INPUT_CHANGED')
             if name == 's7_database_dsn':dsn = raw.strip().decode()
         quiet = self.stopped == set(UNITS) and all(self.empty(u) for u in UNITS)
-        database = self.database_readonly(dsn, require_other_connections_absent=quiet)
+        database = self.database_readonly(dsn, require_other_connections_absent=quiet, **({'coverage':coverage} if coverage is not None else {}))
         parent = self.paths.get('/var/lib')
         fd = os.open('tu1nz-adult-public-s9', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW |
                      os.O_CLOEXEC | os.O_NOATIME, dir_fd=parent)

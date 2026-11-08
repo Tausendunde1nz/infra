@@ -63,9 +63,11 @@ jobs:
   control-private-provenance:
     name: control-private-provenance
     runs-on: ubuntu-24.04
-    # Eighteen original plus ten R5 transition cases; no wider Host deadline.
-    # The existing 64 recovery cases and every downstream gate remain intact.
-    timeout-minutes: 60
+    # Existing64/28 plus six calibration guests, each with actual15min ageing.
+    # Separate sequential verification job below. Entry600s/Owner120s unchanged.
+    timeout-minutes: 360
+    outputs:
+      rev4_calibration: ${{ steps.native.outputs.rev4_calibration }}
     # Environment-only credential. Required maintainer approval BEFORE this
     # fresh job starts: actual exact SHA including workflow/scripts/Dockerfile
     # must have independent review; same-repo origin alone is NOT trust.
@@ -80,7 +82,7 @@ jobs:
           fetch-tags: true
           persist-credentials: false
       - name: Private CI boundary regression tests (no private input or credential)
-        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci tests.test_public_runtime_artifact tests.test_public_prospective_admission tests.test_public_context tests.test_public_maintenance tests.test_mainserver_restore
+        run: python3 -B -m unittest -v tests.test_control_private_ci tests.test_public_operator tests.test_public_operator_ci tests.test_public_runtime_artifact tests.test_public_prospective_admission tests.test_public_context tests.test_public_maintenance tests.test_public_maintenance_entry tests.test_public_maintenance_admission tests.test_public_maintenance_transport tests.test_public_maintenance_session tests.test_public_maintenance_result tests.test_public_maintenance_ci tests.test_mainserver_restore
       - name: Build fresh approved native image before private input (no reused artifact)
         run: docker build --file tests/s8-native.Dockerfile --tag "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
       - name: Build fresh production-entry image before private input
@@ -93,7 +95,8 @@ jobs:
         run: >-
           python3 -I -B scripts/tu1nz_control_private_ci.py
           --image "tu1nz-control-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-      - name: Complete production adapter (eighteen original and ten R5 isolated cases; private pinned Control source)
+      - name: Complete production adapter and full-entry calibration (isolated synthetic guests)
+        id: native
         env:
           CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
           CONTROL_PRIVATE_ENVIRONMENT: control-private-ci
@@ -104,8 +107,36 @@ jobs:
       # No later job step, artifact, cache or summary receives private data.
       # Helper catches failures/signals and deletes ONLY its owned inputs and
       # labeled container. Hosted VM destruction is the SIGKILL/crash boundary.
-  restore-contract:
+  mainserver-maintenance-native:
+    name: mainserver-maintenance-native
     needs: control-private-provenance
+    runs-on: ubuntu-24.04
+    # Six verification guests, each fresh and serial. Real fixture ageing is
+    # outside the measured entries; no operational deadline is increased.
+    timeout-minutes: 330
+    environment: control-private-ci
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Build fresh reviewed native image before any private input
+        run: docker build --file tests/public-operator-native.Dockerfile --tag "tu1nz-public-operator-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
+      - name: Verify all six full entries using this run's exact public calibration binding
+        env:
+          CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
+          CONTROL_PRIVATE_ENVIRONMENT: control-private-ci
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REV4_CALIBRATION: ${{ needs.control-private-provenance.outputs.rev4_calibration }}
+        run: >-
+          python3 -I -B scripts/tu1nz_public_maintenance_ci.py
+          --image "tu1nz-public-operator-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+  restore-contract:
+    needs: [control-private-provenance, mainserver-maintenance-native]
     runs-on: ubuntu-24.04
     # Native ptrace/Landlock now covers every Git reader as well as writers.
     # Keep all success/rollback/interruption cases; allow their full duration.

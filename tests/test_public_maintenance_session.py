@@ -26,7 +26,7 @@ class SessionOrchestrationTests(unittest.TestCase):
     def setUp(self):
         self.events=[];self.fail=None;self.end=time.monotonic()+100
         self.boot='00000000-0000-0000-0000-000000000001'
-        self.bound={'plan':b'SYNTHETIC_PLAN_NOT_USED','inputs':{'source_sha256':'b'*64},
+        self.bound={'coverage':{'inert':True},'plan':b'SYNTHETIC_PLAN_NOT_USED','inputs':{'source_sha256':'b'*64},
             'timing':{'after_ready_seconds':300,'terminal_prepare_seconds':20,'terminal_cleanup_seconds':20}}
 
     @contextmanager

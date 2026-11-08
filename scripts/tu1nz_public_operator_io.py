@@ -65,7 +65,8 @@ PROSPECTIVE_RISK = 'CURRENT_HOST_TCB_MAY_FALSIFY_CAPTURE_NOT_HISTORICAL_INTEGRIT
 CONTROL_PINS = {
     'entry': '538e157629414f717039de1f4b3d0b388fde16718df74dc54c16dde1ac3826c7',
     'guard': 'eb01c7d260f7ad83b7d3437fe78768549a091289ecff99cae68f05689c224b58'}
-MODULES = {'io': 'tu1nz_public_operator_io', 'fs': 'tu1nz_public_operator_fs',
+MODULES = {'admission': 'tu1nz_public_operator_admission', 'restore': 'tu1nz_mainserver_restore',
+           'io': 'tu1nz_public_operator_io', 'fs': 'tu1nz_public_operator_fs',
            'context': 'tu1nz_public_operator_context',
            'client': 'tu1nz_public_operator',
            'observe': 'tu1nz_public_operator_observe', 'probes': 'tu1nz_public_operator_probes',
@@ -1025,6 +1026,35 @@ def exclusive(parent, name, raw):
         os.close(fd)
 
 
+def client_cleanup_record(value):
+    fields = {'type','schema','route','original_binding','execution_binding','status','original_status',
+              'host_final_sha256','tail_sha256','sequence','primary','abort','host_cleanup','client_primary','cleanup','ssh_exit','completion_claimed',
+              'operational_handles_closed','remote_ACK_reconstructed'}
+    require(type(value) is dict and set(value) == fields and value['type'] == 'client-cleanup' and
+            value['schema'] == 'TU1NZ_REV4_CLIENT_CLEANUP_V1' and
+            value['route'] in ('original','recovery-once') and
+            value['original_status'] == ('THIS_RUN' if value['route'] == 'original' else 'FAILED_HOLD') and
+            all(type(value[k]) is str and re.fullmatch('[a-f0-9]{64}',value[k]) for k in
+                ('original_binding','execution_binding','tail_sha256')) and
+            (value['host_final_sha256'] is None or type(value['host_final_sha256']) is str and
+             re.fullmatch('[a-f0-9]{64}',value['host_final_sha256'])) and
+            type(value['sequence']) is int and 0 <= value['sequence'] <= 512 and
+            (value['ssh_exit'] is None or type(value['ssh_exit']) is int and -128 <= value['ssh_exit'] <= 255) and
+            all(type(value[k]) is list and len(value[k]) <= 32 and
+                all(type(c) is str and re.fullmatch('PUBLIC_BOOTSTRAP_[A-Z0-9_]{1,160}',c) for c in value[k])
+                for k in ('abort','host_cleanup','cleanup')) and
+            all(value[k] is None or type(value[k]) is str and re.fullmatch('PUBLIC_BOOTSTRAP_[A-Z0-9_]{1,160}',value[k])
+                for k in ('primary','client_primary')) and value['completion_claimed'] is False and
+            type(value['operational_handles_closed']) is bool and value['remote_ACK_reconstructed'] is False,
+            'MAINTENANCE_CLIENT_CLEANUP_SCHEMA')
+    require(value['status'] in ('HOLD','CLEANUP_OBSERVED_PENDING_READBACK') and (value['status'] == 'HOLD' or
+            value['host_final_sha256'] is not None and value['sequence'] > 0 and value['ssh_exit'] == 0 and
+            value['primary'] is None and value['client_primary'] is None and not value['abort'] and
+            not value['host_cleanup'] and not value['cleanup'] and value['operational_handles_closed']),
+            'MAINTENANCE_CLIENT_CLEANUP_NOT_COMPLETE')
+    return value
+
+
 def read_original_chain(parent, binding, *, owner, deadline, client_supplements=False):
     """Bounded, strictly read-only original custody census for one recovery.
 
@@ -1038,7 +1068,7 @@ def read_original_chain(parent, binding, *, owner, deadline, client_supplements=
     require(stat.S_ISDIR(before.st_mode) and before.st_uid == owner and
             stat.S_IMODE(before.st_mode) == 0o700, 'ORIGINAL_CHAIN_DIRECTORY_PROFILE')
     names = sorted(os.listdir(parent))
-    extras = {'held.json', 'final.json'} if client_supplements else set()
+    extras = {'held.json', 'final.json', 'client-cleanup.json'} if client_supplements else set()
     require(0 < len(names) <= 512+len(extras) and all(n in extras or
             re.fullmatch('[0-9]{3}-[A-Za-z0-9_]+[.]json', n) for n in names), 'ORIGINAL_CHAIN_NAMES')
     rows = []; supplements = {}; previous = binding; total = 0
@@ -1066,6 +1096,10 @@ def read_original_chain(parent, binding, *, owner, deadline, client_supplements=
             proof = {'name': name, 'sha256': sha(raw), 'metadata': identity, 'record': value}
             if name in extras:
                 require(value.get('type') == name[:-5], 'ORIGINAL_CHAIN_SUPPLEMENT_TYPE')
+                if name == 'client-cleanup.json':
+                    client_cleanup_record(value)
+                    require(value['route'] == 'original' and value['original_binding'] == binding,
+                            'ORIGINAL_CLIENT_CLEANUP_BINDING')
                 supplements[name] = proof
                 continue
             sequence = len(rows)+1
@@ -1083,8 +1117,23 @@ def read_original_chain(parent, binding, *, owner, deadline, client_supplements=
     require(rows and sorted(os.listdir(parent)) == names and
             all(getattr(before, k) == getattr(current, k) for k in fields) and
             time.monotonic() < deadline, 'ORIGINAL_CHAIN_DIRECTORY_CHANGED')
+    validate_cleanup_tail(supplements, binding, previous, len(rows))
     return {'binding': binding, 'tail': previous, 'count': len(rows), 'records': rows,
             'supplements': supplements, 'directory': {k: getattr(current, k) for k in fields}}
+
+
+def validate_cleanup_tail(supplements, binding, tail, count):
+    if 'client-cleanup.json' not in supplements:return
+    value = client_cleanup_record(supplements['client-cleanup.json']['record'])
+    final = supplements.get('final.json')
+    require(value['execution_binding'] == binding and value['tail_sha256'] == tail and
+            value['sequence'] == count and value['host_final_sha256'] ==
+            (None if final is None else final['sha256']), 'MAINTENANCE_CLIENT_CLEANUP_CHAIN_DRIFT')
+    if final is not None:
+        require(value['primary'] == final['record'].get('primary') and
+                value['abort'] == final['record'].get('abort',[]) and
+                value['host_cleanup'] == final['record'].get('cleanup',[]),
+                'MAINTENANCE_CLIENT_CLEANUP_HOST_FAILURE_DRIFT')
 
 
 def original_chain_pair(mac, host, *, binding, ready_sha256):
@@ -1161,11 +1210,16 @@ def original_chain_manifest(snapshot):
         previous = proof['sha256']; hashes.append(previous)
     require(previous == snapshot['tail'], 'ORIGINAL_MANIFEST_TAIL_INVALID')
     supplements = snapshot['supplements']
-    require(type(supplements) is dict and set(supplements) <= {'held.json', 'final.json'},
+    require(type(supplements) is dict and set(supplements) <= {'held.json', 'final.json', 'client-cleanup.json'},
             'ORIGINAL_MANIFEST_SUPPLEMENTS')
     values = {}
+    validate_cleanup_tail(supplements, snapshot['binding'], previous, len(rows))
     for name, proof in supplements.items():
         raw = canonical(proof['record'])
+        if name == 'client-cleanup.json':
+            client_cleanup_record(proof['record'])
+            require(proof['record']['route'] == 'original' and
+                    proof['record']['original_binding'] == snapshot['binding'], 'ORIGINAL_CLIENT_CLEANUP_BINDING')
         require(type(proof['record']) is dict and proof['record'].get('type') == name[:-5] and
                 len(raw) <= 65536 and sha(raw) == proof['sha256'], 'ORIGINAL_MANIFEST_SUPPLEMENT_INVALID')
         values[name] = {'sha256': proof['sha256'], 'record': proof['record']}

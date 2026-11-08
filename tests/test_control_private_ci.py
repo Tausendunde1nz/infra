@@ -354,15 +354,23 @@ with p.interrupted():
         self.assertIn('environment: control-private-ci',private)
         self.assertIn('github.event.pull_request.head.sha || github.sha',private)
         self.assertIn('persist-credentials: false',private)
-        # Two finite, separately cleaning helpers in the SAME protected job;
-        # no credential or private input is inherited by any public step.
-        self.assertEqual(private.count('secrets.CONTROL_POLICY_READ_TOKEN'),2)
+        # Two original helpers and one separately protected serial verification
+        # helper. Only finite sanitized calibration goes between those jobs.
+        first,verification=private.split('  mainserver-maintenance-native:\n',1)
+        self.assertEqual(first.count('secrets.CONTROL_POLICY_READ_TOKEN'),2)
+        self.assertEqual(verification.count('secrets.CONTROL_POLICY_READ_TOKEN'),1)
+        self.assertIn('environment: control-private-ci',verification)
+        self.assertIn('needs: control-private-provenance',verification)
+        self.assertIn('REV4_CALIBRATION: ${{ needs.control-private-provenance.outputs.rev4_calibration }}',verification)
+        self.assertIn('persist-credentials: false',verification)
+        self.assertLess(verification.index('Build fresh reviewed native image'),
+                        verification.index('secrets.CONTROL_POLICY_READ_TOKEN'))
         self.assertIn('scripts/tu1nz_public_operator_ci.py', private)
         self.assertLess(private.index('Build fresh production-entry image'),
                         private.index('secrets.CONTROL_POLICY_READ_TOKEN'))
         self.assertNotIn('CONTROL_POLICY_READ_TOKEN',public)
         self.assertNotIn('pull_request_target:',raw)
-        self.assertIn('needs: control-private-provenance',public)
+        self.assertIn('needs: [control-private-provenance, mainserver-maintenance-native]',public)
         for forbidden in ('policy-target','upload-artifact','actions/cache','GITHUB_STEP_SUMMARY'):
             self.assertNotIn(forbidden,raw)
 

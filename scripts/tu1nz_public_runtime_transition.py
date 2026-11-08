@@ -1672,7 +1672,15 @@ def recovery_failure_assessment(records, supplements):
         'PUBLIC_BOOTSTRAP_HOLD_RECORD_PERSISTENCE_RED', 'PUBLIC_BOOTSTRAP_HOLD_RECORD_UNCONFIRMED',
         'PUBLIC_BOOTSTRAP_FOLLOWUP_UNCONFIRMED', 'PUBLIC_BOOTSTRAP_MIRROR_CLOSE_UNCONFIRMED',
         'PUBLIC_BOOTSTRAP_MAINTENANCE_HELPER_CLEANUP_UNKNOWN',
-        'PUBLIC_BOOTSTRAP_MAINTENANCE_LOCK_CLEANUP_UNKNOWN'}
+        'PUBLIC_BOOTSTRAP_MAINTENANCE_LOCK_CLEANUP_UNKNOWN',
+        # Own client transport/handle uncertainty is re-observed by Recovery;
+        # it never proves the old Host operator ended or erases its negatives.
+        'PUBLIC_BOOTSTRAP_OWNED_CHANNEL_CLOSE_UNKNOWN',
+        'PUBLIC_BOOTSTRAP_OWNED_SSH_END_UNKNOWN',
+        'PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED',
+        'PUBLIC_BOOTSTRAP_OWNED_SSH_STATUS_UNKNOWN',
+        'PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED',
+        'PUBLIC_BOOTSTRAP_MAINTENANCE_CLIENT_CLOSE_UNKNOWN'}
     diagnoses = [r['value'] for r in records if r['kind'] in
                  ('flow_hold', 'operator_pending_cleanup', 'operator_cleanup')]
     diagnoses += [p['record'] for p in supplements.values()]
@@ -1682,7 +1690,10 @@ def recovery_failure_assessment(records, supplements):
                    'RECOVERY_ORIGINAL_NOT_FAILED_HOLD')
         primary = value.get('primary')
         io.require(primary is None or primary in mechanical, 'RECOVERY_RECORDED_NEGATIVE_OR_UNCLASSIFIED_FAILURE')
-        for key in ('abort', 'cleanup'):
+        client_primary = value.get('client_primary')
+        io.require(client_primary is None or client_primary in mechanical,
+                   'RECOVERY_RECORDED_CLIENT_FAILURE_NOT_CLASSIFIED')
+        for key in ('abort', 'cleanup', 'host_cleanup'):
             codes = value.get(key, [])
             io.require(type(codes) is list and len(codes) <= 512 and
                        all(c in mechanical | cleanup_unknown for c in codes),
@@ -2183,7 +2194,7 @@ class MaintenanceAdapter(ReplacementAdapter):
     authority_type = CurrentReplacementAuthority
 
     def __init__(self, source, baseline, plan_raw, channel, binding, *, deadline,
-                 maintenance_inputs, after_ready_seconds):
+                 maintenance_inputs, after_ready_seconds, coverage):
         io.require(type(maintenance_inputs) is dict and set(maintenance_inputs) ==
                    {'scope_sha256', 'baseline_sha256', 'source_sha256',
                     'pre_stop_protection_sha256', 'native_timing_sha256'} and
@@ -2198,6 +2209,7 @@ class MaintenanceAdapter(ReplacementAdapter):
         # caller must also include backup/probes/admission/cleanup/reserve.
         io.require(type(after_ready_seconds) is int and 180 < after_ready_seconds < 600,
                    'MAINTENANCE_TIMING_INPUT')
+        self.coverage = coverage
         self.maintenance_inputs = dict(maintenance_inputs)
         self.after_ready_seconds = after_ready_seconds
         self.transaction_lock = None
@@ -2212,6 +2224,7 @@ class MaintenanceAdapter(ReplacementAdapter):
 
     def pre_stop(self):
         super().pre_stop()
+        self.read_witness['current_protection'] = self.source.load('admission').check_current(self.a,self.coverage)
         self.read_witness['stop_profiles'] = self.a.original_profiles
         self.read_witness['legacy_contexts'] = self.a.legacy_contexts
         self.read_witness['operator_session'] = dict(self.operator_session)
@@ -2416,6 +2429,7 @@ class MaintenanceAdapter(ReplacementAdapter):
         self.a.check_writers(selected.files | {(v['metadata']['device'], v['metadata']['inode'])
                              for v in self.prepared_assets.values()})
         if before_stop:
+            self.source.load('admission').check_current(self.a,self.coverage)
             self.preparation_check()
             for unit in UNITS:
                 current=start_limit_state_read(self.a.read_bus(),self.a.unit,unit)
@@ -2613,7 +2627,7 @@ class RecoveryAdapter(MaintenanceAdapter):
     authority_type = RecoveryAuthority
 
     def __init__(self, source, baseline, plan_raw, channel, *, evidence, deadline,
-                 terminal_prepare_seconds, terminal_cleanup_seconds):
+                 terminal_prepare_seconds, terminal_cleanup_seconds, coverage):
         io.require(isinstance(channel, io.RecoveryAdmissionChannel) and
                    isinstance(evidence, RecoveryOriginalEvidence) and channel.binding == evidence.binding and
                    deadline == channel.ceiling == channel.wire.deadline and
@@ -2625,6 +2639,7 @@ class RecoveryAdapter(MaintenanceAdapter):
                    type(terminal_cleanup_seconds) is int and 0 < terminal_cleanup_seconds <= 120 and
                    terminal_prepare_seconds+60+terminal_cleanup_seconds < 600,
                    'RECOVERY_TERMINAL_TIMING_INPUT')
+        self.coverage = coverage
         self.terminal_prepare_seconds = terminal_prepare_seconds
         self.terminal_cleanup_seconds = terminal_cleanup_seconds
         self.terminal_reserve_seconds = terminal_prepare_seconds+60+terminal_cleanup_seconds
@@ -2662,6 +2677,7 @@ class RecoveryAdapter(MaintenanceAdapter):
         self.original_backup_proof = self.inspect_original_backup()
         io.require(self.a.recovery_phase not in ('F3', 'F4') or self.backup_mode == 'ORIGINAL_CURRENT',
                    'RECOVERY_INSTALL_WITHOUT_COMPLETE_BACKUP_AND_RESTORE')
+        self.current_protection = self.source.load('admission').check_current(self.a,self.coverage)
         self.recover_state()
 
     def pre_stop(self):
@@ -2769,6 +2785,7 @@ class RecoveryAdapter(MaintenanceAdapter):
         self.recovery_state_proof = {'schema': 'TU1NZ_REV4_FRESH_RECOVERY_STATE', 'phase': phase,
             'units': identities, 'classes': kinds, 'assets': self.asset_states, 'start_permissions':start_permissions,
             'runtime': self.prepared_ready['runtime'], 'current_data': data,
+            'current_protection':self.current_protection,
             'probe_state': self.a.recovery_probes.state, 'probe_hash': self.probe_hash,
             'backup': self.original_backup_proof,
             'original_failure': self.evidence.failure, 'operator_session': self.operator_session,

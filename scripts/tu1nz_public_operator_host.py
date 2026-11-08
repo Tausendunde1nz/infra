@@ -898,16 +898,24 @@ class MaintenanceSessionResult:
         return result
 
 
-def maintenance_session_setup(source, packet, wire, *, route):
-    """Finite envelope/clock setup; not the outstanding V1–V6 live admission.
+def dispatch_maintenance(source, packet, wire):
+    io.require(type(packet) is dict and packet.get('scope', {}).get('schema') == io.MAINTENANCE_SCOPE,
+               'MAINTENANCE_EXPLICIT_SCOPE_REQUIRED')
+    io.require(packet.get('route') in ('original','recovery-once'), 'MAINTENANCE_EXPLICIT_ROUTE_REQUIRED')
+    return (maintenance_session if packet['route'] == 'original' else recovery_session)(source, packet, wire)
 
-    These entry functions are intentionally not selected by legacy session()
-    or bootstrap. The complete Rev4 entry still needs current coverage/input
-    admission and native full-route proofs before production selection.
+
+def maintenance_session_setup(source, packet, wire, *, route):
+    """Finite envelope, evidence, coverage and shared-clock admission.
+
+    The explicit Rev4 dispatcher selects these entries. Legacy session() does
+    not. Actual live Authority, Writer and prepared-state checks follow; this
+    pure input validation never replaces them or supplies a missing proof.
     """
     io.require(packet.get('route') == route and os.geteuid() == 0, 'MAINTENANCE_SESSION_ROUTE_OR_UID')
     remaining = io.maintenance_remote_deadline(packet, wire)
     bound = io.maintenance_packet_binding(packet, source, remaining_seconds=remaining)
+    bound['coverage'] = source.load('admission').validate(packet, source, bound, remaining_seconds=remaining)
     parent = os.getppid(); libc = ctypes.CDLL(None, use_errno=True)
     io.require(libc.prctl(1, signal.SIGTERM, 0, 0, 0) == 0 and os.getppid() == parent,
                'COORDINATOR_PARENT_BINDING')
@@ -919,8 +927,7 @@ def maintenance_session_setup(source, packet, wire, *, route):
 def maintenance_session(source, packet, wire):
     """Original Rev4 Host sequence; no fallback to legacy Flow or Recovery.
 
-    All entry/coverage/native gates must be supplied by the complete admitted
-    dispatcher before this currently unselected sequence can be published.
+    All entry/coverage/native gates are supplied by the admitted dispatcher.
     Actual adapter observations remain mandatory; packet facts cannot replace
     them. The original Flow alone owns its fixed original claim and ordering.
     """
@@ -934,7 +941,7 @@ def maintenance_session(source, packet, wire):
         adapter = state.adapter = replacement.MaintenanceAdapter.__new__(replacement.MaintenanceAdapter)
         adapter.__init__(source, packet['baseline'], bound['plan'], channel, packet['binding'],
             deadline=wire.deadline, maintenance_inputs=bound['inputs'],
-            after_ready_seconds=bound['timing']['after_ready_seconds'])
+            after_ready_seconds=bound['timing']['after_ready_seconds'], coverage=bound['coverage'])
         # Read-only adapter admission may consume time. Recheck the SAME
         # current packet/lifetime before creating local original custody.
         io.maintenance_packet_binding(packet, source,
@@ -962,7 +969,7 @@ def recovery_session(source, packet, wire):
 
     Does not call original Adapter.__init__, original pre_stop, Flow.forward,
     runtime transfer or original Journal.claim. No original evidence is written.
-    This is not yet connected to the production selector; see setup's limits.
+    Only the explicit Rev4 dispatcher can select this separate route.
     """
     r = source.load('r3'); state = MaintenanceSessionResult(wire, r, route='recovery-once')
     try:
@@ -988,7 +995,7 @@ def recovery_session(source, packet, wire):
         adapter = state.adapter = replacement.RecoveryAdapter.__new__(replacement.RecoveryAdapter)
         adapter.__init__(source, packet['baseline'], bound['plan'], admission, evidence=evidence,
             deadline=wire.deadline, terminal_prepare_seconds=bound['timing']['terminal_prepare_seconds'],
-            terminal_cleanup_seconds=bound['timing']['terminal_cleanup_seconds'])
+            terminal_cleanup_seconds=bound['timing']['terminal_cleanup_seconds'], coverage=bound['coverage'])
         io.maintenance_packet_binding(packet, source,
             remaining_seconds=max(1, math.ceil(wire.deadline-time.monotonic())))
         io.require(time.monotonic() < wire.deadline, 'RECOVERY_ADMISSION_EXPIRED')

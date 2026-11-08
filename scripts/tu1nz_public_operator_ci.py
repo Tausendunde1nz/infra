@@ -577,11 +577,15 @@ def run(workspace, image):
             records.append(validate_report(raw, case, hashes))
             progress(sha,len(records),records[-1])
             boundary.cleanup_container(container, owner); container = None
+        phase = 'rev4-full-native'
+        import tu1nz_public_maintenance_ci as maintenance_ci
+        full_entries = maintenance_ci.run_cases(workspace,control,image,image_id,owner,root,runtime_inputs,hashes,sha)
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
                   'native_fsuid_tests': 7,
                   'native_context_test': 'ACTUAL_NATIVE_CONTEXT_GREEN', 'native_context_tests': 12,
+                  'rev4_full_entries':full_entries,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback
@@ -592,6 +596,9 @@ def run(workspace, image):
         if native_process is not None: result['native_process'] = native_process
     finally:
         result = cleanup_result(result, container, owner, root, parent)
+    if result['green']:
+        try:maintenance_ci.publish_calibration(result['rev4_full_entries']['calibration'])
+        except BaseException:result={**result,'green':False,'code':'REV4_CALIBRATION_OUTPUT_RED'}
     print(json.dumps(result, sort_keys=True))
     return 0 if result['green'] else 1
 
