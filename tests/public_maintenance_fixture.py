@@ -60,7 +60,8 @@ def ssh_setup():
 
 def current_profiles(s, warmup):
     observer=s.load('observe');ctx=s.load('context');until=time.monotonic()+30
-    rows={};targets={int(observer.unit_properties(u,until)['MainPID']) for u in f.UNITS}
+    units=observer.unit_properties(f.UNITS,'MainPID',until)
+    rows={};targets={int(units[u]['MainPID']) for u in f.UNITS}
     for name in sorted(os.listdir('/proc')):
         if not name.isdecimal() or int(name) in targets:continue
         try:row=observer.current_process(int(name),deadline=until)

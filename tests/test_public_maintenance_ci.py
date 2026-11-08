@@ -166,6 +166,39 @@ class NativeBoundaryTests(unittest.TestCase):
         self.assertIn('os.kill(os.getpid(),signal.SIGTERM)',n.HOST_TRACE)
         self.assertNotIn('time.monotonic=',program)
 
+    def test_current_fixture_profiles_use_fresh_batched_unit_query(self):
+        from tests import public_maintenance_fixture as f
+        import tu1nz_public_operator_observe as observer
+        import tu1nz_public_operator_context as context
+        source=SimpleNamespace(load=lambda name:{'observe':observer,'context':context}[name])
+        manager={'exe':'/usr/lib/systemd/systemd','uid':[0]*4,'gid':[0]*4,'groups':[0],
+            'caps':{k:0 for k in context.CAPS},'nnp':0,'cgroup':'0::/init.scope',
+            'namespaces':{k:k+':[1]' for k in context.NS}}
+        response='\n\n'.join('Id='+u+'\nMainPID='+str(10+i) for i,u in enumerate(f.f.UNITS)).encode()
+        with patch.object(observer,'command',return_value=SimpleNamespace(returncode=0,stdout=response)) as query, \
+                patch.object(f.os,'listdir',return_value=['1','10','11','12']), \
+                patch.object(observer,'current_process',return_value=manager) as process, \
+                patch.object(f.time,'monotonic',side_effect=[100.0,200.0]):
+            for deadline in (130.0,230.0):
+                profiles=f.current_profiles(source,SimpleNamespace(poll=lambda:None))
+                self.assertEqual(profiles[0]['role'],'kernel_manager')
+                self.assertEqual(len(profiles),1)
+                query.assert_called_with(['/usr/bin/systemctl','show',*f.f.UNITS,'--no-pager',
+                    '--property=Id,MainPID'],deadline)
+                process.assert_called_with(1,deadline=deadline)
+        self.assertEqual(query.call_count,2);self.assertEqual(process.call_count,2)
+
+    def test_current_fixture_profiles_do_not_census_after_missing_unit_field(self):
+        from tests import public_maintenance_fixture as f
+        import tu1nz_public_operator_observe as observer
+        import tu1nz_public_operator_context as context
+        source=SimpleNamespace(load=lambda name:{'observe':observer,'context':context}[name])
+        with patch.object(observer,'command',return_value=SimpleNamespace(returncode=0,
+                stdout=('Id='+f.f.UNITS[0]).encode())),patch.object(f.os,'listdir') as census:
+            with self.assertRaisesRegex(io.Hold,'UNIT_PROFILE_UNKNOWN'):
+                f.current_profiles(source,SimpleNamespace(poll=lambda:None))
+        census.assert_not_called()
+
     def test_native_synthetic_packet_passes_actual_local_bindings_without_io(self):
         from tests import public_maintenance_fixture as f
         from tests.test_public_maintenance_admission import CoverageTests
