@@ -25,12 +25,42 @@ client=f.client;io=f.io;ROOT=f.ROOT
 # wrappers always call the actual method. Faults are actual signals/exit at a
 # defined boundary, never fabricated method return values or ACKs.
 HOST_TRACE=r'''
-import json,math,signal
+import json,math,re,signal,sys
 from pathlib import Path
 _trace={"prepared_begin":None,"prepared_end":None,"ready":None,"owner_begin":None,
         "owner_finish":None,"service_ns":[],"terminal_begin":None,"terminal_admitted":None,
-        "terminal_stopped":None,"closed":None,"fault_injected":None,"final":None}
+        "terminal_stopped":None,"closed":None,"fault_injected":None,"final":None,
+        "start_limit_failure":None}
 _replacement=s.load("replacement");_io=s.load("io")
+# Error-only projection of the values already compared. No extra manager,
+# filesystem or reference read; the actual verdict/exception is unchanged.
+_actual_start_limit_permission=_replacement.start_limit_permission
+def _start_limit_permission(current,*,anchor=None,require_active=False):
+ try:return _actual_start_limit_permission(current,anchor=anchor,require_active=require_active)
+ except _io.Hold as error:
+  if (error.primary=="PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_STATE_NOT_ELIGIBLE" and
+      _trace["start_limit_failure"] is None):
+   try:
+    state=current["unit_state"]
+    checks={"type_simple":state["Type"]=="simple","restarts_zero":state["NRestarts"]=="0",
+     "control_pid_zero":state["ControlPID"]=="0","job_empty":not state["Job"],
+     "result_not_limit_hit":state["Result"]!="start-limit-hit",
+     "invocation_id_valid":bool(re.fullmatch("[0-9a-f]{32}",state["InvocationID"])),
+     "active_running_pid":state["ActiveState"]=="active" and state["SubState"]=="running" and
+        state["MainPID"].isdecimal() and int(state["MainPID"])>0,
+     "empty_terminal_pid":(state["ActiveState"],state["SubState"]) in
+        (("inactive","dead"),("failed","failed")) and state["MainPID"]=="0"}
+    caller=sys._getframe(1).f_code.co_name
+    callers=("pre_stop","check_prepared_state","bind_current_permission","remaining",
+             "recover_state","start_limit_permission")
+    units=_replacement.UNITS
+    _trace["start_limit_failure"]={"checkpoint":"START_LIMIT_STATE_NOT_ELIGIBLE",
+     "caller":caller if caller in callers else "OTHER",
+     "unit":("S7","S8","WMS")[units.index(current["unit"])] if current["unit"] in units else "OTHER",
+     "require_active":require_active,"anchor_present":anchor is not None,"checks":checks}
+   except Exception:pass  # an unavailable diagnostic never replaces the real failure
+  raise
+_replacement.start_limit_permission=_start_limit_permission
 def _interrupt(label,*,fatal=False):
  assert _trace["fault_injected"] is None
  _trace["fault_injected"]=label
@@ -295,7 +325,12 @@ if __name__=='__main__':
         result.update(failure_fields(error))
         for route in ('original','recovery-once'):
             path=ROOT/('client-'+route+'.json')
-            if path.exists():result[route]=io.parse(path.read_bytes())
+            if path.exists():
+                result[route]=io.parse(path.read_bytes())
+                trace=ROOT/('trace-'+route+'.json')
+                if trace.exists():
+                    point=diagnostics.validated_start_limit(io.parse(trace.read_bytes()).get('start_limit_failure'))
+                    if point is not None:result[route]['start_limit_failure']=point
     finally:
         path=Path('/native-result.json')
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)

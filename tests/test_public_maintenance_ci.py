@@ -137,6 +137,96 @@ class NativeBoundaryTests(unittest.TestCase):
         self.assertNotIn('SECRET_CANARY',raw);self.assertNotIn('PRIVATE_CLASS',raw)
         self.assertIn('PUBLIC_BOOTSTRAP_INTERRUPTED',raw)
 
+    def start_limit_diagnostic(self):
+        import ast,re
+        from tests import public_maintenance_native as n
+        from tests.test_public_maintenance import transition
+        node=next(x for x in ast.parse(n.HOST_TRACE).body if isinstance(x,ast.FunctionDef)
+            and x.name=='_start_limit_permission')
+        seen=[]
+        def actual(*args,**kwargs):
+            try:return transition.start_limit_permission(*args,**kwargs)
+            except io.Hold as error:seen.append(error);raise
+        namespace={'_actual_start_limit_permission':actual,'_io':io,'_trace':{'start_limit_failure':None},
+            '_replacement':SimpleNamespace(UNITS=transition.UNITS),'re':re,'sys':sys}
+        exec(compile(ast.Module(body=[node],type_ignores=[]),'<exact-native-error-wrapper>','exec'),namespace)
+        return namespace,seen
+
+    def test_start_limit_diagnostic_uses_actual_denial_preserves_exception_and_no_extra_reads(self):
+        from tests.test_public_maintenance import StartLimitStateProofTests
+        seed=StartLimitStateProofTests().snapshot()
+        faults=(('Type','exec','type_simple'),('NRestarts','1','restarts_zero'),
+            ('ControlPID','8','control_pid_zero'),('Job','7','job_empty'),
+            ('Result','start-limit-hit','result_not_limit_hit'),('InvocationID','','invocation_id_valid'),
+            ('SubState','start','active_running_pid'))
+        for field,value,predicate in faults:
+            with self.subTest(field=field):
+                ns,seen=self.start_limit_diagnostic();row=copy.deepcopy(seed);row['unit_state'][field]=value
+                before=copy.deepcopy(row)
+                with patch('builtins.open',side_effect=AssertionError('NO_READ')), \
+                        patch.object(os,'open',side_effect=AssertionError('NO_READ')), \
+                        patch('subprocess.run',side_effect=AssertionError('NO_COMMAND')):
+                    try:ns['_start_limit_permission'](row,require_active=True)
+                    except io.Hold as error:self.assertIs(error,seen[0])
+                    else:self.fail('actual eligibility assertion did not deny')
+                point=ns['_trace']['start_limit_failure'];self.assertIs(point['checks'][predicate],False)
+                self.assertEqual(m.diagnostics.validated_start_limit(point),point)
+                self.assertEqual(row,before)
+                output=m.safe_failure({'original':{'result':{'host_primary':seen[0].primary},
+                    'start_limit_failure':point}},'original','calibration')
+                self.assertEqual(output['original']['start_limit_failure'],point)
+                self.assertIs(output['green'],False)
+                self.assertNotIn(seed['unit_state']['InvocationID'],json.dumps(output))
+                self.assertEqual(len(seen),1)
+
+    def test_start_limit_diagnostic_retains_first_failure_caller_and_other_failures(self):
+        from tests.test_public_maintenance import StartLimitStateProofTests,transition
+        row=StartLimitStateProofTests().snapshot();ns,seen=self.start_limit_diagnostic()
+        self.assertEqual(ns['_start_limit_permission'](row,require_active=True),
+            transition.start_limit_permission(row,require_active=True))
+        self.assertIsNone(ns['_trace']['start_limit_failure'])
+        stopped=copy.deepcopy(row);stopped['unit_state'].update(ActiveState='inactive',SubState='dead',MainPID='0')
+        # Run through a named caller, just as the real fresh before-stop check.
+        exec('def check_prepared_state(row):\n return _start_limit_permission(row,require_active=True)\n',ns)
+        with self.assertRaises(io.Hold):ns['check_prepared_state'](stopped)
+        first=copy.deepcopy(ns['_trace']['start_limit_failure'])
+        self.assertEqual(first['caller'],'check_prepared_state')
+        self.assertIs(first['checks']['empty_terminal_pid'],True)
+        self.assertIs(first['checks']['active_running_pid'],False)
+        self.assertTrue(all(first['checks'][k] for k in first['checks'] if k not in
+            ('active_running_pid','empty_terminal_pid')))
+        other=copy.deepcopy(row);other['unit_state']['InvocationID']='SECRET_CANARY'
+        with self.assertRaises(io.Hold):ns['_start_limit_permission'](other)
+        self.assertEqual(ns['_trace']['start_limit_failure'],first)
+        ns,seen=self.start_limit_diagnostic()
+        row['unit_state']['NRestarts']=True
+        with self.assertRaises(io.Hold):ns['_start_limit_permission'](row)
+        self.assertTrue(seen[0].primary.endswith('START_LIMIT_STATE_TYPES'))
+        self.assertIsNone(ns['_trace']['start_limit_failure'])
+
+    def test_start_limit_failure_export_rejects_unapproved_fields_types_and_success_claim(self):
+        from tests.test_public_maintenance import StartLimitStateProofTests
+        row=StartLimitStateProofTests().snapshot();row['unit_state']['InvocationID']=''
+        ns,seen=self.start_limit_diagnostic()
+        with self.assertRaises(io.Hold):ns['_start_limit_permission'](row,require_active=True)
+        point=ns['_trace']['start_limit_failure']
+        changes=({'caller':'SECRET_CANARY'},{'unit':[]},{'checkpoint':'SECRET_CANARY'},
+            {'require_active':1},{'anchor_present':'false'},{'pid':5},
+            {'checks':{**point['checks'],'invocation_id_valid':'SECRET_CANARY'}},
+            {'checks':{**point['checks'],'invocation_id_valid':True}},
+            {'checks':{**point['checks'],'private':'SECRET_CANARY'}})
+        for change in changes:
+            with self.subTest(change=change):
+                bad={**point,**change}
+                output=m.safe_failure({'original':{'result':{'host_primary':seen[0].primary},
+                    'start_limit_failure':bad}},'original','calibration')
+                self.assertNotIn('start_limit_failure',output['original'])
+                self.assertNotIn('SECRET_CANARY',json.dumps(output))
+        for wrong_code in ('PUBLIC_BOOTSTRAP_INTERRUPTED','SECRET_CANARY',None):
+            output=m.safe_failure({'original':{'result':{'host_primary':wrong_code},
+                'start_limit_failure':point}},'original','calibration')
+            self.assertNotIn('start_limit_failure',output['original'])
+
     def test_actual_fixture_assertion_has_unique_public_checkpoint_and_stays_red(self):
         from tests import public_maintenance_native as n
         # Fail the first real fixture assertion before any native I/O. No

@@ -110,6 +110,9 @@ def safe_failure(value,case,phase):
         if type(inner) is not dict:continue
         result[route]={k:inner[k] for k in ('primary','host_primary','client_primary')
             if type(inner.get(k)) is str and inner[k] in allowed}
+        if inner.get('host_primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_STATE_NOT_ELIGIBLE':
+            point=diagnostics.validated_start_limit(outer.get('start_limit_failure'))
+            if point is not None:result[route]['start_limit_failure']=point
         for k in ('host_abort','host_cleanup','client_cleanup'):
             if type(inner.get(k)) is list:result[route][k]=[v for v in inner[k] if type(v) is str and v in allowed][:16]
     return result
