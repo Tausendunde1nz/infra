@@ -146,13 +146,35 @@ s.load("host").source_fault_location=_env_source_fault
 # action, result or deadline is replaced. Inclusive durations overlap; timing
 # overhead exists and must not be called the uninstrumented CI root cause.
 READ_COST_WRAPPER = r'''
-import time as _cost_time
+import time as _cost_time,resource as _cost_resource
 _read_cost={}
 _cost_stack=[]
 _owner_phases={}
 _owner_phase=None
 _owner_begin_ns=None
 _owner_finish_result=None
+_owner_resources={}
+def _resource_sample():
+ try:return (_cost_time.monotonic_ns(),_cost_resource.getrusage(_cost_resource.RUSAGE_SELF))
+ except Exception:return None
+def _resource_end(name,before):
+ # Two SELF samples per Owner phase, never per object/protection check.
+ # CPU excludes systemd/DBus and child processes; wall minus CPU is NOT an
+ # attribution to I/O, throttling or a particular external component.
+ try:
+  after=_resource_sample()
+  if before is None or after is None:raise ValueError()
+  a=before[1];b=after[1]
+  values={"wall_ns":after[0]-before[0],
+   "user_cpu_ns":round((b.ru_utime-a.ru_utime)*1_000_000_000),
+   "system_cpu_ns":round((b.ru_stime-a.ru_stime)*1_000_000_000),
+   "voluntary_switches":b.ru_nvcsw-a.ru_nvcsw,"involuntary_switches":b.ru_nivcsw-a.ru_nivcsw}
+  if any(type(v) is not int or v<0 for v in values.values()):raise ValueError()
+  row=_owner_resources.setdefault(name,{"status":"RECORDED","calls":0,**{k:0 for k in values}})
+  if row["status"]=="RECORDED":
+   row["calls"]+=1
+   for k,v in values.items():row[k]+=v
+ except Exception:_owner_resources[name]={"status":"UNAVAILABLE"}
 def _cost_add(table,name,elapsed,exclusive):
  row=table.setdefault(name,{"calls":0,"inclusive_ns":0,"exclusive_ns":0})
  row["calls"]+=1;row["inclusive_ns"]+=elapsed;row["exclusive_ns"]+=exclusive
@@ -177,11 +199,14 @@ def _phase(name,actual):
    # shorter outer deadline makes this anchor earlier, never optimistic.
    # Floor and an extra1ns cover float->integer rounding. No clock is reset.
    _owner_begin_ns=int(kwargs["deadline"]*1_000_000_000)-120_000_000_001
+  resources=_resource_sample()
   try:
    result=actual(*args,**kwargs)
    if name=="finish":_owner_finish_result=result
    return result
-  finally:_owner_phase=previous
+  finally:
+   _resource_end(name,resources)
+   _owner_phase=previous
  return invoke
 _observer=s.load("observe")
 _observer.command=_cost("command",_observer.command)
@@ -221,7 +246,7 @@ for _name in ("owner_transition","observe_fd"):
 def _save_read_cost():
  import json,os
  result=_owner_finish_result
- timing={"phases":_owner_phases,"started":_owner_begin_ns is not None,
+ timing={"phases":_owner_phases,"resources":_owner_resources,"started":_owner_begin_ns is not None,
   "finish_completed":type(result) is dict and result.get("status")=="OWNER_COMPLETED",
   "finish_owner_acks":result.get("owner_acks",0) if type(result) is dict else 0,
   "finish_cleanup_bound":type(result) is dict and type(result.get("cleanup_sha256")) is str and

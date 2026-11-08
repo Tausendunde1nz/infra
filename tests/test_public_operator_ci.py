@@ -129,6 +129,63 @@ print('SOURCE_WRAPPER_IMPORT_PASS')
                     {**value, 'phases': {'apply': {'command': {'calls': 1, 'inclusive_ns': 5, 'exclusive_ns': 6}}}}):
             with self.subTest(bad=bad):self.assertIsNone(failure(bad))
 
+    def test_owner_resource_fields_are_bounded_diagnostics_never_a_new_deadline(self):
+        row={'status':'RECORDED','calls':1,'wall_ns':100,'user_cpu_ns':40,'system_cpu_ns':20,
+             'voluntary_switches':3,'involuntary_switches':2}
+        value=self.owner_timing_fixture()
+        value['resources']={phase:dict(row) for phase in value['phases']}
+        self.assertEqual(m.safe_owner_timing(value,completed=True),value)
+        for change in ({'status':'SECRET_CANARY'},{'calls':True},{'calls':17},
+                       {'wall_ns':-1},{'user_cpu_ns':2_880_000_000_001},
+                       {'system_cpu_ns':1.5},{'voluntary_switches':10_000_001},
+                       {'involuntary_switches':False},{'private_path':'SECRET_CANARY'}):
+            bad={**value,'resources':{**value['resources'],'apply':{**row,**change}}}
+            with self.subTest(change=change),self.assertRaises(m.CIError):m.safe_owner_timing(bad)
+        for resources in ({},{'SECRET_CANARY':row},{'apply':None}):
+            with self.assertRaises(m.CIError):m.safe_owner_timing({**value,'resources':resources})
+        unavailable={**value,'resources':{k:{'status':'UNAVAILABLE'} for k in value['phases']}}
+        self.assertEqual(m.safe_owner_timing(unavailable,completed=True),unavailable)
+        # Missing resource attribution cannot erase a wall-clock failure.
+        with self.assertRaisesRegex(m.CIError,'OWNER_FULL_CLEANUP_120S_NOT_PROVED'):
+            m.safe_owner_timing({**unavailable,'elapsed_ns':120_000_000_001},completed=True)
+        late={**value,'elapsed_ns':120_054_096_192,'finish_completed':False}
+        exported=m.failure_location(json.dumps({'native_failure':{'test_line':1,'test_type':'AssertionError',
+            'production_fault':None,'owner_timing':late}}).encode())
+        self.assertEqual(exported['owner_timing'],late)
+
+    def test_resource_samples_only_bracket_phase_and_preserve_real_error_and_anchor(self):
+        import ast
+        from types import SimpleNamespace as N
+        from tests import public_operator_native as native
+        nodes=[x for x in ast.parse(native.READ_COST_WRAPPER).body if isinstance(x,ast.FunctionDef) and
+            x.name in ('_resource_sample','_resource_end','_phase')]
+        ticks=[0];calls=[];samples=[];token=object();error=RuntimeError('SECRET_CANARY')
+        def usage(kind):
+            self.assertEqual(kind,0);samples.append(ticks[0])
+            return N(ru_utime=ticks[0]/1e9,ru_stime=ticks[0]*2/1e9,
+                ru_nvcsw=ticks[0]*3,ru_nivcsw=ticks[0]*4)
+        ns={'_cost_time':N(monotonic_ns=lambda:ticks[0]),'_cost_resource':N(RUSAGE_SELF=0,getrusage=usage),
+            '_owner_resources':{},'_owner_phase':None,'_owner_begin_ns':None,'_owner_finish_result':None}
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),'<exact-phase-resource-wrapper>','exec'),ns)
+        def actual(**kwargs):
+            calls.append(kwargs);ticks[0]+=7
+            if kwargs.get('fail'):raise error
+            return token
+        wrapped=ns['_phase']('admission',actual)
+        self.assertIs(wrapped(deadline=150.0),token)
+        with self.assertRaises(RuntimeError) as caught:wrapped(deadline=150.0,fail=True)
+        self.assertIs(caught.exception,error)
+        self.assertEqual(samples,[0,7,7,14]);self.assertEqual(len(calls),2)
+        self.assertEqual(ns['_owner_begin_ns'],29_999_999_999)
+        self.assertEqual(ns['_owner_resources']['admission'],{'status':'RECORDED','calls':2,
+            'wall_ns':14,'user_cpu_ns':14,'system_cpu_ns':28,'voluntary_switches':42,'involuntary_switches':56})
+        self.assertIsNone(ns['_owner_phase'])
+        ns['_cost_resource'].getrusage=lambda kind:(_ for _ in ()).throw(OSError('SECRET_CANARY'))
+        with self.assertRaises(RuntimeError) as caught:wrapped(deadline=150.0,fail=True)
+        self.assertIs(caught.exception,error)
+        self.assertEqual(ns['_owner_resources']['admission'],{'status':'UNAVAILABLE'})
+        self.assertIsNone(ns['_owner_phase'])
+
     def test_native_timing_wrappers_delegate_once_and_account_nesting_on_exception(self):
         from types import SimpleNamespace as N
         from tests import public_operator_native as native

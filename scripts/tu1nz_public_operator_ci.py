@@ -137,7 +137,9 @@ def safe_owner_timing(value, *, completed=False):
     # paths, timestamps, observations or arbitrary strings leave the guest.
     keys = {'phases', 'started', 'finish_completed', 'finish_owner_acks', 'finish_cleanup_bound',
             'stack_empty', 'elapsed_ns', 'client_cleanup_ns', 'limit_ns'}
-    require(type(value) is dict and set(value) == keys and
+    # Optional diagnostic extension keeps already closed timing records valid.
+    # It neither grants completion nor changes the wall-clock acceptance.
+    require(type(value) is dict and set(value) in (keys,keys|{'resources'}) and
             all(type(value[k]) is bool for k in ('started', 'finish_completed', 'finish_cleanup_bound', 'stack_empty')) and
             type(value['finish_owner_acks']) is int and 0 <= value['finish_owner_acks'] <= 84 and
             type(value['limit_ns']) is int and value['limit_ns'] == 120_000_000_000 and
@@ -147,6 +149,18 @@ def safe_owner_timing(value, *, completed=False):
     for rows in value['phases'].values():
         safe_read_cost(rows)
         require(all('exclusive_ns' in row for row in rows.values()), 'OWNER_TIMING_SCHEMA')
+    if 'resources' in value:
+        resources=value['resources']
+        require(type(resources) is dict and set(resources)==set(value['phases']), 'OWNER_RESOURCE_SCHEMA')
+        ns={'wall_ns','user_cpu_ns','system_cpu_ns'}
+        switches={'voluntary_switches','involuntary_switches'}
+        for row in resources.values():
+            require(type(row) is dict, 'OWNER_RESOURCE_SCHEMA')
+            if row=={'status':'UNAVAILABLE'}:continue
+            require(set(row)=={'status','calls'}|ns|switches and row['status']=='RECORDED' and
+                type(row['calls']) is int and 1<=row['calls']<=16 and
+                all(type(row[k]) is int and 0<=row[k]<=2_880_000_000_000 for k in ns) and
+                all(type(row[k]) is int and 0<=row[k]<=10_000_000 for k in switches), 'OWNER_RESOURCE_SCHEMA')
     if value['started']:
         require(type(value['elapsed_ns']) is int and 0 <= value['elapsed_ns'] <= 720_000_000_000 and
                 'admission' in value['phases'], 'OWNER_TIMING_SCHEMA')
