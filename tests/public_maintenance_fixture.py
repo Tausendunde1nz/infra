@@ -189,7 +189,26 @@ def package(s,b,plan,receipt,coverage,receipts, *, timing=None):
     return packet,pins
 
 
-def bind_expected(s,pins,inputs):
+def legacy_contexts_sha(s):
+    """Bind the three synthetic stop-target profiles BEFORE either entry.
+
+    As in the native adapter fixture, this replaces only the expected Host
+    coordinate. Every later stop-context comparison still reads actual state.
+    The one frozen value is reused by Recovery, never refreshed after effects.
+    """
+    observer=s.load('observe');until=time.monotonic()+30
+    units=observer.unit_properties(f.UNITS,'MainPID',until)
+    pids={u:int(units[u]['MainPID']) for u in f.UNITS}
+    assert len(set(pids.values()))==3 and all(pid>0 for pid in pids.values())
+    legacy={}
+    for unit,pid in pids.items():
+        row=observer.current_process(pid,deadline=until)
+        legacy[unit]={k:row[k] for k in ('uid','gid','groups','nnp')}
+        legacy[unit]['caps']={k:format(row['caps'][k],'016x') for k in ('CapInh','CapPrm','CapEff','CapAmb')}
+    return io.sha(raw(legacy))
+
+
+def bind_expected(s,pins,inputs,*,legacy_sha):
     """Finite synthetic EXPECTED coordinates, never observation overrides."""
     for module in (io,s.load('io')):
         for key,value in pins.items():setattr(module,key,value)
@@ -200,6 +219,7 @@ def bind_expected(s,pins,inputs):
     artifact.APP=(inputs['application']['commit'],inputs['application']['tree'])
     artifact.SOURCE_MANIFEST=inputs['application']['manifest_sha256']
     artifact.INPUTS_SHA=io.sha(raw(inputs))
+    s.load('observe').LEGACY_CONTEXTS_SHA=legacy_sha
 
 
 def age_start_anchors(s):
@@ -262,13 +282,15 @@ def prepare(*, timing=None):
             if warmup.poll() is None:warmup.kill();warmup.wait(timeout=5)
             warmup.stdout.close()
     CUSTODY.mkdir(mode=0o700,parents=True)
+    legacy_sha=legacy_contexts_sha(s)
     packet,pins=package(s,b,plan,receipt,coverage,receipts,timing=timing)
-    bind_expected(s,pins,inputs)
+    bind_expected(s,pins,inputs,legacy_sha=legacy_sha)
     # Validate actual canonical local envelope before any timed entry. The
     # calibration timing is explicitly not a final native/production proof.
     bound=io.maintenance_packet_binding(packet,s,remaining_seconds=600)
     s.load('admission').validate(packet,s,bound,remaining_seconds=600)
     f.write(ROOT/'packet.json',raw(packet),0o600)
-    f.write(ROOT/'fixture-pins.json',raw({'pins':pins,'inputs':inputs,'production_hashes':production_hashes}),0o600)
+    f.write(ROOT/'fixture-pins.json',raw({'pins':pins,'inputs':inputs,'production_hashes':production_hashes,
+        'legacy_contexts_sha256':legacy_sha}),0o600)
     f.write(ROOT/'runtime.tar.gz',payload,0o600)
     return packet,receipt,production_hashes

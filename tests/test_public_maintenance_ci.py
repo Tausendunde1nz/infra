@@ -231,7 +231,7 @@ class NativeBoundaryTests(unittest.TestCase):
         inputs={'application':{'commit':'0'*40,'tree':'1'*40,'manifest_sha256':'a'*64}}
         pins={'MAINTENANCE_MACHINE':'a'*64,'MAINTENANCE_OWNER_PLAN':'b'*64}
         with patch.object(client,'maintenance_bootstrap_original',client.maintenance_bootstrap,create=True):
-            program=n.bootstrap(Path(io.__file__).read_bytes(),pins,inputs,'original','original')
+            program=n.bootstrap(Path(io.__file__).read_bytes(),pins,inputs,'original','original',legacy_sha='c'*64)
         compile(program,'<compile-only-native-bootstrap>','exec')
         self.assertLess(program.index('m.ASSETS['),program.index('s=m.Source('))
         self.assertLess(program.index('s.load("artifact").APP='),program.index('_replacement=s.load("replacement")'))
@@ -270,6 +270,90 @@ class NativeBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(io.Hold,'UNIT_PROFILE_UNKNOWN'):
                 f.current_profiles(source,SimpleNamespace(poll=lambda:None))
         census.assert_not_called()
+
+    def test_legacy_fixture_coordinate_is_bound_once_and_real_guard_rejects_drift(self):
+        from tests import public_maintenance_fixture as f, public_maintenance_native as n
+        import tu1nz_public_operator_observe as observer
+        import ast
+        source=SimpleNamespace(load=lambda name:observer if name=='observe' else None)
+        rows={10+i:{'uid':[1001]*4,'gid':[1001]*4,'groups':[1001,2000+i],
+            'nnp':1,'caps':{k:0 for k in observer.CAPS}} for i in range(3)}
+        response='\n\n'.join('Id='+u+'\nMainPID='+str(10+i) for i,u in enumerate(f.f.UNITS)).encode()
+        with patch.object(observer,'command',return_value=SimpleNamespace(returncode=0,stdout=response)) as query, \
+                patch.object(observer,'current_process',side_effect=lambda pid,**kw:rows[pid]) as process, \
+                patch.object(f.time,'monotonic',return_value=100.0):
+            digest=f.legacy_contexts_sha(source)
+        query.assert_called_once_with(['/usr/bin/systemctl','show',*f.f.UNITS,'--no-pager',
+            '--property=Id,MainPID'],130.0)
+        self.assertEqual([c.args for c in process.call_args_list],[(10,),(11,),(12,)])
+        self.assertTrue(all(c.kwargs=={'deadline':130.0} for c in process.call_args_list))
+        legacy={u:{**{k:copy.deepcopy(rows[10+i][k]) for k in ('uid','gid','groups','nnp')},
+            'caps':{k:'0000000000000000' for k in ('CapInh','CapPrm','CapEff','CapAmb')}}
+            for i,u in enumerate(f.f.UNITS)}
+        authority=object.__new__(observer.Authority);authority.legacy_contexts=legacy
+        self.assertEqual(digest,io.sha(io.canonical(legacy)))
+        # Reproduce #955: the fixed production coordinate rejects the fixture.
+        with self.assertRaisesRegex(io.Hold,'NOT_THE_THREE_BOUND_LEGACY_CONTEXTS'):
+            authority.stop_contexts_check(stop_only=True)
+        inputs={'application':{'commit':'0'*40,'tree':'1'*40,'manifest_sha256':'a'*64}}
+        pins={'MAINTENANCE_MACHINE':'a'*64,'MAINTENANCE_OWNER_PLAN':'b'*64}
+        for route in ('original','recovery-once'):
+            with self.subTest(route=route),patch.object(client,'maintenance_bootstrap_original',
+                    client.maintenance_bootstrap,create=True):
+                program=n.bootstrap(Path(io.__file__).read_bytes(),pins,inputs,'original',route,legacy_sha=digest)
+            # Execute the exact generated expected-coordinate assignment only;
+            # no transport, Host dispatch, observation or action is substituted.
+            nodes=[x for x in ast.walk(ast.parse(program)) if isinstance(x,ast.Assign) and
+                any(isinstance(t,ast.Attribute) and t.attr=='LEGACY_CONTEXTS_SHA' for t in x.targets)]
+            self.assertEqual(len(nodes),1)
+            with patch.object(observer,'LEGACY_CONTEXTS_SHA'),patch.object(observer,'current_process') as reread:
+                exec(compile(ast.Module(body=nodes,type_ignores=[]),'<fixture-pin-only>','exec'),{'s':source})
+                authority.legacy_contexts=copy.deepcopy(legacy)
+                authority.stop_contexts_check(stop_only=True)
+                for field in ('uid','gid','groups','nnp','caps','missing_unit'):
+                    changed=copy.deepcopy(legacy);row=changed[f.f.UNITS[0]]
+                    if field=='missing_unit':del changed[f.f.UNITS[-1]]
+                    elif field=='caps':row[field]['CapEff']='0000000000000001'
+                    elif field=='nnp':row[field]=0
+                    else:row[field][0]+=1
+                    authority.legacy_contexts=changed
+                    with self.subTest(field=field),self.assertRaisesRegex(io.Hold,'NOT_THE_THREE_BOUND_LEGACY_CONTEXTS'):
+                        authority.stop_contexts_check(stop_only=True)
+                reread.assert_not_called()  # frozen pin, never rebind to changed state
+
+    def test_legacy_fixture_pin_missing_pid_collision_and_observation_failure_deny(self):
+        from tests import public_maintenance_fixture as f
+        import tu1nz_public_operator_observe as observer
+        source=SimpleNamespace(load=lambda name:observer)
+        for fault in ('missing','zero','collision','expired'):
+            response='\n\n'.join('Id='+u+('' if fault=='missing' and i==2 else '\nMainPID='+
+                str(0 if fault=='zero' else 10 if fault=='collision' else 10+i)) for i,u in enumerate(f.f.UNITS)).encode()
+            with self.subTest(fault=fault),patch.object(observer,'command',return_value=
+                    SimpleNamespace(returncode=0,stdout=response)),patch.object(observer,'current_process',
+                    side_effect=io.Hold('SYNTHETIC_OBSERVATION_DEADLINE')) as process:
+                with self.assertRaises((io.Hold,AssertionError)):f.legacy_contexts_sha(source)
+                if fault!='expired':process.assert_not_called()
+
+    def test_legacy_pin_reaches_local_binding_in_prepare_worker_and_main(self):
+        from tests import public_maintenance_fixture as f, public_maintenance_native as n
+        import ast,inspect
+        calls=[]
+        for module in (f,n):
+            for node in ast.walk(ast.parse(Path(module.__file__).read_bytes())):
+                if isinstance(node,ast.Call) and (isinstance(node.func,ast.Name) and node.func.id=='bind_expected' or
+                        isinstance(node.func,ast.Attribute) and node.func.attr=='bind_expected'):
+                    inspect.signature(f.bind_expected).bind(*[None for _ in node.args],
+                        **{k.arg:None for k in node.keywords})
+                    calls.append(node)
+        self.assertEqual(len(calls),3)
+        modules={name:SimpleNamespace() for name in ('io','r3','entry','artifact','observe')}
+        modules['io'].ASSETS={}
+        source=SimpleNamespace(load=modules.__getitem__)
+        inputs={'application':{'commit':'0'*40,'tree':'1'*40,'manifest_sha256':'a'*64}}
+        pins={'MAINTENANCE_MACHINE':'a'*64,'MAINTENANCE_OWNER_PLAN':'b'*64}
+        with patch.dict(io.ASSETS,io.ASSETS),patch.object(io,'MAINTENANCE_MACHINE'),patch.object(io,'MAINTENANCE_OWNER_PLAN'):
+            f.bind_expected(source,pins,inputs,legacy_sha='c'*64)
+        self.assertEqual(modules['observe'].LEGACY_CONTEXTS_SHA,'c'*64)
 
     def test_native_synthetic_packet_passes_actual_local_bindings_without_io(self):
         from tests import public_maintenance_fixture as f

@@ -121,7 +121,7 @@ _wrap(s.load("host").MaintenanceSessionResult,"close",_close)
 '''
 
 
-def bootstrap(raw,pins,inputs,case,route):
+def bootstrap(raw,pins,inputs,case,route,*,legacy_sha):
     program=client.maintenance_bootstrap_original(raw)
     # Source validates the synthetic asset bytes before loading anything. All
     # executable source bytes remain those from the reviewed checkout.
@@ -137,6 +137,7 @@ def bootstrap(raw,pins,inputs,case,route):
     settings+='s.load("artifact").APP='+repr((inputs['application']['commit'],inputs['application']['tree']))+'\n'
     settings+='s.load("artifact").SOURCE_MANIFEST='+repr(inputs['application']['manifest_sha256'])+'\n'
     settings+='s.load("artifact").INPUTS_SHA='+repr(io.sha(io.canonical(inputs)))+'\n'
+    settings+='s.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_sha)+'\n'
     settings+='_case='+repr(case)+';_route='+repr(route)+'\n'
     assert program.count(selectors)==1
     return program.replace(selectors,settings+HOST_TRACE+'\ntry:\n _trace["final"]='+selectors+
@@ -146,12 +147,12 @@ def bootstrap(raw,pins,inputs,case,route):
 def worker(case,route):
     f.f.assert_guest_isolation()
     packet=io.parse((ROOT/'packet.json').read_bytes());data=io.parse((ROOT/'fixture-pins.json').read_bytes())
-    pins=data['pins'];inputs=data['inputs']
+    pins=data['pins'];inputs=data['inputs'];legacy_sha=data['legacy_contexts_sha256']
     io.ASSETS['runtime_inputs']=io.sha(io.canonical(inputs))
-    source=io.Source(packet['source'],packet['hashes']);f.bind_expected(source,pins,inputs)
+    source=io.Source(packet['source'],packet['hashes']);f.bind_expected(source,pins,inputs,legacy_sha=legacy_sha)
     payload=(ROOT/'runtime.tar.gz').read_bytes() if route=='original' else None
     client.maintenance_bootstrap_original=client.maintenance_bootstrap
-    client.maintenance_bootstrap=lambda raw:bootstrap(raw,pins,inputs,case,route)
+    client.maintenance_bootstrap=lambda raw:bootstrap(raw,pins,inputs,case,route,legacy_sha=legacy_sha)
     connections=[]
     def ssh(remote):connections.append(time.monotonic_ns());return f.ssh_argv(remote)
     client.ssh_argv=ssh
@@ -256,7 +257,8 @@ def main(case,phase):
         # Existing fixed entry blocks a second entry before any SSH dispatch.
         pins=io.parse((ROOT/'fixture-pins.json').read_bytes())
         io.ASSETS['runtime_inputs']=io.sha(io.canonical(pins['inputs']))
-        source=io.Source(packet['source'],packet['hashes']);f.bind_expected(source,pins['pins'],pins['inputs'])
+        source=io.Source(packet['source'],packet['hashes'])
+        f.bind_expected(source,pins['pins'],pins['inputs'],legacy_sha=pins['legacy_contexts_sha256'])
         r=source.load('r3');denied=False
         try:
             custody=client.RecoveryCustody(r,packet['binding'],boot_id=packet['baseline']['boot_id'],
