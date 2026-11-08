@@ -115,6 +115,26 @@ def safe_failure(value,case,phase):
     return result
 
 
+def fix_copied_unit_owner(container,unit):
+    # Only our just-created private fixture Unit in this isolated guest.
+    # Prove bytes/profile before fchown, retain mode and verify the same FD/name.
+    program='''import hashlib,os,stat,sys
+p="/etc/systemd/system/tu1nz-rev4-native-fixture.service"
+fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+try:
+ s=os.fstat(fd);assert stat.S_ISREG(s.st_mode) and s.st_nlink==1 and stat.S_IMODE(s.st_mode)==0o600
+ assert (s.st_uid,s.st_gid)==(int(sys.argv[1]),int(sys.argv[2])) and s.st_size<=4096
+ raw=os.pread(fd,4097,0);assert len(raw)==s.st_size and hashlib.sha256(raw).hexdigest()==sys.argv[3]
+ os.fchown(fd,0,0)
+ a=os.fstat(fd);n=os.stat(p,follow_symlinks=False)
+ assert (a.st_dev,a.st_ino,a.st_uid,a.st_gid,a.st_mode,a.st_nlink,a.st_size)==(s.st_dev,s.st_ino,0,0,s.st_mode,1,s.st_size)
+ assert (n.st_dev,n.st_ino)==(a.st_dev,a.st_ino) and os.pread(fd,4097,0)==raw
+finally:os.close(fd)
+'''
+    ci.command(['/usr/bin/docker','exec',container,'/usr/bin/python3','-I','-B','-S','-c',program,
+        str(os.geteuid()),str(os.getegid()),hashlib.sha256(unit.read_bytes()).hexdigest()],timeout=15)
+
+
 def case_run(workspace,control,image,image_id,owner,root,inputs,hashes,case,phase,proof=None):
     name='tu1nz-rev4-'+owner+'-'+phase+'-'+case.lower().replace('_','-');container=None
     try:
@@ -131,6 +151,7 @@ def case_run(workspace,control,image,image_id,owner,root,inputs,hashes,case,phas
             'ExecStart=/usr/bin/python3 -I -B -S /source/tests/public_maintenance_native.py --case '+case+' --phase '+phase+'\n'
             'StandardOutput=null\nStandardError=append:/native-private-stderr\nTimeoutStartSec=infinity\n').encode())
         ci.command(['/usr/bin/docker','cp',str(unit),name+':/etc/systemd/system/tu1nz-rev4-native-fixture.service'],timeout=15)
+        fix_copied_unit_owner(name,unit)
         ci.command(['/usr/bin/docker','exec',name,'/usr/bin/systemctl','daemon-reload'],timeout=20)
         ci.command(['/usr/bin/docker','exec',name,'/usr/bin/systemctl','start','--no-block','tu1nz-rev4-native-fixture.service'],timeout=20)
         # Wait outside the guest. No polling root process contaminates the

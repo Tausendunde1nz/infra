@@ -18,6 +18,78 @@ from tests.test_public_maintenance_transport import synthetic_timing
 
 
 class NativeBoundaryTests(unittest.TestCase):
+    def copied_unit_program(self, unit):
+        with patch.object(m.ci,'command') as command:
+            m.fix_copied_unit_owner('synthetic-guest',unit)
+        argv=command.call_args.args[0]
+        self.assertEqual(argv[:8],['/usr/bin/docker','exec','synthetic-guest','/usr/bin/python3','-I','-B','-S','-c'])
+        self.assertEqual(command.call_args.kwargs,{'timeout':15})
+        self.assertEqual(argv[9:11],[str(os.geteuid()),str(os.getegid())])
+        return argv[8],['-c',*argv[9:]]
+
+    def run_copied_unit_program(self, program, argv, *, fault=None):
+        # Execute the exact guest program with synthetic FD observations only.
+        # No chown or access to a real systemd path occurs on the Mac.
+        import builtins
+        import stat
+        raw=b'synthetic-unit\n';closed=[];changes=[]
+        before=dict(st_mode=stat.S_IFREG|0o600,st_nlink=1,st_uid=os.geteuid(),
+            st_gid=os.getegid(),st_size=len(raw),st_dev=7,st_ino=19)
+        if fault=='owner':before['st_uid']+=1
+        if fault=='hardlink':before['st_nlink']=2
+        if fault=='mode':before['st_mode']=stat.S_IFREG|0o620
+        if fault=='type':before['st_mode']=stat.S_IFDIR|0o600
+        if fault=='oversize':before['st_size']=4097
+        after={**before,'st_uid':0,'st_gid':0}
+        if fault=='post_mode':after['st_mode']=stat.S_IFREG|0o644
+        name={**after,'st_ino':20 if fault=='renamed' else 19}
+        def opened(path,flags):
+            self.assertEqual(path,'/etc/systemd/system/tu1nz-rev4-native-fixture.service')
+            self.assertEqual(flags,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC);return 91
+        stats=iter((SimpleNamespace(**before),SimpleNamespace(**after)))
+        fake=SimpleNamespace(O_RDONLY=os.O_RDONLY,O_NOFOLLOW=os.O_NOFOLLOW,O_CLOEXEC=os.O_CLOEXEC,
+            open=opened,fstat=lambda fd:next(stats),stat=lambda p,**kw:SimpleNamespace(**name),
+            pread=lambda fd,size,offset:raw,close=lambda fd:closed.append(fd),
+            fchown=lambda fd,uid,gid:changes.append((fd,uid,gid)))
+        real_import=builtins.__import__
+        def imports(name,*args,**kwargs):
+            if name=='os':return fake
+            if name=='sys':return SimpleNamespace(argv=argv)
+            return real_import(name,*args,**kwargs)
+        try:
+            exec(compile(program,'<exact-copied-unit-guest-program>','exec'),
+                {'__builtins__':{**vars(builtins),'__import__':imports}})
+        finally:
+            self.assertEqual(closed,[91])
+            if fault in ('owner','hardlink','mode','type','oversize','hash'):
+                self.assertEqual(changes,[])
+            else:self.assertEqual(changes,[(91,0,0)])
+
+    def test_copied_unit_owner_uses_fixed_fd_byte_binding_and_preserves_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            unit=Path(directory)/'unit';unit.write_bytes(b'synthetic-unit\n')
+            program,argv=self.copied_unit_program(unit)
+            self.run_copied_unit_program(program,argv)
+            for fault in ('owner','hardlink','mode','type','oversize','hash','post_mode','renamed'):
+                bad=[*argv]
+                if fault=='hash':bad[-1]='0'*64
+                with self.subTest(fault=fault),self.assertRaises(AssertionError):
+                    self.run_copied_unit_program(program,bad,fault=fault)
+
+    def test_copied_unit_owner_failure_precedes_reload_and_cleans_owned_guest(self):
+        with tempfile.TemporaryDirectory() as directory,patch.object(m.ci,'command') as command, \
+                patch.object(m.ci,'inspect_guest'),patch.object(m.ci,'ready'), \
+                patch.object(m,'fix_copied_unit_owner',side_effect=RuntimeError('SYNTHETIC_OWNER_FAILURE')) as fix, \
+                patch.object(m.ci.boundary,'cleanup_container') as cleanup:
+            with self.assertRaisesRegex(RuntimeError,'^SYNTHETIC_OWNER_FAILURE$'):
+                m.case_run(Path('/synthetic-source'),Path('/synthetic-control'),'synthetic-image','sha256:'+'a'*64,
+                    'synthetic-owner',Path(directory),Path('/synthetic-inputs'),{},'original','calibration')
+            name='tu1nz-rev4-synthetic-owner-calibration-original'
+            fix.assert_called_once_with(name,Path(directory)/'calibration-original.service')
+            self.assertEqual(command.call_args.args[0][:2],['/usr/bin/docker','cp'])
+            self.assertFalse(any('daemon-reload' in call.args[0] for call in command.call_args_list))
+            cleanup.assert_called_once_with(name,'synthetic-owner')
+
     def fixture(self):
         hashes={k:'a'*64 for k in io.MODULES|io.ASSETS};fixture={**hashes,'runtime_inputs':'b'*64}
         artifact={'objects':{str(n):{} for n in range(6260)},'archive_bytes':45560268,'expanded_file_bytes':143314310}
