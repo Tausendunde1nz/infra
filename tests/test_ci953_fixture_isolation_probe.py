@@ -53,6 +53,44 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(p.validate(value), value)
         self.assertFalse(p.only_missing_environment(value))
 
+    def test_exit_one_still_reads_and_validates_the_actual_report(self):
+        for guard_passes in (False, True):
+            with self.subTest(guard_passes=guard_passes), tempfile.TemporaryDirectory() as directory:
+                value = self.result()
+                if guard_passes:
+                    value['conditions'] = dict.fromkeys(p.BOOLS, True)
+                    value.update(guard_passed=True, error_type=None, test_failure=None)
+                dest = Path(directory)/'result.json'; dest.write_text(json.dumps(value))
+                report = {'transports': []}
+                with mock.patch.object(p.ci.boundary, 'bounded', side_effect=[(0, b'1\n'), (0, b'')]) as calls:
+                    self.assertEqual(p.receive_report('synthetic', dest, 'original-unit', report), value)
+                self.assertEqual(calls.call_count, 2)
+                self.assertEqual(report['transports'], [{'variant': 'original-unit', 'wait_command_exit': 0,
+                    'guest_exit_status': 1, 'report_copy_exit': 0, 'report_valid': True}])
+                self.assertEqual(p.only_missing_environment(value), not guard_passes)
+
+    def test_wait_copy_and_report_failures_have_separate_finite_evidence(self):
+        cases = [
+            ('wait', [(1, b'PRIVATE')], None, 'wait-command', 'PROBE_WAIT_COMMAND_RED'),
+            ('payload', [(0, b'PRIVATE')], None, 'guest-exit-payload', 'PROBE_WAIT_PAYLOAD_RED'),
+            ('range', [(0, b'256')], None, 'guest-exit-payload', 'PROBE_WAIT_PAYLOAD_RED'),
+            ('copy', [(0, b'1'), (1, b'PRIVATE')], None, 'report-copy', 'PROBE_REPORT_COPY_RED'),
+            ('missing', [(0, b'1'), (0, b'')], None, 'report-read', 'PROBE_REPORT_READ_RED'),
+            ('json', [(0, b'1'), (0, b'')], b'PRIVATE', 'report-json', 'PROBE_REPORT_JSON_RED'),
+            ('schema', [(0, b'1'), (0, b'')], b'{}', 'report-validation', 'PROBE_REPORT_RED'),
+        ]
+        for name, returns, content, phase, code in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                dest = Path(directory)/'result.json'
+                if content is not None: dest.write_bytes(content)
+                report = {'transports': []}
+                with mock.patch.object(p.ci.boundary, 'bounded', side_effect=returns), self.assertRaises(p.ProbeError) as caught:
+                    p.receive_report('synthetic', dest, 'original-unit', report)
+                self.assertEqual(str(caught.exception), code)
+                self.assertEqual(report['phase'], 'original-unit-'+phase)
+                self.assertFalse(report['transports'][0]['report_valid'])
+                self.assertNotIn('PRIVATE', json.dumps(report))
+
     def test_unclear_create_ack_cleans_owned_guest_and_preserves_primary_failure(self):
         for cleanup_fails in (False, True):
             with self.subTest(cleanup_fails=cleanup_fails), tempfile.TemporaryDirectory() as directory:

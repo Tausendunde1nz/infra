@@ -21,6 +21,7 @@ import tu1nz_public_operator_ci as ci
 import tu1nz_public_maintenance_diagnostics as diagnostics
 
 BASE = 'e0d13d6d3532929286e5929d5005fe486eaf325b'
+PARENT = '9a5c8b59417db820ed5d02b2406eeae80a2d0a11'
 BRANCH = 'codex/ci953-fixture-isolation-probe-20261108'
 ADDED = {'.github/workflows/ci953-fixture-isolation-probe.yml',
          'tests/ci953_fixture_isolation_probe.py', 'tests/test_ci953_fixture_isolation_probe.py'}
@@ -33,7 +34,9 @@ BOOLS = ('euid_is_zero', 'dockerenv_is_file', 'container_is_docker')
 POINT = {'checkpoint': 'REV4_GUEST_ASSERT_GUEST_ISOLATION_ASSERT_01',
          'file': 'tests/public_operator_native.py', 'line': 461}
 ERRORS = {'PROBE_BINDING_RED', 'PROBE_UNIT_SHAPE_RED', 'PROBE_REPORT_RED',
-          'PROBE_UNEXPECTED_BASELINE', 'PROBE_CHANGED_GUEST_RED', 'PROBE_COMMAND_RED'}
+          'PROBE_UNEXPECTED_BASELINE', 'PROBE_CHANGED_GUEST_RED', 'PROBE_COMMAND_RED',
+          'PROBE_WAIT_COMMAND_RED', 'PROBE_WAIT_PAYLOAD_RED', 'PROBE_REPORT_COPY_RED',
+          'PROBE_REPORT_READ_RED', 'PROBE_REPORT_JSON_RED'}
 
 
 class ProbeError(RuntimeError):
@@ -87,6 +90,46 @@ def only_missing_environment(value):
             value['test_failure'] == POINT)
 
 
+def receive_report(container, dest, variant, report):
+    """Keep Docker command status, guest status and report acceptance separate.
+
+    CI953 case_run requires docker wait to succeed, but does not require the
+    returned guest status to be zero. A completed guest with status 1 therefore
+    still has its report validated. No missing/invalid report can pass.
+    """
+    transport = {'variant': variant, 'wait_command_exit': None, 'guest_exit_status': None,
+                 'report_copy_exit': None, 'report_valid': False}
+    report['transports'].append(transport)
+    report['phase'] = variant+'-wait-command'
+    code, raw = ci.boundary.bounded(['/usr/bin/docker', 'wait', container], timeout=120)
+    require(type(code) is int and -255 <= code <= 255, 'PROBE_WAIT_COMMAND_RED')
+    transport['wait_command_exit'] = code
+    require(code == 0, 'PROBE_WAIT_COMMAND_RED')
+    report['phase'] = variant+'-guest-exit-payload'
+    status = raw.strip()
+    require(re.fullmatch(rb'(0|[1-9][0-9]{0,2})', status) is not None and int(status) <= 255,
+            'PROBE_WAIT_PAYLOAD_RED')
+    transport['guest_exit_status'] = int(status)
+    report['phase'] = variant+'-report-copy'
+    code, _ = ci.boundary.bounded(['/usr/bin/docker', 'cp', container+':/native-isolation-result.json', str(dest)], timeout=20)
+    require(type(code) is int and -255 <= code <= 255, 'PROBE_REPORT_COPY_RED')
+    transport['report_copy_exit'] = code
+    require(code == 0, 'PROBE_REPORT_COPY_RED')
+    report['phase'] = variant+'-report-read'
+    try:
+        require(dest.stat().st_size <= 16384, 'PROBE_REPORT_RED')
+        raw = dest.read_bytes()
+    except OSError:
+        raise ProbeError('PROBE_REPORT_READ_RED') from None
+    report['phase'] = variant+'-report-json'
+    try: value = json.loads(raw)
+    except (ValueError, UnicodeError): raise ProbeError('PROBE_REPORT_JSON_RED') from None
+    report['phase'] = variant+'-report-validation'
+    checked = validate(value)
+    transport['report_valid'] = True
+    return checked
+
+
 def guest():
     from tests import public_operator_native as fixture
     value = {'schema': SCHEMA, 'conditions': dict(zip(BOOLS, (os.geteuid() == 0,
@@ -114,7 +157,7 @@ def binding():
     git = ['/usr/bin/git', '-C', str(ROOT)]
     sha = ci.command(git+['rev-parse', 'HEAD']).decode().strip()
     require(re.fullmatch('[a-f0-9]{40}', sha) and sha == os.environ.get('GITHUB_SHA') and
-            ci.command(git+['rev-parse', 'HEAD^']).decode().strip() == BASE and
+            ci.command(git+['rev-parse', 'HEAD^']).decode().strip() == PARENT and
             set(ci.command(git+['diff', '--name-only', BASE, sha]).decode().splitlines()) == ADDED and
             not ci.command(git+['status', '--porcelain', '--untracked-files=all']).strip(), 'PROBE_BINDING_RED')
     return sha
@@ -124,7 +167,7 @@ def driver(image):
     root = None; container = None; owner = uuid.uuid4().hex
     parent = Path(os.environ.get('RUNNER_TEMP', '/nonexistent'))
     report = {'schema': SCHEMA, 'green': False, 'host_acceptance': False, 'phase': 'binding',
-              'guests': [], 'cleanup_errors': [], 'temporary_inputs_removed': False}
+              'guests': [], 'transports': [], 'cleanup_errors': [], 'temporary_inputs_removed': False}
     try:
         report['source_sha'] = binding(); report['source_files'] = source_hashes()
         require(image == 'tu1nz-ci953-probe:'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT'],
@@ -150,14 +193,9 @@ def driver(image):
             ci.command(['/usr/bin/docker', 'cp', str(unit), container+':/etc/systemd/system/tu1nz-rev4-native-fixture.service'], timeout=15)
             ci.command(['/usr/bin/docker', 'exec', container, '/usr/bin/systemctl', 'daemon-reload'], timeout=20)
             ci.command(['/usr/bin/docker', 'exec', container, '/usr/bin/systemctl', 'start', '--no-block', 'tu1nz-rev4-native-fixture.service'], timeout=20)
-            report['phase'] = variant+'-wait'
             # Diagnostic bound only; no production entry or entry deadline changes.
-            stopped = ci.command(['/usr/bin/docker', 'wait', container], timeout=120).strip()
-            require(stopped == b'0', 'PROBE_COMMAND_RED')
             dest = root/(variant+'.json')
-            ci.command(['/usr/bin/docker', 'cp', container+':/native-isolation-result.json', str(dest)], timeout=20)
-            require(dest.stat().st_size <= 16384, 'PROBE_REPORT_RED')
-            value = validate(json.loads(dest.read_bytes()))
+            value = receive_report(container, dest, variant, report)
             report['phase'] = variant+'-cleanup'
             ci.boundary.cleanup_container(container, owner); container = None
             row = {'variant': variant, 'unit_sha256': hashlib.sha256(unit.read_bytes()).hexdigest(),
