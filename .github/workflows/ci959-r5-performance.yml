@@ -1,0 +1,41 @@
+name: CI959 bounded R5 performance diagnosis
+
+on:
+  push:
+    branches: [codex/ci959-r5-performance-20261109]
+
+permissions:
+  contents: read
+
+jobs:
+  r5-performance-once:
+    if: >-
+      github.run_attempt == 1 && startsWith(github.event.head_commit.message, 'CI959: one bounded R5 performance probe')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Exact branch admission and personal reviewed-SHA approval remain external
+    # prerequisites. No bypass; same three pinned Control blobs as PR241.
+    environment: control-private-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Synthetic diagnostic boundary regressions
+        run: python3 -B -m unittest -v tests.test_ci959_r5_performance
+      - name: Same fresh native image as CI959 before private input
+        run: docker build --file tests/public-operator-native.Dockerfile --tag "tu1nz-ci959-performance:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
+      - name: One serial control and CPU-profile pair with unchanged guards and deadlines
+        env:
+          CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
+          CONTROL_PRIVATE_ENVIRONMENT: control-private-ci
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+        run: >-
+          python3 -I -B -S tests/ci959_r5_performance.py
+          --image "tu1nz-ci959-performance:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Remove only this run's diagnostic image and prove absence
+        if: always()
+        run: >-
+          python3 -I -B -S tests/ci959_r5_performance.py
+          --cleanup-image "tu1nz-ci959-performance:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
