@@ -254,8 +254,22 @@ def age_start_anchors(s):
         finally:os.close(fd)
 
 
+def retain_fixture_unit_references():
+    # Match the closed Host's enabled units and the native StartLimit component.
+    # A loaded target reference retains stopped Unit state; this is fixture
+    # construction before ageing/baseline, never a production repair or reset.
+    f.assert_guest_isolation()
+    for unit in f.UNITS:f.run('/usr/bin/systemctl','enable',unit)
+    f.run('/usr/bin/systemctl','daemon-reload')
+    target=dict(line.split('=',1) for line in f.run('/usr/bin/systemctl','show','multi-user.target',
+        '--property=ActiveState,Wants').decode().splitlines())
+    assert target.get('ActiveState')=='active' and set(f.UNITS)<=set(target.get('Wants','').split()), \
+        'NATIVE_FIXTURE_UNIT_REFERENCES_MISSING'
+
+
 def prepare(*, timing=None):
     f.assert_guest();s,_,production_hashes=f.source();f.setup(s);ssh_setup()
+    retain_fixture_unit_references()
     payload,receipt,inputs=runtime(s,maintenance_dimensions=True)
     dependencies=external_dependencies(s,payload,receipt);s._native_r5=True
     age_start_anchors(s)

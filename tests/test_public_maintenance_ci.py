@@ -509,6 +509,44 @@ class NativeBoundaryTests(unittest.TestCase):
                 m.publish_calibration({'synthetic':'x'*32769})
             self.assertEqual(target.read_bytes(),b'UNCHANGED')
 
+    def test_fixture_references_require_isolation_and_actual_loaded_target_before_ageing(self):
+        from tests import public_maintenance_fixture as f
+        active=('ActiveState=active\nWants='+' '.join(f.f.UNITS)+'\n').encode()
+        with patch.object(f.f,'assert_guest_isolation') as isolated,patch.object(f.f,'run',return_value=active) as run:
+            f.retain_fixture_unit_references()
+        isolated.assert_called_once_with()
+        self.assertEqual([c.args for c in run.call_args_list],
+            [('/usr/bin/systemctl','enable',unit) for unit in f.f.UNITS]+
+            [('/usr/bin/systemctl','daemon-reload'),
+             ('/usr/bin/systemctl','show','multi-user.target','--property=ActiveState,Wants')])
+        for value in (active.replace(b'active',b'inactive'),b'ActiveState=active\nWants=\n',
+                      active.replace(f.f.UNITS[0].encode(),b'')):
+            with self.subTest(value=value),patch.object(f.f,'assert_guest_isolation'), \
+                    patch.object(f.f,'run',return_value=value), \
+                    self.assertRaisesRegex(AssertionError,'NATIVE_FIXTURE_UNIT_REFERENCES_MISSING'):
+                f.retain_fixture_unit_references()
+        with patch.object(f.f,'assert_guest_isolation',side_effect=AssertionError('NOT_A_GUEST')), \
+                patch.object(f.f,'run') as run,self.assertRaisesRegex(AssertionError,'NOT_A_GUEST'):
+            f.retain_fixture_unit_references()
+        run.assert_not_called()
+        # A failed reference setup must not reach ageing, baseline or a packet.
+        with patch.object(f.f,'assert_guest'),patch.object(f.f,'source',return_value=(object(),None,{})), \
+                patch.object(f.f,'setup'),patch.object(f,'ssh_setup'), \
+                patch.object(f,'retain_fixture_unit_references',side_effect=AssertionError('REFERENCES_MISSING')), \
+                patch.object(f,'runtime') as runtime,patch.object(f,'age_start_anchors') as age, \
+                patch.object(f.f,'baseline') as baseline,self.assertRaisesRegex(AssertionError,'REFERENCES_MISSING'):
+            f.prepare()
+        runtime.assert_not_called();age.assert_not_called();baseline.assert_not_called()
+
+    def test_missing_stopped_invocation_still_denies_even_with_valid_active_anchor(self):
+        from tests.test_public_maintenance import StartLimitStateProofTests,transition
+        fixture=StartLimitStateProofTests();anchor=fixture.snapshot();stopped=fixture.snapshot(active=False)
+        self.assertEqual(transition.start_limit_permission(stopped,anchor=anchor),
+            'SAME_AGED_INVOCATION_NOW_SUCCESSFULLY_EMPTY')
+        stopped['unit_state']['InvocationID']=''
+        with self.assertRaisesRegex(io.Hold,'START_LIMIT_STATE_NOT_ELIGIBLE'):
+            transition.start_limit_permission(stopped,anchor=anchor)
+
     def test_start_anchor_age_uses_real_wait_before_fresh_read_and_closes_provider(self):
         from tests import public_maintenance_fixture as f
         clock=[0.0];events=[];bus=SimpleNamespace(close=lambda:events.append('bus_closed'))
