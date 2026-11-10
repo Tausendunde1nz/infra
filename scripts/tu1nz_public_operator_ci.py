@@ -536,11 +536,20 @@ def cleanup_result(result, container, owner, root, parent):
     return result
 
 
+def native_case_argv(container, case):
+    if case == 'r5_success':
+        return ['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
+                '/source/scripts/tu1nz_public_operator_profile_ci.py']
+    return ['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
+            '/source/tests/public_operator_native.py', '--scenario', case]
+
+
 def run(workspace, image):
     root = None; container = None; owner = uuid.uuid4().hex; phase = 'admission'
     parent = Path(os.environ.get('RUNNER_TEMP', '/nonexistent'))
     result = {'schema': SCHEMA, 'green': False, 'code': 'PRIVATE_OPERATOR_CI_RED'}
     diagnostic = None; native_process = None
+    r5_measurement = None; r5_container = None; r5_container_cleaned = False
     try:
         token = os.environ.pop('CONTROL_POLICY_READ_TOKEN', None)
         sha = boundary.runtime_binding(os.environ, workspace)
@@ -582,15 +591,39 @@ def run(workspace, image):
                 if code != 0: diagnostic = failure_location(raw)
                 require(code == 0 and raw.strip() == b'ACTUAL_NATIVE_CONTEXT_GREEN', 'NATIVE_CONTEXT_RED')
             phase = case+'-production'
-            code, raw = boundary.bounded(['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
-                '/source/tests/public_operator_native.py', '--scenario', case], timeout=720)
+            if case == 'r5_success':
+                r5_container = container
+                r5_measurement = {'metadata_status': 'MISSING_OR_INVALID', 'metadata': None,
+                    'native_exit': None, 'process_elapsed_ns': None, 'owner_timing': None,
+                    'container_cleanup': 'NOT_PROVED', 'private_input_cleanup': 'PENDING'}
+                began = time.monotonic_ns()
+            code, raw = boundary.bounded(native_case_argv(container, case), timeout=720)
+            if case == 'r5_success': elapsed = time.monotonic_ns()-began
             if code != 0:
                 diagnostic = failure_location(raw)
                 native_process = native_process_diagnostic(code, raw)
+            if case == 'r5_success':
+                import tu1nz_public_operator_profile_ci as r5_profile
+                raw, metadata = r5_profile.extract(raw)
+                r5_measurement.update(native_exit=code, process_elapsed_ns=elapsed,
+                    metadata=metadata, metadata_status='RECORDED' if metadata is not None else 'MISSING_OR_INVALID',
+                    owner_timing=diagnostic.get('owner_timing') if diagnostic is not None else None)
+                # An actual native failure remains the primary failure even
+                # when measurement is missing. No retry/extra diagnostic guest.
             require(code == 0, 'NATIVE_CASE_RED')
             records.append(validate_report(raw, case, hashes))
+            if case == 'r5_success':
+                r5_measurement['owner_timing'] = records[-1]['owner_timing']
+                require(metadata is not None and metadata['profile'] is not None and
+                        bool(metadata['profile']['rows']), 'R5_CPU_PROFILE_NOT_PROVED')
             progress(sha,len(records),records[-1])
             boundary.cleanup_container(container, owner); container = None
+            if case == 'r5_success':
+                r5_container_cleaned = True
+                r5_measurement['container_cleanup'] = 'PASS'
+                # Preserve the completed R5 measurement even if a later case
+                # fails or the runner dies. Private-input cleanup is still pending.
+                print(json.dumps({'r5_measurement': r5_measurement}, sort_keys=True), flush=True)
         phase = 'rev4-full-native'
         import tu1nz_public_maintenance_ci as maintenance_ci
         full_entries = maintenance_ci.run_cases(workspace,control,image,image_id,owner,root,runtime_inputs,hashes,sha)
@@ -610,6 +643,13 @@ def run(workspace, image):
         if native_process is not None: result['native_process'] = native_process
     finally:
         result = cleanup_result(result, container, owner, root, parent)
+        if r5_measurement is not None:
+            errors = result.get('cleanup_errors', [])
+            if r5_container_cleaned or (container == r5_container and 'OWNED_CONTAINER_CLEANUP_RED' not in errors):
+                r5_measurement['container_cleanup'] = 'PASS'
+            else: r5_measurement['container_cleanup'] = 'FAIL'
+            r5_measurement['private_input_cleanup'] = 'FAIL' if 'PRIVATE_INPUT_CLEANUP_RED' in errors else 'PASS'
+            result['r5_measurement'] = r5_measurement
     if result['green']:
         try:maintenance_ci.publish_calibration(result['rev4_full_entries']['calibration'])
         except BaseException:result={**result,'green':False,'code':'REV4_CALIBRATION_OUTPUT_RED'}
