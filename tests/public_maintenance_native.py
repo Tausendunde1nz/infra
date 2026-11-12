@@ -306,9 +306,23 @@ def main(case,phase):
 
 
 def failure_fields(error):
-    return {'error_type':type(error).__name__,
+    fields={'error_type':type(error).__name__,
         'code':getattr(error,'primary','NATIVE_FULL_ENTRY_ASSERTION'),
         'test_failure':diagnostics.capture(error)}
+    counts=diagnostics.capture_owner_counts(error)
+    if counts is not None:fields['owner_counts']=counts
+    return fields
+
+
+def failure_trace_fields(trace):
+    # Only already retained diagnostics, after the failed worker has ended.
+    fields={}
+    point=diagnostics.validated_start_limit(trace.get('start_limit_failure'))
+    if point is not None:fields['start_limit_failure']=point
+    final=trace.get('final')
+    fault=diagnostics.validated_host_fault(final.get('source_fault') if type(final) is dict else None)
+    if fault is not None:fields['host_source_fault']=fault
+    return fields
 
 
 if __name__=='__main__':
@@ -329,8 +343,7 @@ if __name__=='__main__':
                 result[route]=io.parse(path.read_bytes())
                 trace=ROOT/('trace-'+route+'.json')
                 if trace.exists():
-                    point=diagnostics.validated_start_limit(io.parse(trace.read_bytes()).get('start_limit_failure'))
-                    if point is not None:result[route]['start_limit_failure']=point
+                    result[route].update(failure_trace_fields(io.parse(trace.read_bytes())))
     finally:
         path=Path('/native-result.json')
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)

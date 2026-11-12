@@ -5,6 +5,7 @@ locals. Both guest capture and CI validation use the same bound source. An
 unmapped innermost frame is not replaced by a misleading caller location.
 """
 import ast
+import builtins
 from pathlib import Path
 
 SOURCES = {
@@ -14,6 +15,44 @@ SOURCES = {
     'tests/public_runtime_fixture.py': 'REV4_RUNTIME',
 }
 UNMAPPED = {'checkpoint': 'UNMAPPED_TEST_FAILURE'}
+
+
+def validated_host_fault(value):
+    """The already captured first Host source location, never error text."""
+    from tu1nz_public_operator_io import MODULES
+    types = {n for n, v in vars(builtins).items()
+             if isinstance(v, type) and issubclass(v, BaseException)} | {
+                 'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
+    if type(value) is not dict or set(value) != {'component', 'line', 'type'}:
+        return None
+    if type(value['component']) is not str or value['component'] not in {
+            '<authenticated-memory:'+n+'>' for n in MODULES if n != 'io'}:
+        return None
+    if type(value['line']) is not int or not 0 < value['line'] < 10000 or \
+            type(value['type']) is not str or value['type'] not in types:
+        return None
+    return dict(value)
+
+
+def validated_owner_counts(value):
+    # Permit excess/mismatched counts as diagnostics, never as acceptance.
+    if type(value) is not dict or set(value) != {'owner_intents', 'owner_acks'} or not all(
+            type(n) is int and 0 <= n <= 512 for n in value.values()):
+        return None
+    return dict(value)
+
+
+def capture_owner_counts(error):
+    """Use the actual failed comparison's integers; no journal reread."""
+    filename = str(Path(__file__).resolve().parents[1]/'tests/public_maintenance_native.py')
+    trace = error.__traceback__
+    while trace is not None:
+        frame = trace.tb_frame
+        if frame.f_code.co_filename == filename and frame.f_code.co_name == 'measured':
+            return validated_owner_counts({'owner_intents': frame.f_locals.get('intents'),
+                                           'owner_acks': frame.f_locals.get('acks')})
+        trace = trace.tb_next
+    return None
 
 
 def validated_start_limit(value):

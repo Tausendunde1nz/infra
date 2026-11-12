@@ -137,6 +137,147 @@ class NativeBoundaryTests(unittest.TestCase):
         self.assertNotIn('SECRET_CANARY',raw);self.assertNotIn('PRIVATE_CLASS',raw)
         self.assertIn('PUBLIC_BOOTSTRAP_INTERRUPTED',raw)
 
+    def counted_native_failure(self, intents=2, acks=1):
+        from tests import public_maintenance_native as n
+        # Actual records()/measured() reads only this temporary synthetic journal.
+        # The original assertion fails before filesystem Owner inspection.
+        with tempfile.TemporaryDirectory() as directory,patch.object(n.f,'CUSTODY',Path(directory)):
+            journal=Path(directory)/'public-rights-20261014-1'/'recovery-once'/'operator-records'
+            journal.mkdir(parents=True,mode=0o700)
+            kinds=['owner_object_intent']*intents+['owner_object_ack']*acks
+            for number,kind in enumerate(kinds,1):
+                m.ci.save(journal/(str(number).zfill(3)+'.json'),
+                    io.canonical({'kind':kind,'value':'SECRET_CANARY'}))
+            with patch.object(n,'records',wraps=n.records) as reads:
+                try:n.measured('recovery_F1',{}, {}, {},0,1)
+                except AssertionError as error:
+                    # Capturing the comparison cannot reread/reconstruct ACKs.
+                    with patch.object(n,'records',side_effect=AssertionError('NO_REREAD')):
+                        fields=n.failure_fields(error)
+                else:self.fail('unchanged Owner comparison did not fail')
+                reads.assert_called_once_with('recovery-once')
+        self.assertEqual(fields['test_failure']['checkpoint'],'REV4_NATIVE_MEASURED_ASSERT_01')
+        self.assertEqual(fields['owner_counts'],{'owner_intents':intents,'owner_acks':acks})
+        return fields
+
+    def retained_host_failure(self):
+        import ast,time
+        from tests.test_public_maintenance_result import host,r3
+        from tests import public_maintenance_native as n
+        # Execute the unchanged public Journal.write method with an invalid
+        # synthetic dirfd. Its real OSError has no privileged or Host effect.
+        tree=ast.parse(Path(r3.__file__).read_bytes())
+        cls=next(x for x in tree.body if isinstance(x,ast.ClassDef) and x.name=='Journal')
+        write=next(x for x in cls.body if isinstance(x,ast.FunctionDef) and x.name=='write')
+        namespace=dict(vars(r3))
+        exec(compile(ast.Module(body=[write],type_ignores=[]),'<authenticated-memory:r3>','exec'),namespace)
+        wire=SimpleNamespace(deadline=time.monotonic()+60,send=Mock())
+        state=host.MaintenanceSessionResult(wire,r3,route='recovery-once')
+        journal=SimpleNamespace(check=Mock(),seq=0,fd=-1,pfd=-1,binding='a'*64)
+        try:namespace['write'](journal,'probe',{'private':'SECRET_CANARY'})
+        except OSError as error:state.failure(error)
+        else:self.fail('real synthetic fd error did not fail')
+        first=copy.deepcopy(state.location)
+        state.failure(OSError('SECRET_CANARY'))  # later failure cannot replace first location
+        state.paths=SimpleNamespace(rows={'synthetic':'owned'},events=None,
+            close=Mock(side_effect=OSError('SECRET_CANARY')))
+        result=state.close()
+        self.assertEqual(result['status'],'HOLD')
+        self.assertEqual(result['source_fault'],first)
+        self.assertEqual(first['component'],'<authenticated-memory:r3>')
+        self.assertEqual(first['type'],'OSError')
+        self.assertIn('fd=os.open(',Path(r3.__file__).read_text().splitlines()[first['line']-1])
+        self.assertEqual(result['cleanup'],['PUBLIC_BOOTSTRAP_RECOVERY_PATHS_CLOSE_UNKNOWN'])
+        state.paths.close.assert_called_once_with();wire.send.assert_called_once_with(result)
+        trace={'final':result,'private':'SECRET_CANARY'}
+        before=copy.deepcopy(trace);fields=n.failure_trace_fields(trace)
+        self.assertEqual(trace,before)
+        self.assertEqual(fields,{'host_source_fault':first})
+        return result,fields
+
+    def test_recovery_first_host_fault_and_actual_owner_counts_survive_ci_fail_and_cleanup(self):
+        import io as streams
+        from contextlib import redirect_stdout
+        fields=self.counted_native_failure();host_result,trace_fields=self.retained_host_failure()
+        value={'schema':'TU1NZ_REV4_NATIVE_CASE_V1','green':False,'host_acceptance':False,
+            'case':'recovery_F1','phase':'calibration',**fields,
+            'recovery-once':{'result':{'primary':host_result['primary'],'host_primary':host_result['primary'],
+                'client_primary':'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_CLIENT_NOT_CLAIMED',
+                'host_abort':host_result['abort'],'host_cleanup':host_result['cleanup'],
+                'client_cleanup':['PUBLIC_BOOTSTRAP_MAINTENANCE_CLOSED_CUSTODY_UNCONFIRMED']},**trace_fields}}
+        expected=m.safe_failure(value,'recovery_F1','calibration')
+        self.assertEqual(expected['owner_counts'],{'owner_intents':2,'owner_acks':1})
+        self.assertEqual(expected['recovery-once']['host_source_fault'],host_result['source_fault'])
+        self.assertEqual(expected['recovery-once']['host_cleanup'],host_result['cleanup'])
+        self.assertEqual(expected['recovery-once']['client_cleanup'],
+            ['PUBLIC_BOOTSTRAP_MAINTENANCE_CLOSED_CUSTODY_UNCONFIRMED'])
+        self.assertNotIn('SECRET_CANARY',json.dumps(expected))
+        for cleanup_fails in (False,True):
+            with self.subTest(cleanup_fails=cleanup_fails),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);m.ci.save(root/'calibration-recovery_F1-result.json',io.canonical(value))
+                output=streams.StringIO();failure=RuntimeError('SYNTHETIC_CLEANUP_RED') if cleanup_fails else None
+                with patch.object(m.ci,'command'),patch.object(m.ci,'inspect_guest'),patch.object(m.ci,'ready'), \
+                        patch.object(m.ci.boundary,'cleanup_container',side_effect=failure) as cleanup,redirect_stdout(output):
+                    with self.assertRaisesRegex(RuntimeError if cleanup_fails else m.ci.CIError,
+                            '^SYNTHETIC_CLEANUP_RED$' if cleanup_fails else '^REV4_NATIVE_CASE_RED$'):
+                        m.case_run(Path('/synthetic-source'),Path('/synthetic-control'),'synthetic-image','sha256:'+'a'*64,
+                            'synthetic-owner',root,Path('/synthetic-inputs'),{},'recovery_F1','calibration')
+                emitted=json.loads(output.getvalue())
+                self.assertEqual(emitted['failure'],expected)
+                self.assertIs(emitted['failure']['green'],False)
+                cleanup.assert_called_once_with('tu1nz-rev4-synthetic-owner-calibration-recovery-f1','synthetic-owner')
+
+    def test_owner_counts_come_from_failed_comparison_even_for_zero_excess_and_missing_ack(self):
+        for intents,acks in ((0,0),(84,83),(85,85),(0,1)):
+            with self.subTest(intents=intents,acks=acks):
+                fields=self.counted_native_failure(intents,acks)
+                output=m.safe_failure(fields,'recovery_F1','calibration')
+                self.assertEqual(output['owner_counts'],fields['owner_counts'])
+                self.assertIs(output['green'],False)
+        from tests import public_maintenance_native as n
+        with patch.object(n,'records',return_value=(None,[{'private':'SECRET_CANARY'}])):
+            try:n.measured('recovery_F1',{}, {}, {},0,1)
+            except KeyError as error:fields=n.failure_fields(error)
+            else:self.fail('unreadable count input did not fail')
+        self.assertNotIn('owner_counts',fields)  # missing data is not zero
+        try:raise AssertionError('SECRET_CANARY')
+        except AssertionError as error:self.assertIsNone(m.diagnostics.capture_owner_counts(error))
+
+    def test_host_fault_export_rejects_unapproved_components_types_lines_and_extra_data(self):
+        from tests import public_maintenance_native as n
+        good={'component':'<authenticated-memory:replacement>','line':123,'type':'FileNotFoundError'}
+        for delta in ({'component':'SECRET_CANARY'}, {'component':'/private/SECRET_CANARY'},
+                {'component':'<authenticated-memory:SECRET_CANARY>'},{'component':'<authenticated-memory:io>'},
+                {'component':[]},{'line':True},{'line':0},{'line':10000},{'line':1.5},{'line':'123'},
+                {'type':'SECRET_CANARY'},{'type':[]},{'locals':'SECRET_CANARY'},{'errno':2}):
+            with self.subTest(delta=delta):
+                bad={**good,**delta}
+                self.assertEqual(n.failure_trace_fields({'final':{'source_fault':bad}}),{})
+                output=m.safe_failure({'recovery-once':{'result':{},'host_source_fault':bad}},'recovery_F1','calibration')
+                self.assertNotIn('host_source_fault',output['recovery-once'])
+                self.assertNotIn('SECRET_CANARY',json.dumps(output))
+        for missing in (None,[],{},'SECRET_CANARY'):
+            self.assertEqual(n.failure_trace_fields({'final':missing}),{})
+        for bad in (None,[],True,{'component':good['component']}):
+            self.assertIsNone(m.diagnostics.validated_host_fault(bad))
+        self.assertEqual(n.failure_trace_fields({'final':{'source_fault':good}}),{'host_source_fault':good})
+
+    def test_owner_count_filter_rejects_invalid_values_without_changing_failure_or_cleanup(self):
+        good={'owner_intents':84,'owner_acks':83}
+        for bad in (None,[],True,{}, {'owner_intents':84}, {**good,'private':'SECRET_CANARY'},
+                *[{**good,'owner_acks':x} for x in (-1,513,True,1.5,'83',[],None)]):
+            with self.subTest(bad=bad):
+                output=m.safe_failure({'owner_counts':bad,'code':'NATIVE_FULL_ENTRY_ASSERTION',
+                    'recovery-once':{'result':{'host_cleanup':['PUBLIC_BOOTSTRAP_RECOVERY_PATHS_CLOSE_UNKNOWN']}}},
+                    'recovery_F1','calibration')
+                self.assertNotIn('owner_counts',output)
+                self.assertEqual(output['code'],'NATIVE_FULL_ENTRY_ASSERTION')
+                self.assertEqual(output['recovery-once']['host_cleanup'],['PUBLIC_BOOTSTRAP_RECOVERY_PATHS_CLOSE_UNKNOWN'])
+                self.assertIs(output['green'],False)
+                self.assertNotIn('SECRET_CANARY',json.dumps(output))
+        self.assertEqual(m.diagnostics.validated_owner_counts({'owner_intents':512,'owner_acks':0}),
+            {'owner_intents':512,'owner_acks':0})
+
     def start_limit_diagnostic(self):
         import ast,re
         from tests import public_maintenance_native as n

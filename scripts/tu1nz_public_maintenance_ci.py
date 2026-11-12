@@ -105,11 +105,15 @@ def safe_failure(value,case,phase):
     if type(value.get('code')) is str and value['code'] in allowed:result['code']=value['code']
     point=diagnostics.validated(value.get('test_failure'))
     if point is not None:result['test_failure']=point
+    counts=diagnostics.validated_owner_counts(value.get('owner_counts'))
+    if counts is not None:result['owner_counts']=counts
     for route in ('original','recovery-once'):
         outer=value.get(route);inner=outer.get('result') if type(outer) is dict else None
         if type(inner) is not dict:continue
         result[route]={k:inner[k] for k in ('primary','host_primary','client_primary')
             if type(inner.get(k)) is str and inner[k] in allowed}
+        fault=diagnostics.validated_host_fault(outer.get('host_source_fault'))
+        if fault is not None:result[route]['host_source_fault']=fault
         if inner.get('host_primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_STATE_NOT_ELIGIBLE':
             point=diagnostics.validated_start_limit(outer.get('start_limit_failure'))
             if point is not None:result[route]['start_limit_failure']=point
