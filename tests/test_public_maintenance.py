@@ -5,6 +5,7 @@ renameat2, systemd, fences, failures, real restore and complete time budgets.
 """
 import copy
 import base64
+import errno
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -35,6 +36,7 @@ import tu1nz_public_operator_context as contexts
 import tu1nz_public_operator_observe as observe
 import tu1nz_public_operator_host as host
 import tu1nz_public_operator_runtime_guard as runtime_guard
+import tu1nz_public_operator_probes as probes
 
 
 class OwnedCandidateTests(unittest.TestCase):
@@ -613,6 +615,162 @@ class RecoveryProbeAdmissionTests(unittest.TestCase):
                           side_effect=io.Hold('PUBLIC_OPERATOR_SYNTHETIC_OCCUPIED')) as unused:
             with self.assertRaises(io.Hold):transition.RecoveryProbeEvidence(Mock(), e)
             unused.assert_called_once()
+
+
+class RecoveryTransientAbsenceTests(unittest.TestCase):
+    """Real no-follow directory syscalls in a private synthetic namespace.
+
+    Paths.get/absent and RecoveryProbeEvidence are unmodified. Only Linux
+    metadata/watch admission and manager/cgroup observations are doubles;
+    this portable regression is not a native systemd or Host proof.
+    """
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.systemd = self.root/'systemd'; self.systemd.mkdir()
+        self.probe_parent = self.root/'probe-parent'; self.probe_parent.mkdir()
+        self.paths = fs.Paths.__new__(fs.Paths)
+        self.paths.rows = {}; self.paths.names = {}; self.paths.self_watches = set()
+        self.paths.deadline = time.monotonic()+30; self.paths.failed = False
+        self.paths.events = -1
+        self.paths.libc = Mock(); self.paths.libc.inotify_add_watch.return_value = 1
+        self.paths.d = SimpleNamespace(metadata=self.metadata)
+        self.paths.check = Mock(side_effect=self.bound_check)
+        self.addCleanup(self.close_paths)
+        for logical, physical in (('/run/systemd', self.systemd),
+                                  (str(Path(probes.ROOT).parent), self.probe_parent)):
+            fd = os.open(physical, fs.DIR)
+            self.paths.rows[logical] = (fd, self.metadata(fd), None, str(physical))
+        self.authority = SimpleNamespace(paths=self.paths, deadline=self.paths.deadline)
+        self.evidence = SimpleNamespace(snapshot={'records': []}, records=[],
+            source=SimpleNamespace(load=lambda name: probes if name == 'probes' else None))
+        self.show = self.enterContext(patch.object(probes.Probes, 'show', autospec=True,
+            return_value={'LoadState': 'not-found'}))
+        self.empty = self.enterContext(patch.object(probes.Probes, 'empty', autospec=True,
+            return_value=True))
+
+    @staticmethod
+    def metadata(fd, **_):
+        row = os.fstat(fd)
+        return {'device': row.st_dev, 'inode': row.st_ino}
+
+    def bound_check(self, **_):
+        io.require(time.monotonic() < self.paths.deadline, 'PATH_FENCE_LOST')
+        for fd, before, parent, name in self.paths.rows.values():
+            actual = os.lstat(name) if parent is None else os.stat(name, dir_fd=parent,
+                                                                  follow_symlinks=False)
+            io.require((actual.st_dev, actual.st_ino) == (before['device'], before['inode']) and
+                       self.metadata(fd) == before, 'PATH_SECURITY_OR_IDENTITY_CHANGED')
+
+    def close_paths(self):
+        for fd, *_ in self.paths.rows.values():os.close(fd)
+        self.paths.rows.clear()
+
+    def unused(self):
+        return transition.RecoveryProbeEvidence(self.authority, self.evidence)
+
+    def test_missing_transient_directory_is_absent_from_bound_systemd_parent(self):
+        result = self.unused()
+        self.assertEqual(result.state, 'UNUSED')
+        self.assertNotIn('/run/systemd/transient', self.paths.rows)
+        self.assertFalse((self.systemd/'transient').exists())
+        self.assertEqual([c.args[1] for c in self.show.call_args_list], list(probes.NAMES))
+        self.assertEqual([c.args[1] for c in self.empty.call_args_list], list(probes.NAMES))
+        self.assertTrue(all(c.args[0].deadline == self.authority.deadline
+                            for c in self.show.call_args_list))
+        self.assertGreaterEqual(self.paths.check.call_count, 4)
+
+    def test_empty_transient_directory_keeps_fresh_probe_name_checks(self):
+        (self.systemd/'transient').mkdir()
+        result = self.unused()
+        self.assertEqual(result.state, 'UNUSED')
+        (self.systemd/'transient'/probes.NAMES[0]).write_bytes(b'synthetic unit')
+        with self.assertRaisesRegex(io.Hold, 'OCCUPIED_NO_ADOPTION'):result.check()
+        self.assertEqual(self.show.call_count, 4)
+
+    def test_each_present_probe_unit_is_rejected(self):
+        directory = self.systemd/'transient'; directory.mkdir()
+        for name in probes.NAMES:
+            path = directory/name; path.write_bytes(b'synthetic unit')
+            try:
+                with self.subTest(unit=name), self.assertRaisesRegex(io.Hold, 'OCCUPIED_NO_ADOPTION'):
+                    self.unused()
+            finally:path.unlink()
+
+    def test_transient_symlink_even_dangling_and_regular_file_are_rejected(self):
+        path = self.systemd/'transient'
+        for kind in ('directory-link', 'dangling-link', 'file'):
+            if kind == 'file':path.write_bytes(b'not a directory')
+            else:path.symlink_to(self.probe_parent if kind == 'directory-link' else self.root/'missing')
+            try:
+                with self.subTest(kind=kind), self.assertRaises(OSError):self.unused()
+            finally:path.unlink()
+
+    def test_probe_unit_symlink_is_occupied_without_following(self):
+        directory = self.systemd/'transient'; directory.mkdir()
+        (directory/probes.NAMES[0]).symlink_to(self.root/'missing')
+        with self.assertRaisesRegex(io.Hold, 'OCCUPIED_NO_ADOPTION'):self.unused()
+
+    def test_stat_permission_and_io_errors_are_not_absence(self):
+        actual_stat = os.stat
+        parent = self.paths.get('/run/systemd')
+        for error in (PermissionError(errno.EACCES, 'synthetic'), OSError(errno.EIO, 'synthetic')):
+            def checked_stat(name, **kwargs):
+                if name == 'transient' and kwargs.get('dir_fd') == parent:raise error
+                return actual_stat(name, **kwargs)
+            with self.subTest(error=type(error).__name__), patch.object(os, 'stat', side_effect=checked_stat):
+                with self.assertRaises(type(error)):self.unused()
+
+    def test_directory_open_permission_error_is_not_absence(self):
+        (self.systemd/'transient').mkdir()
+        actual_open = os.open
+        def checked_open(name, flags, *args, **kwargs):
+            if name == 'transient':raise PermissionError(errno.EACCES, 'synthetic')
+            return actual_open(name, flags, *args, **kwargs)
+        with patch.object(os, 'open', side_effect=checked_open), self.assertRaises(PermissionError):
+            self.unused()
+
+    def test_missing_bound_systemd_parent_is_not_transient_absence(self):
+        self.systemd.rmdir()
+        with self.assertRaises(FileNotFoundError):self.unused()
+
+    def test_bound_systemd_replacement_is_rejected(self):
+        self.systemd.rename(self.root/'old-systemd'); self.systemd.mkdir()
+        with self.assertRaisesRegex(io.Hold, 'PATH_SECURITY_OR_IDENTITY_CHANGED'):self.unused()
+
+    def test_missing_directory_does_not_skip_manager_or_cgroup_guards(self):
+        self.show.return_value = {'LoadState': 'loaded'}
+        with self.assertRaisesRegex(io.Hold, 'NAME_OR_CGROUP_OCCUPIED'):self.unused()
+        self.show.return_value = {'LoadState': 'not-found'}; self.empty.return_value = False
+        with self.assertRaisesRegex(io.Hold, 'NAME_OR_CGROUP_OCCUPIED'):self.unused()
+        self.empty.side_effect = PermissionError(errno.EACCES, 'synthetic cgroup read')
+        with self.assertRaises(PermissionError):self.unused()
+
+    def test_absence_is_rechecked_after_directory_appears(self):
+        result = self.unused()
+        directory = self.systemd/'transient'; directory.mkdir()
+        (directory/probes.NAMES[0]).write_bytes(b'synthetic unit')
+        with self.assertRaisesRegex(io.Hold, 'OCCUPIED_NO_ADOPTION'):result.check()
+
+    def test_absence_is_rechecked_between_probe_names(self):
+        def current(_probe, unit):
+            if unit == probes.NAMES[1]:
+                directory = self.systemd/'transient'; directory.mkdir()
+                (directory/unit).write_bytes(b'synthetic unit')
+            return {'LoadState': 'not-found'}
+        self.show.side_effect = current
+        with self.assertRaisesRegex(io.Hold, 'OCCUPIED_NO_ADOPTION'):self.unused()
+
+    def test_deadline_expiry_after_missing_observation_still_fails(self):
+        actual_stat = os.stat
+        def checked_stat(name, **kwargs):
+            try:return actual_stat(name, **kwargs)
+            except FileNotFoundError:
+                if name == 'transient':self.paths.deadline = time.monotonic()-1
+                raise
+        with patch.object(os, 'stat', side_effect=checked_stat):
+            with self.assertRaisesRegex(io.Hold, 'PATH_FENCE_LOST'):self.unused()
 
 
 class RecoveryFailureTests(unittest.TestCase):

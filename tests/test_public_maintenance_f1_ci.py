@@ -21,13 +21,16 @@ class F1DiagnosticTests(unittest.TestCase):
     def environment(self, root):
         event = root/'event.json'
         event.write_text(json.dumps({'number': 241}))
+        source = root/d.SOURCE_PATH
+        source.parent.mkdir(exist_ok=True)
+        source.write_bytes((WORKSPACE/d.SOURCE_PATH).read_bytes())
         return {'GITHUB_EVENT_NAME': 'pull_request', 'GITHUB_REF': 'refs/pull/241/merge',
             'GITHUB_RUN_ATTEMPT': '1', 'GITHUB_EVENT_PATH': str(event)}
 
     def delta(self):
-        return b''.join(b'A\0'+p.encode()+b'\0' for p in sorted(d.ADDITIONS))
+        return b''.join(b'M\0'+p.encode()+b'\0' for p in sorted(d.CHANGES))
 
-    def test_binding_accepts_only_three_additions_to_fixed_base(self):
+    def test_binding_accepts_only_five_changes_and_exact_fix_to_fixed_base(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with patch.object(d.ci.boundary, 'runtime_binding', return_value='a'*40) as bound, \
@@ -56,11 +59,20 @@ class F1DiagnosticTests(unittest.TestCase):
                 d.binding(root, env)
             command.assert_not_called()
             env = self.environment(root)
-            for delta in (b'', self.delta().replace(b'A\0', b'M\0', 1),
+            for delta in (b'', self.delta().replace(b'M\0', b'A\0', 1),
                     self.delta()+b'M\0scripts/tu1nz_public_operator.py\0', self.delta()[:-1],
                     self.delta().replace(b'tests/test_public_maintenance_f1_ci.py', b'tests/other.py')):
                 with self.subTest(delta=delta), patch.object(d.ci.boundary, 'runtime_binding', return_value='a'*40), \
                         patch.object(d.ci, 'command', side_effect=[b'', delta]), self.assertRaises(d.ci.CIError):
+                    d.binding(root, env)
+
+    def test_changed_production_bytes_rejected_even_with_correct_delta_names(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); env = self.environment(root)
+            (root/d.SOURCE_PATH).write_bytes(b'synthetic wrong bytes')
+            with patch.object(d.ci.boundary, 'runtime_binding', return_value='a'*40), \
+                    patch.object(d.ci, 'command', side_effect=[b'', self.delta()]):
+                with self.assertRaisesRegex(d.ci.CIError, 'F1_DIAGNOSTIC_SOURCE_CHANGED'):
                     d.binding(root, env)
 
     def native_result(self, value, *, cleanup_error=None):

@@ -1,7 +1,7 @@
 """One F1 calibration counterprobe; never a full native or Host acceptance.
 
-The guest, inputs, Unit, assertions and clocks are the unchanged 4e7dbc8 path.
-Only a PR-241 first attempt with these three additive files is admitted.
+The guest, inputs, Unit, assertions and clocks are the unchanged a4646018 path.
+Only a PR-241 first attempt with the bound Transient-absence fix is admitted.
 """
 import argparse
 import hashlib
@@ -16,9 +16,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tu1nz_public_maintenance_ci as maintenance
 
 ci = maintenance.ci
-BASE = '4e7dbc81cecb25ea83158d6c1f91f1a0a1e0c0b9'
-ADDITIONS = frozenset(('.github/workflows/mainserver-f1-diagnostic.yml',
-    'scripts/tu1nz_public_maintenance_f1_ci.py', 'tests/test_public_maintenance_f1_ci.py'))
+BASE = 'a46460183bfd4bdb893f3798174fb1808a9883d6'
+CHANGES = frozenset(('.github/workflows/mainserver-f1-diagnostic.yml',
+    'scripts/tu1nz_public_maintenance_f1_ci.py', 'tests/test_public_maintenance_f1_ci.py',
+    'scripts/tu1nz_public_runtime_transition.py', 'tests/test_public_maintenance.py'))
+SOURCE_PATH = 'scripts/tu1nz_public_runtime_transition.py'
+SOURCE_SHA256 = '981e70dd5cddbe42ca58f1046db93ceb50c8f79fefbd6028e3e393428d97b567'
 SCHEMA = 'TU1NZ_REV4_F1_COUNTERPROBE_V1'
 CASE = 'recovery_F1'
 PHASE = 'calibration'
@@ -37,13 +40,15 @@ def binding(workspace, env):
     ci.command(git+['merge-base', '--is-ancestor', BASE, sha], timeout=10)
     delta = ci.command(git+['diff', '--no-ext-diff', '--no-renames', '--name-status',
         '-z', BASE, sha, '--'], timeout=10)
-    expected = {b'A\0'+path.encode()+b'\0' for path in ADDITIONS}
-    # Exact additive tree difference, not just a name allowlist. No existing
-    # production, fixture, regular workflow or diagnostic bytes may change.
+    expected = {b'M\0'+path.encode()+b'\0' for path in CHANGES}
+    # Exact five-file delta plus the fixed corrected production bytes.
+    # Fixture, native assertions, clocks and regular workflow stay unchanged.
     parts = delta.split(b'\0')
-    ci.require(parts[-1:] == [b''] and len(parts) == 7 and
-        {parts[n]+b'\0'+parts[n+1]+b'\0' for n in (0, 2, 4)} == expected,
+    ci.require(parts[-1:] == [b''] and len(parts) == 11 and
+        {parts[n]+b'\0'+parts[n+1]+b'\0' for n in range(0, 10, 2)} == expected,
         'F1_DIAGNOSTIC_BASE_CHANGED')
+    ci.require(hashlib.sha256((workspace/SOURCE_PATH).read_bytes()).hexdigest() == SOURCE_SHA256,
+        'F1_DIAGNOSTIC_SOURCE_CHANGED')
     return sha
 
 

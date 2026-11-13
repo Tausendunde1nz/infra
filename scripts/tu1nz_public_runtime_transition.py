@@ -1940,7 +1940,16 @@ class RecoveryProbeEvidence:
             value = probe.show(unit)
             io.require(value.get('LoadState') == 'not-found' and probe.empty(unit, value),
                        'RECOVERY_UNUSED_PROBE_NAME_OR_CGROUP_OCCUPIED')
-            self.a.paths.absent('/run/systemd/transient/'+unit)
+            # PID1 need not have created this directory before any probe ran.
+            # Only this fixed child's absence is admissible, from a bound
+            # parent. Other lookup/read errors must still fail closed.
+            parent = self.a.paths.get('/run/systemd')
+            try:
+                os.stat('transient', dir_fd=parent, follow_symlinks=False)
+            except FileNotFoundError:
+                self.a.paths.check(full=True)
+            else:
+                self.a.paths.absent('/run/systemd/transient/'+unit)
 
     def check(self):
         if self.reused is None:

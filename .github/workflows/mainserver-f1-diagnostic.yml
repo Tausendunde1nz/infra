@@ -29,7 +29,11 @@ jobs:
           fetch-tags: true
           persist-credentials: false
       - name: Public diagnostic boundary tests without private inputs
-        run: python3 -B -m unittest -v tests.test_public_maintenance_f1_ci tests.test_public_maintenance_ci tests.test_control_private_ci
+        run: >-
+          python3 -B -m unittest -v
+          tests.test_public_maintenance_f1_ci tests.test_public_maintenance_ci tests.test_control_private_ci
+          tests.test_public_maintenance.RecoveryTransientAbsenceTests
+          tests.test_public_maintenance.RecoveryProbeAdmissionTests
       - name: Build the unchanged native image fresh
         run: docker build --file tests/public-operator-native.Dockerfile --tag "tu1nz-public-operator-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
       - name: One unchanged F1 calibration guest with filtered failure and cleanup
