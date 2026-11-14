@@ -174,6 +174,56 @@ def bootstrap(raw,pins,inputs,case,route,*,legacy_sha):
         '\nfinally:\n _save_trace()\n')
 
 
+def execute_with_transport_observation(packet, source, **kwargs):
+    # F1-only diagnostic wrappers. Keep the real result, exception, transport
+    # lifecycle and all deadlines. Successful per-object operations add no work.
+    observed = {}; cleanup = {}; transport = [None]
+    actual_init = client.MaintenanceTransport.__init__
+    actual_serve = client.Client.serve
+    actual_receipt = client.maintenance_cleanup_receipt
+    def initialized(self, *args, **kw):
+        result = actual_init(self, *args, **kw)
+        transport[0] = self
+        return result
+    def served(self):
+        try: return actual_serve(self)
+        except BaseException as error:
+            try: observed.update(diagnostics.capture_transport(error, self, transport[0], time.monotonic_ns()))
+            except Exception: pass  # a missing diagnostic cannot replace the original error
+            raise
+    def receipted(parent, identity, receipt, **kw):
+        digest = actual_receipt(parent, identity, receipt, **kw)
+        try: cleanup.update(digest=digest, receipt=io.parse(io.canonical(receipt)))
+        except Exception: pass
+        return digest
+    client.MaintenanceTransport.__init__ = initialized
+    client.Client.serve = served
+    client.maintenance_cleanup_receipt = receipted
+    try: return client.execute_maintenance(packet, source, **kwargs), observed, cleanup
+    finally:
+        client.MaintenanceTransport.__init__ = actual_init
+        client.Client.serve = actual_serve
+        client.maintenance_cleanup_receipt = actual_receipt
+
+
+def bound_cleanup_observation(result, route, observed):
+    # Reuse the real cleanup writer's successful independent readback. No
+    # extra receipt read/write and no inferred remote process exit.
+    unknown = {k: diagnostics.UNKNOWN for k in
+        ('cleanup_receipt', 'ssh_exit', 'ssh_exit_observation', 'remote_final_record')}
+    try:
+        digest = result.get('client_cleanup_sha256')
+        if type(digest) is not str or len(digest) != 64 or type(observed) is not dict: return unknown
+        receipt = io.client_cleanup_record(observed.get('receipt'))
+        if digest != observed.get('digest') or io.sha(io.canonical(receipt)) != digest: return unknown
+        if receipt['route'] != route or receipt['original_binding'] != result['binding']: return unknown
+        return {'cleanup_receipt': 'BOUND_READBACK',
+            'ssh_exit': receipt['ssh_exit'] if receipt['ssh_exit'] is not None else diagnostics.UNKNOWN,
+            'ssh_exit_observation': 'AFTER_CLIENT_CLEANUP',
+            'remote_final_record': 'PRESENT_BOUND' if receipt['host_final_sha256'] is not None else 'ABSENT_BOUND'}
+    except (OSError, ValueError, KeyError, io.Hold): return unknown
+
+
 def worker(case,route):
     f.f.assert_guest_isolation()
     packet=io.parse((ROOT/'packet.json').read_bytes());data=io.parse((ROOT/'fixture-pins.json').read_bytes())
@@ -186,8 +236,13 @@ def worker(case,route):
     connections=[]
     def ssh(remote):connections.append(time.monotonic_ns());return f.ssh_argv(remote)
     client.ssh_argv=ssh
-    result=client.execute_maintenance(packet,source,password=f.PASSWORD,runtime_payload=payload,recover_once=route!='original')
-    f.f.write(ROOT/('client-'+route+'.json'),io.canonical({'result':result,'connections':len(connections)}),0o600)
+    kwargs=dict(password=f.PASSWORD,runtime_payload=payload,recover_once=route!='original')
+    extra={}
+    if case=='recovery_F1':
+        result,observed,cleanup=execute_with_transport_observation(packet,source,**kwargs)
+        extra={'transport_observation':observed,'cleanup_observation':bound_cleanup_observation(result,route,cleanup)}
+    else:result=client.execute_maintenance(packet,source,**kwargs)
+    f.f.write(ROOT/('client-'+route+'.json'),io.canonical({'result':result,'connections':len(connections),**extra}),0o600)
     return 0
 
 
@@ -342,8 +397,13 @@ if __name__=='__main__':
             if path.exists():
                 result[route]=io.parse(path.read_bytes())
                 trace=ROOT/('trace-'+route+'.json')
+                trace_value=None
                 if trace.exists():
-                    result[route].update(failure_trace_fields(io.parse(trace.read_bytes())))
+                    trace_value=io.parse(trace.read_bytes())
+                    result[route].update(failure_trace_fields(trace_value))
+                if args.case=='recovery_F1':
+                    result[route]['transport_failure']=diagnostics.transport_projection(
+                        result[route].get('transport_observation'),result[route].get('cleanup_observation'),trace_value)
     finally:
         path=Path('/native-result.json')
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)

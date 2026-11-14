@@ -114,6 +114,9 @@ def safe_failure(value,case,phase):
             if type(inner.get(k)) is str and inner[k] in allowed}
         fault=diagnostics.validated_host_fault(outer.get('host_source_fault'))
         if fault is not None:result[route]['host_source_fault']=fault
+        if case == 'recovery_F1':
+            result[route]['transport_failure'] = (diagnostics.validated_transport(
+                outer.get('transport_failure')) or diagnostics.unknown_transport())
         if inner.get('host_primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_STATE_NOT_ELIGIBLE':
             point=diagnostics.validated_start_limit(outer.get('start_limit_failure'))
             if point is not None:result[route]['start_limit_failure']=point

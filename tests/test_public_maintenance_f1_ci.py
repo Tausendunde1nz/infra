@@ -30,7 +30,7 @@ class F1DiagnosticTests(unittest.TestCase):
     def delta(self):
         return b''.join(b'M\0'+p.encode()+b'\0' for p in sorted(d.CHANGES))
 
-    def test_binding_accepts_only_five_changes_and_exact_fix_to_fixed_base(self):
+    def test_binding_accepts_only_six_test_changes_and_unchanged_production_fix(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with patch.object(d.ci.boundary, 'runtime_binding', return_value='a'*40) as bound, \

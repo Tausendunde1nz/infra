@@ -17,6 +17,200 @@ import tu1nz_public_maintenance_ci as m
 from tests.test_public_maintenance_transport import synthetic_timing
 
 
+class F1TransportDiagnosticTests(unittest.TestCase):
+    def receipt(self, exit_code=255):
+        return {'type':'client-cleanup','schema':'TU1NZ_REV4_CLIENT_CLEANUP_V1',
+            'route':'recovery-once','original_binding':'a'*64,'execution_binding':'b'*64,
+            'status':'HOLD','original_status':'FAILED_HOLD','host_final_sha256':None,
+            'tail_sha256':'c'*64,'sequence':73,'primary':None,'abort':[], 'host_cleanup':[],
+            'client_primary':'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_LOST_NO_RETRY',
+            'cleanup':['PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED'],'ssh_exit':exit_code,
+            'completion_claimed':False,'operational_handles_closed':False,'remote_ACK_reconstructed':False}
+
+    def bound_receipt(self, value):
+        from tests import public_maintenance_native as n
+        digest=io.sha(io.canonical(value))
+        return n.bound_cleanup_observation({'binding':'a'*64,'client_cleanup_sha256':digest},
+            'recovery-once',{'digest':digest,'receipt':value})
+
+    def actual_wire_failure(self, *, expired=False, entry_expired=False):
+        from tests import public_maintenance_native as n
+        import time
+        read,write=os.pipe();os.close(write)  # real EOF, no SSH or remote process
+        wire=io.Wire(read,-1,deadline=time.monotonic()+(-.02 if expired else 90))
+        original_serve=client.Client.serve;original_init=client.MaintenanceTransport.__init__
+        bound={'kind':'owner_object_intent','sequence':73,'binding':'b'*64,
+               'previous':'a'*64,'value':{'private':'SECRET_CANARY'}}
+        raw=io.canonical(bound)
+        observer=client.Client.__new__(client.Client)
+        observer.wire=wire;observer.records={'073-owner_object_intent.json':raw}
+        observer.sequence=73;observer.binding='b'*64;observer.last=io.sha(raw)
+        def execute(*args,**kwargs):
+            transport=client.MaintenanceTransport(reserve_milliseconds=10000,
+                started=time.monotonic()-(601 if entry_expired else 0))
+            try:observer.serve()
+            except io.Hold as error:
+                # Unchanged actual Wire error is caught as in execute_maintenance.
+                return {'status':'HOLD','client_primary':error.primary,
+                        'client_cleanup':transport.close()}
+            self.fail('actual EOF/deadline must fail')
+        try:
+            with patch.object(client,'execute_maintenance',side_effect=execute):
+                result,observed,cleanup=n.execute_with_transport_observation({},None)
+                self.assertEqual(cleanup,{})
+        finally:os.close(read)
+        self.assertIs(client.Client.serve,original_serve)
+        self.assertIs(client.MaintenanceTransport.__init__,original_init)
+        self.assertEqual(result['status'],'HOLD')
+        self.assertEqual(result['client_primary'],'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_'+
+                         ('WIRE_DEADLINE' if expired else 'WIRE_LOST_NO_RETRY'))
+        # Same synthetic clock domain and exact existing Host-trace assignment.
+        trace={'owner_begin':int(wire.deadline*1_000_000_000)-120_000_000_001}
+        return result,observed,trace
+
+    def test_real_eof_before_deadline_and_actual_expiry_keep_fail_counts_and_cleanup(self):
+        from tests.test_public_maintenance_f1_ci import F1DiagnosticTests
+        helper=NativeBoundaryTests()
+        for expired in (False,True):
+            result,observed,trace=self.actual_wire_failure(expired=expired)
+            receipt=self.receipt();receipt['client_primary']=result['client_primary']
+            projected=m.diagnostics.transport_projection(observed,self.bound_receipt(receipt),trace)
+            self.assertEqual(projected['ssh_exit'],255)
+            self.assertEqual(projected['local_ssh_outcome'],'EXIT')
+            self.assertEqual(projected['remote_process_state'],'UNKNOWN')
+            self.assertEqual(projected['last_journal_phase'],'OWNER_APPLY')
+            self.assertEqual(projected['last_journal_kind'],'owner_object_intent')
+            self.assertEqual(projected['wire_remaining_milliseconds']<0,expired)
+            self.assertEqual(projected['owner_remaining_milliseconds']<0,expired)
+            self.assertGreater(projected['entry_remaining_milliseconds'],0)
+            fields=helper.counted_native_failure(37,36)
+            value={'schema':'TU1NZ_REV4_NATIVE_CASE_V1','case':'recovery_F1','phase':'calibration',
+                'green':False,'host_acceptance':False,**fields,
+                'recovery-once':{'result':{'primary':result['client_primary'],
+                    'client_primary':result['client_primary'],'host_abort':[],'host_cleanup':[],
+                    'client_cleanup':receipt['cleanup']},'transport_failure':projected}}
+            for cleanup_error in (None,OSError('SECRET_CANARY')):
+                with self.subTest(expired=expired,cleanup_error=cleanup_error is not None):
+                    out,raw=F1DiagnosticTests().native_result(value,cleanup_error=cleanup_error)
+                    self.assertFalse(out['green']);self.assertEqual(out['code'],'F1_DIAGNOSTIC_RED')
+                    self.assertEqual(out['failure']['owner_counts'],{'owner_intents':37,'owner_acks':36})
+                    failure=out['failure']['recovery-once']
+                    self.assertEqual(failure['transport_failure'],projected)
+                    self.assertEqual(failure['client_cleanup'],receipt['cleanup'])
+                    self.assertEqual(out['guest_cleanup'],'FAIL' if cleanup_error else 'PASS')
+                    self.assertEqual(json.loads(raw)['failure'],out['failure'])
+                    self.assertNotIn('SECRET_CANARY',raw+json.dumps(out))
+
+    def test_entry_expiry_and_missing_host_trace_are_not_guessed(self):
+        result,observed,trace=self.actual_wire_failure(expired=True,entry_expired=True)
+        self.assertIn('PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED',result['client_cleanup'])
+        projected=m.diagnostics.transport_projection(observed,{},None)
+        self.assertLess(projected['entry_remaining_milliseconds'],0)
+        self.assertEqual(projected['owner_remaining_milliseconds'],'UNKNOWN')
+        self.assertEqual(projected['ssh_exit'],'UNKNOWN')
+        self.assertEqual(projected['remote_process_state'],'UNKNOWN')
+        self.assertEqual(m.diagnostics.transport_projection(None,None,None),m.diagnostics.unknown_transport())
+
+    def test_cleanup_exit_signal_and_remote_final_are_separate_observations(self):
+        for code in (None,0,1,137,255,-9,-15,-128):
+            for final in (None,'d'*64):
+                with self.subTest(exit=code,final=final is not None):
+                    value=self.receipt(code);value['host_final_sha256']=final
+                    projection=m.diagnostics.transport_projection({},self.bound_receipt(value),None)
+                    self.assertEqual(projection['ssh_exit'],code if code is not None else 'UNKNOWN')
+                    self.assertEqual(projection['local_ssh_outcome'],
+                        'UNKNOWN' if code is None else ('SIGNAL' if code<0 else 'EXIT'))
+                    self.assertEqual(projection['remote_final_record'],
+                        'PRESENT_BOUND' if final else 'ABSENT_BOUND')
+                    self.assertEqual(projection['remote_process_state'],'UNKNOWN')
+                    self.assertEqual(projection['ssh_exit_observation'],'AFTER_CLIENT_CLEANUP')
+
+    def test_missing_unbound_or_invalid_receipt_cannot_supply_an_exit(self):
+        from tests import public_maintenance_native as n
+        raw=io.canonical(self.receipt());digest=io.sha(raw)
+        result={'binding':'a'*64,'client_cleanup_sha256':digest}
+        observed={'digest':digest,'receipt':self.receipt()}
+        with patch.object(io,'private_read',side_effect=AssertionError('NO_EXTRA_READ')):
+            for missing in (None,{}, {'digest':digest}, {**observed,'digest':'f'*64}):
+                self.assertEqual(n.bound_cleanup_observation(result,'recovery-once',missing)['ssh_exit'],'UNKNOWN')
+            for delta in ({'client_cleanup_sha256':None},{'client_cleanup_sha256':'f'*64},{'binding':'f'*64}):
+                self.assertEqual(n.bound_cleanup_observation({**result,**delta},'recovery-once',observed)['ssh_exit'],'UNKNOWN')
+            self.assertEqual(n.bound_cleanup_observation(result,'original',observed)['ssh_exit'],'UNKNOWN')
+            observed['receipt']['ssh_exit']=1  # valid schema but changed from the read-back bytes
+            self.assertEqual(n.bound_cleanup_observation(result,'recovery-once',observed)['ssh_exit'],'UNKNOWN')
+        for bad in ({'ssh_exit':True},{'ssh_exit':-129},{'ssh_exit':256},{'ssh_exit':'SECRET_CANARY'},
+                    {'route':'original'},{'extra':'SECRET_CANARY'}):
+            self.assertEqual(self.bound_receipt({**self.receipt(),**bad})['ssh_exit'],'UNKNOWN')
+
+    def test_observer_uses_real_cleanup_readback_once_and_never_promotes_failed_readback(self):
+        from tests import public_maintenance_native as n
+        import time
+        actual_receipt=client.maintenance_cleanup_receipt
+        for fail_readback in (False,True):
+            with self.subTest(fail_readback=fail_readback),tempfile.TemporaryDirectory() as directory:
+                parent=Path(directory).resolve();fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY)
+                try:identity=client.RecoveryCustody.directory_identity(fd)
+                finally:os.close(fd)
+                def execute(*args,**kwargs):
+                    try:digest=client.maintenance_cleanup_receipt(parent,identity,self.receipt(),deadline=time.monotonic()+10)
+                    except OSError:digest=None
+                    return {'status':'HOLD','binding':'a'*64,'client_cleanup_sha256':digest}
+                with patch.object(client,'execute_maintenance',side_effect=execute), \
+                        patch.object(io,'private_read',wraps=io.private_read,
+                            side_effect=OSError('SECRET_CANARY') if fail_readback else None) as read:
+                    result,observed,cleanup=n.execute_with_transport_observation({},None)
+                    read.assert_called_once_with(parent/'client-cleanup.json',65536)
+                self.assertIs(client.maintenance_cleanup_receipt,actual_receipt)
+                self.assertEqual(observed,{})
+                with patch.object(io,'private_read',side_effect=AssertionError('NO_SECOND_READ')):
+                    projection=n.bound_cleanup_observation(result,'recovery-once',cleanup)
+                self.assertEqual(projection['ssh_exit'],'UNKNOWN' if fail_readback else 255)
+                self.assertEqual(result['status'],'HOLD')
+
+    def test_transport_filter_rejects_types_extra_fields_and_false_remote_claims(self):
+        _,observed,trace=self.actual_wire_failure()
+        good=m.diagnostics.transport_projection(observed,self.bound_receipt(self.receipt()),trace)
+        for delta in ({'code':[]},{'code':'SECRET_CANARY'},{'last_journal_kind':'SECRET_CANARY'},
+                {'last_journal_phase':'ENTRY_CLEANUP'},{'ssh_exit':True},{'ssh_exit':-129},{'ssh_exit':256},
+                {'ssh_exit':1.5},{'ssh_exit':'255'},{'remote_process_state':'EXITED'},
+                {'local_ssh_outcome':'SIGNAL'},{'ssh_exit_observation':'AT_TRANSPORT_ERROR'},
+                {'owner_remaining_milliseconds':False},{'owner_remaining_milliseconds':600001},
+                {'entry_remaining_milliseconds':float('nan')},{'wire_remaining_milliseconds':-600001},
+                {'clock_scope':'UNKNOWN'},{'cleanup_receipt':'UNKNOWN'},{'private':'SECRET_CANARY'}):
+            with self.subTest(delta=delta):
+                bad={**good,**delta};self.assertIsNone(m.diagnostics.validated_transport(bad))
+                out=m.safe_failure({'recovery-once':{'result':{},'transport_failure':bad}},'recovery_F1','calibration')
+                self.assertEqual(out['recovery-once']['transport_failure'],m.diagnostics.unknown_transport())
+                self.assertNotIn('SECRET_CANARY',json.dumps(out))
+        for field in ('owner_remaining_milliseconds','wire_remaining_milliseconds','entry_remaining_milliseconds'):
+            for value in (-600000,0,600000,'UNKNOWN'):
+                self.assertIsNotNone(m.diagnostics.validated_transport({**good,field:value}))
+
+    def test_observation_failure_preserves_original_error_and_restores_wrappers(self):
+        with patch.object(m.diagnostics,'capture_transport',side_effect=ValueError('SECRET_CANARY')):
+            result,observed,_=self.actual_wire_failure()
+        self.assertEqual(observed,{})
+        self.assertEqual(result['client_primary'],'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_LOST_NO_RETRY')
+
+    def test_existing_owner_clock_is_reused_and_capture_does_not_read_or_poll(self):
+        from tests import public_maintenance_native as n
+        import ast
+        tree=ast.parse(n.HOST_TRACE)
+        owner=next(v for v in tree.body if isinstance(v,ast.FunctionDef) and v.name=='_owner')
+        ns={'_trace':{'owner_begin':None}}
+        exec(compile(ast.Module(body=[owner],type_ignores=[]),'<existing-owner-clock>','exec'),ns)
+        actual=Mock(return_value='UNCHANGED');channel=SimpleNamespace(ceiling=600.125)
+        self.assertEqual(ns['_owner'](actual,channel),'UNCHANGED')
+        self.assertEqual(ns['_trace']['owner_begin']+120_000_000_001,int(channel.ceiling*1e9))
+        actual.assert_called_once_with(channel)
+        with patch.object(io,'private_read',side_effect=AssertionError('NO_READ')), \
+                patch.object(client.subprocess.Popen,'poll',side_effect=AssertionError('NO_POLL')):
+            observer=SimpleNamespace(wire=SimpleNamespace(deadline=600),records={})
+            result=m.diagnostics.capture_transport(io.Hold('PUBLIC_OPERATOR_WIRE_LOST_NO_RETRY'),observer,
+                SimpleNamespace(deadline=610),500_000_000_000)
+        self.assertEqual(result['last_journal_kind'],'UNKNOWN')
+
+
 class NativeBoundaryTests(unittest.TestCase):
     def copied_unit_program(self, unit):
         with patch.object(m.ci,'command') as command:

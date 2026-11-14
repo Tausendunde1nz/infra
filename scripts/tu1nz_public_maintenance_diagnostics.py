@@ -6,6 +6,7 @@ unmapped innermost frame is not replaced by a misleading caller location.
 """
 import ast
 import builtins
+import math
 from pathlib import Path
 
 SOURCES = {
@@ -15,6 +16,127 @@ SOURCES = {
     'tests/public_runtime_fixture.py': 'REV4_RUNTIME',
 }
 UNMAPPED = {'checkpoint': 'UNMAPPED_TEST_FAILURE'}
+
+TRANSPORT_CODES = frozenset('PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_'+v for v in
+                            ('WIRE_LOST_NO_RETRY', 'WIRE_DEADLINE'))
+TRANSPORT_PHASES = {
+    'recovery_context': 'RECOVERY_ADMITTED',
+    'recovery_flow_claim': 'RECOVERY_FLOW',
+    'recovery_flow_observation': 'RECOVERY_FLOW',
+    'recovery_flow_intent': 'RECOVERY_FLOW',
+    'recovery_flow_ack': 'RECOVERY_FLOW',
+    'owner_admission_intent': 'OWNER_ADMISSION',
+    'owner_admission_markers_confirmed': 'OWNER_ADMISSION',
+    'owner_claim_intent': 'OWNER_ADMISSION',
+    'owner_ready': 'OWNER_ADMISSION',
+    'owner_object_intent': 'OWNER_APPLY',
+    'owner_object_ack': 'OWNER_APPLY',
+    'operator_pending_cleanup': 'ENTRY_CLEANUP',
+    'operator_cleanup': 'ENTRY_CLEANUP',
+}
+UNKNOWN = 'UNKNOWN'
+
+
+def unknown_transport():
+    return {k: UNKNOWN for k in ('code', 'last_journal_kind', 'last_journal_phase',
+        'cleanup_receipt', 'ssh_exit', 'local_ssh_outcome', 'ssh_exit_observation',
+        'remote_final_record', 'remote_process_state', 'clock_scope',
+        'wire_remaining_milliseconds', 'owner_remaining_milliseconds', 'entry_remaining_milliseconds')}
+
+
+def validated_transport(value):
+    """Finite public projection. SSH exit after cleanup never proves Host exit."""
+    if type(value) is not dict or set(value) != set(unknown_transport()):
+        return None
+    enums = {
+        'code': TRANSPORT_CODES | {UNKNOWN},
+        'last_journal_kind': set(TRANSPORT_PHASES) | {UNKNOWN},
+        'last_journal_phase': set(TRANSPORT_PHASES.values()) | {UNKNOWN},
+        'cleanup_receipt': {'BOUND_READBACK', UNKNOWN},
+        'local_ssh_outcome': {'EXIT', 'SIGNAL', UNKNOWN},
+        'ssh_exit_observation': {'AFTER_CLIENT_CLEANUP', UNKNOWN},
+        'remote_final_record': {'PRESENT_BOUND', 'ABSENT_BOUND', UNKNOWN},
+        'remote_process_state': {UNKNOWN},
+        'clock_scope': {'SAME_ISOLATED_GUEST_MONOTONIC', UNKNOWN},
+    }
+    if any(type(value[k]) is not str or value[k] not in choices for k, choices in enums.items()):
+        return None
+    if value['last_journal_phase'] != TRANSPORT_PHASES.get(value['last_journal_kind'], UNKNOWN):
+        return None
+    exit_code = value['ssh_exit']
+    if not (exit_code == UNKNOWN if type(exit_code) is str else
+            type(exit_code) is int and -128 <= exit_code <= 255):
+        return None
+    expected = UNKNOWN if exit_code == UNKNOWN else ('SIGNAL' if exit_code < 0 else 'EXIT')
+    if value['local_ssh_outcome'] != expected:
+        return None
+    if value['cleanup_receipt'] == UNKNOWN:
+        if any(value[k] != UNKNOWN for k in ('ssh_exit', 'ssh_exit_observation', 'remote_final_record')):
+            return None
+    elif value['ssh_exit_observation'] != 'AFTER_CLIENT_CLEANUP' or value['remote_final_record'] == UNKNOWN:
+        return None
+    times = ('wire_remaining_milliseconds', 'owner_remaining_milliseconds', 'entry_remaining_milliseconds')
+    if any(not (type(value[k]) is int and -600000 <= value[k] <= 600000 or
+                type(value[k]) is str and value[k] == UNKNOWN) for k in times):
+        return None
+    if value['clock_scope'] == UNKNOWN and any(value[k] != UNKNOWN for k in times):
+        return None
+    if value['code'] == UNKNOWN and (value['last_journal_kind'] != UNKNOWN or
+                                    value['clock_scope'] != UNKNOWN):
+        return None
+    return dict(value)
+
+
+def capture_transport(error, observer, transport, now_ns):
+    """Error-only in-memory capture; no poll, journal reread or remote query."""
+    from tu1nz_public_operator_io import parse, sha
+    code = getattr(error, 'primary', None)
+    if code not in TRANSPORT_CODES or transport is None:
+        return {}
+    out = {'code': code, 'abort_monotonic_ns': now_ns,
+           'wire_deadline': observer.wire.deadline, 'entry_deadline': transport.deadline,
+           'last_journal_kind': UNKNOWN}
+    # The last already durable client record can still lack a Host ACK.
+    if observer.records:
+        raw = next(reversed(observer.records.values()))
+        row = parse(raw)
+        if sha(raw) == observer.last and row['sequence'] == observer.sequence and row['binding'] == observer.binding:
+            out['last_journal_kind'] = row['kind'] if row['kind'] in TRANSPORT_PHASES else UNKNOWN
+    return out
+
+
+def transport_projection(observed, cleanup, trace):
+    """Only the loopback native guest shares this monotonic clock domain.
+
+    Owner ceiling is reconstructed exactly from the existing trace assignment:
+    owner_begin = int(channel.ceiling * 1e9) - 120000000001. A lost trace stays
+    UNKNOWN; client receipt time is never substituted for Owner admission.
+    """
+    out = unknown_transport()
+    if type(cleanup) is dict and cleanup.get('cleanup_receipt') == 'BOUND_READBACK':
+        out.update({k: cleanup.get(k, UNKNOWN) for k in
+                    ('cleanup_receipt', 'ssh_exit', 'ssh_exit_observation', 'remote_final_record')})
+        exit_code = out['ssh_exit']
+        if type(exit_code) is int:
+            out['local_ssh_outcome'] = 'SIGNAL' if exit_code < 0 else 'EXIT'
+    if type(observed) is dict and type(observed.get('code')) is str and observed['code'] in TRANSPORT_CODES:
+        out['code'] = observed['code']
+        kind = observed.get('last_journal_kind')
+        if type(kind) is str and kind in TRANSPORT_PHASES:
+            out.update(last_journal_kind=kind, last_journal_phase=TRANSPORT_PHASES[kind])
+        now = observed.get('abort_monotonic_ns')
+        if type(now) is int and 0 < now < 2**63:
+            out['clock_scope'] = 'SAME_ISOLATED_GUEST_MONOTONIC'
+            for key in ('wire', 'entry'):
+                deadline = observed.get(key+'_deadline')
+                if type(deadline) in (int, float) and math.isfinite(deadline) and 0 < deadline < 2**53:
+                    delta = (int(deadline*1_000_000_000)-now)//1_000_000
+                    if -600000 <= delta <= 600000: out[key+'_remaining_milliseconds'] = delta
+            began = trace.get('owner_begin') if type(trace) is dict else None
+            if type(began) is int and 0 < began <= now:
+                delta = (began+120_000_000_001-now)//1_000_000
+                if -600000 <= delta <= 120000: out['owner_remaining_milliseconds'] = delta
+    return validated_transport(out) or unknown_transport()
 
 
 def validated_host_fault(value):
