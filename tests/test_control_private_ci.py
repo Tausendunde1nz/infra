@@ -20,18 +20,18 @@ import tu1nz_control_recovery_freeze as f
 
 class PrivateCI(unittest.TestCase):
     def test_only_exact_declared_source_prs_are_eligible_not_generic_same_repo(self):
-        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240)))
+        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241)))
         with tempfile.TemporaryDirectory() as d:
             event=Path(d)/'event.json'
             env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':p.REPOSITORY,
                  'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
                  'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':'1'*40}
-            for number in (224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,999,'226','227','228','229','230','231','232','233','234','235','236','237','238','239','240','241',True):
+            for number in (224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,999,'226','227','228','229','230','231','232','233','234','235','236','237','238','239','240','241',True):
                 data={'number':number,'pull_request':{'head':{'repo':{'full_name':p.REPOSITORY},'sha':'1'*40}}}
                 event.write_text(json.dumps(data))
                 with patch.object(p.subprocess,'run',side_effect=lambda argv,**kw:subprocess.CompletedProcess(
                         argv,0,b'1'*40+b'\n' if 'rev-parse' in argv else b'')):
-                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240):
+                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241):
                         self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                     else:
                         with self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
@@ -92,7 +92,7 @@ class PrivateCI(unittest.TestCase):
             with patch.object(p.subprocess,'run',side_effect=clean) as process:
                 self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                 self.assertEqual(process.call_count,3)
-                for number in (224,241,999,'240',True,240.0,None):
+                for number in (224,242,999,'240',True,240.0,None):
                     data['number']=number;event.write_text(json.dumps(data));process.reset_mock()
                     with self.subTest(number=number),self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
                         p.runtime_binding(env,Path(d))
@@ -354,15 +354,23 @@ with p.interrupted():
         self.assertIn('environment: control-private-ci',private)
         self.assertIn('github.event.pull_request.head.sha || github.sha',private)
         self.assertIn('persist-credentials: false',private)
-        # Two finite, separately cleaning helpers in the SAME protected job;
-        # no credential or private input is inherited by any public step.
-        self.assertEqual(private.count('secrets.CONTROL_POLICY_READ_TOKEN'),2)
+        # Two original helpers and one separately protected serial verification
+        # helper. Only finite sanitized calibration goes between those jobs.
+        first,verification=private.split('  mainserver-maintenance-native:\n',1)
+        self.assertEqual(first.count('secrets.CONTROL_POLICY_READ_TOKEN'),2)
+        self.assertEqual(verification.count('secrets.CONTROL_POLICY_READ_TOKEN'),1)
+        self.assertIn('environment: control-private-ci',verification)
+        self.assertIn('needs: control-private-provenance',verification)
+        self.assertIn('REV4_CALIBRATION: ${{ needs.control-private-provenance.outputs.rev4_calibration }}',verification)
+        self.assertIn('persist-credentials: false',verification)
+        self.assertLess(verification.index('Build fresh reviewed native image'),
+                        verification.index('secrets.CONTROL_POLICY_READ_TOKEN'))
         self.assertIn('scripts/tu1nz_public_operator_ci.py', private)
         self.assertLess(private.index('Build fresh production-entry image'),
                         private.index('secrets.CONTROL_POLICY_READ_TOKEN'))
         self.assertNotIn('CONTROL_POLICY_READ_TOKEN',public)
         self.assertNotIn('pull_request_target:',raw)
-        self.assertIn('needs: control-private-provenance',public)
+        self.assertIn('needs: [control-private-provenance, mainserver-maintenance-native]',public)
         for forbidden in ('policy-target','upload-artifact','actions/cache','GITHUB_STEP_SUMMARY'):
             self.assertNotIn(forbidden,raw)
 

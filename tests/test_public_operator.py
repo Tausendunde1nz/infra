@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zlib
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -57,6 +58,55 @@ class NativeFSUIDFailure(AssertionError):
 
 
 class OperatorBoundary(unittest.TestCase):
+    def test_bootstrap_actual_source_roundtrip_and_bounded_argument(self):
+        raw = (SCRIPTS/'tu1nz_public_operator_io.py').read_bytes()
+        program = client.bootstrap(raw)
+        # Leave room for native fault wrappers and the SSH command envelope.
+        self.assertLess(len(program.encode())+1, 64*1024)
+        namespace = {}
+        exec(program.split('m=types.ModuleType', 1)[0], namespace)
+        self.assertEqual(namespace['raw'], raw)
+
+    def test_bootstrap_changed_or_trailing_bytes_fail_before_source_exec(self):
+        raw = b'raise RuntimeError("source must not execute")\n'
+        original = base64.b64encode(zlib.compress(raw, 9)).decode()
+        for payload in (zlib.compress(raw.replace(b'RuntimeError', b'RuntimeErroX'), 9),
+                        zlib.compress(raw, 9)+b'TRAILING',
+                        zlib.compress(raw+b'LONGER', 9),
+                        zlib.compress(raw, 9)[:-1]):
+            with self.subTest(payload_bytes=len(payload)):
+                program = client.bootstrap(raw).replace(repr(original),
+                    repr(base64.b64encode(payload).decode()))
+                with self.assertRaises((AssertionError, zlib.error)):
+                    exec(program, {})
+
+    def test_bootstrap_source_limit_denies_before_compression(self):
+        for raw in (b'', bytearray(b'X'), b'X'*(3*1024*1024+1)):
+            with self.subTest(size=len(raw)), patch.object(client.zlib, 'compress') as compress:
+                with self.assertRaises(client.io.Hold): client.bootstrap(raw)
+                compress.assert_not_called()
+
+    def test_bootstrap_real_local_child_executes_same_protocol(self):
+        # Actual local process with inert public IO only; no operational
+        # Source, Host, socket, file, claim or service action is reachable.
+        raw = b'''class Wire:
+ def __init__(self,*a,**k): self.deadline=k['deadline']
+ def send(self,value):
+  assert value['type']=='ready' and len(value['io_sha256'])==64
+ def receive(self): return {'source':{},'hashes':{}}
+class Source:
+ def __init__(self,*a): pass
+ def load(self,*a): return self
+ def session(self,s,p,w):
+  assert w.deadline==w.bootstrap_started+600
+  print('SYNTHETIC_BOOTSTRAP_PROTOCOL_PASS')
+'''
+        result = subprocess.run([sys.executable, '-I', '-S', '-B', '-c', client.bootstrap(raw)],
+                                capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b'SYNTHETIC_BOOTSTRAP_PROTOCOL_PASS\n')
+        self.assertEqual(result.stderr, b'')
+
     def test_kcmp_failure_preserves_immediate_errno_and_never_skips_task(self):
         # Negative syscall adapter unit test only, not a native admission.
         leader={k:None for k in ('uid','gid','groups','caps','nnp','cgroup','namespaces',
@@ -491,7 +541,9 @@ except BaseException as error:
             with self.subTest(counter=counter), patch.object(observe, 'command',
                     side_effect=lambda argv,*a,**kw:bus if argv[0]=='/usr/bin/busctl' else reply):
                 with self.assertRaisesRegex(io.Hold, 'UNIT_RESTART_COUNTER_UNKNOWN'):
-                    observe.Authority.unit(SimpleNamespace(deadline=time.monotonic()+1), observe.UNITS[0])
+                    authority=observe.Authority.__new__(observe.Authority)
+                    authority.deadline=time.monotonic()+1
+                    authority.unit(observe.UNITS[0])
 
     def test_only_typed_present_empty_exec_arrays_mean_no_hook(self):
         # Parser-only samples. Real manager/D-Bus reads are mandatory native.

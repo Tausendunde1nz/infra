@@ -15,6 +15,306 @@ from tests.test_public_operator import native_trace_capable
 
 
 class PublicOperatorCI(unittest.TestCase):
+    def test_measurement_wrapper_fresh_import_graph_before_session(self):
+        # Actual public Source.load and modules in a fresh isolated Python.
+        # Synthetic owner/guard method surfaces ONLY; not release admission
+        # or native acceptance, and no private Control files are read here.
+        import subprocess
+        from tests import public_operator_native as native
+        program = r'''
+import json,os,sys,types
+from pathlib import Path
+p=json.load(sys.stdin);scripts=Path(p['root'])/'scripts'
+if not hasattr(os,'O_NOATIME'):os.O_NOATIME=0
+sys.path.insert(0,str(scripts))
+import tu1nz_public_operator_io as io
+import tu1nz_public_operator_host
+assert 'tu1nz_public_runtime_artifact' not in sys.modules
+s=io.Source.__new__(io.Source)
+s.bytes={n:(scripts/f).read_bytes() for n,f in (
+ ('artifact','tu1nz_public_runtime_artifact.py'),('replacement','tu1nz_public_runtime_transition.py'))}
+s.modules={n:sys.modules[io.MODULES[n]] for n in ('io','host','fs','runtime_guard','observe','probes','context')}
+def never(*args,**kwargs):raise AssertionError('NO_ACTION_ALLOWED')
+def methods(names):return type('Synthetic',(),{n:never for n in names})
+s.modules['owner']=types.SimpleNamespace(
+ Supervisor=methods(('check_all','_backup_restore','__init__','apply','finish','close')),
+ ObjectFence=methods(('check','writer_check','close')))
+s.modules['guard']=types.SimpleNamespace(owner_transition=never,observe_fd=never)
+sys.path.remove(str(scripts))  # exactly no filesystem fallback for bound modules
+def audit(event,args):
+ if event in ('subprocess.Popen','socket.__new__','socket.connect','os.system','os.exec','os.posix_spawn','os.fork','os.remove','os.rename','os.mkdir','os.chmod','os.chown','os.truncate') or event=='open' and ((isinstance(args[1],str) and any(c in args[1] for c in 'wax+')) or isinstance(args[2],int) and args[2] & (os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC)):
+  raise AssertionError('IMPORT_ONLY_BOUNDARY')
+sys.addaudithook(audit)
+exec(compile(p['wrapper'],'<native-read-cost-wrapper>','exec'),{'s':s})
+assert 'artifact' in s.modules and 'replacement' in s.modules
+print('SOURCE_WRAPPER_IMPORT_PASS')
+'''
+        wrapper=native.READ_COST_WRAPPER
+        preload='s.load("artifact")  # same authenticated dependency order as Host.session\n'
+        self.assertEqual(wrapper.count(preload),1)
+        for corrected in (False,True):
+            with self.subTest(corrected=corrected):
+                payload={'root':str(Path(__file__).resolve().parents[1]),
+                    'wrapper':wrapper if corrected else wrapper.replace(preload,'')}
+                r=subprocess.run([sys.executable,'-I','-S','-B','-c',program],
+                    input=json.dumps(payload).encode(),capture_output=True,timeout=15)
+                if corrected:
+                    self.assertEqual(r.returncode,0);self.assertEqual(r.stderr,b'')
+                    self.assertEqual(r.stdout.strip(),b'SOURCE_WRAPPER_IMPORT_PASS')
+                else:
+                    self.assertEqual(r.returncode,1);self.assertEqual(r.stdout,b'')
+                    self.assertEqual(m.terminal_wire_code(r.stderr),m.SERVER_IMPORT_CODE)
+
+    def test_terminal_import_code_has_no_module_or_traceback_disclosure(self):
+        exact=b"ModuleNotFoundError: No module named 'tu1nz_public_runtime_artifact'"
+        self.assertEqual(m.terminal_wire_code(b'PRIVATE_TRACE_CANARY\n'+exact+b'\n'),m.SERVER_IMPORT_CODE)
+        for raw in (b"ModuleNotFoundError: No module named 'PRIVATE_MODULE_CANARY'",
+                    exact+b' extra',b'prefix '+exact,exact+b'\nPRIVATE_SUFFIX_CANARY',b''):
+            with self.subTest(raw=raw):self.assertIsNone(m.terminal_wire_code(raw))
+        self.assertIn(m.SERVER_IMPORT_CODE,m.diagnostic_codes())
+
+    def test_native_fixture_single_reads_delegate_real_method_graph_and_reject_missing_field(self):
+        from types import SimpleNamespace
+        import time
+        from tests import public_operator_native as native
+        import tu1nz_public_operator_observe as observe
+        unit=observe.UNITS[0];deadline=time.monotonic()+20
+        fields={k:'' for k in observe.PROPERTIES.split(',') if k not in observe.EXEC_PROPERTIES}
+        fields.update(Id=unit,LoadState='loaded',NRestarts='0',MainPID='123')
+        def reply(values):
+            return SimpleNamespace(returncode=0,stdout=('\n'.join(k+'='+v for k,v in values.items())+'\n').encode())
+        changed={**fields,'MainPID':'124'};missing=dict(changed);del missing['LoadState']
+        with (patch.object(observe.Authority,'__init__',side_effect=AssertionError('NO_FIXTURE_ADMISSION')),
+                patch.object(observe,'command',side_effect=[reply(fields),reply(changed),reply(missing)]) as reads):
+            self.assertEqual(native.fixture_unit_sample(observe,unit,deadline),fields)
+            self.assertEqual(native.fixture_unit_sample(observe,unit,deadline),changed)
+            with self.assertRaises(observe.io.Hold):native.fixture_unit_sample(observe,unit,deadline)
+        self.assertEqual(reads.call_count,3)
+        self.assertTrue(all(call.args[0][0]=='/usr/bin/systemctl' and call.args[1]==deadline
+                            for call in reads.call_args_list))
+
+    @staticmethod
+    def owner_timing_fixture():
+        # Parser fixture only, never a native timing or admission receipt.
+        row = {'calls': 1, 'inclusive_ns': 10, 'exclusive_ns': 2}
+        return {'phases': {'admission': {'owner_admission': dict(row)},
+                          'apply': {'owner_apply': dict(row), 'guard_owner_transition': {**row, 'calls': 84}},
+                          'finish': {'owner_finish': dict(row)}, 'close': {'owner_close': dict(row)}},
+                'started': True, 'finish_completed': True, 'finish_owner_acks': 84,
+                'finish_cleanup_bound': True, 'stack_empty': True, 'elapsed_ns': 119_000_000_000,
+                'client_cleanup_ns': 1_000_000, 'limit_ns': 120_000_000_000}
+
+    def test_owner_timing_requires_full_window_84_and_cleanup_without_new_limit(self):
+        value = self.owner_timing_fixture()
+        self.assertEqual(m.safe_owner_timing(value, completed=True), value)
+        for change in ({'elapsed_ns': 120_000_000_001}, {'limit_ns': 121_000_000_000},
+                       {'finish_owner_acks': 83}, {'finish_completed': False},
+                       {'finish_cleanup_bound': False}, {'stack_empty': False}):
+            with self.subTest(change=change), self.assertRaises(m.CIError):
+                m.safe_owner_timing({**value, **change}, completed=True)
+        for phase in ('admission','apply','finish','close'):
+            bad = json.loads(json.dumps(value)); del bad['phases'][phase]
+            with self.subTest(phase=phase), self.assertRaises(m.CIError):m.safe_owner_timing(bad, completed=True)
+        bad = json.loads(json.dumps(value)); bad['phases']['apply']['guard_owner_transition']['calls'] = 83
+        with self.assertRaises(m.CIError):m.safe_owner_timing(bad, completed=True)
+
+    def test_owner_timing_failure_keeps_late_measurement_but_never_private_values(self):
+        value = {**self.owner_timing_fixture(), 'elapsed_ns': 121_000_000_000, 'finish_completed': False}
+        def failure(timing):
+            return m.failure_location(json.dumps({'native_failure': {'test_line': 1,
+                'test_type': 'AssertionError', 'production_fault': None, 'owner_timing': timing}}).encode())
+        self.assertEqual(failure(value)['owner_timing'], value)
+        for bad in ({**value, 'path': 'PRIVATE_CANARY'}, {**value, 'finish_owner_acks': True},
+                    {**value, 'begin_monotonic_ns': 1}, {**value, 'phases': {'PRIVATE_CANARY': {}}},
+                    {**value, 'phases': {'apply': {'command': {'calls': 1, 'inclusive_ns': 5, 'exclusive_ns': 6}}}}):
+            with self.subTest(bad=bad):self.assertIsNone(failure(bad))
+
+    def test_owner_resource_fields_are_bounded_diagnostics_never_a_new_deadline(self):
+        row={'status':'RECORDED','calls':1,'wall_ns':100,'user_cpu_ns':40,'system_cpu_ns':20,
+             'voluntary_switches':3,'involuntary_switches':2}
+        value=self.owner_timing_fixture()
+        value['resources']={phase:dict(row) for phase in value['phases']}
+        self.assertEqual(m.safe_owner_timing(value,completed=True),value)
+        for change in ({'status':'SECRET_CANARY'},{'calls':True},{'calls':17},
+                       {'wall_ns':-1},{'user_cpu_ns':2_880_000_000_001},
+                       {'system_cpu_ns':1.5},{'voluntary_switches':10_000_001},
+                       {'involuntary_switches':False},{'private_path':'SECRET_CANARY'}):
+            bad={**value,'resources':{**value['resources'],'apply':{**row,**change}}}
+            with self.subTest(change=change),self.assertRaises(m.CIError):m.safe_owner_timing(bad)
+        for resources in ({},{'SECRET_CANARY':row},{'apply':None}):
+            with self.assertRaises(m.CIError):m.safe_owner_timing({**value,'resources':resources})
+        unavailable={**value,'resources':{k:{'status':'UNAVAILABLE'} for k in value['phases']}}
+        self.assertEqual(m.safe_owner_timing(unavailable,completed=True),unavailable)
+        # Missing resource attribution cannot erase a wall-clock failure.
+        with self.assertRaisesRegex(m.CIError,'OWNER_FULL_CLEANUP_120S_NOT_PROVED'):
+            m.safe_owner_timing({**unavailable,'elapsed_ns':120_000_000_001},completed=True)
+        late={**value,'elapsed_ns':120_054_096_192,'finish_completed':False}
+        exported=m.failure_location(json.dumps({'native_failure':{'test_line':1,'test_type':'AssertionError',
+            'production_fault':None,'owner_timing':late}}).encode())
+        self.assertEqual(exported['owner_timing'],late)
+
+    def test_resource_samples_only_bracket_phase_and_preserve_real_error_and_anchor(self):
+        import ast
+        from types import SimpleNamespace as N
+        from tests import public_operator_native as native
+        nodes=[x for x in ast.parse(native.READ_COST_WRAPPER).body if isinstance(x,ast.FunctionDef) and
+            x.name in ('_resource_sample','_resource_end','_phase')]
+        ticks=[0];calls=[];samples=[];token=object();error=RuntimeError('SECRET_CANARY')
+        def usage(kind):
+            self.assertEqual(kind,0);samples.append(ticks[0])
+            return N(ru_utime=ticks[0]/1e9,ru_stime=ticks[0]*2/1e9,
+                ru_nvcsw=ticks[0]*3,ru_nivcsw=ticks[0]*4)
+        ns={'_cost_time':N(monotonic_ns=lambda:ticks[0]),'_cost_resource':N(RUSAGE_SELF=0,getrusage=usage),
+            '_owner_resources':{},'_owner_phase':None,'_owner_begin_ns':None,'_owner_finish_result':None}
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),'<exact-phase-resource-wrapper>','exec'),ns)
+        def actual(**kwargs):
+            calls.append(kwargs);ticks[0]+=7
+            if kwargs.get('fail'):raise error
+            return token
+        wrapped=ns['_phase']('admission',actual)
+        self.assertIs(wrapped(deadline=150.0),token)
+        with self.assertRaises(RuntimeError) as caught:wrapped(deadline=150.0,fail=True)
+        self.assertIs(caught.exception,error)
+        self.assertEqual(samples,[0,7,7,14]);self.assertEqual(len(calls),2)
+        self.assertEqual(ns['_owner_begin_ns'],29_999_999_999)
+        self.assertEqual(ns['_owner_resources']['admission'],{'status':'RECORDED','calls':2,
+            'wall_ns':14,'user_cpu_ns':14,'system_cpu_ns':28,'voluntary_switches':42,'involuntary_switches':56})
+        self.assertIsNone(ns['_owner_phase'])
+        ns['_cost_resource'].getrusage=lambda kind:(_ for _ in ()).throw(OSError('SECRET_CANARY'))
+        with self.assertRaises(RuntimeError) as caught:wrapped(deadline=150.0,fail=True)
+        self.assertIs(caught.exception,error)
+        self.assertEqual(ns['_owner_resources']['admission'],{'status':'UNAVAILABLE'})
+        self.assertIsNone(ns['_owner_phase'])
+
+    def test_native_timing_wrappers_delegate_once_and_account_nesting_on_exception(self):
+        from types import SimpleNamespace as N
+        from tests import public_operator_native as native
+        def unchanged(*args, **kwargs):return None
+        def methods(names):return type('Fixture', (), {n: unchanged for n in names})
+        observe = N(command=unchanged, process=unchanged, writer_check=unchanged,
+            Authority=methods(('check','check_files','units_check','actors_check','policy_owner','manager_jobs_clear')))
+        modules = {'observe': observe, 'host': N(process=unchanged), 'probes': N(process=unchanged),
+            'fs': N(Paths=methods(('check',))), 'io': N(LinkedRecords=methods(('record',)), measured_http=unchanged),
+            'owner': N(Supervisor=methods(('check_all','_backup_restore','__init__','apply','finish','close')),
+                       ObjectFence=methods(('check','writer_check','close'))),
+            'guard': N(owner_transition=unchanged, observe_fd=unchanged),
+            'replacement': N(ReadOnlyBus=methods(('show_units','properties','exec_properties'))), 'artifact': N()}
+        ns = {'s': N(load=lambda role: modules[role])}
+        exec(native.READ_COST_WRAPPER, ns)
+        ticks = [0]; calls = []; token = object(); error = RuntimeError('SYNTHETIC_ONLY')
+        def leaf(*args, **kwargs):
+            calls.append((args,kwargs)); ticks[0] += 7
+            if kwargs.get('fail'):raise error
+            return token
+        inner = ns['_cost']('guard_owner_transition', leaf)
+        def outer(*args, **kwargs):
+            ticks[0] += 2
+            return inner(*args, **kwargs)
+        wrapped = ns['_phase']('apply', ns['_cost']('owner_apply', outer))
+        with patch('time.monotonic_ns', side_effect=lambda: ticks[0]):
+            self.assertIs(wrapped('a', flag=1), token)
+            with self.assertRaises(RuntimeError) as caught:wrapped('b', fail=True)
+        self.assertIs(caught.exception, error)
+        self.assertEqual(calls, [(('a',), {'flag':1}), (('b',), {'fail':True})])
+        self.assertEqual(ns['_read_cost']['owner_apply'], {'calls':2,'inclusive_ns':18,'exclusive_ns':4})
+        self.assertEqual(ns['_read_cost']['guard_owner_transition'], {'calls':2,'inclusive_ns':14,'exclusive_ns':14})
+        self.assertEqual(ns['_owner_phases']['apply'], ns['_read_cost'])
+        self.assertEqual(ns['_cost_stack'], []); self.assertIsNone(ns['_owner_phase'])
+        # The anchor includes time BEFORE __init__, not a fresh120s budget.
+        with patch('time.monotonic_ns', return_value=50_000_000_000):
+            ns['_phase']('admission', unchanged)(deadline=150.0)
+        self.assertEqual(ns['_owner_begin_ns'], 29_999_999_999)
+        self.assertEqual(ns['_owner_finish_result'], None)
+
+    def test_native_job_component_never_grants_recent_start_permission(self):
+        from types import SimpleNamespace
+        from tests import public_operator_native as native
+        for fault in ('none','shortened_interval','false_permission'):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder); app=root/'app'; app.mkdir()
+                provider=root/'libsystemd-shared-fixture.so'; provider.write_bytes(b'SYNTHETIC')
+                events=[]; foreign=False
+                rows={u:dict(ActiveState='active',NRestarts='0',Job='',MainPID='42',InvocationID='same')
+                      for u in native.UNITS}
+                class Watch:
+                    def __init__(self,reader):
+                        self.reader=reader; reader.watch=self; self.closed=False; self.slots={'synthetic':1}
+                        self.events=0; self.failure=False
+                        self.limits={u:dict(StartLimitIntervalUSec=10_000_000 if fault=='shortened_interval'
+                                          else 900_000_000,StartLimitBurst=3) for u in native.UNITS}
+                    def remaining(self,unit):
+                        if self.failure:raise native.io.Hold('PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED')
+                        return 899.0
+                    def retire_for_start(self,unit):
+                        events.append('start_permission_checked')
+                        if fault!='false_permission':raise native.io.Hold('PUBLIC_OPERATOR_START_LIMIT_WINDOW_NOT_ELAPSED')
+                    def retire_already_active(self,unit):events.append('active_observer_retired')
+                    def drain(self):
+                        if foreign:
+                            self.failure=True;self.events+=1
+                            raise native.io.Hold('PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED')
+                class Reader:
+                    def __init__(self,*args):self.bus=True;self.watch=None
+                    def close(self):
+                        self.bus=None
+                        if self.watch:self.watch.closed=True;self.watch.slots.clear()
+                def run(*args,**kwargs):
+                    nonlocal foreign
+                    if args[1]=='show':return b'3\n'
+                    self.assertEqual(args[:3],('/usr/bin/systemctl','--job-mode=fail','start'))
+                    events.append('start_job_'+str(native.UNITS.index(args[3])))
+                    if args[3]==native.UNITS[1]:foreign=True
+                    return b''
+                modules={'replacement':SimpleNamespace(ReadOnlyBus=Reader,StartLimitObservation=Watch),
+                         'observe':SimpleNamespace(unit_rows=lambda *args:rows),'io':native.io}
+                with patch.object(native,'ROOT',root),patch.object(native,'APP',app), \
+                     patch.object(native,'assert_guest_isolation'),patch.object(native,'run',side_effect=run), \
+                     patch.object(native,'operator_dependency_names',return_value=[str(provider)]):
+                    if fault=='none':
+                        native.actual_start_limit_job_observation(SimpleNamespace(load=modules.__getitem__))
+                        self.assertEqual(events,['start_permission_checked','active_observer_retired',
+                                                 'start_job_0','start_job_1'])
+                    else:
+                        with self.assertRaises(AssertionError):
+                            native.actual_start_limit_job_observation(SimpleNamespace(load=modules.__getitem__))
+                        self.assertNotIn('active_observer_retired',events)
+                        self.assertFalse(any(e.startswith('start_job_') for e in events))
+
+    def test_fresh_guest_still_rejects_either_existing_fixture_root(self):
+        from tests import public_operator_native as native
+        for existing in ('neither', 'root', 'app_parent'):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder)/'fixture'; parent=Path(folder)/'apps'
+                if existing=='root':root.mkdir()
+                if existing=='app_parent':parent.mkdir()
+                with patch.object(native,'ROOT',root), patch.object(native,'Path',return_value=parent), \
+                     patch.object(native,'assert_guest_isolation') as isolation:
+                    if existing=='neither':native.assert_guest()
+                    else:
+                        with self.assertRaises(AssertionError):native.assert_guest()
+                    isolation.assert_called_once_with()
+
+    def test_startlimit_component_requires_initialized_fixture_and_isolation(self):
+        from unittest.mock import Mock
+        from tests import public_operator_native as native
+        class ReachedComponent(Exception):pass
+        for state in ('initialized','missing_root','missing_app','not_isolated'):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder)/'fixture'; app=Path(folder)/'app'
+                if state!='missing_root':root.mkdir()
+                if state!='missing_app':app.mkdir()
+                source=Mock(); source.load.side_effect=ReachedComponent
+                with patch.object(native,'ROOT',root), patch.object(native,'APP',app), \
+                     patch.object(native,'assert_guest_isolation',
+                         side_effect=AssertionError if state=='not_isolated' else None) as isolation:
+                    if state=='initialized':
+                        with self.assertRaises(ReachedComponent):native.actual_start_limit_job_observation(source)
+                        source.load.assert_called_once_with('replacement')
+                    else:
+                        with self.assertRaises(AssertionError):native.actual_start_limit_job_observation(source)
+                        source.load.assert_not_called()
+                    isolation.assert_called_once_with()
+
     def test_only_previously_seen_pool_retirement_can_finish_fixture_preparation(self):
         from types import SimpleNamespace
         from unittest.mock import Mock
@@ -371,6 +671,7 @@ def initial_application_ready():
         value = {'scenario': 'success', 'status': 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', 'server_exit': 0,
                  'proof': 'a'*64, 'source_files': hashes, 'owner_confirmations': 84, 'actual_root_objects': 88,
                  'actual_faults': [], 'fixture_only_no_host_acceptance': True}
+        value['owner_timing'] = self.owner_timing_fixture()
         self.assertEqual(m.validate_report(json.dumps(value).encode(), 'success', hashes)['scenario'], 'success')
         for changed in ({'owner_confirmations': 83}, {'source_files': {'owner': 'c'*64}},
                         {'fixture_only_no_host_acceptance': False}, {'server_exit': 1}, {'green': True}):
@@ -384,6 +685,7 @@ def initial_application_ready():
             value = {'scenario': case, 'status': 'HOLD', 'server_exit': 0, 'proof': 'a'*64,
                      'source_files': {}, 'owner_confirmations': 0, 'actual_root_objects': 4,
                      'actual_faults': [], 'fixture_only_no_host_acceptance': True}
+            value['owner_timing'] = self.owner_timing_fixture()
             with self.subTest(case=case), self.assertRaisesRegex(m.CIError, 'INTENDED_FAULT_NOT_WITNESSED'):
                 m.validate_report(json.dumps(value).encode(), case, {})
 
@@ -460,6 +762,10 @@ def initial_application_ready():
         result = m.failure_location(json.dumps(value).encode())
         self.assertEqual(result['outcome']['primary'], outcome['primary'])
         self.assertEqual(result['outcome']['owner_confirmations'], 7)
+        self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
+        value['native_failure']['outcome'] = {**outcome, 'server_terminal_code': m.SERVER_IMPORT_CODE}
+        result = m.failure_location(json.dumps(value).encode())
+        self.assertEqual(result['outcome']['server_terminal_code'], m.SERVER_IMPORT_CODE)
         self.assertNotIn('PRIVATE_CANARY', json.dumps(result))
         for key, changed in (('owner_confirmations', True), ('actual_root_objects', 89), ('server_exit', 'PRIVATE_CANARY')):
             with self.subTest(key=key):

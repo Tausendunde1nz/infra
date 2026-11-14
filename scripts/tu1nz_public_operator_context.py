@@ -64,6 +64,139 @@ PROGRAMS = {
     'U3': {'/usr/bin/bash':1}, 'U4': {'/usr/bin/ssh-agent':1}, 'U5': {'/usr/bin/tmux':1},
     'U6': {'/usr/bin/bash':1}, 'U7': {'/usr/bin/dbus-daemon':1}}
 
+# R4 is a DISTINCT contract. It never runs validate_material()/PROGRAMS or
+# asks for the historical code/loader/memory/edge inventory under a new name.
+# Actual negative rights and inherited-channel tests remain separate gates.
+CURRENT_BASELINE = 'TU1NZ_PUBLIC_HOST_BASELINE_CURRENT_REV4_V1'
+CURRENT_AUTHORITY = 'TU1NZ_CURRENT_RELEVANT_AUTHORITY_REV4_V1'
+CURRENT_RISK = 'KNOWN_CURRENT_ADMINISTRATION_TCB_NOT_HISTORICAL_OR_GAP_INTEGRITY'
+CURRENT_ROLES = ('kernel_manager', 'authenticated_maintenance', 'administrative_service',
+                 'coexisting_administration', 'nginx_reader')
+CURRENT_SECURITY = frozenset(('exe', 'uid', 'gid', 'groups', 'caps', 'nnp', 'cgroup', 'namespaces'))
+
+
+def current_profile(profile):
+    """Finite individually mapped PRESENT subjects, no publisher attestation.
+
+    Exact cgroup, namespaces, executable and security vector identify each
+    reviewed context; UID0/1001 or a Docker prefix alone cannot match. Actual
+    PID/start lifetimes still bracket each live census, but legitimate process
+    turnover inside a known context is not a historical-attestation failure.
+    Matching is not a negative Writer/delegation proof. Original stop targets,
+    new invocations and interrupted helpers retain their separate exact IDs.
+    """
+    io.require(type(profile) is dict and set(profile) == CURRENT_SECURITY | {'id', 'role', 'purpose', 'max_instances'} and
+               profile['role'] in CURRENT_ROLES and type(profile['id']) is str and
+               re.fullmatch('[a-z][a-z0-9_-]{0,63}', profile['id']) and
+               type(profile['purpose']) is str and 1 <= len(profile['purpose']) <= 256 and profile['purpose'].strip() and
+               all(c.isprintable() for c in profile['purpose']), 'CURRENT_AUTHORITY_PROFILE_SCHEMA')
+    path_name(profile['exe'])
+    for key in ('uid', 'gid'):
+        io.require(type(profile[key]) is list and len(profile[key]) == 4, 'CURRENT_AUTHORITY_ID_VECTOR')
+        for value in profile[key]:number(value)
+    groups = profile['groups']
+    io.require(type(groups) is list and len(groups) <= 65536 and groups == sorted(set(groups)),
+               'CURRENT_AUTHORITY_GROUPS')
+    for value in groups:number(value)
+    io.require(type(profile['caps']) is dict and set(profile['caps']) == set(CAPS), 'CURRENT_AUTHORITY_CAPSETS')
+    for value in profile['caps'].values():number(value, maximum=2**64-1)
+    number(profile['nnp'], maximum=1); io.cgroup_records(profile['cgroup'])
+    io.require(type(profile['namespaces']) is dict and set(profile['namespaces']) == set(NS) and
+               all(type(v) is str and re.fullmatch(k+r':\[[0-9]+\]', v)
+                   for k, v in profile['namespaces'].items()), 'CURRENT_AUTHORITY_NAMESPACES')
+    number(profile['max_instances'], minimum=1, maximum=256)
+    if profile['role'] == 'authenticated_maintenance':
+        io.require(profile['max_instances'] <= 32 and profile['exe'] in
+                   ('/usr/sbin/sshd', '/usr/bin/sudo', '/usr/sbin/tailscaled', '/usr/bin/bash', '/usr/bin/dash'),
+                   'CURRENT_AUTHENTICATED_ANCESTRY_PROFILE')
+    if profile['role'] == 'kernel_manager':
+        io.require(profile['max_instances'] == 1 and profile['uid'] == [0]*4 and
+                   profile['exe'] == '/usr/lib/systemd/systemd', 'CURRENT_AUTHORITY_PID1_REQUIRED')
+    elif profile['role'] == 'administrative_service':
+        io.require(io.system_slice_cgroup(profile['cgroup']), 'CURRENT_ADMIN_SERVICE_CONTEXT')
+    elif profile['role'] == 'nginx_reader':
+        io.require(profile['exe'] == '/usr/sbin/nginx' and profile['uid'] == profile['gid'] == [33]*4 and
+                   profile['groups'] == [33] and not any(v for k, v in profile['caps'].items() if k != 'CapBnd'),
+                   'CURRENT_NGINX_READER_SECURITY')
+    return profile
+
+
+def current_profiles(profiles):
+    io.require(type(profiles) is list and 0 < len(profiles) <= 128, 'CURRENT_AUTHORITY_PROFILE_BOUND')
+    ids = set(); signatures = set(); maximum = 0; managers = 0
+    for profile in profiles:
+        current_profile(profile)
+        io.require(profile['id'] not in ids, 'CURRENT_AUTHORITY_PROFILE_DUPLICATE'); ids.add(profile['id'])
+        signature = io.sha(io.canonical({k: profile[k] for k in CURRENT_SECURITY}))
+        io.require(signature not in signatures, 'CURRENT_AUTHORITY_CONTEXT_COLLISION'); signatures.add(signature)
+        maximum += profile['max_instances']
+        managers += profile['role'] == 'kernel_manager'
+    io.require(managers == 1 and maximum <= 4096, 'CURRENT_AUTHORITY_MANAGER_OR_TOTAL_BOUND')
+    return profiles
+
+
+def current_profile_matches(row, profile, *, authenticated_ancestors=()):
+    current_profile(profile)
+    io.require(type(row) is dict and type(row.get('pid')) is int and type(row.get('starttime')) is str,
+               'CURRENT_ACTUAL_SUBJECT_REQUIRED')
+    identity = (row['pid'], row['starttime'])
+    if profile['role'] == 'authenticated_maintenance':
+        if identity not in authenticated_ancestors:return False
+    elif profile['role'] == 'kernel_manager' and row['pid'] != 1:return False
+    return all(row.get(k) == profile[k] for k in CURRENT_SECURITY)
+
+
+def current_task_check(row):
+    """Every observed task stays within its measured leader's authority.
+
+    An observed excess never disappears when a worker later exits. These are
+    current credentials/namespaces, not historical task or memory provenance.
+    For negative subjects, the separate strict shared-file-table proof is
+    still necessary before inspecting inherited leader descriptors.
+    """
+    observations = row.get('task_observations')
+    io.require(type(observations) is list and 0 < len(observations) <= 16384,
+               'CURRENT_TASK_OBSERVATIONS_REQUIRED')
+    exact = ('uid', 'gid', 'cgroup', 'namespaces', 'uid_map', 'gid_map', 'setgroups', 'lsm_sha256')
+    for item in observations:
+        io.require(type(item) is dict and set(item) == {'tid', 'starttime', 'security'} and
+                   type(item['tid']) is int and item['tid'] > 0 and type(item['starttime']) is str and
+                   item['starttime'].isdecimal(), 'CURRENT_TASK_OBSERVATION_SCHEMA')
+        actual = item['security']
+        io.require(type(actual) is dict and set(actual) == set(exact) | {'groups', 'caps', 'nnp'},
+                   'CURRENT_TASK_SECURITY_SCHEMA')
+        # Validate numeric types even when called on a synthetic/input row.
+        directly_relevant(actual, authority_uids=frozenset(), authority_gids=frozenset())
+        number(actual['nnp'], maximum=1)
+        io.require(all(actual[k] == row[k] for k in exact) and
+                   set(actual['groups']) <= set(row['groups']) and actual['nnp'] >= row['nnp'] and
+                   all(actual['caps'][k] & ~row['caps'][k] == 0 for k in CAPS),
+                   'CURRENT_TASK_ADDITIONAL_OR_UNKNOWN_AUTHORITY')
+    return len(observations)
+
+
+def directly_relevant(row, *, authority_uids, authority_gids):
+    """Conservative DIRECT rights selector only, never an irrelevant verdict.
+
+    Bounding capabilities alone grant no current privilege. Inherited FDs,
+    same-UID authority, namespaces, policy and broker paths must ALSO be
+    checked before a nonmatching subject can be considered unrelated.
+    All task credentials, not only one leader sample, feed this selector.
+    """
+    for key in ('uid', 'gid'):
+        io.require(type(row.get(key)) is list and len(row[key]) == 4, 'CURRENT_RELEVANCE_IDENTITY')
+        for value in row[key]:number(value)
+    io.require(type(row.get('groups')) is list and type(row.get('caps')) is dict and
+               set(row['caps']) == set(CAPS), 'CURRENT_RELEVANCE_SECURITY')
+    for value in row['groups']:number(value)
+    for value in row['caps'].values():number(value, maximum=2**64-1)
+    for ids in (authority_uids, authority_gids):
+        io.require(type(ids) is frozenset and len(ids) <= 65536, 'CURRENT_RELEVANCE_AUTHORITY_SET')
+        for value in ids:number(value)
+    return bool(set(row['uid']) & authority_uids or
+                (set(row['gid']) | set(row['groups'])) & authority_gids or
+                any(value for key, value in row['caps'].items() if key != 'CapBnd'))
+
 
 def number(value, *, maximum=2**32-1, minimum=0):
     io.require(type(value) is int and minimum <= value <= maximum, 'CONTEXT_INTEGER_SCHEMA')

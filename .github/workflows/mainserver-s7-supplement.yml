@@ -1,0 +1,21 @@
+name: Mainserver S7 supplement
+on:
+  pull_request:
+    paths:
+      - scripts/tu1nz_mainserver_s7_supplement.py
+      - scripts/tu1nz_mainserver_s7_file_restore.py
+      - tests/test_mainserver_s7_supplement.py
+      - .github/workflows/mainserver-s7-supplement.yml
+permissions:
+  contents: read
+jobs:
+  s7-supplement-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Synthetic boundaries, no Host, backup contents or credentials
+        run: sudo env PYTHONPATH="$PWD" python3 -B -m unittest -v tests.test_mainserver_s7_supplement

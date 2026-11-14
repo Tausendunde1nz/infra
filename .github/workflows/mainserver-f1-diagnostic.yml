@@ -1,0 +1,48 @@
+name: Mainserver F1 calibration diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mainserver-f1-diagnostic.yml
+      - scripts/tu1nz_public_maintenance_f1_ci.py
+      - tests/test_public_maintenance_f1_ci.py
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-f1-calibration:
+    if: >-
+      github.event.pull_request.number == 241 &&
+      github.event.pull_request.head.repo.full_name == 'Tausendunde1nz/infra' &&
+      github.ref == 'refs/pull/241/merge' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    # One existing guest: 925s fixture ageing + at most two 600s entries,
+    # image/input preparation and cleanup. Entry/Owner clocks stay unchanged.
+    timeout-minutes: 60
+    environment: control-private-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Public diagnostic boundary tests without private inputs
+        run: >-
+          python3 -B -m unittest -v
+          tests.test_public_maintenance_f1_ci tests.test_public_maintenance_ci tests.test_control_private_ci
+          tests.test_public_maintenance.RecoveryTransientAbsenceTests
+          tests.test_public_maintenance.RecoveryProbeAdmissionTests
+      - name: Build the unchanged native image fresh
+        run: docker build --file tests/public-operator-native.Dockerfile --tag "tu1nz-public-operator-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" .
+      - name: One unchanged F1 calibration guest with filtered failure and cleanup
+        env:
+          CONTROL_POLICY_READ_TOKEN: ${{ secrets.CONTROL_POLICY_READ_TOKEN }}
+          CONTROL_PRIVATE_ENVIRONMENT: control-private-ci
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 -I -B scripts/tu1nz_public_maintenance_f1_ci.py
+          --image "tu1nz-public-operator-private:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      # No upload, cache, deployment, calibration job output or later step.
+      # This counterprobe does not replace Control validation or verification.

@@ -13,14 +13,17 @@ import getpass
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
 import select
 import shlex
+import stat
 import subprocess
 import sys
 import time
+import warnings
 import zlib
 
 
@@ -35,6 +38,8 @@ def load_io():
 io = load_io()
 INFRA_FILES = {n: 'scripts/tu1nz_public_operator_'+n+'.py' for n in ('io', 'fs', 'runtime_guard', 'observe', 'probes', 'host', 'context')}
 INFRA_FILES['client'] = 'scripts/tu1nz_public_operator.py'
+INFRA_FILES['admission'] = 'scripts/tu1nz_public_operator_admission.py'
+INFRA_FILES['restore'] = 'scripts/tu1nz_mainserver_restore.py'
 INFRA_FILES.update(artifact='scripts/tu1nz_public_runtime_artifact.py',
                    replacement='scripts/tu1nz_public_runtime_transition.py',
                    runtime_inputs='manifests/public-web-runtime-r5-inputs.json',
@@ -172,7 +177,8 @@ def reference_origins(paths, baseline, scope=None):
 
 
 def validate_scope(scope, baseline, baseline_raw, plan_raw, release_raw):
-    io.replacement_scope(scope,baseline)
+    if scope.get('schema') == io.MAINTENANCE_SCOPE:io.maintenance_scope(scope,baseline)
+    else:io.replacement_scope(scope,baseline)
     io.require(scope['release_sha256'] == io.sha(release_raw) and
                scope['baseline_sha256'] == io.sha(baseline_raw) and
                scope['administrative_roles_sha256'] == io.sha(io.canonical(baseline['actors'])) and
@@ -221,10 +227,24 @@ class Client:
             finally:
                 os.close(fd)
         self.journal.check()
+        self.check_extra()
+
+    def check_extra(self):
+        pass
+
+    def project_record(self, row):
+        if row['kind'] == 'flow_claim':
+            self.admission_current(); self.journal.claim()
+        elif row['kind'].startswith('flow_'):
+            self.journal.write(row['kind'][5:], row['value'])
+
+    def extension_message(self, message):
+        return False
 
     def serve(self):
         while True:
             message = self.wire.receive(); kind = message.get('type')
+            if self.extension_message(message):continue
             if kind == 'prepared':
                 io.require(set(message) == {'type', 'binding'} and message['binding'] == self.binding and
                            self.journal is None, 'PREPARED_BINDING_OR_REPLAY')
@@ -238,10 +258,7 @@ class Client:
                            'HASH_LINK_OR_SEQUENCE_RED')
                 name = str(row['sequence']).zfill(3)+'-'+row['kind']+'.json'
                 io.exclusive(self.fd, name, raw); self.records[name] = raw
-                if row['kind'] == 'flow_claim':
-                    self.admission_current(); self.journal.claim()
-                elif row['kind'].startswith('flow_'):
-                    self.journal.write(row['kind'][5:], row['value'])
+                self.project_record(row)
                 self.last = message['sha256']; self.sequence = row['sequence']; self.check()
                 ack = {'type': 'persisted', 'sequence': self.sequence, 'sha256': self.last}
                 if row['kind'] == 'owner_object_intent' and row['value']['relative'] == self.owner_hold_before:
@@ -301,21 +318,654 @@ class Client:
         if self.journal is not None: self.journal.close(); self.journal = None
 
 
+class MaintenanceClient(Client):
+    """Fixed original-TX owner marker before its ACK, with continuous readback.
+
+    Selected only by the new reviewed R4 session, never by a legacy scope.
+    Recovery's client must override owner_marker_parent() to its independently
+    held original TX root; this class never accepts a marker path from JSON.
+    """
+    def __init__(self, wire, r3, binding, *, boot_id, admission_source=None, **kwargs):
+        super().__init__(wire, r3, binding, **kwargs)
+        self.original_binding = binding; self.boot_id = boot_id; self.route = 'original'
+        self.ready_sha256 = None; self.owner_marker = None; self.owner_marker_identity = None
+        self.admission_source = admission_source
+        self.entry_prepared = False; self.prepared_confirmed = False
+
+    def admission_current(self):
+        """Recheck the actual Rev4 bytes/lifetime before local custody effects.
+
+        The legacy prospective validator does not admit a Rev4 packet. Use
+        the same finite packet/material checks as the Host, with the CURRENT
+        remaining absolute deadline. This is not a substitute for the Host's
+        current coverage, Writer, native-timing or other pre-stop gates.
+        """
+        deadline = self.wire.deadline
+        io.require(type(deadline) in (int, float) and math.isfinite(deadline),
+                   'MAINTENANCE_CLIENT_DEADLINE_SCHEMA')
+        remaining = deadline-time.monotonic()
+        io.require(0 < remaining <= 600, 'MAINTENANCE_CLIENT_DEADLINE_EXPIRED_OR_EXTENDED')
+        packet = self.admission_packet
+        io.require(type(packet) is dict and self.admission_source is not None and
+                   packet.get('route') == self.route and packet.get('binding') == self.original_binding and
+                   type(packet.get('baseline')) is dict and packet['baseline'].get('boot_id') == self.boot_id,
+                   'MAINTENANCE_CLIENT_CURRENT_PACKET_REQUIRED')
+        return io.maintenance_packet_binding(packet, self.admission_source,
+                                              remaining_seconds=math.ceil(remaining))
+
+    def extension_message(self, message):
+        if message.get('type') == 'prepared' and self.entry_prepared:
+            io.require(not self.prepared_confirmed and message == {'type':'prepared', 'binding':self.binding},
+                       'MAINTENANCE_PREPARED_BINDING_OR_REPLAY')
+            self.admission_current(); self.check()
+            self.prepared_confirmed = True
+            self.wire.send({'type':'client_custody_created', 'binding':self.binding})
+            return True
+        if message.get('type') == 'held':
+            io.require(message.get('return_available') is False, 'MAINTENANCE_CLIENT_OLD_RETURN_FORBIDDEN')
+        return False
+
+    def owner_marker_parent(self):
+        self.journal.check()
+        return self.journal.fd
+
+    @staticmethod
+    def marker_identity(row):
+        return tuple(getattr(row, k) for k in ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode',
+                                             'st_nlink', 'st_size', 'st_mtime_ns', 'st_ctime_ns'))
+
+    def project_record(self, row):
+        kind, value = row['kind'], row['value']
+        if kind == 'maintenance_ready':
+            io.require(self.route == 'original' and self.ready_sha256 is None and
+                       type(value) is dict and type(value.get('ready')) is dict,
+                       'CLIENT_READY_SEQUENCE')
+            ready = value['ready']
+            io.require(ready.get('schema') == 'TU1NZ_MAIN_SERVER_REV4_20261104' and
+                       ready.get('transaction') == self.r.TX and ready.get('machine') == self.r.MACHINE and
+                       ready.get('boot_id') == self.boot_id and ready.get('owner_plan_sha256') == self.r.OWNER_PLAN and
+                       type(ready.get('inputs')) is dict and ready['inputs'].get('scope_sha256') == self.original_binding and
+                       value.get('sha256') == io.sha(io.canonical(ready)), 'CLIENT_READY_BINDING')
+            self.ready_sha256 = value['sha256']
+        elif kind == 'owner_admission_intent':
+            io.require(self.ready_sha256 is not None and self.owner_marker is None,
+                       'CLIENT_OWNER_ENTRY_NOT_READY_OR_REPLAY')
+            expected = io.owner_entry_marker(original_binding=self.original_binding, execution_binding=self.binding,
+                ready_sha256=self.ready_sha256, boot_id=self.boot_id, route=self.route)
+            prior = [io.parse(raw) for raw in self.records.values()]
+            claim = 'flow_claim' if self.route == 'original' else 'recovery_flow_claim'
+            io.require(value == expected and sum(v['kind'] == claim for v in prior) == 1 and
+                       not any(v['kind'].startswith('owner_') and v['sequence'] != row['sequence'] for v in prior),
+                       'CLIENT_OWNER_ENTRY_BINDING_OR_PRIOR_ADMISSION')
+            parent = self.owner_marker_parent(); raw = io.canonical(expected)
+            io.exclusive(parent, 'owner-admission-intent', raw)
+            actual = os.stat('owner-admission-intent', dir_fd=parent, follow_symlinks=False)
+            io.require(stat.S_ISREG(actual.st_mode) and actual.st_nlink == 1 and
+                       actual.st_uid == os.geteuid() and stat.S_IMODE(actual.st_mode) == 0o600,
+                       'CLIENT_OWNER_MARKER_PROFILE')
+            self.owner_marker_identity = self.marker_identity(actual); self.owner_marker = raw
+            self.check_extra()
+        elif kind == 'owner_admission_markers_confirmed':
+            io.require(self.owner_marker is not None and type(value) is dict and
+                       value.get('sha256') == io.sha(self.owner_marker), 'CLIENT_OWNER_HOST_MARKER_UNCONFIRMED')
+            self.check_extra()
+        super().project_record(row)
+
+    def check_extra(self):
+        if self.owner_marker is None:return
+        parent = self.owner_marker_parent()
+        fd = os.open('owner-admission-intent', os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+        try:
+            before = self.marker_identity(os.fstat(fd))
+            raw = os.pread(fd, len(self.owner_marker)+1, 0)
+            after = self.marker_identity(os.fstat(fd))
+            named = self.marker_identity(os.stat('owner-admission-intent', dir_fd=parent, follow_symlinks=False))
+            io.require(before == after == named == self.owner_marker_identity and raw == self.owner_marker,
+                       'CLIENT_OWNER_MARKER_CHANGED')
+        finally:os.close(fd)
+
+
+class RecoveryCustody:
+    """One additive fixed Mac entry; original files are always read-only.
+
+    Construct after local material validation, BEFORE the new SSH attempt.
+    Any partial creation/transport/admission failure leaves this directory
+    occupied. close() closes only owned FDs; it never deletes or resets it.
+    The original root FD is retained separately for K6's first owner marker.
+    """
+    def __init__(self, r3, original_binding, *, boot_id, source_sha256, deadline):
+        self.r, self.original_binding, self.deadline = r3, original_binding, deadline
+        self.parent_fd = self.original_fd = self.original_records_fd = self.fd = None
+        self.binding = None; self.seq = 0; self.claimed = False; self.files = {}
+        self.parent_path = r3.CUSTODY_PARENT
+        io.require(self.parent_path == Path('/Users/daniel/Developer/tu1nz/service-isolation-lighting-night-20261013/host-operator-intents') and
+                   self.parent_path.resolve(strict=True) == self.parent_path and
+                   r3.TX == 'public-rights-20261014-1', 'RECOVERY_FIXED_MAC_CUSTODY')
+        try:
+            self.parent_fd = os.open(self.parent_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            self.parent_identity = self.directory_identity(self.parent_fd)
+            self.original_fd = os.open(r3.TX, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                       dir_fd=self.parent_fd)
+            self.original_identity = self.directory_identity(self.original_fd)
+            self.original_files = self.read_original_root()
+            self.original_records_fd = os.open('operator-records', os.O_RDONLY | os.O_DIRECTORY |
+                                               os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=self.original_fd)
+            self.original_records_identity = self.directory_identity(self.original_records_fd)
+            self.snapshot = io.read_original_chain(self.original_records_fd, original_binding,
+                owner=os.geteuid(), deadline=deadline, client_supplements=True)
+            ready = [v['record']['value'] for v in self.snapshot['records']
+                     if v['record']['kind'] == 'maintenance_ready']
+            io.require(len(ready) == 1 and type(ready[0]) is dict, 'RECOVERY_MAC_READY_MISSING')
+            self.ready_sha256 = ready[0]['sha256']
+            io.original_chain_pair(self.snapshot, self.snapshot, binding=original_binding,
+                                   ready_sha256=self.ready_sha256)
+            actual_ready = self.ready = ready[0]['ready']
+            io.require(actual_ready['boot_id'] == boot_id and
+                       actual_ready['inputs']['scope_sha256'] == original_binding and
+                       actual_ready['inputs']['source_sha256'] == source_sha256,
+                       'RECOVERY_MAC_READY_SOURCE_OR_BOOT_CHANGED')
+            self.manifest = io.original_chain_manifest(self.snapshot)
+            self.entry = io.recovery_entry(original_binding, boot_id, source_sha256,
+                                          self.manifest['snapshot_sha256'], self.ready_sha256)
+            self.entry_raw = io.canonical(self.entry)
+            self.check_original()
+            # EEXIST and a partially written entry are both terminal. This
+            # call is never wrapped in a retry or alternate-name fallback.
+            os.mkdir('recovery-once', 0o700, dir_fd=self.original_fd)
+            os.fsync(self.original_fd)
+            self.fd = os.open('recovery-once', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                              dir_fd=self.original_fd)
+            self.identity = self.directory_identity(self.fd)
+            io.exclusive(self.fd, 'entry.json', self.entry_raw)
+            self.files['entry.json'] = self.read_file(self.fd, 'entry.json')
+            self.check()
+        except BaseException:
+            self.close()
+            raise
+
+    @staticmethod
+    def directory_identity(fd):
+        row = os.fstat(fd)
+        io.require(stat.S_ISDIR(row.st_mode) and row.st_uid == os.geteuid() and
+                   stat.S_IMODE(row.st_mode) == 0o700, 'RECOVERY_MAC_DIRECTORY_PROFILE')
+        return (row.st_dev, row.st_ino, row.st_uid, row.st_gid, row.st_mode)
+
+    @staticmethod
+    def read_file(parent, name):
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+        try:
+            first = os.fstat(fd)
+            io.require(stat.S_ISREG(first.st_mode) and first.st_uid == os.geteuid() and first.st_nlink == 1 and
+                       stat.S_IMODE(first.st_mode) == 0o600 and 0 < first.st_size <= 65536,
+                       'RECOVERY_MAC_RECORD_PROFILE')
+            raw = os.pread(fd, first.st_size+1, 0)
+            identity = MaintenanceClient.marker_identity(first)
+            io.require(len(raw) == first.st_size and identity == MaintenanceClient.marker_identity(os.fstat(fd)) ==
+                       MaintenanceClient.marker_identity(os.stat(name, dir_fd=parent, follow_symlinks=False)),
+                       'RECOVERY_MAC_RECORD_CHANGED')
+            return {'identity': identity, 'sha256': io.sha(raw), 'raw': raw}
+        finally:os.close(fd)
+
+    def read_original_root(self):
+        names = set(os.listdir(self.original_fd))
+        if self.fd is not None:names.discard('recovery-once')
+        # K6 creates this one additive marker later; its full bytes/identity
+        # are then checked by MaintenanceClient before any ACK/effect.
+        if getattr(self, 'owner_marker_allowed', False):names.discard('owner-admission-intent')
+        io.require('operator-records' in names and 'flow-claimed' in names and len(names) <= 130 and
+                   all(n in ('operator-records', 'flow-claimed') or
+                       re.fullmatch('[0-9]{3}-[a-z_]+[.]json', n) for n in names),
+                   'RECOVERY_ORIGINAL_ROOT_NAMES_OR_PRIOR_ENTRY')
+        rows = {n:self.read_file(self.original_fd, n) for n in sorted(names) if n != 'operator-records'}
+        io.require(rows['flow-claimed']['raw'] == self.original_binding.encode(), 'RECOVERY_ORIGINAL_MAC_CLAIM')
+        return rows
+
+    def check_original(self):
+        io.require(time.monotonic() < self.deadline, 'RECOVERY_MAC_CUSTODY_DEADLINE')
+        for parent, name, fd, expected in (
+                (None, self.parent_path, self.parent_fd, self.parent_identity),
+                (self.parent_fd, self.r.TX, self.original_fd, self.original_identity),
+                (self.original_fd, 'operator-records', self.original_records_fd, self.original_records_identity)):
+            named = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            actual = (named.st_dev, named.st_ino, named.st_uid, named.st_gid, named.st_mode)
+            io.require(actual == expected == self.directory_identity(fd), 'RECOVERY_MAC_ORIGINAL_DIRECTORY_REPLACED')
+        io.require(self.read_original_root() == self.original_files and
+                   io.read_original_chain(self.original_records_fd, self.original_binding, owner=os.geteuid(),
+                       deadline=self.deadline, client_supplements=True) == self.snapshot,
+                   'RECOVERY_MAC_ORIGINAL_HISTORY_CHANGED')
+
+    def check(self):
+        self.check_original()
+        named = os.stat('recovery-once', dir_fd=self.original_fd, follow_symlinks=False)
+        io.require((named.st_dev, named.st_ino, named.st_uid, named.st_gid, named.st_mode) ==
+                   self.identity == self.directory_identity(self.fd), 'RECOVERY_MAC_ENTRY_DIRECTORY_REPLACED')
+        expected = set(self.files) | ({'operator-records'} if self.binding is not None else set())
+        io.require(set(os.listdir(self.fd)) == expected and all(self.read_file(self.fd,n) == v for n,v in self.files.items()),
+                   'RECOVERY_MAC_ENTRY_OR_FLOW_CHANGED')
+
+    def bind(self, seed):
+        self.check(); io.require(self.binding is None, 'RECOVERY_MAC_BINDING_NO_REPLAY')
+        binding = io.recovery_binding(seed)
+        io.require(all(seed[k] == self.entry[k] for k in
+                       ('original_binding', 'ready_sha256', 'source_sha256', 'boot_id')) and
+                   seed['mac_tail_sha256'] == self.snapshot['tail'] and
+                   seed['artifact_sha256'] == self.ready['artifact_sha256'], 'RECOVERY_MAC_FRESH_BINDING_DRIFT')
+        expected_host_tail = self.snapshot['tail']
+        if seed['unconfirmed_mac_tail'] is not None:
+            io.require(len(self.snapshot['records']) >= 2, 'RECOVERY_MAC_NO_CONFIRMED_PREFIX')
+            expected_host_tail = self.snapshot['records'][-2]['sha256']
+        io.require(seed['host_tail_sha256'] == expected_host_tail, 'RECOVERY_MAC_HOST_TAIL_NOT_PREFIX')
+        os.mkdir('operator-records', 0o700, dir_fd=self.fd); os.fsync(self.fd)
+        self.binding = binding
+        self.check()
+
+    def claim(self):
+        self.check(); io.require(self.binding is not None and not self.claimed, 'RECOVERY_MAC_FLOW_NO_REPLAY')
+        self.claimed = True
+        io.exclusive(self.fd, 'flow-claimed', self.binding.encode())
+        self.files['flow-claimed'] = self.read_file(self.fd, 'flow-claimed'); self.check()
+
+    def write(self, kind, value):
+        self.check()
+        io.require(self.claimed and self.seq < 128 and kind in ('claim', 'observation', 'intent', 'ack', 'hold', 'complete'),
+                   'RECOVERY_MAC_FLOW_BOUND')
+        self.seq += 1
+        name = str(self.seq).zfill(3)+'-'+kind+'.json'
+        raw = io.canonical({'sequence': self.seq, 'kind': kind, 'binding': self.binding, 'value': value})
+        io.require(len(raw) <= 65536, 'RECOVERY_MAC_FLOW_RECORD_BOUND')
+        io.exclusive(self.fd, name, raw); self.files[name] = self.read_file(self.fd, name); self.check()
+
+    def close(self):
+        errors = []
+        for name in ('original_records_fd', 'original_fd', 'parent_fd', 'fd'):
+            fd = getattr(self, name, None)
+            if fd is not None:
+                try:os.close(fd)
+                except OSError:errors.append(name)
+                setattr(self, name, None)
+        io.require(not errors, 'RECOVERY_MAC_DESCRIPTOR_CLOSE_UNKNOWN')
+
+
+class RecoveryClient(MaintenanceClient):
+    def __init__(self, wire, r3, custody, *, http_expectations, owner_hold_before=None,
+                 admission_packet=None, admission_source=None):
+        io.require(isinstance(custody, RecoveryCustody) and custody.binding is None and custody.fd is not None,
+                   'RECOVERY_CLIENT_EXISTING_ENTRY_REQUIRED')
+        super().__init__(wire, r3, custody.original_binding, boot_id=custody.entry['boot_id'],
+                         http_expectations=http_expectations, owner_hold_before=owner_hold_before,
+                         admission_packet=admission_packet, admission_source=admission_source)
+        self.custody = custody; self.route = 'recovery-once'; self.ready_sha256 = custody.ready_sha256
+        self.recovery_seed = None; self.admission_open = True
+        self.host_entry_confirmation_attempted = False; self.host_entry_confirmed = False
+
+    def initialize(self):
+        raise io.Hold('PUBLIC_OPERATOR_RECOVERY_ORIGINAL_INITIALIZER_FORBIDDEN')
+
+    def owner_marker_parent(self):
+        self.custody.check()
+        self.custody.owner_marker_allowed = True
+        return self.custody.original_fd
+
+    def project_record(self, row):
+        kind, value = row['kind'], row['value']
+        io.require(self.host_entry_confirmed, 'RECOVERY_CLIENT_HOST_ENTRY_NOT_CONFIRMED')
+        io.require(kind not in ('flow_claim', 'flow_complete', 'maintenance_ready', 'prestate_read_witness') and
+                   not kind.startswith('flow_'), 'RECOVERY_CLIENT_ORIGINAL_RECORD_FORBIDDEN')
+        if row['sequence'] == 1:
+            io.require(kind == 'recovery_context' and value == self.recovery_seed, 'RECOVERY_CLIENT_FIRST_CONTEXT')
+        else:io.require(kind != 'recovery_context', 'RECOVERY_CLIENT_CONTEXT_NO_REPLAY')
+        if row['sequence'] == 2:
+            io.require(kind == 'recovery_state_observation' and
+                       io.sha(io.canonical(value)) == self.recovery_seed['fresh_state_sha256'],
+                       'RECOVERY_CLIENT_FRESH_STATE_REQUIRED')
+            self.admission_open = False
+        elif row['sequence'] > 2:
+            io.require(not self.admission_open, 'RECOVERY_CLIENT_EFFECT_BEFORE_CURRENT_STATE')
+        if kind == 'recovery_flow_claim':
+            self.admission_current(); self.custody.claim()
+        if kind.startswith('recovery_flow_'):self.custody.write(kind[len('recovery_flow_'):], value)
+        super().project_record(row)
+
+    def extension_message(self, message):
+        kind = message.get('type')
+        io.require(kind not in ('prepared', 'runtime_chunk_request'), 'RECOVERY_CLIENT_ORIGINAL_PROTOCOL_FORBIDDEN')
+        if kind == 'recovery_entry_created':
+            io.require(not self.host_entry_confirmation_attempted and self.admission_open and
+                       message == {'type':kind, 'original_binding':self.original_binding,
+                                   'entry_sha256':io.sha(self.custody.entry_raw)},
+                       'RECOVERY_CLIENT_HOST_ENTRY_BINDING_OR_REPLAY')
+            self.host_entry_confirmation_attempted = True
+            self.admission_current(); self.custody.check()
+            self.wire.send({**message, 'type':'recovery_entry_confirmed'})
+            self.host_entry_confirmed = True
+            return True
+        if kind == 'recovery_admission_check':
+            io.require(self.host_entry_confirmed and self.admission_open and message == {'type': kind,
+                'original_binding': self.original_binding, 'entry_sha256': io.sha(self.custody.entry_raw),
+                'mac_snapshot_sha256': self.custody.manifest['snapshot_sha256']}, 'RECOVERY_CLIENT_ADMISSION_BINDING')
+            self.custody.check(); self.wire.send({**message, 'type': 'recovery_admission_current'})
+            return True
+        if kind == 'recovery_prepared':
+            io.require(self.journal is None and set(message) == {'type', 'seed', 'fresh_state', 'original_failure'},
+                       'RECOVERY_CLIENT_PREPARED_SCHEMA')
+            seed = message['seed']
+            io.require(seed['fresh_state_sha256'] == io.sha(io.canonical(message['fresh_state'])) and
+                       seed['original_failure_sha256'] == io.sha(io.canonical(message['original_failure'])),
+                       'RECOVERY_CLIENT_CURRENT_OBSERVATION_HASH')
+            self.admission_current()
+            io.require(self.host_entry_confirmed, 'RECOVERY_CLIENT_HOST_ENTRY_NOT_CONFIRMED')
+            self.custody.bind(seed); self.recovery_seed = io.parse(io.canonical(seed))
+            self.binding = self.last = self.custody.binding; self.journal = self.custody
+            self.fd = os.open('operator-records', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                              dir_fd=self.custody.fd)
+            self.check()
+            self.wire.send({'type': 'recovery_custody_bound', 'binding': self.binding})
+            return True
+        if kind == 'held':
+            io.require(message.get('return_available') is False, 'RECOVERY_CLIENT_OLD_RETURN_FORBIDDEN')
+        if kind == 'final' and self.journal is None:
+            self.custody.check()
+            raw = io.canonical(message); io.require(len(raw) <= 65536, 'RECOVERY_CLIENT_ADMISSION_RESULT_BOUND')
+            io.exclusive(self.custody.fd, 'admission-final.json', raw)
+            self.custody.files['admission-final.json'] = self.custody.read_file(self.custody.fd, 'admission-final.json')
+            self.custody.check()
+        return False
+
+    def close(self):
+        try:super().close()
+        finally:self.custody.close()
+
+
 def bootstrap(io_raw):
     # This exact source is in the authenticated SSH command; secret/private
     # input is sent only AFTER sudo exec and the ready frame, never argv.
-    encoded = base64.b64encode(io_raw).decode()
-    return ('import base64,hashlib,os,sys,time,types\n'
-            'raw=base64.b64decode('+repr(encoded)+')\n'
+    # Bound the decoded bytes and authenticate the ORIGINAL source before
+    # compile. Compression avoids execve's per-argument limit; it changes no
+    # Source binding, admission check or wire message.
+    io.require(type(io_raw) is bytes and 0 < len(io_raw) <= 3*1024*1024,
+               'BOOTSTRAP_SOURCE_SIZE')
+    encoded = base64.b64encode(zlib.compress(io_raw, 9)).decode()
+    return ('import base64,hashlib,os,sys,time,types,zlib\n'
+            'decoder=zlib.decompressobj()\n'
+            'raw=decoder.decompress(base64.b64decode('+repr(encoded)+',validate=True),'+str(len(io_raw)+1)+')\n'
+            'assert len(raw)=='+str(len(io_raw))+' and decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail\n'
             'assert hashlib.sha256(raw).hexdigest()=='+repr(io.sha(io_raw))+'\n'
             'm=types.ModuleType("tu1nz_public_operator_io");sys.modules[m.__name__]=m\n'
             'exec(compile(raw,"<authenticated-operator-io>","exec"),m.__dict__)\n'
-            'w=m.Wire(0,1,deadline=time.monotonic()+600)\n'
+            'started=time.monotonic()\n'
+            'w=m.Wire(0,1,deadline=started+600);w.bootstrap_started=started\n'
             'w.send({"type":"ready","io_sha256":hashlib.sha256(raw).hexdigest()})\n'
             'p=w.receive()\n'
             's=m.Source(p["source"],p["hashes"])\n'
             'for n in ("io","entry","guard","owner","r3","fs","runtime_guard","observe","probes","host"):s.load(n)\n'
             's.load("host").session(s,p,w)\n')
+
+
+def maintenance_bootstrap(io_raw):
+    """Explicit finite Rev4 dispatcher; no fallback to the legacy session."""
+    program = bootstrap(io_raw)
+    selected = 's.load("host").session(s,p,w)'
+    io.require(program.count(selected) == 1, 'MAINTENANCE_BOOTSTRAP_SELECTOR')
+    return program.replace(selected, 's.load("host").dispatch_maintenance(s,p,w)')
+
+
+class MaintenanceTransport:
+    """One owned SSH lifetime inside ONE Rev4 600-second window.
+
+    Construct after personal password input, before either entry's local
+    custody/preparation and before SSH. Caller must consume its fixed entry
+    and pass all scope/current-state gates; this object grants none of them.
+    Only the explicit Rev4 entry selects it. The legacy execute is unchanged.
+    """
+    def __init__(self, *, reserve_milliseconds, started=None):
+        io.require(type(reserve_milliseconds) is int and 0 < reserve_milliseconds < 120000,
+                   'MAINTENANCE_TRANSPORT_RESERVE')
+        now = time.monotonic()
+        io.require(started is None or type(started) in (int,float) and math.isfinite(started) and
+                   0 <= started <= now, 'MAINTENANCE_SESSION_CLOCK_ORIGIN')
+        self.started = now if started is None else started; self.deadline = self.started+600
+        self.work_deadline = self.deadline-reserve_milliseconds/1000
+        self.child = None; self.wire = None; self.attempted = False; self.closed = False
+
+    def remaining(self, *, cleanup=False):
+        end = self.deadline if cleanup else self.work_deadline
+        remaining = end-time.monotonic()
+        io.require(remaining > 0, 'MAINTENANCE_TRANSPORT_WINDOW_EXPIRED')
+        return remaining
+
+    def connect(self, packet, source, password, *, recovery_custody=None):
+        io.require(not self.attempted and not self.closed,
+                   'MAINTENANCE_TRANSPORT_NO_RECONNECT')
+        self.attempted = True  # also spent if local validation or spawn fails
+        remaining = self.remaining()
+        bound = io.maintenance_packet_binding(packet, source,
+                                               remaining_seconds=math.ceil(remaining))
+        reserve = bound['documents']['native_timing']['transport_cleanup_reserve_milliseconds']
+        io.require(self.work_deadline == self.deadline-reserve/1000,
+                   'MAINTENANCE_TRANSPORT_RESERVE_NOT_FROM_PROOF')
+        if packet['route'] == 'recovery-once':
+            io.require(isinstance(recovery_custody, RecoveryCustody) and
+                       recovery_custody.deadline == self.work_deadline and
+                       recovery_custody.entry == packet['recovery']['entry'] and
+                       recovery_custody.manifest == packet['recovery']['manifest'],
+                       'MAINTENANCE_TRANSPORT_RECOVERY_ENTRY_REQUIRED')
+            recovery_custody.check()
+        else:
+            io.require(recovery_custody is None, 'MAINTENANCE_TRANSPORT_ORIGINAL_ENTRY_ONLY')
+        io.require(type(password) is bytes and password and b'\n' not in password and b'\r' not in password,
+                   'PASSWORD_INPUT_FORMAT')
+        program = maintenance_bootstrap(source.bytes['io'])
+        remote = 'LC_ALL=C '+shlex.join(['/usr/bin/sudo', '-S', '-k', '-p', '', '--',
+                                        '/usr/bin/python3', '-I', '-B', '-S', '-c', program])
+        self.remaining()
+        self.child = subprocess.Popen(ssh_argv(remote), stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        # Nonblocking bounded write: even a wedged sudo/SSH cannot extend the
+        # already running window while the password is being sent.
+        fd = self.child.stdin.fileno(); os.set_blocking(fd, False)
+        data = memoryview(password+b'\n'); offset = 0
+        password_deadline = min(self.work_deadline, time.monotonic()+20)
+        try:
+            while offset < len(data):
+                remaining = password_deadline-time.monotonic()
+                io.require(remaining > 0 and select.select([], [fd], [], remaining)[1],
+                           'MAINTENANCE_PASSWORD_TRANSPORT_TIMEOUT')
+                try: written = os.write(fd, data[offset:])
+                except BlockingIOError: continue  # same write, not a new connection/command
+                io.require(written > 0, 'MAINTENANCE_PASSWORD_TRANSPORT_CLOSED')
+                offset += written
+        finally:
+            data.release(); password = None
+        self.wire = io.Wire(self.child.stdout.fileno(), fd,
+                            deadline=min(self.work_deadline, time.monotonic()+20))
+        io.require(self.wire.receive() == {'type':'ready', 'io_sha256':packet['hashes']['io']},
+                   'AUTHENTIC_BOOTSTRAP_NOT_READY')
+        self.remaining(); self.wire.deadline = self.work_deadline
+        # Validation is repeated after transport/password latency and before
+        # payload dispatch. Never carry a stale admission through that wait.
+        sent = io.maintenance_transport_packet(packet, deadline=self.work_deadline)
+        io.maintenance_packet_binding(sent, source, remaining_seconds=math.ceil(self.remaining()))
+        if recovery_custody is not None: recovery_custody.check()
+        self.wire.send(sent)
+        return self.wire, sent
+
+    def close(self):
+        io.require(not self.closed, 'MAINTENANCE_TRANSPORT_CLOSE_ONCE')
+        self.closed = True; errors = []
+        if self.child is not None:
+            for stream in (self.child.stdin, self.child.stdout):
+                try:
+                    if stream is not None and not stream.closed: stream.close()
+                except BaseException: errors.append('PUBLIC_BOOTSTRAP_OWNED_CHANNEL_CLOSE_UNKNOWN')
+            # Only OUR unreaped local Popen child; never a numeric remote PID.
+            # Every wait spends the SAME outer deadline, not20+5+5 extra.
+            for action, maximum in ((None, 2), ('terminate', 2), ('kill', None)):
+                try:
+                    if self.child.poll() is not None: break
+                    if action is not None: getattr(self.child, action)()
+                    remaining = self.deadline-time.monotonic()
+                    if remaining <= 0:
+                        if action == 'kill': break
+                        continue
+                    self.child.wait(timeout=remaining if maximum is None else min(maximum, remaining))
+                    break
+                except subprocess.TimeoutExpired: continue
+                except BaseException: errors.append('PUBLIC_BOOTSTRAP_OWNED_SSH_END_UNKNOWN'); break
+            try:
+                if self.child.poll() is None: errors.append('PUBLIC_BOOTSTRAP_OWNED_SSH_END_UNKNOWN')
+                elif self.child.returncode != 0: errors.append('PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED')
+            except BaseException: errors.append('PUBLIC_BOOTSTRAP_OWNED_SSH_STATUS_UNKNOWN')
+        if time.monotonic() >= self.deadline:
+            errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED')
+        return errors
+
+
+def maintenance_cleanup_receipt(parent, identity, result, *, deadline):
+    """One fixed additive receipt after operational handles/child have closed.
+
+    Existing custody only, never another attempt directory. The enclosing
+    call still checks the same outer deadline AFTER this write and readback.
+    A receipt is not a remote ACK and cannot turn a missing final into success.
+    """
+    io.require(time.monotonic() < deadline and parent.resolve(strict=True) == parent,
+               'MAINTENANCE_RESULT_PARENT_OR_DEADLINE')
+    fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        io.require(RecoveryCustody.directory_identity(fd) == identity,
+                   'MAINTENANCE_RESULT_PARENT_CHANGED')
+        io.client_cleanup_record(result)
+        io.exclusive(fd, 'client-cleanup.json', io.canonical(result))
+        named = os.stat(parent, follow_symlinks=False)
+        io.require((named.st_dev,named.st_ino,named.st_uid,named.st_gid,named.st_mode) == identity,
+                   'MAINTENANCE_RESULT_PARENT_CHANGED')
+    finally:os.close(fd)
+    # A new independent descriptor after closing the receipt writer.
+    raw = io.private_read(parent/'client-cleanup.json', 65536)
+    io.require(raw == io.canonical(result) and time.monotonic() < deadline,
+               'MAINTENANCE_RESULT_READBACK_OR_DEADLINE')
+    return io.sha(raw)
+
+
+def maintenance_closed_chain(parent, binding, result, *, deadline):
+    """Read actual durable bytes after closing the operational custody handles.
+
+    A persisted but unacknowledged tail remains just that. It is never promoted
+    to an ACK by this readback, including on the failed Original path.
+    """
+    io.require(parent.resolve(strict=True) == parent, 'MAINTENANCE_CLOSED_CUSTODY_PATH')
+    fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        snapshot = io.read_original_chain(fd,binding,owner=os.geteuid(),deadline=deadline,client_supplements=True)
+        named = os.stat(parent,follow_symlinks=False)
+        io.require((named.st_dev,named.st_ino) == (os.fstat(fd).st_dev,os.fstat(fd).st_ino),
+                   'MAINTENANCE_CLOSED_CUSTODY_CHANGED')
+    finally:os.close(fd)
+    final = snapshot['supplements'].get('final.json')
+    if result.get('type') == 'final':
+        io.require(final is not None and final['record'] == result, 'MAINTENANCE_FINAL_READBACK')
+    else:io.require(final is None, 'MAINTENANCE_UNOBSERVED_FINAL')
+    if result.get('status') in ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED',
+                              'RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED'):
+        last = snapshot['records'][-1]['record']
+        io.require(last['kind'] == 'operator_cleanup' and all(result.get(k) == v for k,v in last['value'].items()) and
+            result['primary'] is None and not result['abort'] and not result['cleanup'] and
+            re.fullmatch('[a-f0-9]{64}',result.get('owner_completion_sha256') or '') and
+            result['client_cleanup_still_required'] is True and result['r2_dispatch'] is False,
+            'MAINTENANCE_COMPLETE_CLEANUP_NOT_BOUND')
+    return snapshot
+
+
+def execute_maintenance(packet, source, *, password, runtime_payload, recover_once=False):
+    """Complete single-entry lifetime; password was obtained in the local TTY.
+
+    One clock starts before custody and transport. Every failure remains HOLD;
+    no reconnect, entry reset, old-runtime return or automatic Recovery. The
+    packet's actual V1–V6 admission is shared with the Host, never substituted.
+    """
+    entry_started = time.monotonic()
+    io.require(type(recover_once) is bool and packet.get('route') == 'original',
+               'MAINTENANCE_EXPLICIT_ENTRY')
+    bound = io.maintenance_packet_binding(packet, source, remaining_seconds=600)
+    source.load('admission').validate(packet, source, bound, remaining_seconds=600)
+    reserve = bound['documents']['native_timing']['transport_cleanup_reserve_milliseconds']
+    transport = MaintenanceTransport(reserve_milliseconds=reserve, started=entry_started)
+    client = custody = None; receipt_parent = receipt_identity = None
+    result = {'status':'HOLD'}; errors = []; primary = None; tail = packet['binding']; sequence = 0
+    route = 'recovery-once' if recover_once else 'original'
+    try:
+        r = source.load('r3')
+        if recover_once:
+            custody = RecoveryCustody(r, packet['binding'], boot_id=packet['baseline']['boot_id'],
+                source_sha256=io.sha(io.canonical(packet['hashes'])), deadline=transport.work_deadline)
+            packet = {**packet, 'route':route, 'recovery':{'entry':custody.entry, 'manifest':custody.manifest}}
+            receipt_parent = r.CUSTODY_PARENT/r.TX/'recovery-once'
+            receipt_identity = RecoveryCustody.directory_identity(custody.fd)
+        else:
+            # Same fixed TX, before this invocation can open SSH. Creating
+            # custody is NOT the Flow claim; Host admission still precedes it.
+            placeholder = type('LocalEntryDeadline', (), {'deadline':transport.work_deadline})()
+            client = MaintenanceClient(placeholder, r, packet['binding'], boot_id=packet['baseline']['boot_id'],
+                http_expectations=[], runtime_payload=runtime_payload, admission_packet=packet, admission_source=source)
+            client.admission_current(); client.initialize(); client.entry_prepared = True
+            receipt_parent = r.CUSTODY_PARENT/r.TX/'operator-records'
+            receipt_identity = RecoveryCustody.directory_identity(client.fd)
+        wire, sent = transport.connect(packet, source, password, recovery_custody=custody)
+        password = None
+        http = [e for u in (*r.UNITS, 'lighting') for e in
+                (packet['baseline']['http'][u] if u != 'lighting' else [packet['baseline']['http'][u]])
+                if e['location'] == 'client']
+        if recover_once:
+            client = RecoveryClient(wire, r, custody, http_expectations=http,
+                admission_packet=sent, admission_source=source)
+        else:
+            client.wire = wire; client.admission_packet = sent; client.http_expectations = http
+        result = client.serve(); client.check()
+        tail = client.last; sequence = client.sequence
+    except BaseException as error:
+        primary = getattr(error, 'primary', 'PUBLIC_BOOTSTRAP_MAINTENANCE_CLIENT_OUTCOME_UNKNOWN')
+    finally:
+        password = None
+        if client is not None:
+            tail = client.last; sequence = client.sequence
+            try:client.close()
+            except BaseException:errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_CLIENT_CLOSE_UNKNOWN')
+        if custody is not None:
+            try:custody.close()
+            except BaseException:errors.append('PUBLIC_BOOTSTRAP_RECOVERY_CUSTODY_CLOSE_UNKNOWN')
+        errors.extend(transport.close())
+    success = ('RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED' if recover_once else
+               'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED')
+    try:
+        io.require(client is not None and receipt_parent is not None, 'MAINTENANCE_CLOSED_CUSTODY_MISSING')
+        records = receipt_parent/'operator-records' if recover_once else receipt_parent
+        snapshot = maintenance_closed_chain(records,client.binding,result,deadline=transport.deadline)
+        tail = snapshot['tail']; sequence = snapshot['count']
+    except BaseException:
+        errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_CLOSED_CUSTODY_UNCONFIRMED')
+    host_primary = result.get('primary')
+    host_abort = result.get('abort',[]); host_cleanup = result.get('cleanup',[])
+    status = success if result.get('status') == success and host_primary is None and not host_abort and not host_cleanup and primary is None and not errors else 'HOLD'
+    receipt = {'type':'client-cleanup', 'schema':'TU1NZ_REV4_CLIENT_CLEANUP_V1', 'route':route,
+        'original_binding':packet['binding'], 'execution_binding':client.binding if client else packet['binding'],
+        'status':'CLEANUP_OBSERVED_PENDING_READBACK' if status == success else 'HOLD',
+        'completion_claimed':False, 'original_status':'FAILED_HOLD' if recover_once else 'THIS_RUN',
+        'host_final_sha256':io.sha(io.canonical(result)) if result.get('type') == 'final' else None,
+        'tail_sha256':tail, 'sequence':sequence, 'primary':host_primary, 'abort':host_abort, 'host_cleanup':host_cleanup,
+        'client_primary':primary, 'cleanup':errors,
+        'ssh_exit':transport.child.returncode if transport.child is not None else None,
+        'operational_handles_closed':not errors, 'remote_ACK_reconstructed':False}
+    try:
+        io.require(receipt_parent is not None, 'MAINTENANCE_NO_CUSTODY_RESULT')
+        digest = maintenance_cleanup_receipt(receipt_parent, receipt_identity, receipt, deadline=transport.deadline)
+        transport.remaining(cleanup=True)
+    except BaseException:
+        status = 'HOLD'; digest = None
+        errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_RESULT_NOT_DURABLE_WITHIN_WINDOW')
+    return {'status':status, 'route':route, 'original_status':receipt['original_status'],
+        'binding':packet['binding'], 'client_cleanup_sha256':digest, 'client_cleanup':errors,
+        'primary':host_primary if host_primary is not None else primary, 'host_primary':host_primary,
+        'host_abort':host_abort,'host_cleanup':host_cleanup,'client_primary':primary,
+        'elapsed_seconds':time.monotonic()-transport.started, 'r2_dispatch':False}
 
 
 def preparation_records(binding):
@@ -354,6 +1004,21 @@ def preparation_records(binding):
         raise
 
 
+def maintenance_package(encoded, hashes, baseline_raw, scope_raw, plan_raw, release_raw, material, review_sha256):
+    """Pure canonical packaging. Claims/SSH/password are outside this function."""
+    baseline,scope,release = (io.parse(v) for v in (baseline_raw,scope_raw,release_raw))
+    io.require(all(io.canonical(v) == raw for v,raw in
+        ((baseline,baseline_raw),(scope,scope_raw),(release,release_raw))), 'MAINTENANCE_CANONICAL_INPUTS')
+    packet = {'source':encoded,'hashes':hashes,'baseline':baseline,'scope':scope,
+        'baseline_raw':base64.b64encode(zlib.compress(baseline_raw,9)).decode(), 'baseline_encoding':'zlib_REV4',
+        'scope_raw':base64.b64encode(scope_raw).decode(),'scope_sha256':io.sha(scope_raw),'binding':io.sha(scope_raw),
+        'owner_plan':base64.b64encode(plan_raw).decode(),'release':release,
+        'maintenance_material':{k:base64.b64encode(v).decode() for k,v in material.items()},
+        'review_sha256':review_sha256,'route':'original','remaining_milliseconds':600000}
+    io.require(len(io.canonical(packet)) <= io.MAX_FRAME,'MAINTENANCE_PACKET_SIZE_BEFORE_ENTRY')
+    return packet
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--infra', type=Path, required=True); parser.add_argument('--control', type=Path, required=True)
@@ -367,6 +1032,10 @@ def main():
     parser.add_argument('--execute', action='store_true', help='explicit Host execution; absent = LOCAL validation only')
     parser.add_argument('--runtime-archive',type=Path,help='R5 private artifact; old scopes cannot use this option')
     parser.add_argument('--runtime-input-cache',type=Path,help='R5 pinned upstream bytes for deterministic local verification')
+    parser.add_argument('--maintenance-material',type=Path,
+                        help='Rev4 fixed eight-file private input directory; no entry is created by validation')
+    parser.add_argument('--review-sha256',help='independently bound Rev4 execution-input review')
+    parser.add_argument('--recover-once',action='store_true',help='explicit sole Rev4 Recovery entry; never automatic')
     parser.add_argument('--hold-owner-before', help='DENY before this exact owner object; no extra permission or retry')
     args = parser.parse_args()
     io.require(Path.cwd().resolve() == args.infra.resolve(), 'ACTUAL_INFRA_CWD_REQUIRED')
@@ -387,26 +1056,57 @@ def main():
     application_reference(args.application_reference, baseline)
     encoded, hashes = source_package(args.infra, args.control, io.parse(release_raw))
     source = io.Source(encoded, hashes); r3 = source.load('r3')
-    replacing=io.replacement_scope(scope,baseline);runtime_payload=None
+    maintenance = scope['schema'] == io.MAINTENANCE_SCOPE
+    io.require(maintenance or args.maintenance_material is None and args.review_sha256 is None and
+               not args.recover_once, 'MAINTENANCE_OPTIONS_REQUIRE_REV4')
+    io.require(not maintenance or args.hold_owner_before is None, 'MAINTENANCE_NO_UNBOUND_OWNER_OPTION')
+    replacing=maintenance or io.replacement_scope(scope,baseline);runtime_payload=None
     if replacing:
-        io.require(args.runtime_archive is not None and args.runtime_input_cache is not None,
+        io.require(args.runtime_archive is not None and (maintenance or args.runtime_input_cache is not None),
                    'REPLACEMENT_MATERIAL_REQUIRED')
         builder=source.load('artifact')
         inputs=io.parse(source.bytes['runtime_inputs'])
         runtime=baseline['source_release']['runtime_reference']['artifact']
         builder.validate_receipt(runtime,inputs)
         runtime_payload=builder.private_read(args.runtime_archive)
-        python_raw=builder.private_read(args.runtime_input_cache/inputs['python']['filename'])
-        wheels={w['filename']:builder.private_read(args.runtime_input_cache/w['filename']) for w in inputs['wheels']}
-        rebuilt,receipt=builder.assemble(builder.git_source(args.application_reference),python_raw,wheels,inputs)
-        io.require(rebuilt==runtime_payload and builder.canonical(receipt)==builder.canonical(runtime),
-                   'REPLACEMENT_OFFLINE_REBUILD_BINDING')
+        if not maintenance:
+            python_raw=builder.private_read(args.runtime_input_cache/inputs['python']['filename'])
+            wheels={w['filename']:builder.private_read(args.runtime_input_cache/w['filename']) for w in inputs['wheels']}
+            rebuilt,receipt=builder.assemble(builder.git_source(args.application_reference),python_raw,wheels,inputs)
+            io.require(rebuilt==runtime_payload and builder.canonical(receipt)==builder.canonical(runtime),
+                       'REPLACEMENT_OFFLINE_REBUILD_BINDING')
+        # Rev4 reuses the bound, already-built artifact. Full archive/receipt
+        # validation below authenticates actual bytes; no repeated source build.
         builder.inspect_archive(runtime_payload,runtime)
     else:
         io.require(args.runtime_archive is None and args.runtime_input_cache is None,'REPLACEMENT_NOT_AUTHORIZED_BY_OLD_SCOPE')
     io.require(args.hold_owner_before is None or args.hold_owner_before in
                {a['relative'] for a in io.parse(plan_raw)['actions']}, 'OWNER_DENIAL_BOUNDARY_NOT_IN_PLAN')
     io.require(io.sha(plan_raw) == r3.OWNER_PLAN and scope['machine_sha256'] == r3.MACHINE, 'FIXED_HOST_OR_OWNER_PLAN')
+    if maintenance:
+        io.require(args.maintenance_material is not None and type(args.review_sha256) is str and
+            re.fullmatch('[a-f0-9]{64}',args.review_sha256), 'MAINTENANCE_PRIVATE_MATERIAL_REQUIRED')
+        material = {name:io.private_read(args.maintenance_material/(name+('.txt' if name == 'contract' else '.json')),
+                    512*1024) for name in ('contract','approval','current_observation','current_acceptance',
+                        'read_scope','pre_stop_protection','native_timing','review')}
+        packet = maintenance_package(encoded,hashes,baseline_raw,scope_raw,plan_raw,release_raw,material,args.review_sha256)
+        bound = io.maintenance_packet_binding(packet,source,remaining_seconds=600)
+        source.load('admission').validate(packet,source,bound,remaining_seconds=600)
+        if not args.execute:
+            print(json.dumps({'status':'LOCAL_REV4_PACKAGE_VALIDATED_NO_HOST_ACCESS','binding':packet['binding'],
+                'route':'recovery-once' if args.recover_once else 'original','host_dispatched':False,
+                'slot_consumed':False,'live_admission_still_required':True}));return
+        io.require(sys.stdin.isatty(), 'HUMAN_TTY_REQUIRED_NO_CHAT_PASSWORD')
+        with warnings.catch_warnings():
+            warnings.simplefilter('error',getpass.GetPassWarning)
+            password = getpass.getpass('Hauptserver chatops sudo — einmaliger Rev4-Einstieg: ').encode()
+        try:
+            result = execute_maintenance(packet,source,password=password,runtime_payload=runtime_payload,
+                                         recover_once=args.recover_once)
+        finally:password = None
+        print(json.dumps(result,sort_keys=True))
+        return 0 if result['status'] in ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED',
+            'RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED') else 1
     packet = {'source': encoded, 'hashes': hashes, 'baseline': baseline,
               'baseline_raw': base64.b64encode(baseline_raw).decode(),
               'scope_raw': base64.b64encode(scope_raw).decode(),
@@ -443,7 +1143,9 @@ def execute(packet, encoded, hashes, baseline, r3, *, owner_hold_before=None, ru
     result = {'status': 'UNKNOWN_HOLD_NO_RETRY'}
     try:
         targets, preparation = preparation_records(packet['binding'])
-        password = getpass.getpass('chatops sudo — gebundener einmaliger R3/R4-Operator: ').encode()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', getpass.GetPassWarning)
+            password = getpass.getpass('chatops sudo — gebundener einmaliger R3/R4-Operator: ').encode()
         io.require(password and b'\n' not in password and b'\r' not in password, 'PASSWORD_INPUT_FORMAT')
         child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         child.stdin.write(password+b'\n'); child.stdin.flush(); password = None

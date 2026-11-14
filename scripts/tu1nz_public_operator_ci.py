@@ -59,6 +59,7 @@ SAFE_FAILURE_TYPES = frozenset(n for n, v in vars(builtins).items()
     if isinstance(v, type) and issubclass(v, BaseException)) | {'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
 SAFE_NATIVE_CODES = frozenset(('NATIVE_FSUID_CHILD_SETFSUID_RED', 'NATIVE_FSUID_CHILD_UID_VIEW_RED',
     'NATIVE_FSUID_CHILD_CONNECT_RED', 'NATIVE_FSUID_CHILD_HANDSHAKE_RED', 'NATIVE_FSUID_CHILD_PROTOCOL_RED'))
+SERVER_IMPORT_CODE = 'NATIVE_MEASUREMENT_ARTIFACT_NOT_PRELOADED'
 
 
 def diagnostic_codes():
@@ -71,14 +72,19 @@ def diagnostic_codes():
         for node in ast.walk(ast.parse((workspace/relative).read_bytes())):
             if isinstance(node, ast.Constant) and type(node.value) is str and re.fullmatch('[A-Z][A-Z0-9_]{1,160}', node.value):
                 symbols.add(node.value)
-    return symbols | SAFE_NATIVE_CODES | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
+    return symbols | SAFE_NATIVE_CODES | {SERVER_IMPORT_CODE} | {prefix+x for prefix in ('PUBLIC_OPERATOR_', 'PUBLIC_BOOTSTRAP_',
         'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_', 'PUBLIC_RUNTIME_', 'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_RUNTIME_')
         for x in symbols}
 
 
 def terminal_wire_code(raw):
-    # Only an exact, literal PUBLIC Source Hold symbol may leave private child
-    # stderr. No traceback, path, argv, exception text or regex-shaped secret.
+    # Only listed literal codes may leave private child stderr. No traceback,
+    # path, argv, exception text or regex-shaped secret.
+    # One exact terminal import error for the authenticated measurement
+    # wrapper. No exception text, arbitrary module/path or traceback escapes.
+    lines = raw.splitlines()
+    if lines and lines[-1] == b"ModuleNotFoundError: No module named 'tu1nz_public_runtime_artifact'":
+        return SERVER_IMPORT_CODE
     symbols = diagnostic_codes(); candidates = set()
     for line in raw.splitlines():
         match = re.fullmatch(rb'tu1nz_public_operator_io\.Hold: (PUBLIC_OPERATOR_[A-Z0-9_]{1,96})', line)
@@ -105,15 +111,69 @@ def safe_actor_diagnostic(value):
     return value
 
 
-def safe_read_cost(value):
-    labels = {'authority_check', 'authority_check_files', 'authority_units_check', 'authority_actors_check',
+READ_COST_LABELS = frozenset({'authority_check', 'authority_check_files', 'authority_units_check', 'authority_actors_check',
               'process', 'writer_check', 'paths_check', 'linked_record', 'measured_http', 'command',
-              'owner_check_all', 'owner_apply', 'owner_finish'}
-    require(type(value) is dict and 0 < len(value) <= len(labels) and set(value) <= labels, 'READ_COST_SCHEMA')
-    require(all(type(v) is dict and set(v) == {'calls', 'inclusive_ns'} and
+              'owner_check_all', 'owner_apply', 'owner_finish', 'owner_admission', 'owner_close',
+              'owner__backup_restore', 'object_fence_check', 'object_fence_writer_check', 'object_fence_close',
+              'guard_owner_transition', 'guard_observe_fd', 'authority_policy_owner', 'authority_manager_jobs_clear',
+              'command_policy_owner', 'command_jobs', 'command_systemctl', 'command_other',
+              'reader_show_units', 'reader_properties', 'reader_exec_properties'})
+
+
+def safe_read_cost(value):
+    require(type(value) is dict and 0 < len(value) <= len(READ_COST_LABELS) and
+            set(value) <= READ_COST_LABELS, 'READ_COST_SCHEMA')
+    require(all(type(v) is dict and set(v) in ({'calls', 'inclusive_ns'}, {'calls', 'inclusive_ns', 'exclusive_ns'}) and
                 type(v['calls']) is int and 0 <= v['calls'] <= 10_000_000 and
-                type(v['inclusive_ns']) is int and 0 <= v['inclusive_ns'] <= 720_000_000_000
+                type(v['inclusive_ns']) is int and 0 <= v['inclusive_ns'] <= 720_000_000_000 and
+                ('exclusive_ns' not in v or type(v['exclusive_ns']) is int and
+                 0 <= v['exclusive_ns'] <= v['inclusive_ns'])
                 for v in value.values()), 'READ_COST_SCHEMA')
+    return value
+
+
+def safe_owner_timing(value, *, completed=False):
+    # Counters/durations from the delegating native fixture only. No private
+    # paths, timestamps, observations or arbitrary strings leave the guest.
+    keys = {'phases', 'started', 'finish_completed', 'finish_owner_acks', 'finish_cleanup_bound',
+            'stack_empty', 'elapsed_ns', 'client_cleanup_ns', 'limit_ns'}
+    # Optional diagnostic extension keeps already closed timing records valid.
+    # It neither grants completion nor changes the wall-clock acceptance.
+    require(type(value) is dict and set(value) in (keys,keys|{'resources'}) and
+            all(type(value[k]) is bool for k in ('started', 'finish_completed', 'finish_cleanup_bound', 'stack_empty')) and
+            type(value['finish_owner_acks']) is int and 0 <= value['finish_owner_acks'] <= 84 and
+            type(value['limit_ns']) is int and value['limit_ns'] == 120_000_000_000 and
+            type(value['client_cleanup_ns']) is int and 0 <= value['client_cleanup_ns'] <= 720_000_000_000 and
+            type(value['phases']) is dict and set(value['phases']) <= {'admission', 'apply', 'finish', 'close'},
+            'OWNER_TIMING_SCHEMA')
+    for rows in value['phases'].values():
+        safe_read_cost(rows)
+        require(all('exclusive_ns' in row for row in rows.values()), 'OWNER_TIMING_SCHEMA')
+    if 'resources' in value:
+        resources=value['resources']
+        require(type(resources) is dict and set(resources)==set(value['phases']), 'OWNER_RESOURCE_SCHEMA')
+        ns={'wall_ns','user_cpu_ns','system_cpu_ns'}
+        switches={'voluntary_switches','involuntary_switches'}
+        for row in resources.values():
+            require(type(row) is dict, 'OWNER_RESOURCE_SCHEMA')
+            if row=={'status':'UNAVAILABLE'}:continue
+            require(set(row)=={'status','calls'}|ns|switches and row['status']=='RECORDED' and
+                type(row['calls']) is int and 1<=row['calls']<=16 and
+                all(type(row[k]) is int and 0<=row[k]<=2_880_000_000_000 for k in ns) and
+                all(type(row[k]) is int and 0<=row[k]<=10_000_000 for k in switches), 'OWNER_RESOURCE_SCHEMA')
+    if value['started']:
+        require(type(value['elapsed_ns']) is int and 0 <= value['elapsed_ns'] <= 720_000_000_000 and
+                'admission' in value['phases'], 'OWNER_TIMING_SCHEMA')
+    else:
+        require(value['elapsed_ns'] is None and not value['phases'] and not value['finish_completed'] and
+                not value['finish_cleanup_bound'] and value['finish_owner_acks'] == 0, 'OWNER_TIMING_SCHEMA')
+    if completed:
+        require(value['started'] and value['finish_completed'] and value['finish_cleanup_bound'] and
+                value['finish_owner_acks'] == 84 and value['stack_empty'] and
+                value['elapsed_ns'] <= value['limit_ns'] and
+                {'admission', 'apply', 'finish', 'close'} <= set(value['phases']) and
+                value['phases']['apply'].get('guard_owner_transition', {}).get('calls') == 84,
+                'OWNER_FULL_CLEANUP_120S_NOT_PROVED')
     return value
 
 
@@ -296,11 +356,12 @@ def validate_report(raw, case, hashes):
     require(len(raw) <= 65536, 'REPORT_BOUND')
     value = operator.io.parse(raw.strip())
     require(set(value) == {'scenario', 'status', 'server_exit', 'proof', 'source_files', 'owner_confirmations',
-                           'actual_root_objects', 'actual_faults', 'fixture_only_no_host_acceptance'} and
+                           'actual_root_objects', 'actual_faults', 'fixture_only_no_host_acceptance', 'owner_timing'} and
             value['scenario'] == case and value['source_files'] == hashes and
             value['fixture_only_no_host_acceptance'] is True and
             re.fullmatch('[a-f0-9]{64}', value['proof'] or ''), 'REPORT_SOURCE_OR_SCHEMA_RED')
     require(value['actual_faults'] == FAULTS[case], 'INTENDED_FAULT_NOT_WITNESSED')
+    timing = safe_owner_timing(value['owner_timing'], completed=case in ('success','r5_success','r5_legacy_unknown'))
     if case in ('success','r5_success','r5_legacy_unknown'):
         require((value['status'], value['server_exit'], value['owner_confirmations'], value['actual_root_objects']) ==
                 ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', 0, 84, 88), 'FORWARD_RED')
@@ -317,7 +378,7 @@ def validate_report(raw, case, hashes):
         else:
             require(4 < value['actual_root_objects'] < 88, 'PARTIAL_EFFECT_NOT_WITNESSED')
     return {'scenario': case, 'result_sha256': value['proof'], 'status': value['status'],
-            'actual_faults': value['actual_faults']}
+            'actual_faults': value['actual_faults'], 'owner_timing': timing}
 
 
 def progress(sha,count,record):
@@ -331,9 +392,10 @@ def progress(sha,count,record):
             type(record) is dict and record.get('scenario')==CASES[count-1] and
             type(record.get('result_sha256')) is str and
             re.fullmatch('[a-f0-9]{64}',record['result_sha256']),'PROGRESS_SCHEMA')
+    timing = {'owner_timing': safe_owner_timing(record['owner_timing'])} if 'owner_timing' in record else {}
     print(json.dumps({'schema':'TU1NZ_PUBLIC_OPERATOR_NATIVE_PROGRESS_V1',
         'source_sha':sha,'completed_count':count,'scenario':record['scenario'],
-        'result_sha256':record['result_sha256'],'host_acceptance':False},sort_keys=True),flush=True)
+        'result_sha256':record['result_sha256'],'host_acceptance':False, **timing},sort_keys=True),flush=True)
 
 
 def failure_location(raw):
@@ -357,7 +419,7 @@ def failure_location(raw):
         require(set(value) == {'native_failure'}, 'FAILURE_SCHEMA')
         location = value['native_failure']
         require({'test_line', 'test_type', 'production_fault'} <= set(location) <=
-                {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost', 'environment'}, 'FAILURE_SCHEMA')
+               {'test_line', 'test_type', 'production_fault', 'primary_fault', 'fixture_fault', 'outcome', 'cause_code', 'errno', 'actor', 'read_cost', 'owner_timing', 'environment'}, 'FAILURE_SCHEMA')
         if 'environment' in location:
             env=location['environment']
             require(type(env) is dict and set(env)=={'unit','sample','followup','identity','same_environment','executable','state','followup_expected_items','service'},'FAILURE_SCHEMA')
@@ -428,6 +490,8 @@ def failure_location(raw):
             location = {**location, 'actor': safe_actor_diagnostic(location['actor'])}
         if 'read_cost' in location:
             location = {**location, 'read_cost': safe_read_cost(location['read_cost'])}
+        if 'owner_timing' in location:
+            location = {**location, 'owner_timing': safe_owner_timing(location['owner_timing'])}
         return location
     except BaseException:
         return None
@@ -472,11 +536,20 @@ def cleanup_result(result, container, owner, root, parent):
     return result
 
 
+def native_case_argv(container, case):
+    if case == 'r5_success':
+        return ['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
+                '/source/scripts/tu1nz_public_operator_profile_ci.py']
+    return ['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
+            '/source/tests/public_operator_native.py', '--scenario', case]
+
+
 def run(workspace, image):
     root = None; container = None; owner = uuid.uuid4().hex; phase = 'admission'
     parent = Path(os.environ.get('RUNNER_TEMP', '/nonexistent'))
     result = {'schema': SCHEMA, 'green': False, 'code': 'PRIVATE_OPERATOR_CI_RED'}
     diagnostic = None; native_process = None
+    r5_measurement = None; r5_container = None; r5_container_cleaned = False
     try:
         token = os.environ.pop('CONTROL_POLICY_READ_TOKEN', None)
         sha = boundary.runtime_binding(os.environ, workspace)
@@ -518,20 +591,48 @@ def run(workspace, image):
                 if code != 0: diagnostic = failure_location(raw)
                 require(code == 0 and raw.strip() == b'ACTUAL_NATIVE_CONTEXT_GREEN', 'NATIVE_CONTEXT_RED')
             phase = case+'-production'
-            code, raw = boundary.bounded(['/usr/bin/docker', 'exec', container, '/usr/bin/python3', '-I', '-B',
-                '/source/tests/public_operator_native.py', '--scenario', case], timeout=720)
+            if case == 'r5_success':
+                r5_container = container
+                r5_measurement = {'metadata_status': 'MISSING_OR_INVALID', 'metadata': None,
+                    'native_exit': None, 'process_elapsed_ns': None, 'owner_timing': None,
+                    'container_cleanup': 'NOT_PROVED', 'private_input_cleanup': 'PENDING'}
+                began = time.monotonic_ns()
+            code, raw = boundary.bounded(native_case_argv(container, case), timeout=720)
+            if case == 'r5_success': elapsed = time.monotonic_ns()-began
             if code != 0:
                 diagnostic = failure_location(raw)
                 native_process = native_process_diagnostic(code, raw)
+            if case == 'r5_success':
+                import tu1nz_public_operator_profile_ci as r5_profile
+                raw, metadata = r5_profile.extract(raw)
+                r5_measurement.update(native_exit=code, process_elapsed_ns=elapsed,
+                    metadata=metadata, metadata_status='RECORDED' if metadata is not None else 'MISSING_OR_INVALID',
+                    owner_timing=diagnostic.get('owner_timing') if diagnostic is not None else None)
+                # An actual native failure remains the primary failure even
+                # when measurement is missing. No retry/extra diagnostic guest.
             require(code == 0, 'NATIVE_CASE_RED')
             records.append(validate_report(raw, case, hashes))
+            if case == 'r5_success':
+                r5_measurement['owner_timing'] = records[-1]['owner_timing']
+                require(metadata is not None and metadata['profile'] is not None and
+                        bool(metadata['profile']['rows']), 'R5_CPU_PROFILE_NOT_PROVED')
             progress(sha,len(records),records[-1])
             boundary.cleanup_container(container, owner); container = None
+            if case == 'r5_success':
+                r5_container_cleaned = True
+                r5_measurement['container_cleanup'] = 'PASS'
+                # Preserve the completed R5 measurement even if a later case
+                # fails or the runner dies. Private-input cleanup is still pending.
+                print(json.dumps({'r5_measurement': r5_measurement}, sort_keys=True), flush=True)
+        phase = 'rev4-full-native'
+        import tu1nz_public_maintenance_ci as maintenance_ci
+        full_entries = maintenance_ci.run_cases(workspace,control,image,image_id,owner,root,runtime_inputs,hashes,sha)
         result = {'schema': SCHEMA, 'green': True, 'code': 'PRIVATE_OPERATOR_CI_GREEN', 'source_sha': sha,
                   'control_commit': CONTROL_COMMIT, 'image_id': image_id, 'source_files': hashes, 'cases': records,
                   'native_fsuid_test': 'ACTUAL_NATIVE_FSUID_DAC_GREEN',
                   'native_fsuid_tests': 7,
                   'native_context_test': 'ACTUAL_NATIVE_CONTEXT_GREEN', 'native_context_tests': 12,
+                  'rev4_full_entries':full_entries,
                   'host_acceptance': False, 'slot_consumed': False}
     except BaseException as error:
         # Never print child output, command arguments, exception text/traceback
@@ -542,6 +643,16 @@ def run(workspace, image):
         if native_process is not None: result['native_process'] = native_process
     finally:
         result = cleanup_result(result, container, owner, root, parent)
+        if r5_measurement is not None:
+            errors = result.get('cleanup_errors', [])
+            if r5_container_cleaned or (container == r5_container and 'OWNED_CONTAINER_CLEANUP_RED' not in errors):
+                r5_measurement['container_cleanup'] = 'PASS'
+            else: r5_measurement['container_cleanup'] = 'FAIL'
+            r5_measurement['private_input_cleanup'] = 'FAIL' if 'PRIVATE_INPUT_CLEANUP_RED' in errors else 'PASS'
+            result['r5_measurement'] = r5_measurement
+    if result['green']:
+        try:maintenance_ci.publish_calibration(result['rev4_full_entries']['calibration'])
+        except BaseException:result={**result,'green':False,'code':'REV4_CALIBRATION_OUTPUT_RED'}
     print(json.dumps(result, sort_keys=True))
     return 0 if result['green'] else 1
 
