@@ -37,17 +37,31 @@ class F1TransportDiagnosticTests(unittest.TestCase):
         from tests import public_maintenance_native as n
         import time
         read,write=os.pipe();os.close(write)  # real EOF, no SSH or remote process
-        wire=io.Wire(read,-1,deadline=time.monotonic()+(-.02 if expired else 90))
+        # Start young with valid anchors, then advance ONE clock. Never infer
+        # elapsed time by backdating against the runner's unknown uptime.
+        clock=SimpleNamespace(ns=1_000_000_000)
+        trace={}
+        original_monotonic=time.monotonic;original_ns=time.monotonic_ns
         original_serve=client.Client.serve;original_init=client.MaintenanceTransport.__init__
         bound={'kind':'owner_object_intent','sequence':73,'binding':'b'*64,
                'previous':'a'*64,'value':{'private':'SECRET_CANARY'}}
         raw=io.canonical(bound)
         observer=client.Client.__new__(client.Client)
-        observer.wire=wire;observer.records={'073-owner_object_intent.json':raw}
+        observer.records={'073-owner_object_intent.json':raw}
         observer.sequence=73;observer.binding='b'*64;observer.last=io.sha(raw)
         def execute(*args,**kwargs):
             transport=client.MaintenanceTransport(reserve_milliseconds=10000,
-                started=time.monotonic()-(601 if entry_expired else 0))
+                started=time.monotonic())
+            owner_ceiling=time.monotonic()+120
+            observer.wire=io.Wire(read,-1,deadline=min(owner_ceiling,transport.work_deadline))
+            # Exact unchanged Host-trace convention, in this same clock domain.
+            trace['owner_begin']=int(owner_ceiling*1_000_000_000)-120_000_000_001
+            self.assertGreater(transport.started,0)
+            self.assertEqual(transport.deadline-transport.started,600)
+            self.assertEqual(trace['owner_begin'],clock.ns-1)
+            self.assertGreater(trace['owner_begin'],0)
+            clock.ns+=(600_020 if entry_expired else 120_020 if expired else 30_000)*1_000_000
+            self.assertEqual(time.monotonic(),time.monotonic_ns()/1_000_000_000)
             try:observer.serve()
             except io.Hold as error:
                 # Unchanged actual Wire error is caught as in execute_maintenance.
@@ -55,34 +69,45 @@ class F1TransportDiagnosticTests(unittest.TestCase):
                         'client_cleanup':transport.close()}
             self.fail('actual EOF/deadline must fail')
         try:
-            with patch.object(client,'execute_maintenance',side_effect=execute):
+            with patch.object(time,'monotonic',side_effect=lambda:clock.ns/1_000_000_000), \
+                    patch.object(time,'monotonic_ns',side_effect=lambda:clock.ns), \
+                    patch.object(client,'execute_maintenance',side_effect=execute):
                 result,observed,cleanup=n.execute_with_transport_observation({},None)
                 self.assertEqual(cleanup,{})
         finally:os.close(read)
+        self.assertIs(time.monotonic,original_monotonic)
+        self.assertIs(time.monotonic_ns,original_ns)
         self.assertIs(client.Client.serve,original_serve)
         self.assertIs(client.MaintenanceTransport.__init__,original_init)
         self.assertEqual(result['status'],'HOLD')
         self.assertEqual(result['client_primary'],'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_'+
-                         ('WIRE_DEADLINE' if expired else 'WIRE_LOST_NO_RETRY'))
-        # Same synthetic clock domain and exact existing Host-trace assignment.
-        trace={'owner_begin':int(wire.deadline*1_000_000_000)-120_000_000_001}
+                         ('WIRE_DEADLINE' if expired or entry_expired else 'WIRE_LOST_NO_RETRY'))
+        self.assertEqual(result['client_cleanup'],
+            ['PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED'] if entry_expired else [])
         return result,observed,trace
 
     def test_real_eof_before_deadline_and_actual_expiry_keep_fail_counts_and_cleanup(self):
         from tests.test_public_maintenance_f1_ci import F1DiagnosticTests
         helper=NativeBoundaryTests()
-        for expired in (False,True):
-            result,observed,trace=self.actual_wire_failure(expired=expired)
+        for expired,entry_expired in ((False,False),(True,False),(True,True)):
+            result,observed,trace=self.actual_wire_failure(expired=expired,entry_expired=entry_expired)
             receipt=self.receipt();receipt['client_primary']=result['client_primary']
+            receipt['cleanup']+=result['client_cleanup']
             projected=m.diagnostics.transport_projection(observed,self.bound_receipt(receipt),trace)
             self.assertEqual(projected['ssh_exit'],255)
             self.assertEqual(projected['local_ssh_outcome'],'EXIT')
             self.assertEqual(projected['remote_process_state'],'UNKNOWN')
             self.assertEqual(projected['last_journal_phase'],'OWNER_APPLY')
             self.assertEqual(projected['last_journal_kind'],'owner_object_intent')
+            for field in ('wire_remaining_milliseconds','owner_remaining_milliseconds','entry_remaining_milliseconds'):
+                self.assertIs(type(projected[field]),int)
             self.assertEqual(projected['wire_remaining_milliseconds']<0,expired)
             self.assertEqual(projected['owner_remaining_milliseconds']<0,expired)
-            self.assertGreater(projected['entry_remaining_milliseconds'],0)
+            self.assertEqual(projected['entry_remaining_milliseconds']<0,entry_expired)
+            expected=(-480020,-20) if entry_expired else (-20,479980) if expired else (90000,570000)
+            self.assertEqual(projected['wire_remaining_milliseconds'],expected[0])
+            self.assertEqual(projected['owner_remaining_milliseconds'],expected[0])
+            self.assertEqual(projected['entry_remaining_milliseconds'],expected[1])
             fields=helper.counted_native_failure(37,36)
             value={'schema':'TU1NZ_REV4_NATIVE_CASE_V1','case':'recovery_F1','phase':'calibration',
                 'green':False,'host_acceptance':False,**fields,
@@ -90,7 +115,7 @@ class F1TransportDiagnosticTests(unittest.TestCase):
                     'client_primary':result['client_primary'],'host_abort':[],'host_cleanup':[],
                     'client_cleanup':receipt['cleanup']},'transport_failure':projected}}
             for cleanup_error in (None,OSError('SECRET_CANARY')):
-                with self.subTest(expired=expired,cleanup_error=cleanup_error is not None):
+                with self.subTest(expired=expired,entry_expired=entry_expired,cleanup_error=cleanup_error is not None):
                     out,raw=F1DiagnosticTests().native_result(value,cleanup_error=cleanup_error)
                     self.assertFalse(out['green']);self.assertEqual(out['code'],'F1_DIAGNOSTIC_RED')
                     self.assertEqual(out['failure']['owner_counts'],{'owner_intents':37,'owner_acks':36})
@@ -101,14 +126,20 @@ class F1TransportDiagnosticTests(unittest.TestCase):
                     self.assertEqual(json.loads(raw)['failure'],out['failure'])
                     self.assertNotIn('SECRET_CANARY',raw+json.dumps(out))
 
-    def test_entry_expiry_and_missing_host_trace_are_not_guessed(self):
+    def test_entry_expiry_and_missing_or_invalid_host_trace_are_not_guessed(self):
         result,observed,trace=self.actual_wire_failure(expired=True,entry_expired=True)
         self.assertIn('PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED',result['client_cleanup'])
-        projected=m.diagnostics.transport_projection(observed,{},None)
-        self.assertLess(projected['entry_remaining_milliseconds'],0)
-        self.assertEqual(projected['owner_remaining_milliseconds'],'UNKNOWN')
-        self.assertEqual(projected['ssh_exit'],'UNKNOWN')
-        self.assertEqual(projected['remote_process_state'],'UNKNOWN')
+        for expired,entry_expired in ((False,False),(True,False),(True,True)):
+            _,observed,trace=self.actual_wire_failure(expired=expired,entry_expired=entry_expired)
+            for missing in (None,{},[],*({'owner_begin':value} for value in
+                    (None,True,0,-1,1.0,'UNKNOWN',observed['abort_monotonic_ns']+1))):
+                with self.subTest(expired=expired,entry_expired=entry_expired,trace=missing):
+                    projected=m.diagnostics.transport_projection(observed,{},missing)
+                    self.assertIs(type(projected['entry_remaining_milliseconds']),int)
+                    self.assertEqual(projected['entry_remaining_milliseconds']<0,entry_expired)
+                    self.assertEqual(projected['owner_remaining_milliseconds'],'UNKNOWN')
+                    self.assertEqual(projected['ssh_exit'],'UNKNOWN')
+                    self.assertEqual(projected['remote_process_state'],'UNKNOWN')
         self.assertEqual(m.diagnostics.transport_projection(None,None,None),m.diagnostics.unknown_transport())
 
     def test_cleanup_exit_signal_and_remote_final_are_separate_observations(self):
