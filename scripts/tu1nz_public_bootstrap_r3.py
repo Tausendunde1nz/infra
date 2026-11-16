@@ -226,6 +226,12 @@ class Flow:
         self.witness('staging_ready')
         self.witness('quiet');self.effect('create_sealed_staging');self.witness('staging')
         self.stage='STAGING'
+    def complete_after_rights(self):
+        # The existing entry keeps its Owner contract. The local independent
+        # R5 candidate overrides only this boundary, never a gate or action.
+        self.witness('owner_ready');self.owner_started=True
+        self.effect('supervised_owner_transaction');self.witness('owner_done')
+        self.stage='RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED'
     def forward(self):
         require(self.stage=='NEW' and not self.hold,'NO_FORWARD_REPLAY')
         try:
@@ -248,9 +254,7 @@ class Flow:
                 self.effect('quarantine_own_barrier',unit);self.witness('release:'+unit)
                 self.effect('start',unit);self.witness('started:'+unit)
             self.witness('rights');self.stage='RIGHTS_ACCEPTED'
-            self.witness('owner_ready');self.owner_started=True
-            self.effect('supervised_owner_transaction');self.witness('owner_done')
-            self.stage='RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED'
+            self.complete_after_rights()
             self.j.write('complete',{'stage':self.stage,'r2_dispatch':False,'slot_consumed':False})
             require(time.monotonic()<=self.deadline,'COMPLETION_PERSISTENCE_DEADLINE_HOLD')
             return self.stage
@@ -375,6 +379,12 @@ class RecoveryFlow(Flow):
     def return_old(self):
         raise Denied('PUBLIC_BOOTSTRAP_RECOVERY_OLD_RUNTIME_RETURN_FORBIDDEN')
 
+    def complete_after_rights(self):
+        # K6 is unchanged for the existing admitted Recovery entry.
+        self.witness('owner_ready'); self.owner_started = True
+        self.effect('supervised_owner_transaction'); self.witness('owner_done')
+        self.stage = 'RECOVERY_RIGHTS_OWNER_RECEIPTED_PENDING_OPERATOR_CLEANUP'
+
     def recover(self):
         require(not self.recovery_used and self.stage == 'NEW' and not self.hold, 'NO_RECOVERY_REPLAY')
         self.recovery_used = True  # before admission; failure spends this entry
@@ -427,9 +437,7 @@ class RecoveryFlow(Flow):
             self.witness('rights'); self.stage = 'RECOVERY_RIGHTS_ACCEPTED'
             # K6 starts the one owner window before its durable entry marker.
             # Adapter checks FULL remaining120s and all unused claims first.
-            self.witness('owner_ready'); self.owner_started = True
-            self.effect('supervised_owner_transaction'); self.witness('owner_done')
-            self.stage = 'RECOVERY_RIGHTS_OWNER_RECEIPTED_PENDING_OPERATOR_CLEANUP'
+            self.complete_after_rights()
             self.j.write('complete', {'stage': self.stage, 'original': 'FAILED_HOLD',
                 'final_host_acceptance': False, 'r2_dispatch': False, 'slot_consumed': False})
             require(time.monotonic() <= self.deadline, 'RECOVERY_COMPLETION_PERSISTENCE_DEADLINE')

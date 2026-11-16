@@ -1,0 +1,222 @@
+Wartungsplan: eigenständiger R5-Abschluss, Lighting als eigener Auftrag
+Stand: lokale Vorbereitung vom 16.11.2026 auf PR 241 / f0a0275c0209b73440fd6bd37b2a562996e8a853
+
+Entscheidung und Grenze
+
+Die 84 Eigentümerwechsel im alten Lighting-Verzeichnis sind gemäß Daniels
+neuem Auftrag keine Voraussetzung mehr für den Hauptserver-Abschluss.
+R5 endet nach nachgewiesener Isolation und Funktion von S7, Landing und dem
+bestehenden WMS-Dienst, mit aktueller Sicherung/Rücklese und belegtem Cleanup.
+Das ist keine Freigabe einer Veröffentlichung, des WMS-Piloten oder einer
+Änderung des alten Lighting-Bestands. Hauptserver 109772243 bleibt HOLD.
+
+Die Trennung ist technisch möglich: Flow.forward() und RecoveryFlow.recover()
+erreichen die aktuellen Rights-/Funktionsprüfungen VOR Owner-Zulassung und
+supervised_owner_transaction. R5-Runtime, drei Dienststarts und ihre Schutz-
+prüfungen benötigen keine geänderten Lighting-Eigentümer. Die bisherige
+Verknüpfung steckt zusätzlich in Ergebnis-, Material-, Client- und CI-Verträgen.
+Ein Entfernen allein der 84er-Abschlussassertion wäre deshalb unzureichend.
+
+Lokaler Kandidat dieses Blocks
+
+scripts/tu1nz_public_maintenance_r5_candidate.py enthält eigene R5-Original-/
+Recovery-Flows, Adapter und Ergebnisabschluss. Kein CLI, kein Host-Dispatcher,
+keine Eintragung in das authentifizierte Source-Paket. Der Kandidat ist noch
+NICHT über den bestehenden Mac-Einstieg oder die bisherige CI ausführbar.
+Die vorhandenen zugelassenen Einstiege behalten ihr altes Verhalten.
+
+Zwei kleine Erweiterungspunkte in tu1nz_public_bootstrap_r3.py und
+tu1nz_public_operator_host.py erlauben die eigene Abschlusslogik, ohne die
+bisherigen Abläufe zu duplizieren. Im Kandidaten:
+
+- identische Vorbereitung, Barrieren, Stop-Reihenfolge WMS -> Landing -> S7;
+- geschützte Laufzeitsicherung, unabhängige Rücklese und isolierter Dateirestore;
+- unveränderte synthetische Proben, Runtime-/Loader-/Authority-/Writer-Prüfung;
+- einmaliger Start S7 -> Landing -> WMS, pro Dienst vor Freigabe des nächsten
+  aktuelle Invocation, NRestarts, Cgroup, Kernelrechte und Funktion;
+- zusätzliche Abschluss-Rücklese der vorhandenen geschützten Sicherung und
+  ihres Restorebaums; neue aktuelle Funktion aller drei Dienste; Prüfung des
+  Probe-Cleanups und lesender Lighting-Erhaltungs-/HTTP-Nachweis;
+- Owner-Phasen und Owner-Aktion explizit verweigert; kein Supervisor, kein
+  Owner-Eintrittsmarker, keine vorgetäuschte 84er-Quittung;
+- eigener gebundener R5-Beleg; danach bisheriger Ressourcen-Cleanup, dauerhafte
+  Cleanup-Quittung, FD-Ende und final. Jeder Fehler bleibt HOLD. Verlorenes ACK,
+  Fristablauf oder fehlendes final wird nicht zum Erfolg;
+- Recovery bleibt einmalig, bewahrt den ursprünglichen HOLD und übernimmt
+  eine bereits laufende neue Invocation nur nach frischer Funktionsprüfung.
+  Die bestehende begrenzte F4-Terminalreaktion bleibt erhalten. Kein Neustart
+  durch Wiederholung, kein Rückfall auf die alte privilegierte Runtime.
+
+Die neuen Namen R5_ISOLATION_RECEIPTED_R2_NOT_DISPATCHED und
+RECOVERY_R5_ISOLATION_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED bezeichnen den
+Host-Kandidaten erst nach Cleanup. Sie sind kein Nachweis des Client-Empfangs,
+des SSH-/Host-Prozessendes oder einer Veröffentlichung. Diese unabhängigen
+Belege muss der noch anzupassende vollständige Einstieg zusätzlich verlangen.
+
+Lokal belegt sind Reihenfolge, Erfolgs-/HOLD-Zweige, Wiederholungsverbot,
+verweigerte Owner-/R2-Aktionen, Rücklesefehler, verlorene Quittungen, Fristen
+und echte lokale Journaldateien/FD-Schließung. Linux/systemd, reale Dienste,
+SSH und Host-600s wurden hier nicht ausgeführt. Mock-Erfolg ersetzt sie nicht.
+
+Abhängigkeiten vor einer nativen Ausführung
+
+1. Neuer expliziter Abschlussvertrag in den acht gebundenen Materialien:
+   contract, approval, current_observation, current_acceptance, read_scope,
+   pre_stop_protection, native_timing, review. Der neue User-Auftrag ändert das
+   Ziel, ersetzt aber keine exakten ausführbaren Material-/Source-Bindungen.
+   Bestehende Hashes nicht nachträglich als Beleg dieses Kandidaten ausgeben.
+
+2. Mac und Host gemeinsam verdrahten: eigene Auswahl des R5-Abschlusses,
+   Source-Paket/Importbindung, Cleanup-/final-Ausgabefilter, unabhängige
+   geschlossene Journal-Rücklese, korrekter Exitstatus. Client-PASS verlangt
+   den neuen Cleanup-Beleg, empfangenes final, beobachtetes Prozessende und
+   eigene Transport-/Custody-Bereinigung. Owner-Zähler aus echten Records:
+   genau 0 Absichten, 0 Bestätigungen, kein Eintritt; fehlende Daten UNKNOWN.
+   Neue Statusnamen sind aktuell absichtlich keine zugelassenen CLI-Erfolge.
+
+3. Historischen Owner-Plan als endlichen LESE-/Erhaltungsfingerabdruck der
+   88 Lighting-Objekte weiterverwenden, solange dieser Bestand unverändert
+   erwartet wird. Keine Owner-Fähigkeit aus diesem Hash ableiten. Die
+   Sicherungsabdeckung der 102 Dateien und realen S7-Restorebelege erhalten.
+   Der Kandidat übernimmt konservativ noch die bisherige leere private
+   Lighting-Stagingwurzel und Source-Helferabhängigkeiten. Vor Verdrahtung
+   deren tatsächliche R5-Verwendung prüfen; unbenutzte Owner-Stagingeffekte
+   entfernen, gemeinsame Guard-/Filesystem-Helfer nicht blind löschen.
+   Pflichtprüfungen auf verbrauchte Claims/teilweise alte Owner-Eingriffe
+   bleiben: Die neue Abschlussform ist kein Weg um einen alten HOLD herum.
+
+4. Timing-Vertrag neu messen. 600 Sekunden jeweils vom vollständigen Original-
+   bzw. Recovery-Einstieg bis Cleanup UND Prozessende bleiben. 20 Sekunden je
+   Dienstaktion, bestehende 120-Sekunden-Aktionsgrenzen, Record-/FD-/Bytegrenzen
+   bleiben. Das alte 120-Sekunden-Owner-Fenster wird nicht betreten und nicht
+   als bestanden gemeldet. Die bisherigen Timingformeln reservieren dafür
+   volle 120 Sekunden und verlangen 84 ACKs; sie brauchen eine getrennte
+   R5-Formel mit tatsächlich gemessenem Finish-/Cleanup-/Transportpuffer.
+   Die alte 181s-Untergrenze darf nicht ungeprüft durch eine Schätzung ersetzt
+   werden. Erst neue Messung rechtfertigt die verbindlichen Restbudgets.
+
+5. Reguläre native Matrix auf den neuen Pfad binden: gleiche vorgeschaltete
+   Schutz-/Paritätsfälle; R5 ohne Eigentümermutation; Original und Recovery
+   F1/F2/F3/F4 sowie terminales F4 getrennt kalibrieren/verifizieren. Die
+   bisherige isolierte F1-Zulassung passt weder zum geänderten Diff noch zum
+   neuen Vertrag. Owner-spezifische historische Native-Fälle als getrennte
+   Legacy-/Lighting-Nachweise erhalten, nicht weiter als Voraussetzung des
+   neuen Hauptserverabschlusses verwenden und keinesfalls grün umetikettieren.
+   Erst vollständige reguläre Verifikation, kein isoliertes F1-PASS, schließt
+   die native Prüfung. Reviewer- und Bypass-Schutz unverändert.
+
+6. Recovery-Regeln an Abschlussgrenze ausdrücklich binden: kein zweiter
+   Eintritt und keine Reparatur alter ACKs. Bereits geschriebenes complete
+   mit anschließend verlorenem Cleanup/final bleibt HOLD; daraus folgt
+   keine automatische weitere Start-/Recovery-Erlaubnis. Der bestehende
+   Journal-Ausschluss solcher abgeschlossenen Ketten bleibt konservativ.
+
+Vorgeschlagener Hauptserverablauf nach späterer Ausführungsentscheidung
+
+A. Vor Stop neue endliche aktuelle Zustandsaufnahme: Host-/Boot-/Source-Bindung,
+   Unit-/Aktivierungszustand, StartLimit, Claims, administrative Authority,
+   Writer und Datenabdeckung; Backup-Alter und Datenlücke ausdrücklich bewerten.
+   Geschlossene reale Restores wiederverwenden. Keine verbrauchten E1-/S7-/
+   Reader-/P0-Slots wiederöffnen. Fehlender aktueller Schutz = kein Stop.
+   Exakte reale Eingaben unabhängig prüfen; vollständiger Mac-Preflight ohne
+   --execute. Die aktuellen Source-/Review-/Pflicht-CI-Bindungen müssen passen.
+
+B. Original genau einmal. Runtime privat vorbereiten und READY rücklesen,
+   Barrieren setzen, drei Dienste begrenzt stoppen, Sicherung/Rücklese/
+   Restore und Proben, feste Isolation/Runtime installieren, sequenziell
+   einmal starten, jede Funktion und abschließend alle drei frisch prüfen.
+   R5-Finish und vollständiger Host-/Client-Cleanup, Prozessende nachweisen.
+
+C. Bei Fehler eindeutig HOLD. Nur wenn die unveränderten F1-F4-Gates es
+   zulassen, einmaliger gebundener Recovery-Einstieg mit separater Kette;
+   sonst gesicherter Zustand und neue Entscheidung. Kein alter Runtime-
+   Rückweg, kein DB-Restore, keine Wiederholung unbestätigter Effekte.
+
+D. Abnahme: S7 inklusive schreibgeschützter DB-/Credential-Funktion, Landing
+   und bestehendes WMS inklusive ihrer JSON-Daten; interne Listener, Proxy
+   und externe kanonische HTTPS-Pfade sowie Kernel-/Cgroup-Isolation.
+   Zusätzlich Lighting als unveränderte Bestandsseite lesen. Alle relevanten
+   FDs/Helfer/Jobs/Proben und Sitzungen beendet; permanente Belege, Sicherungen
+   und Quarantänen bleiben absichtlich erhalten. Cleanup heißt nicht Löschen
+   dieser Sicherungen oder Abschalten der erfolgreich gestarteten Dienste.
+
+Unterbrechung: planen innerhalb des noch nativ zu belegenden 600s-Original-
+Fensters, bei zulässiger Recovery zusätzlich höchstens deren 600s-Einstieg.
+Das ist KEINE garantierte maximale Ausfallzeit: ein HOLD oder eine menschliche
+Entscheidung kann die Wiederherstellung verlängern. Aktuelle Sekundenreserve
+unbekannt; die alten Owner-Zeiten dürfen nicht pauschal subtrahiert werden.
+
+Lighting als separater Plan, ohne Eingriff dieses Blocks
+
+Neue konkrete Struktur: /var/www/lighting-releases/<release-id>/public.
+Nur administrativ kontrollierte Eltern, neue Verzeichnisse root:www-data0750,
+statische Dateien root:www-data0640, keine fremden/default-Schreib-ACLs,
+keine nicht gebundenen Links/Devices/harten Verknüpfungen. Eigentümer/Modi
+betreffen ausschließlich NEUE Inodes; kein chown/chmod am alten Webroot.
+www-data muss durch alle Eltern traversieren und lesen können, aber weder
+Dateien schreiben noch Namen ersetzen. Effektive Worker-/Gruppen-/Mount-
+Rechte und tatsächliches Nginx-Lesen vor Umschaltung prüfen.
+
+Zuerst eine geschützte unveröffentlichte Baseline-Ausgabe aus den gesicherten
+88 Objekten herstellen und gegen deren Manifest vollständig rücklesen.
+Danach eine getrennte Ausgabe für einen später ausdrücklich benannten Release.
+Rechtstexte unverändert; explizite Erhaltspfade aus managed/lighting/release.json:
+assets/tu1nz-affiliate-click-v1.js, assets/tu1nz_fix.css, assets/products/,
+imprint/, privacy/, imprint.html, privacy.html. Der gesicherte Scope enthält
+zusätzlich products/, index.html und historische Dateien: den vollständigen
+endlichen Bestand erhalten, nicht nur diese sieben Einträge kopieren.
+Dieser Block hat nur Scope-/Quittungsmetadaten gelesen, keine geschlossenen
+Restoreinhalte erneut aufgenommen und keine Release-Bytes veröffentlicht.
+
+Konfigurationsbefund: nginx/current/lighting.tu1nz.com enthält root
+/var/www/lighting.tu1nz.com, index index.html, try_files $uri $uri/ =404,
+HTTPS/Certbot und HTTP->HTTPS. nginx.conf bindet sites-enabled/* ein und
+benutzt www-data. Dieser versionierte Stand stammt vom 26.08.2026; die
+Host-Beobachtung vom 01.11. bestätigt Dienst/alten Verzeichniszustand,
+aber KEINE aktuelle vollständige Nginx-Konfiguration.
+
+Passender vorläufiger Umschaltweg: ausschließlich die root-Direktive des
+tatsächlich geladenen Lighting-vHosts atomar auf den konkreten geschützten
+Releasepfad ändern; TLS, Redirects, try_files und andere vHosts bewahren.
+Vorher genaue Include-/Symlink-/Alias-/location- und open_file_cache-Kontexte
+aus aktueller Konfiguration binden. Den resolved sites-enabled-Zielpfad nicht
+erraten oder einen fremden Symlink ersetzen. nginx -t, einmaliger begrenzter
+Reload, aktive Generation und externe HTTPS-/Asset-/Rechtstext-Abnahme.
+Ein Symlinkwechsel des bisherigen owner33-Webroots ist kein vereinbarter
+Shortcut und benötigt zusätzliche tatsächliche Pfad-/Nginx-Nachweise.
+
+Rückweg: bereits zuvor vollständig geprüfte, ebenfalls geschützte Baseline-
+Ausgabe auswählen und dieselbe kleine geprüfte Konfigurationsänderung mit
+Test/Reload/HTTP-Abnahme zurückführen. Nicht auf den alten beschreibbaren
+Webroot zurückzeigen. Rückweg separat begrenzen und protokollieren; keine
+DB-/Provider-/WMS-Aktion. Die bisherige Lighting-Deploy-Anleitung verbietet
+Nginx-Änderungen und führt eine Transaktion im alten Webroot aus: sie ist für
+diesen neuen Umschaltplan nicht unverändert ausführbar. Die dafür benötigte
+spätere konkrete Release-/Umschaltfreigabe ist ausdrücklich noch offen.
+
+Vorhandene und offene Nachweise / nächste Entscheidung
+
+Wiederverwendbar: tatsächlicher S7-DB-Restore samt Schema/Rechten/Daten,
+102-Datei-/88-Lighting-Restore mit Attributen und geschlossenem Cleanup
+(S7-noinherit-followup vom 06.11.); unveränderte Runtime-/Isolationskomponenten
+und deren bisherige Paritätsnachweise. Diese Belege sind keine aktuelle
+Sicherungsabdeckung. Vorherige Owner-PASS/FAIL bleiben historische Ergebnisse.
+F1-Lauf #5 auf f0a0275 bleibt FAIL mit 81 Absichten/80 ACKs, ohne Finish;
+seine Zeiten sind kein Beweis für den neuen R5-Abschluss.
+
+Offen: gemeinsame Mac-/Host-/Material-/CI-Integration dieses Kandidaten,
+unabhängige Prüfung des gebundenen Integrationsstands, native vollständige
+Original-/Recovery-Zeiten bis Prozessende mit Reserve, Pflicht-CI/Source-
+Releasebindung und aktuelle Vor-Stop-Gates. Lighting zusätzlich aktuelle
+Nginx-Konfiguration, neue geschützte Ausgaben, tatsächlicher Lesetest und
+Umschalt-/Rückweg-Gegenprobe. Kein heutiger Host-PASS, keine Veröffentlichung.
+
+Empfehlung: diesen getrennten Abschlussvertrag als nächsten Integrationsstand
+verwenden. Nächster Block: lokal Mac/Host/Material/Timing und Native-Matrix
+konsistent integrieren, unabhängig prüfen, dann genau einen regulären
+PR-241-Lauf zur separaten Push-/Laufentscheidung vorlegen. Schätzung dafür
+3-6 aktive Stunden plus CI-Wartezeit, abhängig von nativen Befunden; keine
+weitere Owner-Optimierung als Vorbedingung. Erst nach dessen PASS konkrete
+Host-Eingaben/aktuellen Schutz prüfen und die Hostausführung entscheiden.
+Die wesentliche offene Abhängigkeit ist der gebundene vollständige Einstieg,
+nicht eine technische Notwendigkeit der 84 Eigentümerwechsel.

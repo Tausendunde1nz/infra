@@ -839,6 +839,9 @@ class MaintenanceSessionResult:
                 owner.return_once(); adapter.owner_result = owner.finish()
         self.status = 'HOLD'  # original primary/abort/cleanup remain intact
 
+    def completion_fields(self):
+        return {'owner_completion_sha256': self.owner_completion}
+
     def close(self):
         """Close only owned resources, then persist the current cleanup result.
 
@@ -875,7 +878,7 @@ class MaintenanceSessionResult:
                 self.cleanup.append('PUBLIC_BOOTSTRAP_RECOVERY_RESULT_ORIGINAL_BINDING_CHANGED'); self.status = 'HOLD'
                 original = None
         record = {'status':self.status, 'primary':self.primary, 'abort':list(self.abort),
-                  'cleanup':list(self.cleanup), 'owner_completion_sha256':self.owner_completion,
+                  'cleanup':list(self.cleanup), **self.completion_fields(),
                   'original_status':'FAILED_HOLD' if self.route == 'recovery-once' else 'THIS_RUN',
                   'original_evidence':original,
                   'client_cleanup_still_required':True, 'r2_dispatch':False}
