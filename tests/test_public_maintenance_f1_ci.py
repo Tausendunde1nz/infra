@@ -114,6 +114,44 @@ class F1DiagnosticTests(unittest.TestCase):
         self.assertFalse(result['host_acceptance'])
         self.assertEqual(result['guest_cleanup'], 'PASS')
 
+    def test_profile_survives_one_guest_failure_without_changing_counters_or_cleanup(self):
+        ns,_=existing.F1OwnerTraceTests().completed()
+        profile=d.maintenance.diagnostics.owner_profile_projection(ns['_f1_report']())
+        value={'schema':'TU1NZ_REV4_NATIVE_CASE_V1','green':False,'case':d.CASE,
+            'phase':d.PHASE,'host_acceptance':False,'code':'NATIVE_FULL_ENTRY_ASSERTION',
+            'owner_counts':{'owner_intents':70,'owner_acks':70},
+            'recovery-once':{'owner_profile':profile,'result':{
+                'primary':'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_LOST_NO_RETRY',
+                'client_cleanup':['PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED']}}}
+        for invalid in (False,True):
+            current=copy.deepcopy(value)
+            if invalid:current['recovery-once']['owner_profile']['journal_ack']['ack_calls']=True
+            result,output=self.native_result(current)
+            self.assertFalse(result['green']);self.assertEqual(result['guest_cleanup'],'PASS')
+            self.assertEqual(result['failure']['owner_counts'],value['owner_counts'])
+            self.assertEqual(result['failure']['recovery-once']['client_cleanup'],
+                value['recovery-once']['result']['client_cleanup'])
+            self.assertEqual(result['failure']['recovery-once']['owner_profile'],
+                'UNKNOWN' if invalid else profile)
+            self.assertEqual(json.loads(output)['failure'],result['failure'])
+
+    def test_pass_profile_requires_separate_validated_client_receipt(self):
+        ns,_=existing.F1OwnerTraceTests().completed()
+        diagnostic=d.maintenance.diagnostics.f1_diagnostic({'f1_owner_profile':ns['_f1_report']()})
+        value=existing.NativeBoundaryTests().fixture()[2][1]
+        value['f1_diagnostic']=diagnostic
+        result,_=self.native_result(value)
+        self.assertTrue(result['green'])
+        self.assertTrue(result['f1_diagnostic']['owner_profile']['final_send_completed'])
+        self.assertEqual(result['f1_diagnostic']['transport_failure']['remote_final_record'],'UNKNOWN')
+        transport=d.maintenance.diagnostics.unknown_transport()
+        transport.update(cleanup_receipt='BOUND_READBACK',ssh_exit=0,local_ssh_outcome='EXIT',
+            ssh_exit_observation='AFTER_CLIENT_CLEANUP',remote_final_record='PRESENT_BOUND')
+        value['f1_diagnostic']['transport_failure']=transport
+        result,_=self.native_result(value)
+        self.assertEqual(result['f1_diagnostic']['transport_failure']['remote_final_record'],'PRESENT_BOUND')
+        self.assertEqual(result['f1_diagnostic']['transport_failure']['remote_process_state'],'UNKNOWN')
+
     def test_real_synthetic_failure_exposes_first_fault_counts_and_keeps_fail_cleanup(self):
         helper = existing.NativeBoundaryTests()
         fields = helper.counted_native_failure()

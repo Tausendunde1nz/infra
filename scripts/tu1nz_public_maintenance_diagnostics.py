@@ -36,6 +36,136 @@ TRANSPORT_PHASES = {
 }
 UNKNOWN = 'UNKNOWN'
 
+OWNER_PHASES = ('admission', 'apply', 'finish_cleanup', 'abort_cleanup')
+PROFILE_FLAGS = ('close_entered', 'close_returned', 'finish_entered', 'finish_returned',
+                 'final_send_started', 'final_send_completed')
+PROFILE_KEYS = {'schema', 'phases', 'cap_delay_ns', 'owner_remaining_at_close_ns',
+                'journal_ack', 'first_close_error', *PROFILE_FLAGS}
+
+
+def validated_close_error(value):
+    # First OBSERVED exception or returned cleanup code, not a claim that all
+    # internally swallowed exceptions have been observed. Never exception text.
+    if type(value) is not dict or set(value) != {'stage', 'kind', 'type', 'code', 'fault'}:
+        return None
+    if type(value['stage']) is not str or value['stage'] not in {
+            'session_close', 'resource_cleanup', 'journal_record', 'final_send'}:
+        return None
+    if value['kind'] not in ('EXCEPTION', 'CLEANUP_CODE'):
+        return None
+    types = {n for n, v in vars(builtins).items()
+             if isinstance(v, type) and issubclass(v, BaseException)} | {
+                 'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
+    if type(value['type']) is not str or value['type'] not in types | {UNKNOWN}:
+        return None
+    if (value['kind'] == 'CLEANUP_CODE') != (value['type'] == UNKNOWN):
+        return None
+    from tu1nz_public_operator_ci import diagnostic_codes
+    if type(value['code']) is not str or value['code'] not in diagnostic_codes() | {UNKNOWN}:
+        return None
+    fault = value['fault']
+    if fault != UNKNOWN and validated_host_fault(fault) is None:
+        return None
+    return {**value, 'fault': dict(fault) if type(fault) is dict else UNKNOWN}
+
+
+def validated_owner_profile(value):
+    """Bounded Host SELF CPU/wall measurements; never acceptance or remote exit.
+
+    Admission wall begins at the actual Owner deadline minus 120 seconds.
+    CPU starts at cap entry; cap_delay_ns discloses that interval. ACK wait
+    already belongs to phase wall time. Calls include failed receives; returns
+    count actual Wire returns, not independent Owner confirmations.
+    """
+    if type(value) is not dict or set(value) != PROFILE_KEYS or \
+            value['schema'] != 'TU1NZ_F1_OWNER_PHASES_V1':
+        return None
+    if any(type(value[k]) is not bool for k in PROFILE_FLAGS):
+        return None
+    for key, lower, upper in (('cap_delay_ns', 0, 120_000_000_000),
+            ('owner_remaining_at_close_ns', -600_000_000_000, 120_000_000_000)):
+        if not (type(value[key]) is int and lower <= value[key] <= upper or
+                type(value[key]) is str and value[key] == UNKNOWN):
+            return None
+    phases = value['phases']
+    if type(phases) is not dict or set(phases) != set(OWNER_PHASES):
+        return None
+    rows = {}
+    for name, row in phases.items():
+        if type(row) is not dict or set(row) != {'outcome', 'wall_ns', 'cpu_ns', 'ack_calls', 'ack_returns', 'ack_wait_ns'}:
+            return None
+        if row['outcome'] not in ('NOT_ENTERED', 'OPEN', 'COMPLETE', 'INTERRUPTED'):
+            return None
+        for key in ('wall_ns', 'cpu_ns', 'ack_calls', 'ack_returns', 'ack_wait_ns'):
+            unknown = row['outcome'] == 'NOT_ENTERED' or (row['outcome'] == 'OPEN' and key in ('wall_ns', 'cpu_ns'))
+            if unknown:
+                if type(row[key]) is not str or row[key] != UNKNOWN: return None
+            elif type(row[key]) is not int or not 0 <= row[key] <= (512 if key in ('ack_calls', 'ack_returns') else 600_000_000_000):
+                return None
+        if row['outcome'] != 'NOT_ENTERED' and row['ack_returns'] > row['ack_calls']:
+            return None
+        if row['outcome'] in ('COMPLETE', 'INTERRUPTED') and (
+                row['ack_wait_ns'] > row['wall_ns'] or row['cpu_ns'] > row['wall_ns']+1_000_000):
+            return None
+        rows[name] = dict(row)
+    totals=value['journal_ack']
+    if type(totals) is not dict or set(totals)!={'ack_calls','ack_returns','ack_wait_ns'} or any(
+            type(v) is not int or not 0<=v<=(600_000_000_000 if k=='ack_wait_ns' else 512)
+            for k,v in totals.items()) or totals['ack_returns']>totals['ack_calls']:
+        return None
+    if any(sum(r[k] for r in rows.values() if type(r[k]) is int)>totals[k] for k in totals):
+        return None
+    entered = lambda name: rows[name]['outcome'] != 'NOT_ENTERED'
+    if (entered('apply') and rows['admission']['outcome'] != 'COMPLETE' or
+            value['finish_entered'] != entered('finish_cleanup') or
+            value['finish_entered'] and rows['apply']['outcome'] != 'COMPLETE' or
+            value['finish_returned'] and not value['finish_entered'] or
+            value['final_send_started'] and not value['close_entered'] or
+            value['final_send_completed'] and not value['final_send_started'] or
+            value['close_returned'] and not value['final_send_completed'] or
+            value['cap_delay_ns'] != UNKNOWN and not entered('admission') or
+            value['owner_remaining_at_close_ns'] != UNKNOWN and not value['close_entered']):
+        return None
+    fault = value['first_close_error']
+    if fault != UNKNOWN:
+        fault = validated_close_error(fault)
+        if fault is None or not value['close_entered']: return None
+    return {**value, 'phases': rows, 'journal_ack':dict(totals), 'first_close_error': fault}
+
+
+def owner_profile_projection(raw):
+    """Normalize absent in-memory observations, then reject invalid metrics."""
+    if type(raw) is not dict or set(raw) != PROFILE_KEYS:
+        return UNKNOWN
+    value = dict(raw)
+    for key in ('cap_delay_ns', 'owner_remaining_at_close_ns', 'first_close_error'):
+        if value[key] is None: value[key] = UNKNOWN
+    error = value['first_close_error']
+    if type(error) is dict and set(error) == {'stage', 'kind', 'type', 'code', 'fault'}:
+        from tu1nz_public_operator_ci import diagnostic_codes
+        error = dict(error)
+        if type(error['code']) is not str or error['code'] not in diagnostic_codes(): error['code'] = UNKNOWN
+        error['fault'] = validated_host_fault(error['fault']) or UNKNOWN
+        value['first_close_error'] = validated_close_error(error) or UNKNOWN
+    return validated_owner_profile(value) or UNKNOWN
+
+
+def f1_diagnostic(trace):
+    trace = trace if type(trace) is dict else {}
+    return {'owner_profile': owner_profile_projection(trace.get('f1_owner_profile')),
+            'transport_failure': validated_transport(trace.get('f1_client_transport')) or unknown_transport()}
+
+
+def validated_f1_diagnostic(value):
+    if type(value) is not dict or set(value) != {'owner_profile', 'transport_failure'}:
+        return None
+    profile = value['owner_profile']
+    if profile != UNKNOWN:
+        profile = validated_owner_profile(profile)
+        if profile is None: return None
+    transport = validated_transport(value['transport_failure'])
+    return {'owner_profile': profile, 'transport_failure': transport} if transport is not None else None
+
 
 def unknown_transport():
     return {k: UNKNOWN for k in ('code', 'last_journal_kind', 'last_journal_phase',

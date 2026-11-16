@@ -151,6 +151,175 @@ _wrap(s.load("host").MaintenanceSessionResult,"close",_close)
 '''
 
 
+F1_HOST_TRACE=r'''
+# Installed only for recovery_F1/recovery-once. No extra reads, ACKs, polling
+# or per-object output. SELF CPU excludes child/systemd work. ACK wait is an
+# inclusive part of phase wall time, including failed receive attempts.
+_f1={"phases":{},"active":None,"owner_deadline_ns":None,"cap_delay_ns":None,
+     "close_entered":False,"close_returned":False,"in_close":False,
+     "finish_entered":False,"finish_returned":False,
+     "final_send_started":False,"final_send_completed":False,
+     "first_close_error":None,"journal_wire":None,"stage":"session_close",
+     "journal_ack":{"ack_calls":0,"ack_returns":0,"ack_wait_ns":0}}
+def _f1_clock():return (time.monotonic_ns(),time.process_time_ns())
+def _f1_end(outcome,at=None):
+ name=_f1["active"]
+ if name is not None:
+  row=_f1["phases"][name];row["end"]=at or _f1_clock();row["outcome"]=outcome
+  _f1["active"]=None
+def _f1_begin(name,at=None):
+ if name not in _f1["phases"]:
+  _f1["phases"][name]={"begin":at or _f1_clock(),"end":None,"outcome":"OPEN",
+    "ack_calls":0,"ack_returns":0,"ack_wait_ns":0}
+  _f1["active"]=name
+def _f1_abort():
+ if _f1["active"]!="abort_cleanup":
+  at=_f1_clock()
+  if _f1["active"] is None and "apply" in _f1["phases"]:
+   at=_f1["phases"]["apply"]["end"] or at
+  _f1_end("INTERRUPTED",at);_f1_begin("abort_cleanup",at)
+def _f1_error(error=None,code=None):
+ if _f1["in_close"] and _f1["first_close_error"] is None:
+  _f1["first_close_error"]={"stage":_f1["stage"],
+   "kind":"EXCEPTION" if error is not None else "CLEANUP_CODE",
+   "type":type(error).__name__ if error is not None else "UNKNOWN",
+   "code":getattr(error,"primary",None) if error is not None else code,
+   "fault":s.load("host").source_fault_location(error) if error is not None else None}
+def _f1_note(fn,*a):
+ try:return fn(*a)
+ except Exception:pass # measurement cannot replace a real verdict/exception
+def _f1_cap(actual,self,deadline):
+ if type(self) is _io.RecoveryLinkedRecords and _f1["owner_deadline_ns"] is None:
+  at=_f1_clock();anchor=int(deadline*1_000_000_000)-120_000_000_000
+  _f1["owner_deadline_ns"]=int(deadline*1_000_000_000)
+  _f1["cap_delay_ns"]=at[0]-anchor
+  # Wall starts at the actual deadline's anchor; SELF CPU is sampled at cap
+  # entry. cap_delay_ns discloses the small interval before that CPU sample.
+  _f1_note(_f1_begin,"admission",(anchor,at[1]))
+ return actual(self,deadline)
+def _f1_observe(actual,self,phase,**kw):
+ try:return actual(self,phase,**kw)
+ except BaseException:
+  if phase=="owner_ready" and _f1["active"]=="admission":_f1_note(_f1_abort)
+  raise
+def _f1_apply(actual,*a,**kw):
+ at=_f1_clock();_f1_note(_f1_end,"COMPLETE",at);_f1_note(_f1_begin,"apply",at)
+ try:result=actual(*a,**kw)
+ except BaseException:
+  _f1_note(_f1_abort);raise
+ else:
+  _f1_note(_f1_end,"COMPLETE");return result
+def _f1_finish(actual,*a,**kw):
+ _f1["finish_entered"]=True;_f1_note(_f1_begin,"finish_cleanup")
+ try:result=actual(*a,**kw)
+ except BaseException:
+  _f1_note(_f1_abort);raise
+ else:
+  _f1["finish_returned"]=True;return result
+def _f1_record(actual,self,kind,value):
+ prior=_f1["journal_wire"];stage=_f1["stage"];_f1["journal_wire"]=self.wire
+ if _f1["in_close"]:_f1["stage"]="journal_record"
+ try:return actual(self,kind,value)
+ except BaseException as error:
+  _f1_note(_f1_error,error);raise
+ finally:_f1["journal_wire"]=prior;_f1["stage"]=stage
+def _f1_receive(actual,self):
+ if self is not _f1["journal_wire"]:return actual(self)
+ phase=_f1["phases"].get(_f1["active"])
+ rows=[_f1["journal_ack"]]+([phase] if phase is not None else [])
+ for row in rows:row["ack_calls"]+=1
+ try:
+  began=time.monotonic_ns()
+  try:result=actual(self)
+  finally:elapsed=time.monotonic_ns()-began
+ except BaseException as error:
+  _f1_note(_f1_error,error);raise
+ else:
+  for row in rows:row["ack_returns"]+=1
+  return result
+ finally:
+  for row in rows:row["ack_wait_ns"]+=elapsed
+def _f1_send(actual,self,value):
+ final=_f1["in_close"] and type(value) is dict and value.get("type")=="final"
+ if final:_f1["final_send_started"]=True
+ prior=_f1["stage"]
+ if final:_f1["stage"]="final_send"
+ try:result=actual(self,value)
+ except BaseException as error:
+  _f1_note(_f1_error,error);raise
+ else:
+  if final:_f1["final_send_completed"]=True
+  return result
+ finally:_f1["stage"]=prior
+def _f1_cleanup(actual,*a,**kw):
+ prior=_f1["stage"];_f1["stage"]="resource_cleanup"
+ try:result=actual(*a,**kw)
+ except BaseException as error:
+  _f1_note(_f1_error,error);raise
+ else:
+  if type(result) is list and result:_f1_note(_f1_error,None,result[0])
+  return result
+ finally:_f1["stage"]=prior
+def _f1_owner_close(actual,*a,**kw):
+ # Also separate an Owner's own failure cleanup inside apply/admission,
+ # before the outer session close is reached. Normal finish owns its cleanup.
+ if not _f1["finish_entered"] and _f1["active"] in ("admission","apply"):
+  _f1_note(_f1_abort)
+ return _f1_cleanup(actual,*a,**kw)
+def _f1_close(actual,*a,**kw):
+ _f1["close_entered"]=True;_f1["in_close"]=True
+ _f1["owner_remaining_at_close_ns"]=(None if _f1["owner_deadline_ns"] is None else
+     _f1["owner_deadline_ns"]-time.monotonic_ns())
+ if not _f1["finish_returned"]:_f1_note(_f1_abort)
+ # Catch failed require guards even when cleanup catches them internally.
+ # Installed only during close; other swallowed errors can first become
+ # observable as returned cleanup codes. This is the FIRST OBSERVED error.
+ require=_io.require
+ def observed_require(*args,**kwargs):
+  try:return require(*args,**kwargs)
+  except BaseException as error:
+   _f1_note(_f1_error,error);raise
+ _io.require=observed_require
+ try:result=actual(*a,**kw)
+ except BaseException as error:
+  _f1_note(_f1_error,error);_f1_note(_f1_end,"INTERRUPTED");raise
+ else:
+  _f1["close_returned"]=True;_f1_note(_f1_end,"COMPLETE");return result
+ finally:_io.require=require;_f1["in_close"]=False
+def _f1_report():
+ phases={}
+ for name in ("admission","apply","finish_cleanup","abort_cleanup"):
+  row=_f1["phases"].get(name)
+  phases[name]={"outcome":"NOT_ENTERED","wall_ns":"UNKNOWN","cpu_ns":"UNKNOWN",
+   "ack_calls":"UNKNOWN","ack_returns":"UNKNOWN","ack_wait_ns":"UNKNOWN"}
+  if row is not None:
+   phases[name].update({k:row[k] for k in ("outcome","ack_calls","ack_returns","ack_wait_ns")})
+   if row["end"] is not None:
+    phases[name].update(wall_ns=row["end"][0]-row["begin"][0],cpu_ns=row["end"][1]-row["begin"][1])
+ return {"schema":"TU1NZ_F1_OWNER_PHASES_V1","phases":phases,
+  "journal_ack":dict(_f1["journal_ack"]),
+  "cap_delay_ns":_f1["cap_delay_ns"],
+  "owner_remaining_at_close_ns":_f1.get("owner_remaining_at_close_ns"),
+  **{k:_f1[k] for k in ("close_entered","close_returned","finish_entered","finish_returned",
+    "final_send_started","final_send_completed","first_close_error")}}
+_wrap(_io.LinkedRecords,"cap",_f1_cap)
+_wrap(_replacement.MaintenanceAdapter,"_observe",_f1_observe)
+_wrap(s.load("owner").Supervisor,"apply",_f1_apply)
+_wrap(s.load("owner").Supervisor,"finish",_f1_finish)
+_wrap(s.load("owner").Supervisor,"close",_f1_owner_close)
+_wrap(_io.LinkedRecords,"record",_f1_record)
+_wrap(_io.Wire,"receive",_f1_receive)
+_wrap(_io.Wire,"send",_f1_send)
+_wrap(_replacement.RecoveryAdapter,"close",_f1_cleanup)
+_wrap(s.load("fs").Paths,"close",_f1_cleanup)
+_wrap(s.load("host").MaintenanceSessionResult,"close",_f1_close)
+_f1_save_trace=_save_trace
+def _save_trace():
+ _trace["f1_owner_profile"]=_f1_note(_f1_report)
+ return _f1_save_trace()
+'''
+
+
 def bootstrap(raw,pins,inputs,case,route,*,legacy_sha):
     program=client.maintenance_bootstrap_original(raw)
     # Source validates the synthetic asset bytes before loading anything. All
@@ -170,7 +339,8 @@ def bootstrap(raw,pins,inputs,case,route,*,legacy_sha):
     settings+='s.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_sha)+'\n'
     settings+='_case='+repr(case)+';_route='+repr(route)+'\n'
     assert program.count(selectors)==1
-    return program.replace(selectors,settings+HOST_TRACE+'\ntry:\n _trace["final"]='+selectors+
+    profile=F1_HOST_TRACE if (case,route)==('recovery_F1','recovery-once') else ''
+    return program.replace(selectors,settings+HOST_TRACE+profile+'\ntry:\n _trace["final"]='+selectors+
         '\nfinally:\n _save_trace()\n')
 
 
@@ -261,6 +431,9 @@ def execute_worker(case,route):
     assert value['connections']==1,'EXACTLY_ONE_NATIVE_SSH_REQUIRED'
     assert end-began<600_000_000_000,'FULL_ENTRY_600_PROCESS_END_EXCEEDED'
     trace=io.parse((ROOT/('trace-'+route+'.json')).read_bytes())
+    if (case,route)==('recovery_F1','recovery-once'):
+        trace['f1_client_transport']=diagnostics.transport_projection(
+            value.get('transport_observation'),value.get('cleanup_observation'),trace)
     return value['result'],trace,began,end
 
 
@@ -353,7 +526,8 @@ def main(case,phase):
         else:custody.close()
         assert denied and snapshot(original_root)==before,'SECOND_RECOVERY_ENTRY_NOT_DENIED'
     row=measured(case,receipt,result,trace,began,end)
-    return {'schema':'TU1NZ_REV4_NATIVE_CASE_V1','case':case,'phase':phase,'green':True,
+    extra={'f1_diagnostic':diagnostics.f1_diagnostic(trace)} if case=='recovery_F1' else {}
+    return {'schema':'TU1NZ_REV4_NATIVE_CASE_V1','case':case,'phase':phase,'green':True,**extra,
         'production_source_files':production_hashes,'fixture_source_files':packet['hashes'],
         'fixture_artifact_sha256':io.sha(io.canonical(receipt)),
         'original_failed_hold_preserved':case!='original','second_recovery_denied_before_SSH':case!='original',
@@ -404,6 +578,9 @@ if __name__=='__main__':
                 if args.case=='recovery_F1':
                     result[route]['transport_failure']=diagnostics.transport_projection(
                         result[route].get('transport_observation'),result[route].get('cleanup_observation'),trace_value)
+                    if route=='recovery-once':
+                        result[route]['owner_profile']=diagnostics.owner_profile_projection(
+                            trace_value.get('f1_owner_profile') if type(trace_value) is dict else None)
     finally:
         path=Path('/native-result.json')
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)

@@ -242,6 +242,212 @@ class F1TransportDiagnosticTests(unittest.TestCase):
         self.assertEqual(result['last_journal_kind'],'UNKNOWN')
 
 
+class F1OwnerTraceTests(unittest.TestCase):
+    """Execute the real test wrappers with synthetic clocks; never run Owner."""
+    def trace(self, clock=None):
+        import ast
+        import time
+        from tests import public_maintenance_native as n
+        from tests.test_public_maintenance_result import host
+        tree=ast.parse(n.F1_HOST_TRACE)
+        nodes=[v for v in tree.body if isinstance(v,ast.FunctionDef) and v.name!='_save_trace' or
+               isinstance(v,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='_f1' for t in v.targets)]
+        ns={'time':clock or time,'_io':io,'s':SimpleNamespace(load=lambda name:host)}
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),'<f1-test-trace>','exec'),ns)
+        return ns
+
+    def clock(self):
+        clock=SimpleNamespace(wall=1_000_000_000,cpu=1_000_000)
+        clock.monotonic_ns=lambda:clock.wall
+        clock.process_time_ns=lambda:clock.cpu
+        def advance(wall,cpu):clock.wall+=wall;clock.cpu+=cpu
+        clock.advance=advance
+        return clock
+
+    def start(self, ns, clock):
+        channel=io.RecoveryLinkedRecords.__new__(io.RecoveryLinkedRecords)
+        channel.wire=SimpleNamespace(deadline=601);channel.ceiling=601
+        clock.advance(10_000,2_000) # disclose time between start anchor and cap
+        ns['_f1_cap'](io.LinkedRecords.cap,channel,121.0)
+        return channel
+
+    def completed(self):
+        clock=self.clock();ns=self.trace(clock);self.start(ns,clock)
+        clock.advance(100_000,20_000)
+        ns['_f1_apply'](lambda:clock.advance(200_000,40_000))
+        ns['_f1_finish'](lambda:clock.advance(100_000,20_000))
+        def close():
+            clock.advance(100_000,20_000)
+            ns['_f1_send'](lambda wire,value:None,object(),{'type':'final'})
+            return 'UNCHANGED'
+        self.assertEqual(ns['_f1_close'](close),'UNCHANGED')
+        return ns,clock
+
+    def test_only_f1_recovery_bootstrap_installs_trace_and_cpu_sampling(self):
+        from tests import public_maintenance_native as n
+        inputs={'application':{'commit':'0'*40,'tree':'1'*40,'manifest_sha256':'a'*64}}
+        pins={'MAINTENANCE_MACHINE':'a'*64,'MAINTENANCE_OWNER_PLAN':'b'*64}
+        for case,route in (('original','original'),('recovery_F1','original'),
+                ('recovery_F2','recovery-once'),('recovery_F1','recovery-once')):
+            with self.subTest(case=case,route=route),patch.object(client,'maintenance_bootstrap_original',
+                    client.maintenance_bootstrap,create=True):
+                program=n.bootstrap(Path(io.__file__).read_bytes(),pins,inputs,case,route,legacy_sha='c'*64)
+                compile(program,'<compile-only-f1>','exec')
+                self.assertEqual(n.F1_HOST_TRACE in program,(case,route)==('recovery_F1','recovery-once'))
+
+    def test_admission_starts_at_actual_owner_cap_before_marker_and_apply(self):
+        clock=self.clock();ns=self.trace(clock);channel=self.start(ns,clock)
+        self.assertEqual(channel.ceiling,121)
+        self.assertEqual(ns['_f1']['phases']['admission']['begin'],(1_000_000_000,1_002_000))
+        clock.advance(90_000,10_000)
+        actual=Mock(return_value='ACTUAL_APPLY')
+        self.assertEqual(ns['_f1_apply'](actual),'ACTUAL_APPLY');actual.assert_called_once_with()
+        profile=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        self.assertEqual(profile['cap_delay_ns'],10_000)
+        self.assertEqual(profile['phases']['admission']['wall_ns'],100_000)
+        self.assertEqual(profile['phases']['admission']['cpu_ns'],10_000)
+        self.assertEqual(profile['phases']['finish_cleanup']['outcome'],'NOT_ENTERED')
+
+    def test_ack_receive_wait_is_inclusive_and_does_not_measure_record_write(self):
+        clock=self.clock();ns=self.trace(clock);self.start(ns,clock)
+        wire=SimpleNamespace()
+        def receive(self):clock.advance(100_000,10_000);return {'actual':'ACK'}
+        def record(channel,kind,value):
+            clock.advance(20_000,5_000)
+            answer=ns['_f1_receive'](receive,channel.wire)
+            clock.advance(30_000,5_000)
+            return answer
+        self.assertEqual(ns['_f1_record'](record,SimpleNamespace(wire=wire),'owner_ready',{}),{'actual':'ACK'})
+        # A non-journal receive is not counted.
+        ns['_f1_receive'](receive,wire)
+        ns['_f1_apply'](lambda:None)
+        row=m.diagnostics.owner_profile_projection(ns['_f1_report']())['phases']['admission']
+        self.assertEqual((row['ack_calls'],row['ack_returns'],row['ack_wait_ns']),(1,1,100_000))
+        self.assertEqual(row['wall_ns'],260_000)
+
+    def test_receive_timeout_and_missing_finish_preserve_fail_and_abort_cleanup(self):
+        clock=self.clock();ns=self.trace(clock);self.start(ns,clock)
+        error=io.Hold('PUBLIC_OPERATOR_WIRE_DEADLINE');wire=SimpleNamespace()
+        def receive(self):clock.advance(120_000_000_000,10_000_000);raise error
+        def apply():
+            return ns['_f1_record'](lambda channel,kind,value:ns['_f1_receive'](receive,wire),
+                SimpleNamespace(wire=wire),'owner_object_ack',{})
+        with self.assertRaises(io.Hold) as caught:ns['_f1_apply'](apply)
+        self.assertIs(caught.exception,error)
+        clock.advance(100_000,1_000)
+        with self.assertRaises(io.Hold):
+            ns['_f1_close'](lambda:ns['_f1_send'](lambda *a:io.require(False,'WIRE_DEADLINE'),
+                wire,{'type':'final'}))
+        p=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        self.assertEqual(p['phases']['apply']['ack_calls'],1)
+        self.assertEqual(p['phases']['apply']['ack_returns'],0)
+        self.assertEqual(p['phases']['apply']['ack_wait_ns'],120_000_000_000)
+        self.assertEqual(p['phases']['finish_cleanup']['outcome'],'NOT_ENTERED')
+        self.assertEqual(p['phases']['abort_cleanup']['wall_ns'],100_000)
+        self.assertTrue(p['close_entered']);self.assertFalse(p['close_returned'])
+        self.assertTrue(p['final_send_started']);self.assertFalse(p['final_send_completed'])
+        self.assertLess(p['owner_remaining_at_close_ns'],0)
+        self.assertEqual(p['first_close_error']['code'],'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_DEADLINE')
+
+    def test_real_expired_wire_close_keeps_descriptor_cleanup_and_eof(self):
+        import time
+        from tests.test_public_maintenance_result import MaintenanceSessionResultTests
+        helper=MaintenanceSessionResultTests();helper.setUp()
+        ns=self.trace()
+        read_fd,write_fd=os.pipe();incoming,incoming_writer=os.pipe()
+        wire=io.Wire(incoming,write_fd,deadline=time.monotonic()-1)
+        actual_send=wire.send;actual_receive=wire.receive
+        wire.send=lambda value:ns['_f1_send'](lambda w,v:actual_send(v),wire,value)
+        wire.receive=lambda:ns['_f1_receive'](lambda w:actual_receive(),wire)
+        state,_,root=helper.fixture('recovery-once');state.wire=state.channel.wire=wire
+        descriptor=state.channel.host_fd
+        state.owner_completion=None;state.status='HOLD'
+        actual_record=state.channel.record
+        state.channel.record=lambda k,v:ns['_f1_record'](lambda c,k,v:actual_record(k,v),state.channel,k,v)
+        try:
+            with self.assertRaisesRegex(io.Hold,'WIRE_DEADLINE'):ns['_f1_close'](state.close)
+            with self.assertRaises(OSError):os.fstat(descriptor)
+            self.assertIsNone(state.channel.host_fd)
+            self.assertIn('PUBLIC_BOOTSTRAP_CLEANUP_RECORD_UNCONFIRMED',state.cleanup)
+            self.assertEqual(list(root.glob('*operator_cleanup*')),[])
+            os.close(write_fd);write_fd=None
+            with self.assertRaisesRegex(io.Hold,'WIRE_LOST_NO_RETRY'):
+                io.Wire(read_fd,incoming_writer,deadline=time.monotonic()+1).receive()
+            p=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+            self.assertEqual(p['first_close_error']['stage'],'journal_record')
+            self.assertTrue(p['final_send_started']);self.assertFalse(p['final_send_completed'])
+            self.assertEqual(p['phases']['abort_cleanup']['ack_calls'],0)
+        finally:
+            for fd in (read_fd,write_fd,incoming,incoming_writer):
+                if fd is not None:os.close(fd)
+            helper.tearDown()
+
+    def test_owner_internal_close_before_finish_is_abort_cleanup(self):
+        clock=self.clock();ns=self.trace(clock);self.start(ns,clock)
+        def apply():
+            clock.advance(200_000,20_000)
+            ns['_f1_owner_close'](lambda:clock.advance(100_000,10_000))
+            raise io.Hold('PUBLIC_OPERATOR_WIRE_DEADLINE')
+        with self.assertRaises(io.Hold):ns['_f1_apply'](apply)
+        clock.advance(100_000,10_000)
+        ns['_f1_close'](lambda:ns['_f1_send'](lambda *a:None,object(),{'type':'final'}))
+        p=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        self.assertEqual(p['phases']['apply']['wall_ns'],200_000)
+        self.assertEqual(p['phases']['abort_cleanup']['wall_ns'],200_000)
+        self.assertEqual(p['phases']['finish_cleanup']['outcome'],'NOT_ENTERED')
+
+    def test_first_caught_close_guard_is_retained_and_send_is_not_client_receipt(self):
+        ns,clock=self.completed()
+        p=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        self.assertTrue(p['finish_returned']);self.assertTrue(p['final_send_completed'])
+        report=m.diagnostics.f1_diagnostic({'f1_owner_profile':ns['_f1_report']()})
+        self.assertEqual(report['transport_failure']['remote_final_record'],'UNKNOWN')
+        ns=self.trace(clock)
+        def close():
+            try:io.require(False,'WIRE_DEADLINE')
+            except io.Hold:pass
+            ns['_f1_send'](lambda *a:io.require(False,'WIRE_LOST_NO_RETRY'),object(),{'type':'final'})
+        actual=io.require
+        with self.assertRaisesRegex(io.Hold,'WIRE_LOST_NO_RETRY'):ns['_f1_close'](close)
+        self.assertIs(io.require,actual)
+        p=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        self.assertEqual(p['first_close_error']['stage'],'session_close')
+        self.assertEqual(p['first_close_error']['code'],'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_DEADLINE')
+
+    def test_invalid_metrics_are_unknown_without_erasing_fail_counts_cleanup(self):
+        ns,_=self.completed();good=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        variants=[{**good,'private':'SECRET_CANARY'},{**good,'cap_delay_ns':True},
+            {**good,'owner_remaining_at_close_ns':float('nan')},
+            {**good,'final_send_started':False},{**good,'finish_entered':False}]
+        for key,value in (('wall_ns',-1),('cpu_ns',float('inf')),('ack_returns',1),
+                ('ack_calls',513),('ack_wait_ns',600_000_000_001),('outcome','SECRET_CANARY')):
+            variant=copy.deepcopy(good);variant['phases']['apply'][key]=value;variants.append(variant)
+        for bad in variants:
+            with self.subTest(bad=bad):
+                self.assertIsNone(m.diagnostics.validated_owner_profile(bad))
+                value={'owner_counts':{'owner_intents':70,'owner_acks':70},'code':'NATIVE_FULL_ENTRY_ASSERTION',
+                    'recovery-once':{'result':{'primary':'PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_WIRE_LOST_NO_RETRY',
+                        'client_cleanup':['PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED']},'owner_profile':bad}}
+                out=m.safe_failure(value,'recovery_F1','calibration')
+                self.assertFalse(out['green']);self.assertFalse(out['host_acceptance'])
+                self.assertEqual(out['owner_counts'],value['owner_counts'])
+                self.assertEqual(out['recovery-once']['client_cleanup'],value['recovery-once']['result']['client_cleanup'])
+                self.assertEqual(out['recovery-once']['owner_profile'],'UNKNOWN')
+                self.assertNotIn('SECRET_CANARY',json.dumps(out))
+
+    def test_unfinished_phase_is_open_not_completed_and_unknown_fault_not_leaked(self):
+        clock=self.clock();ns=self.trace(clock);self.start(ns,clock)
+        p=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        self.assertEqual(p['phases']['admission']['outcome'],'OPEN')
+        self.assertEqual(p['phases']['admission']['wall_ns'],'UNKNOWN')
+        ns['_f1']['in_close']=True;ns['_f1']['close_entered']=True
+        ns['_f1_note'](ns['_f1_error'],OSError('SECRET_CANARY'))
+        p=m.diagnostics.owner_profile_projection(ns['_f1_report']())
+        self.assertEqual(p['first_close_error']['type'],'OSError')
+        self.assertEqual(p['first_close_error']['code'],'UNKNOWN')
+        self.assertNotIn('SECRET_CANARY',json.dumps(p))
+
+
 class NativeBoundaryTests(unittest.TestCase):
     def copied_unit_program(self, unit):
         with patch.object(m.ci,'command') as command:

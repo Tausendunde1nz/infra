@@ -36,6 +36,10 @@ def digest(value):return ci.operator.io.sha(ci.operator.io.canonical(value))
 def validate_case(value,case,phase,hashes):
     keys={'schema','case','phase','green','production_source_files','fixture_source_files','fixture_artifact_sha256',
           'original_failed_hold_preserved','second_recovery_denied_before_SSH','run','host_acceptance'}
+    if case=='recovery_F1' and type(value) is dict and 'f1_diagnostic' in value:
+        keys.add('f1_diagnostic')
+        needed(diagnostics.validated_f1_diagnostic(value['f1_diagnostic']) is not None,
+               'REV4_NATIVE_MEASUREMENT_SCHEMA')
     needed(type(value) is dict and set(value)==keys and value['schema']=='TU1NZ_REV4_NATIVE_CASE_V1' and
         value['green'] is True and value['host_acceptance'] is False and value['case']==case and value['phase']==phase,
         'REV4_NATIVE_CASE_RED')
@@ -117,6 +121,9 @@ def safe_failure(value,case,phase):
         if case == 'recovery_F1':
             result[route]['transport_failure'] = (diagnostics.validated_transport(
                 outer.get('transport_failure')) or diagnostics.unknown_transport())
+            if route=='recovery-once':
+                result[route]['owner_profile']=(diagnostics.validated_owner_profile(
+                    outer.get('owner_profile')) or diagnostics.UNKNOWN)
         if inner.get('host_primary')=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_STATE_NOT_ELIGIBLE':
             point=diagnostics.validated_start_limit(outer.get('start_limit_failure'))
             if point is not None:result[route]['start_limit_failure']=point

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tu1nz_public_maintenance_ci as maintenance
 
 ci = maintenance.ci
-BASE = 'fc31ad87c378352120d78e5dc31f2f6b59bb37cb'
+BASE = '16386aec29df7d28c55c249f1a321fa527991bc5'
 CHANGES = frozenset(('scripts/tu1nz_public_maintenance_f1_ci.py',
     'scripts/tu1nz_public_maintenance_ci.py', 'scripts/tu1nz_public_maintenance_diagnostics.py',
     'tests/public_maintenance_native.py', 'tests/test_public_maintenance_ci.py',
@@ -99,6 +99,8 @@ def one_case(workspace, control, image, image_id, owner, root, inputs, hashes):
             owner_acks=row['owner_acks'], entry_cleanup_complete=row['cleanup_complete'],
             original_failed_hold_preserved=value['original_failed_hold_preserved'],
             second_recovery_denied_before_SSH=value['second_recovery_denied_before_SSH'])
+        result['f1_diagnostic']=(maintenance.diagnostics.validated_f1_diagnostic(
+            value.get('f1_diagnostic')) or maintenance.diagnostics.f1_diagnostic(None))
     except BaseException:
         failure = failed_report(root)
         if failure is not None:
