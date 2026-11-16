@@ -1,9 +1,8 @@
-"""Local independent R5 completion candidate; NOT an admitted Host entry.
+"""Independent R5 completion for the explicitly bound maintenance entry.
 
-No CLI, source-package registration or dispatcher selection. Integration needs
-its own scope/material, client acceptance and native timing contract. Existing
-entries keep their Owner contract and cannot accept these new status values.
-The existing adapters/flows supply all protection, action and restart gates.
+Legacy entries retain their Owner contract. All eight materials, a distinct
+scope and native timing contract are mandatory; local integration is not Host
+execution approval. Existing adapters retain protection and restart gates.
 """
 import time
 
@@ -71,6 +70,8 @@ class _R5AdapterFinish:
                    self.replacement_ready and self.a.replacement_active and
                    isinstance(self.a.runtime, transition.ReplacementFence), 'R5_FINISH_STATE')
         self.channel.check(); self.check_prepared_state()
+        self.p.absent(self.r.BOOT+'/owner-admission-intent')
+        self.p.absent(host.LIGHTING+'/writer-preparation-r2')
         # Includes fresh Authority, kernel rights, DB/data/HTTP and all three
         # actual invocations; old accepted dictionaries alone cannot pass.
         super()._observe('rights', deadline=deadline)
@@ -91,11 +92,11 @@ class _R5AdapterFinish:
         self.channel.http(self.a.b['http']['lighting'])
         self.a.check(); self.channel.check(); self.now()
         io.require(time.monotonic() < min(deadline, self.deadline, self.channel.ceiling), 'R5_FINISH_DEADLINE')
-        receipt = {'schema': 'TU1NZ_R5_INDEPENDENT_COMPLETION_CANDIDATE_V1',
+        receipt = {'schema': io.R5_COMPLETION_SCHEMA,
             'binding': self.binding, 'backup_readback': readback,
             'functions_sha256': io.sha(io.canonical(self.accepted)),
             'probes_sha256': self.probe_hash, 'lighting_read_witness_sha256': lighting,
-            'owner_entered': False, 'publication_authorized': False}
+            'owner_entered': False, 'host_owner_marker_absent': True, 'publication_authorized': False}
         self.channel.record('r5_completion', receipt)
         self.now()
         self.r5_completion = receipt
@@ -103,7 +104,9 @@ class _R5AdapterFinish:
 
 
 class R5MaintenanceAdapter(_R5AdapterFinish, transition.MaintenanceAdapter):
-    pass
+    # No Owner window is entered. Retain six 20s stop/start allowances;
+    # the bound full-entry measurement supplies all other work and reserve.
+    after_ready_floor = 120
 
 
 class R5RecoveryAdapter(_R5AdapterFinish, transition.RecoveryAdapter):
@@ -138,7 +141,7 @@ mandatory for the future integrated client/native acceptance contract.
                    self.adapter.owner_admission_started is False and self.channel.owner_entry_started is False,
                    'R5_COMPLETION_NOT_CURRENT_FLOW')
         receipt = getattr(self.adapter, 'r5_completion', None)
-        io.require(type(receipt) is dict and receipt.get('schema') == 'TU1NZ_R5_INDEPENDENT_COMPLETION_CANDIDATE_V1' and
+        io.require(type(receipt) is dict and receipt.get('schema') == io.R5_COMPLETION_SCHEMA and
                    receipt.get('binding') == self.channel.binding and receipt.get('owner_entered') is False and
                    receipt.get('publication_authorized') is False and
                    flow.current_gate == 'r5_finish' and

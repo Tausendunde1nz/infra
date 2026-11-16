@@ -105,7 +105,10 @@ class SessionOrchestrationTests(unittest.TestCase):
         r=SimpleNamespace(MACHINE=r3.MACHINE,TX=r3.TX,OWNER_PLAN=r3.OWNER_PLAN,
             failure_code=r3.failure_code,MaintenanceFlow=OriginalFlow,RecoveryFlow=RecoveryFlow)
         replacement=SimpleNamespace(MaintenanceAdapter=Adapter,RecoveryAdapter=Adapter,RecoveryOriginalEvidence=Evidence)
-        source=SimpleNamespace(load=lambda n:{'r3':r,'artifact':None,'replacement':replacement,'entry':None}[n])
+        source=SimpleNamespace(load=lambda n:{'r3':r,'artifact':None,'replacement':replacement,'entry':None,
+            'r5_completion':SimpleNamespace(R5SessionResult=host.MaintenanceSessionResult,
+                R5MaintenanceAdapter=Adapter,R5RecoveryAdapter=Adapter,
+                R5MaintenanceFlow=OriginalFlow,R5RecoveryFlow=RecoveryFlow)}[n])
         packet={'route':route,'binding':'a'*64,'baseline':{'boot_id':self.boot},
                 'recovery':{'entry':{'ready_sha256':'f'*64},'manifest':{'snapshot_sha256':'1'*64}}}
         with ExitStack() as stack:

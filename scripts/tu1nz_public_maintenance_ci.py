@@ -24,7 +24,7 @@ FLOORS={'runtime_objects':6260,'archive_bytes':45560268,'expanded_file_bytes':14
         'lighting_objects':88,'lighting_files':82,'protected_objects':4}
 MEASUREMENT_FILES=('scripts/tu1nz_public_maintenance_ci.py','tests/public_maintenance_native.py',
     'scripts/tu1nz_public_maintenance_diagnostics.py',
-    'tests/public_maintenance_fixture.py','tests/public_runtime_fixture.py','tests/public_operator_native.py',
+    'tests/public_maintenance_fixture.py','tests/test_public_maintenance_transport.py','tests/public_runtime_fixture.py','tests/public_operator_native.py',
     'tests/public-operator-native.Dockerfile','tests/public_operator_native_init.py','tests/s8_native_init.py')
 SCHEMA='TU1NZ_REV4_FULL_NATIVE_BATCH_V1'
 
@@ -52,9 +52,9 @@ def validate_case(value,case,phase,hashes):
         value['second_recovery_denied_before_SSH'] is (case!='original'), 'REV4_NATIVE_ONCE_OR_ORIGINAL_HISTORY_RED')
     row=value['run'];terminal=case=='recovery_terminal_F4'
     times={'elapsed_milliseconds','after_ready_milliseconds','preparation_milliseconds','owner_milliseconds',
-        'largest_service_action_milliseconds','terminal_prepare_milliseconds','terminal_stop_milliseconds','terminal_cleanup_milliseconds'}
+        'finish_cleanup_milliseconds','largest_service_action_milliseconds','terminal_prepare_milliseconds','terminal_stop_milliseconds','terminal_cleanup_milliseconds'}
     counts={'linked_records','flow_records','largest_record_bytes','owner_intents','owner_acks'}
-    needed(type(row) is dict and set(row)==times|counts|{'entrypoints','status','cleanup_complete','trace_sha256','dimensions'},
+    needed(type(row) is dict and set(row)==times|counts|{'entrypoints','status','cleanup_complete','trace_sha256','dimensions','owner_entered','final_received','process_ended'},
         'REV4_NATIVE_MEASUREMENT_SCHEMA')
     needed(row['entrypoints']==['tu1nz_public_operator.execute_maintenance','tu1nz_public_operator_host.'+
         ('maintenance_session' if case=='original' else 'recovery_session')] and row['cleanup_complete'] is True and
@@ -70,7 +70,9 @@ def validate_case(value,case,phase,hashes):
     needed(all(type(row[k]) is int and 0<=row[k]<=600000 for k in times|counts) and
         0<row['elapsed_milliseconds']<600000 and row['preparation_milliseconds']<=120000 and
         row['owner_milliseconds']<=120000 and row['largest_service_action_milliseconds']<=20000 and
-        row['owner_intents']==row['owner_acks']==(0 if terminal else 84) and
+        row['owner_intents']==row['owner_acks']==0 and row['owner_milliseconds']==0 and
+        row['owner_entered'] is False and row['final_received'] is True and row['process_ended'] is True and
+        (row['finish_cleanup_milliseconds']==0 if terminal else 0<row['finish_cleanup_milliseconds']<=row['elapsed_milliseconds']) and
         0<row['linked_records']<=512 and 0<row['flow_records']<=128 and 0<row['largest_record_bytes']<=65536,
         'REV4_NATIVE_LIMIT_RED')
     return value
@@ -80,7 +82,7 @@ def timing(records,measurement_sha,*,production=False):
     needed(len(records)==6 and [v['case'] for v in records]==list(CASES),'REV4_NATIVE_CASE_SET_RED')
     sources={digest(v['fixture_source_files']) for v in records};artifacts={v['fixture_artifact_sha256'] for v in records}
     needed(len(sources)==len(artifacts)==1,'REV4_NATIVE_FIXTURE_INPUT_CHANGED')
-    proof={'schema':'TU1NZ_REV4_FULL_NATIVE_TIMING_V1',
+    proof={'schema':'TU1NZ_REV4_R5_INDEPENDENT_NATIVE_TIMING_V1',
         'source_sha256':digest(records[0]['production_source_files']) if production else next(iter(sources)),
         'artifact_sha256':PRODUCTION_ARTIFACT if production else next(iter(artifacts)),
         'measurement_source_sha256':measurement_sha,'transport_cleanup_reserve_milliseconds':10000,
@@ -162,6 +164,14 @@ def case_run(workspace,control,image,image_id,owner,root,inputs,hashes,case,phas
             path=root/(phase+'-'+case+'-timing.json');ci.save(path,ci.operator.io.canonical(proof))
             ci.command(['/usr/bin/docker','cp',str(path),name+':/native-timing.json'],timeout=15)
         ci.command(['/usr/bin/docker','start',name],timeout=30);ci.ready(name)
+        if case=='original':
+            # Retain the existing actual kernel/context negatives in the same
+            # isolated guest before fixture setup, outside measured entries.
+            for argv,expected,code in (
+                    (ci.native_fsuid_argv(name),b'ACTUAL_NATIVE_FSUID_DAC_GREEN','NATIVE_FSUID_DAC_RED'),
+                    (ci.native_context_argv(name),b'ACTUAL_NATIVE_CONTEXT_GREEN','NATIVE_CONTEXT_RED')):
+                status,raw=ci.boundary.bounded(argv,timeout=30)
+                needed(status==0 and raw.strip()==expected,code)
         unit=root/(phase+'-'+case+'.service')
         ci.save(unit,('[Unit]\nAfter=multi-user.target\n[Service]\nType=simple\n'
             'Environment=container=docker\n'
@@ -245,7 +255,10 @@ def run_cases(workspace,control,image,image_id,owner,root,inputs,hashes,sha,*,ph
             'elapsed_milliseconds':value['run']['elapsed_milliseconds'],
             'reserve_milliseconds':600000-value['run']['elapsed_milliseconds'],
             'owner_milliseconds':value['run']['owner_milliseconds'],
-            'owner_acks':value['run']['owner_acks'],'cleanup_complete':True,
+            'owner_acks':value['run']['owner_acks'],'owner_intents':value['run']['owner_intents'],
+            'owner_entered':value['run']['owner_entered'],
+            'final_received':value['run']['final_received'],'process_ended':value['run']['process_ended'],
+            'finish_cleanup_milliseconds':value['run']['finish_cleanup_milliseconds'],'cleanup_complete':True,
             'native_batch_pass':False,'host_acceptance':False},sort_keys=True),flush=True)
     result={'schema':SCHEMA,'green':True,'phase':phase,'source_sha':sha,'measurement_source_sha256':measurement,
         'expected_input_substitutions':['synthetic_machine_and_owner_plan','synthetic_current_custody_and_coverage',
@@ -258,7 +271,8 @@ def run_cases(workspace,control,image,image_id,owner,root,inputs,hashes,sha,*,ph
     return result
 
 
-def verification(workspace,image):
+def verification(workspace,image,*,phase='verification'):
+    needed(phase in ('calibration','verification'),'REV4_PHASE_RED')
     import uuid
     root=None;owner=uuid.uuid4().hex;parent=Path(os.environ.get('RUNNER_TEMP','/nonexistent'));stage='admission'
     result={'schema':SCHEMA,'green':False,'code':'REV4_VERIFICATION_RED','host_acceptance':False}
@@ -274,26 +288,32 @@ def verification(workspace,image):
         control,hashes=ci.fetch_control(root,token);token=None
         hashes.update({n:hashlib.sha256((workspace/p).read_bytes()).hexdigest() for n,p in ci.operator.INFRA_FILES.items()})
         measurement=digest({p:hashlib.sha256((workspace/p).read_bytes()).hexdigest() for p in MEASUREMENT_FILES})
-        calibration_raw=os.environ.pop('REV4_CALIBRATION')
-        calibration_input(calibration_raw,hashes,measurement,sha)
+        calibration_raw=None
+        if phase=='verification':
+            calibration_raw=os.environ.pop('REV4_CALIBRATION')
+            calibration_input(calibration_raw,hashes,measurement,sha)
         stage='runtime-public-inputs'
         import tu1nz_public_runtime_build as build
         inputs=json.loads((workspace/'manifests/public-web-runtime-r5-inputs.json').read_bytes())
         runtime_inputs=root/'runtime-inputs';runtime_inputs.mkdir(mode=0o700)
         for row in [inputs['python'],*inputs['wheels']]:ci.save(runtime_inputs/row['filename'],build.fetch(row))
-        stage='verification'
+        stage=phase
         result=run_cases(workspace,control,image,image_id,owner,root,runtime_inputs,hashes,sha,
-            phase='verification',calibration_raw=calibration_raw)
-        result['code']='REV4_VERIFICATION_GREEN'
+            phase=phase,calibration_raw=calibration_raw)
+        result['code']='REV4_CALIBRATION_GREEN' if phase=='calibration' else 'REV4_VERIFICATION_GREEN'
     except BaseException as error:
         result={'schema':SCHEMA,'green':False,'stage':stage,'code':str(error) if type(error) is ci.CIError else
             'REV4_VERIFICATION_RED','host_acceptance':False}
     finally:result=ci.cleanup_result(result,None,owner,root,parent)
+    if result['green'] and phase=='calibration':
+        try:publish_calibration(result['calibration'])
+        except BaseException:result={**result,'green':False,'code':'REV4_CALIBRATION_OUTPUT_RED'}
     print(json.dumps(result,sort_keys=True),flush=True)
     return 0 if result['green'] else 1
 
 
 if __name__=='__main__':
     import argparse
-    parser=argparse.ArgumentParser();parser.add_argument('--image',required=True);args=parser.parse_args()
-    with ci.boundary.interrupted():raise SystemExit(verification(Path(__file__).resolve().parents[1],args.image))
+    parser=argparse.ArgumentParser();parser.add_argument('--image',required=True)
+    parser.add_argument('--phase',choices=('calibration','verification'),default='verification');args=parser.parse_args()
+    with ci.boundary.interrupted():raise SystemExit(verification(Path(__file__).resolve().parents[1],args.image,phase=args.phase))

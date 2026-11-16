@@ -934,14 +934,15 @@ def maintenance_session(source, packet, wire):
     Actual adapter observations remain mandatory; packet facts cannot replace
     them. The original Flow alone owns its fixed original claim and ordering.
     """
-    r = source.load('r3'); state = MaintenanceSessionResult(wire, r, route='original')
+    r = source.load('r3'); completion = source.load('r5_completion')
+    state = completion.R5SessionResult(wire, r, route='original')
     try:
         bound = maintenance_session_setup(source, packet, wire, route='original')
         source.load('artifact'); replacement = source.load('replacement')
         channel = state.channel = io.MaintenanceLinkedRecords(wire, packet['binding'],
             original_binding=packet['binding'], boot_id=packet['baseline']['boot_id'])
         channel.approval_bound = True
-        adapter = state.adapter = replacement.MaintenanceAdapter.__new__(replacement.MaintenanceAdapter)
+        adapter = state.adapter = completion.R5MaintenanceAdapter.__new__(completion.R5MaintenanceAdapter)
         adapter.__init__(source, packet['baseline'], bound['plan'], channel, packet['binding'],
             deadline=wire.deadline, maintenance_inputs=bound['inputs'],
             after_ready_seconds=bound['timing']['after_ready_seconds'], coverage=bound['coverage'])
@@ -955,7 +956,7 @@ def maintenance_session(source, packet, wire):
                    'FIXED_CLIENT_CUSTODY_NOT_CREATED')
         state.chain_started = True
         channel.record('prestate_read_witness', adapter.read_witness)
-        flow = r.MaintenanceFlow(adapter, RemoteJournal(channel, packet['binding']))
+        flow = completion.R5MaintenanceFlow(adapter, RemoteJournal(channel, packet['binding']))
         try:
             flow.forward(); state.completed(flow)
         except BaseException as error:
@@ -974,7 +975,8 @@ def recovery_session(source, packet, wire):
     runtime transfer or original Journal.claim. No original evidence is written.
     Only the explicit Rev4 dispatcher can select this separate route.
     """
-    r = source.load('r3'); state = MaintenanceSessionResult(wire, r, route='recovery-once')
+    r = source.load('r3'); completion = source.load('r5_completion')
+    state = completion.R5SessionResult(wire, r, route='recovery-once')
     try:
         bound = maintenance_session_setup(source, packet, wire, route='recovery-once')
         source.load('artifact'); replacement = source.load('replacement')
@@ -995,7 +997,7 @@ def recovery_session(source, packet, wire):
             maintenance_inputs=bound['inputs'], boot_id=packet['baseline']['boot_id'], deadline=wire.deadline)
         admission = state.channel = io.RecoveryAdmissionChannel(wire, original_binding=packet['binding'],
             entry_sha256=io.sha(io.canonical(entry)), mac_snapshot_sha256=manifest['snapshot_sha256'])
-        adapter = state.adapter = replacement.RecoveryAdapter.__new__(replacement.RecoveryAdapter)
+        adapter = state.adapter = completion.R5RecoveryAdapter.__new__(completion.R5RecoveryAdapter)
         adapter.__init__(source, packet['baseline'], bound['plan'], admission, evidence=evidence,
             deadline=wire.deadline, terminal_prepare_seconds=bound['timing']['terminal_prepare_seconds'],
             terminal_cleanup_seconds=bound['timing']['terminal_cleanup_seconds'], coverage=bound['coverage'])
@@ -1020,7 +1022,7 @@ def recovery_session(source, packet, wire):
         state.chain_started = True; channel.approval_bound = True
         channel.record('recovery_context', seed)
         adapter.bind_execution(channel)
-        flow = r.RecoveryFlow(adapter, RecoveryRemoteJournal(channel))
+        flow = completion.R5RecoveryFlow(adapter, RecoveryRemoteJournal(channel))
         try:
             flow.recover(); state.completed(flow)
         except BaseException as error:

@@ -27,9 +27,15 @@ import urllib.parse
 import urllib.request
 
 MAX_FRAME = 4*1024*1024
-MAINTENANCE_SCOPE = 'TU1NZ_MAIN_SERVER_REV4_APPROVED_SCOPE_V1'
-MAINTENANCE_DECISION_SHA = 'e6794711443f5768c2e720c7552948964976c246ab59ff89236f53125fbd49fc'
-MAINTENANCE_APPROVAL_SHA = '576251012fb1e73fcc29a49334140660339b74fbdda05273822e53cb6f80c3a4'
+MAINTENANCE_SCOPE = 'TU1NZ_MAIN_SERVER_REV4_R5_INDEPENDENT_SCOPE_V1'
+R5_ORIGINAL_COMPLETE = 'R5_ISOLATION_RECEIPTED_R2_NOT_DISPATCHED'
+R5_RECOVERY_COMPLETE = 'RECOVERY_R5_ISOLATION_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED'
+R5_COMPLETION_SCHEMA = 'TU1NZ_R5_INDEPENDENT_COMPLETION_V1'
+MAINTENANCE_DECISION_SHA = 'ae39980a014997afe221f094b4c2469eb351af45b16b0f0c4a83fdada73c85a3'
+# Local preparation is NOT a new Host execution approval. An independently
+# reviewed execution approval must replace this closed gate before Host use.
+# Isolated fixtures substitute their own synthetic approval as before.
+MAINTENANCE_APPROVAL_SHA = None
 # Compiled production identity, never selected by a packet, environment or
 # command-line override. Native fixture code substitutes only its generated
 # machine/plan constants, as the existing full operator fixture does for r3.
@@ -65,7 +71,7 @@ PROSPECTIVE_RISK = 'CURRENT_HOST_TCB_MAY_FALSIFY_CAPTURE_NOT_HISTORICAL_INTEGRIT
 CONTROL_PINS = {
     'entry': '538e157629414f717039de1f4b3d0b388fde16718df74dc54c16dde1ac3826c7',
     'guard': 'eb01c7d260f7ad83b7d3437fe78768549a091289ecff99cae68f05689c224b58'}
-MODULES = {'admission': 'tu1nz_public_operator_admission', 'restore': 'tu1nz_mainserver_restore',
+MODULES = {'r5_completion': 'tu1nz_public_maintenance_r5_candidate', 'admission': 'tu1nz_public_operator_admission', 'restore': 'tu1nz_mainserver_restore',
            'io': 'tu1nz_public_operator_io', 'fs': 'tu1nz_public_operator_fs',
            'context': 'tu1nz_public_operator_context',
            'client': 'tu1nz_public_operator',
@@ -311,7 +317,7 @@ def maintenance_timing_binding(document, *, source_hashes, artifact):
     cases = {'original', 'recovery_F1', 'recovery_F2', 'recovery_F3', 'recovery_F4',
              'recovery_terminal_F4'}
     require(type(document) is dict and set(document) == fields and
-            document['schema'] == 'TU1NZ_REV4_FULL_NATIVE_TIMING_V1' and
+            document['schema'] == 'TU1NZ_REV4_R5_INDEPENDENT_NATIVE_TIMING_V1' and
             document['source_sha256'] == sha(canonical(source_hashes)) and
             document['artifact_sha256'] == sha(canonical(artifact)) and
             type(document['measurement_source_sha256']) is str and
@@ -329,10 +335,11 @@ def maintenance_timing_binding(document, *, source_hashes, artifact):
                   'lighting_objects': 88, 'lighting_files': 82, 'protected_objects': 4}
     require(dimensions['runtime_objects'] > 0, 'MAINTENANCE_NATIVE_EMPTY_RUNTIME')
     times = {'elapsed_milliseconds', 'after_ready_milliseconds', 'preparation_milliseconds',
-             'owner_milliseconds', 'largest_service_action_milliseconds',
+             'owner_milliseconds', 'finish_cleanup_milliseconds', 'largest_service_action_milliseconds',
              'terminal_prepare_milliseconds', 'terminal_stop_milliseconds', 'terminal_cleanup_milliseconds'}
     counters = {'linked_records', 'flow_records', 'largest_record_bytes', 'owner_intents', 'owner_acks'}
-    row_fields = times | counters | {'entrypoints', 'status', 'cleanup_complete', 'dimensions', 'trace_sha256'}
+    row_fields = times | counters | {'entrypoints', 'status', 'cleanup_complete', 'dimensions', 'trace_sha256',
+        'owner_entered', 'final_received', 'process_ended'}
     traces = set(); whole_budgets = {}; after_ready = None
     for name in sorted(cases):
         row = document['runs'][name]; terminal = name == 'recovery_terminal_F4'
@@ -340,7 +347,8 @@ def maintenance_timing_binding(document, *, source_hashes, artifact):
                 row['entrypoints'] == ['tu1nz_public_operator.execute_maintenance',
                     'tu1nz_public_operator_host.'+('maintenance_session' if name == 'original' else 'recovery_session')] and
                 row['status'] == ('HOLD_KNOWN_NEW_UNITS_STOPPED' if terminal else 'COMPLETE') and
-                row['cleanup_complete'] is True and type(row['trace_sha256']) is str and
+                row['cleanup_complete'] is True and row['owner_entered'] is False and
+                row['final_received'] is True and row['process_ended'] is True and type(row['trace_sha256']) is str and
                 re.fullmatch('[0-9a-f]{64}', row['trace_sha256']) and row['trace_sha256'] not in traces,
                 'MAINTENANCE_NATIVE_FULL_ENTRY_OR_CLEANUP')
         traces.add(row['trace_sha256'])
@@ -355,15 +363,17 @@ def maintenance_timing_binding(document, *, source_hashes, artifact):
                 row['owner_milliseconds'] <= 120000 and row['preparation_milliseconds'] <= 120000 and
                 0 < row['linked_records'] <= 512 and 0 < row['flow_records'] <= 128 and
                 0 < row['largest_record_bytes'] <= 65536 and
-                row['owner_intents'] == row['owner_acks'] == (0 if terminal else 84) and
+                row['owner_intents'] == row['owner_acks'] == 0 and
                 row['linked_records'] >= row['owner_intents']+row['owner_acks']+row['flow_records'],
                 'MAINTENANCE_NATIVE_TIME_RECORD_OR_OWNER_BOUND')
         require(row['owner_milliseconds'] <= row['elapsed_milliseconds'] and
-                (row['owner_milliseconds'] == 0 if terminal else row['owner_milliseconds'] > 0) and
+                row['owner_milliseconds'] == 0 and
+                (row['finish_cleanup_milliseconds'] == 0 if terminal else
+                 0 < row['finish_cleanup_milliseconds'] <= row['elapsed_milliseconds']) and
                 (row['preparation_milliseconds'] == row['after_ready_milliseconds'] == 0
                     if name != 'original' else
                  0 < row['preparation_milliseconds'] and 0 < row['after_ready_milliseconds'] and
-                 row['owner_milliseconds'] <= row['after_ready_milliseconds'] and
+                 row['finish_cleanup_milliseconds'] <= row['after_ready_milliseconds'] and
                  row['preparation_milliseconds']+row['after_ready_milliseconds'] <= row['elapsed_milliseconds']) and
                 (0 < row['terminal_prepare_milliseconds'] and 0 < row['terminal_cleanup_milliseconds'] and
                  0 < row['terminal_stop_milliseconds'] <= 60000 and
@@ -372,13 +382,12 @@ def maintenance_timing_binding(document, *, source_hashes, artifact):
                     if terminal else row['terminal_prepare_milliseconds'] == row['terminal_stop_milliseconds'] ==
                                      row['terminal_cleanup_milliseconds'] == 0),
                 'MAINTENANCE_NATIVE_PHASE_MEASUREMENTS')
-        # A fast measured Owner does not license starting with less than its
-        # FULL unchanged120s window. Account for the unspent portion now.
-        unused_owner = 0 if terminal else 120000-row['owner_milliseconds']
-        whole_budgets[name] = row['elapsed_milliseconds']+unused_owner+reserve
+        # No Owner phase exists in this contract. Use measured full lifetime
+        # through cleanup/reap plus the separately bound transport reserve.
+        whole_budgets[name] = row['elapsed_milliseconds']+reserve
         require(whole_budgets[name] < 600000, 'MAINTENANCE_NATIVE_WHOLE_600_BUDGET_EXCEEDED')
         if name == 'original':
-            after_ready = max(181, math.ceil((row['after_ready_milliseconds']+unused_owner+reserve)/1000))
+            after_ready = max(121, math.ceil((row['after_ready_milliseconds']+reserve)/1000))
             require(after_ready < 600 and row['elapsed_milliseconds']-row['after_ready_milliseconds']+
                     after_ready*1000 < 600000, 'MAINTENANCE_NATIVE_ORIGINAL_READY_BUDGET_EXCEEDED')
     terminal = document['runs']['recovery_terminal_F4']
@@ -1285,7 +1294,7 @@ class Source:
                 all(sha(raw) == hashes[n] for n, raw in self.bytes.items()), 'SOURCE_HASH')
         require(all(hashes[k] == h for k, h in CONTROL_PINS.items()), 'UNCHANGED_CONTROL_COMPONENT')
         require(all(hashes[k] == h for k, h in ASSETS.items()), 'UNCHANGED_RUNTIME_COMPONENT')
-        require(hashes['r3'] == '063b068d6ae7fb3440f5750cc644f59c188646008f929b0524992cdf259ab1e9',
+        require(hashes['r3'] == '83000aeff7e06bbbf742d44a5c4cff532f3ec56b23b5cb9d08cda302bf1ee4fc',
                 'REV4_ORDERING_COMPONENT')
         self.modules = {}
 
@@ -1293,6 +1302,8 @@ class Source:
         if name in self.modules:
             return self.modules[name]
         require(name in MODULES, 'MODULE_NAME')
+        if name == 'r5_completion':
+            for dependency in ('io','r3','fs','artifact','host','replacement'):self.load(dependency)
         if name in ('host', 'observe', 'replacement'):
             self.load('context')
         module = types.ModuleType('public_operator_bound_'+name)

@@ -30,7 +30,7 @@ from pathlib import Path
 _trace={"prepared_begin":None,"prepared_end":None,"ready":None,"owner_begin":None,
         "owner_finish":None,"service_ns":[],"terminal_begin":None,"terminal_admitted":None,
         "terminal_stopped":None,"closed":None,"fault_injected":None,"final":None,
-        "start_limit_failure":None}
+        "start_limit_failure":None,"r5_finish_begin":None,"r5_finish_returned":False}
 _replacement=s.load("replacement");_io=s.load("io")
 # Error-only projection of the values already compared. No extra manager,
 # filesystem or reference read; the actual verdict/exception is unchanged.
@@ -117,6 +117,12 @@ def _observe(actual,self,gate,**kw):
  if _case=="recovery_terminal_F4" and _route=="recovery-once" and gate=="rights":
   _interrupt("F4_RECOVERY_INTERRUPTED_BEFORE_OWNER")
  return actual(self,gate,**kw)
+def _r5_finish(actual,self,phase,**kw):
+ if phase!="r5_finish":return actual(self,phase,**kw)
+ assert _trace["r5_finish_begin"] is None
+ _trace["r5_finish_begin"]=time.monotonic_ns()
+ result=actual(self,phase,**kw);_trace["r5_finish_returned"]=True
+ return result
 def _terminal(actual,*a,**kw):
  _trace["terminal_begin"]=time.monotonic_ns()
  return actual(*a,**kw)
@@ -148,6 +154,7 @@ _wrap(s.load("owner").Supervisor,"finish",_finish)
 _wrap(_replacement.RecoveryAdapter,"observe",_observe)
 _wrap(_replacement.RecoveryAdapter,"hold_known_new_units",_terminal)
 _wrap(s.load("host").MaintenanceSessionResult,"close",_close)
+_wrap(s.load("r5_completion")._R5AdapterFinish,"_observe",_r5_finish)
 '''
 
 
@@ -339,7 +346,7 @@ def bootstrap(raw,pins,inputs,case,route,*,legacy_sha):
     settings+='s.load("observe").LEGACY_CONTEXTS_SHA='+repr(legacy_sha)+'\n'
     settings+='_case='+repr(case)+';_route='+repr(route)+'\n'
     assert program.count(selectors)==1
-    profile=F1_HOST_TRACE if (case,route)==('recovery_F1','recovery-once') else ''
+    profile=''  # historical Owner profiler is not part of independent R5
     return program.replace(selectors,settings+HOST_TRACE+profile+'\ntry:\n _trace["final"]='+selectors+
         '\nfinally:\n _save_trace()\n')
 
@@ -459,9 +466,20 @@ def measured(case,receipt,result,trace,began,end):
     # Actual durable client records, actual filesystem owner count and actual
     # Supervisor finish must independently agree. No count is synthesized.
     intents=count('owner_object_intent');acks=count('owner_object_ack')
-    assert intents==acks==(0 if terminal else 84),(intents,acks)
+    assert intents==acks==0,(intents,acks)
     actual_root=sum(p.stat().st_uid==0 for p in [f.f.WEB,*f.f.WEB.rglob('*')])
-    assert actual_root==(4 if terminal else 88),'ACTUAL_OWNER_OBJECT_COUNT'
+    assert actual_root==4,'ACTUAL_READ_ONLY_LIGHTING_OWNER_COUNT'
+    assert not os.path.lexists(f.CUSTODY/'public-rights-20261014-1'/'owner-admission-intent')
+    assert not os.path.lexists('/etc/tu1nz/public-web-bootstrap-r3/20261014-1/owner-admission-intent')
+    assert trace['owner_finish'] is trace['owner_begin'] is None
+    assert result['owner_evidence']=={'owner_intents':0,'owner_acks':0,'owner_entered':None if terminal else False,
+        'client_owner_marker_absent':True}
+    assert result['final_received'] is True and result['ssh_exit']==0
+    # SSH waited/reaped by execute_maintenance; worker also reaped before end.
+    cleanup_path=root/'client-cleanup.json' if route!='original' else root/'operator-records'/'client-cleanup.json'
+    cleanup=io.client_cleanup_record(io.parse(cleanup_path.read_bytes()))
+    assert io.sha(io.canonical(cleanup))==result['client_cleanup_sha256']
+    assert cleanup['ssh_exit']==0 and cleanup['operational_handles_closed'] is True
     final=trace['final'];assert final is not None
     assert final['cleanup']==[] and result['client_cleanup']==[] and final['abort']==[]
     assert final['r2_dispatch'] is False and result['r2_dispatch'] is False
@@ -473,11 +491,11 @@ def measured(case,receipt,result,trace,began,end):
             row=f.f.run('/usr/bin/systemctl','show',unit,'--property=ActiveState,MainPID,Job').decode()
             assert 'ActiveState=inactive' in row and 'MainPID=0' in row and 'Job=\n' in row
     else:
-        expected=('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED' if case=='original' else
-            'RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED')
+        expected=io.R5_ORIGINAL_COMPLETE if case=='original' else io.R5_RECOVERY_COMPLETE
         assert result['status']==expected and final['primary'] is None
-        assert trace['owner_finish']['status']=='OWNER_COMPLETED' and trace['owner_finish']['owner_acks']==84
-        assert len(trace['owner_finish']['cleanup_sha256'])==64
+        assert trace['r5_finish_returned'] is True and trace['r5_finish_begin'] is not None
+        assert count('r5_completion')==1 and final['r5_completion_sha256']
+        assert final['owner_completion_sha256'] is None and final['publication_authorized'] is False
     ns=lambda a,b:math.ceil((b-a)/1_000_000)
     elapsed=ns(began,end);owner=ns(trace['owner_begin'],end) if trace['owner_begin'] is not None else 0
     prepare=ns(trace['prepared_begin'],trace['prepared_end']) if case=='original' else 0
@@ -489,13 +507,15 @@ def measured(case,receipt,result,trace,began,end):
             'expanded_file_bytes':receipt['expanded_file_bytes'],'lighting_objects':88,'lighting_files':82,'protected_objects':4},
         'elapsed_milliseconds':elapsed,'after_ready_milliseconds':ns(trace['ready'],end) if case=='original' else 0,
         'preparation_milliseconds':prepare,'owner_milliseconds':owner,
+        'finish_cleanup_milliseconds':0 if terminal else ns(trace['r5_finish_begin'],end),
+        'owner_entered':False,'final_received':result['final_received'],'process_ended':True,
         'largest_service_action_milliseconds':math.ceil(max(trace['service_ns'],default=0)/1_000_000),
         'terminal_prepare_milliseconds':ns(trace['terminal_begin'],trace['terminal_admitted']) if terminal else 0,
         'terminal_stop_milliseconds':ns(trace['terminal_admitted'],trace['terminal_stopped']) if terminal else 0,
         'terminal_cleanup_milliseconds':ns(trace['terminal_stopped'],end) if terminal else 0,
-        'linked_records':len(rows),'flow_records':sum(r['kind'].startswith('flow_') for r in row_values),
+        'linked_records':len(rows),'flow_records':sum(r['kind'].startswith(('flow_','recovery_flow_')) for r in row_values),
         'largest_record_bytes':max(len(io.canonical(r)) for r in rows),'owner_intents':intents,'owner_acks':acks}
-    assert owner<=120000 and prepare<=120000 and result_row['largest_service_action_milliseconds']<=20000
+    assert owner==0 and prepare<=120000 and result_row['largest_service_action_milliseconds']<=20000
     assert elapsed<600000
     return result_row
 

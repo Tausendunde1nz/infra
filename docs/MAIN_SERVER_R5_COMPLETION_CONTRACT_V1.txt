@@ -1,0 +1,5 @@
+TU1NZ independent R5 maintenance completion V1
+Mainserver 109772243: S7, Landing and existing WMS only.
+Success requires fresh isolation and function of all three services, protected backup and restored-copy readback, at most one authorized restart per service, received final, closed journal readback, confirmed host/client cleanup and process end within 600 seconds per entry. Existing partial deadlines, protection, writer, claims and once-only Recovery checks remain mandatory.
+No Owner entry, Owner intent or Owner acknowledgement is permitted. The old Lighting tree is a read-only preservation witness. Original HOLD survives Recovery. Any missing confirmation, final, cleanup or deadline proof is HOLD. Terminal F4 is HOLD with known-new units stopped, never success.
+No publication, Lighting switch or WMS pilot. Mainserver HOLD. This local preparation is not execution approval; separately bound execution approval, current inputs, native calibration/verification and independent input review remain necessary.

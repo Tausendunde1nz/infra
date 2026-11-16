@@ -215,7 +215,7 @@ class SessionCleanupTests(unittest.TestCase):
         cls=candidate.R5RecoveryAdapter if recovery else candidate.R5MaintenanceAdapter
         a=state.adapter=cls.__new__(cls);a.r=r3;a.owner=a.owner_result=None;a.owner_admission_started=False
         a.close=Mock(return_value=[])
-        a.r5_completion=dict(schema='TU1NZ_R5_INDEPENDENT_COMPLETION_CANDIDATE_V1',binding=channel.binding,
+        a.r5_completion=dict(schema=io.R5_COMPLETION_SCHEMA,binding=channel.binding,
                              owner_entered=False,publication_authorized=False)
         fc=candidate.R5RecoveryFlow if recovery else candidate.R5MaintenanceFlow
         flow=fc.__new__(fc);flow.a=a;flow.j=SimpleNamespace(channel=channel,claimed=True,binding=channel.binding)
@@ -302,7 +302,7 @@ class SessionCleanupTests(unittest.TestCase):
             self.assertEqual(state.close()['status'],'HOLD')
 
     def test_candidate_is_not_selected_by_existing_source_package_or_dispatcher(self):
-        self.assertNotIn('scripts/tu1nz_public_maintenance_r5_candidate.py',client.INFRA_FILES.values())
+        self.assertIn('scripts/tu1nz_public_maintenance_r5_candidate.py',client.INFRA_FILES.values())
         self.assertNotEqual(candidate.ORIGINAL_COMPLETE,host.MaintenanceSessionResult.ORIGINAL_COMPLETE)
 
 

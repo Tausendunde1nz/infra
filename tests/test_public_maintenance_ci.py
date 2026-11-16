@@ -283,7 +283,7 @@ class F1OwnerTraceTests(unittest.TestCase):
         self.assertEqual(ns['_f1_close'](close),'UNCHANGED')
         return ns,clock
 
-    def test_only_f1_recovery_bootstrap_installs_trace_and_cpu_sampling(self):
+    def test_independent_r5_bootstrap_excludes_historical_owner_profiler(self):
         from tests import public_maintenance_native as n
         inputs={'application':{'commit':'0'*40,'tree':'1'*40,'manifest_sha256':'a'*64}}
         pins={'MAINTENANCE_MACHINE':'a'*64,'MAINTENANCE_OWNER_PLAN':'b'*64}
@@ -293,7 +293,7 @@ class F1OwnerTraceTests(unittest.TestCase):
                     client.maintenance_bootstrap,create=True):
                 program=n.bootstrap(Path(io.__file__).read_bytes(),pins,inputs,case,route,legacy_sha='c'*64)
                 compile(program,'<compile-only-f1>','exec')
-                self.assertEqual(n.F1_HOST_TRACE in program,(case,route)==('recovery_F1','recovery-once'))
+                self.assertNotIn(n.F1_HOST_TRACE,program)  # no Owner profiler in independent R5
 
     def test_admission_starts_at_actual_owner_cap_before_marker_and_apply(self):
         clock=self.clock();ns=self.trace(clock);channel=self.start(ns,clock)
@@ -510,6 +510,7 @@ class NativeBoundaryTests(unittest.TestCase):
     def test_copied_unit_owner_failure_precedes_reload_and_cleans_owned_guest(self):
         with tempfile.TemporaryDirectory() as directory,patch.object(m.ci,'command') as command, \
                 patch.object(m.ci,'inspect_guest'),patch.object(m.ci,'ready'), \
+                patch.object(m.ci.boundary,'bounded',side_effect=[(0,b'ACTUAL_NATIVE_FSUID_DAC_GREEN'),(0,b'ACTUAL_NATIVE_CONTEXT_GREEN')]), \
                 patch.object(m,'fix_copied_unit_owner',side_effect=RuntimeError('SYNTHETIC_OWNER_FAILURE')) as fix, \
                 patch.object(m.ci.boundary,'cleanup_container') as cleanup:
             with self.assertRaisesRegex(RuntimeError,'^SYNTHETIC_OWNER_FAILURE$'):
@@ -580,14 +581,20 @@ class NativeBoundaryTests(unittest.TestCase):
                 m.ci.save(journal/(str(number).zfill(3)+'.json'),
                     io.canonical({'kind':kind,'value':'SECRET_CANARY'}))
             with patch.object(n,'records',wraps=n.records) as reads:
-                try:n.measured('recovery_F1',{}, {}, {},0,1)
+                try:
+                    if intents==acks==0:
+                        # Zero is now the successful Owner comparison. Fail at
+                        # the next real fixture boundary, retaining its counters.
+                        with patch.object(n.f.f,'WEB',SimpleNamespace(stat=lambda:SimpleNamespace(st_uid=1),rglob=lambda pattern:[])):
+                            n.measured('recovery_F1',{}, {}, {},0,1)
+                    else:n.measured('recovery_F1',{}, {}, {},0,1)
                 except AssertionError as error:
                     # Capturing the comparison cannot reread/reconstruct ACKs.
                     with patch.object(n,'records',side_effect=AssertionError('NO_REREAD')):
                         fields=n.failure_fields(error)
                 else:self.fail('unchanged Owner comparison did not fail')
                 reads.assert_called_once_with('recovery-once')
-        self.assertEqual(fields['test_failure']['checkpoint'],'REV4_NATIVE_MEASURED_ASSERT_01')
+        if intents or acks:self.assertEqual(fields['test_failure']['checkpoint'],'REV4_NATIVE_MEASURED_ASSERT_01')
         self.assertEqual(fields['owner_counts'],{'owner_intents':intents,'owner_acks':acks})
         return fields
 
@@ -648,6 +655,7 @@ class NativeBoundaryTests(unittest.TestCase):
                 root=Path(directory);m.ci.save(root/'calibration-recovery_F1-result.json',io.canonical(value))
                 output=streams.StringIO();failure=RuntimeError('SYNTHETIC_CLEANUP_RED') if cleanup_fails else None
                 with patch.object(m.ci,'command'),patch.object(m.ci,'inspect_guest'),patch.object(m.ci,'ready'), \
+                patch.object(m.ci.boundary,'bounded',side_effect=[(0,b'ACTUAL_NATIVE_FSUID_DAC_GREEN'),(0,b'ACTUAL_NATIVE_CONTEXT_GREEN')]), \
                         patch.object(m.ci.boundary,'cleanup_container',side_effect=failure) as cleanup,redirect_stdout(output):
                     with self.assertRaisesRegex(RuntimeError if cleanup_fails else m.ci.CIError,
                             '^SYNTHETIC_CLEANUP_RED$' if cleanup_fails else '^REV4_NATIVE_CASE_RED$'):
@@ -667,7 +675,13 @@ class NativeBoundaryTests(unittest.TestCase):
                 self.assertIs(output['green'],False)
         from tests import public_maintenance_native as n
         with patch.object(n,'records',return_value=(None,[{'private':'SECRET_CANARY'}])):
-            try:n.measured('recovery_F1',{}, {}, {},0,1)
+            try:
+                    if intents==acks==0:
+                        # Zero is now the successful Owner comparison. Fail at
+                        # the next real fixture boundary, retaining its counters.
+                        with patch.object(n.f.f,'WEB',SimpleNamespace(stat=lambda:SimpleNamespace(st_uid=1),rglob=lambda pattern:[])):
+                            n.measured('recovery_F1',{}, {}, {},0,1)
+                    else:n.measured('recovery_F1',{}, {}, {},0,1)
             except KeyError as error:fields=n.failure_fields(error)
             else:self.fail('unreadable count input did not fail')
         self.assertNotIn('owner_counts',fields)  # missing data is not zero
@@ -829,6 +843,7 @@ class NativeBoundaryTests(unittest.TestCase):
             root=Path(directory);(root/'calibration-original-result.json').write_bytes(io.canonical(value))
             output=streams.StringIO()
             with patch.object(m.ci,'command'),patch.object(m.ci,'inspect_guest'),patch.object(m.ci,'ready'), \
+                patch.object(m.ci.boundary,'bounded',side_effect=[(0,b'ACTUAL_NATIVE_FSUID_DAC_GREEN'),(0,b'ACTUAL_NATIVE_CONTEXT_GREEN')]), \
                     patch.object(m.ci.boundary,'cleanup_container') as cleanup,redirect_stdout(output):
                 with self.assertRaisesRegex(m.ci.CIError,'^REV4_NATIVE_CASE_RED$'):
                     m.case_run(Path('/synthetic-source'),Path('/synthetic-control'),'synthetic-image','sha256:'+'a'*64,

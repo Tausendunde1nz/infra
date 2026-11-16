@@ -38,6 +38,7 @@ def load_io():
 io = load_io()
 INFRA_FILES = {n: 'scripts/tu1nz_public_operator_'+n+'.py' for n in ('io', 'fs', 'runtime_guard', 'observe', 'probes', 'host', 'context')}
 INFRA_FILES['client'] = 'scripts/tu1nz_public_operator.py'
+INFRA_FILES['r5_completion'] = 'scripts/tu1nz_public_maintenance_r5_candidate.py'
 INFRA_FILES['admission'] = 'scripts/tu1nz_public_operator_admission.py'
 INFRA_FILES['restore'] = 'scripts/tu1nz_mainserver_restore.py'
 INFRA_FILES.update(artifact='scripts/tu1nz_public_runtime_artifact.py',
@@ -365,6 +366,20 @@ class MaintenanceClient(Client):
             io.require(message.get('return_available') is False, 'MAINTENANCE_CLIENT_OLD_RETURN_FORBIDDEN')
         return False
 
+    def prove_no_owner_entry(self):
+        self.check()
+        if self.route == 'original':
+            self.journal.check(); parent = self.journal.fd
+        else:
+            self.custody.check(); parent = self.custody.original_fd
+        try:os.stat('owner-admission-intent',dir_fd=parent,follow_symlinks=False)
+        except FileNotFoundError:pass
+        else:raise io.Hold('PUBLIC_OPERATOR_R5_OWNER_MARKER_PRESENT')
+        io.require(self.owner_marker is None and time.monotonic() < self.wire.deadline,
+                   'R5_OWNER_MARKER_OR_DEADLINE')
+        self.check()
+        return True
+
     def owner_marker_parent(self):
         self.journal.check()
         return self.journal.fd
@@ -376,6 +391,8 @@ class MaintenanceClient(Client):
 
     def project_record(self, row):
         kind, value = row['kind'], row['value']
+        if self.admission_packet is not None and self.admission_packet.get('scope',{}).get('schema') == io.MAINTENANCE_SCOPE:
+            io.require(not kind.startswith('owner_'), 'R5_OWNER_RECORD_FORBIDDEN')
         if kind == 'maintenance_ready':
             io.require(self.route == 'original' and self.ready_sha256 is None and
                        type(value) is dict and type(value.get('ready')) is dict,
@@ -864,14 +881,42 @@ def maintenance_closed_chain(parent, binding, result, *, deadline):
     if result.get('type') == 'final':
         io.require(final is not None and final['record'] == result, 'MAINTENANCE_FINAL_READBACK')
     else:io.require(final is None, 'MAINTENANCE_UNOBSERVED_FINAL')
-    if result.get('status') in ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED',
-                              'RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED'):
-        last = snapshot['records'][-1]['record']
-        io.require(last['kind'] == 'operator_cleanup' and all(result.get(k) == v for k,v in last['value'].items()) and
+    rows = [proof['record'] for proof in snapshot['records']]
+    counts = {'owner_intents':sum(row['kind'] == 'owner_object_intent' for row in rows),
+              'owner_acks':sum(row['kind'] == 'owner_object_ack' for row in rows)}
+    owner_events = any(row['kind'].startswith('owner_') or
+        (type(row['value']) is dict and (row['value'].get('phase') in ('owner_ready','owner_done') or
+        row['value'].get('action') == 'supervised_owner_transaction')) for row in rows)
+    snapshot['owner_evidence'] = {**counts, 'owner_entered':True if owner_events else None}
+    if result.get('status') in (io.R5_ORIGINAL_COMPLETE, io.R5_RECOVERY_COMPLETE):
+        last = rows[-1]
+        receipts = [row for row in rows if row['kind'] == 'r5_completion']
+        io.require(result.get('type') == 'final' and last['kind'] == 'operator_cleanup' and
+            all(result.get(k) == v for k,v in last['value'].items()) and
             result['primary'] is None and not result['abort'] and not result['cleanup'] and
-            re.fullmatch('[a-f0-9]{64}',result.get('owner_completion_sha256') or '') and
-            result['client_cleanup_still_required'] is True and result['r2_dispatch'] is False,
+            result.get('owner_completion_sha256') is None and
+            result.get('publication_authorized') is False and
+            result['client_cleanup_still_required'] is True and result['r2_dispatch'] is False and
+            len(receipts) == 1 and receipts[0]['sequence'] < last['sequence'] and
+            result.get('r5_completion_sha256') == io.sha(io.canonical(receipts[0]['value'])),
             'MAINTENANCE_COMPLETE_CLEANUP_NOT_BOUND')
+        witness = receipts[0]['value']
+        io.require(type(witness) is dict and witness.get('schema') == io.R5_COMPLETION_SCHEMA and
+            witness.get('binding') == binding and witness.get('owner_entered') is False and
+            witness.get('host_owner_marker_absent') is True and
+            witness.get('publication_authorized') is False and not owner_events and
+            counts == {'owner_intents':0,'owner_acks':0}, 'R5_CLOSED_OWNER_OR_WITNESS_MISMATCH')
+        functions = {row['value']['unit']:row['value'] for row in rows
+                     if row['kind'] == 'function_accepted' and row['sequence'] < receipts[0]['sequence']}
+        units = ('tu1nz-adult-public-s7.service','tu1nz-adult-public-s8-landing.service','tu1nz-adult-public-s10-wms.service')
+        io.require(set(functions) == set(units) and all(v.get('old') is False for v in functions.values()) and
+            witness.get('functions_sha256') == io.sha(io.canonical(functions)), 'R5_CURRENT_FUNCTION_JOURNAL_MISMATCH')
+        snapshot['owner_evidence']['owner_entered'] = False  # Host marker + chain proved above; Mac checked by caller
+        recovery = result['status'] == io.R5_RECOVERY_COMPLETE
+        io.require(result.get('original_status') == ('FAILED_HOLD' if recovery else 'THIS_RUN') and
+            (type(result.get('original_evidence')) is dict and
+             io.recovery_binding(result['original_evidence']) == binding if recovery else
+             result.get('original_evidence') is None), 'R5_ORIGINAL_HOLD_NOT_PRESERVED')
     return snapshot
 
 
@@ -891,6 +936,7 @@ def execute_maintenance(packet, source, *, password, runtime_payload, recover_on
     transport = MaintenanceTransport(reserve_milliseconds=reserve, started=entry_started)
     client = custody = None; receipt_parent = receipt_identity = None
     result = {'status':'HOLD'}; errors = []; primary = None; tail = packet['binding']; sequence = 0
+    marker_absent = None
     route = 'recovery-once' if recover_once else 'original'
     try:
         r = source.load('r3')
@@ -920,6 +966,7 @@ def execute_maintenance(packet, source, *, password, runtime_payload, recover_on
         else:
             client.wire = wire; client.admission_packet = sent; client.http_expectations = http
         result = client.serve(); client.check()
+        marker_absent = client.prove_no_owner_entry()
         tail = client.last; sequence = client.sequence
     except BaseException as error:
         primary = getattr(error, 'primary', 'PUBLIC_BOOTSTRAP_MAINTENANCE_CLIENT_OUTCOME_UNKNOWN')
@@ -933,15 +980,24 @@ def execute_maintenance(packet, source, *, password, runtime_payload, recover_on
             try:custody.close()
             except BaseException:errors.append('PUBLIC_BOOTSTRAP_RECOVERY_CUSTODY_CLOSE_UNKNOWN')
         errors.extend(transport.close())
-    success = ('RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED' if recover_once else
-               'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED')
+    success = io.R5_RECOVERY_COMPLETE if recover_once else io.R5_ORIGINAL_COMPLETE
+    owner_evidence = None
     try:
         io.require(client is not None and receipt_parent is not None, 'MAINTENANCE_CLOSED_CUSTODY_MISSING')
         records = receipt_parent/'operator-records' if recover_once else receipt_parent
         snapshot = maintenance_closed_chain(records,client.binding,result,deadline=transport.deadline)
         tail = snapshot['tail']; sequence = snapshot['count']
+        owner_evidence = snapshot['owner_evidence']
+        owner_evidence['client_owner_marker_absent'] = marker_absent
+        if marker_absent is not True and owner_evidence['owner_entered'] is False:
+            owner_evidence['owner_entered'] = None
+        if result.get('status') == success:
+            io.require(marker_absent is True and owner_evidence['owner_entered'] is False,
+                       'R5_CLIENT_OWNER_ABSENCE_UNPROVED')
     except BaseException:
         errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_CLOSED_CUSTODY_UNCONFIRMED')
+    if not errors and (transport.child is None or type(transport.child.returncode) is not int or transport.child.returncode != 0):
+        errors.append('PUBLIC_BOOTSTRAP_SSH_NONZERO_OR_INTERRUPTED')
     host_primary = result.get('primary')
     host_abort = result.get('abort',[]); host_cleanup = result.get('cleanup',[])
     status = success if result.get('status') == success and host_primary is None and not host_abort and not host_cleanup and primary is None and not errors else 'HOLD'
@@ -961,11 +1017,17 @@ def execute_maintenance(packet, source, *, password, runtime_payload, recover_on
     except BaseException:
         status = 'HOLD'; digest = None
         errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_RESULT_NOT_DURABLE_WITHIN_WINDOW')
+    elapsed = time.monotonic()-transport.started
+    if elapsed >= 600:
+        status = 'HOLD'
+        errors.append('PUBLIC_BOOTSTRAP_MAINTENANCE_TRANSPORT_600_EXCEEDED')
     return {'status':status, 'route':route, 'original_status':receipt['original_status'],
         'binding':packet['binding'], 'client_cleanup_sha256':digest, 'client_cleanup':errors,
         'primary':host_primary if host_primary is not None else primary, 'host_primary':host_primary,
         'host_abort':host_abort,'host_cleanup':host_cleanup,'client_primary':primary,
-        'elapsed_seconds':time.monotonic()-transport.started, 'r2_dispatch':False}
+        'elapsed_seconds':elapsed, 'r2_dispatch':False,
+        'owner_evidence':owner_evidence, 'final_received':result.get('type') == 'final',
+        'ssh_exit':transport.child.returncode if transport.child is not None else None}
 
 
 def preparation_records(binding):
@@ -1105,8 +1167,7 @@ def main():
                                          recover_once=args.recover_once)
         finally:password = None
         print(json.dumps(result,sort_keys=True))
-        return 0 if result['status'] in ('RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED',
-            'RECOVERY_RIGHTS_OWNER_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED') else 1
+        return 0 if result['status'] in (io.R5_ORIGINAL_COMPLETE, io.R5_RECOVERY_COMPLETE) else 1
     packet = {'source': encoded, 'hashes': hashes, 'baseline': baseline,
               'baseline_raw': base64.b64encode(baseline_raw).decode(),
               'scope_raw': base64.b64encode(scope_raw).decode(),

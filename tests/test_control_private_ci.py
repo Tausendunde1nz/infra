@@ -365,7 +365,8 @@ with p.interrupted():
         self.assertIn('persist-credentials: false',verification)
         self.assertLess(verification.index('Build fresh reviewed native image'),
                         verification.index('secrets.CONTROL_POLICY_READ_TOKEN'))
-        self.assertIn('scripts/tu1nz_public_operator_ci.py', private)
+        self.assertIn('scripts/tu1nz_public_maintenance_ci.py --phase calibration', private)
+        self.assertNotIn('python3 -I -B scripts/tu1nz_public_operator_ci.py',private)
         self.assertLess(private.index('Build fresh production-entry image'),
                         private.index('secrets.CONTROL_POLICY_READ_TOKEN'))
         self.assertNotIn('CONTROL_POLICY_READ_TOKEN',public)

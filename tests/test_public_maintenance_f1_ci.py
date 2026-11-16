@@ -1,5 +1,6 @@
 """One-case orchestration tests, only synthetic local inputs and fake Docker."""
 from contextlib import ExitStack, redirect_stdout
+import hashlib
 import copy
 import io
 import json
@@ -34,7 +35,8 @@ class F1DiagnosticTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with patch.object(d.ci.boundary, 'runtime_binding', return_value='a'*40) as bound, \
-                    patch.object(d.ci, 'command', side_effect=[b'', self.delta()]) as command:
+                    patch.object(d.ci, 'command', side_effect=[b'', self.delta()]) as command, \
+                    patch.object(d,'SOURCE_SHA256',hashlib.sha256((WORKSPACE/d.SOURCE_PATH).read_bytes()).hexdigest()):
                 self.assertEqual(d.binding(root, self.environment(root)), 'a'*40)
             bound.assert_called_once()
             self.assertEqual(command.call_count, 2)
@@ -100,12 +102,12 @@ class F1DiagnosticTests(unittest.TestCase):
                 for c in cleanup.call_args_list))
             return result, output.getvalue()
 
-    def test_pass_is_counterprobe_only_with_84_and_once_history(self):
+    def test_report_wrapper_does_not_rewrite_new_zero_counts_or_once_history(self):
         value = existing.NativeBoundaryTests().fixture()[2][1]
         result, raw = self.native_result(value)
         self.assertEqual(raw, '')
         self.assertTrue(result['green'])
-        self.assertEqual((result['owner_intents'], result['owner_acks']), (84, 84))
+        self.assertEqual((result['owner_intents'], result['owner_acks']), (0, 0))
         self.assertEqual(result['elapsed_milliseconds']+result['reserve_milliseconds'], 600000)
         self.assertTrue(result['entry_cleanup_complete'])
         self.assertTrue(result['original_failed_hold_preserved'])

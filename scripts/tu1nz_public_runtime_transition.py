@@ -2201,6 +2201,7 @@ class MaintenanceAdapter(ReplacementAdapter):
     this absence-based constructor. No method here resets a consumed claim.
     """
     authority_type = CurrentReplacementAuthority
+    after_ready_floor = 180  # legacy maintenance includes its full Owner window
 
     def __init__(self, source, baseline, plan_raw, channel, binding, *, deadline,
                  maintenance_inputs, after_ready_seconds, coverage):
@@ -2216,7 +2217,7 @@ class MaintenanceAdapter(ReplacementAdapter):
         # This is a checked value from the bound native timing result, not an
         # operator guess. 180s is only the irreducible 3*20 + 120 floor; the
         # caller must also include backup/probes/admission/cleanup/reserve.
-        io.require(type(after_ready_seconds) is int and 180 < after_ready_seconds < 600,
+        io.require(type(after_ready_seconds) is int and self.after_ready_floor < after_ready_seconds < 600,
                    'MAINTENANCE_TIMING_INPUT')
         self.coverage = coverage
         self.maintenance_inputs = dict(maintenance_inputs)

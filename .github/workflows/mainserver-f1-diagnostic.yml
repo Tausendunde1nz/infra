@@ -14,6 +14,7 @@ jobs:
   recovery-f1-calibration:
     if: >-
       github.event.pull_request.number == 241 &&
+      github.event.pull_request.head.sha == 'f0a0275c0209b73440fd6bd37b2a562996e8a853' &&
       github.event.pull_request.head.repo.full_name == 'Tausendunde1nz/infra' &&
       github.ref == 'refs/pull/241/merge' && github.run_attempt == 1
     runs-on: ubuntu-24.04

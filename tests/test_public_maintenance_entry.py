@@ -70,6 +70,7 @@ class EntryTests(unittest.TestCase):
             def serve(self):events.append('serve');return result
             def check(self):
                 if client_fault:raise io.Hold('PUBLIC_OPERATOR_SYNTHETIC_LATER_CLIENT')
+            def prove_no_owner_entry(self):return True
             def close(self):events.append('client_close')
         with ExitStack() as stack:
             stack.enter_context(patch.object(io,'maintenance_packet_binding',return_value={
@@ -77,7 +78,7 @@ class EntryTests(unittest.TestCase):
             stack.enter_context(patch.object(c,'MaintenanceTransport',Transport))
             stack.enter_context(patch.object(c,'MaintenanceClient',Client))
             stack.enter_context(patch.object(c.RecoveryCustody,'directory_identity',return_value='INERT'))
-            stack.enter_context(patch.object(c,'maintenance_closed_chain',return_value={'tail':'b'*64,'count':2}))
+            stack.enter_context(patch.object(c,'maintenance_closed_chain',return_value={'tail':'b'*64,'count':2,'owner_evidence':{'owner_intents':0,'owner_acks':0,'owner_entered':False}}))
             saved=stack.enter_context(patch.object(c,'maintenance_cleanup_receipt',return_value='c'*64))
             if recovery_fault:stack.enter_context(patch.object(c,'RecoveryCustody',side_effect=io.Hold('PUBLIC_OPERATOR_RECOVERY_SPENT')))
             value=c.execute_maintenance(packet,source,password=b'SYNTHETIC_NOT_A_PASSWORD',runtime_payload=b'',recover_once=recovery_fault)

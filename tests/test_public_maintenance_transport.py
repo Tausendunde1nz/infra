@@ -143,13 +143,14 @@ def synthetic_timing(source_hashes, artifact):
             'elapsed_milliseconds':100000 if terminal else (300000 if original else 320000),
             'after_ready_milliseconds':210000 if original else 0,
             'preparation_milliseconds':60000 if original else 0,
-            'owner_milliseconds':0 if terminal else 30000, 'largest_service_action_milliseconds':2000,
+            'owner_milliseconds':0, 'finish_cleanup_milliseconds':0 if terminal else 30000,
+            'owner_entered':False,'final_received':True,'process_ended':True, 'largest_service_action_milliseconds':2000,
             'terminal_prepare_milliseconds':10000 if terminal else 0,
             'terminal_stop_milliseconds':6000 if terminal else 0,
             'terminal_cleanup_milliseconds':5000 if terminal else 0,
             'linked_records':20 if terminal else 350, 'flow_records':10 if terminal else 70,
-            'largest_record_bytes':60000, 'owner_intents':0 if terminal else 84, 'owner_acks':0 if terminal else 84}
-    return {'schema':'TU1NZ_REV4_FULL_NATIVE_TIMING_V1', 'source_sha256':io.sha(io.canonical(source_hashes)),
+            'largest_record_bytes':60000, 'owner_intents':0, 'owner_acks':0}
+    return {'schema':'TU1NZ_REV4_R5_INDEPENDENT_NATIVE_TIMING_V1', 'source_sha256':io.sha(io.canonical(source_hashes)),
         'artifact_sha256':io.sha(io.canonical(artifact)), 'measurement_source_sha256':'b'*64,
         'transport_cleanup_reserve_milliseconds':10000, 'runs':runs}
 
@@ -164,14 +165,14 @@ class MaintenanceTimingProofTests(unittest.TestCase):
         return io.maintenance_timing_binding(self.proof if proof is None else proof,
                                              source_hashes=self.source, artifact=self.artifact)
 
-    def test_derives_reserves_and_replaces_fast_owner_with_full_120_seconds(self):
+    def test_derives_reserves_from_full_independent_r5_lifetime(self):
         value = self.check()
-        self.assertEqual(value['after_ready_seconds'], 310)
+        self.assertEqual(value['after_ready_seconds'], 220)
         self.assertEqual(value['terminal_prepare_seconds'], 20)
         self.assertEqual(value['terminal_cleanup_seconds'], 15)
-        self.assertEqual(value['whole_budget_milliseconds'], {'original':400000,
-            'recovery_F1':420000, 'recovery_F2':420000, 'recovery_F3':420000,
-            'recovery_F4':420000, 'recovery_terminal_F4':174000})
+        self.assertEqual(value['whole_budget_milliseconds'], {'original':310000,
+            'recovery_F1':330000, 'recovery_F2':330000, 'recovery_F3':330000,
+            'recovery_F4':330000, 'recovery_terminal_F4':174000})
 
     def test_independent_review_terminal_prefix_counterexample_denies(self):
         # Former arithmetic accepted591s, although the actual reserve needs646s.
@@ -219,14 +220,14 @@ class MaintenanceTimingProofTests(unittest.TestCase):
         for key,value in (('linked_records',513),('flow_records',129),('largest_record_bytes',65537),
                           ('owner_intents',85),('owner_acks',83),('owner_milliseconds',120001),
                           ('preparation_milliseconds',120001),('largest_service_action_milliseconds',20001),
-                          ('linked_records',200)):
+                          ('linked_records',69)):
             proof = copy.deepcopy(self.proof);proof['runs']['original'][key]=value
             with self.subTest(key=key), self.assertRaises(io.Hold):self.check(proof)
 
-    def test_all_required_paths_must_fit_600_including_unused_owner_and_reserve(self):
+    def test_all_required_paths_must_fit_600_including_cleanup_and_reserve(self):
         for name in self.proof['runs']:
             proof = copy.deepcopy(self.proof)
-            proof['runs'][name]['elapsed_milliseconds']=590000 if name=='recovery_terminal_F4' else 500000
+            proof['runs'][name]['elapsed_milliseconds']=590000
             with self.subTest(name=name), self.assertRaisesRegex(io.Hold,'WHOLE_600_BUDGET_EXCEEDED'):
                 self.check(proof)
 
@@ -240,7 +241,7 @@ class MaintenanceTimingProofTests(unittest.TestCase):
 
     def test_phase_intervals_and_terminal_owner_exclusion(self):
         for name,key,value in (('original','after_ready_milliseconds',290000),
-                              ('original','owner_milliseconds',0),
+                              ('original','finish_cleanup_milliseconds',0),
                               ('recovery_F1','preparation_milliseconds',1),
                               ('recovery_F1','terminal_stop_milliseconds',1),
                               ('recovery_terminal_F4','owner_intents',1),
