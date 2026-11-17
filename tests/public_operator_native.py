@@ -564,7 +564,10 @@ def setup(s, *, source_handle=None):
                  'adult-commercial-s10-2d-community.json'):
         write('/etc/tu1nz/'+name, b'{"synthetic":1}')
     write('/etc/tu1nz/adult-commercial-s7-form.secret', b'SYNTHETIC-ONLY-NOT-A-PRODUCTION-SECRET', 0o600)
-    write('/etc/tu1nz/adult-commercial-s7-database.dsn', b'postgresql:///r4_probe', 0o600)
+    dsn=(b"host='/var/run/postgresql' dbname='r4_probe' user='chatops' "
+         b"sslmode=prefer channel_binding=prefer gssencmode=disable"
+         if getattr(s,'_native_r5',False) else b'postgresql:///r4_probe')
+    write('/etc/tu1nz/adult-commercial-s7-database.dsn', dsn, 0o600)
     for unit in UNITS:
         raw = (Path('/source/systemd')/unit).read_bytes()
         write('/etc/systemd/system/'+unit, raw)
@@ -673,9 +676,11 @@ def operator_dependency_names(s):
     # must never infer a missing alias/origin from successful ldd output.
     tool='/usr/bin/busctl'
     loader,source=census_loader(s)
-    names={tool,loader}
-    for line in run(source,'--list',tool).decode().splitlines():
-        names.update(w for w in line.split() if w.startswith('/'))
+    targets=(tool,s.load('replacement').DB_PROVIDER)
+    names={*targets,loader}
+    for target in targets:
+        for line in run(source,'--list',target).decode().splitlines():
+            names.update(w for w in line.split() if w.startswith('/'))
     return names
 
 
@@ -1129,6 +1134,7 @@ def main():
     global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, OWNER_TIMING, PRIMARY_WRITER_FAULT, NATIVE_ERRNO, ENV_DIAGNOSTIC
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
+    s._native_r5=args.scenario.startswith('r5_')
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
                            'thread_source_fd': 'thread_fd'}.get(args.scenario))
     replacing=args.scenario.startswith('r5_');runtime_payload=runtime_receipt=runtime_inputs=None
