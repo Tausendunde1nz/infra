@@ -94,6 +94,7 @@ PRODUCTION_FAULT = None
 PRODUCTION_OUTCOME = None
 ACTOR_DIAGNOSTIC = None
 READ_COST = None
+OWNER_TIMING = None
 PRIMARY_WRITER_FAULT = None
 NATIVE_ERRNO = None
 ENV_DIAGNOSTIC = None
@@ -145,19 +146,82 @@ s.load("host").source_fault_location=_env_source_fault
 # action, result or deadline is replaced. Inclusive durations overlap; timing
 # overhead exists and must not be called the uninstrumented CI root cause.
 READ_COST_WRAPPER = r'''
-import time as _cost_time
+import time as _cost_time,resource as _cost_resource
 _read_cost={}
+_cost_stack=[]
+_owner_phases={}
+_owner_phase=None
+_owner_begin_ns=None
+_owner_finish_result=None
+_owner_resources={}
+def _resource_sample():
+ try:return (_cost_time.monotonic_ns(),_cost_resource.getrusage(_cost_resource.RUSAGE_SELF))
+ except Exception:return None
+def _resource_end(name,before):
+ # Two SELF samples per Owner phase, never per object/protection check.
+ # CPU excludes systemd/DBus and child processes; wall minus CPU is NOT an
+ # attribution to I/O, throttling or a particular external component.
+ try:
+  after=_resource_sample()
+  if before is None or after is None:raise ValueError()
+  a=before[1];b=after[1]
+  values={"wall_ns":after[0]-before[0],
+   "user_cpu_ns":round((b.ru_utime-a.ru_utime)*1_000_000_000),
+   "system_cpu_ns":round((b.ru_stime-a.ru_stime)*1_000_000_000),
+   "voluntary_switches":b.ru_nvcsw-a.ru_nvcsw,"involuntary_switches":b.ru_nivcsw-a.ru_nivcsw}
+  if any(type(v) is not int or v<0 for v in values.values()):raise ValueError()
+  row=_owner_resources.setdefault(name,{"status":"RECORDED","calls":0,**{k:0 for k in values}})
+  if row["status"]=="RECORDED":
+   row["calls"]+=1
+   for k,v in values.items():row[k]+=v
+ except Exception:_owner_resources[name]={"status":"UNAVAILABLE"}
+def _cost_add(table,name,elapsed,exclusive):
+ row=table.setdefault(name,{"calls":0,"inclusive_ns":0,"exclusive_ns":0})
+ row["calls"]+=1;row["inclusive_ns"]+=elapsed;row["exclusive_ns"]+=exclusive
 def _cost(name,actual):
  def invoke(*args,**kwargs):
-  began=_cost_time.monotonic_ns()
+  began=_cost_time.monotonic_ns();frame=[0];phase=_owner_phase
+  _cost_stack.append(frame)
   try:return actual(*args,**kwargs)
   finally:
-   row=_read_cost.setdefault(name,{"calls":0,"inclusive_ns":0})
-   row["calls"]+=1;row["inclusive_ns"]+=_cost_time.monotonic_ns()-began
+   elapsed=_cost_time.monotonic_ns()-began
+   _cost_stack.pop();exclusive=elapsed-frame[0]
+   if _cost_stack:_cost_stack[-1][0]+=elapsed
+   _cost_add(_read_cost,name,elapsed,exclusive)
+   if phase is not None:_cost_add(_owner_phases.setdefault(phase,{}),name,elapsed,exclusive)
+ return invoke
+def _phase(name,actual):
+ def invoke(*args,**kwargs):
+  global _owner_phase,_owner_begin_ns,_owner_finish_result
+  previous=_owner_phase;_owner_phase=name
+  if name=="admission" and _owner_begin_ns is None:
+   # The real Host set this deadline BEFORE Supervisor construction. A
+   # shorter outer deadline makes this anchor earlier, never optimistic.
+   # Floor and an extra1ns cover float->integer rounding. No clock is reset.
+   _owner_begin_ns=int(kwargs["deadline"]*1_000_000_000)-120_000_000_001
+  resources=_resource_sample()
+  try:
+   result=actual(*args,**kwargs)
+   if name=="finish":_owner_finish_result=result
+   return result
+  finally:
+   _resource_end(name,resources)
+   _owner_phase=previous
  return invoke
 _observer=s.load("observe")
 _observer.command=_cost("command",_observer.command)
-for _name in ("check","check_files","units_check","actors_check"):
+_command_actual=_observer.command
+def _command_cost(argv,*args,**kwargs):
+ label=("command_policy_owner" if argv[0]=="/usr/bin/busctl" and "GetNameOwner" in argv else
+        "command_jobs" if argv[0]=="/usr/bin/busctl" and "ListJobs" in argv else
+        "command_systemctl" if argv[0]=="/usr/bin/systemctl" else "command_other")
+ return _cost(label,_command_actual)(argv,*args,**kwargs)
+_observer.command=_command_cost
+s.load("artifact")  # same authenticated dependency order as Host.session
+_reader=s.load("replacement").ReadOnlyBus
+for _name in ("show_units","properties","exec_properties"):
+ setattr(_reader,_name,_cost("reader_"+_name,getattr(_reader,_name)))
+for _name in ("check","check_files","units_check","actors_check","policy_owner","manager_jobs_clear"):
  setattr(_observer.Authority,_name,_cost("authority_"+_name,getattr(_observer.Authority,_name)))
 for _name in ("process","writer_check"):
  _actual=getattr(_observer,_name);_wrapped=_cost(_name,_actual)
@@ -169,11 +233,26 @@ _paths=s.load("fs").Paths;_paths.check=_cost("paths_check",_paths.check)
 _linked=s.load("io").LinkedRecords;_linked.record=_cost("linked_record",_linked.record)
 _io=s.load("io");_io.measured_http=_cost("measured_http",_io.measured_http)
 _owner=s.load("owner").Supervisor
-for _name in ("check_all","apply","finish"):
+for _name in ("check_all","_backup_restore"):
  setattr(_owner,_name,_cost("owner_"+_name,getattr(_owner,_name)))
+for _name,_label in (("__init__","admission"),("apply","apply"),("finish","finish"),("close","close")):
+ setattr(_owner,_name,_phase(_label,_cost("owner_"+_label,getattr(_owner,_name))))
+_fence=s.load("owner").ObjectFence
+for _name in ("check","writer_check","close"):
+ setattr(_fence,_name,_cost("object_fence_"+_name,getattr(_fence,_name)))
+_guard=s.load("guard")
+for _name in ("owner_transition","observe_fd"):
+ setattr(_guard,_name,_cost("guard_"+_name,getattr(_guard,_name)))
 def _save_read_cost():
  import json,os
- raw=json.dumps(_read_cost,sort_keys=True).encode()
+ result=_owner_finish_result
+ timing={"phases":_owner_phases,"resources":_owner_resources,"started":_owner_begin_ns is not None,
+  "finish_completed":type(result) is dict and result.get("status")=="OWNER_COMPLETED",
+  "finish_owner_acks":result.get("owner_acks",0) if type(result) is dict else 0,
+  "finish_cleanup_bound":type(result) is dict and type(result.get("cleanup_sha256")) is str and
+      len(result["cleanup_sha256"])==64,
+  "stack_empty":not _cost_stack,"begin_monotonic_ns":_owner_begin_ns}
+ raw=json.dumps({"read_cost":_read_cost,"owner_timing":timing},sort_keys=True).encode()
  fd=os.open("/fixture-r4/read-cost.json",os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
  try:os.write(fd,raw);os.fsync(fd)
  finally:os.close(fd)
@@ -403,15 +482,19 @@ def write(path, raw, mode=0o644):
     with os.fdopen(fd, 'wb') as f: f.write(raw); f.flush(); os.fsync(f.fileno())
 
 
-def assert_guest():
+def assert_guest_isolation():
     assert os.geteuid() == 0 and Path('/.dockerenv').is_file() and os.environ.get('container') == 'docker'
     assert Path('/proc/1/comm').read_text().strip() == 'systemd'
-    assert not ROOT.exists() and not Path('/opt/tu1nz_repos').exists()
     assert all(p.name == 'lo' or not int((p/'flags').read_text(), 16) & 1
                for p in Path('/sys/class/net').iterdir() if p.is_dir())
     assert not Path('/proc/net/route').read_text().splitlines()[1:]
     for path in ('/source', '/control-source'):
         assert run('/usr/bin/findmnt', '-n', '-o', 'VFS-OPTIONS', '-T', path).decode().split(',')[0] == 'ro'
+
+
+def assert_guest():
+    assert_guest_isolation()
+    assert not ROOT.exists() and not Path('/opt/tu1nz_repos').exists()
 
 
 def source():
@@ -833,6 +916,104 @@ def actual_census_loader_profile(s):
     assert names(observed)==names(comparison) and names(observed)
 
 
+def actual_start_limit_job_observation(s):
+    """Real PID1 properties/signals on this fixture's already active units.
+
+    No mocks, limiter changes or reset-failed. A start request against an
+    already active synthetic service produces a job without restarting its
+    process. This tests passive observation, NOT full recovery admission.
+    """
+    # main already required an empty guest before exclusive fixture setup.
+    # This component observes that initialized fixture, retaining isolation.
+    assert_guest_isolation()
+    assert ROOT.is_dir() and APP.is_dir()
+    replacement=s.load('replacement');observer=s.load('observe')
+    providers={str(Path(p).resolve(strict=True)) for p in operator_dependency_names(s)
+               if Path(p).name.startswith('libsystemd-shared-') and Path(p).name.endswith('.so')}
+    assert len(providers)==1
+    fd=os.open(next(iter(providers)),os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    reader=None
+    try:
+        end=time.monotonic()+40
+        before=observer.unit_rows(UNITS,end)
+        assert all(v['ActiveState']=='active' and v['NRestarts']=='0' and not v['Job'] for v in before.values())
+        reader=replacement.ReadOnlyBus(fd,end)
+        watch=replacement.StartLimitObservation(reader)
+        # These copied units retain their real 900-second interval. This
+        # component checks job observation on already active fixture services;
+        # the separate mainserver_startlimit_native test proves aged admission.
+        for unit in UNITS:
+            burst=run('/usr/bin/systemctl','show',unit,'--property=StartLimitBurst','--value').decode().strip()
+            assert burst.isdecimal() and int(burst)==watch.limits[unit]['StartLimitBurst']
+            assert watch.limits[unit]['StartLimitIntervalUSec'] == 900_000_000
+            assert watch.limits[unit]['StartLimitBurst'] > 0
+        assert watch.remaining(UNITS[0]) > 0
+        try:watch.retire_for_start(UNITS[0])
+        except s.load('io').Hold as error:
+            assert error.primary=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_WINDOW_NOT_ELAPSED'
+        else:raise AssertionError('NATIVE_RECENT_START_LIMIT_FALSE_PERMISSION')
+        watch.retire_already_active(UNITS[0])  # no new start permission
+        run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[0])
+        watch.drain()  # retired own unit's real job must no longer match
+        run('/usr/bin/systemctl','--job-mode=fail','start',UNITS[1])
+        rejected=False
+        until=min(end,time.monotonic()+5)
+        while time.monotonic() < until and not rejected:
+            try:watch.drain()
+            except s.load('io').Hold as error:
+                assert error.primary=='PUBLIC_BOOTSTRAP_PUBLIC_OPERATOR_START_LIMIT_RELEVANT_JOB_OBSERVED'
+                rejected=True
+            if not rejected:time.sleep(.02)
+        assert rejected and watch.events > 0
+        try:watch.remaining(UNITS[2])
+        except s.load('io').Hold:pass
+        else:raise AssertionError('NATIVE_START_LIMIT_FAULT_NOT_LATCHED')
+        after=observer.unit_rows(UNITS,end)
+        assert all((after[u]['MainPID'],after[u]['InvocationID'],after[u]['NRestarts']) ==
+                   (before[u]['MainPID'],before[u]['InvocationID'],before[u]['NRestarts']) for u in UNITS)
+        reader.close();assert watch.closed and not watch.slots and not reader.bus
+    finally:
+        if reader is not None:reader.close()
+        os.close(fd)
+
+
+def actual_unit_read_parity(s):
+    """Actual v255 CLI/direct-bus equivalence on the isolated fixture only.
+
+    Read all three Unit+Service profiles, all four allowed dependency objects,
+    and the original typed hook arrays. No substitution in production reads.
+    This component precedes the unchanged transaction/Owner clock.
+    """
+    assert_guest_isolation()
+    replacement=s.load('replacement');observer=s.load('observe')
+    providers={str(Path(p).resolve(strict=True)) for p in operator_dependency_names(s)
+               if Path(p).name==replacement.BUS_PROVIDER}
+    assert len(providers)==1
+    fd=os.open(next(iter(providers)),os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    reader=None
+    try:
+        end=time.monotonic()+40;reader=replacement.ReadOnlyBus(fd,end)
+        for units,keys in ((UNITS,observer.PROPERTIES),
+            (('system.slice','sysinit.target','network-online.target','tmp.mount'),
+             'LoadState,StopWhenUnneeded,ActiveState,Job')):
+            before=observer.unit_properties(units,keys,end)
+            actual=observer.unit_properties(units,keys,end,reader=reader)
+            after=observer.unit_properties(units,keys,end)
+            assert before==actual==after,'NATIVE_UNIT_READ_PARITY'
+        # Real provider formatters, including cases absent from this live
+        # fixture's values. Expected output follows the bound v255 printer.
+        for value,expected in ((0,'0'),(1,'1us'),(1_000_001,'1.000001s'),
+                               (90_000_000,'1min 30s'),(2**64-1,'infinity')):
+            assert reader.show_value('TimeoutStopUSec',{'type':'t','data':value})==expected
+        for value,expected in (([],''),(['a','b'],'a b'),(['a b'],'"a b"'),
+                               (['a"b'],'"a\\"b"')):
+            assert reader.show_value('Names',{'type':'as','data':value})==expected
+        reader.close();assert not reader.bus
+    finally:
+        if reader is not None:reader.close()
+        os.close(fd)
+
+
 def actual_loader_alias_fence(s):
     """Own synthetic library names only; no systemd ancestor/reload experiment."""
     replacement=s.load('replacement');entry=s.load('entry');fs=s.load('fs')
@@ -935,8 +1116,17 @@ def production_outcome(result,code,r,fault_wire,stderr):
     return value,acknowledgments,actual_root
 
 
+def fixture_unit_sample(observer, unit, deadline):
+    # Same read-only preparation as baseline(): the actual Authority method
+    # graph, without constructing an authority or claiming admission. A bare
+    # deadline-only duck object no longer supplies read_unit_rows().
+    reader=observer.Authority.__new__(observer.Authority)
+    reader.deadline=deadline
+    return reader.unit(unit)
+
+
 def main():
-    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, PRIMARY_WRITER_FAULT, NATIVE_ERRNO, ENV_DIAGNOSTIC
+    global PRODUCTION_FAULT, PRODUCTION_OUTCOME, ACTOR_DIAGNOSTIC, READ_COST, OWNER_TIMING, PRIMARY_WRITER_FAULT, NATIVE_ERRNO, ENV_DIAGNOSTIC
     parser = argparse.ArgumentParser(); parser.add_argument('--scenario', choices=SCENARIOS, default='success')
     args = parser.parse_args(); assert_guest(); s, encoded, hashes = source()
     setup(s, source_handle={'stop_source_fd': 'fd', 'stop_source_mapping': 'shared',
@@ -953,6 +1143,9 @@ def main():
     actual_read_census_fence(s)
     actual_loader_configuration_fence(s)
     actual_policy_owner_epoch(s)
+    if args.scenario=='r5_success':
+        actual_unit_read_parity(s)
+        actual_start_limit_job_observation(s)
     if args.scenario == 'thread_authority':
         # Exact profile first, then a real per-task fsuid change. A worker
         # retains root filesystem authority while the leader no longer does.
@@ -998,12 +1191,10 @@ os.write(fd,b'CHANGED');os.close(fd);time.sleep(120)
     # Actual PID1 batch and three independent single reads must agree before
     # fault injection. Not a synthetic success response for an observer.
     measured_units = s.load('observe').unit_rows(UNITS, time.monotonic()+20)
-    assert measured_units == {u: s.load('observe').Authority.unit(
-        type('Read', (), {'deadline': time.monotonic()+20})(), u) for u in UNITS}
+    assert measured_units == {u: fixture_unit_sample(s.load('observe'),u,time.monotonic()+20) for u in UNITS}
     legacy = {}
     for u in UNITS:
-        row = s.load('observe').process(int(s.load('observe').Authority.unit(
-            type('Read', (), {'deadline': time.monotonic()+30})(), u)['MainPID']))
+        row = s.load('observe').process(int(fixture_unit_sample(s.load('observe'),u,time.monotonic()+30)['MainPID']))
         legacy[u] = {k: row[k] for k in ('uid', 'gid', 'groups', 'nnp')}
         legacy[u]['caps'] = {k: format(row['caps'][k], '016x') for k in ('CapInh', 'CapPrm', 'CapEff', 'CapAmb')}
     legacy_hash = io.sha(io.canonical(legacy))
@@ -1133,8 +1324,11 @@ s.load("host").command=_delay_after_actual_start
     except BaseException as error:
         result.update(error_type=type(error).__name__, primary=getattr(error, 'primary', 'UNKNOWN'))
     finally:
+        client_cleanup_begin = time.monotonic_ns()
         child.stdin.close(); supervisor.close()
     stderr = child.stderr.read(); code = child.wait(timeout=10)
+    child.stdout.close(); child.stderr.close()
+    client_cleanup_end = time.monotonic_ns()
     if fault_wire.extra_actor is not None:
         fault_wire.extra_actor.terminate(); fault_wire.extra_actor.wait(timeout=5)
     if held_writer is not None: os.close(held_writer)
@@ -1156,7 +1350,12 @@ s.load("host").command=_delay_after_actual_start
         ENV_DIAGNOSTIC=io.parse(env_path.read_bytes())
         ENV_DIAGNOSTIC['service']=service_failure_diagnostic(ENV_DIAGNOSTIC['unit'])
     cost_path = ROOT/'read-cost.json'
-    if cost_path.exists(): READ_COST = io.parse(cost_path.read_bytes())
+    if cost_path.exists():
+        costs = io.parse(cost_path.read_bytes()); READ_COST = costs['read_cost']
+        OWNER_TIMING = costs['owner_timing']; began = OWNER_TIMING.pop('begin_monotonic_ns')
+        OWNER_TIMING['elapsed_ns'] = client_cleanup_end-began if began is not None else None
+        OWNER_TIMING['client_cleanup_ns'] = client_cleanup_end-client_cleanup_begin
+        OWNER_TIMING['limit_ns'] = 120_000_000_000
     PRODUCTION_OUTCOME,acknowledgments,actual_root=production_outcome(result,code,r,fault_wire,stderr)
     if args.scenario in ('first_restart', 'old_restart', 'r5_first_restart'):
         proof = json.loads((ROOT/'actual-restart-proof.json').read_bytes())
@@ -1172,9 +1371,13 @@ s.load("host").command=_delay_after_actual_start
                       'owner_confirmations': len(acknowledgments), 'actual_root_objects': actual_root,
                       'actual_faults': fault_wire.injected,
                       'fixture_only_no_host_acceptance': True}
+    report['owner_timing'] = OWNER_TIMING
     if args.scenario in ('success','r5_success','r5_legacy_unknown'):
         assert code == 0 and result['status'] == 'RIGHTS_OWNER_RECEIPTED_R2_NOT_DISPATCHED', result
         assert actual_root == 88 and len(acknowledgments) == 84
+        from tu1nz_public_operator_ci import safe_owner_timing, CIError
+        try: safe_owner_timing(OWNER_TIMING, completed=True)
+        except CIError: raise AssertionError('OWNER_FULL_CLEANUP_120S_NOT_PROVED') from None
     elif args.scenario in ('restore_fail_return', 'probe_fail_return'):
         assert code == 0 and result['status'] == 'OLD_OPERATION_RESTORED_SECURITY_RED', result
         assert actual_root == 4 and not acknowledgments
@@ -1280,6 +1483,9 @@ if __name__ == '__main__':
             if trace.tb_frame.f_code.co_filename == __file__: line = trace.tb_lineno
             trace = trace.tb_next
         location = {'test_line': line, 'test_type': type(error).__name__, 'production_fault': PRODUCTION_FAULT}
+        # Bounded numeric errno only; never publish exception text/argv/path.
+        if isinstance(error, OSError) and type(error.errno) is int and 0 <= error.errno < 4096:
+            location['errno'] = error.errno
         fixture=fixture_fault_location(error)
         if fixture is not None:location['fixture_fault']=fixture
         if PRIMARY_WRITER_FAULT is not None:location['primary_fault']=PRIMARY_WRITER_FAULT
@@ -1287,6 +1493,7 @@ if __name__ == '__main__':
         if PRODUCTION_OUTCOME is not None: location['outcome'] = PRODUCTION_OUTCOME
         if ACTOR_DIAGNOSTIC is not None: location['actor'] = ACTOR_DIAGNOSTIC
         if READ_COST: location['read_cost'] = READ_COST  # strict reader forbids an empty cost object
+        if OWNER_TIMING is not None: location['owner_timing'] = OWNER_TIMING
         if ENV_DIAGNOSTIC is not None:location['environment']=ENV_DIAGNOSTIC
         print(json.dumps({'native_failure': location}))
         raise SystemExit(1)

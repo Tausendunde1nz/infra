@@ -11,13 +11,14 @@ import copy
 import io
 from pathlib import Path
 import json
+import hashlib
 import os
 import tarfile
 
 from tests import public_operator_native as f
 
 
-def runtime(s):
+def runtime(s, *, maintenance_dimensions=False):
     a=s.load('artifact')
     inputs=copy.deepcopy(json.loads(s.bytes['runtime_inputs']))
     source={'requirements-m2.lock':('\n'.join('--hash=sha256:'+w['sha256'] for w in inputs['wheels'])+'\n').encode(),
@@ -28,7 +29,11 @@ def runtime(s):
                          ('tu1nz_exposure_s10','runtime.py')]:
         source['src/'+package+'/__init__.py']=b''
         source['src/'+package+'/'+file]=main
-    for i in range(650-len(source)):source['docs/synthetic-source-'+str(i).zfill(4)+'.txt']=b'SYNTHETIC SOURCE ONLY\n'
+    for i in range(650-len(source)):
+        name=('docs/group'+str(i%100).zfill(3)+'/' if maintenance_dimensions else 'docs/')
+        source[name+'synthetic-source-'+str(i).zfill(4)+'.txt']=(
+            hashlib.shake_256(('TU1NZ_SYNTHETIC_DIMENSIONS_'+str(i)).encode()).digest(24*1024)
+            if maintenance_dimensions else b'SYNTHETIC SOURCE ONLY\n')
     catalog={k:{'kind':'file','sha256':a.sha(v)} for k,v in source.items()}
     inputs['application'].update(commit='0'*40,tree='1'*40,manifest_sha256=a.sha(a.canonical(catalog)))
     a.APP=('0'*40,'1'*40);a.SOURCE_MANIFEST=inputs['application']['manifest_sha256']
@@ -37,6 +42,11 @@ def runtime(s):
     python=(root/inputs['python']['filename']).read_bytes()
     wheels={w['filename']:(root/w['filename']).read_bytes() for w in inputs['wheels']}
     raw,receipt=a.assemble(source,python,wheels,inputs)
+    if maintenance_dimensions:
+        # Floors from the closed production receipt d42e5bd8...: actual bytes
+        # and objects are materialized, never inflated accounting counters.
+        assert len(raw)>=45560268 and receipt['expanded_file_bytes']>=143314310
+        assert len(receipt['objects'])>=6260
     # Local expected data, not Code/action/observation replacement.
     s.bytes['runtime_inputs']=a.canonical(inputs)
     return raw,receipt,inputs

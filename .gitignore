@@ -1,4 +1,9 @@
 *
+!scripts/tu1nz_mainserver_claim_read.py
+!scripts/tu1nz_mainserver_claim_transport.py
+!tests/test_mainserver_claim_read.py
+!tests/test_mainserver_claim_transport.py
+!tests/test_public_maintenance.py
 !tests/s8_fork_child.py
 !tests/test_s8_fork_child.py
 !tests/s8_diagnostic_once.py
@@ -50,6 +55,11 @@
 !nginx/current/
 !nginx/current/**
 !scripts/
+!scripts/tu1nz_public_operator_admission.py
+!tests/test_public_maintenance_entry.py
+!tests/test_public_maintenance_admission.py
+!tests/public_maintenance_fixture.py
+!tests/public_maintenance_native.py
 !scripts/restore_test.sh
 !scripts/tu1nz_m1_infra_gate.sh
 !scripts/tu1nz_encrypted_backup.sh
@@ -426,3 +436,6 @@
 !tests/test_b_precopy_once.py
 !tests/b_precopy_native.py
 !docs/B_PRECOPY_ONCE_R1.txt
+
+!scripts/tu1nz_public_maintenance_ci.py
+!tests/test_public_maintenance_ci.py

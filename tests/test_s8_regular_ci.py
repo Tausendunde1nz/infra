@@ -126,16 +126,23 @@ class RegularS8BindingTests(unittest.TestCase):
             gate.main(['--tests','arbitrary'])
         self.assertEqual(error.exception.code,2)
 
-    def test_existing_three_jobs_permissions_deadlines_and_private_boundary_retained(self):
+    def test_exact_six_jobs_deadlines_and_serial_private_boundaries_retained(self):
         raw=(ROOT/'.github/workflows/control-validation.yml').read_text()
         jobs=raw.split('jobs:\n',1)[1]
         self.assertEqual(re.findall(r'^  ([a-z0-9-]+):$',jobs,re.M),
-                         ['b-data-handoff','control-private-provenance','restore-contract'])
+                         ['mainserver-backup-native','mainserver-startlimit-native',
+                          'b-data-handoff','control-private-provenance','mainserver-maintenance-native','restore-contract'])
         before,restore=raw.split('  restore-contract:\n',1)
-        for value in ('timeout-minutes: 10','timeout-minutes: 60','environment: control-private-ci',
+        for value in ('timeout-minutes: 10','environment: control-private-ci',
                       'ref: ${{ github.event.pull_request.head.sha || github.sha }}'):
             self.assertIn(value,before)
-        self.assertIn('timeout-minutes: 75',restore);self.assertIn('needs: control-private-provenance',restore)
+        calibration,verification=before.split('  mainserver-maintenance-native:\n',1)
+        self.assertIn('timeout-minutes: 360',calibration)
+        self.assertIn('timeout-minutes: 330',verification)
+        self.assertIn('environment: control-private-ci',verification)
+        self.assertIn('needs: control-private-provenance',verification)
+        self.assertIn('timeout-minutes: 75',restore)
+        self.assertIn('needs: [control-private-provenance, mainserver-maintenance-native]',restore)
         self.assertIn('run: bash tests/s8_anchor_native.sh',restore)
         self.assertNotIn('CONTROL_POLICY_READ_TOKEN',restore)
         self.assertNotIn('pull_request_target:',raw)

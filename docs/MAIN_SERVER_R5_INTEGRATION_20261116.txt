@@ -1,0 +1,88 @@
+TU1NZ – unabhängiger R5-Abschluss, lokale Integration 16.11.2026
+
+Basis: f0a0275c0209b73440fd6bd37b2a562996e8a853, lokaler Kandidat
+8aa69188022b90d97152a68ab2eb3d7d6055c100. Kein Push und kein nativer Lauf.
+Hauptserver 109772243 HOLD. Lighting-Umschaltung, Veröffentlichung und WMS-Pilot
+173954685 ausgeschlossen. Bestehender WMS-Dienst bleibt Teil der drei Dienste.
+
+Änderungsumfang
+- Authentifiziertes Source-Paket enthält r5_completion. Der explizite Mac-
+  Wartungseinstieg dispatcht Original und recovery-once über R5SessionResult,
+  R5MaintenanceFlow/R5RecoveryFlow und die entsprechenden Adapter.
+- Eigener Scope und Abschlussvertrag; alle acht bisherigen Materialien bleiben
+  bytegenau, mit aktuellem Source, Scope und unabhängiger Eingabeprüfung gebunden.
+  Alte Owner-Verträge und alte native Owner-Zeitnachweise sind nicht kompatibel.
+- Eine frische R5-Schlussbeobachtung prüft alle drei isolierten funktionierenden
+  Dienste, die bestehende geschützte Sicherung/Rücklese, Restore-/Probe-Belege
+  und den unveränderten Lighting-Lesebestand. Keine Owner-Zulassung/-Aktion.
+- Client-Erfolg benötigt empfangenes final, geschlossene vollständige
+  Journal-Rücklese, übereinstimmenden Schlussbeleg/Funktionsdatensätze,
+  fehlerfreien Host- und Client-Cleanup, dauerhafte Client-Rücklese und
+  Transportprozessende mit Exit 0 innerhalb der bestehenden 600 Sekunden.
+  Owner-Zähler stammen aus den gelesenen Journalzeilen. Kein Owner-Eintritt
+  verlangt zusätzlich die geprüfte Abwesenheit der festen Host-/Mac-Marker.
+  Fehlende Belege bleiben unbekannt; ein leerer unbestätigter Verlauf ist kein 0/0.
+- Fehler, verlorene Quittung, fehlendes final oder Cleanup/Fristfehler bleiben
+  HOLD. Recovery bleibt einmalig; originale Fehlerhistorie und HOLD bleiben
+  gebunden. Terminales F4 bleibt HOLD mit belegtem Stop bekannter neuer Units.
+
+Fristen und native Messung
+- Sechs Fälle: Original, Recovery F1, F2, F3, F4, terminales F4. Separate
+  Kalibrierung und anschließende Verifikation am selben Source und Messcode.
+- Die 600 Sekunden beginnen am Sitzungseinstieg und enden erst nach Client-
+  Cleanup und Prozessende. Die native äußere Messung schließt zusätzlich den
+  Start und das Reaping des Client-Workers ein. Fixture-Voralterung außerhalb.
+- Bestehende 20s-Service-, 120s-Aktions-/Vorbereitungs- und terminale Teilfristen
+  bleiben. Das alte 120s-Owner-Fenster wird nicht betreten und nicht als PASS
+  ausgewiesen. Owner-Messzeit/Zähler sind nur bei bestätigter Nichtausführung 0.
+- Neuer Budgetvertrag: gemessene Gesamtzeit bis Reaping plus bestehende 10s-
+  Transportreserve; Original-Reserve nach READY aus gemessener Restlaufzeit
+  einschließlich Abschluss, mindestens sechs 20s Stop-/Startmöglichkeiten.
+  Terminale Reserve behält vollständige Stopfenster und ihren gemessenen Präfix.
+  Ohne alle sechs echten Kalibrierungswerte entsteht kein natives Budget.
+- Synthetische Zeiten dienen ausschließlich der Validatorprüfung und der
+  ersten Kalibrierungs-Fixture. Sie sind keine Host- oder Verifikationsbelege.
+
+Vorbereiteter einzelner regulärer Lauf, noch NICHT genehmigt/gestartet
+1. Exakten geprüften lokalen Commit per einmaligem Fast-Forward auf den
+   bestehenden PR-241-Branch übernehmen, erst nach gesonderter Entscheidung
+   und Prüfung des dann aktuellen Remote-Heads (erwartet f0a0275c...).
+2. Ein Control-validation-Erstversuch über unverändertes control-private-ci.
+   Persönliche Reviewer-Freigabe am konkreten Run/Merge-SHA, kein Bypass.
+3. Bisheriger Control-Provenance-Job, lokale Grenzen und frische Images bleiben.
+   Mainserver-Kalibrierung führt direkt sechs serielle vollständige R5-Gäste
+   aus. Die 28 Legacy-/Owner-Adapterfälle sind weiterhin separat vorhanden,
+   aber keine Voraussetzung für den neuen Hauptserverabschluss. Die bestehenden
+   sieben FSUID/DAC/HTTP- und zwölf Kontext-Grenztests laufen im Original-Gast
+   vor der Fixture, ohne Zusatzgast und ohne Überschneidung mit der Messung.
+4. Nach bestandener Kalibrierung sechs frische serielle Verifikationsgäste,
+   gebunden an dieselbe Kalibrierung, Source und Messcode. Keine Kalibrierung
+   allein als PASS. Jede notwendige weitere persönliche Environment-Freigabe
+   bleibt beim Nutzer. Automatische Standardprüfungen bleiben erhalten.
+5. Der frühere einzelne F1-Diagnoseworkflow ist zusätzlich auf seinen damals
+   genehmigten Head f0a0275c begrenzt. Der neue Commit startet dort keinen Gast;
+   dessen bestehender exakter Diff-/Source-/Erstversuchsschutz bleibt erhalten.
+
+Lokal belegbar / offene Nachweise
+- Realer lokaler Pipe-/Kindprozess über execute_maintenance, echten Host-
+  Dispatcher und Flow, dauerhafte Journal-ACKs, final, geschlossene Rücklese,
+  Cleanup und Reaping. Native Beobachtungen/Aktionen sind dort ausdrücklich
+  inert; keine lokale Simulation belegt reale Dienstfunktion oder Isolation.
+- Separate Recovery-Flow-, Reihenfolge-, Einmaligkeits-/HOLD- und geschlossene
+  Abschlussbelegtests. Tatsächliche Systemd-/SSH-/sudo-Gegenprobe bleibt nativ.
+- Authentifizierte Source-Ladung mit echten unveränderten gebundenen Control-
+  Komponenten lokal geprüft; keine Hostaktion. Endgültige Release-/Merge- und
+  CI-Eingabebindung muss nach einer separaten Laufentscheidung entstehen.
+- Offen: alle sechs neuen nativen Kalibrierungs- und Verifikationsnachweise mit
+  realen Gesamtzeiten/Reserven und Cleanup. Alte Owner-/F1-Läufe werden nicht
+  umgedeutet. Historische R5-Langsamkeitsursache bleibt UNKNOWN.
+- Die neue Produktions-Ausführungsfreigabe ist noch NICHT vorhanden. Der alte
+  Approval-Pin wird nicht als Freigabe dieses geänderten Vertrags ausgegeben;
+  MAINTENANCE_APPROVAL_SHA bleibt im Produktionscode geschlossen (None).
+  Ein späterer bindender Approval-Pin erfordert eine eigene geprüfte Source-
+  Bindung. Deren native Belege dürfen nicht still auf einen anderen Source-Hash
+  übertragen werden. Dieser Block bereitet ausschließlich Integration/CI vor.
+- Vor realem Stop bleiben aktuelle Sicherungsabdeckung, Writer, Claims,
+  Wiederanlauf, Ausführungseingaben und unabhängige Bindung aller acht Materialien
+  offen. Geschlossene reale S7- und Datei-/Lighting-Restores bleiben erhalten.
+  E1/verbrauchten S7-/Reader-/P0-Slots keine neue Zulassung; keine /run-Erweiterung.
