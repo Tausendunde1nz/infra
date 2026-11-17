@@ -673,7 +673,7 @@ except BaseException as error:
         values = {}
         for line in result.stdout.decode().splitlines():
             key, value = line.split(' ', 1); values.setdefault(key, []).append(value)
-        expected = {'hostname': '100.121.130.51', 'user': 'chatops', 'port': '22',
+        expected = {'hostname': '100.121.130.51', 'user': 'chatops', 'port': '2222',
             'userknownhostsfile': '/Users/daniel/.ssh/known_hosts', 'globalknownhostsfile': '/dev/null',
             'hostkeyalias': '100.121.130.51', 'identityfile': '/Users/daniel/.ssh/id_ed25519',
             'identityagent': 'none', 'identitiesonly': 'yes', 'canonicalizehostname': 'false',
