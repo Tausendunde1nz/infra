@@ -1032,6 +1032,22 @@ class NativeBoundaryTests(unittest.TestCase):
             f.bind_expected(source,pins,inputs,legacy_sha='c'*64)
         self.assertEqual(modules['observe'].LEGACY_CONTEXTS_SHA,'c'*64)
 
+    def test_native_backup_fixture_uses_producer_cleanup_format_and_passes_admission(self):
+        from tests import public_maintenance_fixture as f
+        from tests.test_public_maintenance_admission import CoverageTests,catalog,metadata
+        import tu1nz_public_operator_admission as admission
+        import tu1nz_mainserver_restore as restore
+        packet,source,bound=CoverageTests().fixture()
+        guard=SimpleNamespace(observe_fd=Mock(return_value={
+            'sha256':'e'*64,'metadata':{**metadata(),'size':20}}))
+        fixture_source=SimpleNamespace(load={'admission':admission,'restore':restore,'guard':guard}.__getitem__)
+        with patch.object(f.os,'open',return_value=42),patch.object(f.os,'close'), \
+                patch.object(f.f,'run',side_effect=[b'',catalog(),b'{"kind":"runtime_role","inherit":false}\n']):
+            coverage,receipts=f.synthetic_backup(fixture_source,packet['baseline'],bound['plan'])
+        bound['documents']['current_observation']['coverage']=coverage
+        bound['restore_receipts']['protection']=io.parse(receipts['protection'])
+        admission.validate(packet,source,bound,remaining_seconds=600)
+
     def test_native_synthetic_packet_passes_actual_local_bindings_without_io(self):
         from tests import public_maintenance_fixture as f
         from tests.test_public_maintenance_admission import CoverageTests

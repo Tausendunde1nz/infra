@@ -113,7 +113,8 @@ def synthetic_backup(s,b,plan):
     db={'cleanup':[],'snapshot':{'snapshot_started_unix':db_time,'fingerprints':{n:{'rows':0} for n in model.TABLES}},'admission':profile}
     completion={'status':'PASS_REAL_DB_AND_FILE_RESTORES','db_result_sha256':io.sha(raw(db)),
         'file_result_sha256':io.sha(b'SYNTHETIC_FILE_RESTORE_COORDINATE_NOT_PRODUCTION_EVIDENCE'),
-        'actual_local_cleanup':[],'file_manifest_sha256':io.sha(raw(files)),'db_snapshot_started_unix':db_time}
+        'actual_local_cleanup':{'own_test_copies_removed':True,'two_empty_root_owned_entry_directories_retained':True},
+        'file_manifest_sha256':io.sha(raw(files)),'db_snapshot_started_unix':db_time}
     protection={'private_completion_sha256':io.sha(raw(completion)),'private_DB_result_sha256':io.sha(raw(db)),
         'private_file_result_sha256':completion['file_result_sha256'],'file_capture_finished_utc':stamp(file_time)}
     receipts={'protection':raw(protection),'database':raw({'fixture_only':True}),'cleanup':raw({'fixture_only':True,'cleanup':[]})}

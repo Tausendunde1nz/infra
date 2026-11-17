@@ -66,10 +66,14 @@ def validate(packet, source, bound, *, remaining_seconds):
     completion,_ = decoded(coverage['completion'],protection['private_completion_sha256'],'MAINTENANCE_CLOSED_COMPLETION')
     db,_ = decoded(coverage['database_result'],protection['private_DB_result_sha256'],'MAINTENANCE_CLOSED_DATABASE')
     files,_ = decoded(coverage['file_manifest'],completion['file_manifest_sha256'],'MAINTENANCE_CLOSED_FILE_MANIFEST')
+    cleanup = completion.get('actual_local_cleanup')
     io.require(completion['status'] == 'PASS_REAL_DB_AND_FILE_RESTORES' and
         completion['db_result_sha256'] == protection['private_DB_result_sha256'] and
         completion['file_result_sha256'] == protection['private_file_result_sha256'] and
-        completion['actual_local_cleanup'] == [] and db['cleanup'] == [], 'MAINTENANCE_CLOSED_PROTECTION_LINKS')
+        type(cleanup) is dict and set(cleanup) == {'own_test_copies_removed',
+            'two_empty_root_owned_entry_directories_retained'} and
+        all(value is True for value in cleanup.values()) and db['cleanup'] == [],
+        'MAINTENANCE_CLOSED_PROTECTION_LINKS')
     # The catalog/rights are JSONL technical metadata, not a data dump or SQL.
     catalog_raw = base64.b64decode(coverage['source_catalog'],validate=True)
     rights_raw = base64.b64decode(coverage['source_rights'],validate=True)

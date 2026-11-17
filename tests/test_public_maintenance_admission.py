@@ -49,7 +49,9 @@ class CoverageTests(unittest.TestCase):
         db={'cleanup':[],'snapshot':{'snapshot_started_unix':now-50,'fingerprints':{n:{'rows':0} for n in a.TABLES}},
             'admission':model.compare_restore_catalog(cat,cat,rights,rights)}
         completion={'status':'PASS_REAL_DB_AND_FILE_RESTORES','db_result_sha256':io.sha(io.canonical(db)),
-            'file_result_sha256':'d'*64,'actual_local_cleanup':[],'file_manifest_sha256':io.sha(manifest),
+            'file_result_sha256':'d'*64,'actual_local_cleanup':{
+                'own_test_copies_removed':True,'two_empty_root_owned_entry_directories_retained':True},
+            'file_manifest_sha256':io.sha(manifest),
             'db_snapshot_started_unix':now-50}
         protection={'private_completion_sha256':io.sha(io.canonical(completion)),
             'private_DB_result_sha256':io.sha(io.canonical(db)),'private_file_result_sha256':'d'*64,
@@ -100,6 +102,57 @@ class CoverageTests(unittest.TestCase):
             proof=a.validate(packet,source,bound,remaining_seconds=600)
         opening.assert_not_called();self.assertNotIn('host_admitted',proof)
         self.assertEqual(set(proof['assessment']['changes']),set(a.TABLES)|set(a.STATE))
+
+    def rebind_completion(self,bound,completion):
+        bound['documents']['current_observation']['coverage']['completion']=encoded(completion)
+        bound['restore_receipts']['protection']['private_completion_sha256']=io.sha(io.canonical(completion))
+
+    def test_local_cleanup_requires_exact_producer_fields_and_boolean_true(self):
+        expected={'own_test_copies_removed':True,'two_empty_root_owned_entry_directories_retained':True}
+        cases=[('missing',None),('old_empty_list',[]),('null',None),('empty_object',{}),
+               ('boolean',True),('string','true')]
+        for field in expected:
+            cases.append(('missing_'+field,{k:v for k,v in expected.items() if k!=field}))
+            for value in (False,1,1.0,'true',None,[],{}):
+                cases.append((field+'_'+repr(value),{**expected,field:value}))
+        for value in (True,False):cases.append(('extra_'+str(value),{**expected,'extra':value}))
+        for name,cleanup in cases:
+            with self.subTest(case=name):
+                p,s,b=self.fixture();cover=b['documents']['current_observation']['coverage']
+                completion=io.parse(base64.b64decode(cover['completion']))
+                if name=='missing':del completion['actual_local_cleanup']
+                else:completion['actual_local_cleanup']=cleanup
+                self.rebind_completion(b,completion)
+                with self.assertRaisesRegex(io.Hold,'MAINTENANCE_CLOSED_PROTECTION_LINKS'):
+                    a.validate(p,s,b,remaining_seconds=600)
+
+    def test_separate_database_cleanup_still_requires_empty_list(self):
+        for cleanup in (None,{},False,'',{'own_test_copies_removed':True},['leftover']):
+            with self.subTest(cleanup=cleanup):
+                p,s,b=self.fixture();cover=b['documents']['current_observation']['coverage']
+                db=io.parse(base64.b64decode(cover['database_result']));db['cleanup']=cleanup
+                cover['database_result']=encoded(db)
+                digest=io.sha(io.canonical(db))
+                b['restore_receipts']['protection']['private_DB_result_sha256']=digest
+                completion=io.parse(base64.b64decode(cover['completion']));completion['db_result_sha256']=digest
+                self.rebind_completion(b,completion)
+                with self.assertRaisesRegex(io.Hold,'MAINTENANCE_CLOSED_PROTECTION_LINKS'):
+                    a.validate(p,s,b,remaining_seconds=600)
+
+    def test_cleanup_proof_does_not_replace_closed_hashes_status_or_result_links(self):
+        cases={'completion':'MAINTENANCE_CLOSED_COMPLETION','database_result':'MAINTENANCE_CLOSED_DATABASE',
+               'file_manifest':'MAINTENANCE_CLOSED_FILE_MANIFEST','status':'MAINTENANCE_CLOSED_PROTECTION_LINKS',
+               'db_result_sha256':'MAINTENANCE_CLOSED_PROTECTION_LINKS',
+               'file_result_sha256':'MAINTENANCE_CLOSED_PROTECTION_LINKS'}
+        for field,code in cases.items():
+            with self.subTest(field=field):
+                p,s,b=self.fixture();cover=b['documents']['current_observation']['coverage']
+                if field in cover:cover[field]=encoded({'changed':True})
+                else:
+                    completion=io.parse(base64.b64decode(cover['completion']))
+                    completion[field]='HOLD' if field=='status' else '0'*64
+                    self.rebind_completion(b,completion)
+                with self.assertRaisesRegex(io.Hold,code):a.validate(p,s,b,remaining_seconds=600)
 
     def test_changed_receipt_missing_dependency_or_circular_observation_is_not_admitted(self):
         for kind in ('receipt','lighting','config','readscope','source','closed_time','expiry','unexplained','lossless'):
