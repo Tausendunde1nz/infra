@@ -1133,13 +1133,31 @@ class NativeBoundaryTests(unittest.TestCase):
             f.retain_fixture_unit_references()
         run.assert_not_called()
         # A failed reference setup must not reach ageing, baseline or a packet.
-        with patch.object(f.f,'assert_guest'),patch.object(f.f,'source',return_value=(object(),None,{})), \
+        with patch.object(f.f,'assert_guest'),patch.object(f.f,'source',return_value=(SimpleNamespace(),None,{})), \
                 patch.object(f.f,'setup'),patch.object(f,'ssh_setup'), \
                 patch.object(f,'retain_fixture_unit_references',side_effect=AssertionError('REFERENCES_MISSING')), \
                 patch.object(f,'runtime') as runtime,patch.object(f,'age_start_anchors') as age, \
                 patch.object(f.f,'baseline') as baseline,self.assertRaisesRegex(AssertionError,'REFERENCES_MISSING'):
             f.prepare()
         runtime.assert_not_called();age.assert_not_called();baseline.assert_not_called()
+
+    def test_regular_native_prepare_selects_libpq_profile_before_fixture_setup(self):
+        from tests import public_maintenance_fixture as f
+        source=SimpleNamespace();selected=[]
+        self.assertEqual(f.f.fixture_database_dsn(source),b'postgresql:///r4_probe')
+        class SetupReached(Exception):pass
+        def setup(value):
+            self.assertIs(value,source)
+            self.assertIs(value._native_r5,True)
+            selected.append(f.f.fixture_database_dsn(value))
+            raise SetupReached()
+        with patch.object(f.f,'assert_guest'),patch.object(f.f,'source',return_value=(source,None,{})), \
+                patch.object(f.f,'setup',side_effect=setup) as fixture_setup, \
+                patch.object(f,'ssh_setup') as ssh_setup,self.assertRaises(SetupReached):
+            f.prepare()
+        fixture_setup.assert_called_once_with(source);ssh_setup.assert_not_called()
+        self.assertEqual(selected,[b"host='/var/run/postgresql' dbname='r4_probe' user='chatops' "
+            b"sslmode=prefer channel_binding=prefer gssencmode=disable"])
 
     def test_missing_stopped_invocation_still_denies_even_with_valid_active_anchor(self):
         from tests.test_public_maintenance import StartLimitStateProofTests,transition

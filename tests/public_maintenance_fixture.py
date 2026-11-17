@@ -269,10 +269,11 @@ def retain_fixture_unit_references():
 
 
 def prepare(*, timing=None):
-    f.assert_guest();s,_,production_hashes=f.source();f.setup(s);ssh_setup()
+    f.assert_guest();s,_,production_hashes=f.source();s._native_r5=True
+    f.setup(s);ssh_setup()
     retain_fixture_unit_references()
     payload,receipt,inputs=runtime(s,maintenance_dimensions=True)
-    dependencies=external_dependencies(s,payload,receipt);s._native_r5=True
+    dependencies=external_dependencies(s,payload,receipt)
     age_start_anchors(s)
     b=f.baseline(s,replacement_dependencies=dependencies)
     origin=io.sha(raw(receipt));b['source_origin_receipts'].append(origin)

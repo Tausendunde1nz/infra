@@ -524,6 +524,12 @@ def prepare_guest_kernel_view():
     assert Path('/sys/kernel/security/lsm').read_text().strip()
 
 
+def fixture_database_dsn(s):
+    return (b"host='/var/run/postgresql' dbname='r4_probe' user='chatops' "
+            b"sslmode=prefer channel_binding=prefer gssencmode=disable"
+            if getattr(s,'_native_r5',False) else b'postgresql:///r4_probe')
+
+
 def setup(s, *, source_handle=None):
     ROOT.mkdir(mode=0o700)
     prepare_guest_kernel_view()
@@ -564,10 +570,7 @@ def setup(s, *, source_handle=None):
                  'adult-commercial-s10-2d-community.json'):
         write('/etc/tu1nz/'+name, b'{"synthetic":1}')
     write('/etc/tu1nz/adult-commercial-s7-form.secret', b'SYNTHETIC-ONLY-NOT-A-PRODUCTION-SECRET', 0o600)
-    dsn=(b"host='/var/run/postgresql' dbname='r4_probe' user='chatops' "
-         b"sslmode=prefer channel_binding=prefer gssencmode=disable"
-         if getattr(s,'_native_r5',False) else b'postgresql:///r4_probe')
-    write('/etc/tu1nz/adult-commercial-s7-database.dsn', dsn, 0o600)
+    write('/etc/tu1nz/adult-commercial-s7-database.dsn', fixture_database_dsn(s), 0o600)
     for unit in UNITS:
         raw = (Path('/source/systemd')/unit).read_bytes()
         write('/etc/systemd/system/'+unit, raw)
