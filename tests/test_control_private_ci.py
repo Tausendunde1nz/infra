@@ -20,18 +20,18 @@ import tu1nz_control_recovery_freeze as f
 
 class PrivateCI(unittest.TestCase):
     def test_only_exact_declared_source_prs_are_eligible_not_generic_same_repo(self):
-        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241)))
+        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242)))
         with tempfile.TemporaryDirectory() as d:
             event=Path(d)/'event.json'
             env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':p.REPOSITORY,
                  'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
                  'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':'1'*40}
-            for number in (224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,999,'226','227','228','229','230','231','232','233','234','235','236','237','238','239','240','241',True):
+            for number in (224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,999,'226','227','228','229','230','231','232','233','234','235','236','237','238','239','240','241','242',True):
                 data={'number':number,'pull_request':{'head':{'repo':{'full_name':p.REPOSITORY},'sha':'1'*40}}}
                 event.write_text(json.dumps(data))
                 with patch.object(p.subprocess,'run',side_effect=lambda argv,**kw:subprocess.CompletedProcess(
                         argv,0,b'1'*40+b'\n' if 'rev-parse' in argv else b'')):
-                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241):
+                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242):
                         self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                     else:
                         with self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
@@ -92,7 +92,7 @@ class PrivateCI(unittest.TestCase):
             with patch.object(p.subprocess,'run',side_effect=clean) as process:
                 self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                 self.assertEqual(process.call_count,3)
-                for number in (224,242,999,'240',True,240.0,None):
+                for number in (224,243,999,'240',True,240.0,None):
                     data['number']=number;event.write_text(json.dumps(data));process.reset_mock()
                     with self.subTest(number=number),self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
                         p.runtime_binding(env,Path(d))
@@ -123,6 +123,60 @@ class PrivateCI(unittest.TestCase):
                         argv,0,b'changed' if dirty_command in argv else b'1'*40+b'\n' if 'rev-parse' in argv else b'')
                     with self.subTest(dirty=dirty_command),self.assertRaisesRegex(c.RecoveryError,'CI_SOURCE_WORKING_SET_RED'):
                         p.runtime_binding(env,Path(d))
+
+    def test_pr242_admission_uses_actual_git_and_rejects_foreign_or_changed_inputs(self):
+        # Exercise the actual Git checks, including ignored files: no mocked
+        # command response may hide a final-checkout admission failure.
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d).resolve();work=base/'work';work.mkdir();event=base/'event.json'
+            def git(*args):
+                return subprocess.check_output(['/usr/bin/git','-c','core.hooksPath=/dev/null',
+                    '-c','core.fsmonitor=false','-c','commit.gpgsign=false','-c','user.name=Synthetic CI',
+                    '-c','user.email=synthetic@example.invalid','-C',str(work),*args],
+                    env=p.tool_env(),stderr=subprocess.DEVNULL).decode().strip()
+            git('init','--quiet');(work/'tracked').write_text('synthetic\n')
+            (work/'.gitignore').write_text('ignored\n')
+            git('add','tracked','.gitignore');git('commit','--quiet','-m','synthetic fixture')
+            head=git('rev-parse','HEAD')
+            def write_event(number=242,repository=p.REPOSITORY,sha=head):
+                event.write_text(json.dumps({'number':number,'pull_request':{
+                    'head':{'repo':{'full_name':repository},'sha':sha}}}))
+            env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':p.REPOSITORY,
+                 'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
+                 'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':head}
+            write_event();self.assertEqual(p.runtime_binding(env,work),head)
+            for number in (224,243,999,'242',True,242.0,None):
+                write_event(number=number)
+                with self.subTest(number=number),self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
+                    p.runtime_binding(env,work)
+            write_event(repository='foreign/fork')
+            with self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):p.runtime_binding(env,work)
+            write_event()
+            for key,value,code in (
+                    ('GITHUB_REPOSITORY','foreign/repository','CI_PLATFORM_BINDING_RED'),
+                    ('CONTROL_PRIVATE_ENVIRONMENT','foreign','CI_PLATFORM_BINDING_RED'),
+                    ('GITHUB_EVENT_NAME','pull_request_target','CI_EVENT_RED'),
+                    ('GITHUB_EVENT_NAME','workflow_dispatch','CI_EVENT_RED'),
+                    ('EXPECTED_SOURCE_SHA','0'*40,'CI_SOURCE_SHA_RED')):
+                with self.subTest(key=key),self.assertRaisesRegex(c.RecoveryError,code):
+                    p.runtime_binding({**env,key:value},work)
+            for sha in ('0'*40,head[:-1]):
+                write_event(sha=sha)
+                with self.subTest(event_sha=sha),self.assertRaisesRegex(c.RecoveryError,'CI_SOURCE_SHA_RED'):
+                    p.runtime_binding(env,work)
+            # Agreement between event and expected SHA still cannot substitute
+            # a different actual checkout.
+            write_event(sha='0'*40)
+            with self.assertRaisesRegex(c.RecoveryError,'CI_SOURCE_SHA_RED'):
+                p.runtime_binding({**env,'EXPECTED_SOURCE_SHA':'0'*40},work)
+            write_event()
+            for name in ('tracked','untracked','ignored'):
+                path=work/name;path.write_text('changed synthetic fixture\n')
+                with self.subTest(path=name),self.assertRaisesRegex(c.RecoveryError,'CI_SOURCE_WORKING_SET_RED'):
+                    p.runtime_binding(env,work)
+                if name=='tracked':path.write_text('synthetic\n')
+                else:path.unlink()
+            self.assertEqual(p.runtime_binding(env,work),head)
 
     def test_private_location_and_finite_cleanup(self):
         with tempfile.TemporaryDirectory() as d:
