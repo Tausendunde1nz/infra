@@ -174,13 +174,16 @@ s.close()
         from tests import public_operator_native as fixture
         loader='/lib64/ld-linux-x86-64.so.2'
         parser=Mock(return_value=(loader,'/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2'))
-        source=object()
+        source=Mock();database='/usr/lib/x86_64-linux-gnu/libpq.so.5'
+        source.load.return_value.DB_PROVIDER=database
         output=b'libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x0)\n'
         with patch.object(fixture,'census_loader',parser),\
              patch.object(fixture,'run',return_value=output) as called:
             self.assertEqual(fixture.operator_dependency_names(source),
-                {'/usr/bin/busctl',loader,'/lib/x86_64-linux-gnu/libc.so.6'})
-            called.assert_called_once_with('/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2','--list','/usr/bin/busctl')
+                {'/usr/bin/busctl',database,loader,'/lib/x86_64-linux-gnu/libc.so.6'})
+            self.assertEqual([c.args for c in called.call_args_list],
+                [('/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2','--list',target)
+                 for target in ('/usr/bin/busctl',database)])
         parser.assert_called_once_with(source)
 
     def test_census_loader_elf_profile_rejects_helper_bootstrap_dependencies(self):

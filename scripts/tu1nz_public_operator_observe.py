@@ -66,12 +66,76 @@ def command(argv, deadline, *, data=None, preexec=None, extra_env=None):
     io.require(remaining > 0, 'COMMAND_DEADLINE')
     io.require(extra_env is None or set(extra_env) <= {'PGDATABASE', 'PGOPTIONS', 'PGCONNECT_TIMEOUT',
                                                     'PGAPPNAME', 'PGPASSFILE', 'PGUSER', 'PGHOST', 'PGPORT',
-                                                    'PGPASSWORD'}, 'COMMAND_ENV_SCOPE')
+                                                    'PGPASSWORD', 'PGSSLMODE', 'PGCHANNELBINDING',
+                                                    'PGGSSENCMODE'}, 'COMMAND_ENV_SCOPE')
     result = subprocess.run(argv, input=data, capture_output=True, timeout=remaining,
                             env={**ENV, **(extra_env or {})}, preexec_fn=preexec, cwd='/')
     io.require(time.monotonic() < deadline and len(result.stdout) <= 2*1024*1024 and
                len(result.stderr) <= 2*1024*1024, 'COMMAND_TIME_OR_OUTPUT_BOUND')
     return result
+
+
+def libpq_options(dsn, lib):
+    """Parse explicit URI/keyword options only, using an authenticated library.
+
+    PQconninfoParse neither connects nor expands environment/service defaults.
+    Do not return libpq's error text: it may contain credential input.
+    """
+    io.require(type(dsn) is str, 'DB_DSN_BOUND')
+    try: raw = dsn.encode('utf-8')
+    except UnicodeError: raise io.Hold('PUBLIC_OPERATOR_DB_DSN_PARSE') from None
+    io.require(0 < len(raw) <= 4096 and not any(c in dsn for c in '\0\r\n'), 'DB_DSN_BOUND')
+    if dsn.startswith(('postgresql://', 'postgres://')):
+        try:
+            parsed = urllib.parse.urlsplit(dsn)
+            params = urllib.parse.parse_qsl(parsed.query, strict_parsing=True)
+            io.require(not parsed.fragment and len(dict(params)) == len(params), 'DB_DSN_AMBIGUOUS')
+        except ValueError:
+            raise io.Hold('PUBLIC_OPERATOR_DB_DSN_PARSE') from None
+    class Option(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_char_p) for n in
+                    ('keyword', 'envvar', 'compiled', 'val', 'label', 'dispchar')] + [('dispsize', ctypes.c_int)]
+    lib.PQconninfoParse.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+    lib.PQconninfoParse.restype = ctypes.POINTER(Option)
+    lib.PQconninfoFree.argtypes = [ctypes.POINTER(Option)]; lib.PQconninfoFree.restype = None
+    lib.PQfreemem.argtypes = [ctypes.c_void_p]; lib.PQfreemem.restype = None
+    error = ctypes.c_void_p(); options = lib.PQconninfoParse(raw, ctypes.byref(error))
+    try:
+        io.require(bool(options), 'DB_DSN_PARSE'); values = {}
+        for index in range(256):
+            item = options[index]
+            if not item.keyword: return values
+            if item.val is not None: values[item.keyword.decode('ascii')] = item.val.decode('utf-8')
+        raise io.Hold('PUBLIC_OPERATOR_DB_DSN_OPTIONS_BOUND')
+    except UnicodeError:
+        raise io.Hold('PUBLIC_OPERATOR_DB_DSN_PARSE') from None
+    finally:
+        if options: lib.PQconninfoFree(options)
+        if error.value: lib.PQfreemem(error)
+
+
+def database_profile(values, expected):
+    """Exact local target and bounded auth settings; no libpq escape hatches."""
+    allowed = {'host', 'port', 'user', 'password', 'dbname', 'sslmode',
+               'connect_timeout', 'application_name', 'channel_binding', 'gssencmode'}
+    io.require(type(values) is dict and set(values) <= allowed and all(type(v) is str and
+               len(v) <= 4096 and not any(c in v for c in '\0\r\n') for v in values.values()),
+               'DB_AUTHENTICATION_PROFILE_UNKNOWN')
+    host = values.get('host', '') or '/var/run/postgresql'
+    user = values.get('user', '') or 'chatops'; database = values.get('dbname', '')
+    port = values.get('port', '5432')
+    io.require(host in ('/var/run/postgresql', '/run/postgresql', 'localhost', '127.0.0.1', '::1') and
+               port == '5432' and database == expected['database'] and user == expected['role'],
+               'DB_LOCAL_TARGET_OR_IDENTITY_UNKNOWN')
+    auth = {'PGSSLMODE': values.get('sslmode', 'prefer'),
+            'PGCHANNELBINDING': values.get('channel_binding', 'prefer'),
+            'PGGSSENCMODE': values.get('gssencmode', 'prefer')}
+    io.require(auth['PGSSLMODE'] in ('disable', 'allow', 'prefer', 'require') and
+               auth['PGCHANNELBINDING'] in ('disable', 'prefer', 'require') and
+               auth['PGGSSENCMODE'] in ('disable', 'prefer'), 'DB_AUTHENTICATION_SETTINGS_UNKNOWN')
+    # Timeout and application_name from the input never override our fixed
+    # read deadline/application identity. Only these auth settings pass on.
+    return host, database, user, values.get('password', ''), port, auth
 
 
 def typed_exec_properties(raw, wanted):
@@ -687,9 +751,8 @@ class Authority:
                    starttime(row['pid']) == row['starttime'], 'FUNCTION_INVOCATION_CHANGED')
         return proof
 
-    def database_readonly(self, dsn, *, runtime_pid=None, require_other_connections_absent=False, coverage=None):
-        # A fixed SELECT-only transaction under the actual required peer
-        # identity. DSN never occurs in argv, records or private errors.
+    def database_connection(self, dsn):
+        # Legacy authorities retain their original URI-only admission.
         parsed = urllib.parse.urlsplit(dsn)
         query_params = urllib.parse.parse_qsl(parsed.query, strict_parsing=True)
         options = dict(query_params)
@@ -705,6 +768,12 @@ class Authority:
                    port.isdecimal() and 1 <= int(port) <= 65535 and database == self.b['database']['database'] and
                    user == self.b['database']['role'] and all('\x00' not in v and '\n' not in v
                    for v in (database, user, password)), 'DB_LOCAL_TARGET_OR_IDENTITY_UNKNOWN')
+        return host, database, user, password, port, {}
+
+    def database_readonly(self, dsn, *, runtime_pid=None, require_other_connections_absent=False, coverage=None):
+        # A fixed SELECT-only transaction under the actual required peer
+        # identity. DSN never occurs in argv, records or private errors.
+        host, database, user, password, port, auth = self.database_connection(dsn)
         def peer():
             libc = ctypes.CDLL(None, use_errno=True)
             last = int(Path('/proc/sys/kernel/cap_last_cap').read_text())
@@ -744,7 +813,7 @@ class Authority:
                                     'PGPASSWORD': password, 'PGCONNECT_TIMEOUT': '2',
                                     'PGAPPNAME': 'tu1nz-readonly-public-admission',
                                     'PGOPTIONS': '-c default_transaction_read_only=on',
-                                    'PGPASSFILE': '/proc/self/fd/-1'})
+                                    'PGPASSFILE': '/proc/self/fd/-1', **auth})
         io.require(result.returncode == 0 and not result.stderr, 'DB_PEER_READ_UNKNOWN')
         lines = result.stdout.decode().splitlines()
         count = 4 if require_other_connections_absent else 3

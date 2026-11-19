@@ -55,7 +55,7 @@ CONTROL_FILES = {'owner': 'managed/lighting/scripts/owner_supervisor.py',
 APPROVAL = '7032ae9a4baf5c358e81050cd3fd675386c2f33100ab9932f504c053eaa10a7d'
 HOST = 'chatops@100.121.130.51'
 SSH_OPTIONS = (
-    'HostName=100.121.130.51', 'User=chatops', 'Port=22', 'BatchMode=yes', 'ConnectTimeout=10',
+    'HostName=100.121.130.51', 'User=chatops', 'Port=2222', 'BatchMode=yes', 'ConnectTimeout=10',
     'StrictHostKeyChecking=yes', 'UpdateHostKeys=no',
     'UserKnownHostsFile=/Users/daniel/.ssh/known_hosts', 'GlobalKnownHostsFile=/dev/null',
     'KnownHostsCommand=none', 'HostKeyAlias=100.121.130.51', 'CanonicalizeHostname=no',

@@ -1580,6 +1580,146 @@ class CurrentDatabaseReadTests(unittest.TestCase):
             self.assertNotIn(b'pg_terminate_backend', command.call_args.kwargs['data'])
 
 
+
+class R5DatabaseProfileTests(unittest.TestCase):
+    expected = {'database': 'synthetic', 'role': 'chatops'}
+
+    def values(self, **changes):
+        return {'host': 'localhost', 'port': '5432', 'user': 'chatops',
+                'dbname': 'synthetic', 'password': 'synthetic-secret', **changes}
+
+    def test_local_target_and_auth_settings_preserved_without_input_timeout_override(self):
+        a = transition.ReplacementAuthority.__new__(transition.ReplacementAuthority)
+        a.b = {'database': self.expected}; a.deadline = time.monotonic()+20
+        a.read_bus = Mock(); a.verify_external_libraries = Mock(); a.loader_config = Mock()
+        a.database_library = object()
+        values = self.values(sslmode='require', channel_binding='require', gssencmode='disable',
+                             connect_timeout='999', application_name='untrusted-name')
+        result = SimpleNamespace(returncode=0, stderr=b'',
+            stdout=b'chatops|synthetic|on|t|t\nf|f|f|f|f\nf|f\n0\n')
+        with patch.object(transition, 'libpq_options', return_value=values), \
+             patch.object(observe, 'command', return_value=result) as run:
+            proof = a.database_readonly('synthetic credential', require_other_connections_absent=True)
+        args, kw = run.call_args
+        self.assertNotIn('synthetic-secret', repr(args))
+        self.assertNotIn('synthetic-secret', repr(proof))
+        env = kw['extra_env']
+        self.assertEqual((env['PGSSLMODE'], env['PGCHANNELBINDING'], env['PGGSSENCMODE']),
+                         ('require', 'require', 'disable'))
+        self.assertEqual(env['PGCONNECT_TIMEOUT'], '2')
+        self.assertEqual(env['PGAPPNAME'], 'tu1nz-readonly-public-admission')
+        self.assertEqual(env['PGPASSFILE'], '/proc/self/fd/-1')
+        self.assertEqual(env['PGOPTIONS'], '-c default_transaction_read_only=on')
+        self.assertTrue(kw['data'].startswith(b'BEGIN READ ONLY;'))
+        self.assertTrue(kw['data'].endswith(b'ROLLBACK;'))
+        self.assertIn(b'FROM pg_stat_activity', kw['data'])
+        self.assertEqual(a.verify_external_libraries.call_count, 2)
+
+    def test_all_supported_local_addresses_and_default_peer_are_bounded(self):
+        for host in ('', '/var/run/postgresql', '/run/postgresql', 'localhost', '127.0.0.1', '::1'):
+            with self.subTest(host=host):
+                profile = observe.database_profile(self.values(host=host), self.expected)
+                self.assertEqual(profile[0], host or '/var/run/postgresql')
+        profile = observe.database_profile({'dbname': 'synthetic'}, self.expected)
+        self.assertEqual(profile[:5], ('/var/run/postgresql', 'synthetic', 'chatops', '', '5432'))
+
+    def test_foreign_targets_auth_overrides_and_control_values_are_denied(self):
+        bad = ({'host': 'remote.example'}, {'host': '/tmp'}, {'host': 'localhost,remote'},
+               {'hostaddr': '127.0.0.1'}, {'port': '5433'}, {'port': '5432,5432'},
+               {'user': 'postgres'}, {'dbname': 'postgres'}, {'service': 'other'},
+               {'options': '-c role=postgres'}, {'sslrootcert': '/tmp/cert'}, {'passfile': '/tmp/pass'},
+               {'sslmode': 'verify-full'}, {'channel_binding': 'invalid'}, {'gssencmode': 'require'},
+               {'password': 'secret\nrow'}, {'password': 'secret\rrow'}, {'password': 'secret\0row'},
+               {'application_name': 'a'*4097}, {'password': None})
+        for change in bad:
+            with self.subTest(change=list(change)), self.assertRaises(io.Hold) as caught:
+                observe.database_profile(self.values(**change), self.expected)
+            self.assertNotIn('secret', str(caught.exception))
+
+    def test_loader_fence_failure_precedes_parser_even_if_already_loaded(self):
+        a = transition.ReplacementAuthority.__new__(transition.ReplacementAuthority)
+        a.b = {'database': self.expected}; a.database_library = object()
+        a.read_bus = Mock(); a.loader_config = Mock()
+        a.verify_external_libraries = Mock(side_effect=io.Hold('PUBLIC_OPERATOR_TEST_LIBRARY_DRIFT'))
+        with patch.object(transition, 'libpq_options') as parse, self.assertRaises(io.Hold):
+            a.database_connection('synthetic-secret')
+        parse.assert_not_called()
+
+    def test_rejected_result_never_reaches_psql(self):
+        a = transition.ReplacementAuthority.__new__(transition.ReplacementAuthority)
+        a.b = {'database': self.expected}; a.database_library = object()
+        a.read_bus = Mock(); a.loader_config = Mock(); a.verify_external_libraries = Mock()
+        with patch.object(transition, 'libpq_options', return_value=self.values(service='foreign')), \
+             patch.object(observe, 'command') as run, self.assertRaises(io.Hold):
+            a.database_readonly('synthetic-secret')
+        run.assert_not_called()
+
+    def test_parser_rejects_ambiguous_uris_and_unbounded_values_before_libpq(self):
+        lib = Mock()
+        for value in ('', 'x'*4097, 'x\0y', 'x\ny', 'x\ry', '\ud800',
+                      'postgresql:///synthetic?host=localhost&host=remote',
+                      'postgresql:///synthetic#fragment', 'postgresql:///synthetic?bad'):
+            with self.subTest(value_length=len(value)), self.assertRaises(io.Hold):
+                observe.libpq_options(value, lib)
+        lib.PQconninfoParse.assert_not_called()
+
+    def test_actual_libpq_keyword_and_uri_parsing_without_defaults_or_connection(self):
+        # This platform proof runs in the ordinary Linux boundary job. No
+        # fallback library discovery or DB connection; Mac remains a skip.
+        if not Path(transition.DB_PROVIDER).is_file():
+            self.skipTest('native Linux libpq parser unavailable')
+        import ctypes
+        lib = ctypes.CDLL(transition.DB_PROVIDER)
+        for dsn, password in (
+            ("host=localhost dbname=synthetic user=chatops password='synthetic secret' sslmode=require channel_binding=require gssencmode=disable", 'synthetic secret'),
+            ('postgresql://chatops:synthetic%20secret@localhost/synthetic?sslmode=require&channel_binding=require&gssencmode=disable', 'synthetic secret'),
+            ("host=localhost dbname=synthetic user=chatops password='synthetic\\'quote' sslmode=require channel_binding=require gssencmode=disable", "synthetic'quote")):
+            with self.subTest(format='uri' if '://' in dsn else 'keyword'), \
+                 patch.dict(os.environ, {'PGSERVICE': 'must-not-be-expanded', 'PGHOST': 'remote.example'}):
+                values = observe.libpq_options(dsn, lib)
+                profile = observe.database_profile(values, self.expected)
+                self.assertEqual(profile[3], password)
+                self.assertEqual(profile[5], {'PGSSLMODE': 'require', 'PGCHANNELBINDING': 'require',
+                                             'PGGSSENCMODE': 'disable'})
+                self.assertNotIn('service', values)
+        for dsn in ("password='synthetic-secret", 'unknown_option=synthetic-secret'):
+            with self.assertRaises(io.Hold) as caught:
+                observe.libpq_options(dsn, lib)
+            self.assertNotIn('synthetic-secret', str(caught.exception))
+
+    def test_complete_library_union_required_before_loading_bus_or_database(self):
+        tool, loader, bus, dep = '/usr/bin/busctl', '/lib/loader', '/lib/bus-provider', '/lib/db-dependency'
+        for fault in (None, 'missing_parser', 'missing_dependency', 'unused_reference', 'bad_census'):
+            with self.subTest(fault=fault):
+                reference = {p: {'source': p} for p in (tool, loader, bus, transition.DB_PROVIDER, dep)}
+                if fault == 'missing_parser': reference.pop(transition.DB_PROVIDER)
+                if fault == 'missing_dependency': reference.pop(dep)
+                if fault == 'unused_reference': reference['/lib/unused'] = {'source': '/lib/unused'}
+                a = transition.ReplacementAuthority.__new__(transition.ReplacementAuthority)
+                a.reader = None; a.deadline = time.monotonic()+20; a.loader_config = Mock()
+                a.b = {'source_release': {'operator_dependencies': reference}}
+                def bind(path):
+                    io.require(path in reference, 'TEST_ORIGIN_UNBOUND')
+                    return b'ELF'
+                a.bind_operator_dependency = Mock(side_effect=bind)
+                a.verify_external_libraries = Mock(); a.external_identities = {bus: (1, 2, 3, 4)}
+                a.dependency_census = Mock(side_effect=[
+                    SimpleNamespace(returncode=0, stderr=b'', stdout=(transition.BUS_PROVIDER+' => '+bus+'\n').encode()),
+                    SimpleNamespace(returncode=1 if fault == 'bad_census' else 0, stderr=b'', stdout=(dep+'\n').encode())])
+                def elf(raw, *, standalone=False): return 62 if standalone else (loader, 62)
+                with patch.object(transition, 'elf_loader_profile', side_effect=elf), \
+                     patch.object(transition.os, 'open', return_value=81), \
+                     patch.object(transition.os, 'fstat', return_value=SimpleNamespace(st_dev=1, st_ino=2, st_mtime_ns=3, st_ctime_ns=4)), \
+                     patch.object(transition.os, 'close'), patch.object(transition, 'ReadOnlyBus') as reader:
+                    if fault:
+                        with self.assertRaises(io.Hold): a.read_bus()
+                        reader.assert_not_called()
+                    else:
+                        a.read_bus()
+                        self.assertEqual(a.dependency_census.call_args_list[1].args, (transition.DB_PROVIDER,))
+                        reader.assert_called_once_with(81, a.deadline)
+
+
 class RecoveryOrderTests(unittest.TestCase):
     def flow(self, state='F1', *, active_new=(), fail=None, partial_owner=False):
         journal = Mock(); journal.binding = 'b'*64

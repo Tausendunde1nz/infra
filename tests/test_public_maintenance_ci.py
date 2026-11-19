@@ -688,6 +688,61 @@ class NativeBoundaryTests(unittest.TestCase):
         try:raise AssertionError('SECRET_CANARY')
         except AssertionError as error:self.assertIsNone(m.diagnostics.capture_owner_counts(error))
 
+    def test_subprocess_first_fault_survives_both_filters_without_private_process_data(self):
+        import subprocess,sys,time
+        from tests.test_public_maintenance_result import host,r3
+        from tests import public_maintenance_native as n
+        # Real local child failures through an authenticated Source frame. No
+        # Host operation; the command/output canaries must never cross either
+        # guest-to-result or result-to-public diagnostic boundary.
+        namespace={'subprocess':subprocess,'sys':sys,'programs':{
+            'timeout':'import time; print("SECRET_CANARY",flush=True); time.sleep(2)',
+            'exit':'import sys; print("SECRET_CANARY",flush=True); sys.exit(7)'}}
+        exec(compile('def fail(kind):\n'
+            ' subprocess.run([sys.executable,"-I","-B","-S","-c",programs[kind]],\n'
+            '     capture_output=True,check=True,timeout=0.1 if kind=="timeout" else 5)\n',
+            '<authenticated-memory:observe>','exec'),namespace)
+        for kind,expected in (('timeout','TimeoutExpired'),('exit','CalledProcessError')):
+            with self.subTest(kind=kind):
+                wire=SimpleNamespace(deadline=time.monotonic()+60,send=Mock())
+                state=host.MaintenanceSessionResult(wire,r3,route='recovery-once')
+                try:
+                    try:namespace['fail'](kind)
+                    except subprocess.SubprocessError:
+                        raise r3.FlowFailure('PUBLIC_BOOTSTRAP_REQUIREMENT_OR_OPERATION_UNCONFIRMED') from None
+                except r3.FlowFailure as error:state.failure(error)
+                else:self.fail('real local subprocess did not fail')
+                first=copy.deepcopy(state.location)
+                self.assertEqual(first,{'component':'<authenticated-memory:observe>','line':2,'type':expected})
+                state.failure(OSError('LATER_SECRET_CANARY'))
+                state.paths=SimpleNamespace(rows={'synthetic':'owned'},events=None,
+                    close=Mock(side_effect=OSError('CLEANUP_SECRET_CANARY')))
+                final=state.close()
+                self.assertEqual(final['source_fault'],first)
+                self.assertEqual(final['status'],'HOLD')
+                self.assertEqual(final['primary'],'PUBLIC_BOOTSTRAP_REQUIREMENT_OR_OPERATION_UNCONFIRMED')
+                self.assertEqual(final['cleanup'],['PUBLIC_BOOTSTRAP_RECOVERY_PATHS_CLOSE_UNKNOWN'])
+                trace={'final':final};before=copy.deepcopy(trace)
+                fields=n.failure_trace_fields(trace)
+                self.assertEqual(fields,{'host_source_fault':first})
+                self.assertEqual(trace,before)
+                value={'error_type':'AssertionError','code':'NATIVE_FULL_ENTRY_ASSERTION',
+                    'recovery-once':{'result':{'primary':final['primary'],'host_primary':final['primary'],
+                        'host_abort':final['abort'],'host_cleanup':final['cleanup'],'client_cleanup':[]},**fields}}
+                result=m.safe_failure(value,'recovery_F3','calibration')
+                self.assertIs(result['green'],False);self.assertIs(result['host_acceptance'],False)
+                self.assertEqual(result['recovery-once']['host_source_fault'],first)
+                self.assertEqual(result['recovery-once']['host_abort'],final['abort'])
+                self.assertEqual(result['recovery-once']['host_cleanup'],final['cleanup'])
+                self.assertNotIn('SECRET_CANARY',json.dumps(result))
+                for key in ('cmd','args','stdout','stderr','output','timeout','returncode','message'):
+                    poisoned={**first,key:'SECRET_CANARY'}
+                    self.assertEqual(n.failure_trace_fields({'final':{'source_fault':poisoned}}),{})
+                    rejected=m.safe_failure({'recovery-once':{'result':{},'host_source_fault':poisoned}},
+                        'recovery_F3','calibration')
+                    self.assertNotIn('host_source_fault',rejected['recovery-once'])
+                    self.assertNotIn('SECRET_CANARY',json.dumps(rejected))
+
     def test_host_fault_export_rejects_unapproved_components_types_lines_and_extra_data(self):
         from tests import public_maintenance_native as n
         good={'component':'<authenticated-memory:replacement>','line':123,'type':'FileNotFoundError'}
@@ -1133,13 +1188,31 @@ class NativeBoundaryTests(unittest.TestCase):
             f.retain_fixture_unit_references()
         run.assert_not_called()
         # A failed reference setup must not reach ageing, baseline or a packet.
-        with patch.object(f.f,'assert_guest'),patch.object(f.f,'source',return_value=(object(),None,{})), \
+        with patch.object(f.f,'assert_guest'),patch.object(f.f,'source',return_value=(SimpleNamespace(),None,{})), \
                 patch.object(f.f,'setup'),patch.object(f,'ssh_setup'), \
                 patch.object(f,'retain_fixture_unit_references',side_effect=AssertionError('REFERENCES_MISSING')), \
                 patch.object(f,'runtime') as runtime,patch.object(f,'age_start_anchors') as age, \
                 patch.object(f.f,'baseline') as baseline,self.assertRaisesRegex(AssertionError,'REFERENCES_MISSING'):
             f.prepare()
         runtime.assert_not_called();age.assert_not_called();baseline.assert_not_called()
+
+    def test_regular_native_prepare_selects_libpq_profile_before_fixture_setup(self):
+        from tests import public_maintenance_fixture as f
+        source=SimpleNamespace();selected=[]
+        self.assertEqual(f.f.fixture_database_dsn(source),b'postgresql:///r4_probe')
+        class SetupReached(Exception):pass
+        def setup(value):
+            self.assertIs(value,source)
+            self.assertIs(value._native_r5,True)
+            selected.append(f.f.fixture_database_dsn(value))
+            raise SetupReached()
+        with patch.object(f.f,'assert_guest'),patch.object(f.f,'source',return_value=(source,None,{})), \
+                patch.object(f.f,'setup',side_effect=setup) as fixture_setup, \
+                patch.object(f,'ssh_setup') as ssh_setup,self.assertRaises(SetupReached):
+            f.prepare()
+        fixture_setup.assert_called_once_with(source);ssh_setup.assert_not_called()
+        self.assertEqual(selected,[b"host='/var/run/postgresql' dbname='r4_probe' user='chatops' "
+            b"sslmode=prefer channel_binding=prefer gssencmode=disable"])
 
     def test_missing_stopped_invocation_still_denies_even_with_valid_active_anchor(self):
         from tests.test_public_maintenance import StartLimitStateProofTests,transition

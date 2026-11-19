@@ -28,7 +28,7 @@ import tu1nz_public_runtime_artifact as artifact
 from tu1nz_public_operator_runtime_guard import RuntimeFence, metadata, READ, EXCLUDED
 from tu1nz_public_operator_observe import (Authority, CurrentAuthority, UNITS, ENV, process, command,
     typed_exec_properties, EXEC_PROPERTIES, PROPERTIES, operator_session_start, operator_session_members,
-    unit_rows, LEGACY_CONTEXTS_SHA)
+    unit_rows, LEGACY_CONTEXTS_SHA, libpq_options, database_profile)
 from tu1nz_public_operator_host import Adapter, STAGING, LIGHTING, HELPER, DROPIN, ASSET_NAMES
 from tu1nz_public_operator_fs import security, OWNED_FILE_FIELDS, Backup
 
@@ -36,6 +36,7 @@ OVERLAY = 'zzz-public-runtime-r5.conf'
 CHUNK = 512*1024
 REFERENCE = 'TU1NZ_PUBLIC_RUNTIME_REPLACEMENT_REFERENCE_R5_V1'
 BUS_PROVIDER = 'libsystemd-shared-255.so'  # exact ABI covered by native255 tests
+DB_PROVIDER = '/usr/lib/x86_64-linux-gnu/libpq.so.5'
 
 
 def elf_loader_profile(raw, *, standalone=False):
@@ -1091,6 +1092,17 @@ class ReplacementAuthority(Authority):
             for path in names:bind(path)
             if words and words[0]==BUS_PROVIDER:selected.extend(names)
         io.require(len(selected)==1,'REPLACEMENT_READER_LIBRARY_CLOSURE')
+        # The DSN parser is another executable dependency. Bind its complete
+        # actual closure through the same authenticated loader before dlopen.
+        bind(DB_PROVIDER)
+        self.verify_external_libraries()
+        db_result=self.dependency_census(DB_PROVIDER)
+        io.require(db_result.returncode==0 and not db_result.stderr and
+                   b'not found' not in db_result.stdout,'REPLACEMENT_DATABASE_LIBRARY_CLOSURE')
+        for line in db_result.stdout.decode().splitlines():
+            names=[w for w in line.split() if w.startswith('/')]
+            io.require(names or 'linux-vdso.so.' in line,'REPLACEMENT_DATABASE_LIBRARY_CLOSURE')
+            for path in names:bind(path)
         io.require(used==set(reference),'REPLACEMENT_READER_FOREIGN_OR_UNUSED_DEPENDENCY')
         self.verify_external_libraries();path=reference[selected[0]]['source']
         fd=os.open(path,READ)
@@ -1106,6 +1118,26 @@ class ReplacementAuthority(Authority):
 
     def observation_reader(self):
         return self.read_bus()
+
+    def database_connection(self,dsn):
+        self.read_bus()  # authenticates both complete closures; never a parser fallback
+        self.loader_config.check();self.verify_external_libraries()
+        if getattr(self,'database_library',None) is None:
+            path=self.b['source_release']['operator_dependencies'][DB_PROVIDER]['source']
+            fd=os.open(path,READ)
+            try:
+                row=os.fstat(fd)
+                io.require((row.st_dev,row.st_ino,row.st_mtime_ns,row.st_ctime_ns)==
+                    self.external_identities[DB_PROVIDER],'REPLACEMENT_DATABASE_LIBRARY_CHANGED')
+                # A distinct loader spelling prevents a recycled bus-reader FD
+                # pathname from resolving to its already loaded library handle.
+                lib=ctypes.CDLL('/proc/'+str(os.getpid())+'/fd/'+str(fd),
+                    mode=os.RTLD_LOCAL|os.RTLD_NOW)
+                self.verify_external_libraries();self.database_library=lib
+            finally:os.close(fd)
+        result=database_profile(libpq_options(dsn,self.database_library),self.b['database'])
+        self.loader_config.check();self.verify_external_libraries()
+        return result
 
     def bind_operator_dependency(self,path):
         reference=self.b['source_release']['operator_dependencies']
@@ -1133,7 +1165,7 @@ class ReplacementAuthority(Authority):
                        'PREPARED_CENSUS_NOT_ACTIVATION')
             prepared.check()
         io.require(loader is not None and loader in self.external_identities and
-            (target=='/usr/bin/busctl' or target.startswith(artifact.ROOT+'/') and
+            (target in ('/usr/bin/busctl',DB_PROVIDER) or target.startswith(artifact.ROOT+'/') and
              target[len(artifact.ROOT)+1:] in selected.elf_files),
             'REPLACEMENT_CENSUS_SCOPE')
         self.loader_config.check();self.verify_external_libraries(prepared=prepared)

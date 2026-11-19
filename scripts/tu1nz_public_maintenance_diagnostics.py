@@ -274,7 +274,10 @@ def validated_host_fault(value):
     from tu1nz_public_operator_io import MODULES
     types = {n for n, v in vars(builtins).items()
              if isinstance(v, type) and issubclass(v, BaseException)} | {
-                 'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure'}
+                 'Hold', 'Denied', 'FlowFailure', 'OwnerFailure', 'NativeFSUIDFailure',
+                 # Fixed subprocess types only; their cmd/output/exception text
+                 # never belong to this exact source-location schema.
+                 'TimeoutExpired', 'CalledProcessError'}
     if type(value) is not dict or set(value) != {'component', 'line', 'type'}:
         return None
     if type(value['component']) is not str or value['component'] not in {

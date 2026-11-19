@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'scripts'))
 import tu1nz_public_operator_profile_cpu as profile
 
-NATIVE_SHA = '424ec86dd553733a749dcbed9ac78e7ab9f930a488b809585ac52482f3e955d7'
+NATIVE_SHA = '798e89322ef57de9b66b5c57ff52d283bf165f4c8332d75592fb22e03d955b83'
 MODES = ('profile',)
 META = b'{"r5_performance_metadata":'
 
