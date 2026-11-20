@@ -146,7 +146,6 @@ class IntegratedEntryTests(unittest.TestCase):
 
     def test_old_scope_and_missing_completion_source_are_rejected(self):
         self.assertNotEqual(io.MAINTENANCE_SCOPE,'TU1NZ_MAIN_SERVER_REV4_APPROVED_SCOPE_V1')
-        self.assertIsNone(io.MAINTENANCE_APPROVAL_SHA)  # no Host execution approved by this patch
         data={k:b'# inert' for k in set(io.MODULES)|set(io.ASSETS)}
         del data['r5_completion']
         with self.assertRaisesRegex(io.Hold,'SOURCE_MEMBERS'):
@@ -154,6 +153,25 @@ class IntegratedEntryTests(unittest.TestCase):
         self.assertEqual(set(c.INFRA_FILES)|set(c.CONTROL_FILES),set(io.MODULES)|set(io.ASSETS))
         contract=Path(c.__file__).parent.parent/'docs/MAIN_SERVER_R5_COMPLETION_CONTRACT_V1.txt'
         self.assertEqual(io.sha(contract.read_bytes()),io.MAINTENANCE_DECISION_SHA)
+
+    def test_production_approval_pin_binds_actual_conditional_document(self):
+        document=Path(c.__file__).parent.parent/'docs/MAIN_SERVER_R5_CONDITIONAL_APPROVAL_20261120.json'
+        raw=document.read_bytes();approval=io.parse(raw)
+        self.assertEqual(io.sha(raw),io.MAINTENANCE_APPROVAL_SHA)
+        self.assertEqual(approval['schema'],'TU1NZ_MAIN_SERVER_R5_CONDITIONAL_APPROVAL_V1')
+        self.assertEqual(approval['authority'],'Daniel')
+        self.assertFalse(approval['separate_production_go_present'])
+        self.assertEqual(approval['host']['id'],109772243)
+        self.assertEqual(approval['host']['machine_sha256'],io.MAINTENANCE_MACHINE)
+        self.assertEqual(approval['contract_sha256'],io.MAINTENANCE_DECISION_SHA)
+        self.assertEqual(approval['owner_plan_sha256'],io.MAINTENANCE_OWNER_PLAN)
+        self.assertFalse(approval['maintenance_scope']['owner_entry'])
+        self.assertEqual(approval['maintenance_scope']['services'],list(r3.UNITS))
+        # Later Source/release/material/review hashes must not be embedded in
+        # the prerequisite approval: that would make its compiled pin cyclic.
+        self.assertFalse({'source_sha256','release_sha256','baseline_sha256',
+            'current_observation_sha256','scope_sha256','review_sha256'} & set(approval))
+        self.assertNotEqual(io.sha(raw+b'\n'),io.MAINTENANCE_APPROVAL_SHA)
 
     def test_all_eight_materials_and_completion_source_are_individually_bound(self):
         from tests.test_public_maintenance import MaintenanceMaterialBoundaryTests
