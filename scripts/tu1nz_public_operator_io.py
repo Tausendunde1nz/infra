@@ -32,10 +32,11 @@ R5_ORIGINAL_COMPLETE = 'R5_ISOLATION_RECEIPTED_R2_NOT_DISPATCHED'
 R5_RECOVERY_COMPLETE = 'RECOVERY_R5_ISOLATION_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DISPATCHED'
 R5_COMPLETION_SCHEMA = 'TU1NZ_R5_INDEPENDENT_COMPLETION_V1'
 MAINTENANCE_DECISION_SHA = 'ae39980a014997afe221f094b4c2469eb351af45b16b0f0c4a83fdada73c85a3'
-# Local preparation is NOT a new Host execution approval. An independently
-# reviewed execution approval must replace this closed gate before Host use.
-# Isolated fixtures substitute their own synthetic approval as before.
-MAINTENANCE_APPROVAL_SHA = None
+# Fixed conditional approval: docs/MAIN_SERVER_R5_CONDITIONAL_APPROVAL_20261120.json.
+# Pin/package preparation is approved; productive execution still requires
+# Daniel's separate GO after the final reviewed package and Mac preflight.
+# This pin does not encode that later human decision or relax any live gate.
+MAINTENANCE_APPROVAL_SHA = 'b525deb3ca4b5c7b89bf9d301d808383b0ec40c21c63a010b263c135d52fd010'
 # Compiled production identity, never selected by a packet, environment or
 # command-line override. Native fixture code substitutes only its generated
 # machine/plan constants, as the existing full operator fixture does for r3.
