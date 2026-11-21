@@ -646,10 +646,16 @@ def setup(s, *, source_handle=None):
     nginx = ('user www-data; worker_processes 1; pid /run/nginx.pid; events { worker_connections 128; }\n'
              'http { access_log off; error_log '+str(ROOT/'nginx-error.log')+' error;\n')
     for domain, locations in (
-        ('tu1nz.com', 'location /adult/ { proxy_pass http://127.0.0.1:18071; } location / { proxy_pass http://127.0.0.1:18072; }'),
+        ('tu1nz.com', 'location /adult/ { proxy_pass http://127.0.0.1:18072; }'),
         ('wantmeseen.com', 'location / { proxy_pass http://127.0.0.1:18073; }'),
         ('lighting.tu1nz.com', 'root '+str(WEB)+'; index index.html;')):
-        nginx += ('server { listen 80; listen 443 ssl; server_name '+domain+'; ssl_certificate '+str(ROOT/'tls.crt')+
+        # The two application vhosts really redirect HTTP to canonical HTTPS.
+        # No synthetic local-upstream200 shortcut for the production proxy gate.
+        if domain != 'lighting.tu1nz.com':
+            nginx += ('server { listen 80; server_name '+domain+
+                      '; return 301 https://'+domain+'$request_uri; }\n')
+        nginx += ('server { '+('listen 80; ' if domain == 'lighting.tu1nz.com' else '')+
+                  'listen 443 ssl; server_name '+domain+'; ssl_certificate '+str(ROOT/'tls.crt')+
                   '; ssl_certificate_key '+str(ROOT/'tls.key')+'; '+locations+' }\n')
     nginx += '}\n'
     # Replace only this new guest's distribution fixture config, never a Host.
@@ -774,14 +780,24 @@ def baseline(s, *, replacement_dependencies=None):
         's7_form_secret': io.sha(Path('/etc/tu1nz/adult-commercial-s7-form.secret').read_bytes()),
         's7_database_dsn': io.sha(Path('/etc/tu1nz/adult-commercial-s7-database.dsn').read_bytes())}}
     for i, unit in enumerate(UNITS):
-        path = '/adult/health' if i == 0 else '/health'; domain = 'wantmeseen.com' if i == 2 else 'tu1nz.com'
+        path = '/health' if i == 2 else '/adult/health'; domain = 'wantmeseen.com' if i == 2 else 'tu1nz.com'
         body = ('SYNTHETIC-'+PROFILES[i]).encode()
         def endpoint(stage, location, url, host):
             return {'stage': stage, 'location': location, 'url': url, 'method': 'GET', 'host_header': host,
                     'status': 200, 'body_sha256': io.sha(body)}
+        proxy = endpoint('proxy', 'host', 'http://127.0.0.1'+path, domain)
+        # Real bounded observation of this guest's nginx response, with the
+        # canonical Location independently derived from the fixture contract.
+        measured = io.http_child(proxy, time.monotonic()+5)
+        assert measured['status'] == 301
+        assert measured['location_sha256'] == io.sha(('https://'+domain+path).encode())
+        proxy.update({k: measured[k] for k in ('status', 'body_sha256', 'location_sha256')})
+        public = endpoint('public', 'client', 'https://'+domain+path, None)
+        # S7 and S8 share the actual public edge; each internal listener is
+        # separately verified. The TLS /adult/ location routes to S8.
+        public['body_sha256'] = io.sha(('SYNTHETIC-'+(PROFILES[2] if i == 2 else PROFILES[1])).encode())
         b['http'][unit] = [endpoint('internal', 'host', 'http://127.0.0.1:'+str(18071+i)+path, None),
-            endpoint('proxy', 'host', 'http://127.0.0.1'+path, domain),
-            endpoint('public', 'client', 'https://'+domain+path, None)]
+                           proxy, public]
     b['http']['lighting'] = {'stage': 'public', 'location': 'client', 'url': 'https://lighting.tu1nz.com/',
         'method': 'GET', 'host_header': None, 'status': 200, 'body_sha256': io.sha((WEB/'index.html').read_bytes())}
     errors = paths.close(); assert not errors
