@@ -134,7 +134,6 @@ class Source:
                 with self.assertRaises(FileNotFoundError): helper(path)
                 with self.assertRaises(IsADirectoryError): helper(folder)
 
-    @unittest.skipUnless(native_network_guest(), 'requires the inspected network-none native guest')
     def test_actual_http_reader_absolute_deadline_and_reap(self):
         for mode in ('normal', 'slow_header', 'slow_body', 'redirect', 'oversize'):
             with self.subTest(mode=mode):
@@ -805,6 +804,167 @@ except BaseException as error:
         self.assertEqual(r.returncode, 0); self.assertIn(b'--execute', r.stdout)
         for forbidden in (b'--host ', b'--transaction ', b'--skip-', b'--retry', b'--approve '):
             self.assertNotIn(forbidden, r.stdout)
+
+class HTTPProxyBoundary(unittest.TestCase):
+    """Synthetic protocol tests with real loopback bytes and unmodified reader.
+    These are not Host observations or package acceptance. Port80/vhost/TLS
+    integration is additionally exercised in the actual isolated native suite.
+    """
+    BODY = b'SYNTHETIC-HTTP-PROXY-RESPONSE'
+
+    def endpoint(self, host='tu1nz.com'):
+        path = '/health' if host == 'wantmeseen.com' else '/adult/health'
+        return {'stage': 'proxy', 'location': 'host', 'url': 'http://127.0.0.1'+path,
+                'method': 'GET', 'host_header': host, 'status': 301,
+                'body_sha256': io.sha(self.BODY),
+                'location_sha256': io.sha(('https://'+host+path).encode())}
+
+    @contextlib.contextmanager
+    def response(self, status, locations):
+        listener = socket.socket()
+        listener.bind(('127.0.0.1', 0)); listener.listen(4); listener.settimeout(.05)
+        stop = threading.Event(); requests = []; errors = []
+        port = listener.getsockname()[1]
+        def serve():
+            try:
+                while not stop.is_set():
+                    try: peer, _ = listener.accept()
+                    except socket.timeout: continue
+                    with peer:
+                        peer.settimeout(1); requests.append(peer.recv(8192))
+                        header = ('HTTP/1.1 '+str(status)+' Synthetic\r\nContent-Length: '+
+                                  str(len(self.BODY))+'\r\nConnection: close\r\n').encode()
+                        for value in locations:
+                            value = value.replace('{port}', str(port))
+                            header += b'Location: '+value.encode()+b'\r\n'
+                        peer.sendall(header+b'\r\n'+self.BODY)
+            except (BrokenPipeError, ConnectionResetError): pass
+            except BaseException as error: errors.append(type(error).__name__)
+        worker = threading.Thread(target=serve); worker.start()
+        try: yield port, requests
+        finally:
+            stop.set(); worker.join(2); listener.close()
+            self.assertFalse(worker.is_alive()); self.assertFalse(errors, errors)
+
+    def reader(self, status, locations, *, target):
+        # Isolate the response-parser component at an ephemeral local port.
+        # Its parent's fixed endpoint authorization is separately tested below.
+        with self.response(status, locations) as (port, requests):
+            endpoint = {'url': 'http://127.0.0.1:'+str(port)+'/adult/health',
+                        'method': 'GET', 'host_header': 'tu1nz.com'}
+            value = {'endpoint': endpoint, 'deadline': time.monotonic()+3,
+                     'redirect_target': target}
+            run = subprocess.run([sys.executable, '-I', '-B', '-S', '-c', io.HTTP_READER],
+                                 input=io.canonical(value), capture_output=True, timeout=4)
+            self.assertEqual(run.stderr, b'')
+            self.assertEqual(len(requests), 1, 'redirect must never issue a second request')
+            self.assertLessEqual(len(run.stdout), 4096)
+            return run.returncode, io.parse(run.stdout)
+
+    def test_two_canonical_proxy_301_responses_are_exactly_bound(self):
+        for host in ('tu1nz.com', 'wantmeseen.com'):
+            with self.subTest(host=host):
+                endpoint = self.endpoint(host)
+                target = io.proxy_301_target(endpoint)
+                io.validate_http_endpoint(endpoint, location='host')
+                code, result = self.reader(301, [target], target=target)
+                self.assertEqual(code, 0)
+                self.assertEqual(result, {'status': 301, 'bytes': len(self.BODY),
+                    'body_sha256': io.sha(self.BODY), 'location_sha256': io.sha(target.encode())})
+                io.validate_http_measurement(endpoint, result)
+
+    def test_wrong_missing_duplicate_and_oversize_locations_never_follow(self):
+        target = 'https://tu1nz.com/adult/health'
+        values = [[], [target, target], [target, 'https://wantmeseen.com/health'],
+            ['https://other.example/adult/health'], ['https://tu1nz.com/health'],
+            ['http://tu1nz.com/adult/health'], ['https://tu1nz.com:443/adult/health'],
+            ['https://tu1nz.com:444/adult/health'], ['https://user@tu1nz.com/adult/health'],
+            [target+'?x=1'], [target+'#fragment'], [target+'/'], [target+' '],
+            ['/adult/health'], ['//tu1nz.com/adult/health'], ['x'*4097],
+            ['http://127.0.0.1:{port}/must-not-follow']]
+        for locations in values:
+            with self.subTest(locations=locations):
+                code, result = self.reader(301, locations, target=target)
+                self.assertEqual(code, 3)
+                self.assertEqual(result, {'error': 'HTTP_REDIRECT_NOT_ADMITTED'})
+
+    def test_other_redirect_statuses_and_all_health_redirects_are_denied(self):
+        target = 'https://tu1nz.com/adult/health'
+        for status in (300, 301, 302, 303, 304, 305, 307, 308):
+            for expected_target in (None, target):
+                if status == 301 and expected_target is not None: continue
+                with self.subTest(status=status, health=expected_target is None):
+                    code, result = self.reader(status, [target], target=expected_target)
+                    self.assertEqual(code, 3)
+                    self.assertEqual(result, {'error': 'HTTP_REDIRECT_NOT_ADMITTED'})
+
+    def test_proxy_eligibility_cannot_expand_to_other_transport_or_probe(self):
+        deltas = [
+            {'stage': 'internal'}, {'stage': 'public'}, {'location': 'client'},
+            {'method': 'HEAD'}, {'host_header': None}, {'host_header': 'www.tu1nz.com'},
+            {'host_header': 'lighting.tu1nz.com'}, {'host_header': 'wantmeseen.com'},
+            *({'url': u} for u in (
+                'http://localhost/adult/health', 'http://[::1]/adult/health',
+                'http://127.0.0.1:8080/adult/health', 'https://127.0.0.1/adult/health',
+                'http://user@127.0.0.1/adult/health', 'http://127.0.0.1/health',
+                'http://127.0.0.1/adult/health?x=1', 'http://127.0.0.1/adult/health#x'))]
+        for delta in deltas:
+            endpoint = {**self.endpoint(), **delta}
+            with self.subTest(delta=delta):
+                self.assertIsNone(io.proxy_301_target(endpoint))
+                with self.assertRaises((io.Hold, ValueError)):
+                    io.validate_http_endpoint(endpoint, location=endpoint['location'])
+
+    def test_response_and_expected_schema_drift_are_denied(self):
+        endpoint = self.endpoint()
+        measured = {'status': 301, 'bytes': len(self.BODY), 'body_sha256': io.sha(self.BODY),
+                    'location_sha256': endpoint['location_sha256']}
+        for delta in ({'status': 200}, {'status': 302}, {'body_sha256': 'a'*64},
+                      {'location_sha256': 'a'*64}, {'bytes': -1}, {'bytes': True},
+                      {'unexpected': 'value'}):
+            with self.subTest(delta=delta), self.assertRaises(io.Hold):
+                io.validate_http_measurement(endpoint, {**measured, **delta})
+        for key in measured:
+            bad = dict(measured); del bad[key]
+            with self.subTest(missing=key), self.assertRaises(io.Hold):
+                io.validate_http_measurement(endpoint, bad)
+        for status in (302, 307, 308):
+            bad = {**endpoint, 'status': status}; bad.pop('location_sha256')
+            with self.subTest(expected=status), self.assertRaises(io.Hold):
+                io.validate_http_endpoint(bad, location='host')
+        with self.assertRaises(io.Hold):
+            io.validate_http_endpoint({**endpoint, 'location_sha256': 'a'*64}, location='host')
+
+    def test_real_health200_parser_and_unit_path_status_binding(self):
+        code, result = self.reader(200, [], target=None)
+        self.assertEqual(code, 0)
+        for index, unit in enumerate(observe.UNITS):
+            host = 'wantmeseen.com' if index == 2 else 'tu1nz.com'
+            path = '/health' if index == 2 else '/adult/health'
+            contract = {'canonical_origin': 'https://'+host, 'bind_host': '127.0.0.1',
+                        'bind_port': 18071+index}
+            proxy = self.endpoint(host)
+            internal = {'stage': 'internal', 'location': 'host',
+                'url': 'http://127.0.0.1:'+str(contract['bind_port'])+path,
+                'method': 'GET', 'host_header': None, 'status': 200, 'body_sha256': io.sha(self.BODY)}
+            public = {**internal, 'stage': 'public', 'location': 'client',
+                      'url': 'https://'+host+path}
+            for endpoint in (internal, public, proxy):
+                observe.validate_unit_http_endpoint(unit, endpoint, contract)
+            for endpoint in (internal, public):
+                io.validate_http_measurement(endpoint, result)
+                for status in (301, 302, 308, 404, 500):
+                    bad = {**endpoint, 'status': status}
+                    if status == 301: bad['location_sha256'] = proxy['location_sha256']
+                    with self.subTest(unit=unit, stage=endpoint['stage'], status=status):
+                        with self.assertRaises(io.Hold):
+                            observe.validate_unit_http_endpoint(unit, bad, contract)
+                with self.assertRaises(io.Hold):
+                    io.validate_http_measurement(endpoint, {**result, 'status': 404})
+            if index == 1:
+                with self.assertRaisesRegex(io.Hold, 'UNIT_HEALTH_PATH_OR_METHOD'):
+                    observe.validate_unit_http_endpoint(unit, {**internal,
+                        'url': 'http://127.0.0.1:'+str(contract['bind_port'])+'/health'}, contract)
 
 
 if __name__ == '__main__': unittest.main()

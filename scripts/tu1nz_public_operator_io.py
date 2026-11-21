@@ -33,10 +33,11 @@ R5_RECOVERY_COMPLETE = 'RECOVERY_R5_ISOLATION_RECEIPTED_ORIGINAL_HOLD_R2_NOT_DIS
 R5_COMPLETION_SCHEMA = 'TU1NZ_R5_INDEPENDENT_COMPLETION_V1'
 MAINTENANCE_DECISION_SHA = 'ae39980a014997afe221f094b4c2469eb351af45b16b0f0c4a83fdada73c85a3'
 # Fixed conditional approval: docs/MAIN_SERVER_R5_CONDITIONAL_APPROVAL_20261120.json.
-# Pin/package preparation is approved; productive execution still requires
+# Includes the explicit 21-Nov two-proxy HTTP301 correction authorization.
+# Package preparation is approved; productive execution still requires
 # Daniel's separate GO after the final reviewed package and Mac preflight.
 # This pin does not encode that later human decision or relax any live gate.
-MAINTENANCE_APPROVAL_SHA = 'b525deb3ca4b5c7b89bf9d301d808383b0ec40c21c63a010b263c135d52fd010'
+MAINTENANCE_APPROVAL_SHA = '07d481fd52b16ea2c129bbe5a5be64e4e928efe4f8fc496a3cefa5ff782e9c3c'
 # Compiled production identity, never selected by a packet, environment or
 # command-line override. Native fixture code substitutes only its generated
 # machine/plan constants, as the existing full operator fixture does for r3.
@@ -854,13 +855,29 @@ def parse(raw):
                       parse_constant=lambda _: (_ for _ in ()).throw(Hold('PUBLIC_OPERATOR_JSON_CONSTANT')))
 
 
+def proxy_301_target(endpoint):
+    """Only the two observed local vhost probes; never a redirect-follow permit."""
+    u = urllib.parse.urlsplit(endpoint['url'])
+    paths = {'tu1nz.com': '/adult/health', 'wantmeseen.com': '/health'}
+    host = endpoint['host_header']
+    if (endpoint['stage'] == 'proxy' and endpoint['location'] == 'host' and
+            endpoint['method'] == 'GET' and u.scheme == 'http' and
+            u.hostname == '127.0.0.1' and u.port in (None, 80) and
+            not u.username and not u.password and not u.query and not u.fragment and
+            host in paths and u.path == paths[host]):
+        return 'https://'+host+u.path
+    return None
+
+
 HTTP_READER = r'''import hashlib,json,sys,time,urllib.error,urllib.request
 class RedirectDenied(Exception):pass
 class OutputLimit(Exception):pass
 class NoRedirect(urllib.request.HTTPRedirectHandler):
- def redirect_request(self,*args,**kwargs):raise RedirectDenied()
+ def http_error_302(self,request,fp,code,message,headers):
+  return urllib.error.HTTPError(request.full_url,code,message,headers,fp)
+ http_error_301=http_error_303=http_error_307=http_error_308=http_error_302
 try:
- value=json.load(sys.stdin);endpoint=value['endpoint'];deadline=value['deadline']
+ value=json.load(sys.stdin);endpoint=value['endpoint'];deadline=value['deadline'];target=value['redirect_target']
  if time.monotonic()>=deadline:raise TimeoutError()
  request=urllib.request.Request(endpoint['url'],method=endpoint['method'],headers={
   'User-Agent':'TU1NZ-bound-readonly-admission/1',
@@ -869,9 +886,16 @@ try:
  try:response=opener.open(request,timeout=min(2,max(.001,deadline-time.monotonic())))
  except urllib.error.HTTPError as error:response=error
  with response:
+  location=None
+  if 300<=response.status<400:
+   locations=response.headers.get_all('Location',[])
+   if (response.status!=301 or target is None or len(locations)!=1 or
+       len(locations[0])>4096 or locations[0]!=target):raise RedirectDenied()
+   location=locations[0]
   raw=response.read(1024*1024+1)
   if len(raw)>1024*1024:raise OutputLimit()
   result={'status':response.status,'body_sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
+  if location is not None:result['location_sha256']=hashlib.sha256(location.encode()).hexdigest()
  print(json.dumps(result,sort_keys=True))
 except BaseException as error:
  code=('HTTP_REDIRECT_NOT_ADMITTED' if isinstance(error,RedirectDenied) else
@@ -900,6 +924,7 @@ def http_child(endpoint, deadline):
     # imported Host script, daemon, reconnect or reader retry. Reserve cleanup
     # time INSIDE the original absolute budget, never a deadline extension.
     require(time.monotonic() < deadline, 'HTTP_DEADLINE')
+    target = proxy_301_target(endpoint)
     child = None; primary = None; cleanup = []; measured = None
     try:
         child = subprocess.Popen([sys.executable, '-I', '-B', '-S', '-c', HTTP_READER],
@@ -908,7 +933,8 @@ def http_child(endpoint, deadline):
         remaining = deadline-time.monotonic()
         require(remaining > 0, 'HTTP_DEADLINE')
         reserve = min(.25, remaining/4)
-        raw, _stderr = child.communicate(canonical({'endpoint': endpoint, 'deadline': deadline}),
+        raw, _stderr = child.communicate(canonical({'endpoint': endpoint, 'deadline': deadline,
+                                                   'redirect_target': target}),
                                          timeout=remaining-reserve)
         require(len(raw) <= 4096 and time.monotonic() < deadline, 'HTTP_OUTPUT_OR_DEADLINE')
         measured = parse(raw)
@@ -916,12 +942,15 @@ def http_child(endpoint, deadline):
             require(measured['error'] in ('HTTP_REDIRECT_NOT_ADMITTED', 'HTTP_OUTPUT_LIMIT', 'HTTP_READ_UNKNOWN'),
                     'HTTP_CHILD_PROTOCOL')
             raise Hold('PUBLIC_OPERATOR_'+measured['error'])
-        require(child.returncode == 0 and type(measured) is dict and
-                set(measured) == {'status', 'body_sha256', 'bytes'} and
+        redirected = type(measured) is dict and measured.get('status') == 301
+        keys = {'status', 'body_sha256', 'bytes'} | ({'location_sha256'} if redirected else set())
+        require(child.returncode == 0 and type(measured) is dict and set(measured) == keys and
                 type(measured['status']) is int and 100 <= measured['status'] <= 599 and
                 type(measured['bytes']) is int and 0 <= measured['bytes'] <= 1024*1024 and
                 type(measured['body_sha256']) is str and re.fullmatch('[a-f0-9]{64}', measured['body_sha256']),
                 'HTTP_CHILD_PROTOCOL')
+        require(not redirected or (target is not None and measured['location_sha256'] == sha(target.encode())),
+                'HTTP_CHILD_REDIRECT_BINDING')
     except subprocess.TimeoutExpired:
         primary = Hold('PUBLIC_OPERATOR_HTTP_ABSOLUTE_DEADLINE')
     except BaseException as error: primary = error
@@ -947,9 +976,14 @@ def http_child(endpoint, deadline):
     return measured
 
 
-def measured_http(endpoint, *, deadline, location):
-    require(set(endpoint) == {'stage', 'location', 'url', 'method', 'host_header', 'status', 'body_sha256'}
-            and endpoint['location'] == location, 'HTTP_EXPECTED_SCHEMA')
+def validate_http_endpoint(endpoint, *, location):
+    redirected = endpoint.get('status') == 301
+    keys = {'stage', 'location', 'url', 'method', 'host_header', 'status', 'body_sha256'}
+    if redirected: keys.add('location_sha256')
+    require(set(endpoint) == keys and endpoint['location'] == location and
+            type(endpoint['status']) is int and 100 <= endpoint['status'] <= 599 and
+            type(endpoint['body_sha256']) is str and re.fullmatch('[a-f0-9]{64}', endpoint['body_sha256']),
+            'HTTP_EXPECTED_SCHEMA')
     u = urllib.parse.urlsplit(endpoint['url'])
     require(not u.username and not u.password and not u.query and not u.fragment and
             u.path in ('', '/', '/adult', '/adult/', '/health', '/adult/health', '/privacy', '/terms',
@@ -963,9 +997,31 @@ def measured_http(endpoint, *, deadline, location):
     else:
         require(location == 'client' and u.scheme == 'https' and u.hostname in PUBLIC_HOSTS and
                 u.port in (None, 443) and endpoint['host_header'] is None, 'CLIENT_HTTP_SCOPE')
-    measured = http_child(endpoint, deadline)
-    require(measured['status'] == endpoint['status'] and measured['body_sha256'] == endpoint['body_sha256'],
+    target = proxy_301_target(endpoint)
+    require(not 300 <= endpoint['status'] < 400 or
+            (redirected and target is not None and endpoint['location_sha256'] == sha(target.encode())),
+            'HTTP_EXPECTED_REDIRECT_NOT_BOUND')
+    require(u.path not in ('/health', '/adult/health') or endpoint['status'] == 200 or
+            (redirected and target is not None), 'HTTP_HEALTH_STATUS')
+
+
+def validate_http_measurement(endpoint, measured):
+    """The same exact result check for actual local reads and client wire replies."""
+    validate_http_endpoint(endpoint, location=endpoint['location'])
+    redirected = endpoint['status'] == 301
+    keys = {'status', 'body_sha256', 'bytes'} | ({'location_sha256'} if redirected else set())
+    require(type(measured) is dict and set(measured) == keys and
+            type(measured['status']) is int and measured['status'] == endpoint['status'] and
+            measured['body_sha256'] == endpoint['body_sha256'] and
+            type(measured['bytes']) is int and 0 <= measured['bytes'] <= 1024*1024 and
+            (not redirected or measured['location_sha256'] == endpoint['location_sha256']),
             'ACTUAL_HTTP_DIFFERENT_OR_UNKNOWN')
+
+
+def measured_http(endpoint, *, deadline, location):
+    validate_http_endpoint(endpoint, location=location)
+    measured = http_child(endpoint, deadline)
+    validate_http_measurement(endpoint, measured)
     return measured
 
 
@@ -1404,11 +1460,7 @@ class LinkedRecords:
         else:
             self.wire.send({'type': 'http_read', 'endpoint': endpoint})
             measured = self.wire.receive()
-            require(set(measured) == {'status', 'body_sha256', 'bytes'} and
-                    measured['status'] == endpoint['status'] and
-                    measured['body_sha256'] == endpoint['body_sha256'] and
-                    type(measured['bytes']) is int and 0 <= measured['bytes'] <= 1024*1024,
-                    'CLIENT_HTTP_MEASUREMENT_RED')
+            validate_http_measurement(endpoint, measured)
         return measured
 
 

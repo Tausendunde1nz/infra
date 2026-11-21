@@ -58,6 +58,34 @@ LEGACY_CONTEXTS_SHA = 'e7551fc09ed17b9e8250260b3cf02280d46a9a8a96e2d8d11ad0043b0
 EXE_HASHES = {}  # actual kernel identities, never an input GREEN/cache receipt
 
 
+def validate_unit_http_endpoint(unit, endpoint, contract):
+    """Bind each health stage to its actual unit and the two fixed vhosts."""
+    io.require(unit in UNITS, 'FUNCTION_UNIT_SCOPE')
+    index = UNITS.index(unit)
+    health = '/health' if index == 2 else '/adult/health'
+    domain = 'wantmeseen.com' if index == 2 else 'tu1nz.com'
+    origin = urllib.parse.urlsplit(contract['canonical_origin'])
+    io.require(origin.scheme == 'https' and origin.hostname == domain and
+               origin.port in (None, 443) and origin.path in ('', '/') and
+               not origin.username and not origin.password and not origin.query and not origin.fragment,
+               'CANONICAL_HTTP_ORIGIN_UNKNOWN')
+    io.validate_http_endpoint(endpoint, location=endpoint['location'])
+    url = urllib.parse.urlsplit(endpoint['url'])
+    io.require(endpoint['method'] == 'GET' and url.path == health, 'UNIT_HEALTH_PATH_OR_METHOD')
+    if endpoint['stage'] == 'internal':
+        io.require(endpoint['location'] == 'host' and endpoint['host_header'] is None and
+                   url.hostname == contract['bind_host'] and url.port == contract['bind_port'] and
+                   endpoint['status'] == 200, 'INTERNAL_ENDPOINT_NOT_BOUND_TO_UNIT')
+    elif endpoint['stage'] == 'proxy':
+        io.require(endpoint['host_header'] == origin.hostname and endpoint['status'] == 301 and
+                   io.proxy_301_target(endpoint) == 'https://'+domain+health,
+                   'PROXY_ENDPOINT_NOT_BOUND_TO_VHOST')
+    else:
+        io.require(endpoint['stage'] == 'public' and endpoint['location'] == 'client' and
+                   url.scheme == 'https' and url.hostname == origin.hostname and
+                   endpoint['status'] == 200, 'PUBLIC_ENDPOINT_NOT_EXTERNAL_CANONICAL_TLS')
+
+
 def command(argv, deadline, *, data=None, preexec=None, extra_env=None):
     io.require(argv[0] in ('/usr/bin/systemctl', '/usr/bin/pkcheck', '/usr/bin/sudo',
                           '/usr/bin/psql', '/usr/bin/python3', '/usr/bin/systemd-run',
@@ -692,19 +720,7 @@ class Authority:
         io.require(origin.scheme == 'https' and origin.hostname in io.PUBLIC_HOSTS, 'CANONICAL_HTTP_ORIGIN_UNKNOWN')
         proof = {'listener': self.listener_binding(row, contract), 'http': [], 'data': {}}
         for endpoint in endpoints:
-            url = urllib.parse.urlsplit(endpoint['url'])
-            if endpoint['stage'] == 'internal':
-                io.require(endpoint['location'] == 'host' and endpoint['host_header'] is None and
-                           url.hostname == contract['bind_host'] and url.port == contract['bind_port'],
-                           'INTERNAL_ENDPOINT_NOT_BOUND_TO_UNIT')
-            elif endpoint['stage'] == 'proxy':
-                io.require(endpoint['location'] == 'host' and endpoint['host_header'] == origin.hostname and
-                           url.hostname in ('127.0.0.1', '::1') and url.port in (None, 80),
-                           'PROXY_ENDPOINT_NOT_BOUND_TO_VHOST')
-            else:
-                io.require(endpoint['stage'] == 'public' and endpoint['location'] == 'client' and
-                           url.scheme == 'https' and url.hostname == origin.hostname,
-                           'PUBLIC_ENDPOINT_NOT_EXTERNAL_CANONICAL_TLS')
+            validate_unit_http_endpoint(unit, endpoint, contract)
             measured = self.channel.http(endpoint)
             proof['http'].append({'stage': endpoint['stage'], **measured})
         if unit == UNITS[0]:

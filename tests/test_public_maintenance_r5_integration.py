@@ -167,6 +167,12 @@ class IntegratedEntryTests(unittest.TestCase):
         self.assertEqual(approval['owner_plan_sha256'],io.MAINTENANCE_OWNER_PLAN)
         self.assertFalse(approval['maintenance_scope']['owner_entry'])
         self.assertEqual(approval['maintenance_scope']['services'],list(r3.UNITS))
+        correction=approval['http_correction']
+        self.assertEqual(correction['pairs'],{'tu1nz.com':'/adult/health','wantmeseen.com':'/health'})
+        self.assertEqual(correction['status'],301)
+        self.assertEqual(correction['internal_and_public_health_status'],200)
+        self.assertFalse(correction['follow'])
+        self.assertEqual(correction['location'],'EXACT_CANONICAL_HTTPS_IDENTICAL_PATH_SINGLE_HEADER')
         # Later Source/release/material/review hashes must not be embedded in
         # the prerequisite approval: that would make its compiled pin cyclic.
         self.assertFalse({'source_sha256','release_sha256','baseline_sha256',

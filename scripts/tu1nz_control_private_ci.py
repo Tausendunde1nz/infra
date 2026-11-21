@@ -77,7 +77,10 @@ REPOSITORY='Tausendunde1nz/infra'
 # PR243: fixed conditional R5 approval pin and package preparation. Same pinned
 # private inputs; independent final-head review and personal Environment
 # approval remain required. This admission grants no productive execution GO.
-APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243))
+# PR244: explicit two-vhost local HTTP301 observation, without redirect follow,
+# and bound S8 health-path correction. Same private inputs, exact-head review
+# and personal protected Environment gates; no generic redirect or Host GO.
+APPROVED_SOURCE_PRS=frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244))
 NATIVE_TESTS=64
 MAX_OUTPUT=16*1024*1024
 CAPSULE_SHA='11b8434626553e832cdcc43590867a8044025d8d16799d4d10ad4311cf1e33bb'

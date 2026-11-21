@@ -20,18 +20,18 @@ import tu1nz_control_recovery_freeze as f
 
 class PrivateCI(unittest.TestCase):
     def test_only_exact_declared_source_prs_are_eligible_not_generic_same_repo(self):
-        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243)))
+        self.assertEqual(p.APPROVED_SOURCE_PRS,frozenset((225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244)))
         with tempfile.TemporaryDirectory() as d:
             event=Path(d)/'event.json'
             env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':p.REPOSITORY,
                  'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
                  'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':'1'*40}
-            for number in (224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,999,'226','227','228','229','230','231','232','233','234','235','236','237','238','239','240','241','242','243',True):
+            for number in (224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,999,'226','227','228','229','230','231','232','233','234','235','236','237','238','239','240','241','242','243','244',True):
                 data={'number':number,'pull_request':{'head':{'repo':{'full_name':p.REPOSITORY},'sha':'1'*40}}}
                 event.write_text(json.dumps(data))
                 with patch.object(p.subprocess,'run',side_effect=lambda argv,**kw:subprocess.CompletedProcess(
                         argv,0,b'1'*40+b'\n' if 'rev-parse' in argv else b'')):
-                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243):
+                    if type(number) is int and number in (225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244):
                         self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                     else:
                         with self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
@@ -92,7 +92,7 @@ class PrivateCI(unittest.TestCase):
             with patch.object(p.subprocess,'run',side_effect=clean) as process:
                 self.assertEqual(p.runtime_binding(env,Path(d)),'1'*40)
                 self.assertEqual(process.call_count,3)
-                for number in (224,244,999,'240',True,240.0,None):
+                for number in (224,245,999,'240',True,240.0,None):
                     data['number']=number;event.write_text(json.dumps(data));process.reset_mock()
                     with self.subTest(number=number),self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
                         p.runtime_binding(env,Path(d))
@@ -130,6 +130,9 @@ class PrivateCI(unittest.TestCase):
     def test_pr243_admission_uses_actual_git_and_rejects_foreign_or_changed_inputs(self):
         self._admission_uses_actual_git_and_rejects_foreign_or_changed_inputs(243)
 
+    def test_pr244_admission_uses_actual_git_and_rejects_foreign_or_changed_inputs(self):
+        self._admission_uses_actual_git_and_rejects_foreign_or_changed_inputs(244)
+
     def _admission_uses_actual_git_and_rejects_foreign_or_changed_inputs(self,approved_pr):
         # Exercise the actual Git checks, including ignored files: no mocked
         # command response may hide a final-checkout admission failure.
@@ -151,7 +154,7 @@ class PrivateCI(unittest.TestCase):
                  'CONTROL_PRIVATE_ENVIRONMENT':p.ENVIRONMENT,'GITHUB_EVENT_NAME':'pull_request',
                  'GITHUB_EVENT_PATH':str(event),'EXPECTED_SOURCE_SHA':head}
             write_event();self.assertEqual(p.runtime_binding(env,work),head)
-            for number in (224,244,999,str(approved_pr),True,float(approved_pr),None):
+            for number in (224,245,999,str(approved_pr),True,float(approved_pr),None):
                 write_event(number=number)
                 with self.subTest(number=number),self.assertRaisesRegex(c.RecoveryError,'CI_UNTRUSTED_PR_RED'):
                     p.runtime_binding(env,work)
